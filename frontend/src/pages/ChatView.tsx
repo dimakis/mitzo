@@ -32,6 +32,9 @@ export function ChatView() {
     sessionId
   );
   const [model, setModel] = useState('claude-sonnet-4-6');
+  const [mode, setMode] = useState<'ask' | 'agent' | 'auto'>(
+    searchParams.get('extraTools') ? 'auto' : 'agent'
+  );
 
   const wsRef = useRef<WebSocket | null>(null);
   const streamBuf = useRef('');
@@ -218,7 +221,7 @@ export function ChatView() {
     setRunning(true);
     streamBuf.current = '';
 
-    const payload: Record<string, any> = { type: 'send', prompt: text, model };
+    const payload: Record<string, any> = { type: 'send', prompt: text, model, mode };
     if (currentSessionId) payload.resume = currentSessionId;
 
     const cwd = searchParams.get('cwd');
@@ -235,11 +238,18 @@ export function ChatView() {
     wsRef.current?.send(JSON.stringify({ type: 'stop' }));
   }
 
-  function handlePermission(permId: string, allowed: boolean) {
+  function handlePermission(permId: string, decision: 'once' | 'always' | 'deny', toolName: string) {
     wsRef.current?.send(
-      JSON.stringify({ type: 'permission_response', permId, allowed })
+      JSON.stringify({ type: 'permission_response', permId, decision, toolName })
     );
     setPermission(null);
+  }
+
+  function handleModeChange(newMode: 'ask' | 'agent' | 'auto') {
+    setMode(newMode);
+    if (running) {
+      wsRef.current?.send(JSON.stringify({ type: 'set_mode', mode: newMode }));
+    }
   }
 
   return (
@@ -254,9 +264,18 @@ export function ChatView() {
           onChange={(e) => setModel(e.target.value)}
           disabled={running}
         >
-          <option value="claude-sonnet-4-6">Sonnet 4.6</option>
-          <option value="claude-opus-4-6">Opus 4.6</option>
-          <option value="claude-haiku-4-5">Haiku 4.5</option>
+          <option value="claude-sonnet-4-6">Sonnet</option>
+          <option value="claude-opus-4-6">Opus</option>
+          <option value="claude-haiku-4-5">Haiku</option>
+        </select>
+        <select
+          className="chat-mode-select"
+          value={mode}
+          onChange={(e) => handleModeChange(e.target.value as any)}
+        >
+          <option value="ask">Ask</option>
+          <option value="agent">Agent</option>
+          <option value="auto">Auto</option>
         </select>
         {running && (
           <button className="chat-header-stop" onClick={handleStop}>

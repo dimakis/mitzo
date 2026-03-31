@@ -3,11 +3,21 @@ import type { WebSocket } from 'ws';
 
 const MGT_CWD = '/Users/dsaridak/redhat/mgmt';
 
+export type JarvisMode = 'ask' | 'agent' | 'auto';
+
+const MODE_TO_SDK: Record<JarvisMode, string> = {
+  ask: 'plan',
+  agent: 'default',
+  auto: 'bypassPermissions',
+};
+
 interface ActiveSession {
-  queryInstance: AsyncGenerator<any, void>;
+  queryInstance: any;
   abortController: AbortController;
   sessionId?: string;
   ws: WebSocket;
+  sessionAllowList: Set<string>;
+  mode: JarvisMode;
 }
 
 const activeSessions = new Map<string, ActiveSession>();
@@ -43,11 +53,16 @@ export async function startChat(
   ws: WebSocket,
   clientId: string,
   prompt: string,
-  options: { resume?: string; cwd?: string; model?: string; extraTools?: string }
+  options: { resume?: string; cwd?: string; model?: string; extraTools?: string; mode?: JarvisMode }
 ) {
   const abortController = new AbortController();
   const cwd = options.cwd || MGT_CWD;
-  const pendingPermissions = new Map<string, (result: { behavior: 'allow' } | { behavior: 'deny'; message: string }) => void>();
+  const mode = options.mode || 'agent';
+  const sessionAllowList = new Set<string>();
+  const pendingPermissions = new Map<string, (result: any) => void>();
+
+  const baseAllowed = ['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch'];
+  const extraTools = options.extraTools ? options.extraTools.split(',').map(t => t.trim()) : [];
 
   const q = query({
     prompt,
@@ -58,37 +73,41 @@ export async function startChat(
       includePartialMessages: true,
       settingSources: ['project'],
       systemPrompt: { type: 'preset', preset: 'claude_code' },
-      allowedTools: [
-        'Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch',
-        ...(options.extraTools ? options.extraTools.split(',').map(t => t.trim()) : []),
-      ],
+      permissionMode: MODE_TO_SDK[mode] as any,
+      allowedTools: [...baseAllowed, ...extraTools],
       ...(options.model ? { model: options.model } : {}),
       ...(options.resume ? { resume: options.resume } : {}),
-      canUseTool: async (toolName, toolInput) => {
-        return new Promise((resolve) => {
-          const permId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-          pendingPermissions.set(permId, resolve);
+      ...(mode !== 'auto' ? {
+        canUseTool: async (toolName: string, toolInput: Record<string, unknown>) => {
+          if (sessionAllowList.has(toolName)) {
+            return { behavior: 'allow' as const, decisionClassification: 'user_permanent' as const };
+          }
 
-          send(ws, {
-            type: 'permission_request',
-            permId,
-            toolName,
-            toolInput: summarizeToolInput(toolName, toolInput),
+          return new Promise((resolve) => {
+            const permId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            pendingPermissions.set(permId, resolve);
+
+            send(ws, {
+              type: 'permission_request',
+              permId,
+              toolName,
+              toolInput: summarizeToolInput(toolName, toolInput),
+            });
+
+            setTimeout(() => {
+              if (pendingPermissions.has(permId)) {
+                pendingPermissions.delete(permId);
+                resolve({ behavior: 'deny', message: 'Permission request timed out' });
+                send(ws, { type: 'permission_timeout', permId });
+              }
+            }, 120_000);
           });
-
-          setTimeout(() => {
-            if (pendingPermissions.has(permId)) {
-              pendingPermissions.delete(permId);
-              resolve({ behavior: 'deny', message: 'Permission request timed out' });
-              send(ws, { type: 'permission_timeout', permId });
-            }
-          }, 120_000);
-        });
-      },
+        },
+      } : {}),
     },
   });
 
-  const session: ActiveSession = { queryInstance: q, abortController, ws };
+  const session: ActiveSession = { queryInstance: q, abortController, ws, sessionAllowList, mode };
   activeSessions.set(clientId, session);
 
   const messageHandler = (raw: any) => {
@@ -98,11 +117,35 @@ export async function startChat(
         const resolver = pendingPermissions.get(msg.permId);
         if (resolver) {
           pendingPermissions.delete(msg.permId);
-          resolver(msg.allowed
-            ? { behavior: 'allow' as const }
-            : { behavior: 'deny' as const, message: 'User denied' }
-          );
+          if (msg.decision === 'always') {
+            const toolName = msg.toolName;
+            if (toolName) sessionAllowList.add(toolName);
+            resolver({
+              behavior: 'allow' as const,
+              decisionClassification: 'user_permanent' as const,
+              updatedPermissions: toolName ? [{
+                type: 'addRules' as const,
+                rules: [{ toolName }],
+                behavior: 'allow' as const,
+                destination: 'session' as const,
+              }] : undefined,
+            });
+          } else if (msg.decision === 'once') {
+            resolver({
+              behavior: 'allow' as const,
+              decisionClassification: 'user_temporary' as const,
+            });
+          } else {
+            resolver({
+              behavior: 'deny' as const,
+              message: 'User denied',
+              decisionClassification: 'user_reject' as const,
+            } as any);
+          }
         }
+      } else if (msg.type === 'set_mode' && msg.mode) {
+        session.mode = msg.mode;
+        send(ws, { type: 'mode_changed', mode: msg.mode });
       }
     } catch {}
   };
