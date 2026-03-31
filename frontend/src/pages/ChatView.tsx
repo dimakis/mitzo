@@ -36,8 +36,6 @@ export function ChatView() {
   const wsRef = useRef<WebSocket | null>(null);
   const streamBuf = useRef('');
   const scrollRef = useRef<HTMLDivElement>(null);
-  const hasSentInitial = useRef(false);
-  const wsReady = useRef(false);
 
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -104,10 +102,6 @@ export function ChatView() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${proto}://${location.host}/ws/chat`);
     wsRef.current = ws;
-
-    ws.onopen = () => {
-      wsReady.current = true;
-    };
 
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
@@ -214,24 +208,7 @@ export function ChatView() {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    if (hasSentInitial.current) return;
-    const prompt = searchParams.get('prompt');
-    if (!prompt) return;
-
-    function trySend() {
-      if (hasSentInitial.current) return;
-      const ws = wsRef.current;
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        hasSentInitial.current = true;
-        sendMessage(prompt!);
-      } else {
-        setTimeout(trySend, 100);
-      }
-    }
-
-    trySend();
-  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
+  const initialPrompt = searchParams.get('prompt') || undefined;
 
   function sendMessage(text: string) {
     const ws = wsRef.current;
@@ -310,6 +287,7 @@ export function ChatView() {
         onSend={sendMessage}
         onStop={handleStop}
         running={running}
+        initialText={initialPrompt}
       />
     </div>
   );

@@ -12,11 +12,21 @@ interface ActiveSession {
 
 const activeSessions = new Map<string, ActiveSession>();
 
+const VENV_PATHS = [
+  `${MGT_CWD}/jira_process/.venv/bin`,
+  `${MGT_CWD}/team_home/.venv/bin`,
+  `${MGT_CWD}/team_home/jira_process/.venv/bin`,
+];
+
 function sdkEnv(): Record<string, string> {
   const env = { ...process.env } as Record<string, string>;
   env.CLAUDE_CODE_USE_VERTEX = process.env.CLAUDE_CODE_USE_VERTEX || '1';
   env.ANTHROPIC_VERTEX_PROJECT_ID = process.env.ANTHROPIC_VERTEX_PROJECT_ID || '';
   env.CLOUD_ML_REGION = process.env.CLOUD_ML_REGION || 'us-east5';
+
+  const existingPath = env.PATH || '/usr/bin:/bin:/usr/local/bin';
+  env.PATH = [...VENV_PATHS, existingPath].join(':');
+
   delete env.AUTH_PASSPHRASE;
   delete env.AUTH_SECRET;
   delete env.NTFY_AUTH_TOKEN;

@@ -4,15 +4,25 @@ interface Props {
   onSend: (text: string) => void;
   onStop: () => void;
   running: boolean;
+  initialText?: string;
 }
 
-export function ChatInput({ onSend, onStop, running }: Props) {
-  const [text, setText] = useState('');
+export function ChatInput({ onSend, onStop, running, initialText }: Props) {
+  const [text, setText] = useState(initialText || '');
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const initialApplied = useRef(false);
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    if (initialText && !initialApplied.current) {
+      initialApplied.current = true;
+      setText(initialText);
+      requestAnimationFrame(() => inputRef.current?.focus());
+    }
+  }, [initialText]);
 
   function handleSend() {
     const trimmed = text.trim();
