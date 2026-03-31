@@ -8,48 +8,54 @@ interface Session {
   branch?: string;
 }
 
-const quickActions = [
-  {
-    label: 'Chat Session',
-    desc: 'Interactive chat',
-    path: '/chat',
-  },
-  {
-    label: 'Morning Briefing',
-    desc: 'Calendar, email, Jira',
-    path: '/chat',
-    prompt: 'Run `python command_center/morning_briefing.py` and summarize the output. I want to discuss it after.',
-    extraTools: 'Bash',
-  },
-  {
-    label: 'Jira Inbox',
-    desc: 'Team inbox triage',
-    path: '/chat',
-    prompt: 'Run `python inbox.py --save` and summarize what needs my attention. I want to discuss it after.',
-    cwd: '/Users/dsaridak/redhat/mgmt/team_home',
-    extraTools: 'Bash',
-  },
-  {
-    label: 'Team Status',
-    desc: 'Manager status view',
-    path: '/chat',
-    prompt: 'Run `python status.py` and give me the highlights. I want to discuss the results after.',
-    extraTools: 'Bash',
-  },
-  {
-    label: 'Refresh Data',
-    desc: 'Fetch Jira + dashboards',
-    path: '/chat',
-    prompt: 'Run `./refresh.sh` and report any errors.',
-    extraTools: 'Bash',
-  },
-  {
-    label: 'Jarvis Dev',
-    desc: 'Work on command center',
-    path: '/chat',
-    cwd: '/Users/dsaridak/tools/agent-command-center',
-  },
-] as const;
+interface QuickAction {
+  label: string;
+  desc: string;
+  path: string;
+  prompt?: string;
+  cwd?: string;
+  extraTools?: string;
+}
+
+function buildQuickActions(repoPath: string): QuickAction[] {
+  const actions: QuickAction[] = [
+    { label: 'Chat Session', desc: 'Interactive chat', path: '/chat' },
+    {
+      label: 'Morning Briefing',
+      desc: 'Calendar, email, Jira',
+      path: '/chat',
+      prompt: 'Run `python command_center/morning_briefing.py` and summarize the output. I want to discuss it after.',
+      extraTools: 'Bash',
+    },
+    {
+      label: 'Team Status',
+      desc: 'Manager status view',
+      path: '/chat',
+      prompt: 'Run `python status.py` and give me the highlights. I want to discuss the results after.',
+      extraTools: 'Bash',
+    },
+    {
+      label: 'Refresh Data',
+      desc: 'Fetch Jira + dashboards',
+      path: '/chat',
+      prompt: 'Run `./refresh.sh` and report any errors.',
+      extraTools: 'Bash',
+    },
+  ];
+
+  if (repoPath) {
+    actions.splice(2, 0, {
+      label: 'Jira Inbox',
+      desc: 'Team inbox triage',
+      path: '/chat',
+      prompt: 'Run `python inbox.py --save` and summarize what needs my attention. I want to discuss it after.',
+      cwd: `${repoPath}/team_home`,
+      extraTools: 'Bash',
+    });
+  }
+
+  return actions;
+}
 
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -65,21 +71,24 @@ function formatRelativeTime(ts: number): string {
 export function SessionList() {
   const navigate = useNavigate();
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [quickActions, setQuickActions] = useState<QuickAction[]>(buildQuickActions(''));
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/sessions')
-      .then((r) => r.json())
-      .then((data) => setSessions(data))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    Promise.all([
+      fetch('/api/sessions').then(r => r.json()).catch(() => []),
+      fetch('/api/config').then(r => r.json()).catch(() => ({})),
+    ]).then(([sessData, config]) => {
+      setSessions(sessData);
+      if (config.repoPath) setQuickActions(buildQuickActions(config.repoPath));
+    }).finally(() => setLoading(false));
   }, []);
 
-  function handleQuickAction(action: (typeof quickActions)[number]) {
+  function handleQuickAction(action: QuickAction) {
     const params = new URLSearchParams();
-    if ('prompt' in action && action.prompt) params.set('prompt', action.prompt);
-    if ('cwd' in action && action.cwd) params.set('cwd', action.cwd);
-    if ('extraTools' in action && action.extraTools) params.set('extraTools', action.extraTools);
+    if (action.prompt) params.set('prompt', action.prompt);
+    if (action.cwd) params.set('cwd', action.cwd);
+    if (action.extraTools) params.set('extraTools', action.extraTools);
     const qs = params.toString();
     navigate(qs ? `${action.path}?${qs}` : action.path);
   }

@@ -78,6 +78,9 @@ app.get('/api/auth/check', (_req, res) => res.json({ ok: true }));
 // Models
 app.get('/api/models', (_req, res) => res.json(AVAILABLE_MODELS));
 
+// Config (exposes non-sensitive settings to frontend)
+app.get('/api/config', (_req, res) => res.json({ repoPath: BASE_REPO }));
+
 // Session routes
 app.get('/api/sessions', async (_req, res) => {
   res.json(await getSessions());
@@ -88,7 +91,7 @@ app.get('/api/sessions/:id/messages', async (req, res) => {
 });
 
 app.get('/api/worktrees', (_req, res) => {
-  res.json(listWorktrees());
+  res.json(listWorktrees(BASE_REPO));
 });
 
 // Static files
@@ -137,6 +140,7 @@ function handleChatWs(ws: WebSocket, clientId: string) {
           model: msg.model,
           extraTools: msg.extraTools,
           mode: msg.mode,
+          worktree: msg.worktree,
         });
       } else if (msg.type === 'stop') {
         stopChat(clientId);

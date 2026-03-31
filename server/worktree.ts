@@ -1,16 +1,19 @@
 import { execFileSync } from 'child_process';
 import { existsSync, mkdirSync, readdirSync, statSync, rmSync } from 'fs';
-import { join, resolve } from 'path';
-import { homedir } from 'os';
+import { join } from 'path';
 
-const SESSIONS_DIR = join(homedir(), 'redhat', 'mgmt-sessions');
 const BRANCH_PREFIX = 'session/';
 const STALE_HOURS = 24;
 
-export function createWorktree(sessionId: string, baseRepo: string): string {
-  mkdirSync(SESSIONS_DIR, { recursive: true });
+function sessionsDir(baseRepo: string): string {
+  return `${baseRepo}-sessions`;
+}
 
-  const worktreePath = join(SESSIONS_DIR, `session-${sessionId}`);
+export function createWorktree(sessionId: string, baseRepo: string): string {
+  const dir = sessionsDir(baseRepo);
+  mkdirSync(dir, { recursive: true });
+
+  const worktreePath = join(dir, `session-${sessionId}`);
   const branch = `${BRANCH_PREFIX}${sessionId}`;
 
   execFileSync('git', ['-C', baseRepo, 'worktree', 'add', '-b', branch, worktreePath], {
@@ -23,7 +26,7 @@ export function createWorktree(sessionId: string, baseRepo: string): string {
 }
 
 export function removeWorktree(sessionId: string, baseRepo: string): void {
-  const worktreePath = join(SESSIONS_DIR, `session-${sessionId}`);
+  const worktreePath = join(sessionsDir(baseRepo), `session-${sessionId}`);
   const branch = `${BRANCH_PREFIX}${sessionId}`;
 
   try {
@@ -54,22 +57,23 @@ export function removeWorktree(sessionId: string, baseRepo: string): void {
   console.log(`[worktree] removed: ${worktreePath}`);
 }
 
-export function getWorktreePath(sessionId: string): string | null {
-  const worktreePath = join(SESSIONS_DIR, `session-${sessionId}`);
+export function getWorktreePath(sessionId: string, baseRepo: string): string | null {
+  const worktreePath = join(sessionsDir(baseRepo), `session-${sessionId}`);
   return existsSync(worktreePath) ? worktreePath : null;
 }
 
 export function cleanupStaleWorktrees(baseRepo: string): void {
-  if (!existsSync(SESSIONS_DIR)) return;
+  const dir = sessionsDir(baseRepo);
+  if (!existsSync(dir)) return;
 
   const now = Date.now();
   const cutoff = STALE_HOURS * 60 * 60 * 1000;
   let cleaned = 0;
 
-  for (const entry of readdirSync(SESSIONS_DIR)) {
+  for (const entry of readdirSync(dir)) {
     if (!entry.startsWith('session-')) continue;
 
-    const fullPath = join(SESSIONS_DIR, entry);
+    const fullPath = join(dir, entry);
     try {
       const stat = statSync(fullPath);
       if (now - stat.mtimeMs > cutoff) {
@@ -92,14 +96,15 @@ export function cleanupStaleWorktrees(baseRepo: string): void {
   }
 }
 
-export function listWorktrees(): Array<{ name: string; path: string; age: string }> {
-  if (!existsSync(SESSIONS_DIR)) return [];
+export function listWorktrees(baseRepo: string): Array<{ name: string; path: string; age: string }> {
+  const dir = sessionsDir(baseRepo);
+  if (!existsSync(dir)) return [];
 
   const now = Date.now();
-  return readdirSync(SESSIONS_DIR)
+  return readdirSync(dir)
     .filter(e => e.startsWith('session-'))
     .map(entry => {
-      const fullPath = join(SESSIONS_DIR, entry);
+      const fullPath = join(dir, entry);
       try {
         const stat = statSync(fullPath);
         const hours = Math.floor((now - stat.mtimeMs) / 3_600_000);

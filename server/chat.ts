@@ -4,7 +4,8 @@ import { registerPending, resolvePending, removePending, hasPending } from './pe
 import { sendPermissionNotification, isConfigured as ntfyConfigured } from './notify.js';
 import { createWorktree, removeWorktree } from './worktree.js';
 
-export const BASE_REPO = process.env.REPO_PATH || '/Users/dsaridak/redhat/mgmt';
+export const BASE_REPO = process.env.REPO_PATH || '';
+const WORKTREE_ENABLED = process.env.WORKTREE_ENABLED !== 'false';
 
 export type JarvisMode = 'ask' | 'agent' | 'auto';
 
@@ -57,7 +58,7 @@ export async function startChat(
   ws: WebSocket,
   clientId: string,
   prompt: string,
-  options: { resume?: string; cwd?: string; model?: string; extraTools?: string; mode?: JarvisMode }
+  options: { resume?: string; cwd?: string; model?: string; extraTools?: string; mode?: JarvisMode; worktree?: boolean }
 ) {
   const abortController = new AbortController();
   const mode = options.mode || 'agent';
@@ -66,7 +67,10 @@ export async function startChat(
   let cwd = options.cwd || BASE_REPO;
   let worktreePath: string | undefined;
 
-  if (!options.cwd && !options.resume) {
+  const useWorktree = WORKTREE_ENABLED && options.worktree !== false
+    && !options.cwd && !options.resume && BASE_REPO;
+
+  if (useWorktree) {
     try {
       worktreePath = createWorktree(clientId, BASE_REPO);
       cwd = worktreePath;

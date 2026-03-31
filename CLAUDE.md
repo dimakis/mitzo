@@ -41,7 +41,8 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 - Vite dev server proxies `/api` and `/ws` to backend (port 3100)
 
 **Worktree isolation:**
-- Each new chat session (without explicit `cwd` or `resume`) gets its own git worktree at `~/redhat/mgmt-sessions/session-<clientId>/`, branched from the current HEAD of `REPO_PATH`.
+- Each new chat session (without explicit `cwd` or `resume`) gets its own git worktree at `${REPO_PATH}-sessions/session-<clientId>/`, branched from the current HEAD of `REPO_PATH`.
+- Controlled by `WORKTREE_ENABLED` env var (default: `true`) and per-session `worktree` field in the WebSocket payload.
 - The worktree is removed when the session ends (WebSocket close or stop).
 - Stale worktrees older than 24h are cleaned up on server startup.
 - Sessions with explicit `cwd` (e.g., quick actions targeting other repos) skip worktree creation.
@@ -50,7 +51,8 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 **Key conventions:**
 - All server imports use `.js` extensions (required for ESM + tsx)
 - Frontend and backend have separate `package.json`, `tsconfig.json`, and `node_modules`
-- `REPO_PATH` env var controls the default repo (defaults to `/Users/dsaridak/redhat/mgmt`)
+- `REPO_PATH` env var controls the default repo (required — set in `.env`)
+- No hardcoded machine-specific paths in source code
 
 ## Code Style
 
