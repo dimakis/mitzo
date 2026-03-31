@@ -43,6 +43,12 @@ const quickActions = [
     prompt: 'Run `./refresh.sh` and report any errors.',
     extraTools: 'Bash',
   },
+  {
+    label: 'Jarvis Dev',
+    desc: 'Work on command center',
+    path: '/chat',
+    cwd: '/Users/dsaridak/tools/agent-command-center',
+  },
 ] as const;
 
 function formatRelativeTime(ts: number): string {
