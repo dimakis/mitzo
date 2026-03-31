@@ -1,23 +1,38 @@
 import { SignJWT, jwtVerify } from 'jose';
 import type { Request, Response, NextFunction } from 'express';
 
-const PASSPHRASE = process.env.AUTH_PASSPHRASE || 'change-me';
-const SECRET = new TextEncoder().encode(
-  process.env.AUTH_SECRET || 'dev-secret-replace-in-production-min32chars!'
-);
+const INSECURE_PASSPHRASES = ['change-me', 'change-me-to-something-secure'];
+const INSECURE_SECRETS = ['dev-secret-replace-in-production-min32chars!', 'replace-with-random-secret-key-min-32-chars'];
+
+export function validateConfig(passphrase?: string, secret?: string): string | null {
+  if (!passphrase || INSECURE_PASSPHRASES.includes(passphrase)) {
+    return 'AUTH_PASSPHRASE must be set to a secure value in .env';
+  }
+  if (!secret || INSECURE_SECRETS.includes(secret)) {
+    return 'AUTH_SECRET must be set to a secure value (min 32 chars) in .env';
+  }
+  return null;
+}
+
+const configError = validateConfig(process.env.AUTH_PASSPHRASE, process.env.AUTH_SECRET);
+if (configError) {
+  console.error(`FATAL: ${configError}`);
+  process.exit(1);
+}
+
+const PASSPHRASE = process.env.AUTH_PASSPHRASE!;
+const SECRET = new TextEncoder().encode(process.env.AUTH_SECRET!);
 const MAX_AGE_HOURS = parseInt(process.env.COOKIE_MAX_AGE_HOURS || '24', 10);
 const COOKIE_NAME = 'cc_auth';
 
 export async function login(passphrase: string): Promise<string | null> {
   if (passphrase !== PASSPHRASE) return null;
 
-  const token = await new SignJWT({ sub: 'user' })
+  return new SignJWT({ sub: 'user' })
     .setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime(`${MAX_AGE_HOURS}h`)
     .setIssuedAt()
     .sign(SECRET);
-
-  return token;
 }
 
 export async function verifyToken(token: string): Promise<boolean> {
@@ -29,9 +44,7 @@ export async function verifyToken(token: string): Promise<boolean> {
   }
 }
 
-/** Express middleware — protects /api/* routes */
 export function authMiddleware(req: Request, res: Response, next: NextFunction) {
-  // Skip login endpoint (req.path is relative to the mount point)
   if (req.path === '/auth/login') return next();
 
   const token = req.cookies?.[COOKIE_NAME];
@@ -49,11 +62,9 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
   });
 }
 
-/** Verify auth for WebSocket upgrade requests */
 export async function verifyWsAuth(cookie: string | undefined): Promise<boolean> {
   if (!cookie) return false;
 
-  // Parse cookie header to find our token
   const cookies = cookie.split(';').reduce((acc, c) => {
     const [key, ...val] = c.trim().split('=');
     acc[key] = val.join('=');
