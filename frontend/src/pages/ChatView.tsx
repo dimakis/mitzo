@@ -35,9 +35,13 @@ export function ChatView() {
     searchParams.get('extraTools') ? 'auto' : 'agent',
   );
 
+  const [connected, setConnected] = useState(false);
+
   const wsRef = useRef<WebSocket | null>(null);
   const streamBuf = useRef('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const intentionalClose = useRef(false);
 
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -102,10 +106,14 @@ export function ChatView() {
       .catch(() => {});
   }, [sessionId, scrollToBottom]);
 
-  useEffect(() => {
+  const connectWs = useCallback(() => {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${proto}://${location.host}/ws/chat`);
     wsRef.current = ws;
+
+    ws.onopen = () => {
+      setConnected(true);
+    };
 
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
@@ -193,19 +201,52 @@ export function ChatView() {
     };
 
     ws.onclose = () => {
+      setConnected(false);
       setRunning(false);
+      wsRef.current = null;
+
+      if (!intentionalClose.current) {
+        const delay = Math.min(2000 + Math.random() * 1000, 5000);
+        reconnectTimer.current = setTimeout(connectWs, delay);
+      }
     };
 
-    return () => {
+    ws.onerror = () => {
       ws.close();
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [finalizeStream, scrollToBottom]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    intentionalClose.current = false;
+    connectWs();
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && !wsRef.current) {
+        connectWs();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      intentionalClose.current = true;
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      wsRef.current?.close();
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [connectWs]);
 
   const initialPrompt = searchParams.get('prompt') || undefined;
 
   function sendMessage(text: string, images?: ImageAttachment[]) {
     const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', text: '**Connection lost.** Reconnecting...' },
+      ]);
+      connectWs();
+      return;
+    }
 
     const previews = images?.map((img) => img.preview);
     setMessages((prev) => [...prev, { role: 'user', text, images: previews }]);
@@ -256,6 +297,11 @@ export function ChatView() {
         <button className="chat-header-back" onClick={() => navigate('/')}>
           &larr;
         </button>
+        {!connected && (
+          <span className="chat-header-offline" title="Reconnecting...">
+            !
+          </span>
+        )}
         <select
           className="chat-model-select"
           value={model}
