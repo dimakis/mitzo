@@ -21,31 +21,36 @@ npm run dev:server
 cd frontend && npx vite
 ```
 
-There are no tests or linters configured.
+Tests: `npm test` (vitest). No linters configured.
 
 ## Architecture
 
-Web-based command center for managing Claude Code CLI sessions via tmux. Two separate npm projects share one repo:
+Web-based command center for Claude Code sessions via the Agent SDK. Two npm projects share one repo:
 
 **Backend** (`server/`) — Node.js + Express + TypeScript, run via `tsx`
-- `index.ts` — Express app, mounts all routes, starts HTTP server + WebSocket
-- `sessions.ts` — CRUD for tmux sessions (create/list/kill), syncs DB state with live tmux on startup
-- `terminal.ts` — Dual transport for terminal I/O: WebSocket (primary) and SSE (fallback). Uses `node-pty` to spawn `tmux attach-session` processes. PTY instances are shared between transports via `activePtys` map
-- `status.ts` — Polls tmux pane content every 3s, detects Claude's state (idle/running/waiting/dead) via regex on terminal output
-- `db.ts` — SQLite via better-sqlite3, single `sessions` table, WAL mode. DB file: `command-center.db` at repo root
-- `auth.ts` — Passphrase login, JWT (HS256 via jose), cookie-based auth. Protects `/api/*` routes + WebSocket upgrades
+- `index.ts` — Express app, mounts routes, HTTP server + WebSocket. Runs stale worktree cleanup on startup.
+- `chat.ts` — Agent SDK integration. Each chat session gets an isolated git worktree (see below). Manages permission handling, mode switching, and streaming.
+- `worktree.ts` — Git worktree lifecycle: create, remove, cleanup stale, list.
+- `permissions.ts` — Permission request/response registry. Passes SDK `suggestions` through for "Always Allow".
+- `notify.ts` — ntfy push notifications for permission prompts.
+- `auth.ts` — Passphrase login, JWT (HS256 via jose), cookie-based auth.
 
 **Frontend** (`frontend/`) — React 19 + Vite + TypeScript
-- Three pages: `Login`, `Dashboard` (session list), `Terminal` (xterm.js)
+- Three pages: `Login`, `SessionList` (quick actions + history), `ChatView` (streaming chat)
 - Auth check via `ProtectedRoute` wrapper that calls `/api/auth/check`
 - Vite dev server proxies `/api` and `/ws` to backend (port 3100)
 
+**Worktree isolation:**
+- Each new chat session (without explicit `cwd` or `resume`) gets its own git worktree at `~/redhat/mgmt-sessions/session-<clientId>/`, branched from the current HEAD of `REPO_PATH`.
+- The worktree is removed when the session ends (WebSocket close or stop).
+- Stale worktrees older than 24h are cleaned up on server startup.
+- Sessions with explicit `cwd` (e.g., quick actions targeting other repos) skip worktree creation.
+- `GET /api/worktrees` lists active worktrees for debugging.
+
 **Key conventions:**
-- tmux sessions are prefixed `cc-` (e.g., `cc-abc123`) — this prefix is used in `sessions.ts`, `terminal.ts`, and `status.ts`
-- Session IDs are 10-char nanoid strings
 - All server imports use `.js` extensions (required for ESM + tsx)
-- No shared types package — `Session` type is defined in `db.ts` and used across server files
 - Frontend and backend have separate `package.json`, `tsconfig.json`, and `node_modules`
+- `REPO_PATH` env var controls the default repo (defaults to `/Users/dsaridak/redhat/mgmt`)
 
 ## Code Style
 

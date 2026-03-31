@@ -2,8 +2,9 @@ import { query, listSessions, getSessionMessages } from '@anthropic-ai/claude-ag
 import type { WebSocket } from 'ws';
 import { registerPending, resolvePending, removePending, hasPending } from './permissions.js';
 import { sendPermissionNotification, isConfigured as ntfyConfigured } from './notify.js';
+import { createWorktree, removeWorktree } from './worktree.js';
 
-const MGT_CWD = '/Users/dsaridak/redhat/mgmt';
+export const BASE_REPO = process.env.REPO_PATH || '/Users/dsaridak/redhat/mgmt';
 
 export type JarvisMode = 'ask' | 'agent' | 'auto';
 
@@ -20,14 +21,15 @@ interface ActiveSession {
   ws: WebSocket;
   sessionAllowList: Set<string>;
   mode: JarvisMode;
+  worktreePath?: string;
 }
 
 const activeSessions = new Map<string, ActiveSession>();
 
 const VENV_PATHS = [
-  `${MGT_CWD}/jira_process/.venv/bin`,
-  `${MGT_CWD}/team_home/.venv/bin`,
-  `${MGT_CWD}/team_home/jira_process/.venv/bin`,
+  `${BASE_REPO}/jira_process/.venv/bin`,
+  `${BASE_REPO}/team_home/.venv/bin`,
+  `${BASE_REPO}/team_home/jira_process/.venv/bin`,
 ];
 
 function sdkEnv(): Record<string, string> {
@@ -58,14 +60,27 @@ export async function startChat(
   options: { resume?: string; cwd?: string; model?: string; extraTools?: string; mode?: JarvisMode }
 ) {
   const abortController = new AbortController();
-  const cwd = options.cwd || MGT_CWD;
   const mode = options.mode || 'agent';
   const sessionAllowList = new Set<string>();
+
+  let cwd = options.cwd || BASE_REPO;
+  let worktreePath: string | undefined;
+
+  if (!options.cwd && !options.resume) {
+    try {
+      worktreePath = createWorktree(clientId, BASE_REPO);
+      cwd = worktreePath;
+      send(ws, { type: 'worktree', path: worktreePath });
+    } catch (err: any) {
+      console.error('[worktree] creation failed, using base repo:', err.message);
+      send(ws, { type: 'error', error: `Worktree creation failed (using base repo): ${err.message}` });
+    }
+  }
 
   const baseAllowed = ['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch'];
   const extraTools = options.extraTools ? options.extraTools.split(',').map(t => t.trim()) : [];
 
-  const session: ActiveSession = { queryInstance: null, abortController, ws, sessionAllowList, mode };
+  const session: ActiveSession = { queryInstance: null, abortController, ws, sessionAllowList, mode, worktreePath };
 
   const q = query({
     prompt,
@@ -208,6 +223,9 @@ export async function startChat(
   } finally {
     ws.removeListener('message', messageHandler);
     activeSessions.delete(clientId);
+    if (session.worktreePath) {
+      try { removeWorktree(clientId, BASE_REPO); } catch {}
+    }
     if (ws.readyState === ws.OPEN) {
       send(ws, { type: 'done', sessionId: session.sessionId });
     }
@@ -219,6 +237,9 @@ export function stopChat(clientId: string) {
   if (session) {
     session.abortController.abort();
     activeSessions.delete(clientId);
+    if (session.worktreePath) {
+      try { removeWorktree(clientId, BASE_REPO); } catch {}
+    }
   }
 }
 
@@ -228,7 +249,7 @@ export function isActive(clientId: string): boolean {
 
 export async function getSessions() {
   try {
-    const sessions = await listSessions({ dir: MGT_CWD, limit: 20 });
+    const sessions = await listSessions({ dir: BASE_REPO, limit: 20 });
     return sessions.map(s => ({
       id: s.sessionId,
       summary: s.summary,
@@ -242,7 +263,7 @@ export async function getSessions() {
 
 export async function getMessages(sessionId: string) {
   try {
-    const messages = await getSessionMessages(sessionId, { dir: MGT_CWD, limit: 100 });
+    const messages = await getSessionMessages(sessionId, { dir: BASE_REPO, limit: 100 });
     return messages.map(m => {
       const content = (m.message as any)?.content;
       let text = '';

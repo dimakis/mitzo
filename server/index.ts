@@ -8,7 +8,8 @@ import { join, dirname } from 'path';
 import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 import { login, authMiddleware, verifyWsAuth, COOKIE_NAME, MAX_AGE_HOURS } from './auth.js';
-import { startChat, stopChat, isActive, getSessions, getMessages, AVAILABLE_MODELS } from './chat.js';
+import { startChat, stopChat, isActive, getSessions, getMessages, AVAILABLE_MODELS, BASE_REPO } from './chat.js';
+import { cleanupStaleWorktrees, listWorktrees } from './worktree.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '3100', 10);
@@ -86,6 +87,10 @@ app.get('/api/sessions/:id/messages', async (req, res) => {
   res.json(await getMessages(req.params.id as string));
 });
 
+app.get('/api/worktrees', (_req, res) => {
+  res.json(listWorktrees());
+});
+
 // Static files
 const frontendDist = join(__dirname, '..', 'frontend', 'dist');
 app.use(express.static(frontendDist));
@@ -150,4 +155,5 @@ function handleChatWs(ws: WebSocket, clientId: string) {
 
 server.listen(PORT, () => {
   console.log(`Chat Agent running on http://localhost:${PORT}`);
+  try { cleanupStaleWorktrees(BASE_REPO); } catch {}
 });
