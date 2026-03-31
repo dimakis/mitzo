@@ -31,11 +31,13 @@ export function ChatView() {
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>(
     sessionId
   );
+  const [model, setModel] = useState('claude-sonnet-4-6');
 
   const wsRef = useRef<WebSocket | null>(null);
   const streamBuf = useRef('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const hasSentInitial = useRef(false);
+  const wsReady = useRef(false);
 
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -59,10 +61,53 @@ export function ChatView() {
     });
   }, []);
 
+  // Load existing session history
+  useEffect(() => {
+    if (!sessionId) return;
+    fetch(`/api/sessions/${sessionId}/messages`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((msgs: Array<{ role: string; text?: string; toolCalls?: any[]; toolResults?: any[] }>) => {
+        const loaded: Message[] = [];
+        for (const m of msgs) {
+          if (m.text) {
+            loaded.push({ role: m.role === 'user' ? 'user' : 'assistant', text: m.text });
+          }
+          if (m.toolCalls) {
+            for (const tc of m.toolCalls) {
+              loaded.push({
+                role: 'tool',
+                toolName: tc.toolName,
+                toolId: tc.toolId,
+                toolInput: tc.input,
+              });
+            }
+          }
+          if (m.toolResults) {
+            for (const tr of m.toolResults) {
+              loaded.push({
+                role: 'tool',
+                toolId: tr.toolId,
+                toolResult: tr.result,
+              });
+            }
+          }
+        }
+        if (loaded.length > 0) {
+          setMessages(loaded);
+          setTimeout(scrollToBottom, 100);
+        }
+      })
+      .catch(() => {});
+  }, [sessionId, scrollToBottom]);
+
   useEffect(() => {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${proto}://${location.host}/ws/chat`);
     wsRef.current = ws;
+
+    ws.onopen = () => {
+      wsReady.current = true;
+    };
 
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
@@ -174,19 +219,18 @@ export function ChatView() {
     const prompt = searchParams.get('prompt');
     if (!prompt) return;
 
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      const onOpen = () => {
-        if (hasSentInitial.current) return;
+    function trySend() {
+      if (hasSentInitial.current) return;
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
         hasSentInitial.current = true;
-        sendMessage(prompt);
-      };
-      ws?.addEventListener('open', onOpen);
-      return () => ws?.removeEventListener('open', onOpen);
+        sendMessage(prompt!);
+      } else {
+        setTimeout(trySend, 100);
+      }
     }
 
-    hasSentInitial.current = true;
-    sendMessage(prompt);
+    trySend();
   }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function sendMessage(text: string) {
@@ -197,11 +241,14 @@ export function ChatView() {
     setRunning(true);
     streamBuf.current = '';
 
-    const payload: Record<string, string> = { type: 'send', prompt: text };
+    const payload: Record<string, any> = { type: 'send', prompt: text, model };
     if (currentSessionId) payload.resume = currentSessionId;
 
     const cwd = searchParams.get('cwd');
     if (cwd) payload.cwd = cwd;
+
+    const extraTools = searchParams.get('extraTools');
+    if (extraTools) payload.extraTools = extraTools;
 
     ws.send(JSON.stringify(payload));
     scrollToBottom();
@@ -219,24 +266,31 @@ export function ChatView() {
   }
 
   return (
-    <div className="chat-view">
-      <header className="chat-view-header">
-        <button className="chat-view-back" onClick={() => navigate('/')}>
+    <div className="chat-page">
+      <header className="chat-header">
+        <button className="chat-header-back" onClick={() => navigate('/')}>
           &larr;
         </button>
-        <span className="chat-view-title">
-          {currentSessionId ? 'Session' : 'New Chat'}
-        </span>
+        <select
+          className="chat-model-select"
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+          disabled={running}
+        >
+          <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+          <option value="claude-opus-4-6">Opus 4.6</option>
+          <option value="claude-haiku-4-5">Haiku 4.5</option>
+        </select>
         {running && (
-          <button className="chat-view-stop" onClick={handleStop}>
+          <button className="chat-header-stop" onClick={handleStop}>
             Stop
           </button>
         )}
       </header>
 
-      <div className="chat-view-messages" ref={scrollRef}>
+      <div className="chat-messages" ref={scrollRef}>
         {messages.length === 0 && !running && (
-          <p className="chat-view-empty">Send a message to start</p>
+          <p className="chat-empty">Send a message to start</p>
         )}
         {messages.map((msg, i) => (
           <MessageBubble key={i} message={msg} />

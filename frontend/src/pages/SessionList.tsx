@@ -4,41 +4,49 @@ import { useNavigate } from 'react-router-dom';
 interface Session {
   id: string;
   summary: string;
-  lastModified: string;
+  lastModified: number;
   branch?: string;
 }
 
 const quickActions = [
   {
     label: 'Chat Session',
-    desc: 'Open a new interactive chat',
+    desc: 'Interactive chat',
     path: '/chat',
   },
   {
     label: 'Morning Briefing',
-    desc: 'Calendar, email, Jira summary',
+    desc: 'Calendar, email, Jira',
     path: '/chat',
-    prompt: 'Read CLAUDE.md then run: python command_center/morning_briefing.py. Summarize the output.',
+    prompt: 'Run `python command_center/morning_briefing.py` and summarize the output. I want to discuss it after.',
+    extraTools: 'Bash',
   },
   {
     label: 'Jira Inbox',
     desc: 'Team inbox triage',
     path: '/chat',
-    prompt:
-      'Read CLAUDE.md then run: python team_home/inbox.py --save. Summarize what needs attention.',
+    prompt: 'Run `python inbox.py --save` and summarize what needs my attention. I want to discuss it after.',
     cwd: '/Users/dsaridak/redhat/mgmt/team_home',
+    extraTools: 'Bash',
   },
   {
     label: 'Team Status',
     desc: 'Manager status view',
     path: '/chat',
-    prompt:
-      'Read CLAUDE.md then run: python status.py. Give me the highlights.',
+    prompt: 'Run `python status.py` and give me the highlights. I want to discuss the results after.',
+    extraTools: 'Bash',
+  },
+  {
+    label: 'Refresh Data',
+    desc: 'Fetch Jira + dashboards',
+    path: '/chat',
+    prompt: 'Run `./refresh.sh` and report any errors.',
+    extraTools: 'Bash',
   },
 ] as const;
 
-function formatRelativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
+function formatRelativeTime(ts: number): string {
+  const diff = Date.now() - ts;
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return 'just now';
   if (mins < 60) return `${mins}m ago`;
@@ -65,27 +73,28 @@ export function SessionList() {
     const params = new URLSearchParams();
     if ('prompt' in action && action.prompt) params.set('prompt', action.prompt);
     if ('cwd' in action && action.cwd) params.set('cwd', action.cwd);
+    if ('extraTools' in action && action.extraTools) params.set('extraTools', action.extraTools);
     const qs = params.toString();
     navigate(qs ? `${action.path}?${qs}` : action.path);
   }
 
   return (
-    <div className="session-list">
+    <div className="session-list-page">
       <header className="session-list-header">
-        <h1>Agent</h1>
-        <button onClick={() => navigate('/chat')}>New Chat</button>
+        <h1>Jarvis</h1>
+        <button className="new-chat-btn" onClick={() => navigate('/chat')}>New Chat</button>
       </header>
 
-      <div className="session-list-presets">
+      <div className="quick-grid">
         {quickActions.map((action) => (
           <button
             key={action.label}
             type="button"
-            className="preset-card"
+            className="quick-card"
             onClick={() => handleQuickAction(action)}
           >
-            <span className="preset-card-label">{action.label}</span>
-            <span className="preset-card-desc">{action.desc}</span>
+            <span className="quick-card-label">{action.label}</span>
+            <span className="quick-card-desc">{action.desc}</span>
           </button>
         ))}
       </div>
@@ -97,24 +106,28 @@ export function SessionList() {
       )}
 
       {!loading && sessions.length > 0 && (
-        <div className="session-list-items">
+        <div className="session-list">
+          <div className="session-list-section-title">Recent Sessions</div>
           {sessions.map((s) => (
             <button
               key={s.id}
-              className="session-list-row"
+              className="session-item"
               onClick={() => navigate(`/chat/${s.id}`)}
             >
-              <div className="session-list-row-text">
-                <span className="session-list-row-summary">
+              <div className="session-item-content">
+                <div className="session-item-summary">
                   {s.summary || 'Untitled session'}
-                </span>
-                {s.branch && (
-                  <span className="session-list-row-branch">{s.branch}</span>
-                )}
+                </div>
+                <div className="session-item-meta">
+                  <span className="session-item-time">
+                    {formatRelativeTime(s.lastModified)}
+                  </span>
+                  {s.branch && (
+                    <span className="session-item-branch">{s.branch}</span>
+                  )}
+                </div>
               </div>
-              <span className="session-list-row-time">
-                {formatRelativeTime(s.lastModified)}
-              </span>
+              <span className="session-item-chevron">›</span>
             </button>
           ))}
         </div>

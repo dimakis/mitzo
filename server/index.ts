@@ -8,7 +8,7 @@ import { join, dirname } from 'path';
 import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 import { login, authMiddleware, verifyWsAuth, COOKIE_NAME, MAX_AGE_HOURS } from './auth.js';
-import { startChat, stopChat, isActive, getSessions, getMessages } from './chat.js';
+import { startChat, stopChat, isActive, getSessions, getMessages, AVAILABLE_MODELS } from './chat.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '3100', 10);
@@ -47,6 +47,9 @@ app.post('/api/auth/logout', (_req, res) => {
 });
 
 app.get('/api/auth/check', (_req, res) => res.json({ ok: true }));
+
+// Models
+app.get('/api/models', (_req, res) => res.json(AVAILABLE_MODELS));
 
 // Session routes
 app.get('/api/sessions', async (_req, res) => {
@@ -100,6 +103,8 @@ function handleChatWs(ws: WebSocket, clientId: string) {
         startChat(ws, clientId, msg.prompt, {
           resume: msg.resume,
           cwd: msg.cwd,
+          model: msg.model,
+          extraTools: msg.extraTools,
         });
       } else if (msg.type === 'stop') {
         stopChat(clientId);

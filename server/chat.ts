@@ -23,11 +23,17 @@ function sdkEnv(): Record<string, string> {
   return env;
 }
 
+export const AVAILABLE_MODELS = [
+  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', desc: 'Balanced' },
+  { id: 'claude-opus-4-6', label: 'Opus 4.6', desc: 'Most capable' },
+  { id: 'claude-haiku-4-5', label: 'Haiku 4.5', desc: 'Fastest' },
+];
+
 export async function startChat(
   ws: WebSocket,
   clientId: string,
   prompt: string,
-  options: { resume?: string; cwd?: string }
+  options: { resume?: string; cwd?: string; model?: string; extraTools?: string }
 ) {
   const abortController = new AbortController();
   const cwd = options.cwd || MGT_CWD;
@@ -42,7 +48,11 @@ export async function startChat(
       includePartialMessages: true,
       settingSources: ['project'],
       systemPrompt: { type: 'preset', preset: 'claude_code' },
-      allowedTools: ['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
+      allowedTools: [
+        'Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch',
+        ...(options.extraTools ? options.extraTools.split(',').map(t => t.trim()) : []),
+      ],
+      ...(options.model ? { model: options.model } : {}),
       ...(options.resume ? { resume: options.resume } : {}),
       canUseTool: async (toolName, toolInput) => {
         return new Promise((resolve) => {
