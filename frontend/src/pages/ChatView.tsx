@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { MessageBubble } from '../components/MessageBubble';
+import { ToolPill } from '../components/ToolPill';
+import { ToolGroup } from '../components/ToolGroup';
 import { PermissionBanner } from '../components/PermissionBanner';
 import { ChatInput, type ImageAttachment } from '../components/ChatInput';
 
@@ -13,6 +15,36 @@ export interface Message {
   toolInput?: string;
   toolResult?: string;
   streaming?: boolean;
+}
+
+type GroupedItem = { type: 'message'; message: Message } | { type: 'tool-group'; tools: Message[] };
+
+function groupMessages(messages: Message[]): GroupedItem[] {
+  const result: GroupedItem[] = [];
+  let toolBuffer: Message[] = [];
+
+  function flushTools() {
+    if (toolBuffer.length === 0) return;
+    if (toolBuffer.length >= 3) {
+      result.push({ type: 'tool-group', tools: toolBuffer });
+    } else {
+      for (const t of toolBuffer) {
+        result.push({ type: 'message', message: t });
+      }
+    }
+    toolBuffer = [];
+  }
+
+  for (const msg of messages) {
+    if (msg.role === 'tool') {
+      toolBuffer.push(msg);
+    } else {
+      flushTools();
+      result.push({ type: 'message', message: msg });
+    }
+  }
+  flushTools();
+  return result;
 }
 
 interface PermissionRequest {
@@ -291,6 +323,8 @@ export function ChatView() {
     }
   }
 
+  const grouped = useMemo(() => groupMessages(messages), [messages]);
+
   return (
     <div className="chat-page">
       <header className="chat-header">
@@ -332,9 +366,16 @@ export function ChatView() {
 
       <div className="chat-messages" ref={scrollRef}>
         {messages.length === 0 && !running && <p className="chat-empty">Send a message to start</p>}
-        {messages.map((msg, i) => (
-          <MessageBubble key={i} message={msg} />
-        ))}
+        {grouped.map((item, i) => {
+          if (item.type === 'tool-group') {
+            return <ToolGroup key={`tg-${i}`} tools={item.tools} />;
+          }
+          const msg = item.message;
+          if (msg.role === 'tool') {
+            return <ToolPill key={msg.toolId || `t-${i}`} message={msg} />;
+          }
+          return <MessageBubble key={`m-${i}`} message={msg} />;
+        })}
       </div>
 
       {permission && (
