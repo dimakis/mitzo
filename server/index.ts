@@ -25,6 +25,32 @@ try {
 } catch {}
 app.get('/api/version', (_req, res) => res.json({ hash: buildHash }));
 
+// Token-auth endpoint for ntfy action buttons (before cookie auth middleware)
+import { resolvePending } from './permissions.js';
+
+app.post('/api/permission/:permId/respond', (req, res) => {
+  const token = req.query.token as string;
+  const ntfyToken = process.env.NTFY_AUTH_TOKEN;
+  if (!token || !ntfyToken || token !== ntfyToken) {
+    res.status(401).json({ error: 'Invalid token' });
+    return;
+  }
+
+  const decision = (req.query.decision || req.body?.decision || 'deny') as string;
+  if (!['once', 'always', 'deny'].includes(decision)) {
+    res.status(400).json({ error: 'Invalid decision' });
+    return;
+  }
+
+  const ok = resolvePending(req.params.permId as string, decision as any);
+  if (!ok) {
+    res.status(404).json({ error: 'Permission request not found or already resolved' });
+    return;
+  }
+
+  res.json({ ok: true, decision });
+});
+
 // Auth middleware
 app.use('/api', authMiddleware);
 

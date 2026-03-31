@@ -1,5 +1,7 @@
 import { query, listSessions, getSessionMessages } from '@anthropic-ai/claude-agent-sdk';
 import type { WebSocket } from 'ws';
+import { registerPending, resolvePending, removePending, hasPending } from './permissions.js';
+import { sendPermissionNotification, isConfigured as ntfyConfigured } from './notify.js';
 
 const MGT_CWD = '/Users/dsaridak/redhat/mgmt';
 
@@ -59,7 +61,6 @@ export async function startChat(
   const cwd = options.cwd || MGT_CWD;
   const mode = options.mode || 'agent';
   const sessionAllowList = new Set<string>();
-  const pendingPermissions = new Map<string, (result: any) => void>();
 
   const baseAllowed = ['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch'];
   const extraTools = options.extraTools ? options.extraTools.split(',').map(t => t.trim()) : [];
@@ -83,20 +84,38 @@ export async function startChat(
             return { behavior: 'allow' as const, decisionClassification: 'user_permanent' as const };
           }
 
+          const inputSummary = summarizeToolInput(toolName, toolInput);
+
           return new Promise((resolve) => {
             const permId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-            pendingPermissions.set(permId, resolve);
+
+            const wrappedResolve = (result: any) => {
+              if (result.behavior === 'allow' && result.decisionClassification === 'user_permanent') {
+                sessionAllowList.add(toolName);
+              }
+              resolve(result);
+            };
+
+            registerPending(permId, toolName, wrappedResolve);
 
             send(ws, {
               type: 'permission_request',
               permId,
               toolName,
-              toolInput: summarizeToolInput(toolName, toolInput),
+              toolInput: inputSummary,
             });
 
+            if (ntfyConfigured()) {
+              setTimeout(() => {
+                if (hasPending(permId)) {
+                  sendPermissionNotification(toolName, inputSummary, permId);
+                }
+              }, 10_000);
+            }
+
             setTimeout(() => {
-              if (pendingPermissions.has(permId)) {
-                pendingPermissions.delete(permId);
+              if (hasPending(permId)) {
+                removePending(permId);
                 resolve({ behavior: 'deny', message: 'Permission request timed out' });
                 send(ws, { type: 'permission_timeout', permId });
               }
@@ -114,35 +133,7 @@ export async function startChat(
     try {
       const msg = JSON.parse(raw.toString());
       if (msg.type === 'permission_response' && msg.permId) {
-        const resolver = pendingPermissions.get(msg.permId);
-        if (resolver) {
-          pendingPermissions.delete(msg.permId);
-          if (msg.decision === 'always') {
-            const toolName = msg.toolName;
-            if (toolName) sessionAllowList.add(toolName);
-            resolver({
-              behavior: 'allow' as const,
-              decisionClassification: 'user_permanent' as const,
-              updatedPermissions: toolName ? [{
-                type: 'addRules' as const,
-                rules: [{ toolName }],
-                behavior: 'allow' as const,
-                destination: 'session' as const,
-              }] : undefined,
-            });
-          } else if (msg.decision === 'once') {
-            resolver({
-              behavior: 'allow' as const,
-              decisionClassification: 'user_temporary' as const,
-            });
-          } else {
-            resolver({
-              behavior: 'deny' as const,
-              message: 'User denied',
-              decisionClassification: 'user_reject' as const,
-            } as any);
-          }
-        }
+        resolvePending(msg.permId, msg.decision || 'deny');
       } else if (msg.type === 'set_mode' && msg.mode) {
         session.mode = msg.mode;
         send(ws, { type: 'mode_changed', mode: msg.mode });
