@@ -774,8 +774,8 @@ textarea:focus {
 
 .chat-input {
   display: flex;
-  align-items: flex-end;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 0.25rem;
   padding: 0.6rem 0.75rem;
   padding-bottom: max(0.6rem, env(safe-area-inset-bottom));
   background: var(--surface);
@@ -783,20 +783,29 @@ textarea:focus {
   flex-shrink: 0;
 }
 
+.chat-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  width: 100%;
+}
+
 .chat-input-field {
   flex: 1;
   min-height: 2.5rem;
-  max-height: 8rem;
+  max-height: 10rem;
   padding: 0.6rem 0.85rem;
   font-size: 16px;
   font-family: inherit;
   line-height: 1.4;
   border: 1px solid var(--border);
-  border-radius: 20px;
+  border-radius: 12px;
   background: var(--bg);
   color: var(--text);
   resize: none;
+  overflow-y: auto;
   -webkit-tap-highlight-color: transparent;
+  width: 100%;
 }
 
 .chat-input-field:focus {
@@ -808,36 +817,41 @@ textarea:focus {
   color: var(--text-dim);
 }
 
-.chat-input-send {
-  width: 2.5rem;
-  height: 2.5rem;
-  min-width: 2.5rem;
-  padding: 0;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.1rem;
+.chat-input-btn {
   flex-shrink: 0;
+  padding: 0.55rem 1rem;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  white-space: nowrap;
+}
+
+.chat-input-btn--send {
   background: var(--accent);
   color: #fff;
 }
 
-.chat-input-send:disabled {
+.chat-input-btn--send:disabled {
   background: var(--border);
   color: var(--text-dim);
   opacity: 1;
 }
 
-.chat-input-send:hover:not(:disabled) {
+.chat-input-btn--send:hover:not(:disabled) {
   background: var(--accent-hover);
+}
+
+.chat-input-btn--stop {
+  background: var(--danger);
+  color: #fff;
 }
 
 .chat-input-thinking {
   font-size: 0.75rem;
   color: var(--text-dim);
-  padding: 0.25rem 0.75rem 0;
-  flex-basis: 100%;
+  padding: 0 0.25rem;
 }
 
 .chat-input-thinking::after {
@@ -850,21 +864,6 @@ textarea:focus {
   25% { content: '.'; }
   50% { content: '..'; }
   75% { content: '...'; }
-}
-
-.chat-input-stop {
-  width: 2.5rem;
-  height: 2.5rem;
-  min-width: 2.5rem;
-  padding: 0;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  background: var(--danger);
-  color: #fff;
-  font-size: 0.85rem;
 }
 
 /* ===== Dashboard (legacy) ===== */

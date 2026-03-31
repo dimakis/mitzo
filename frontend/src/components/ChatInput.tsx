@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type KeyboardEvent } from 'react';
+import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from 'react';
 
 interface Props {
   onSend: (text: string) => void;
@@ -9,27 +9,44 @@ interface Props {
 
 export function ChatInput({ onSend, onStop, running, initialText }: Props) {
   const [text, setText] = useState(initialText || '');
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const initialApplied = useRef(false);
 
+  const autoResize = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+  }, []);
+
   useEffect(() => {
-    inputRef.current?.focus();
+    textareaRef.current?.focus();
   }, []);
 
   useEffect(() => {
     if (initialText && !initialApplied.current) {
       initialApplied.current = true;
       setText(initialText);
-      requestAnimationFrame(() => inputRef.current?.focus());
+      requestAnimationFrame(() => {
+        autoResize();
+        textareaRef.current?.focus();
+      });
     }
-  }, [initialText]);
+  }, [initialText, autoResize]);
+
+  useEffect(() => {
+    autoResize();
+  }, [text, autoResize]);
 
   function handleSend() {
     const trimmed = text.trim();
     if (!trimmed || running) return;
     onSend(trimmed);
     setText('');
-    inputRef.current?.focus();
+    requestAnimationFrame(() => {
+      autoResize();
+      textareaRef.current?.focus();
+    });
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -42,29 +59,26 @@ export function ChatInput({ onSend, onStop, running, initialText }: Props) {
   return (
     <div className="chat-input">
       {running && (
-        <div className="chat-input-thinking">
-          <span className="chat-input-dot-pulse" />
-          Thinking...
-        </div>
+        <div className="chat-input-thinking">Thinking</div>
       )}
       <div className="chat-input-row">
         <textarea
-          ref={inputRef}
+          ref={textareaRef}
           className="chat-input-field"
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={running ? 'Agent is working...' : 'Message...'}
+          placeholder={running ? 'Working...' : 'Message Jarvis...'}
           rows={1}
           disabled={running}
         />
         {running ? (
-          <button className="chat-input-stop" onClick={onStop}>
+          <button className="chat-input-btn chat-input-btn--stop" onClick={onStop}>
             Stop
           </button>
         ) : (
           <button
-            className="chat-input-send"
+            className="chat-input-btn chat-input-btn--send"
             onClick={handleSend}
             disabled={!text.trim()}
           >
