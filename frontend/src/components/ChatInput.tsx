@@ -68,7 +68,7 @@ export function ChatInput({ onSend, onStop, running, initialText }: Props) {
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={running ? 'Working...' : 'Message Jarvis...'}
+          placeholder={running ? 'Working...' : 'Message Mitzo...'}
           rows={1}
           disabled={running}
         />

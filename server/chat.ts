@@ -7,9 +7,9 @@ import { createWorktree, removeWorktree } from './worktree.js';
 export const BASE_REPO = process.env.REPO_PATH || '';
 const WORKTREE_ENABLED = process.env.WORKTREE_ENABLED !== 'false';
 
-export type JarvisMode = 'ask' | 'agent' | 'auto';
+export type MitzoMode = 'ask' | 'agent' | 'auto';
 
-const MODE_TO_SDK: Record<JarvisMode, string> = {
+const MODE_TO_SDK: Record<MitzoMode, string> = {
   ask: 'plan',
   agent: 'default',
   auto: 'bypassPermissions',
@@ -21,7 +21,7 @@ interface ActiveSession {
   sessionId?: string;
   ws: WebSocket;
   sessionAllowList: Set<string>;
-  mode: JarvisMode;
+  mode: MitzoMode;
   worktreePath?: string;
 }
 
@@ -58,7 +58,7 @@ export async function startChat(
   ws: WebSocket,
   clientId: string,
   prompt: string,
-  options: { resume?: string; cwd?: string; model?: string; extraTools?: string; mode?: JarvisMode; worktree?: boolean }
+  options: { resume?: string; cwd?: string; model?: string; extraTools?: string; mode?: MitzoMode; worktree?: boolean }
 ) {
   const abortController = new AbortController();
   const mode = options.mode || 'agent';

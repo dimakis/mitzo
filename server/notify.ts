@@ -20,13 +20,13 @@ export async function sendPermissionNotification(
   const denyUrl = `${BASE_URL}/api/permission/${permId}/respond?decision=deny&token=${NTFY_AUTH_TOKEN || ''}`;
 
   const headers: Record<string, string> = {
-    'Title': `Jarvis: ${toolName}`,
+    'Title': `Mitzo: ${toolName}`,
     'Priority': '4',
     'Tags': 'robot',
     'Actions': [
       `http, Allow, ${allowUrl}, method=POST, clear=true`,
       `http, Deny, ${denyUrl}, method=POST, clear=true`,
-      `view, Open Jarvis, ${BASE_URL}`,
+      `view, Open Mitzo, ${BASE_URL}`,
     ].join('; '),
   };
 
@@ -43,7 +43,7 @@ export async function sendPermissionNotification(
 
 export function buildNotificationHeaders(toolName: string): Record<string, string> {
   return {
-    title: `Jarvis: ${toolName}`,
+    title: `Mitzo: ${toolName}`,
     priority: '4',
     tags: 'robot',
   };

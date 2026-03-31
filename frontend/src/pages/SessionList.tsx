@@ -96,7 +96,7 @@ export function SessionList() {
   return (
     <div className="session-list-page">
       <header className="session-list-header">
-        <h1>Jarvis</h1>
+        <h1>Mitzo</h1>
         <button className="new-chat-btn" onClick={() => navigate('/chat')}>New Chat</button>
       </header>
 
