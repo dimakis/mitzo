@@ -138,7 +138,7 @@ When you start a new chat (without a custom `cwd` or resuming a session):
 2. The worktree branches from the current HEAD of your repo
 3. Claude works in the isolated worktree — edits, commits, everything
 4. When the session ends, the worktree and branch are cleaned up
-5. Stale worktrees (>24h) are pruned on server startup
+5. Stale worktrees (>7 days) are pruned on server startup
 
 Disable with `WORKTREE_ENABLED=false` in `.env`, or per-session via the WebSocket payload.
 

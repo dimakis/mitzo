@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, statSync, rmSync } from 'fs';
 import { join } from 'path';
 
 const BRANCH_PREFIX = 'session/';
-const STALE_HOURS = 24;
+const STALE_HOURS = 168; // 7 days
 
 function sessionsDir(baseRepo: string): string {
   return `${baseRepo}-sessions`;
