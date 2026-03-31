@@ -338,29 +338,10 @@ textarea:focus {
 }
 
 .chat-model-select {
-  flex: 1;
-  min-width: 0;
-  padding: 0.4rem 0.5rem;
-  font-size: 0.85rem;
-  background: var(--bg);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  cursor: pointer;
-  -webkit-appearance: none;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238888aa' d='M3 5l3 3 3-3'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 0.5rem center;
-  padding-right: 1.5rem;
-}
-
-.chat-model-select:disabled {
-  opacity: 0.5;
-}
-
-.chat-mode-select {
-  padding: 0.4rem 0.5rem;
+  width: auto;
+  flex: 0 1 auto;
+  max-width: 6.5rem;
+  padding: 0.4rem 1.4rem 0.4rem 0.5rem;
   font-size: 0.8rem;
   background: var(--bg);
   color: var(--text);
@@ -372,8 +353,53 @@ textarea:focus {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238888aa' d='M3 5l3 3 3-3'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 0.4rem center;
-  padding-right: 1.3rem;
+}
+
+.chat-model-select:disabled {
+  opacity: 0.5;
+}
+
+.mode-pills {
+  display: flex;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
   flex-shrink: 0;
+}
+
+.mode-pill {
+  padding: 0.35rem 0.55rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: transparent;
+  color: var(--text-dim);
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  min-width: 0;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.mode-pill:not(:last-child) {
+  border-right: 1px solid var(--border);
+}
+
+.mode-pill:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.mode-pill--active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.mode-pill--active:hover {
+  background: var(--accent-hover);
+  color: #fff;
 }
 
 .chat-header-stop {

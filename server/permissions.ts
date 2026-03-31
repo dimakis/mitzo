@@ -1,9 +1,20 @@
 type PermissionResolver = (result: any) => void;
 
-const pending = new Map<string, { resolver: PermissionResolver; toolName: string }>();
+interface PendingEntry {
+  resolver: PermissionResolver;
+  toolName: string;
+  suggestions?: any[];
+}
 
-export function registerPending(permId: string, toolName: string, resolver: PermissionResolver) {
-  pending.set(permId, { resolver, toolName });
+const pending = new Map<string, PendingEntry>();
+
+export function registerPending(
+  permId: string,
+  toolName: string,
+  resolver: PermissionResolver,
+  suggestions?: any[],
+) {
+  pending.set(permId, { resolver, toolName, suggestions });
 }
 
 export function resolvePending(permId: string, decision: 'once' | 'always' | 'deny'): boolean {
@@ -11,29 +22,24 @@ export function resolvePending(permId: string, decision: 'once' | 'always' | 'de
   if (!entry) return false;
 
   pending.delete(permId);
-  const { resolver, toolName } = entry;
+  const { resolver, suggestions } = entry;
 
   if (decision === 'always') {
     resolver({
-      behavior: 'allow',
-      decisionClassification: 'user_permanent',
-      updatedPermissions: [{
-        type: 'addRules',
-        rules: [{ toolName }],
-        behavior: 'allow',
-        destination: 'session',
-      }],
+      behavior: 'allow' as const,
+      updatedPermissions: suggestions,
+      decisionClassification: 'user_permanent' as const,
     });
   } else if (decision === 'once') {
     resolver({
-      behavior: 'allow',
-      decisionClassification: 'user_temporary',
+      behavior: 'allow' as const,
+      decisionClassification: 'user_temporary' as const,
     });
   } else {
     resolver({
-      behavior: 'deny',
+      behavior: 'deny' as const,
       message: 'User denied',
-      decisionClassification: 'user_reject',
+      decisionClassification: 'user_reject' as const,
     });
   }
 

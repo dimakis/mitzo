@@ -29,17 +29,30 @@ describe('permissions module', () => {
     expect(result.updatedPermissions).toBeUndefined();
   });
 
-  it('resolvePending with "always" calls resolver with allow + user_permanent + updatedPermissions', () => {
+  it('resolvePending with "always" passes through SDK suggestions as updatedPermissions', () => {
+    let result: any = null;
+    const suggestions = [{
+      type: 'addRules',
+      rules: [{ toolName: 'Edit' }],
+      behavior: 'allow',
+      destination: 'session',
+    }];
+    registerPending(permId, 'Edit', (r) => { result = r; }, suggestions);
+
+    resolvePending(permId, 'always');
+    expect(result.behavior).toBe('allow');
+    expect(result.decisionClassification).toBe('user_permanent');
+    expect(result.updatedPermissions).toEqual(suggestions);
+  });
+
+  it('resolvePending with "always" and no suggestions sets updatedPermissions to undefined', () => {
     let result: any = null;
     registerPending(permId, 'Edit', (r) => { result = r; });
 
     resolvePending(permId, 'always');
     expect(result.behavior).toBe('allow');
     expect(result.decisionClassification).toBe('user_permanent');
-    expect(result.updatedPermissions).toHaveLength(1);
-    expect(result.updatedPermissions[0].type).toBe('addRules');
-    expect(result.updatedPermissions[0].rules[0].toolName).toBe('Edit');
-    expect(result.updatedPermissions[0].destination).toBe('session');
+    expect(result.updatedPermissions).toBeUndefined();
   });
 
   it('resolvePending with "deny" calls resolver with deny + user_reject', () => {

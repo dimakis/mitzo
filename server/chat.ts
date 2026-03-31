@@ -65,6 +65,8 @@ export async function startChat(
   const baseAllowed = ['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch'];
   const extraTools = options.extraTools ? options.extraTools.split(',').map(t => t.trim()) : [];
 
+  const session: ActiveSession = { queryInstance: null, abortController, ws, sessionAllowList, mode };
+
   const q = query({
     prompt,
     options: {
@@ -78,55 +80,57 @@ export async function startChat(
       allowedTools: [...baseAllowed, ...extraTools],
       ...(options.model ? { model: options.model } : {}),
       ...(options.resume ? { resume: options.resume } : {}),
-      ...(mode !== 'auto' ? {
-        canUseTool: async (toolName: string, toolInput: Record<string, unknown>) => {
-          if (sessionAllowList.has(toolName)) {
-            return { behavior: 'allow' as const, decisionClassification: 'user_permanent' as const };
-          }
+      canUseTool: async (toolName: string, toolInput: Record<string, unknown>, opts: any) => {
+        if (session.mode === 'auto') {
+          return { behavior: 'allow' as const };
+        }
 
-          const inputSummary = summarizeToolInput(toolName, toolInput);
+        if (sessionAllowList.has(toolName)) {
+          return { behavior: 'allow' as const, decisionClassification: 'user_permanent' as const };
+        }
 
-          return new Promise((resolve) => {
-            const permId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const inputSummary = summarizeToolInput(toolName, toolInput);
 
-            const wrappedResolve = (result: any) => {
-              if (result.behavior === 'allow' && result.decisionClassification === 'user_permanent') {
-                sessionAllowList.add(toolName);
-              }
-              resolve(result);
-            };
+        return new Promise((resolve) => {
+          const permId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-            registerPending(permId, toolName, wrappedResolve);
-
-            send(ws, {
-              type: 'permission_request',
-              permId,
-              toolName,
-              toolInput: inputSummary,
-            });
-
-            if (ntfyConfigured()) {
-              setTimeout(() => {
-                if (hasPending(permId)) {
-                  sendPermissionNotification(toolName, inputSummary, permId);
-                }
-              }, 10_000);
+          const wrappedResolve = (result: any) => {
+            if (result.behavior === 'allow' && result.decisionClassification === 'user_permanent') {
+              sessionAllowList.add(toolName);
             }
+            resolve(result);
+          };
 
+          registerPending(permId, toolName, wrappedResolve, opts?.suggestions);
+
+          send(ws, {
+            type: 'permission_request',
+            permId,
+            toolName,
+            toolInput: inputSummary,
+          });
+
+          if (ntfyConfigured()) {
             setTimeout(() => {
               if (hasPending(permId)) {
-                removePending(permId);
-                resolve({ behavior: 'deny', message: 'Permission request timed out' });
-                send(ws, { type: 'permission_timeout', permId });
+                sendPermissionNotification(toolName, inputSummary, permId);
               }
-            }, 120_000);
-          });
-        },
-      } : {}),
+            }, 10_000);
+          }
+
+          setTimeout(() => {
+            if (hasPending(permId)) {
+              removePending(permId);
+              resolve({ behavior: 'deny' as const, message: 'Permission request timed out' });
+              send(ws, { type: 'permission_timeout', permId });
+            }
+          }, 120_000);
+        });
+      },
     },
   });
 
-  const session: ActiveSession = { queryInstance: q, abortController, ws, sessionAllowList, mode };
+  session.queryInstance = q;
   activeSessions.set(clientId, session);
 
   const messageHandler = (raw: any) => {

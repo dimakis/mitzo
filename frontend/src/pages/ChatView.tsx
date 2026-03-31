@@ -268,15 +268,17 @@ export function ChatView() {
           <option value="claude-opus-4-6">Opus</option>
           <option value="claude-haiku-4-5">Haiku</option>
         </select>
-        <select
-          className="chat-mode-select"
-          value={mode}
-          onChange={(e) => handleModeChange(e.target.value as any)}
-        >
-          <option value="ask">Ask</option>
-          <option value="agent">Agent</option>
-          <option value="auto">Auto</option>
-        </select>
+        <div className="mode-pills">
+          {(['ask', 'agent', 'auto'] as const).map((m) => (
+            <button
+              key={m}
+              className={`mode-pill${mode === m ? ' mode-pill--active' : ''}`}
+              onClick={() => handleModeChange(m)}
+            >
+              {m.charAt(0).toUpperCase() + m.slice(1)}
+            </button>
+          ))}
+        </div>
         {running && (
           <button className="chat-header-stop" onClick={handleStop}>
             Stop
