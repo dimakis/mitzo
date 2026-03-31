@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 // We can't easily test the full Agent SDK integration without mocking,
 // but we can test the utility functions and message flow logic.

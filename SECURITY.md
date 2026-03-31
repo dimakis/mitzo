@@ -16,13 +16,13 @@ Given that deployment model, the security posture prioritizes simplicity over de
 
 ## Secrets Management
 
-| Secret | Storage | Exposure |
-|--------|---------|----------|
-| `AUTH_PASSPHRASE` | `.env` (gitignored) | Never logged, never sent to SDK |
-| `AUTH_SECRET` (JWT signing key) | `.env` (gitignored) | Never logged, never sent to SDK |
-| `NTFY_AUTH_TOKEN` | `.env` (gitignored) | Used in ntfy API calls and permission endpoint auth. Never sent to SDK |
-| Vertex AI credentials | GCP Application Default Credentials | `ANTHROPIC_VERTEX_PROJECT_ID` is a project name (not sensitive), actual auth uses ADC |
-| `REPO_PATH` | `.env` (gitignored) | Exposed to frontend via `/api/config` (non-sensitive — it's a local path) |
+| Secret                          | Storage                             | Exposure                                                                              |
+| ------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------- |
+| `AUTH_PASSPHRASE`               | `.env` (gitignored)                 | Never logged, never sent to SDK                                                       |
+| `AUTH_SECRET` (JWT signing key) | `.env` (gitignored)                 | Never logged, never sent to SDK                                                       |
+| `NTFY_AUTH_TOKEN`               | `.env` (gitignored)                 | Used in ntfy API calls and permission endpoint auth. Never sent to SDK                |
+| Vertex AI credentials           | GCP Application Default Credentials | `ANTHROPIC_VERTEX_PROJECT_ID` is a project name (not sensitive), actual auth uses ADC |
+| `REPO_PATH`                     | `.env` (gitignored)                 | Exposed to frontend via `/api/config` (non-sensitive — it's a local path)             |
 
 The `sdkEnv()` function in `chat.ts` explicitly deletes `AUTH_PASSPHRASE`, `AUTH_SECRET`, and `NTFY_AUTH_TOKEN` from the environment before passing it to the Agent SDK, preventing accidental exposure to Claude sessions.
 
@@ -38,6 +38,7 @@ Both are acceptable given the Tailscale-only access model.
 ## Agent SDK Sessions
 
 Each chat session spawns a Claude Code process via the Agent SDK with:
+
 - `cwd` set to a worktree (isolated per session) or the base repo
 - Project-level settings from `.cursor/rules/` (read from the worktree)
 - Environment variables with secrets stripped

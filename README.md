@@ -31,22 +31,22 @@ Server (Node.js + TypeScript)
 
 **Backend** (`server/`) — Express + TypeScript, run via `tsx`
 
-| File | Purpose |
-|------|---------|
-| `index.ts` | Express app, routes, WebSocket server, startup cleanup |
-| `chat.ts` | Agent SDK `query()` integration, worktree lifecycle, permission handling |
-| `worktree.ts` | Git worktree create/remove/cleanup/list |
-| `permissions.ts` | Permission request registry, SDK suggestion passthrough |
-| `notify.ts` | ntfy push notifications |
-| `auth.ts` | Passphrase login, JWT (HS256), cookie auth |
+| File             | Purpose                                                                  |
+| ---------------- | ------------------------------------------------------------------------ |
+| `index.ts`       | Express app, routes, WebSocket server, startup cleanup                   |
+| `chat.ts`        | Agent SDK `query()` integration, worktree lifecycle, permission handling |
+| `worktree.ts`    | Git worktree create/remove/cleanup/list                                  |
+| `permissions.ts` | Permission request registry, SDK suggestion passthrough                  |
+| `notify.ts`      | ntfy push notifications                                                  |
+| `auth.ts`        | Passphrase login, JWT (HS256), cookie auth                               |
 
 **Frontend** (`frontend/`) — React 19 + Vite + TypeScript
 
-| Page | Purpose |
-|------|---------|
-| `Login` | Passphrase entry |
-| `SessionList` | Quick action grid + session history |
-| `ChatView` | Streaming chat, mode pills, permission banner |
+| Page          | Purpose                                       |
+| ------------- | --------------------------------------------- |
+| `Login`       | Passphrase entry                              |
+| `SessionList` | Quick action grid + session history           |
+| `ChatView`    | Streaming chat, mode pills, permission banner |
 
 ## Prerequisites
 
@@ -70,14 +70,14 @@ cp .env.example .env
 
 ### Environment variables
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `AUTH_PASSPHRASE` | Login passphrase | Yes |
-| `AUTH_SECRET` | JWT signing key (min 32 chars) | Yes |
-| `REPO_PATH` | Default repo for chat sessions | Yes |
-| `PORT` | Server port (default: `3100`) | No |
-| `WORKTREE_ENABLED` | Enable worktree isolation (default: `true`) | No |
-| `COOKIE_MAX_AGE_HOURS` | Auth cookie expiry (default: `24`) | No |
+| Variable               | Description                                 | Required |
+| ---------------------- | ------------------------------------------- | -------- |
+| `AUTH_PASSPHRASE`      | Login passphrase                            | Yes      |
+| `AUTH_SECRET`          | JWT signing key (min 32 chars)              | Yes      |
+| `REPO_PATH`            | Default repo for chat sessions              | Yes      |
+| `PORT`                 | Server port (default: `3100`)               | No       |
+| `WORKTREE_ENABLED`     | Enable worktree isolation (default: `true`) | No       |
+| `COOKIE_MAX_AGE_HOURS` | Auth cookie expiry (default: `24`)          | No       |
 
 See `.env.example` for the full list including ntfy and Vertex AI options.
 
@@ -144,14 +144,14 @@ Disable with `WORKTREE_ENABLED=false` in `.env`, or per-session via the WebSocke
 
 ## Tech stack
 
-| Component | Technology |
-|-----------|-----------|
-| Backend | Node.js, Express, TypeScript |
-| Frontend | React 19, Vite, TypeScript |
-| AI | Claude Agent SDK |
-| Auth | JWT via jose |
-| Isolation | Git worktrees |
-| Tests | Vitest |
+| Component | Technology                   |
+| --------- | ---------------------------- |
+| Backend   | Node.js, Express, TypeScript |
+| Frontend  | React 19, Vite, TypeScript   |
+| AI        | Claude Agent SDK             |
+| Auth      | JWT via jose                 |
+| Isolation | Git worktrees                |
+| Tests     | Vitest                       |
 
 ## Security
 

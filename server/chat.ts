@@ -58,7 +58,14 @@ export async function startChat(
   ws: WebSocket,
   clientId: string,
   prompt: string,
-  options: { resume?: string; cwd?: string; model?: string; extraTools?: string; mode?: MitzoMode; worktree?: boolean }
+  options: {
+    resume?: string;
+    cwd?: string;
+    model?: string;
+    extraTools?: string;
+    mode?: MitzoMode;
+    worktree?: boolean;
+  },
 ) {
   const abortController = new AbortController();
   const mode = options.mode || 'agent';
@@ -67,8 +74,8 @@ export async function startChat(
   let cwd = options.cwd || BASE_REPO;
   let worktreePath: string | undefined;
 
-  const useWorktree = WORKTREE_ENABLED && options.worktree !== false
-    && !options.cwd && !options.resume && BASE_REPO;
+  const useWorktree =
+    WORKTREE_ENABLED && options.worktree !== false && !options.cwd && !options.resume && BASE_REPO;
 
   if (useWorktree) {
     try {
@@ -77,14 +84,24 @@ export async function startChat(
       send(ws, { type: 'worktree', path: worktreePath });
     } catch (err: any) {
       console.error('[worktree] creation failed, using base repo:', err.message);
-      send(ws, { type: 'error', error: `Worktree creation failed (using base repo): ${err.message}` });
+      send(ws, {
+        type: 'error',
+        error: `Worktree creation failed (using base repo): ${err.message}`,
+      });
     }
   }
 
   const baseAllowed = ['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch'];
-  const extraTools = options.extraTools ? options.extraTools.split(',').map(t => t.trim()) : [];
+  const extraTools = options.extraTools ? options.extraTools.split(',').map((t) => t.trim()) : [];
 
-  const session: ActiveSession = { queryInstance: null, abortController, ws, sessionAllowList, mode, worktreePath };
+  const session: ActiveSession = {
+    queryInstance: null,
+    abortController,
+    ws,
+    sessionAllowList,
+    mode,
+    worktreePath,
+  };
 
   const q = query({
     prompt,
@@ -161,7 +178,9 @@ export async function startChat(
         session.mode = msg.mode;
         send(ws, { type: 'mode_changed', mode: msg.mode });
       }
-    } catch {}
+    } catch {
+      // Malformed WS message — ignore
+    }
   };
   ws.on('message', messageHandler);
 
@@ -228,7 +247,11 @@ export async function startChat(
     ws.removeListener('message', messageHandler);
     activeSessions.delete(clientId);
     if (session.worktreePath) {
-      try { removeWorktree(clientId, BASE_REPO); } catch {}
+      try {
+        removeWorktree(clientId, BASE_REPO);
+      } catch {
+        // Best-effort cleanup
+      }
     }
     if (ws.readyState === ws.OPEN) {
       send(ws, { type: 'done', sessionId: session.sessionId });
@@ -242,7 +265,11 @@ export function stopChat(clientId: string) {
     session.abortController.abort();
     activeSessions.delete(clientId);
     if (session.worktreePath) {
-      try { removeWorktree(clientId, BASE_REPO); } catch {}
+      try {
+        removeWorktree(clientId, BASE_REPO);
+      } catch {
+        // Best-effort cleanup
+      }
     }
   }
 }
@@ -254,7 +281,7 @@ export function isActive(clientId: string): boolean {
 export async function getSessions() {
   try {
     const sessions = await listSessions({ dir: BASE_REPO, limit: 20 });
-    return sessions.map(s => ({
+    return sessions.map((s) => ({
       id: s.sessionId,
       summary: s.summary,
       lastModified: s.lastModified,
@@ -268,39 +295,43 @@ export async function getSessions() {
 export async function getMessages(sessionId: string) {
   try {
     const messages = await getSessionMessages(sessionId, { dir: BASE_REPO, limit: 100 });
-    return messages.map(m => {
-      const content = (m.message as any)?.content;
-      let text = '';
-      const toolCalls: any[] = [];
-      const toolResults: any[] = [];
+    return messages
+      .map((m) => {
+        const content = (m.message as any)?.content;
+        let text = '';
+        const toolCalls: any[] = [];
+        const toolResults: any[] = [];
 
-      if (Array.isArray(content)) {
-        for (const block of content) {
-          if (block.type === 'text') text += block.text;
-          else if (block.type === 'tool_use') {
-            toolCalls.push({
-              toolName: block.name,
-              toolId: block.id,
-              input: summarizeToolInput(block.name, block.input),
-            });
-          } else if (block.type === 'tool_result') {
-            let rt = '';
-            if (typeof block.content === 'string') rt = block.content;
-            else if (Array.isArray(block.content)) {
-              for (const c of block.content) { if (c.type === 'text') rt += c.text; }
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (block.type === 'text') text += block.text;
+            else if (block.type === 'tool_use') {
+              toolCalls.push({
+                toolName: block.name,
+                toolId: block.id,
+                input: summarizeToolInput(block.name, block.input),
+              });
+            } else if (block.type === 'tool_result') {
+              let rt = '';
+              if (typeof block.content === 'string') rt = block.content;
+              else if (Array.isArray(block.content)) {
+                for (const c of block.content) {
+                  if (c.type === 'text') rt += c.text;
+                }
+              }
+              toolResults.push({ toolId: block.tool_use_id, result: rt.slice(0, 2000) });
             }
-            toolResults.push({ toolId: block.tool_use_id, result: rt.slice(0, 2000) });
           }
         }
-      }
 
-      return {
-        role: m.type,
-        text: text || undefined,
-        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-        toolResults: toolResults.length > 0 ? toolResults : undefined,
-      };
-    }).filter(m => m.text || m.toolCalls || m.toolResults);
+        return {
+          role: m.type,
+          text: text || undefined,
+          toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+          toolResults: toolResults.length > 0 ? toolResults : undefined,
+        };
+      })
+      .filter((m) => m.text || m.toolCalls || m.toolResults);
   } catch {
     return [];
   }
@@ -314,14 +345,24 @@ function send(ws: WebSocket, data: unknown) {
 
 function summarizeToolInput(toolName: string, input: Record<string, unknown>): string {
   switch (toolName) {
-    case 'Read': return `${input.path || ''}`;
-    case 'Write': return `${input.path || ''} (${String(input.contents || '').length} chars)`;
-    case 'Edit': case 'StrReplace': return `${input.path || ''}`;
-    case 'Bash': return `${String(input.command || '').slice(0, 200)}`;
-    case 'Glob': return `${input.glob_pattern || ''} in ${input.target_directory || 'workspace'}`;
-    case 'Grep': return `/${input.pattern || ''}/ in ${input.path || 'workspace'}`;
-    case 'WebSearch': return `${input.search_term || ''}`;
-    case 'WebFetch': return `${input.url || ''}`;
-    default: return JSON.stringify(input).slice(0, 200);
+    case 'Read':
+      return `${input.path || ''}`;
+    case 'Write':
+      return `${input.path || ''} (${String(input.contents || '').length} chars)`;
+    case 'Edit':
+    case 'StrReplace':
+      return `${input.path || ''}`;
+    case 'Bash':
+      return `${String(input.command || '').slice(0, 200)}`;
+    case 'Glob':
+      return `${input.glob_pattern || ''} in ${input.target_directory || 'workspace'}`;
+    case 'Grep':
+      return `/${input.pattern || ''}/ in ${input.path || 'workspace'}`;
+    case 'WebSearch':
+      return `${input.search_term || ''}`;
+    case 'WebFetch':
+      return `${input.url || ''}`;
+    default:
+      return JSON.stringify(input).slice(0, 200);
   }
 }

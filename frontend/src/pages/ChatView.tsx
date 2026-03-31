@@ -28,12 +28,10 @@ export function ChatView() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [running, setRunning] = useState(false);
   const [permission, setPermission] = useState<PermissionRequest | null>(null);
-  const [currentSessionId, setCurrentSessionId] = useState<string | undefined>(
-    sessionId
-  );
+  const [currentSessionId, setCurrentSessionId] = useState<string | undefined>(sessionId);
   const [model, setModel] = useState('claude-sonnet-4-6');
   const [mode, setMode] = useState<'ask' | 'agent' | 'auto'>(
-    searchParams.get('extraTools') ? 'auto' : 'agent'
+    searchParams.get('extraTools') ? 'auto' : 'agent',
   );
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -66,38 +64,40 @@ export function ChatView() {
   useEffect(() => {
     if (!sessionId) return;
     fetch(`/api/sessions/${sessionId}/messages`)
-      .then((r) => r.ok ? r.json() : [])
-      .then((msgs: Array<{ role: string; text?: string; toolCalls?: any[]; toolResults?: any[] }>) => {
-        const loaded: Message[] = [];
-        for (const m of msgs) {
-          if (m.text) {
-            loaded.push({ role: m.role === 'user' ? 'user' : 'assistant', text: m.text });
-          }
-          if (m.toolCalls) {
-            for (const tc of m.toolCalls) {
-              loaded.push({
-                role: 'tool',
-                toolName: tc.toolName,
-                toolId: tc.toolId,
-                toolInput: tc.input,
-              });
+      .then((r) => (r.ok ? r.json() : []))
+      .then(
+        (msgs: Array<{ role: string; text?: string; toolCalls?: any[]; toolResults?: any[] }>) => {
+          const loaded: Message[] = [];
+          for (const m of msgs) {
+            if (m.text) {
+              loaded.push({ role: m.role === 'user' ? 'user' : 'assistant', text: m.text });
+            }
+            if (m.toolCalls) {
+              for (const tc of m.toolCalls) {
+                loaded.push({
+                  role: 'tool',
+                  toolName: tc.toolName,
+                  toolId: tc.toolId,
+                  toolInput: tc.input,
+                });
+              }
+            }
+            if (m.toolResults) {
+              for (const tr of m.toolResults) {
+                loaded.push({
+                  role: 'tool',
+                  toolId: tr.toolId,
+                  toolResult: tr.result,
+                });
+              }
             }
           }
-          if (m.toolResults) {
-            for (const tr of m.toolResults) {
-              loaded.push({
-                role: 'tool',
-                toolId: tr.toolId,
-                toolResult: tr.result,
-              });
-            }
+          if (loaded.length > 0) {
+            setMessages(loaded);
+            setTimeout(scrollToBottom, 100);
           }
-        }
-        if (loaded.length > 0) {
-          setMessages(loaded);
-          setTimeout(scrollToBottom, 100);
-        }
-      })
+        },
+      )
       .catch(() => {});
   }, [sessionId, scrollToBottom]);
 
@@ -124,10 +124,7 @@ export function ChatView() {
                 { role: 'assistant', text: streamBuf.current, streaming: true },
               ];
             }
-            return [
-              ...prev,
-              { role: 'assistant', text: streamBuf.current, streaming: true },
-            ];
+            return [...prev, { role: 'assistant', text: streamBuf.current, streaming: true }];
           });
           scrollToBottom();
           break;
@@ -137,10 +134,7 @@ export function ChatView() {
           setMessages((prev) => {
             const last = prev[prev.length - 1];
             if (last?.role === 'assistant' && last.streaming) {
-              return [
-                ...prev.slice(0, -1),
-                { role: 'assistant', text: msg.text },
-              ];
+              return [...prev.slice(0, -1), { role: 'assistant', text: msg.text }];
             }
             return [...prev, { role: 'assistant', text: msg.text }];
           });
@@ -163,9 +157,7 @@ export function ChatView() {
 
         case 'tool_result':
           setMessages((prev) =>
-            prev.map((m) =>
-              m.toolId === msg.toolId ? { ...m, toolResult: msg.result } : m
-            )
+            prev.map((m) => (m.toolId === msg.toolId ? { ...m, toolResult: msg.result } : m)),
           );
           scrollToBottom();
           break;
@@ -193,10 +185,7 @@ export function ChatView() {
         case 'error':
           finalizeStream();
           setRunning(false);
-          setMessages((prev) => [
-            ...prev,
-            { role: 'assistant', text: `**Error:** ${msg.error}` },
-          ]);
+          setMessages((prev) => [...prev, { role: 'assistant', text: `**Error:** ${msg.error}` }]);
           scrollToBottom();
           break;
       }
@@ -238,9 +227,13 @@ export function ChatView() {
     wsRef.current?.send(JSON.stringify({ type: 'stop' }));
   }
 
-  function handlePermission(permId: string, decision: 'once' | 'always' | 'deny', toolName: string) {
+  function handlePermission(
+    permId: string,
+    decision: 'once' | 'always' | 'deny',
+    toolName: string,
+  ) {
     wsRef.current?.send(
-      JSON.stringify({ type: 'permission_response', permId, decision, toolName })
+      JSON.stringify({ type: 'permission_response', permId, decision, toolName }),
     );
     setPermission(null);
   }
@@ -287,9 +280,7 @@ export function ChatView() {
       </header>
 
       <div className="chat-messages" ref={scrollRef}>
-        {messages.length === 0 && !running && (
-          <p className="chat-empty">Send a message to start</p>
-        )}
+        {messages.length === 0 && !running && <p className="chat-empty">Send a message to start</p>}
         {messages.map((msg, i) => (
           <MessageBubble key={i} message={msg} />
         ))}

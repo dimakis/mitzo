@@ -21,10 +21,7 @@ export function MessageBubble({ message }: Props) {
   if (message.role === 'tool') {
     return (
       <div className="msg-bubble msg-bubble--tool">
-        <button
-          className="msg-tool-header"
-          onClick={() => setExpanded((e) => !e)}
-        >
+        <button className="msg-tool-header" onClick={() => setExpanded((e) => !e)}>
           <span className="msg-tool-name">{message.toolName}</span>
           <span className="msg-tool-chevron">{expanded ? '▾' : '▸'}</span>
         </button>
@@ -40,9 +37,7 @@ export function MessageBubble({ message }: Props) {
                 <pre className="msg-tool-pre">{message.toolResult}</pre>
               </div>
             )}
-            {message.toolResult === undefined && (
-              <div className="msg-tool-running">Running...</div>
-            )}
+            {message.toolResult === undefined && <div className="msg-tool-running">Running...</div>}
           </div>
         )}
         {!expanded && message.toolResult === undefined && (
@@ -55,9 +50,7 @@ export function MessageBubble({ message }: Props) {
   return (
     <div className="msg-bubble msg-bubble--assistant">
       <div className="msg-bubble-markdown">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-          {message.text || ''}
-        </ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text || ''}</ReactMarkdown>
         {message.streaming && <span className="msg-cursor" />}
       </div>
     </div>

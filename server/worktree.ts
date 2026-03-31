@@ -1,3 +1,4 @@
+/* eslint no-empty: ["error", { allowEmptyCatch: true }] */
 import { execFileSync } from 'child_process';
 import { existsSync, mkdirSync, readdirSync, statSync, rmSync } from 'fs';
 import { join } from 'path';
@@ -36,7 +37,9 @@ export function removeWorktree(sessionId: string, baseRepo: string): void {
     });
   } catch {
     if (existsSync(worktreePath)) {
-      try { rmSync(worktreePath, { recursive: true, force: true }); } catch {}
+      try {
+        rmSync(worktreePath, { recursive: true, force: true });
+      } catch {}
     }
   }
 
@@ -96,14 +99,16 @@ export function cleanupStaleWorktrees(baseRepo: string): void {
   }
 }
 
-export function listWorktrees(baseRepo: string): Array<{ name: string; path: string; age: string }> {
+export function listWorktrees(
+  baseRepo: string,
+): Array<{ name: string; path: string; age: string }> {
   const dir = sessionsDir(baseRepo);
   if (!existsSync(dir)) return [];
 
   const now = Date.now();
   return readdirSync(dir)
-    .filter(e => e.startsWith('session-'))
-    .map(entry => {
+    .filter((e) => e.startsWith('session-'))
+    .map((entry) => {
       const fullPath = join(dir, entry);
       try {
         const stat = statSync(fullPath);

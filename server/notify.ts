@@ -20,10 +20,10 @@ export async function sendPermissionNotification(
   const denyUrl = `${BASE_URL}/api/permission/${permId}/respond?decision=deny&token=${NTFY_AUTH_TOKEN || ''}`;
 
   const headers: Record<string, string> = {
-    'Title': `Mitzo: ${toolName}`,
-    'Priority': '4',
-    'Tags': 'robot',
-    'Actions': [
+    Title: `Mitzo: ${toolName}`,
+    Priority: '4',
+    Tags: 'robot',
+    Actions: [
       `http, Allow, ${allowUrl}, method=POST, clear=true`,
       `http, Deny, ${denyUrl}, method=POST, clear=true`,
       `view, Open Mitzo, ${BASE_URL}`,

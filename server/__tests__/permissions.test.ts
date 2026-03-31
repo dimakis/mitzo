@@ -19,7 +19,9 @@ describe('permissions module', () => {
 
   it('resolvePending with "once" calls resolver with allow + user_temporary', () => {
     let result: any = null;
-    registerPending(permId, 'Bash', (r) => { result = r; });
+    registerPending(permId, 'Bash', (r) => {
+      result = r;
+    });
 
     const ok = resolvePending(permId, 'once');
     expect(ok).toBe(true);
@@ -31,13 +33,22 @@ describe('permissions module', () => {
 
   it('resolvePending with "always" passes through SDK suggestions as updatedPermissions', () => {
     let result: any = null;
-    const suggestions = [{
-      type: 'addRules',
-      rules: [{ toolName: 'Edit' }],
-      behavior: 'allow',
-      destination: 'session',
-    }];
-    registerPending(permId, 'Edit', (r) => { result = r; }, suggestions);
+    const suggestions = [
+      {
+        type: 'addRules',
+        rules: [{ toolName: 'Edit' }],
+        behavior: 'allow',
+        destination: 'session',
+      },
+    ];
+    registerPending(
+      permId,
+      'Edit',
+      (r) => {
+        result = r;
+      },
+      suggestions,
+    );
 
     resolvePending(permId, 'always');
     expect(result.behavior).toBe('allow');
@@ -47,7 +58,9 @@ describe('permissions module', () => {
 
   it('resolvePending with "always" and no suggestions sets updatedPermissions to undefined', () => {
     let result: any = null;
-    registerPending(permId, 'Edit', (r) => { result = r; });
+    registerPending(permId, 'Edit', (r) => {
+      result = r;
+    });
 
     resolvePending(permId, 'always');
     expect(result.behavior).toBe('allow');
@@ -57,7 +70,9 @@ describe('permissions module', () => {
 
   it('resolvePending with "deny" calls resolver with deny + user_reject', () => {
     let result: any = null;
-    registerPending(permId, 'Bash', (r) => { result = r; });
+    registerPending(permId, 'Bash', (r) => {
+      result = r;
+    });
 
     resolvePending(permId, 'deny');
     expect(result.behavior).toBe('deny');

@@ -29,7 +29,9 @@ export function PermissionBanner({ permId, toolName, toolInput, onRespond }: Pro
         return prev - 1;
       });
     }, 1000);
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
   }, [permId, deny]);
 
   return (
@@ -54,10 +56,7 @@ export function PermissionBanner({ permId, toolName, toolInput, onRespond }: Pro
         >
           Always Allow
         </button>
-        <button
-          className="perm-banner-btn perm-banner-btn--deny"
-          onClick={deny}
-        >
+        <button className="perm-banner-btn perm-banner-btn--deny" onClick={deny}>
           Deny
         </button>
       </div>

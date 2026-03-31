@@ -2,7 +2,10 @@ import { SignJWT, jwtVerify } from 'jose';
 import type { Request, Response, NextFunction } from 'express';
 
 const INSECURE_PASSPHRASES = ['change-me', 'change-me-to-something-secure'];
-const INSECURE_SECRETS = ['dev-secret-replace-in-production-min32chars!', 'replace-with-random-secret-key-min-32-chars'];
+const INSECURE_SECRETS = [
+  'dev-secret-replace-in-production-min32chars!',
+  'replace-with-random-secret-key-min-32-chars',
+];
 
 export function validateConfig(passphrase?: string, secret?: string): string | null {
   if (!passphrase || INSECURE_PASSPHRASES.includes(passphrase)) {
@@ -65,11 +68,14 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
 export async function verifyWsAuth(cookie: string | undefined): Promise<boolean> {
   if (!cookie) return false;
 
-  const cookies = cookie.split(';').reduce((acc, c) => {
-    const [key, ...val] = c.trim().split('=');
-    acc[key] = val.join('=');
-    return acc;
-  }, {} as Record<string, string>);
+  const cookies = cookie.split(';').reduce(
+    (acc, c) => {
+      const [key, ...val] = c.trim().split('=');
+      acc[key] = val.join('=');
+      return acc;
+    },
+    {} as Record<string, string>,
+  );
 
   const token = cookies[COOKIE_NAME];
   return token ? verifyToken(token) : false;

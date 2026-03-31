@@ -3,16 +3,27 @@ import { validateConfig } from '../auth.js';
 
 describe('validateConfig', () => {
   it('rejects missing passphrase', () => {
-    expect(validateConfig(undefined, 'a-valid-secret-that-is-long-enough-32chars!!')).toMatch(/AUTH_PASSPHRASE/);
+    expect(validateConfig(undefined, 'a-valid-secret-that-is-long-enough-32chars!!')).toMatch(
+      /AUTH_PASSPHRASE/,
+    );
   });
 
   it('rejects empty passphrase', () => {
-    expect(validateConfig('', 'a-valid-secret-that-is-long-enough-32chars!!')).toMatch(/AUTH_PASSPHRASE/);
+    expect(validateConfig('', 'a-valid-secret-that-is-long-enough-32chars!!')).toMatch(
+      /AUTH_PASSPHRASE/,
+    );
   });
 
   it('rejects insecure default passphrase', () => {
-    expect(validateConfig('change-me', 'a-valid-secret-that-is-long-enough-32chars!!')).toMatch(/AUTH_PASSPHRASE/);
-    expect(validateConfig('change-me-to-something-secure', 'a-valid-secret-that-is-long-enough-32chars!!')).toMatch(/AUTH_PASSPHRASE/);
+    expect(validateConfig('change-me', 'a-valid-secret-that-is-long-enough-32chars!!')).toMatch(
+      /AUTH_PASSPHRASE/,
+    );
+    expect(
+      validateConfig(
+        'change-me-to-something-secure',
+        'a-valid-secret-that-is-long-enough-32chars!!',
+      ),
+    ).toMatch(/AUTH_PASSPHRASE/);
   });
 
   it('rejects missing secret', () => {
@@ -20,11 +31,15 @@ describe('validateConfig', () => {
   });
 
   it('rejects insecure default secret', () => {
-    expect(validateConfig('good-passphrase', 'dev-secret-replace-in-production-min32chars!')).toMatch(/AUTH_SECRET/);
+    expect(
+      validateConfig('good-passphrase', 'dev-secret-replace-in-production-min32chars!'),
+    ).toMatch(/AUTH_SECRET/);
   });
 
   it('accepts valid config', () => {
-    expect(validateConfig('my-secure-passphrase', 'a-valid-secret-that-is-long-enough-32chars!!')).toBeNull();
+    expect(
+      validateConfig('my-secure-passphrase', 'a-valid-secret-that-is-long-enough-32chars!!'),
+    ).toBeNull();
   });
 });
 

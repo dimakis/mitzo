@@ -58,9 +58,7 @@ export function ChatInput({ onSend, onStop, running, initialText }: Props) {
 
   return (
     <div className="chat-input">
-      {running && (
-        <div className="chat-input-thinking">Thinking</div>
-      )}
+      {running && <div className="chat-input-thinking">Thinking</div>}
       <div className="chat-input-row">
         <textarea
           ref={textareaRef}

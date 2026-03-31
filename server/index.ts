@@ -8,7 +8,15 @@ import { join, dirname } from 'path';
 import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 import { login, authMiddleware, verifyWsAuth, COOKIE_NAME, MAX_AGE_HOURS } from './auth.js';
-import { startChat, stopChat, isActive, getSessions, getMessages, AVAILABLE_MODELS, BASE_REPO } from './chat.js';
+import {
+  startChat,
+  stopChat,
+  isActive,
+  getSessions,
+  getMessages,
+  AVAILABLE_MODELS,
+  BASE_REPO,
+} from './chat.js';
 import { cleanupStaleWorktrees, listWorktrees } from './worktree.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -23,7 +31,9 @@ const indexHtmlPath = join(__dirname, '..', 'frontend', 'dist', 'index.html');
 let buildHash = '';
 try {
   buildHash = createHash('md5').update(readFileSync(indexHtmlPath)).digest('hex').slice(0, 8);
-} catch {}
+} catch {
+  // Frontend not built yet — hash stays empty
+}
 app.get('/api/version', (_req, res) => res.json({ hash: buildHash }));
 
 // Token-auth endpoint for ntfy action buttons (before cookie auth middleware)
@@ -59,7 +69,10 @@ app.use('/api', authMiddleware);
 app.post('/api/auth/login', async (req, res) => {
   const { passphrase } = req.body;
   const token = await login(passphrase);
-  if (!token) { res.status(401).json({ error: 'Invalid passphrase' }); return; }
+  if (!token) {
+    res.status(401).json({ error: 'Invalid passphrase' });
+    return;
+  }
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: 'strict',
@@ -99,7 +112,9 @@ const frontendDist = join(__dirname, '..', 'frontend', 'dist');
 app.use(express.static(frontendDist));
 app.get('*', (_req, res, next) => {
   if (_req.path.startsWith('/api') || _req.path.startsWith('/ws')) return next();
-  res.sendFile(join(frontendDist, 'index.html'), (err) => { if (err) next(); });
+  res.sendFile(join(frontendDist, 'index.html'), (err) => {
+    if (err) next();
+  });
 });
 
 // WebSocket for chat
@@ -108,7 +123,10 @@ const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
 
 server.on('upgrade', async (req, socket, head) => {
   const url = new URL(req.url || '', `http://${req.headers.host}`);
-  if (!url.pathname.startsWith('/ws/chat')) { socket.destroy(); return; }
+  if (!url.pathname.startsWith('/ws/chat')) {
+    socket.destroy();
+    return;
+  }
 
   const authed = await verifyWsAuth(req.headers.cookie);
   if (!authed) {
@@ -131,7 +149,12 @@ function handleChatWs(ws: WebSocket, clientId: string) {
 
       if (msg.type === 'send' && msg.prompt) {
         if (isActive(clientId)) {
-          ws.send(JSON.stringify({ type: 'error', error: 'A query is already running. Wait for it to finish or stop it.' }));
+          ws.send(
+            JSON.stringify({
+              type: 'error',
+              error: 'A query is already running. Wait for it to finish or stop it.',
+            }),
+          );
           return;
         }
         startChat(ws, clientId, msg.prompt, {
@@ -159,5 +182,9 @@ function handleChatWs(ws: WebSocket, clientId: string) {
 
 server.listen(PORT, () => {
   console.log(`Chat Agent running on http://localhost:${PORT}`);
-  try { cleanupStaleWorktrees(BASE_REPO); } catch {}
+  try {
+    cleanupStaleWorktrees(BASE_REPO);
+  } catch {
+    // Non-fatal — stale worktrees will be cleaned next restart
+  }
 });

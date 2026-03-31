@@ -24,14 +24,16 @@ function buildQuickActions(repoPath: string): QuickAction[] {
       label: 'Morning Briefing',
       desc: 'Calendar, email, Jira',
       path: '/chat',
-      prompt: 'Run `python command_center/morning_briefing.py` and summarize the output. I want to discuss it after.',
+      prompt:
+        'Run `python command_center/morning_briefing.py` and summarize the output. I want to discuss it after.',
       extraTools: 'Bash',
     },
     {
       label: 'Team Status',
       desc: 'Manager status view',
       path: '/chat',
-      prompt: 'Run `python status.py` and give me the highlights. I want to discuss the results after.',
+      prompt:
+        'Run `python status.py` and give me the highlights. I want to discuss the results after.',
       extraTools: 'Bash',
     },
     {
@@ -48,7 +50,8 @@ function buildQuickActions(repoPath: string): QuickAction[] {
       label: 'Jira Inbox',
       desc: 'Team inbox triage',
       path: '/chat',
-      prompt: 'Run `python inbox.py --save` and summarize what needs my attention. I want to discuss it after.',
+      prompt:
+        'Run `python inbox.py --save` and summarize what needs my attention. I want to discuss it after.',
       cwd: `${repoPath}/team_home`,
       extraTools: 'Bash',
     });
@@ -76,12 +79,18 @@ export function SessionList() {
 
   useEffect(() => {
     Promise.all([
-      fetch('/api/sessions').then(r => r.json()).catch(() => []),
-      fetch('/api/config').then(r => r.json()).catch(() => ({})),
-    ]).then(([sessData, config]) => {
-      setSessions(sessData);
-      if (config.repoPath) setQuickActions(buildQuickActions(config.repoPath));
-    }).finally(() => setLoading(false));
+      fetch('/api/sessions')
+        .then((r) => r.json())
+        .catch(() => []),
+      fetch('/api/config')
+        .then((r) => r.json())
+        .catch(() => ({})),
+    ])
+      .then(([sessData, config]) => {
+        setSessions(sessData);
+        if (config.repoPath) setQuickActions(buildQuickActions(config.repoPath));
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   function handleQuickAction(action: QuickAction) {
@@ -97,7 +106,9 @@ export function SessionList() {
     <div className="session-list-page">
       <header className="session-list-header">
         <h1>Mitzo</h1>
-        <button className="new-chat-btn" onClick={() => navigate('/chat')}>New Chat</button>
+        <button className="new-chat-btn" onClick={() => navigate('/chat')}>
+          New Chat
+        </button>
       </header>
 
       <div className="quick-grid">
@@ -116,30 +127,18 @@ export function SessionList() {
 
       {loading && <p className="session-list-empty">Loading...</p>}
 
-      {!loading && sessions.length === 0 && (
-        <p className="session-list-empty">No past sessions</p>
-      )}
+      {!loading && sessions.length === 0 && <p className="session-list-empty">No past sessions</p>}
 
       {!loading && sessions.length > 0 && (
         <div className="session-list">
           <div className="session-list-section-title">Recent Sessions</div>
           {sessions.map((s) => (
-            <button
-              key={s.id}
-              className="session-item"
-              onClick={() => navigate(`/chat/${s.id}`)}
-            >
+            <button key={s.id} className="session-item" onClick={() => navigate(`/chat/${s.id}`)}>
               <div className="session-item-content">
-                <div className="session-item-summary">
-                  {s.summary || 'Untitled session'}
-                </div>
+                <div className="session-item-summary">{s.summary || 'Untitled session'}</div>
                 <div className="session-item-meta">
-                  <span className="session-item-time">
-                    {formatRelativeTime(s.lastModified)}
-                  </span>
-                  {s.branch && (
-                    <span className="session-item-branch">{s.branch}</span>
-                  )}
+                  <span className="session-item-time">{formatRelativeTime(s.lastModified)}</span>
+                  {s.branch && <span className="session-item-branch">{s.branch}</span>}
                 </div>
               </div>
               <span className="session-item-chevron">›</span>

@@ -21,9 +21,30 @@ export function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route path="/" element={<ProtectedRoute><SessionList /></ProtectedRoute>} />
-        <Route path="/chat" element={<ProtectedRoute><ChatView /></ProtectedRoute>} />
-        <Route path="/chat/:sessionId" element={<ProtectedRoute><ChatView /></ProtectedRoute>} />
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <SessionList />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/chat"
+          element={
+            <ProtectedRoute>
+              <ChatView />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/chat/:sessionId"
+          element={
+            <ProtectedRoute>
+              <ChatView />
+            </ProtectedRoute>
+          }
+        />
       </Routes>
     </BrowserRouter>
   );

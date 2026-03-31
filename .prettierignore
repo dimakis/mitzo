@@ -1,0 +1,9 @@
+dist/
+frontend/dist/
+node_modules/
+frontend/node_modules/
+mcp-server/
+package-lock.json
+*.db
+*.db-wal
+*.db-shm
