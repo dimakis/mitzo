@@ -2,11 +2,12 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { MessageBubble } from '../components/MessageBubble';
 import { PermissionBanner } from '../components/PermissionBanner';
-import { ChatInput } from '../components/ChatInput';
+import { ChatInput, type ImageAttachment } from '../components/ChatInput';
 
 export interface Message {
   role: 'user' | 'assistant' | 'tool';
   text?: string;
+  images?: string[];
   toolName?: string;
   toolId?: string;
   toolInput?: string;
@@ -202,16 +203,20 @@ export function ChatView() {
 
   const initialPrompt = searchParams.get('prompt') || undefined;
 
-  function sendMessage(text: string) {
+  function sendMessage(text: string, images?: ImageAttachment[]) {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-    setMessages((prev) => [...prev, { role: 'user', text }]);
+    const previews = images?.map((img) => img.preview);
+    setMessages((prev) => [...prev, { role: 'user', text, images: previews }]);
     setRunning(true);
     streamBuf.current = '';
 
     const payload: Record<string, any> = { type: 'send', prompt: text, model, mode };
     if (currentSessionId) payload.resume = currentSessionId;
+    if (images?.length) {
+      payload.images = images.map((img) => ({ data: img.data, mediaType: img.mediaType }));
+    }
 
     const cwd = searchParams.get('cwd');
     if (cwd) payload.cwd = cwd;

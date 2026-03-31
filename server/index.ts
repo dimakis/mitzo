@@ -164,6 +164,7 @@ function handleChatWs(ws: WebSocket, clientId: string) {
           extraTools: msg.extraTools,
           mode: msg.mode,
           worktree: msg.worktree,
+          images: msg.images,
         });
       } else if (msg.type === 'stop') {
         stopChat(clientId);

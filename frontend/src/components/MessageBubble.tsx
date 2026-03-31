@@ -13,7 +13,14 @@ export function MessageBubble({ message }: Props) {
   if (message.role === 'user') {
     return (
       <div className="msg-bubble msg-bubble--user">
-        <div className="msg-bubble-content">{message.text}</div>
+        {message.images && message.images.length > 0 && (
+          <div className="msg-bubble-images">
+            {message.images.map((src, i) => (
+              <img key={i} src={src} alt={`Attachment ${i + 1}`} className="msg-bubble-img" />
+            ))}
+          </div>
+        )}
+        {message.text && <div className="msg-bubble-content">{message.text}</div>}
       </div>
     );
   }

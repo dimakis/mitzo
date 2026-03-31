@@ -1,5 +1,7 @@
 import { query, listSessions, getSessionMessages } from '@anthropic-ai/claude-agent-sdk';
 import type { WebSocket } from 'ws';
+import { writeFileSync, mkdirSync } from 'fs';
+import { join } from 'path';
 import { registerPending, resolvePending, removePending, hasPending } from './permissions.js';
 import { sendPermissionNotification, isConfigured as ntfyConfigured } from './notify.js';
 import { createWorktree, removeWorktree } from './worktree.js';
@@ -65,6 +67,7 @@ export async function startChat(
     extraTools?: string;
     mode?: MitzoMode;
     worktree?: boolean;
+    images?: Array<{ data: string; mediaType: string }>;
   },
 ) {
   const abortController = new AbortController();
@@ -91,6 +94,33 @@ export async function startChat(
     }
   }
 
+  // Save attached images to cwd and augment the prompt with file paths
+  let fullPrompt = prompt;
+  if (options.images?.length) {
+    const imgDir = join(cwd, '.mitzo-images');
+    mkdirSync(imgDir, { recursive: true });
+
+    const paths: string[] = [];
+    const extMap: Record<string, string> = {
+      'image/jpeg': '.jpg',
+      'image/png': '.png',
+      'image/gif': '.gif',
+      'image/webp': '.webp',
+    };
+
+    for (let i = 0; i < options.images.length; i++) {
+      const img = options.images[i];
+      const ext = extMap[img.mediaType] || '.jpg';
+      const filename = `image-${Date.now()}-${i}${ext}`;
+      const filePath = join(imgDir, filename);
+      writeFileSync(filePath, Buffer.from(img.data, 'base64'));
+      paths.push(filePath);
+    }
+
+    const imageRefs = paths.map((p) => `- ${p}`).join('\n');
+    fullPrompt = `${prompt}\n\nI've attached ${paths.length} image(s). Read them using the Read tool:\n${imageRefs}`;
+  }
+
   const baseAllowed = ['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch'];
   const extraTools = options.extraTools ? options.extraTools.split(',').map((t) => t.trim()) : [];
 
@@ -104,7 +134,7 @@ export async function startChat(
   };
 
   const q = query({
-    prompt,
+    prompt: fullPrompt,
     options: {
       cwd,
       env: sdkEnv(),
