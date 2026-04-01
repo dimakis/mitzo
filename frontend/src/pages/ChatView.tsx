@@ -37,6 +37,7 @@ export function ChatView() {
   const wasRunning = useRef(false);
   const currentSessionIdRef = useRef(currentSessionId);
   currentSessionIdRef.current = currentSessionId;
+  const pendingSend = useRef<Record<string, unknown> | null>(null);
 
   const isNearBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -262,16 +263,26 @@ export function ChatView() {
                 return [...prev, { role: 'assistant' as const, text }];
               });
             }
-            setRunning(false);
-            wasRunning.current = false;
             if (msg.sessionId && !currentSessionIdRef.current) {
               setCurrentSessionId(msg.sessionId as string);
+            }
+            const pending = pendingSend.current;
+            if (pending) {
+              pendingSend.current = null;
+              setRunning(true);
+              wasRunning.current = true;
+              streamBuf.current = '';
+              ws.send(JSON.stringify(pending));
+            } else {
+              setRunning(false);
+              wasRunning.current = false;
             }
             break;
           }
 
           case 'error':
             streamBuf.current = '';
+            pendingSend.current = null;
             setRunning(false);
             wasRunning.current = false;
             if ((msg.error as string)?.includes('No conversation found')) {
@@ -314,7 +325,7 @@ export function ChatView() {
       ws.onerror = () => {};
     }
 
-    const initTimer = setTimeout(connectWs, 100);
+    const initTimer = setTimeout(connectWs, 0);
 
     const handleVisibility = () => {
       if (
@@ -337,7 +348,7 @@ export function ChatView() {
 
   const initialPrompt = searchParams.get('prompt') || undefined;
 
-  function sendMessage(text: string, images?: ImageAttachment[]) {
+  function sendMessage(text: string, images?: ImageAttachment[]): boolean {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       setMessages((prev) => [
@@ -347,18 +358,8 @@ export function ChatView() {
           text: '**Connection lost.** Reconnecting — try again in a moment.',
         },
       ]);
-      return;
+      return false;
     }
-
-    if (running) {
-      ws.send(JSON.stringify({ type: 'stop' }));
-    }
-
-    const previews = images?.map((img) => img.preview);
-    setMessages((prev) => [...prev, { role: 'user', text, images: previews }]);
-    setRunning(true);
-    wasRunning.current = true;
-    streamBuf.current = '';
 
     const payload: Record<string, unknown> = { type: 'send', prompt: text, model, mode };
     if (currentSessionId) payload.resume = currentSessionId;
@@ -372,8 +373,26 @@ export function ChatView() {
     const extraTools = searchParams.get('extraTools');
     if (extraTools) payload.extraTools = extraTools;
 
+    if (running) {
+      // Queue the send to fire once the current run finishes stopping
+      pendingSend.current = payload;
+      ws.send(JSON.stringify({ type: 'stop' }));
+      const previews = images?.map((img) => img.preview);
+      setMessages((prev) => [...prev, { role: 'user', text, images: previews }]);
+      streamBuf.current = '';
+      forceScrollToBottom();
+      return true;
+    }
+
+    const previews = images?.map((img) => img.preview);
+    setMessages((prev) => [...prev, { role: 'user', text, images: previews }]);
+    setRunning(true);
+    wasRunning.current = true;
+    streamBuf.current = '';
+
     ws.send(JSON.stringify(payload));
     forceScrollToBottom();
+    return true;
   }
 
   const handleStop = useCallback(() => {

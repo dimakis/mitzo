@@ -10,7 +10,7 @@ import type { ImageAttachment } from '../types/chat';
 import { resizeImage } from '../lib/resizeImage';
 
 interface Props {
-  onSend: (text: string, images?: ImageAttachment[]) => void;
+  onSend: (text: string, images?: ImageAttachment[]) => boolean;
   onStop: () => void;
   running: boolean;
   initialText?: string;
@@ -53,14 +53,19 @@ export function ChatInput({ onSend, onStop, running, initialText }: Props) {
 
   function handleSend() {
     const trimmed = text.trim();
-    if ((!trimmed && images.length === 0) || running) return;
-    onSend(trimmed || 'What do you see in this image?', images.length > 0 ? images : undefined);
-    setText('');
-    setImages([]);
-    requestAnimationFrame(() => {
-      autoResize();
-      textareaRef.current?.focus();
-    });
+    if (!trimmed && images.length === 0) return;
+    const sent = onSend(
+      trimmed || 'What do you see in this image?',
+      images.length > 0 ? images : undefined,
+    );
+    if (sent) {
+      setText('');
+      setImages([]);
+      requestAnimationFrame(() => {
+        autoResize();
+        textareaRef.current?.focus();
+      });
+    }
   }
 
   function handleKeyDown(e: KeyboardEvent) {
