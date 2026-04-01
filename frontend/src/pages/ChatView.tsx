@@ -74,8 +74,27 @@ export function ChatView() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const intentionalClose = useRef(false);
+  const lastPayload = useRef<string | null>(null);
+  const serverClientId = useRef<string | null>(null);
+  const wasRunning = useRef(false);
+
+  const isNearBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+  }, []);
 
   const scrollToBottom = useCallback(() => {
+    if (!isNearBottom()) return;
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
+    });
+  }, [isNearBottom]);
+
+  const forceScrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({
         top: scrollRef.current.scrollHeight,
@@ -84,22 +103,25 @@ export function ChatView() {
     });
   }, []);
 
-  const finalizeStream = useCallback(() => {
-    if (!streamBuf.current) return;
-    const text = streamBuf.current;
-    streamBuf.current = '';
-    setMessages((prev) => {
-      const last = prev[prev.length - 1];
-      if (last?.role === 'assistant' && last.streaming) {
-        return [...prev.slice(0, -1), { role: 'assistant', text }];
-      }
-      return [...prev, { role: 'assistant', text }];
-    });
-  }, []);
-
-  // Load existing session history
+  // Restore session history: try sessionStorage first, then server
   useEffect(() => {
     if (!sessionId) return;
+
+    const cacheKey = `mitzo-chat-${sessionId}`;
+    const cached = sessionStorage.getItem(cacheKey);
+    if (cached) {
+      try {
+        const restored = JSON.parse(cached) as Message[];
+        if (restored.length > 0) {
+          setMessages(restored);
+          setTimeout(forceScrollToBottom, 100);
+          return;
+        }
+      } catch {
+        // Corrupted cache — fall through to server
+      }
+    }
+
     fetch(`/api/sessions/${sessionId}/messages`)
       .then((r) => (r.ok ? r.json() : []))
       .then(
@@ -131,129 +153,190 @@ export function ChatView() {
           }
           if (loaded.length > 0) {
             setMessages(loaded);
-            setTimeout(scrollToBottom, 100);
+            setTimeout(forceScrollToBottom, 100);
           }
         },
       )
       .catch(() => {});
-  }, [sessionId, scrollToBottom]);
+  }, [sessionId, forceScrollToBottom]);
 
-  const connectWs = useCallback(() => {
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/ws/chat`);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      setConnected(true);
-    };
-
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-
-      switch (msg.type) {
-        case 'session_id':
-          setCurrentSessionId(msg.sessionId);
-          break;
-
-        case 'text_delta':
-          streamBuf.current += msg.text;
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (last?.role === 'assistant' && last.streaming) {
-              return [
-                ...prev.slice(0, -1),
-                { role: 'assistant', text: streamBuf.current, streaming: true },
-              ];
-            }
-            return [...prev, { role: 'assistant', text: streamBuf.current, streaming: true }];
-          });
-          scrollToBottom();
-          break;
-
-        case 'text':
-          streamBuf.current = '';
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (last?.role === 'assistant' && last.streaming) {
-              return [...prev.slice(0, -1), { role: 'assistant', text: msg.text }];
-            }
-            return [...prev, { role: 'assistant', text: msg.text }];
-          });
-          scrollToBottom();
-          break;
-
-        case 'tool_call':
-          finalizeStream();
-          setMessages((prev) => [
-            ...prev,
-            {
-              role: 'tool',
-              toolName: msg.toolName,
-              toolId: msg.toolId,
-              toolInput: msg.input,
-            },
-          ]);
-          scrollToBottom();
-          break;
-
-        case 'tool_result':
-          setMessages((prev) =>
-            prev.map((m) => (m.toolId === msg.toolId ? { ...m, toolResult: msg.result } : m)),
-          );
-          scrollToBottom();
-          break;
-
-        case 'permission_request':
-          setPermission({
-            permId: msg.permId,
-            toolName: msg.toolName,
-            toolInput: msg.toolInput,
-          });
-          break;
-
-        case 'permission_timeout':
-          if (permission?.permId === msg.permId) {
-            setPermission(null);
-          }
-          break;
-
-        case 'done':
-          finalizeStream();
-          setRunning(false);
-          if (msg.sessionId) setCurrentSessionId(msg.sessionId);
-          break;
-
-        case 'error':
-          finalizeStream();
-          setRunning(false);
-          setMessages((prev) => [...prev, { role: 'assistant', text: `**Error:** ${msg.error}` }]);
-          scrollToBottom();
-          break;
-      }
-    };
-
-    ws.onclose = () => {
-      setConnected(false);
-      setRunning(false);
-      wsRef.current = null;
-
-      if (!intentionalClose.current) {
-        const delay = Math.min(2000 + Math.random() * 1000, 5000);
-        reconnectTimer.current = setTimeout(connectWs, delay);
-      }
-    };
-
-    ws.onerror = () => {
-      ws.close();
-    };
-  }, [finalizeStream, scrollToBottom]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Persist messages to sessionStorage on every update
+  useEffect(() => {
+    if (currentSessionId && messages.length > 0) {
+      sessionStorage.setItem(`mitzo-chat-${currentSessionId}`, JSON.stringify(messages));
+    }
+  }, [messages, currentSessionId]);
 
   useEffect(() => {
     intentionalClose.current = false;
-    connectWs();
+
+    function connectWs() {
+      if (wsRef.current?.readyState === WebSocket.OPEN) return;
+      if (wsRef.current?.readyState === WebSocket.CONNECTING) return;
+
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const ws = new WebSocket(`${proto}://${location.host}/ws/chat`);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        setConnected(true);
+      };
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+
+        switch (msg.type) {
+          case 'client_id':
+            // Server assigned a new clientId for this WS.
+            // If we had an active session on a previous WS, try to reattach.
+            if (wasRunning.current && serverClientId.current) {
+              ws.send(
+                JSON.stringify({
+                  type: 'reattach',
+                  clientId: serverClientId.current,
+                }),
+              );
+            }
+            serverClientId.current = msg.clientId;
+            break;
+
+          case 'reattached':
+            serverClientId.current = msg.clientId;
+            setRunning(true);
+            if (msg.sessionId) setCurrentSessionId(msg.sessionId);
+            break;
+
+          case 'reattach_failed':
+            wasRunning.current = false;
+            setRunning(false);
+            break;
+
+          case 'session_id':
+            setCurrentSessionId(msg.sessionId);
+            break;
+
+          case 'text_delta':
+            streamBuf.current += msg.text;
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (last?.role === 'assistant' && last.streaming) {
+                return [
+                  ...prev.slice(0, -1),
+                  { role: 'assistant', text: streamBuf.current, streaming: true },
+                ];
+              }
+              return [...prev, { role: 'assistant', text: streamBuf.current, streaming: true }];
+            });
+            scrollToBottom();
+            break;
+
+          case 'text':
+            streamBuf.current = '';
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (last?.role === 'assistant' && last.streaming) {
+                return [...prev.slice(0, -1), { role: 'assistant', text: msg.text }];
+              }
+              return [...prev, { role: 'assistant', text: msg.text }];
+            });
+            scrollToBottom();
+            break;
+
+          case 'tool_call':
+            streamBuf.current = '';
+            setMessages((prev) => {
+              const newPrev = streamBuf.current ? [...prev] : prev;
+              return [
+                ...newPrev,
+                { role: 'tool', toolName: msg.toolName, toolId: msg.toolId, toolInput: msg.input },
+              ];
+            });
+            scrollToBottom();
+            break;
+
+          case 'tool_result':
+            setMessages((prev) =>
+              prev.map((m) => (m.toolId === msg.toolId ? { ...m, toolResult: msg.result } : m)),
+            );
+            scrollToBottom();
+            break;
+
+          case 'permission_request':
+            setPermission({
+              permId: msg.permId,
+              toolName: msg.toolName,
+              toolInput: msg.toolInput,
+            });
+            break;
+
+          case 'permission_timeout':
+            setPermission((prev) => (prev?.permId === msg.permId ? null : prev));
+            break;
+
+          case 'done':
+            if (streamBuf.current) {
+              const text = streamBuf.current;
+              streamBuf.current = '';
+              setMessages((prev) => {
+                const last = prev[prev.length - 1];
+                if (last?.role === 'assistant' && last.streaming) {
+                  return [...prev.slice(0, -1), { role: 'assistant', text }];
+                }
+                return [...prev, { role: 'assistant', text }];
+              });
+            }
+            setRunning(false);
+            wasRunning.current = false;
+            if (msg.sessionId) setCurrentSessionId(msg.sessionId);
+            break;
+
+          case 'error':
+            streamBuf.current = '';
+            setRunning(false);
+            wasRunning.current = false;
+            if (msg.error?.includes('No conversation found')) {
+              setCurrentSessionId(undefined);
+              setMessages((prev) => [
+                ...prev,
+                {
+                  role: 'assistant',
+                  text: 'Session expired. Send your message again to start fresh.',
+                },
+              ]);
+            } else {
+              setMessages((prev) => [
+                ...prev,
+                { role: 'assistant', text: `**Error:** ${msg.error}` },
+              ]);
+            }
+            scrollToBottom();
+            break;
+        }
+      };
+
+      ws.onclose = () => {
+        setConnected(false);
+        // Don't setRunning(false) — session may still be alive server-side
+        wsRef.current = null;
+
+        if (!intentionalClose.current) {
+          const delay = 2000 + Math.random() * 2000;
+          reconnectTimer.current = setTimeout(connectWs, delay);
+        }
+      };
+
+      ws.onerror = () => {
+        // onclose will fire after this
+      };
+    }
+
+    const initTimer = setTimeout(connectWs, 100);
 
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible' && !wsRef.current) {
+      if (
+        document.visibilityState === 'visible' &&
+        (!wsRef.current || wsRef.current.readyState > WebSocket.OPEN)
+      ) {
         connectWs();
       }
     };
@@ -261,11 +344,12 @@ export function ChatView() {
 
     return () => {
       intentionalClose.current = true;
+      clearTimeout(initTimer);
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
       wsRef.current?.close();
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [connectWs]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const initialPrompt = searchParams.get('prompt') || undefined;
 
@@ -274,15 +358,15 @@ export function ChatView() {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', text: '**Connection lost.** Reconnecting...' },
+        { role: 'assistant', text: '**Connection lost.** Reconnecting — try again in a moment.' },
       ]);
-      connectWs();
       return;
     }
 
     const previews = images?.map((img) => img.preview);
     setMessages((prev) => [...prev, { role: 'user', text, images: previews }]);
     setRunning(true);
+    wasRunning.current = true;
     streamBuf.current = '';
 
     const payload: Record<string, any> = { type: 'send', prompt: text, model, mode };
@@ -297,12 +381,15 @@ export function ChatView() {
     const extraTools = searchParams.get('extraTools');
     if (extraTools) payload.extraTools = extraTools;
 
-    ws.send(JSON.stringify(payload));
-    scrollToBottom();
+    const payloadStr = JSON.stringify(payload);
+    lastPayload.current = payloadStr;
+    ws.send(payloadStr);
+    forceScrollToBottom();
   }
 
   function handleStop() {
     wsRef.current?.send(JSON.stringify({ type: 'stop' }));
+    wasRunning.current = false;
   }
 
   function handlePermission(
@@ -331,7 +418,12 @@ export function ChatView() {
         <button className="chat-header-back" onClick={() => navigate('/')}>
           &larr;
         </button>
-        {!connected && (
+        {!connected && running && (
+          <span className="chat-header-offline" title="Reconnecting — session still active">
+            !
+          </span>
+        )}
+        {!connected && !running && (
           <span className="chat-header-offline" title="Reconnecting...">
             !
           </span>

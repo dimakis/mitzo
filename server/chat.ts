@@ -1,15 +1,18 @@
 import { query, listSessions, getSessionMessages } from '@anthropic-ai/claude-agent-sdk';
 import type { WebSocket } from 'ws';
-import { writeFileSync, mkdirSync } from 'fs';
+import { writeFileSync, mkdirSync, readdirSync } from 'fs';
 import { join } from 'path';
+import { homedir } from 'os';
 import { registerPending, resolvePending, removePending, hasPending } from './permissions.js';
 import { sendPermissionNotification, isConfigured as ntfyConfigured } from './notify.js';
-import { createWorktree, removeWorktree } from './worktree.js';
+import { createWorktree } from './worktree.js';
+import { SessionRegistry, type MitzoMode } from './session-registry.js';
+import { summarizeToolInput } from './tool-summary.js';
+
+export type { MitzoMode } from './session-registry.js';
 
 export const BASE_REPO = process.env.REPO_PATH || '';
 const WORKTREE_ENABLED = process.env.WORKTREE_ENABLED !== 'false';
-
-export type MitzoMode = 'ask' | 'agent' | 'auto';
 
 const MODE_TO_SDK: Record<MitzoMode, string> = {
   ask: 'plan',
@@ -17,17 +20,7 @@ const MODE_TO_SDK: Record<MitzoMode, string> = {
   auto: 'bypassPermissions',
 };
 
-interface ActiveSession {
-  queryInstance: any;
-  abortController: AbortController;
-  sessionId?: string;
-  ws: WebSocket;
-  sessionAllowList: Set<string>;
-  mode: MitzoMode;
-  worktreePath?: string;
-}
-
-const activeSessions = new Map<string, ActiveSession>();
+export const registry = new SessionRegistry();
 
 const VENV_PATHS = [
   `${BASE_REPO}/jira_process/.venv/bin`,
@@ -56,6 +49,12 @@ export const AVAILABLE_MODELS = [
   { id: 'claude-haiku-4-5', label: 'Haiku 4.5', desc: 'Fastest' },
 ];
 
+function send(ws: WebSocket, data: unknown) {
+  if (ws.readyState === ws.OPEN) {
+    ws.send(JSON.stringify(data));
+  }
+}
+
 export async function startChat(
   ws: WebSocket,
   clientId: string,
@@ -81,8 +80,9 @@ export async function startChat(
     WORKTREE_ENABLED && options.worktree !== false && !options.cwd && !options.resume && BASE_REPO;
 
   if (useWorktree) {
+    const wtId = `wt-${Date.now().toString(36)}`;
     try {
-      worktreePath = createWorktree(clientId, BASE_REPO);
+      worktreePath = createWorktree(wtId, BASE_REPO);
       cwd = worktreePath;
       send(ws, { type: 'worktree', path: worktreePath });
     } catch (err: any) {
@@ -94,7 +94,6 @@ export async function startChat(
     }
   }
 
-  // Save attached images to cwd and augment the prompt with file paths
   let fullPrompt = prompt;
   if (options.images?.length) {
     const imgDir = join(cwd, '.mitzo-images');
@@ -124,14 +123,13 @@ export async function startChat(
   const baseAllowed = ['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch'];
   const extraTools = options.extraTools ? options.extraTools.split(',').map((t) => t.trim()) : [];
 
-  const session: ActiveSession = {
-    queryInstance: null,
-    abortController,
+  registry.register(clientId, {
     ws,
-    sessionAllowList,
+    abortController,
     mode,
+    sessionAllowList,
     worktreePath,
-  };
+  });
 
   const q = query({
     prompt: fullPrompt,
@@ -147,11 +145,14 @@ export async function startChat(
       ...(options.model ? { model: options.model } : {}),
       ...(options.resume ? { resume: options.resume } : {}),
       canUseTool: async (toolName: string, toolInput: Record<string, unknown>, opts: any) => {
+        const session = registry.get(clientId);
+        if (!session) return { behavior: 'deny' as const, message: 'Session not found' };
+
         if (session.mode === 'auto') {
           return { behavior: 'allow' as const };
         }
 
-        if (sessionAllowList.has(toolName)) {
+        if (session.sessionAllowList.has(toolName)) {
           return { behavior: 'allow' as const, decisionClassification: 'user_permanent' as const };
         }
 
@@ -162,14 +163,14 @@ export async function startChat(
 
           const wrappedResolve = (result: any) => {
             if (result.behavior === 'allow' && result.decisionClassification === 'user_permanent') {
-              sessionAllowList.add(toolName);
+              session.sessionAllowList.add(toolName);
             }
             resolve(result);
           };
 
           registerPending(permId, toolName, wrappedResolve, opts?.suggestions);
 
-          send(ws, {
+          send(session.ws, {
             type: 'permission_request',
             permId,
             toolName,
@@ -188,7 +189,7 @@ export async function startChat(
             if (hasPending(permId)) {
               removePending(permId);
               resolve({ behavior: 'deny' as const, message: 'Permission request timed out' });
-              send(ws, { type: 'permission_timeout', permId });
+              send(session.ws, { type: 'permission_timeout', permId });
             }
           }, 120_000);
         });
@@ -196,8 +197,8 @@ export async function startChat(
     },
   });
 
+  const session = registry.get(clientId)!;
   session.queryInstance = q;
-  activeSessions.set(clientId, session);
 
   const messageHandler = (raw: any) => {
     try {
@@ -205,8 +206,8 @@ export async function startChat(
       if (msg.type === 'permission_response' && msg.permId) {
         resolvePending(msg.permId, msg.decision || 'deny');
       } else if (msg.type === 'set_mode' && msg.mode) {
-        session.mode = msg.mode;
-        send(ws, { type: 'mode_changed', mode: msg.mode });
+        registry.setMode(clientId, msg.mode);
+        send(session.ws, { type: 'mode_changed', mode: msg.mode });
       }
     } catch {
       // Malformed WS message — ignore
@@ -216,15 +217,17 @@ export async function startChat(
 
   try {
     for await (const msg of q) {
-      if (ws.readyState !== ws.OPEN) break;
+      const currentSession = registry.get(clientId);
+      if (!currentSession) break;
+      const currentWs = currentSession.ws;
 
       if (msg.type === 'assistant') {
         if (msg.message?.content) {
           for (const block of msg.message.content) {
             if (block.type === 'text') {
-              send(ws, { type: 'text', text: block.text });
+              send(currentWs, { type: 'text', text: block.text });
             } else if (block.type === 'tool_use') {
-              send(ws, {
+              send(currentWs, {
                 type: 'tool_call',
                 toolName: block.name,
                 toolId: block.id,
@@ -233,19 +236,19 @@ export async function startChat(
             }
           }
         }
-        if (!session.sessionId && msg.session_id) {
-          session.sessionId = msg.session_id;
-          send(ws, { type: 'session_id', sessionId: msg.session_id });
+        if (!currentSession.sessionId && msg.session_id) {
+          registry.setSessionId(clientId, msg.session_id);
+          send(currentWs, { type: 'session_id', sessionId: msg.session_id });
         }
       } else if (msg.type === 'result') {
         if (msg.session_id) {
-          send(ws, { type: 'session_id', sessionId: msg.session_id });
+          send(currentWs, { type: 'session_id', sessionId: msg.session_id });
         }
-        send(ws, { type: 'done', sessionId: msg.session_id });
+        send(currentWs, { type: 'done', sessionId: msg.session_id });
       } else if (msg.type === 'stream_event') {
         const evt = msg.event;
         if (evt?.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
-          send(ws, { type: 'text_delta', text: evt.delta.text });
+          send(currentWs, { type: 'text_delta', text: evt.delta.text });
         }
       } else if (msg.type === 'user' && msg.tool_use_result !== undefined) {
         const content = (msg.message as any)?.content;
@@ -259,7 +262,7 @@ export async function startChat(
                   if (c.type === 'text') resultText += c.text;
                 }
               }
-              send(ws, {
+              send(currentWs, {
                 type: 'tool_result',
                 toolId: block.tool_use_id || '',
                 result: resultText.slice(0, 2000),
@@ -270,61 +273,99 @@ export async function startChat(
       }
     }
   } catch (err: any) {
-    if (!abortController.signal.aborted) {
-      send(ws, { type: 'error', error: err.message || 'Unknown error' });
+    const currentSession = registry.get(clientId);
+    if (currentSession && !abortController.signal.aborted) {
+      send(currentSession.ws, { type: 'error', error: err.message || 'Unknown error' });
     }
   } finally {
     ws.removeListener('message', messageHandler);
-    activeSessions.delete(clientId);
-    if (session.worktreePath) {
-      try {
-        removeWorktree(clientId, BASE_REPO);
-      } catch {
-        // Best-effort cleanup
+    const finalSession = registry.get(clientId);
+    if (finalSession) {
+      const finalWs = finalSession.ws;
+      registry.remove(clientId);
+      if (finalWs.readyState === finalWs.OPEN) {
+        send(finalWs, { type: 'done', sessionId: finalSession.sessionId });
       }
-    }
-    if (ws.readyState === ws.OPEN) {
-      send(ws, { type: 'done', sessionId: session.sessionId });
     }
   }
 }
 
 export function stopChat(clientId: string) {
-  const session = activeSessions.get(clientId);
-  if (session) {
-    session.abortController.abort();
-    activeSessions.delete(clientId);
-    if (session.worktreePath) {
-      try {
-        removeWorktree(clientId, BASE_REPO);
-      } catch {
-        // Best-effort cleanup
-      }
-    }
-  }
+  registry.abort(clientId);
+}
+
+export function detachChat(clientId: string) {
+  registry.detach(clientId);
+}
+
+export function reattachChat(clientId: string, ws: WebSocket): boolean {
+  return registry.reattach(clientId, ws);
 }
 
 export function isActive(clientId: string): boolean {
-  return activeSessions.has(clientId);
+  return registry.isActive(clientId);
+}
+
+function getSessionDirs(): string[] {
+  const dirs = [BASE_REPO];
+  const sessionsDir = `${BASE_REPO}-sessions`;
+  try {
+    const entries = readdirSync(sessionsDir);
+    for (const e of entries) {
+      if (e.startsWith('session-')) dirs.push(join(sessionsDir, e));
+    }
+  } catch {
+    // No sessions dir yet
+  }
+  const claudeProjects = join(homedir(), '.claude', 'projects');
+  const prefix = BASE_REPO.replace(/\//g, '-').replace(/^-/, '-');
+  const sessionsPrefix = `${prefix}-sessions-session-`;
+  try {
+    for (const entry of readdirSync(claudeProjects)) {
+      if (entry.startsWith(sessionsPrefix)) {
+        const originalPath = entry.replace(/^-/, '/').replace(/-/g, '/');
+        if (!dirs.includes(originalPath)) dirs.push(originalPath);
+      }
+    }
+  } catch {
+    // No claude projects dir
+  }
+  return dirs;
 }
 
 export async function getSessions() {
-  try {
-    const sessions = await listSessions({ dir: BASE_REPO, limit: 20 });
-    return sessions.map((s) => ({
-      id: s.sessionId,
-      summary: s.summary,
-      lastModified: s.lastModified,
-      branch: s.gitBranch,
-    }));
-  } catch {
-    return [];
+  const allSessions: Array<{ id: string; summary: string; lastModified: number; branch?: string }> =
+    [];
+  for (const dir of getSessionDirs()) {
+    try {
+      const sessions = await listSessions({ dir, limit: 20 });
+      for (const s of sessions) {
+        allSessions.push({
+          id: s.sessionId,
+          summary: s.summary,
+          lastModified: s.lastModified,
+          branch: s.gitBranch,
+        });
+      }
+    } catch {
+      // Dir might not exist — fine
+    }
   }
+  allSessions.sort((a, b) => b.lastModified - a.lastModified);
+  return allSessions.slice(0, 20);
 }
 
 export async function getMessages(sessionId: string) {
+  let messages: any[] = [];
+  for (const dir of getSessionDirs()) {
+    try {
+      messages = await getSessionMessages(sessionId, { dir, limit: 100 });
+      if (messages.length > 0) break;
+    } catch {
+      // Try next dir
+    }
+  }
   try {
-    const messages = await getSessionMessages(sessionId, { dir: BASE_REPO, limit: 100 });
     return messages
       .map((m) => {
         const content = (m.message as any)?.content;
@@ -364,35 +405,5 @@ export async function getMessages(sessionId: string) {
       .filter((m) => m.text || m.toolCalls || m.toolResults);
   } catch {
     return [];
-  }
-}
-
-function send(ws: WebSocket, data: unknown) {
-  if (ws.readyState === ws.OPEN) {
-    ws.send(JSON.stringify(data));
-  }
-}
-
-function summarizeToolInput(toolName: string, input: Record<string, unknown>): string {
-  switch (toolName) {
-    case 'Read':
-      return `${input.path || ''}`;
-    case 'Write':
-      return `${input.path || ''} (${String(input.contents || '').length} chars)`;
-    case 'Edit':
-    case 'StrReplace':
-      return `${input.path || ''}`;
-    case 'Bash':
-      return `${String(input.command || '').slice(0, 200)}`;
-    case 'Glob':
-      return `${input.glob_pattern || ''} in ${input.target_directory || 'workspace'}`;
-    case 'Grep':
-      return `/${input.pattern || ''}/ in ${input.path || 'workspace'}`;
-    case 'WebSearch':
-      return `${input.search_term || ''}`;
-    case 'WebFetch':
-      return `${input.url || ''}`;
-    default:
-      return JSON.stringify(input).slice(0, 200);
   }
 }
