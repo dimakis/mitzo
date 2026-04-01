@@ -14,7 +14,7 @@ npm run lint         # ESLint (server + frontend)
 npm run lint:fix     # ESLint with auto-fix
 npm run format       # Prettier (write)
 npm run format:check # Prettier (check only)
-npm test             # Vitest
+npm test             # Vitest (81 tests)
 ```
 
 Pre-commit hooks (husky + lint-staged) run lint and format on staged files. Conventional commit messages enforced via commitlint.
@@ -25,8 +25,12 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 
 **Backend** (`server/`) — Node.js + Express + TypeScript, run via `tsx`
 
-- `index.ts` — Express app, mounts routes, HTTP server + WebSocket. Runs stale worktree cleanup on startup.
-- `chat.ts` — Agent SDK integration. Each chat session gets an isolated git worktree (see below). Manages permission handling, mode switching, and streaming.
+- `index.ts` — Express app, mounts routes, HTTP server + WebSocket. Sends `client_id` on WS connect for session reattach. Runs stale worktree cleanup on startup.
+- `chat.ts` — Agent SDK integration. Manages session lifecycle via `SessionRegistry`, permission handling, mode switching, streaming. Loads MCP servers on startup. Sends `session_info` (branch, cwd, worktree flag) before SDK messages.
+- `session-registry.ts` — `SessionRegistry` class: decouples session lifecycle from WebSocket. Supports detach (WS disconnect), reattach (WS reconnect), and TTL-based abort for abandoned sessions (2 min).
+- `mcp-config.ts` — Reads MCP server configs from `~/.cursor/mcp.json` (or `MCP_CONFIG_PATH`). Filters to stdio servers, excludes disabled entries, passes to `query()`.
+- `content-blocks.ts` — Shared parsing of SDK content blocks (text, tool_use, tool_result). Used by both the streaming loop and the session history API.
+- `tool-summary.ts` — Human-readable summarization of tool inputs for the permission UI.
 - `worktree.ts` — Git worktree lifecycle: create, remove, cleanup stale, list.
 - `permissions.ts` — Permission request/response registry. Passes SDK `suggestions` through for "Always Allow".
 - `notify.ts` — ntfy push notifications for permission prompts.
@@ -34,18 +38,35 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 
 **Frontend** (`frontend/`) — React 19 + Vite + TypeScript
 
-- Three pages: `Login`, `SessionList` (quick actions + history), `ChatView` (streaming chat)
-- Auth check via `ProtectedRoute` wrapper that calls `/api/auth/check`
-- Vite dev server proxies `/api` and `/ws` to backend (port 3100)
+- `types/chat.ts` — Shared types: `Message`, `Session`, `ImageAttachment`, `PermissionRequest`, `GroupedItem`.
+- `lib/` — Shared utilities: `groupMessages`, `formatTime`, `truncate`, `resizeImage`.
+- Pages: `Login`, `SessionList` (quick actions + history + swipe-to-dismiss), `ChatView` (streaming chat + sandbox toggle + branch pill), `FileViewer` (directory browser + markdown viewer).
+- Components: `MessageBubble`, `ToolPill`, `ToolGroup`, `PermissionBanner`, `ChatInput`.
+- Auth check via `ProtectedRoute` wrapper that calls `/api/auth/check`.
+- Vite dev server proxies `/api` and `/ws` to backend (port 3100).
 
-**Worktree isolation:**
+**Session resilience:**
 
-- Each new chat session (without explicit `cwd` or `resume`) gets its own git worktree at `${REPO_PATH}-sessions/session-<clientId>/`, branched from the current HEAD of `REPO_PATH`.
-- Controlled by `WORKTREE_ENABLED` env var (default: `true`) and per-session `worktree` field in the WebSocket payload.
-- The worktree is removed when the session ends (WebSocket close or stop).
-- Stale worktrees older than 7 days are cleaned up on server startup.
-- Sessions with explicit `cwd` (e.g., quick actions targeting other repos) skip worktree creation.
-- `GET /api/worktrees` lists active worktrees for debugging.
+- WebSocket disconnect detaches (not aborts) the session via `SessionRegistry`.
+- New WebSocket can reattach to a detached session using the `client_id` sent on connect.
+- Detached sessions auto-abort after 2 minutes.
+- Frontend tracks `serverClientId` and `wasRunning` to auto-reattach on reconnect.
+
+**Worktree isolation (opt-in):**
+
+- Worktrees are off by default. Enabled per-session via the "WT" toggle in the chat header.
+- `WORKTREE_ENABLED` env var is the ceiling — if `false`, worktrees are disabled entirely.
+- When enabled: worktree created at `${REPO_PATH}-sessions/session-<id>/`, branched from HEAD.
+- Server sends `session_info` with branch name, cwd, and worktree flag. Frontend shows branch pill.
+- Stale worktrees (>7 days) cleaned up on startup.
+- Sessions with explicit `cwd` or `resume` skip worktree creation.
+
+**MCP integration:**
+
+- On startup, `loadMcpServers()` reads `~/.cursor/mcp.json` (or `MCP_CONFIG_PATH`).
+- Stdio servers are passed as `mcpServers` in the Agent SDK `query()` options.
+- Claude sessions get all configured MCP tools (Jira, GitLab, etc.) automatically.
+- `GET /api/config` exposes server names (not credentials) to the frontend.
 
 **Key conventions:**
 
@@ -53,9 +74,13 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 - Frontend and backend have separate `package.json`, `tsconfig.json`, and `node_modules`
 - `REPO_PATH` env var controls the default repo (required — set in `.env`)
 - No hardcoded machine-specific paths in source code
+- Types are in `frontend/src/types/`, not in page files
+- Components import from `types/` and `lib/`, never from page files
 
 ## Code Style
 
 - Write minimal, clean code. This project is open source — others will read and contribute to it.
 - No machine-specific paths or configuration. Everything must be generic and portable.
 - Keep files short and focused. Prefer clarity over cleverness.
+- Use `err: unknown` + `instanceof Error` checks, not `err: any`.
+- Conventional commits: `feat`, `fix`, `refactor`, `docs`, `build`, `chore`.

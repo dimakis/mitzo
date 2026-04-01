@@ -16,13 +16,14 @@ Given that deployment model, the security posture prioritizes simplicity over de
 
 ## Secrets Management
 
-| Secret                          | Storage                             | Exposure                                                                              |
-| ------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------- |
-| `AUTH_PASSPHRASE`               | `.env` (gitignored)                 | Never logged, never sent to SDK                                                       |
-| `AUTH_SECRET` (JWT signing key) | `.env` (gitignored)                 | Never logged, never sent to SDK                                                       |
-| `NTFY_AUTH_TOKEN`               | `.env` (gitignored)                 | Used in ntfy API calls and permission endpoint auth. Never sent to SDK                |
-| Vertex AI credentials           | GCP Application Default Credentials | `ANTHROPIC_VERTEX_PROJECT_ID` is a project name (not sensitive), actual auth uses ADC |
-| `REPO_PATH`                     | `.env` (gitignored)                 | Exposed to frontend via `/api/config` (non-sensitive — it's a local path)             |
+| Secret                          | Storage                             | Exposure                                                                                                                                                    |
+| ------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AUTH_PASSPHRASE`               | `.env` (gitignored)                 | Never logged, never sent to SDK                                                                                                                             |
+| `AUTH_SECRET` (JWT signing key) | `.env` (gitignored)                 | Never logged, never sent to SDK                                                                                                                             |
+| `NTFY_AUTH_TOKEN`               | `.env` (gitignored)                 | Used in ntfy API calls and permission endpoint auth. Never sent to SDK                                                                                      |
+| Vertex AI credentials           | GCP Application Default Credentials | `ANTHROPIC_VERTEX_PROJECT_ID` is a project name (not sensitive), actual auth uses ADC                                                                       |
+| `REPO_PATH`                     | `.env` (gitignored)                 | Exposed to frontend via `/api/config` (non-sensitive — it's a local path)                                                                                   |
+| MCP server credentials          | `~/.cursor/mcp.json`                | Read by `mcp-config.ts`, passed to Agent SDK subprocess. Server names (not tokens) exposed via `/api/config`. Credentials never logged or sent to frontend. |
 
 The `sdkEnv()` function in `chat.ts` explicitly deletes `AUTH_PASSPHRASE`, `AUTH_SECRET`, and `NTFY_AUTH_TOKEN` from the environment before passing it to the Agent SDK, preventing accidental exposure to Claude sessions.
 
@@ -39,11 +40,20 @@ Both are acceptable given the Tailscale-only access model.
 
 Each chat session spawns a Claude Code process via the Agent SDK with:
 
-- `cwd` set to a worktree (isolated per session) or the base repo
-- Project-level settings from `.cursor/rules/` (read from the worktree)
+- `cwd` set to the base repo (default) or a worktree (if sandbox mode is enabled)
+- Project-level settings from `.cursor/rules/` (read from the cwd)
+- MCP servers loaded from `~/.cursor/mcp.json` (stdio-type only, disabled servers excluded)
 - Environment variables with secrets stripped
 
 Claude sessions have full filesystem access within their `cwd`. This is by design — the Agent SDK's permission system (`canUseTool`) controls tool-level access, and the user approves or denies from the UI.
+
+## Session Resilience
+
+WebSocket disconnects detach (not abort) the active session via `SessionRegistry`. The Agent SDK query continues running server-side. A reconnected WebSocket can reattach within a 2-minute TTL. After the TTL, abandoned sessions are aborted and cleaned up. This prevents session state accumulation from repeated disconnects.
+
+## File Viewer
+
+The `/api/files` and `/api/files/read` endpoints restrict access to paths under `REPO_PATH` and its worktree sessions directory. Path traversal is blocked by `resolve()` + `startsWith()` checks.
 
 ## Known Limitations
 
@@ -51,3 +61,4 @@ Claude sessions have full filesystem access within their `cwd`. This is by desig
 - **No rate limiting**: brute-force passphrase attempts are possible (mitigated by Tailscale network restriction).
 - **No CSRF protection**: `sameSite: strict` mitigates most CSRF vectors, but there's no explicit CSRF token.
 - **Single-user**: no user accounts, roles, or audit logging. The passphrase is shared across all access.
+- **MCP credentials in mcp.json**: MCP server tokens (e.g., Jira API tokens) are stored in `~/.cursor/mcp.json`. This file is not managed by Mitzo — it's the user's existing Cursor configuration. Mitzo reads it but never modifies or copies it.
