@@ -1014,6 +1014,10 @@ textarea:focus {
   z-index: 200;
   transform: translateY(100%);
   animation: perm-slide-up 0.25s ease-out forwards;
+  display: flex;
+  flex-direction: column;
+  max-height: 60vh;
+  overflow: hidden;
 }
 
 @keyframes perm-slide-up {
@@ -1052,21 +1056,46 @@ textarea:focus {
   margin-bottom: 0.75rem;
 }
 
+.perm-banner-info {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+  min-height: 0;
+}
+
 .perm-banner-tool {
   font-family: var(--code-font);
   color: var(--accent);
+}
+
+.perm-banner-input {
+  font-family: var(--code-font);
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  background: var(--surface-raised, rgba(0, 0, 0, 0.15));
+  border-radius: 6px;
+  padding: 0.5rem 0.6rem;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-wrap: break-word;
+  overflow-y: auto;
+  max-height: 30vh;
 }
 
 .perm-banner-timer {
   font-size: 0.75rem;
   color: var(--text-dim);
   text-align: center;
-  margin-bottom: 0.5rem;
 }
 
 .perm-banner-actions {
   display: flex;
   gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 .perm-banner-btn {
