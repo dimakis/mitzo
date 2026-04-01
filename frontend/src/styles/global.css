@@ -93,6 +93,37 @@ textarea:focus {
   border-color: var(--accent);
 }
 
+/* ===== Mitzo Logo ===== */
+
+.mitzo-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  flex-shrink: 0;
+  min-width: unset;
+  padding: 0;
+  cursor: pointer;
+  transition: background 0.15s;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.mitzo-logo:hover {
+  background: var(--accent-hover);
+}
+
+.mitzo-logo:active {
+  transform: scale(0.95);
+}
+
 /* ===== Login ===== */
 
 .login-page {

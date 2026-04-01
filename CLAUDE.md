@@ -94,6 +94,52 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 - Types are in `frontend/src/types/`, not in page files
 - Components import from `types/` and `lib/`, never from page files
 
+## What is Mitzo?
+
+Mitzo is a web-based command center for Claude Code sessions, built on the Anthropic Agent SDK. It provides a mobile-first interface for managing AI-assisted workflows — chat sessions, file browsing/editing, worktree isolation, MCP tool integration, and quick actions.
+
+Mitzo lives at `~/tools/mitzo/` and is pointed at the `mgmt` workspace via the `REPO_PATH` env var. It is open source and designed to be portable — no hardcoded paths or machine-specific configuration.
+
+## Test-Driven Development (Required)
+
+All feature work follows TDD. This is not optional.
+
+### The Cycle
+
+1. **Write test first** — the test defines the API contract (function names, params, return types). The test file is the first artifact.
+2. **Run test — see it fail (Red)** — confirm the test fails for the right reason (`ModuleNotFoundError`, `AssertionError`, etc.). If it passes without implementation, the test is wrong.
+3. **Implement the feature** — write the minimum code to make the test pass. Follow the contract the test defined.
+4. **Run test — see it pass (Green)** — all assertions must pass. If the test fails, fix the implementation, not the test.
+5. **Refactor (if needed)** — clean up. Tests must still pass after refactoring.
+6. **Commit immediately** — stage both test and implementation files. One atomic commit with a conventional commit message. Never start the next task without committing.
+
+### Anti-patterns
+
+- Writing implementation first, then adding tests afterward.
+- Modifying test assertions to match incorrect implementation (fix the code, not the test).
+- Committing tests separately from their implementation.
+- Skipping the red phase (the test must fail first to prove it tests something real).
+- Structuring plans with "Implementation" and "Tests" as separate phases — each step is test-first.
+
+### Running Tests
+
+```bash
+npm test              # Vitest — full suite
+npm test -- --watch   # Watch mode during development
+npm test -- <path>    # Run specific test file
+```
+
+### Planning Integration
+
+When creating build plans, each step must be structured as:
+
+```
+Step N: Build <component> (test-first)
+  - Test file is the first artifact
+  - Implementation follows
+  - Both committed together
+```
+
 ## Code Style
 
 - Write minimal, clean code. This project is open source — others will read and contribute to it.

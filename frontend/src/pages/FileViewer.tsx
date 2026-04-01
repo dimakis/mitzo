@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { MitzoLogo } from '../components/MitzoLogo';
 
 interface DirEntry {
   name: string;
@@ -23,7 +24,6 @@ interface GitInfo {
 
 export function FileViewer() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
 
   const filePath = searchParams.get('path') || '';
   const dirPath = searchParams.get('dir') || '';
@@ -56,7 +56,7 @@ export function FileViewer() {
         }
       })
       .catch(() => {});
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setLoading(true);
@@ -134,8 +134,6 @@ export function FileViewer() {
       setDirty(false);
     } else if (currentDir) {
       goUp();
-    } else {
-      navigate('/');
     }
   }
 
@@ -199,9 +197,12 @@ export function FileViewer() {
   return (
     <div className="viewer-page">
       <header className="viewer-header">
-        <button className="viewer-header-back" onClick={handleBack}>
-          &larr;
-        </button>
+        <MitzoLogo />
+        {(isViewing || currentDir) && (
+          <button className="viewer-header-back" onClick={handleBack}>
+            &larr;
+          </button>
+        )}
         <span className="viewer-header-title">{isViewing ? fileName : dirName}</span>
 
         {displayBranch && <span className="viewer-header-branch">{displayBranch}</span>}

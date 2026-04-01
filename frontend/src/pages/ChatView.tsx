@@ -5,6 +5,7 @@ import { ToolPill } from '../components/ToolPill';
 import { ToolGroup } from '../components/ToolGroup';
 import { PermissionBanner } from '../components/PermissionBanner';
 import { ChatInput } from '../components/ChatInput';
+import { MitzoLogo } from '../components/MitzoLogo';
 import { groupMessages } from '../lib/groupMessages';
 import { wsSubscribe, wsSend, wsIsOpen, wsSetRunning } from '../lib/ws-pool';
 import type { Message, PermissionRequest, ImageAttachment } from '../types/chat';
@@ -358,9 +359,7 @@ export function ChatView() {
   return (
     <div className="chat-page">
       <header className="chat-header">
-        <button className="chat-header-back" onClick={() => navigate('/')}>
-          &larr;
-        </button>
+        <MitzoLogo />
         {!connected && (
           <span
             className="chat-header-offline"
