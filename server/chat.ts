@@ -333,26 +333,43 @@ function getSessionDirs(): string[] {
   return dirs;
 }
 
+const hiddenSessionIds = new Set<string>();
+
+export function hideSession(sessionId: string) {
+  hiddenSessionIds.add(sessionId);
+}
+
+export function clearHiddenSessions() {
+  hiddenSessionIds.clear();
+}
+
 export async function getSessions() {
-  const allSessions: Array<{ id: string; summary: string; lastModified: number; branch?: string }> =
-    [];
+  const seen = new Map<
+    string,
+    { id: string; summary: string; lastModified: number; branch?: string }
+  >();
   for (const dir of getSessionDirs()) {
     try {
       const sessions = await listSessions({ dir, limit: 20 });
       for (const s of sessions) {
-        allSessions.push({
-          id: s.sessionId,
-          summary: s.summary,
-          lastModified: s.lastModified,
-          branch: s.gitBranch,
-        });
+        if (hiddenSessionIds.has(s.sessionId)) continue;
+        const existing = seen.get(s.sessionId);
+        if (!existing || s.lastModified > existing.lastModified) {
+          seen.set(s.sessionId, {
+            id: s.sessionId,
+            summary: s.summary,
+            lastModified: s.lastModified,
+            branch: s.gitBranch,
+          });
+        }
       }
     } catch {
       // Dir might not exist — fine
     }
   }
-  allSessions.sort((a, b) => b.lastModified - a.lastModified);
-  return allSessions.slice(0, 20);
+  const deduped = Array.from(seen.values());
+  deduped.sort((a, b) => b.lastModified - a.lastModified);
+  return deduped.slice(0, 20);
 }
 
 export async function getMessages(sessionId: string) {

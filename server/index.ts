@@ -16,6 +16,8 @@ import {
   isActive,
   getSessions,
   getMessages,
+  hideSession,
+  clearHiddenSessions,
   AVAILABLE_MODELS,
   BASE_REPO,
   registry,
@@ -104,6 +106,16 @@ app.get('/api/sessions', async (_req, res) => {
 
 app.get('/api/sessions/:id/messages', async (req, res) => {
   res.json(await getMessages(req.params.id as string));
+});
+
+app.delete('/api/sessions/:id', (req, res) => {
+  hideSession(req.params.id as string);
+  res.json({ ok: true });
+});
+
+app.delete('/api/sessions', (_req, res) => {
+  clearHiddenSessions();
+  res.json({ ok: true });
 });
 
 app.get('/api/worktrees', (_req, res) => {
