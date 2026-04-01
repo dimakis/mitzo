@@ -14,12 +14,14 @@ export interface RepoConfig {
   quickActions: QuickAction[];
   venvPaths: string[];
   resolvedVenvPaths: string[];
+  allowedPaths: string[];
 }
 
 const EMPTY_CONFIG: RepoConfig = {
   quickActions: [],
   venvPaths: [],
   resolvedVenvPaths: [],
+  allowedPaths: [],
 };
 
 function isValidQuickAction(item: unknown): item is QuickAction {
@@ -61,5 +63,9 @@ export function loadRepoConfig(repoPath: string): RepoConfig {
 
   const resolvedVenvPaths = venvPaths.map((p) => join(repoPath, p));
 
-  return { quickActions, venvPaths, resolvedVenvPaths };
+  const allowedPaths = Array.isArray(obj.allowedPaths)
+    ? (obj.allowedPaths as unknown[]).filter((p): p is string => typeof p === 'string')
+    : [];
+
+  return { quickActions, venvPaths, resolvedVenvPaths, allowedPaths };
 }

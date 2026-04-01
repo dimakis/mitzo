@@ -140,6 +140,9 @@ function isAllowedPath(filePath: string): boolean {
   const resolved = resolve(filePath);
   if (BASE_REPO && resolved.startsWith(resolve(BASE_REPO))) return true;
   if (BASE_REPO && resolved.startsWith(resolve(`${BASE_REPO}-sessions`))) return true;
+  for (const extra of repoConfig.allowedPaths) {
+    if (resolved.startsWith(resolve(extra))) return true;
+  }
   return false;
 }
 
