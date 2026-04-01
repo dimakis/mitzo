@@ -3,8 +3,8 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
-import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
+import { readFileSync, existsSync, readdirSync, statSync } from 'fs';
+import { join, dirname, resolve, extname } from 'path';
 import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 import { login, authMiddleware, verifyWsAuth, COOKIE_NAME, MAX_AGE_HOURS } from './auth.js';
@@ -107,6 +107,65 @@ app.get('/api/worktrees', (_req, res) => {
   res.json(listWorktrees(BASE_REPO));
 });
 
+// File viewer API — restricted to REPO_PATH and its worktrees
+function isAllowedPath(filePath: string): boolean {
+  const resolved = resolve(filePath);
+  if (BASE_REPO && resolved.startsWith(resolve(BASE_REPO))) return true;
+  if (BASE_REPO && resolved.startsWith(resolve(`${BASE_REPO}-sessions`))) return true;
+  return false;
+}
+
+app.get('/api/files', (req, res) => {
+  const dir = (req.query.dir as string) || BASE_REPO;
+  if (!dir || !isAllowedPath(dir)) {
+    res.status(403).json({ error: 'Path not allowed' });
+    return;
+  }
+  if (!existsSync(dir)) {
+    res.status(404).json({ error: 'Directory not found' });
+    return;
+  }
+  try {
+    const entries = readdirSync(dir)
+      .filter((name) => !name.startsWith('.'))
+      .map((name) => {
+        const full = join(dir, name);
+        try {
+          const stat = statSync(full);
+          return { name, isDir: stat.isDirectory() };
+        } catch {
+          return { name, isDir: false };
+        }
+      })
+      .sort((a, b) => {
+        if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+    res.json({ dir, entries });
+  } catch {
+    res.status(500).json({ error: 'Failed to read directory' });
+  }
+});
+
+app.get('/api/files/read', (req, res) => {
+  const filePath = req.query.path as string;
+  if (!filePath || !isAllowedPath(filePath)) {
+    res.status(403).json({ error: 'Path not allowed' });
+    return;
+  }
+  if (!existsSync(filePath)) {
+    res.status(404).json({ error: 'File not found' });
+    return;
+  }
+  try {
+    const content = readFileSync(filePath, 'utf-8');
+    const ext = extname(filePath).toLowerCase();
+    res.json({ path: filePath, content, ext });
+  } catch {
+    res.status(500).json({ error: 'Failed to read file' });
+  }
+});
+
 // Static files
 const frontendDist = join(__dirname, '..', 'frontend', 'dist');
 app.use(express.static(frontendDist));
@@ -175,9 +234,13 @@ function handleChatWs(ws: WebSocket, clientId: string) {
     }
   });
 
-  ws.on('close', () => {
-    console.log('[ws] chat disconnected:', clientId);
+  ws.on('close', (code, reason) => {
+    console.log('[ws] chat disconnected:', clientId, 'code:', code, 'reason:', reason?.toString());
     stopChat(clientId);
+  });
+
+  ws.on('error', (err) => {
+    console.error('[ws] error:', clientId, err.message);
   });
 }
 

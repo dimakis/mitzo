@@ -1,10 +1,11 @@
 import { query, listSessions, getSessionMessages } from '@anthropic-ai/claude-agent-sdk';
 import type { WebSocket } from 'ws';
-import { writeFileSync, mkdirSync } from 'fs';
+import { writeFileSync, mkdirSync, readdirSync } from 'fs';
 import { join } from 'path';
+import { homedir } from 'os';
 import { registerPending, resolvePending, removePending, hasPending } from './permissions.js';
 import { sendPermissionNotification, isConfigured as ntfyConfigured } from './notify.js';
-import { createWorktree, removeWorktree } from './worktree.js';
+import { createWorktree, getWorktreeForSession } from './worktree.js';
 
 export const BASE_REPO = process.env.REPO_PATH || '';
 const WORKTREE_ENABLED = process.env.WORKTREE_ENABLED !== 'false';
@@ -77,20 +78,30 @@ export async function startChat(
   let cwd = options.cwd || BASE_REPO;
   let worktreePath: string | undefined;
 
-  const useWorktree =
-    WORKTREE_ENABLED && options.worktree !== false && !options.cwd && !options.resume && BASE_REPO;
+  const useWorktree = WORKTREE_ENABLED && options.worktree !== false && !options.cwd && BASE_REPO;
 
   if (useWorktree) {
-    try {
-      worktreePath = createWorktree(clientId, BASE_REPO);
-      cwd = worktreePath;
-      send(ws, { type: 'worktree', path: worktreePath });
-    } catch (err: any) {
-      console.error('[worktree] creation failed, using base repo:', err.message);
-      send(ws, {
-        type: 'error',
-        error: `Worktree creation failed (using base repo): ${err.message}`,
-      });
+    if (options.resume) {
+      const existing = getWorktreeForSession(options.resume, BASE_REPO);
+      if (existing) {
+        worktreePath = existing;
+        cwd = existing;
+      }
+    }
+
+    if (!worktreePath) {
+      const wtId = `wt-${Date.now().toString(36)}`;
+      try {
+        worktreePath = createWorktree(wtId, BASE_REPO);
+        cwd = worktreePath;
+        send(ws, { type: 'worktree', path: worktreePath });
+      } catch (err: any) {
+        console.error('[worktree] creation failed, using base repo:', err.message);
+        send(ws, {
+          type: 'error',
+          error: `Worktree creation failed (using base repo): ${err.message}`,
+        });
+      }
     }
   }
 
@@ -276,13 +287,6 @@ export async function startChat(
   } finally {
     ws.removeListener('message', messageHandler);
     activeSessions.delete(clientId);
-    if (session.worktreePath) {
-      try {
-        removeWorktree(clientId, BASE_REPO);
-      } catch {
-        // Best-effort cleanup
-      }
-    }
     if (ws.readyState === ws.OPEN) {
       send(ws, { type: 'done', sessionId: session.sessionId });
     }
@@ -294,13 +298,6 @@ export function stopChat(clientId: string) {
   if (session) {
     session.abortController.abort();
     activeSessions.delete(clientId);
-    if (session.worktreePath) {
-      try {
-        removeWorktree(clientId, BASE_REPO);
-      } catch {
-        // Best-effort cleanup
-      }
-    }
   }
 }
 
@@ -308,23 +305,67 @@ export function isActive(clientId: string): boolean {
   return activeSessions.has(clientId);
 }
 
-export async function getSessions() {
+function getSessionDirs(): string[] {
+  const dirs = [BASE_REPO];
+  const sessionsDir = `${BASE_REPO}-sessions`;
   try {
-    const sessions = await listSessions({ dir: BASE_REPO, limit: 20 });
-    return sessions.map((s) => ({
-      id: s.sessionId,
-      summary: s.summary,
-      lastModified: s.lastModified,
-      branch: s.gitBranch,
-    }));
+    const entries = readdirSync(sessionsDir);
+    for (const e of entries) {
+      if (e.startsWith('session-')) dirs.push(join(sessionsDir, e));
+    }
   } catch {
-    return [];
+    // No sessions dir yet
   }
+  // Also check ~/.claude/projects/ for worktrees that were cleaned up
+  const claudeProjects = join(homedir(), '.claude', 'projects');
+  const prefix = BASE_REPO.replace(/\//g, '-').replace(/^-/, '-');
+  const sessionsPrefix = `${prefix}-sessions-session-`;
+  try {
+    for (const entry of readdirSync(claudeProjects)) {
+      if (entry.startsWith(sessionsPrefix)) {
+        const originalPath = entry.replace(/^-/, '/').replace(/-/g, '/');
+        if (!dirs.includes(originalPath)) dirs.push(originalPath);
+      }
+    }
+  } catch {
+    // No claude projects dir
+  }
+  return dirs;
+}
+
+export async function getSessions() {
+  const allSessions: Array<{ id: string; summary: string; lastModified: number; branch?: string }> =
+    [];
+  for (const dir of getSessionDirs()) {
+    try {
+      const sessions = await listSessions({ dir, limit: 20 });
+      for (const s of sessions) {
+        allSessions.push({
+          id: s.sessionId,
+          summary: s.summary,
+          lastModified: s.lastModified,
+          branch: s.gitBranch,
+        });
+      }
+    } catch {
+      // Dir might not exist — fine
+    }
+  }
+  allSessions.sort((a, b) => b.lastModified - a.lastModified);
+  return allSessions.slice(0, 20);
 }
 
 export async function getMessages(sessionId: string) {
+  let messages: any[] = [];
+  for (const dir of getSessionDirs()) {
+    try {
+      messages = await getSessionMessages(sessionId, { dir, limit: 100 });
+      if (messages.length > 0) break;
+    } catch {
+      // Try next dir
+    }
+  }
   try {
-    const messages = await getSessionMessages(sessionId, { dir: BASE_REPO, limit: 100 });
     return messages
       .map((m) => {
         const content = (m.message as any)?.content;

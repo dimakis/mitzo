@@ -2,6 +2,7 @@
 import { execFileSync } from 'child_process';
 import { existsSync, mkdirSync, readdirSync, statSync, rmSync } from 'fs';
 import { join } from 'path';
+import { homedir } from 'os';
 
 const BRANCH_PREFIX = 'session/';
 const STALE_HOURS = 168; // 7 days
@@ -118,4 +119,22 @@ export function listWorktrees(
         return { name: entry, path: fullPath, age: 'unknown' };
       }
     });
+}
+
+export function getWorktreeForSession(sessionId: string, baseRepo: string): string | null {
+  const claudeProjects = join(homedir(), '.claude', 'projects');
+  const sessionsPrefix = baseRepo.replace(/\//g, '-') + '-sessions-session-';
+
+  try {
+    for (const entry of readdirSync(claudeProjects)) {
+      if (!entry.startsWith(sessionsPrefix)) continue;
+      const projectDir = join(claudeProjects, entry);
+      if (existsSync(join(projectDir, `${sessionId}.jsonl`))) {
+        const originalPath = '/' + entry.slice(1).replace(/-/g, '/');
+        if (existsSync(originalPath)) return originalPath;
+      }
+    }
+  } catch {}
+
+  return null;
 }

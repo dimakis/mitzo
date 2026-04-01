@@ -57,6 +57,8 @@ function buildQuickActions(repoPath: string): QuickAction[] {
     });
   }
 
+  actions.push({ label: 'Files', desc: 'Browse repo files', path: '/files' });
+
   return actions;
 }
 
