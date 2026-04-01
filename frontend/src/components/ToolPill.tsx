@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import type { Message } from '../types/chat';
-import { truncate } from '../lib/truncate';
 
 interface Props {
   message: Message;
@@ -10,7 +9,6 @@ export function ToolPill({ message }: Props) {
   const [expanded, setExpanded] = useState(false);
   const done = message.toolResult !== undefined;
   const input = message.toolInput || '';
-  const truncatedInput = truncate(input, 60);
 
   return (
     <div className={`tool-pill ${done ? 'tool-pill--done' : 'tool-pill--running'}`}>
@@ -19,7 +17,7 @@ export function ToolPill({ message }: Props) {
           className={`tool-pill-dot ${done ? 'tool-pill-dot--done' : 'tool-pill-dot--pending'}`}
         />
         <span className="tool-pill-name">{message.toolName}</span>
-        <span className="tool-pill-input">{truncatedInput}</span>
+        <span className="tool-pill-input">{input}</span>
         {!done && <span className="tool-pill-status">Running...</span>}
         {expanded && <span className="tool-pill-chevron">▾</span>}
       </button>
