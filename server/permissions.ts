@@ -1,4 +1,4 @@
-import type { PermissionResult, PermissionUpdate } from '@anthropic-ai/claude-agent-sdk';
+import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import type { ToolTier } from './tool-tiers.js';
 
 type PermissionResolver = (result: PermissionResult) => void;
@@ -6,7 +6,7 @@ type PermissionResolver = (result: PermissionResult) => void;
 interface PendingEntry {
   resolver: PermissionResolver;
   toolName: string;
-  suggestions?: PermissionUpdate[];
+  toolInput: Record<string, unknown>;
   tier?: ToolTier;
 }
 
@@ -16,10 +16,10 @@ export function registerPending(
   permId: string,
   toolName: string,
   resolver: PermissionResolver,
-  suggestions?: PermissionUpdate[],
+  toolInput: Record<string, unknown>,
   tier?: ToolTier,
 ) {
-  pending.set(permId, { resolver, toolName, suggestions, tier });
+  pending.set(permId, { resolver, toolName, toolInput, tier });
 }
 
 export function resolvePending(permId: string, decision: 'once' | 'always' | 'deny'): boolean {
@@ -27,21 +27,19 @@ export function resolvePending(permId: string, decision: 'once' | 'always' | 'de
   if (!entry) return false;
 
   pending.delete(permId);
-  const { resolver, suggestions } = entry;
+  const { resolver, toolInput } = entry;
 
   if (decision === 'always') {
-    const result: PermissionResult = {
+    resolver({
       behavior: 'allow',
       decisionClassification: 'user_permanent',
-    };
-    if (suggestions && suggestions.length > 0) {
-      result.updatedPermissions = suggestions;
-    }
-    resolver(result);
+      updatedInput: toolInput,
+    });
   } else if (decision === 'once') {
     resolver({
       behavior: 'allow',
       decisionClassification: 'user_temporary',
+      updatedInput: toolInput,
     });
   } else {
     resolver({
