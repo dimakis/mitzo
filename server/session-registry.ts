@@ -13,7 +13,7 @@ export interface ManagedSession {
 }
 
 /** How long a detached session stays alive waiting for reattach (ms). */
-export const DETACHED_TTL_MS = 120_000; // 2 minutes
+export const DETACHED_TTL_MS = 600_000; // 10 minutes
 
 export class SessionRegistry {
   private sessions = new Map<string, ManagedSession>();
