@@ -37,7 +37,10 @@ export function shouldAutoAllow(toolName: string, mode: MitzoMode): boolean {
 
   if (tier === 'safe') return true;
   if (tier === 'standard') return mode === 'agent' || mode === 'auto';
-  if (tier === 'elevated') return mode === 'auto';
+  // Elevated tools (Bash, Shell) bypass canUseTool in agent + auto modes.
+  // The SDK's canUseTool stream breaks on permission requests; HITL is
+  // handled conversationally via the system prompt instead.
+  if (tier === 'elevated') return mode === 'agent' || mode === 'auto';
   return false;
 }
 
