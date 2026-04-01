@@ -47,13 +47,17 @@ Each chat session spawns a Claude Code process via the Agent SDK with:
 
 Claude sessions have full filesystem access within their `cwd`. This is by design — the Agent SDK's permission system (`canUseTool`) controls tool-level access, and the user approves or denies from the UI.
 
+Tools are classified into risk tiers (`safe`, `standard`, `elevated`, `unknown`) in `tool-tiers.ts`. Safe tools (reads) are always auto-allowed. Standard tools (file writes) are auto-allowed in Agent and Auto modes. Elevated tools (shell) require explicit approval in Agent mode but are auto-allowed in Auto mode. Unknown tools (MCP, etc.) always require approval. The `auto` mode maps to the SDK's `acceptEdits` permission mode (not `bypassPermissions`), so even in the most permissive mode, unknown tools still prompt.
+
 ## Session Resilience
 
 WebSocket disconnects detach (not abort) the active session via `SessionRegistry`. The Agent SDK query continues running server-side. A reconnected WebSocket can reattach within a 2-minute TTL. After the TTL, abandoned sessions are aborted and cleaned up. This prevents session state accumulation from repeated disconnects.
 
-## File Viewer
+## File Browser
 
-The `/api/files` and `/api/files/read` endpoints restrict access to paths under `REPO_PATH` and its worktree sessions directory. Path traversal is blocked by `resolve()` + `startsWith()` checks.
+The `/api/files`, `/api/files/read`, and `/api/files/write` endpoints restrict access to paths under `REPO_PATH` and its worktree sessions directory. Path traversal is blocked by `resolve()` + `startsWith()` checks. The `root` query parameter (used for worktree browsing) is validated through the same `isAllowedPath()` check.
+
+`PUT /api/files/write` only overwrites existing files within allowed paths — it cannot create new files or write outside the repo boundary. All file endpoints are behind cookie auth middleware.
 
 ## Known Limitations
 

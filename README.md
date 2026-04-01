@@ -5,9 +5,9 @@ A mobile-first web interface for [Claude Code](https://docs.anthropic.com/en/doc
 ## What It Does
 
 - **Chat with Claude** from any device — streaming responses, tool calls, markdown rendering
-- **Permission control** — Ask (read-only), Agent (approve tools), Auto (full autonomy), switchable mid-chat
+- **Tiered permission control** — Tools classified by risk (safe/standard/elevated/unknown). Ask mode is read-only, Agent auto-allows file edits but prompts for shell access, Auto adds shell. Rich SDK context (title, description, tier badge) in permission prompts. Switchable mid-chat.
 - **MCP tool integration** — reads MCP server configs from `~/.cursor/mcp.json` and passes them to Claude sessions (Jira, GitLab, etc.)
-- **File browser** — browse repo files and view markdown with full rendering
+- **File browser** — browse repo files, view markdown with full rendering, edit markdown files in-browser, switch between worktree roots, branch indicator
 - **Sandbox mode** — opt-in git worktree isolation per session, visible in the header
 - **Session resilience** — WebSocket disconnects don't kill sessions; auto-reattach on reconnect
 - **Quick actions** — preconfigured one-tap commands (run scripts, fetch data, triage inbox)
@@ -34,27 +34,28 @@ Server (Node.js + TypeScript)
 
 **Backend** (`server/`) — Express + TypeScript, run via `tsx`
 
-| File                  | Purpose                                                         |
-| --------------------- | --------------------------------------------------------------- |
-| `index.ts`            | Express app, routes, WebSocket server, startup cleanup          |
-| `chat.ts`             | Agent SDK integration, session lifecycle, permission handling   |
-| `session-registry.ts` | Session lifecycle decoupled from WebSocket (detach/reattach)    |
-| `mcp-config.ts`       | Loads MCP server configs from Cursor mcp.json                   |
-| `worktree.ts`         | Git worktree create/remove/cleanup/list                         |
-| `permissions.ts`      | Permission request registry, SDK suggestion passthrough         |
-| `notify.ts`           | ntfy push notifications                                         |
-| `auth.ts`             | Passphrase login, JWT (HS256), cookie auth                      |
-| `content-blocks.ts`   | SDK message content block parsing (shared between stream + API) |
-| `tool-summary.ts`     | Human-readable tool input summarization                         |
+| File                  | Purpose                                                                             |
+| --------------------- | ----------------------------------------------------------------------------------- |
+| `index.ts`            | Express app, routes, WebSocket server, startup cleanup                              |
+| `chat.ts`             | Agent SDK integration, session lifecycle, permission handling                       |
+| `session-registry.ts` | Session lifecycle decoupled from WebSocket (detach/reattach)                        |
+| `mcp-config.ts`       | Loads MCP server configs from Cursor mcp.json                                       |
+| `worktree.ts`         | Git worktree create/remove/cleanup/list                                             |
+| `tool-tiers.ts`       | Tool risk classification (safe/standard/elevated/unknown) and mode-aware auto-allow |
+| `permissions.ts`      | Permission request registry, SDK suggestion passthrough                             |
+| `notify.ts`           | ntfy push notifications                                                             |
+| `auth.ts`             | Passphrase login, JWT (HS256), cookie auth                                          |
+| `content-blocks.ts`   | SDK message content block parsing (shared between stream + API)                     |
+| `tool-summary.ts`     | Human-readable tool input summarization                                             |
 
 **Frontend** (`frontend/`) — React 19 + Vite + TypeScript
 
-| Page          | Purpose                                                                    |
-| ------------- | -------------------------------------------------------------------------- |
-| `Login`       | Passphrase entry                                                           |
-| `SessionList` | Quick action grid + session history (swipe-to-dismiss)                     |
-| `ChatView`    | Streaming chat, mode pills, sandbox toggle, branch pill, permission banner |
-| `FileViewer`  | Directory browser + markdown/code file viewer                              |
+| Page          | Purpose                                                                        |
+| ------------- | ------------------------------------------------------------------------------ |
+| `Login`       | Passphrase entry                                                               |
+| `SessionList` | Quick action grid + session history (swipe-to-dismiss)                         |
+| `ChatView`    | Streaming chat, mode pills, sandbox toggle, branch pill, permission banner     |
+| `FileViewer`  | Directory browser, markdown viewer/editor, worktree selector, branch indicator |
 
 | Directory     | Purpose                                                             |
 | ------------- | ------------------------------------------------------------------- |
@@ -184,7 +185,7 @@ WebSocket disconnects (phone sleep, Tailscale hiccup) no longer kill active sess
 | MCP       | Cursor-compatible stdio servers     |
 | Auth      | JWT via jose                        |
 | Isolation | Git worktrees (opt-in)              |
-| Tests     | Vitest (81 tests)                   |
+| Tests     | Vitest (102 tests)                  |
 | Quality   | ESLint, Prettier, husky, commitlint |
 
 ## Security
