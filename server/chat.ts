@@ -385,7 +385,10 @@ export async function startChat(
         if (evt?.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
           send(currentWs, { type: 'text_delta', text: evt.delta.text });
         }
-      } else if (msg.type === 'user' && msg.tool_use_result !== undefined) {
+      } else if (msg.type === 'user') {
+        // Send tool results for both local tools and MCP tools.
+        // msg.tool_use_result is only set for local tools; MCP tools
+        // still produce tool_result blocks in content without that field.
         const content = (msg.message as unknown as Record<string, unknown>)?.content;
         if (Array.isArray(content)) {
           for (const block of content) {

@@ -134,6 +134,16 @@ export function ChatView() {
         case 'reattach_failed':
           setRunning(false);
           wsSetRunning(poolKey, false);
+          // Session finished while we were disconnected — fetch its messages
+          // so the completed response is not lost.
+          if (currentSessionId) {
+            fetch(`/api/sessions/${currentSessionId}/messages`, { credentials: 'include' })
+              .then((r) => r.json())
+              .then((data: { messages?: Message[] }) => {
+                if (data.messages?.length) setMessages(data.messages);
+              })
+              .catch(() => {});
+          }
           break;
 
         case 'session_info':

@@ -125,16 +125,23 @@ function connectEntry(key: string, entry: PoolEntry) {
   ws.onerror = () => {};
 }
 
-// Reconnect all idle pool entries when the tab becomes visible
+// Reconnect all idle pool entries when the app becomes visible/active.
+// visibilitychange alone is unreliable in iOS Safari PWA mode — pageshow
+// and focus are needed to cover app-switch and lock/unlock scenarios.
+function reconnectAll() {
+  pool.forEach((entry, key) => {
+    if (!entry.ws || entry.ws.readyState > WebSocket.OPEN) {
+      connectEntry(key, entry);
+    }
+  });
+}
+
 if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState !== 'visible') return;
-    pool.forEach((entry, key) => {
-      if (!entry.ws || entry.ws.readyState > WebSocket.OPEN) {
-        connectEntry(key, entry);
-      }
-    });
+    if (document.visibilityState === 'visible') reconnectAll();
   });
+  window.addEventListener('pageshow', reconnectAll);
+  window.addEventListener('focus', reconnectAll);
 }
 
 function getOrCreate(key: string): PoolEntry {
