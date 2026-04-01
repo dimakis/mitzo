@@ -20,6 +20,7 @@ import {
   clearHiddenSessions,
   AVAILABLE_MODELS,
   BASE_REPO,
+  getMcpServerNames,
   registry,
 } from './chat.js';
 import { cleanupStaleWorktrees, listWorktrees } from './worktree.js';
@@ -97,7 +98,9 @@ app.get('/api/auth/check', (_req, res) => res.json({ ok: true }));
 app.get('/api/models', (_req, res) => res.json(AVAILABLE_MODELS));
 
 // Config (exposes non-sensitive settings to frontend)
-app.get('/api/config', (_req, res) => res.json({ repoPath: BASE_REPO }));
+app.get('/api/config', (_req, res) =>
+  res.json({ repoPath: BASE_REPO, mcpServers: getMcpServerNames() }),
+);
 
 // Session routes
 app.get('/api/sessions', async (_req, res) => {

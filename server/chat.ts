@@ -9,8 +9,20 @@ import { createWorktree } from './worktree.js';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
 import { summarizeToolInput } from './tool-summary.js';
 import { parseContentBlocks, extractToolResultText } from './content-blocks.js';
+import { loadMcpServers, type McpServerConfig } from './mcp-config.js';
 
 export type { MitzoMode } from './session-registry.js';
+
+let mcpServers: Record<string, McpServerConfig> = {};
+try {
+  mcpServers = loadMcpServers();
+} catch (err: unknown) {
+  console.error('[mcp] failed to load MCP servers:', err instanceof Error ? err.message : err);
+}
+
+export function getMcpServerNames(): string[] {
+  return Object.keys(mcpServers);
+}
 
 export const BASE_REPO = process.env.REPO_PATH || '';
 const WORKTREE_ENABLED = process.env.WORKTREE_ENABLED !== 'false';
@@ -210,6 +222,7 @@ export async function startChat(
       allowedTools: [...baseAllowed, ...extraTools],
       ...(options.model ? { model: options.model } : {}),
       ...(options.resume ? { resume: options.resume } : {}),
+      ...(Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
       canUseTool: buildPermissionHandler(clientId) as any, // SDK typing requires broad compat
     },
   });
