@@ -3,9 +3,13 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import './styles/global.css';
 
-// Only register the service worker in production — dev mode uses Vite HMR
-if (!import.meta.env.DEV && 'serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js');
+// Unregister any previously installed service workers — the SW was causing
+// WS disconnects (code 1001) via clients.claim() on activate. For a tool
+// running over Tailscale, offline caching provides no value.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then((regs) => {
+    for (const reg of regs) reg.unregister();
+  });
 }
 
 createRoot(document.getElementById('root')!).render(
