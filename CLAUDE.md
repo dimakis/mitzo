@@ -14,7 +14,7 @@ npm run lint         # ESLint (server + frontend)
 npm run lint:fix     # ESLint with auto-fix
 npm run format       # Prettier (write)
 npm run format:check # Prettier (check only)
-npm test             # Vitest (102 tests)
+npm test             # Vitest (118 tests)
 ```
 
 Pre-commit hooks (husky + lint-staged) run lint and format on staged files. Conventional commit messages enforced via commitlint.
@@ -27,7 +27,9 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 
 - `index.ts` — Express app, mounts routes, HTTP server + WebSocket. Sends `client_id` on WS connect for session reattach. Runs stale worktree cleanup on startup.
 - `chat.ts` — Agent SDK integration. Manages session lifecycle via `SessionRegistry`, permission handling, mode switching, streaming. Loads MCP servers on startup. Sends `session_info` (branch, cwd, worktree flag) before SDK messages.
-- `session-registry.ts` — `SessionRegistry` class: decouples session lifecycle from WebSocket. Supports detach (WS disconnect), reattach (WS reconnect), and TTL-based abort for abandoned sessions (2 min).
+- `session-registry.ts` — `SessionRegistry` class: decouples session lifecycle from WebSocket. Supports detach (WS disconnect), reattach (WS reconnect), and TTL-based abort for abandoned sessions (10 min).
+- `repo-config.ts` — Reads `.mitzo.json` from `REPO_PATH` for quick actions and venv paths. Falls back to empty defaults if missing or invalid.
+- `port-check.ts` — TCP port probe. Prevents duplicate server instances by checking if the port is already in use before `server.listen()`.
 - `mcp-config.ts` — Reads MCP server configs from `~/.cursor/mcp.json` (or `MCP_CONFIG_PATH`). Filters to stdio servers, excludes disabled entries, passes to `query()`.
 - `content-blocks.ts` — Shared parsing of SDK content blocks (text, tool_use, tool_result). Used by both the streaming loop and the session history API.
 - `tool-summary.ts` — Human-readable summarization of tool inputs for the permission UI.
@@ -40,9 +42,9 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 **Frontend** (`frontend/`) — React 19 + Vite + TypeScript
 
 - `types/chat.ts` — Shared types: `Message`, `Session`, `ImageAttachment`, `PermissionRequest` (with `title`, `description`, `tier`), `ToolTier`, `GroupedItem`.
-- `lib/` — Shared utilities: `groupMessages`, `formatTime`, `truncate`, `resizeImage`.
-- Pages: `Login`, `SessionList` (quick actions + history + swipe-to-dismiss), `ChatView` (streaming chat + sandbox toggle + branch pill), `FileViewer` (directory browser + markdown viewer/editor + worktree selector + branch indicator).
-- Components: `MessageBubble`, `ToolPill`, `ToolGroup`, `PermissionBanner`, `ChatInput`.
+- `lib/` — Shared utilities: `groupMessages`, `formatTime`, `truncate`, `resizeImage`, `ws-pool` (module-level WebSocket pool with message buffering).
+- Pages: `Login`, `SessionList` (dynamic quick actions from `.mitzo.json` + history + swipe-to-dismiss), `ChatView` (streaming chat + sandbox toggle + branch pill + buffer replay on mount), `FileViewer` (directory browser + markdown viewer/editor + worktree selector + branch indicator).
+- Components: `MessageBubble`, `ToolPill`, `ToolGroup`, `PermissionBanner`, `ChatInput`, `MitzoLogo`.
 - Auth check via `ProtectedRoute` wrapper that calls `/api/auth/check`.
 - Vite dev server proxies `/api` and `/ws` to backend (port 3100).
 
@@ -50,8 +52,16 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 
 - WebSocket disconnect detaches (not aborts) the session via `SessionRegistry`.
 - New WebSocket can reattach to a detached session using the `client_id` sent on connect.
-- Detached sessions auto-abort after 2 minutes.
-- Frontend tracks `serverClientId` and `wasRunning` to auto-reattach on reconnect.
+- Detached sessions auto-abort after 10 minutes.
+- Frontend uses a module-level WS pool (`ws-pool.ts`) — connections survive component unmount/remount.
+- Messages arriving while the chat component is unmounted are buffered in the pool (up to 500 messages) and replayed on re-mount via `wsDrainBuffer()`.
+
+**Repo configuration (`.mitzo.json`):**
+
+- On startup, `repo-config.ts` reads `${REPO_PATH}/.mitzo.json` for quick actions and venv paths.
+- Quick actions appear on the home screen grid. Without config, only Chat and Files are shown.
+- Venv paths are relative to `REPO_PATH`, resolved and prepended to `PATH` for Agent SDK sessions.
+- `GET /api/config` serves resolved quick actions (with absolute `cwd` paths) to the frontend.
 
 **Worktree isolation (opt-in):**
 

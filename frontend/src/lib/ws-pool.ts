@@ -9,18 +9,45 @@
 export type WsMsg = Record<string, unknown>;
 export type MsgListener = (msg: WsMsg) => void;
 
+const BUFFERABLE_TYPES = new Set([
+  'text',
+  'text_delta',
+  'tool_call',
+  'tool_result',
+  'done',
+  'error',
+  'session_id',
+  'session_info',
+  'permission_request',
+  'permission_timeout',
+  'reattached',
+  'reattach_failed',
+  'mode_changed',
+]);
+
+export const MAX_BUFFER_SIZE = 500;
+
 interface PoolEntry {
   ws: WebSocket | null;
-  clientId: string | null; // current server-assigned clientId
-  prevClientId: string | null; // previous clientId — used for reattach
+  clientId: string | null;
+  prevClientId: string | null;
   wasRunning: boolean;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
   listeners: Set<MsgListener>;
+  messageBuffer: WsMsg[];
 }
 
 const pool = new Map<string, PoolEntry>();
 
 function broadcast(entry: PoolEntry, msg: WsMsg) {
+  if (entry.listeners.size === 0) {
+    if (BUFFERABLE_TYPES.has(msg.type as string)) {
+      if (entry.messageBuffer.length < MAX_BUFFER_SIZE) {
+        entry.messageBuffer.push(msg);
+      }
+    }
+    return;
+  }
   entry.listeners.forEach((l) => l(msg));
 }
 
@@ -120,6 +147,7 @@ function getOrCreate(key: string): PoolEntry {
       wasRunning: false,
       reconnectTimer: null,
       listeners: new Set(),
+      messageBuffer: [],
     };
     pool.set(key, entry);
     connectEntry(key, entry);
@@ -155,4 +183,13 @@ export function wsIsOpen(key: string): boolean {
 export function wsSetRunning(key: string, running: boolean) {
   const entry = pool.get(key);
   if (entry) entry.wasRunning = running;
+}
+
+/** Drain and return all buffered messages, clearing the buffer. */
+export function wsDrainBuffer(key: string): WsMsg[] {
+  const entry = pool.get(key);
+  if (!entry || entry.messageBuffer.length === 0) return [];
+  const msgs = entry.messageBuffer.slice();
+  entry.messageBuffer.length = 0;
+  return msgs;
 }

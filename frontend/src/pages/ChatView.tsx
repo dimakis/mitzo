@@ -7,7 +7,7 @@ import { PermissionBanner } from '../components/PermissionBanner';
 import { ChatInput } from '../components/ChatInput';
 import { MitzoLogo } from '../components/MitzoLogo';
 import { groupMessages } from '../lib/groupMessages';
-import { wsSubscribe, wsSend, wsIsOpen, wsSetRunning } from '../lib/ws-pool';
+import { wsSubscribe, wsSend, wsIsOpen, wsSetRunning, wsDrainBuffer } from '../lib/ws-pool';
 import type { Message, PermissionRequest, ImageAttachment } from '../types/chat';
 
 export function ChatView() {
@@ -112,8 +112,9 @@ export function ChatView() {
   // Subscribe to the pool connection for this session key.
   // Unsubscribing on unmount does NOT close the WS — the connection
   // stays alive in the pool so in-flight agent runs continue.
+  // On mount, drain any messages buffered while we were away.
   useEffect(() => {
-    const unsubscribe = wsSubscribe(poolKey, (msg) => {
+    const handleMsg = (msg: import('../lib/ws-pool').WsMsg) => {
       switch (msg.type) {
         case '_open':
           setConnected(true);
@@ -276,7 +277,13 @@ export function ChatView() {
           scrollToBottom();
           break;
       }
-    });
+    };
+
+    const unsubscribe = wsSubscribe(poolKey, handleMsg);
+
+    // Replay messages that arrived while we were unmounted
+    const buffered = wsDrainBuffer(poolKey);
+    for (const msg of buffered) handleMsg(msg);
 
     // Sync connected state on subscribe (pool may already be open)
     setConnected(wsIsOpen(poolKey));

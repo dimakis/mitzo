@@ -9,8 +9,8 @@ A mobile-first web interface for [Claude Code](https://docs.anthropic.com/en/doc
 - **MCP tool integration** — reads MCP server configs from `~/.cursor/mcp.json` and passes them to Claude sessions (Jira, GitLab, etc.)
 - **File browser** — browse repo files, view markdown with full rendering, edit markdown files in-browser, switch between worktree roots, branch indicator
 - **Sandbox mode** — opt-in git worktree isolation per session, visible in the header
-- **Session resilience** — WebSocket disconnects don't kill sessions; auto-reattach on reconnect
-- **Quick actions** — preconfigured one-tap commands (run scripts, fetch data, triage inbox)
+- **Session resilience** — WebSocket disconnects don't kill sessions; auto-reattach on reconnect. Messages buffered while navigating away are replayed on return.
+- **Quick actions** — configurable one-tap commands via `.mitzo.json` in your repo (run scripts, fetch data, triage inbox)
 - **Push notifications** — get notified via [ntfy](https://ntfy.sh) when Claude needs input
 - **Session history** — resume past conversations, deduplicated, swipe-to-dismiss
 - **Model selection** — switch between Sonnet, Opus, and Haiku per conversation
@@ -47,6 +47,8 @@ Server (Node.js + TypeScript)
 | `auth.ts`             | Passphrase login, JWT (HS256), cookie auth                                          |
 | `content-blocks.ts`   | SDK message content block parsing (shared between stream + API)                     |
 | `tool-summary.ts`     | Human-readable tool input summarization                                             |
+| `repo-config.ts`      | Reads `.mitzo.json` from repo for quick actions + venv paths                        |
+| `port-check.ts`       | Port-in-use guard — prevents duplicate server instances                             |
 
 **Frontend** (`frontend/`) — React 19 + Vite + TypeScript
 
@@ -57,11 +59,11 @@ Server (Node.js + TypeScript)
 | `ChatView`    | Streaming chat, mode pills, sandbox toggle, branch pill, permission banner     |
 | `FileViewer`  | Directory browser, markdown viewer/editor, worktree selector, branch indicator |
 
-| Directory     | Purpose                                                             |
-| ------------- | ------------------------------------------------------------------- |
-| `types/`      | Shared TypeScript types (Message, Session, etc.)                    |
-| `lib/`        | Shared utilities (groupMessages, formatTime, truncate, resizeImage) |
-| `components/` | MessageBubble, ToolPill, ToolGroup, PermissionBanner, ChatInput     |
+| Directory     | Purpose                                                                      |
+| ------------- | ---------------------------------------------------------------------------- |
+| `types/`      | Shared TypeScript types (Message, Session, etc.)                             |
+| `lib/`        | Shared utilities (groupMessages, formatTime, truncate, resizeImage, ws-pool) |
+| `components/` | MessageBubble, ToolPill, ToolGroup, PermissionBanner, ChatInput, MitzoLogo   |
 
 ## Prerequisites
 
@@ -173,7 +175,34 @@ BASE_URL=http://<tailscale-ip>:3100
 
 ## Session resilience
 
-WebSocket disconnects (phone sleep, Tailscale hiccup) no longer kill active sessions. The server detaches the session and keeps the Agent SDK query running. When the phone reconnects, the new WebSocket reattaches to the in-flight session. Detached sessions auto-abort after 2 minutes if no reattach arrives.
+WebSocket disconnects (phone sleep, Tailscale hiccup) don't kill active sessions. The server detaches the session and keeps the Agent SDK query running. When the phone reconnects, the new WebSocket reattaches to the in-flight session. Detached sessions auto-abort after 10 minutes if no reattach arrives.
+
+The frontend uses a module-level WebSocket pool (`ws-pool.ts`) that survives React component unmount/remount. Navigating between pages doesn't close the connection. Messages that arrive while a chat component is unmounted are buffered in the pool and replayed when you navigate back — no context lost.
+
+## Repo configuration (`.mitzo.json`)
+
+Place a `.mitzo.json` in your repo root to customize Mitzo for your project:
+
+```json
+{
+  "quickActions": [
+    {
+      "label": "Run Tests",
+      "desc": "Full test suite",
+      "prompt": "Run the test suite and report results.",
+      "extraTools": "Bash"
+    }
+  ],
+  "venvPaths": ["my-project/.venv/bin"]
+}
+```
+
+| Field          | Type  | Description                                                                                                             |
+| -------------- | ----- | ----------------------------------------------------------------------------------------------------------------------- |
+| `quickActions` | array | Quick action buttons on the home screen. Each needs `label` and `desc`; optional `prompt`, `path`, `cwd`, `extraTools`. |
+| `venvPaths`    | array | Relative paths to Python venvs. Added to `PATH` for Agent SDK sessions.                                                 |
+
+Without a `.mitzo.json`, Mitzo shows a minimal home screen with Chat and Files.
 
 ## Tech stack
 
@@ -185,7 +214,7 @@ WebSocket disconnects (phone sleep, Tailscale hiccup) no longer kill active sess
 | MCP       | Cursor-compatible stdio servers     |
 | Auth      | JWT via jose                        |
 | Isolation | Git worktrees (opt-in)              |
-| Tests     | Vitest (102 tests)                  |
+| Tests     | Vitest (118 tests)                  |
 | Quality   | ESLint, Prettier, husky, commitlint |
 
 ## Security

@@ -51,7 +51,13 @@ Tools are classified into risk tiers (`safe`, `standard`, `elevated`, `unknown`)
 
 ## Session Resilience
 
-WebSocket disconnects detach (not abort) the active session via `SessionRegistry`. The Agent SDK query continues running server-side. A reconnected WebSocket can reattach within a 2-minute TTL. After the TTL, abandoned sessions are aborted and cleaned up. This prevents session state accumulation from repeated disconnects.
+WebSocket disconnects detach (not abort) the active session via `SessionRegistry`. The Agent SDK query continues running server-side. A reconnected WebSocket can reattach within a 10-minute TTL. After the TTL, abandoned sessions are aborted and cleaned up. This prevents session state accumulation from repeated disconnects.
+
+The frontend WS pool buffers messages (capped at 500) while the user navigates between pages, replaying them on return. The buffer only stores UI-relevant message types (text, tool calls, errors, etc.) — connection lifecycle messages are not buffered.
+
+## Repo Configuration
+
+`.mitzo.json` in the repo root is read-only at startup. It cannot execute code — it provides JSON data (quick action labels/prompts and venv path strings). Quick action prompts are sent to the Agent SDK as user messages (same as typing them manually). Venv paths are prepended to `PATH` in the Agent SDK subprocess environment.
 
 ## File Browser
 
