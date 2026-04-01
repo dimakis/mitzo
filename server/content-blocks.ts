@@ -57,7 +57,7 @@ export function parseContentBlocks(blocks: ContentBlock[]): ParsedContent {
       const rt = extractToolResultText(block.content);
       toolResults.push({
         toolId: block.tool_use_id || '',
-        result: rt.slice(0, 2000),
+        result: rt.slice(0, 10_000),
       });
     }
   }

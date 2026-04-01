@@ -35,10 +35,10 @@ describe('permissions module', () => {
     let result: any = null;
     const suggestions = [
       {
-        type: 'addRules',
+        type: 'addRules' as const,
         rules: [{ toolName: 'Edit' }],
-        behavior: 'allow',
-        destination: 'session',
+        behavior: 'allow' as const,
+        destination: 'session' as const,
       },
     ];
     registerPending(
@@ -91,5 +91,35 @@ describe('permissions module', () => {
     removePending(permId);
     expect(hasPending(permId)).toBe(false);
     expect(resolvePending(permId, 'once')).toBe(false);
+  });
+
+  it('registerPending accepts optional tier parameter', () => {
+    registerPending(permId, 'Bash', () => {}, undefined, 'elevated');
+    expect(hasPending(permId)).toBe(true);
+  });
+
+  it('registerPending works with both suggestions and tier', () => {
+    let result: any = null;
+    const suggestions = [
+      {
+        type: 'addRules' as const,
+        rules: [{ toolName: 'Bash' }],
+        behavior: 'allow' as const,
+        destination: 'session' as const,
+      },
+    ];
+    registerPending(
+      permId,
+      'Bash',
+      (r) => {
+        result = r;
+      },
+      suggestions,
+      'elevated',
+    );
+
+    resolvePending(permId, 'always');
+    expect(result.behavior).toBe('allow');
+    expect(result.updatedPermissions).toEqual(suggestions);
   });
 });
