@@ -428,6 +428,62 @@ textarea:focus {
   color: #fff;
 }
 
+.chat-header-branch {
+  font-family: var(--code-font);
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  background: var(--bg);
+  padding: 0.2rem 0.45rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  max-width: 7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.chat-header-branch--wt {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(108, 99, 255, 0.1);
+}
+
+.chat-header-sandbox {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.25rem 0.45rem;
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  flex-shrink: 0;
+  min-width: unset;
+  transition:
+    background 0.12s,
+    color 0.12s,
+    border-color 0.12s;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.chat-header-sandbox:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--text-dim);
+}
+
+.chat-header-sandbox--active {
+  background: rgba(108, 99, 255, 0.15);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.chat-header-sandbox:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .chat-header-offline {
   display: flex;
   align-items: center;

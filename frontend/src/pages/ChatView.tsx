@@ -21,8 +21,12 @@ export function ChatView() {
   const [mode, setMode] = useState<'ask' | 'agent' | 'auto'>(
     searchParams.get('extraTools') ? 'auto' : 'agent',
   );
+  const [sandbox, setSandbox] = useState(false);
+  const [branch, setBranch] = useState<string | null>(null);
+  const [isWorktree, setIsWorktree] = useState(false);
 
   const [connected, setConnected] = useState(false);
+  const hasStarted = messages.some((m) => m.role === 'user');
 
   const wsRef = useRef<WebSocket | null>(null);
   const streamBuf = useRef('');
@@ -156,6 +160,11 @@ export function ChatView() {
             setRunning(false);
             break;
 
+          case 'session_info':
+            setBranch(msg.branch as string);
+            setIsWorktree(msg.worktree as boolean);
+            break;
+
           case 'session_id':
             setCurrentSessionId(msg.sessionId as string);
             break;
@@ -242,7 +251,9 @@ export function ChatView() {
             }
             setRunning(false);
             wasRunning.current = false;
-            if (msg.sessionId) setCurrentSessionId(msg.sessionId as string);
+            if (msg.sessionId && !currentSessionId) {
+              setCurrentSessionId(msg.sessionId as string);
+            }
             break;
           }
 
@@ -251,7 +262,14 @@ export function ChatView() {
             setRunning(false);
             wasRunning.current = false;
             if ((msg.error as string)?.includes('No conversation found')) {
+              const staleId = currentSessionId;
               setCurrentSessionId(undefined);
+              if (staleId) {
+                sessionStorage.removeItem(`mitzo-chat-${staleId}`);
+              }
+              if (sessionId) {
+                navigate('/chat', { replace: true });
+              }
               setMessages((prev) => [
                 ...prev,
                 {
@@ -329,6 +347,7 @@ export function ChatView() {
     if (images?.length) {
       payload.images = images.map((img) => ({ data: img.data, mediaType: img.mediaType }));
     }
+    if (sandbox && !currentSessionId) payload.worktree = true;
 
     const cwd = searchParams.get('cwd');
     if (cwd) payload.cwd = cwd;
@@ -398,6 +417,25 @@ export function ChatView() {
             </button>
           ))}
         </div>
+        <button
+          className={`chat-header-sandbox${sandbox || isWorktree ? ' chat-header-sandbox--active' : ''}`}
+          onClick={() => setSandbox((s) => !s)}
+          disabled={hasStarted}
+          title={
+            isWorktree
+              ? 'Running in sandbox worktree'
+              : sandbox
+                ? 'Sandbox on — will create worktree'
+                : 'Sandbox off — using base repo'
+          }
+        >
+          {isWorktree ? 'WT' : sandbox ? 'WT' : 'WT'}
+        </button>
+        {branch && (
+          <span className={`chat-header-branch${isWorktree ? ' chat-header-branch--wt' : ''}`}>
+            {branch}
+          </span>
+        )}
         {running && (
           <button className="chat-header-stop" onClick={handleStop}>
             Stop

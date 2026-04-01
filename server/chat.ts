@@ -1,5 +1,6 @@
 import { query, listSessions, getSessionMessages } from '@anthropic-ai/claude-agent-sdk';
 import type { WebSocket } from 'ws';
+import { execFileSync } from 'child_process';
 import { writeFileSync, mkdirSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
@@ -74,13 +75,7 @@ function resolveWorktree(
   options: { resume?: string; cwd?: string; worktree?: boolean },
 ): { cwd: string; worktreePath?: string } {
   if (
-    !(
-      WORKTREE_ENABLED &&
-      options.worktree !== false &&
-      !options.cwd &&
-      !options.resume &&
-      BASE_REPO
-    )
+    !(WORKTREE_ENABLED && options.worktree === true && !options.cwd && !options.resume && BASE_REPO)
   ) {
     return { cwd: baseCwd };
   }
@@ -94,6 +89,20 @@ function resolveWorktree(
     console.error('[worktree] creation failed, using base repo:', message);
     send(ws, { type: 'error', error: `Worktree creation failed (using base repo): ${message}` });
     return { cwd: baseCwd };
+  }
+}
+
+function getBranch(cwd: string): string {
+  try {
+    return execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd,
+      stdio: 'pipe',
+      timeout: 5_000,
+    })
+      .toString()
+      .trim();
+  } catch {
+    return 'unknown';
   }
 }
 
@@ -207,6 +216,14 @@ export async function startChat(
     mode,
     sessionAllowList: new Set<string>(),
     worktreePath,
+  });
+
+  const branch = getBranch(cwd);
+  send(ws, {
+    type: 'session_info',
+    branch,
+    cwd,
+    worktree: !!worktreePath,
   });
 
   const q = query({
