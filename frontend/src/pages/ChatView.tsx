@@ -67,10 +67,10 @@ export function ChatView() {
     }
   }, [currentSessionId]);
 
-  // Restore messages from cache on mount
+  // Restore messages from cache on mount (only for existing sessions, not new chats)
   useEffect(() => {
-    const resolvedId = sessionId ?? localStorage.getItem('mitzo-last-session') ?? undefined;
-    if (!resolvedId) return;
+    if (!sessionId) return;
+    const resolvedId = sessionId;
 
     const cacheKey = `mitzo-chat-${resolvedId}`;
     const cached = localStorage.getItem(cacheKey);
