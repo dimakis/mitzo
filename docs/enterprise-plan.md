@@ -1,7 +1,7 @@
 # Mitzo Enterprise Engineering Plan
 
-**Version:** 1.0
-**Date:** 2026-04-01
+**Version:** 1.1
+**Date:** 2026-04-02
 **Scope:** Documentation only — no code changes until explicitly requested
 
 ---
@@ -11,13 +11,90 @@
 Mitzo is a functional, ~4,776-LOC mobile-first Claude Code interface built on Node.js/Express/TypeScript (backend) and React 19/Vite/TypeScript (frontend). The architecture works today, but carries the technical debt typical of a rapid prototype that was never hardened for production. Six categories of risk stand out:
 
 1. **Concentration risk** — two files (`chat.ts`, `ChatView.tsx`) own disproportionate surface area. A bug or feature change in either cascades widely.
-2. **Observability gaps** — silent `catch` blocks in 15+ locations mean failures are invisible in production logs.
+2. **Observability gaps** — 22 silent `catch` blocks and 19 raw `console.*` calls mean failures are invisible in production logs.
 3. **Testing blindspots** — 0% frontend component coverage, no route-layer tests, no integration or e2e tests. The 118 existing tests cover only isolated server utilities.
-4. **Type erosion** — `any` in `session-registry.ts`, untyped WebSocket messages on the frontend, and no runtime validation of HTTP requests/responses mean TypeScript's guarantees stop at the module boundary.
+4. **Type erosion** — 30 `any` occurrences (5 in production code), untyped WebSocket messages on the frontend, and no runtime validation of HTTP requests/responses mean TypeScript's guarantees stop at the module boundary.
 5. **Security posture** — no rate limiting, CSRF protection, or request size limits; the NTFY auth token is embedded in action URLs (visible in server logs).
 6. **CI immaturity** — the pipeline lints and unit-tests, but has no e2e tests, security scanning, bundle size budgets, or deployment step.
 
 The six phases below address these risks in dependency order: each phase unblocks the next. The entire plan can be executed incrementally without a rewrite.
+
+---
+
+## Current State Baseline
+
+Measured against the codebase as of 2026-04-01. These numbers define the "before" — success criteria reference them directly.
+
+### Codebase Size
+
+| File                                | LOC | Role                            |
+| ----------------------------------- | --: | ------------------------------- |
+| `server/chat.ts`                    | 535 | Chat orchestration (god object) |
+| `frontend/src/pages/ChatView.tsx`   | 470 | Chat UI (god component)         |
+| `server/index.ts`                   | 384 | Express routes + WS handler     |
+| `frontend/src/pages/FileViewer.tsx` | 303 | File browser + editor           |
+| `server/session-registry.ts`        | 146 | Session state management        |
+
+### Error Handling
+
+| Category                   |  Count | Description                                                  |
+| -------------------------- | -----: | ------------------------------------------------------------ |
+| Empty `.catch(() => {})`   |      5 | Promise swallows (ChatView, SessionList, FileViewer)         |
+| Empty `catch {}` blocks    |      5 | All in `worktree.ts`                                         |
+| Comment-only catch bodies  |     10 | `index.ts`, `chat.ts`, `mcp-server/tools.ts`, `ChatView.tsx` |
+| Single-console-log catches |      2 | `ChatInput.tsx`, `notify.ts`                                 |
+| **Total silent catches**   | **22** |                                                              |
+
+### Type Safety
+
+| Metric                              |                   Count |
+| ----------------------------------- | ----------------------: |
+| `any` occurrences (production code) |                       5 |
+| `any` occurrences (test code)       |                      25 |
+| `any` occurrences (total)           |                      30 |
+| Runtime validation (Zod)            | 0 routes, 0 WS messages |
+
+### Testing
+
+| Metric                        | Count |
+| ----------------------------- | ----: |
+| Test files                    |    12 |
+| Test cases (`it()`)           |   118 |
+| Frontend component test files |     0 |
+| Frontend page test files      |     0 |
+| Route-layer test files        |     0 |
+| WebSocket integration tests   |     0 |
+| E2E test files                |     0 |
+
+### Observability
+
+| Metric                                     | Count |
+| ------------------------------------------ | ----: |
+| Raw `console.log/error` calls in `server/` |    19 |
+| Structured logger instances                |     0 |
+| Request-ID correlation                     |  None |
+
+### Constants
+
+| Status                        |                                                                      Count |
+| ----------------------------- | -------------------------------------------------------------------------: |
+| Already named (local to file) |                      3 (`DETACHED_TTL_MS`, `BRANCH_PREFIX`, `STALE_HOURS`) |
+| Inline magic numbers          |                                                                         11 |
+| Duplicated across files       | 3 (`TOOL_RESULT_MAX_CHARS`, `GIT_BRANCH_TIMEOUT_MS`, `SESSION_LIST_LIMIT`) |
+
+### Security & CI
+
+| Item                                     | Status                                  |
+| ---------------------------------------- | --------------------------------------- |
+| Rate limiting                            | None                                    |
+| CSRF protection                          | None (partial via `sameSite: 'strict'`) |
+| Request size limits                      | None (`express.json()` unlimited)       |
+| Security headers (helmet)                | Not installed                           |
+| CI: lint + typecheck + unit test + build | Yes                                     |
+| CI: e2e tests                            | No                                      |
+| CI: security scanning                    | No                                      |
+| CI: coverage reporting                   | No                                      |
+| CI: bundle size tracking                 | No                                      |
 
 ---
 
@@ -79,6 +156,14 @@ Add a React error boundary wrapping `ChatView` and `FileViewer`. Without this, a
 | Task                                      | Files Affected                                        | Complexity |
 | ----------------------------------------- | ----------------------------------------------------- | ---------- |
 | Diagnose and fix `notify.test.ts` failure | `server/__tests__/notify.test.ts`, `server/notify.ts` | S          |
+
+### Phase 1 Success Criteria
+
+- [ ] Zero inline magic numbers in server or frontend code — all imported from `constants.ts`
+- [ ] Zero raw `console.*` calls in `server/` — all routed through `logger.*`
+- [ ] Silent catch count reduced from 22 to 0 (each either logs or rethrows)
+- [ ] React error boundary wraps all routes — blank-screen crash impossible
+- [ ] All 118+ existing tests pass, including the fixed `notify.test.ts`
 
 ---
 
@@ -153,6 +238,17 @@ Move tool tier configuration to a format extensible from `.mitzo.json` without c
 | Accept optional overrides from `RepoConfig` | `tool-tiers.ts`, `repo-config.ts` | M          |
 | Add validation for override values          | `repo-config.ts`                  | S          |
 
+### Phase 2 Success Criteria
+
+- [ ] `chat.ts` reduced from 535 LOC to <300 (orchestrator + imports only)
+- [ ] `ChatView.tsx` reduced from 470 LOC to <120 (composition + JSX only)
+- [ ] `FileViewer.tsx` reduced from 303 LOC to <120
+- [ ] `startChat()` split into 4+ named functions, each independently testable
+- [ ] `buildPermissionHandler` in its own module with its own test file
+- [ ] `ChatView` state managed via `useReducer` with typed actions — no implicit state machine
+- [ ] Tool tier overrides work from `.mitzo.json` without code changes
+- [ ] All existing tests still pass after every extraction
+
 ---
 
 ## Phase 3: Testing — Frontend Components, Routes, Integration
@@ -226,6 +322,15 @@ The full chat lifecycle has never been tested end-to-end. Use `ws` client librar
 | Create WS integration test harness             | `server/__tests__/ws.integration.test.ts` | L          |
 | Mock SDK `query` for controllable WS scenarios | Same                                      | M          |
 
+### Phase 3 Success Criteria
+
+- [ ] Frontend component test files > 0 (target: 5+ components covered)
+- [ ] Custom hook tests exist for all 4 extracted hooks
+- [ ] Route-layer tests cover all HTTP endpoints via `supertest`
+- [ ] WebSocket integration tests cover connect, stop, auth, and reattach flows
+- [ ] Total test count exceeds 180 (from current 118)
+- [ ] `index.ts` exports `app` separately from server startup (testability gate)
+
 ---
 
 ## Phase 4: Type Safety and Validation — Zod, Remove `any`, API Contracts
@@ -266,14 +371,28 @@ Define a discriminated union for all server-to-client WebSocket messages.
 | Define `ServerMessage` discriminated union | `frontend/src/types/ws-messages.ts` | M          |
 | Apply type guard in `ws-pool.ts` or hook   | `ws-pool.ts`, `useChatMessages.ts`  | M          |
 
-### 4.5 Shared Type Package (Long-term)
+### 4.5 Shared Type Package
 
 `ToolTier` and model IDs are duplicated between server and frontend. A `shared/` workspace package eliminates drift.
 
-| Task                                                               | Files Affected               | Complexity |
-| ------------------------------------------------------------------ | ---------------------------- | ---------- |
-| Create `shared/` workspace package                                 | New directory                | L          |
-| Update `tsconfig.json` and `package.json` for workspace references | Root, `server/`, `frontend/` | M          |
+| Task                                                               | Files Affected                                                  | Complexity |
+| ------------------------------------------------------------------ | --------------------------------------------------------------- | ---------- |
+| Create `shared/` workspace package with `tsconfig.json`            | New `shared/` directory                                         | M          |
+| Move `ToolTier`, `ModelId`, and WS message types to `shared/`      | `shared/src/types.ts`                                           | M          |
+| Update `tsconfig.json` and `package.json` for workspace references | Root, `server/`, `frontend/`                                    | M          |
+| Replace local type definitions with `shared/` imports              | `tool-tiers.ts`, `ChatView.tsx`, `ws-pool.ts`, `ws-messages.ts` | M          |
+| Add `shared/` build step to CI                                     | `.github/workflows/ci.yml`                                      | S          |
+
+**Note:** `zod` is already available in `mcp-server/package.json`. The shared package can re-export Zod schemas that serve as both runtime validators (server) and type sources (frontend via `z.infer`), making 4.1–4.4 schemas reusable without duplication.
+
+### Phase 4 Success Criteria
+
+- [ ] Production `any` count reduced from 5 to 0
+- [ ] All incoming WS messages validated via Zod `safeParse` before processing
+- [ ] All HTTP request bodies validated via Zod — malformed payloads return typed 400 errors
+- [ ] `ServerMessage` discriminated union covers all WS message types on the frontend
+- [ ] `shared/` package exists and is consumed by both `server/` and `frontend/`
+- [ ] No type definitions duplicated between server and frontend
 
 ---
 
@@ -326,6 +445,15 @@ The NTFY auth token is in action URLs as a query parameter — visible in server
 | ------------------------------------ | -------------- | ---------- |
 | Add `helmet` to dependencies         | `package.json` | S          |
 | Configure CSP, HSTS, X-Frame-Options | `index.ts`     | M          |
+
+### Phase 5 Success Criteria
+
+- [ ] `express-rate-limit` applied to login, permission, and WS upgrade endpoints
+- [ ] NTFY action URLs use HMAC-signed time-limited tokens (not raw auth token)
+- [ ] CSRF token validation on all state-mutating endpoints
+- [ ] `express.json()` has explicit `limit` set (10MB for image routes, 1MB default)
+- [ ] `helmet` configured with CSP, HSTS, and X-Frame-Options
+- [ ] Security scan of the hardened app produces no high/critical findings
 
 ---
 
@@ -384,9 +512,42 @@ No size budget currently. A 1MB JS bundle on a mobile connection is a UX failure
 
 Build → full test suite → deploy to staging on merge to `main` → manual approval for production.
 
-| Task                                          | Files Affected             | Complexity |
-| --------------------------------------------- | -------------------------- | ---------- |
-| Define deployment target and add `deploy` job | `.github/workflows/ci.yml` | L          |
+Mitzo runs on a single host (personal server). The deployment pipeline doesn't need Kubernetes or cloud orchestration — it needs reliability and rollback safety.
+
+| Task                                                            | Files Affected             | Complexity |
+| --------------------------------------------------------------- | -------------------------- | ---------- |
+| Create `Dockerfile` with multi-stage build (build → runtime)    | New `Dockerfile`           | M          |
+| Add `docker-compose.yml` for local parity with production       | New `docker-compose.yml`   | S          |
+| Add `deploy` job to CI: build image → push to GHCR → SSH deploy | `.github/workflows/ci.yml` | L          |
+| Add health check endpoint (`GET /health`)                       | `index.ts`                 | S          |
+| Add rollback script (pull previous image tag, restart)          | New `scripts/rollback.sh`  | S          |
+| Document deployment and rollback procedures                     | `docs/deployment.md`       | M          |
+
+### Phase 6 Success Criteria
+
+- [ ] Playwright e2e tests cover login, chat, file viewer, and permission flows
+- [ ] `npm audit --audit-level=high` runs on every PR and blocks on findings
+- [ ] Secret scanning active on every push
+- [ ] Frontend bundle size tracked with `size-limit` — main chunk < 200KB gzipped
+- [ ] Test coverage reported to Codecov with thresholds for new code
+- [ ] Merge to `main` triggers: build → test → deploy to staging → manual gate → production
+- [ ] Rollback documented and scripted — recoverable within 5 minutes
+
+---
+
+## Scope Boundaries
+
+This plan addresses production-hardening of the existing Mitzo architecture. The following are explicitly **out of scope**:
+
+| Not Addressed                        | Why                                                                                                                         |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| Feature development                  | This is an engineering quality plan, not a product roadmap. Features resume after Phase 1–2 remove the risk of adding them. |
+| Multi-user / multi-tenant            | Mitzo is a single-user tool. Auth exists to protect the exposed endpoint, not to manage user accounts.                      |
+| Horizontal scaling                   | Single-host deployment. No load balancer, no database, no distributed state.                                                |
+| Migration to a different framework   | Express + React 19 is the stack. This plan hardens it, not replaces it.                                                     |
+| Mobile app (native)                  | Mitzo is mobile-first web, not a native app. PWA enhancements could follow Phase 6 but are not planned here.                |
+| Monitoring / alerting infrastructure | Structured logging (Phase 1) is the prerequisite. Grafana/Prometheus/etc. is a future layer on top.                         |
+| Performance optimization             | No evidence of performance problems at current scale. Profiling would follow observability (Phase 1).                       |
 
 ---
 
@@ -413,18 +574,18 @@ Build → full test suite → deploy to staging on merge to `main` → manual ap
 
 ### Frontend — `frontend/src/lib/constants.ts`
 
-| Constant                  | Current Value          | Current Location(s)                           |
-| ------------------------- | ---------------------- | --------------------------------------------- |
-| `WS_RECONNECT_MIN_MS`     | `2000`                 | `ws-pool.ts` (inline)                         |
-| `WS_RECONNECT_JITTER_MS`  | `2000`                 | `ws-pool.ts` (inline)                         |
-| `WS_MAX_BUFFER_SIZE`      | `500`                  | `ws-pool.ts` (`MAX_BUFFER_SIZE`, export here) |
-| `TOOL_GROUP_THRESHOLD`    | `3`                    | `groupMessages.ts`                            |
-| `SCROLL_NEAR_BOTTOM_PX`   | `150`                  | `ChatView.tsx`                                |
-| `CHAT_CACHE_KEY_PREFIX`   | `'mitzo-chat-'`        | `ChatView.tsx` (duplicated)                   |
-| `LAST_SESSION_KEY`        | `'mitzo-last-session'` | `ChatView.tsx`                                |
-| `MAX_IMAGE_ATTACHMENTS`   | `4`                    | `ChatInput.tsx` (`MAX_IMAGES`, export here)   |
-| `DEFAULT_MODEL`           | `'claude-sonnet-4-6'`  | `ChatView.tsx`                                |
-| `SCROLL_RESTORE_DELAY_MS` | `100`                  | `ChatView.tsx` (inline setTimeout)            |
+| Constant                  | Current Value          | Current Location(s)                            |
+| ------------------------- | ---------------------- | ---------------------------------------------- |
+| `WS_RECONNECT_DELAY_MS`   | `500`                  | `ws-pool.ts` (`onclose` handler, inline)       |
+| `WS_RECONNECT_POLL_MS`    | `5000`                 | `ws-pool.ts` (`reconnectAll` interval, inline) |
+| `WS_MAX_BUFFER_SIZE`      | `500`                  | `ws-pool.ts` (`MAX_BUFFER_SIZE`, export here)  |
+| `TOOL_GROUP_THRESHOLD`    | `3`                    | `groupMessages.ts`                             |
+| `SCROLL_NEAR_BOTTOM_PX`   | `150`                  | `ChatView.tsx`                                 |
+| `CHAT_CACHE_KEY_PREFIX`   | `'mitzo-chat-'`        | `ChatView.tsx` (duplicated)                    |
+| `LAST_SESSION_KEY`        | `'mitzo-last-session'` | `ChatView.tsx`                                 |
+| `MAX_IMAGE_ATTACHMENTS`   | `4`                    | `ChatInput.tsx` (`MAX_IMAGES`, export here)    |
+| `DEFAULT_MODEL`           | `'claude-sonnet-4-6'`  | `ChatView.tsx`                                 |
+| `SCROLL_RESTORE_DELAY_MS` | `100`                  | `ChatView.tsx` (inline setTimeout)             |
 
 ---
 
