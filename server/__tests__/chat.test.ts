@@ -1,13 +1,5 @@
 import { describe, it, expect } from 'vitest';
 
-// We can't easily test the full Agent SDK integration without mocking,
-// but we can test the utility functions and message flow logic.
-// The SDK itself is tested by Anthropic; we test our glue code.
-
-// Import the summarizeToolInput function by extracting it.
-// Since it's not exported, we test it indirectly through the module behavior.
-// For now, test the public API shape.
-
 describe('chat module exports', () => {
   it('exports expected functions', async () => {
     const chat = await import('../chat.js');
@@ -16,6 +8,10 @@ describe('chat module exports', () => {
     expect(typeof chat.isActive).toBe('function');
     expect(typeof chat.getSessions).toBe('function');
     expect(typeof chat.getMessages).toBe('function');
+    expect(typeof chat.detachChat).toBe('function');
+    expect(typeof chat.reattachChat).toBe('function');
+    expect(typeof chat.hideSession).toBe('function');
+    expect(typeof chat.clearHiddenSessions).toBe('function');
   });
 
   it('isActive returns false for unknown client', async () => {

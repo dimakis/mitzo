@@ -15,9 +15,10 @@ export async function sendPermissionNotification(
   if (!NTFY_TOPIC || !BASE_URL) return;
 
   const truncatedInput = toolInput.length > 100 ? toolInput.slice(0, 100) + '...' : toolInput;
+  const token = NTFY_AUTH_TOKEN || '';
 
-  const allowUrl = `${BASE_URL}/api/permission/${permId}/respond?decision=once&token=${NTFY_AUTH_TOKEN || ''}`;
-  const denyUrl = `${BASE_URL}/api/permission/${permId}/respond?decision=deny&token=${NTFY_AUTH_TOKEN || ''}`;
+  const allowUrl = `${BASE_URL}/api/permission/${permId}/respond?decision=once&token=${token}`;
+  const denyUrl = `${BASE_URL}/api/permission/${permId}/respond?decision=deny&token=${token}`;
 
   const headers: Record<string, string> = {
     Title: `Mitzo: ${toolName}`,
@@ -39,12 +40,4 @@ export async function sendPermissionNotification(
   } catch (err) {
     console.error('[ntfy] failed to send notification:', err);
   }
-}
-
-export function buildNotificationHeaders(toolName: string): Record<string, string> {
-  return {
-    title: `Mitzo: ${toolName}`,
-    priority: '4',
-    tags: 'robot',
-  };
 }

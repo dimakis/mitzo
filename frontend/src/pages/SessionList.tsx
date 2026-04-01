@@ -1,12 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-
-interface Session {
-  id: string;
-  summary: string;
-  lastModified: number;
-  branch?: string;
-}
+import type { Session } from '../types/chat';
+import { formatRelativeTime } from '../lib/formatTime';
 
 interface QuickAction {
   label: string;
@@ -60,15 +55,74 @@ function buildQuickActions(repoPath: string): QuickAction[] {
   return actions;
 }
 
-function formatRelativeTime(ts: number): string {
-  const diff = Date.now() - ts;
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
+function SwipeableSession({
+  session,
+  onDismiss,
+  onClick,
+}: {
+  session: Session;
+  onDismiss: (id: string) => void;
+  onClick: (id: string) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const startX = useRef(0);
+  const currentX = useRef(0);
+  const swiping = useRef(false);
+
+  function handleTouchStart(e: React.TouchEvent) {
+    startX.current = e.touches[0].clientX;
+    currentX.current = startX.current;
+    swiping.current = true;
+  }
+
+  function handleTouchMove(e: React.TouchEvent) {
+    if (!swiping.current || !ref.current) return;
+    currentX.current = e.touches[0].clientX;
+    const dx = currentX.current - startX.current;
+    if (dx < 0) {
+      ref.current.style.transform = `translateX(${dx}px)`;
+      ref.current.style.opacity = `${Math.max(0, 1 + dx / 200)}`;
+    }
+  }
+
+  function handleTouchEnd() {
+    if (!swiping.current || !ref.current) return;
+    swiping.current = false;
+    const dx = currentX.current - startX.current;
+    if (dx < -100) {
+      ref.current.style.transition = 'transform 0.2s, opacity 0.2s';
+      ref.current.style.transform = 'translateX(-100%)';
+      ref.current.style.opacity = '0';
+      setTimeout(() => onDismiss(session.id), 200);
+    } else {
+      ref.current.style.transition = 'transform 0.2s, opacity 0.2s';
+      ref.current.style.transform = 'translateX(0)';
+      ref.current.style.opacity = '1';
+      setTimeout(() => {
+        if (ref.current) ref.current.style.transition = '';
+      }, 200);
+    }
+  }
+
+  return (
+    <div
+      ref={ref}
+      className="session-item"
+      onClick={() => onClick(session.id)}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
+      <div className="session-item-content">
+        <div className="session-item-summary">{session.summary || 'Untitled session'}</div>
+        <div className="session-item-meta">
+          <span className="session-item-time">{formatRelativeTime(session.lastModified)}</span>
+          {session.branch && <span className="session-item-branch">{session.branch}</span>}
+        </div>
+      </div>
+      <span className="session-item-chevron">&rsaquo;</span>
+    </div>
+  );
 }
 
 export function SessionList() {
@@ -92,6 +146,16 @@ export function SessionList() {
       })
       .finally(() => setLoading(false));
   }, []);
+
+  function dismissSession(id: string) {
+    setSessions((prev) => prev.filter((s) => s.id !== id));
+    fetch(`/api/sessions/${id}`, { method: 'DELETE' }).catch(() => {});
+  }
+
+  function clearAll() {
+    setSessions([]);
+    fetch('/api/sessions', { method: 'DELETE' }).catch(() => {});
+  }
 
   function handleQuickAction(action: QuickAction) {
     const params = new URLSearchParams();
@@ -131,18 +195,19 @@ export function SessionList() {
 
       {!loading && sessions.length > 0 && (
         <div className="session-list">
-          <div className="session-list-section-title">Recent Sessions</div>
-          {sessions.map((s) => (
-            <button key={s.id} className="session-item" onClick={() => navigate(`/chat/${s.id}`)}>
-              <div className="session-item-content">
-                <div className="session-item-summary">{s.summary || 'Untitled session'}</div>
-                <div className="session-item-meta">
-                  <span className="session-item-time">{formatRelativeTime(s.lastModified)}</span>
-                  {s.branch && <span className="session-item-branch">{s.branch}</span>}
-                </div>
-              </div>
-              <span className="session-item-chevron">›</span>
+          <div className="session-list-section-header">
+            <span className="session-list-section-title">Recent Sessions</span>
+            <button className="session-list-clear" onClick={clearAll}>
+              Clear
             </button>
+          </div>
+          {sessions.map((s) => (
+            <SwipeableSession
+              key={s.id}
+              session={s}
+              onDismiss={dismissSession}
+              onClick={(id) => navigate(`/chat/${id}`)}
+            />
           ))}
         </div>
       )}
