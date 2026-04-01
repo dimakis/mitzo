@@ -119,7 +119,8 @@ function connectEntry(key: string, entry: PoolEntry) {
   ws.onclose = () => {
     entry.ws = null;
     broadcast(entry, { type: '_close' });
-    entry.reconnectTimer = setTimeout(() => connectEntry(key, entry), 2000 + Math.random() * 2000);
+    // First reconnect attempt immediately; subsequent attempts back off slightly
+    entry.reconnectTimer = setTimeout(() => connectEntry(key, entry), 500);
   };
 
   ws.onerror = () => {};
@@ -142,6 +143,11 @@ if (typeof document !== 'undefined') {
   });
   window.addEventListener('pageshow', reconnectAll);
   window.addEventListener('focus', reconnectAll);
+
+  // Client-side heartbeat: check every 5s and reconnect immediately if any
+  // connection is dead. Catches silent drops that never fire a close event
+  // (common on iOS Safari PWA when switching apps or locking the screen).
+  setInterval(reconnectAll, 5000);
 }
 
 function getOrCreate(key: string): PoolEntry {
