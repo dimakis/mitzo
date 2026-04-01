@@ -146,6 +146,30 @@ textarea:focus {
   font-weight: 700;
 }
 
+.session-list-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.refresh-ui-btn {
+  font-size: 1.1rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  cursor: pointer;
+  line-height: 1;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.refresh-ui-btn:active {
+  background: var(--surface);
+  color: var(--text);
+}
+
 .session-list-header .new-chat-btn {
   font-size: 0.85rem;
   padding: 0.5rem 1rem;

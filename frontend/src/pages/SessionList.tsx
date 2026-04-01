@@ -127,6 +127,14 @@ function SwipeableSession({
   );
 }
 
+async function refreshUI() {
+  if ('caches' in window) {
+    const keys = await caches.keys();
+    await Promise.all(keys.map((k) => caches.delete(k)));
+  }
+  location.reload();
+}
+
 export function SessionList() {
   const navigate = useNavigate();
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -172,9 +180,14 @@ export function SessionList() {
     <div className="session-list-page">
       <header className="session-list-header">
         <h1>Mitzo</h1>
-        <button className="new-chat-btn" onClick={() => navigate('/chat')}>
-          New Chat
-        </button>
+        <div className="session-list-header-actions">
+          <button className="refresh-ui-btn" onClick={refreshUI} title="Clear cache and reload">
+            ↺
+          </button>
+          <button className="new-chat-btn" onClick={() => navigate('/chat')}>
+            New Chat
+          </button>
+        </div>
       </header>
 
       <div className="quick-grid">
