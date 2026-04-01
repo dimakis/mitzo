@@ -134,15 +134,15 @@ export function ChatInput({ onSend, onStop, running, initialText }: Props) {
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={running ? 'Working...' : 'Message Mitzo...'}
+          placeholder={running ? 'Type next message...' : 'Message Mitzo...'}
           rows={1}
-          disabled={running}
         />
-        {running ? (
-          <button className="chat-input-btn chat-input-btn--stop" onClick={onStop}>
-            Stop
-          </button>
-        ) : (
+        <div className="chat-input-actions">
+          {running && (
+            <button className="chat-input-btn chat-input-btn--stop" onClick={onStop}>
+              Stop
+            </button>
+          )}
           <button
             className="chat-input-btn chat-input-btn--send"
             onClick={handleSend}
@@ -150,7 +150,7 @@ export function ChatInput({ onSend, onStop, running, initialText }: Props) {
           >
             Send
           </button>
-        )}
+        </div>
       </div>
     </div>
   );

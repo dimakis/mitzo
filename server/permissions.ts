@@ -1,9 +1,13 @@
-type PermissionResolver = (result: any) => void;
+import type { PermissionResult, PermissionUpdate } from '@anthropic-ai/claude-agent-sdk';
+import type { ToolTier } from './tool-tiers.js';
+
+type PermissionResolver = (result: PermissionResult) => void;
 
 interface PendingEntry {
   resolver: PermissionResolver;
   toolName: string;
-  suggestions?: any[];
+  suggestions?: PermissionUpdate[];
+  tier?: ToolTier;
 }
 
 const pending = new Map<string, PendingEntry>();
@@ -12,9 +16,10 @@ export function registerPending(
   permId: string,
   toolName: string,
   resolver: PermissionResolver,
-  suggestions?: any[],
+  suggestions?: PermissionUpdate[],
+  tier?: ToolTier,
 ) {
-  pending.set(permId, { resolver, toolName, suggestions });
+  pending.set(permId, { resolver, toolName, suggestions, tier });
 }
 
 export function resolvePending(permId: string, decision: 'once' | 'always' | 'deny'): boolean {
@@ -25,21 +30,24 @@ export function resolvePending(permId: string, decision: 'once' | 'always' | 'de
   const { resolver, suggestions } = entry;
 
   if (decision === 'always') {
-    resolver({
-      behavior: 'allow' as const,
-      updatedPermissions: suggestions,
-      decisionClassification: 'user_permanent' as const,
-    });
+    const result: PermissionResult = {
+      behavior: 'allow',
+      decisionClassification: 'user_permanent',
+    };
+    if (suggestions && suggestions.length > 0) {
+      result.updatedPermissions = suggestions;
+    }
+    resolver(result);
   } else if (decision === 'once') {
     resolver({
-      behavior: 'allow' as const,
-      decisionClassification: 'user_temporary' as const,
+      behavior: 'allow',
+      decisionClassification: 'user_temporary',
     });
   } else {
     resolver({
-      behavior: 'deny' as const,
+      behavior: 'deny',
       message: 'User denied',
-      decisionClassification: 'user_reject' as const,
+      decisionClassification: 'user_reject',
     });
   }
 

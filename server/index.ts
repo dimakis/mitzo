@@ -222,6 +222,12 @@ server.on('upgrade', async (req, socket, head) => {
 function handleChatWs(ws: WebSocket, clientId: string) {
   ws.send(JSON.stringify({ type: 'client_id', clientId }));
 
+  const heartbeat = setInterval(() => {
+    if (ws.readyState === ws.OPEN) {
+      ws.ping();
+    }
+  }, 15_000);
+
   ws.on('message', async (raw) => {
     try {
       const msg = JSON.parse(raw.toString());
@@ -279,6 +285,7 @@ function handleChatWs(ws: WebSocket, clientId: string) {
   });
 
   ws.on('close', (code, reason) => {
+    clearInterval(heartbeat);
     console.log('[ws] chat disconnected:', clientId, 'code:', code, 'reason:', reason?.toString());
     if (isActive(clientId)) {
       detachChat(clientId);

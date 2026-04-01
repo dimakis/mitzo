@@ -35,6 +35,8 @@ export function ChatView() {
   const intentionalClose = useRef(false);
   const serverClientId = useRef<string | null>(null);
   const wasRunning = useRef(false);
+  const currentSessionIdRef = useRef(currentSessionId);
+  currentSessionIdRef.current = currentSessionId;
 
   const isNearBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -230,6 +232,10 @@ export function ChatView() {
               permId: msg.permId as string,
               toolName: msg.toolName as string,
               toolInput: msg.toolInput as string,
+              title: msg.title as string | undefined,
+              description: msg.description as string | undefined,
+              displayName: msg.displayName as string | undefined,
+              tier: msg.tier as import('../types/chat').ToolTier | undefined,
             });
             break;
 
@@ -251,7 +257,7 @@ export function ChatView() {
             }
             setRunning(false);
             wasRunning.current = false;
-            if (msg.sessionId && !currentSessionId) {
+            if (msg.sessionId && !currentSessionIdRef.current) {
               setCurrentSessionId(msg.sessionId as string);
             }
             break;
@@ -262,7 +268,7 @@ export function ChatView() {
             setRunning(false);
             wasRunning.current = false;
             if ((msg.error as string)?.includes('No conversation found')) {
-              const staleId = currentSessionId;
+              const staleId = currentSessionIdRef.current;
               setCurrentSessionId(undefined);
               if (staleId) {
                 sessionStorage.removeItem(`mitzo-chat-${staleId}`);
@@ -336,6 +342,10 @@ export function ChatView() {
       return;
     }
 
+    if (running) {
+      ws.send(JSON.stringify({ type: 'stop' }));
+    }
+
     const previews = images?.map((img) => img.preview);
     setMessages((prev) => [...prev, { role: 'user', text, images: previews }]);
     setRunning(true);
@@ -361,6 +371,8 @@ export function ChatView() {
   const handleStop = useCallback(() => {
     wsRef.current?.send(JSON.stringify({ type: 'stop' }));
     wasRunning.current = false;
+    setRunning(false);
+    streamBuf.current = '';
   }, []);
 
   const handlePermission = useCallback(
@@ -462,6 +474,10 @@ export function ChatView() {
           permId={permission.permId}
           toolName={permission.toolName}
           toolInput={permission.toolInput}
+          title={permission.title}
+          description={permission.description}
+          displayName={permission.displayName}
+          tier={permission.tier}
           onRespond={handlePermission}
         />
       )}

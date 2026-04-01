@@ -1,4 +1,10 @@
-import { query, listSessions, getSessionMessages } from '@anthropic-ai/claude-agent-sdk';
+import {
+  query,
+  listSessions,
+  getSessionMessages,
+  type PermissionResult,
+  type PermissionUpdate,
+} from '@anthropic-ai/claude-agent-sdk';
 import type { WebSocket } from 'ws';
 import { execFileSync } from 'child_process';
 import { writeFileSync, mkdirSync, readdirSync } from 'fs';
@@ -11,6 +17,7 @@ import { SessionRegistry, type MitzoMode } from './session-registry.js';
 import { summarizeToolInput } from './tool-summary.js';
 import { parseContentBlocks, extractToolResultText } from './content-blocks.js';
 import { loadMcpServers, type McpServerConfig } from './mcp-config.js';
+import { getToolTier, shouldAutoAllow, getAllowedToolsForMode } from './tool-tiers.js';
 
 export type { MitzoMode } from './session-registry.js';
 
@@ -31,7 +38,7 @@ const WORKTREE_ENABLED = process.env.WORKTREE_ENABLED !== 'false';
 const MODE_TO_SDK: Record<MitzoMode, string> = {
   ask: 'plan',
   agent: 'default',
-  auto: 'bypassPermissions',
+  auto: 'acceptEdits',
 };
 
 export const registry = new SessionRegistry();
@@ -92,6 +99,16 @@ function resolveWorktree(
   }
 }
 
+/**
+ * Allow all MCP tools via allowedTools. The SDK's canUseTool Zod validation
+ * is incompatible with our permission response format for MCP tools.
+ * Write protection is handled by the system prompt (HITL: Claude asks before
+ * mutating) rather than the SDK permission system.
+ */
+function buildMcpAllowedTools(): string[] {
+  return Object.keys(mcpServers).map((name) => `mcp__${name}__*`);
+}
+
 function getBranch(cwd: string): string {
   try {
     return execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
@@ -129,39 +146,99 @@ function stageImages(cwd: string, images: Array<{ data: string; mediaType: strin
   return paths;
 }
 
+/**
+ * When "Always Allow" is tapped on an MCP tool like mcp__atlassian__jira_get_issue,
+ * allow the entire MCP server (mcp__atlassian__*) so the user isn't prompted for
+ * every tool from the same server. Non-MCP tools are added individually.
+ */
+function addToAllowList(allowList: Set<string>, toolName: string): void {
+  const mcpPrefix = getMcpPrefix(toolName);
+  if (mcpPrefix) {
+    allowList.add(mcpPrefix);
+  } else {
+    allowList.add(toolName);
+  }
+}
+
+function isAllowListed(allowList: Set<string>, toolName: string): boolean {
+  if (allowList.has(toolName)) return true;
+  const mcpPrefix = getMcpPrefix(toolName);
+  return mcpPrefix !== null && allowList.has(mcpPrefix);
+}
+
+function getMcpPrefix(toolName: string): string | null {
+  if (!toolName.startsWith('mcp__')) return null;
+  const parts = toolName.split('__');
+  if (parts.length >= 3) return `${parts[0]}__${parts[1]}__`;
+  return null;
+}
+
 function buildPermissionHandler(clientId: string) {
   return async (
     toolName: string,
-    toolInput: Record<string, unknown>,
-    opts: { suggestions?: unknown[] },
-  ) => {
+    _toolInput: Record<string, unknown>,
+    opts: {
+      signal: AbortSignal;
+      suggestions?: PermissionUpdate[];
+      toolUseID: string;
+      title?: string;
+      displayName?: string;
+      description?: string;
+      decisionReason?: string;
+    },
+  ): Promise<PermissionResult> => {
     const session = registry.get(clientId);
-    if (!session) return { behavior: 'deny' as const, message: 'Session not found' };
+    if (!session) return { behavior: 'deny', message: 'Session not found' };
 
-    if (session.mode === 'auto') return { behavior: 'allow' as const };
-    if (session.sessionAllowList.has(toolName)) {
-      return { behavior: 'allow' as const, decisionClassification: 'user_permanent' as const };
+    const tier = getToolTier(toolName);
+
+    if (shouldAutoAllow(toolName, session.mode)) {
+      return { behavior: 'allow' };
     }
 
-    const inputSummary = summarizeToolInput(toolName, toolInput);
+    if (isAllowListed(session.sessionAllowList, toolName)) {
+      return { behavior: 'allow', decisionClassification: 'user_permanent' };
+    }
 
-    return new Promise<{
-      behavior: string;
-      message?: string;
-      decisionClassification?: string;
-      updatedPermissions?: unknown[];
-    }>((resolve) => {
+    const inputSummary = summarizeToolInput(toolName, _toolInput);
+
+    return new Promise<PermissionResult>((resolve) => {
+      if (opts.signal.aborted) {
+        resolve({ behavior: 'deny', message: 'Aborted' });
+        return;
+      }
+
       const permId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-      const wrappedResolve = (result: { behavior: string; decisionClassification?: string }) => {
+      const wrappedResolve = (result: PermissionResult) => {
         if (result.behavior === 'allow' && result.decisionClassification === 'user_permanent') {
-          session.sessionAllowList.add(toolName);
+          addToAllowList(session.sessionAllowList, toolName);
         }
-        resolve(result as typeof result & { updatedPermissions?: unknown[] });
+        resolve(result);
       };
 
-      registerPending(permId, toolName, wrappedResolve, opts?.suggestions);
-      send(session.ws, { type: 'permission_request', permId, toolName, toolInput: inputSummary });
+      const onAbort = () => {
+        if (hasPending(permId)) {
+          removePending(permId);
+          resolve({ behavior: 'deny', message: 'Aborted' });
+          send(session.ws, { type: 'permission_timeout', permId });
+        }
+      };
+      opts.signal.addEventListener('abort', onAbort, { once: true });
+
+      registerPending(permId, toolName, wrappedResolve, opts.suggestions, tier);
+
+      send(session.ws, {
+        type: 'permission_request',
+        permId,
+        toolName,
+        toolInput: inputSummary,
+        title: opts.title,
+        description: opts.description,
+        displayName: opts.displayName,
+        decisionReason: opts.decisionReason,
+        tier,
+      });
 
       if (ntfyConfigured()) {
         setTimeout(() => {
@@ -172,6 +249,7 @@ function buildPermissionHandler(clientId: string) {
       setTimeout(() => {
         if (hasPending(permId)) {
           removePending(permId);
+          opts.signal.removeEventListener('abort', onAbort);
           resolve({ behavior: 'deny', message: 'Permission request timed out' });
           send(session.ws, { type: 'permission_timeout', permId });
         }
@@ -207,7 +285,8 @@ export async function startChat(
     fullPrompt = `${prompt}\n\nI've attached ${paths.length} image(s). Read them using the Read tool:\n${imageRefs}`;
   }
 
-  const baseAllowed = ['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch'];
+  const modeAllowed = getAllowedToolsForMode(mode);
+  const mcpAllowed = buildMcpAllowedTools();
   const extraTools = options.extraTools ? options.extraTools.split(',').map((t) => t.trim()) : [];
 
   registry.register(clientId, {
@@ -234,13 +313,22 @@ export async function startChat(
       abortController,
       includePartialMessages: true,
       settingSources: ['project'],
-      systemPrompt: { type: 'preset', preset: 'claude_code' },
+      systemPrompt: {
+        type: 'preset',
+        preset: 'claude_code',
+        append:
+          'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
+          '- Never take mutating actions (writes, comments, transitions, commits) without explicit user approval. Present analysis first, wait for confirmation.\n' +
+          '- Read operations are fine without asking.\n' +
+          '- Keep responses concise — small screen.\n' +
+          '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.',
+      },
       permissionMode: MODE_TO_SDK[mode] as 'plan' | 'default' | 'bypassPermissions',
-      allowedTools: [...baseAllowed, ...extraTools],
+      allowedTools: [...modeAllowed, ...mcpAllowed, ...extraTools],
       ...(options.model ? { model: options.model } : {}),
       ...(options.resume ? { resume: options.resume } : {}),
       ...(Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
-      canUseTool: buildPermissionHandler(clientId) as any, // SDK typing requires broad compat
+      canUseTool: buildPermissionHandler(clientId),
     },
   });
 
@@ -304,7 +392,7 @@ export async function startChat(
               send(currentWs, {
                 type: 'tool_result',
                 toolId: block.tool_use_id || '',
-                result: resultText.slice(0, 2000),
+                result: resultText.slice(0, 10_000),
               });
             }
           }
