@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { truncate } from '../lib/truncate';
 
 interface Props {
   permId: string;
@@ -38,9 +39,7 @@ export function PermissionBanner({ permId, toolName, toolInput, onRespond }: Pro
     <div className="perm-banner">
       <div className="perm-banner-info">
         <span className="perm-banner-tool">{toolName}</span>
-        <pre className="perm-banner-input">
-          {toolInput.length > 200 ? toolInput.slice(0, 200) + '...' : toolInput}
-        </pre>
+        <pre className="perm-banner-input">{truncate(toolInput, 200)}</pre>
         <span className="perm-banner-timer">Auto-deny in {remaining}s</span>
       </div>
       <div className="perm-banner-actions">

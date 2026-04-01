@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ToolPill } from './ToolPill';
-import type { Message } from '../pages/ChatView';
+import type { Message } from '../types/chat';
 
 interface Props {
   tools: Message[];

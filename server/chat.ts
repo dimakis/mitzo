@@ -8,6 +8,7 @@ import { sendPermissionNotification, isConfigured as ntfyConfigured } from './no
 import { createWorktree } from './worktree.js';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
 import { summarizeToolInput } from './tool-summary.js';
+import { parseContentBlocks, extractToolResultText } from './content-blocks.js';
 
 export type { MitzoMode } from './session-registry.js';
 
@@ -55,6 +56,109 @@ function send(ws: WebSocket, data: unknown) {
   }
 }
 
+function resolveWorktree(
+  ws: WebSocket,
+  baseCwd: string,
+  options: { resume?: string; cwd?: string; worktree?: boolean },
+): { cwd: string; worktreePath?: string } {
+  if (
+    !(
+      WORKTREE_ENABLED &&
+      options.worktree !== false &&
+      !options.cwd &&
+      !options.resume &&
+      BASE_REPO
+    )
+  ) {
+    return { cwd: baseCwd };
+  }
+  const wtId = `wt-${Date.now().toString(36)}`;
+  try {
+    const worktreePath = createWorktree(wtId, BASE_REPO);
+    send(ws, { type: 'worktree', path: worktreePath });
+    return { cwd: worktreePath, worktreePath };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[worktree] creation failed, using base repo:', message);
+    send(ws, { type: 'error', error: `Worktree creation failed (using base repo): ${message}` });
+    return { cwd: baseCwd };
+  }
+}
+
+function stageImages(cwd: string, images: Array<{ data: string; mediaType: string }>): string[] {
+  const imgDir = join(cwd, '.mitzo-images');
+  mkdirSync(imgDir, { recursive: true });
+
+  const extMap: Record<string, string> = {
+    'image/jpeg': '.jpg',
+    'image/png': '.png',
+    'image/gif': '.gif',
+    'image/webp': '.webp',
+  };
+
+  const paths: string[] = [];
+  for (let i = 0; i < images.length; i++) {
+    const img = images[i];
+    const ext = extMap[img.mediaType] || '.jpg';
+    const filename = `image-${Date.now()}-${i}${ext}`;
+    const filePath = join(imgDir, filename);
+    writeFileSync(filePath, Buffer.from(img.data, 'base64'));
+    paths.push(filePath);
+  }
+  return paths;
+}
+
+function buildPermissionHandler(clientId: string) {
+  return async (
+    toolName: string,
+    toolInput: Record<string, unknown>,
+    opts: { suggestions?: unknown[] },
+  ) => {
+    const session = registry.get(clientId);
+    if (!session) return { behavior: 'deny' as const, message: 'Session not found' };
+
+    if (session.mode === 'auto') return { behavior: 'allow' as const };
+    if (session.sessionAllowList.has(toolName)) {
+      return { behavior: 'allow' as const, decisionClassification: 'user_permanent' as const };
+    }
+
+    const inputSummary = summarizeToolInput(toolName, toolInput);
+
+    return new Promise<{
+      behavior: string;
+      message?: string;
+      decisionClassification?: string;
+      updatedPermissions?: unknown[];
+    }>((resolve) => {
+      const permId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+      const wrappedResolve = (result: { behavior: string; decisionClassification?: string }) => {
+        if (result.behavior === 'allow' && result.decisionClassification === 'user_permanent') {
+          session.sessionAllowList.add(toolName);
+        }
+        resolve(result as typeof result & { updatedPermissions?: unknown[] });
+      };
+
+      registerPending(permId, toolName, wrappedResolve, opts?.suggestions);
+      send(session.ws, { type: 'permission_request', permId, toolName, toolInput: inputSummary });
+
+      if (ntfyConfigured()) {
+        setTimeout(() => {
+          if (hasPending(permId)) sendPermissionNotification(toolName, inputSummary, permId);
+        }, 10_000);
+      }
+
+      setTimeout(() => {
+        if (hasPending(permId)) {
+          removePending(permId);
+          resolve({ behavior: 'deny', message: 'Permission request timed out' });
+          send(session.ws, { type: 'permission_timeout', permId });
+        }
+      }, 120_000);
+    });
+  };
+}
+
 export async function startChat(
   ws: WebSocket,
   clientId: string,
@@ -71,51 +175,13 @@ export async function startChat(
 ) {
   const abortController = new AbortController();
   const mode = options.mode || 'agent';
-  const sessionAllowList = new Set<string>();
+  const baseCwd = options.cwd || BASE_REPO;
 
-  let cwd = options.cwd || BASE_REPO;
-  let worktreePath: string | undefined;
-
-  const useWorktree =
-    WORKTREE_ENABLED && options.worktree !== false && !options.cwd && !options.resume && BASE_REPO;
-
-  if (useWorktree) {
-    const wtId = `wt-${Date.now().toString(36)}`;
-    try {
-      worktreePath = createWorktree(wtId, BASE_REPO);
-      cwd = worktreePath;
-      send(ws, { type: 'worktree', path: worktreePath });
-    } catch (err: any) {
-      console.error('[worktree] creation failed, using base repo:', err.message);
-      send(ws, {
-        type: 'error',
-        error: `Worktree creation failed (using base repo): ${err.message}`,
-      });
-    }
-  }
+  const { cwd, worktreePath } = resolveWorktree(ws, baseCwd, options);
 
   let fullPrompt = prompt;
   if (options.images?.length) {
-    const imgDir = join(cwd, '.mitzo-images');
-    mkdirSync(imgDir, { recursive: true });
-
-    const paths: string[] = [];
-    const extMap: Record<string, string> = {
-      'image/jpeg': '.jpg',
-      'image/png': '.png',
-      'image/gif': '.gif',
-      'image/webp': '.webp',
-    };
-
-    for (let i = 0; i < options.images.length; i++) {
-      const img = options.images[i];
-      const ext = extMap[img.mediaType] || '.jpg';
-      const filename = `image-${Date.now()}-${i}${ext}`;
-      const filePath = join(imgDir, filename);
-      writeFileSync(filePath, Buffer.from(img.data, 'base64'));
-      paths.push(filePath);
-    }
-
+    const paths = stageImages(cwd, options.images);
     const imageRefs = paths.map((p) => `- ${p}`).join('\n');
     fullPrompt = `${prompt}\n\nI've attached ${paths.length} image(s). Read them using the Read tool:\n${imageRefs}`;
   }
@@ -127,7 +193,7 @@ export async function startChat(
     ws,
     abortController,
     mode,
-    sessionAllowList,
+    sessionAllowList: new Set<string>(),
     worktreePath,
   });
 
@@ -140,67 +206,18 @@ export async function startChat(
       includePartialMessages: true,
       settingSources: ['project'],
       systemPrompt: { type: 'preset', preset: 'claude_code' },
-      permissionMode: MODE_TO_SDK[mode] as any,
+      permissionMode: MODE_TO_SDK[mode] as 'plan' | 'default' | 'bypassPermissions',
       allowedTools: [...baseAllowed, ...extraTools],
       ...(options.model ? { model: options.model } : {}),
       ...(options.resume ? { resume: options.resume } : {}),
-      canUseTool: async (toolName: string, toolInput: Record<string, unknown>, opts: any) => {
-        const session = registry.get(clientId);
-        if (!session) return { behavior: 'deny' as const, message: 'Session not found' };
-
-        if (session.mode === 'auto') {
-          return { behavior: 'allow' as const };
-        }
-
-        if (session.sessionAllowList.has(toolName)) {
-          return { behavior: 'allow' as const, decisionClassification: 'user_permanent' as const };
-        }
-
-        const inputSummary = summarizeToolInput(toolName, toolInput);
-
-        return new Promise((resolve) => {
-          const permId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-          const wrappedResolve = (result: any) => {
-            if (result.behavior === 'allow' && result.decisionClassification === 'user_permanent') {
-              session.sessionAllowList.add(toolName);
-            }
-            resolve(result);
-          };
-
-          registerPending(permId, toolName, wrappedResolve, opts?.suggestions);
-
-          send(session.ws, {
-            type: 'permission_request',
-            permId,
-            toolName,
-            toolInput: inputSummary,
-          });
-
-          if (ntfyConfigured()) {
-            setTimeout(() => {
-              if (hasPending(permId)) {
-                sendPermissionNotification(toolName, inputSummary, permId);
-              }
-            }, 10_000);
-          }
-
-          setTimeout(() => {
-            if (hasPending(permId)) {
-              removePending(permId);
-              resolve({ behavior: 'deny' as const, message: 'Permission request timed out' });
-              send(session.ws, { type: 'permission_timeout', permId });
-            }
-          }, 120_000);
-        });
-      },
+      canUseTool: buildPermissionHandler(clientId) as any, // SDK typing requires broad compat
     },
   });
 
   const session = registry.get(clientId)!;
   session.queryInstance = q;
 
-  const messageHandler = (raw: any) => {
+  const messageHandler = (raw: Buffer) => {
     try {
       const msg = JSON.parse(raw.toString());
       if (msg.type === 'permission_response' && msg.permId) {
@@ -241,9 +258,7 @@ export async function startChat(
           send(currentWs, { type: 'session_id', sessionId: msg.session_id });
         }
       } else if (msg.type === 'result') {
-        if (msg.session_id) {
-          send(currentWs, { type: 'session_id', sessionId: msg.session_id });
-        }
+        if (msg.session_id) send(currentWs, { type: 'session_id', sessionId: msg.session_id });
         send(currentWs, { type: 'done', sessionId: msg.session_id });
       } else if (msg.type === 'stream_event') {
         const evt = msg.event;
@@ -251,17 +266,11 @@ export async function startChat(
           send(currentWs, { type: 'text_delta', text: evt.delta.text });
         }
       } else if (msg.type === 'user' && msg.tool_use_result !== undefined) {
-        const content = (msg.message as any)?.content;
+        const content = (msg.message as unknown as Record<string, unknown>)?.content;
         if (Array.isArray(content)) {
           for (const block of content) {
             if (block.type === 'tool_result') {
-              let resultText = '';
-              if (typeof block.content === 'string') resultText = block.content;
-              else if (Array.isArray(block.content)) {
-                for (const c of block.content) {
-                  if (c.type === 'text') resultText += c.text;
-                }
-              }
+              const resultText = extractToolResultText(block.content);
               send(currentWs, {
                 type: 'tool_result',
                 toolId: block.tool_use_id || '',
@@ -272,10 +281,11 @@ export async function startChat(
         }
       }
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     const currentSession = registry.get(clientId);
     if (currentSession && !abortController.signal.aborted) {
-      send(currentSession.ws, { type: 'error', error: err.message || 'Unknown error' });
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      send(currentSession.ws, { type: 'error', error: message });
     }
   } finally {
     ws.removeListener('message', messageHandler);
@@ -293,15 +303,12 @@ export async function startChat(
 export function stopChat(clientId: string) {
   registry.abort(clientId);
 }
-
 export function detachChat(clientId: string) {
   registry.detach(clientId);
 }
-
 export function reattachChat(clientId: string, ws: WebSocket): boolean {
   return registry.reattach(clientId, ws);
 }
-
 export function isActive(clientId: string): boolean {
   return registry.isActive(clientId);
 }
@@ -315,7 +322,7 @@ function getSessionDirs(): string[] {
       if (e.startsWith('session-')) dirs.push(join(sessionsDir, e));
     }
   } catch {
-    // No sessions dir yet
+    /* No sessions dir yet */
   }
   const claudeProjects = join(homedir(), '.claude', 'projects');
   const prefix = BASE_REPO.replace(/\//g, '-').replace(/^-/, '-');
@@ -328,17 +335,15 @@ function getSessionDirs(): string[] {
       }
     }
   } catch {
-    // No claude projects dir
+    /* No claude projects dir */
   }
   return dirs;
 }
 
 const hiddenSessionIds = new Set<string>();
-
 export function hideSession(sessionId: string) {
   hiddenSessionIds.add(sessionId);
 }
-
 export function clearHiddenSessions() {
   hiddenSessionIds.clear();
 }
@@ -364,7 +369,7 @@ export async function getSessions() {
         }
       }
     } catch {
-      // Dir might not exist — fine
+      /* Dir might not exist */
     }
   }
   const deduped = Array.from(seen.values());
@@ -373,53 +378,34 @@ export async function getSessions() {
 }
 
 export async function getMessages(sessionId: string) {
-  let messages: any[] = [];
+  let rawMessages: Array<{ type: string; message?: Record<string, unknown> }> = [];
   for (const dir of getSessionDirs()) {
     try {
-      messages = await getSessionMessages(sessionId, { dir, limit: 100 });
-      if (messages.length > 0) break;
+      rawMessages = (await getSessionMessages(sessionId, {
+        dir,
+        limit: 100,
+      })) as typeof rawMessages;
+      if (rawMessages.length > 0) break;
     } catch {
-      // Try next dir
+      /* Try next dir */
     }
   }
   try {
-    return messages
+    return rawMessages
       .map((m) => {
-        const content = (m.message as any)?.content;
-        let text = '';
-        const toolCalls: any[] = [];
-        const toolResults: any[] = [];
-
-        if (Array.isArray(content)) {
-          for (const block of content) {
-            if (block.type === 'text') text += block.text;
-            else if (block.type === 'tool_use') {
-              toolCalls.push({
-                toolName: block.name,
-                toolId: block.id,
-                input: summarizeToolInput(block.name, block.input),
-              });
-            } else if (block.type === 'tool_result') {
-              let rt = '';
-              if (typeof block.content === 'string') rt = block.content;
-              else if (Array.isArray(block.content)) {
-                for (const c of block.content) {
-                  if (c.type === 'text') rt += c.text;
-                }
-              }
-              toolResults.push({ toolId: block.tool_use_id, result: rt.slice(0, 2000) });
-            }
-          }
-        }
-
+        const content = m.message?.content;
+        if (!Array.isArray(content)) return null;
+        const parsed = parseContentBlocks(content);
         return {
           role: m.type,
-          text: text || undefined,
-          toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-          toolResults: toolResults.length > 0 ? toolResults : undefined,
+          text: parsed.text || undefined,
+          toolCalls: parsed.toolCalls.length > 0 ? parsed.toolCalls : undefined,
+          toolResults: parsed.toolResults.length > 0 ? parsed.toolResults : undefined,
         };
       })
-      .filter((m) => m.text || m.toolCalls || m.toolResults);
+      .filter(
+        (m): m is NonNullable<typeof m> => m !== null && !!(m.text || m.toolCalls || m.toolResults),
+      );
   } catch {
     return [];
   }

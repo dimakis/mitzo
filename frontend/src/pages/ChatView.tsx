@@ -4,54 +4,9 @@ import { MessageBubble } from '../components/MessageBubble';
 import { ToolPill } from '../components/ToolPill';
 import { ToolGroup } from '../components/ToolGroup';
 import { PermissionBanner } from '../components/PermissionBanner';
-import { ChatInput, type ImageAttachment } from '../components/ChatInput';
-
-export interface Message {
-  role: 'user' | 'assistant' | 'tool';
-  text?: string;
-  images?: string[];
-  toolName?: string;
-  toolId?: string;
-  toolInput?: string;
-  toolResult?: string;
-  streaming?: boolean;
-}
-
-type GroupedItem = { type: 'message'; message: Message } | { type: 'tool-group'; tools: Message[] };
-
-function groupMessages(messages: Message[]): GroupedItem[] {
-  const result: GroupedItem[] = [];
-  let toolBuffer: Message[] = [];
-
-  function flushTools() {
-    if (toolBuffer.length === 0) return;
-    if (toolBuffer.length >= 3) {
-      result.push({ type: 'tool-group', tools: toolBuffer });
-    } else {
-      for (const t of toolBuffer) {
-        result.push({ type: 'message', message: t });
-      }
-    }
-    toolBuffer = [];
-  }
-
-  for (const msg of messages) {
-    if (msg.role === 'tool') {
-      toolBuffer.push(msg);
-    } else {
-      flushTools();
-      result.push({ type: 'message', message: msg });
-    }
-  }
-  flushTools();
-  return result;
-}
-
-interface PermissionRequest {
-  permId: string;
-  toolName: string;
-  toolInput: string;
-}
+import { ChatInput } from '../components/ChatInput';
+import { groupMessages } from '../lib/groupMessages';
+import type { Message, PermissionRequest, ImageAttachment } from '../types/chat';
 
 export function ChatView() {
   const { sessionId } = useParams<{ sessionId?: string }>();
@@ -74,7 +29,6 @@ export function ChatView() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const intentionalClose = useRef(false);
-  const lastPayload = useRef<string | null>(null);
   const serverClientId = useRef<string | null>(null);
   const wasRunning = useRef(false);
 
@@ -87,23 +41,16 @@ export function ChatView() {
   const scrollToBottom = useCallback(() => {
     if (!isNearBottom()) return;
     requestAnimationFrame(() => {
-      scrollRef.current?.scrollTo({
-        top: scrollRef.current.scrollHeight,
-        behavior: 'smooth',
-      });
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
     });
   }, [isNearBottom]);
 
   const forceScrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
-      scrollRef.current?.scrollTo({
-        top: scrollRef.current.scrollHeight,
-        behavior: 'smooth',
-      });
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
     });
   }, []);
 
-  // Restore session history: try sessionStorage first, then server
   useEffect(() => {
     if (!sessionId) return;
 
@@ -125,7 +72,14 @@ export function ChatView() {
     fetch(`/api/sessions/${sessionId}/messages`)
       .then((r) => (r.ok ? r.json() : []))
       .then(
-        (msgs: Array<{ role: string; text?: string; toolCalls?: any[]; toolResults?: any[] }>) => {
+        (
+          msgs: Array<{
+            role: string;
+            text?: string;
+            toolCalls?: Array<{ toolName: string; toolId: string; input: string }>;
+            toolResults?: Array<{ toolId: string; result: string }>;
+          }>,
+        ) => {
           const loaded: Message[] = [];
           for (const m of msgs) {
             if (m.text) {
@@ -143,11 +97,7 @@ export function ChatView() {
             }
             if (m.toolResults) {
               for (const tr of m.toolResults) {
-                loaded.push({
-                  role: 'tool',
-                  toolId: tr.toolId,
-                  toolResult: tr.result,
-                });
+                loaded.push({ role: 'tool', toolId: tr.toolId, toolResult: tr.result });
               }
             }
           }
@@ -160,7 +110,6 @@ export function ChatView() {
       .catch(() => {});
   }, [sessionId, forceScrollToBottom]);
 
-  // Persist messages to sessionStorage on every update
   useEffect(() => {
     if (currentSessionId && messages.length > 0) {
       sessionStorage.setItem(`mitzo-chat-${currentSessionId}`, JSON.stringify(messages));
@@ -178,32 +127,28 @@ export function ChatView() {
       const ws = new WebSocket(`${proto}://${location.host}/ws/chat`);
       wsRef.current = ws;
 
-      ws.onopen = () => {
-        setConnected(true);
-      };
+      ws.onopen = () => setConnected(true);
 
       ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
+        let msg: Record<string, unknown>;
+        try {
+          msg = JSON.parse(event.data as string);
+        } catch {
+          return;
+        }
 
         switch (msg.type) {
           case 'client_id':
-            // Server assigned a new clientId for this WS.
-            // If we had an active session on a previous WS, try to reattach.
             if (wasRunning.current && serverClientId.current) {
-              ws.send(
-                JSON.stringify({
-                  type: 'reattach',
-                  clientId: serverClientId.current,
-                }),
-              );
+              ws.send(JSON.stringify({ type: 'reattach', clientId: serverClientId.current }));
             }
-            serverClientId.current = msg.clientId;
+            serverClientId.current = msg.clientId as string;
             break;
 
           case 'reattached':
-            serverClientId.current = msg.clientId;
+            serverClientId.current = msg.clientId as string;
             setRunning(true);
-            if (msg.sessionId) setCurrentSessionId(msg.sessionId);
+            if (msg.sessionId) setCurrentSessionId(msg.sessionId as string);
             break;
 
           case 'reattach_failed':
@@ -212,20 +157,23 @@ export function ChatView() {
             break;
 
           case 'session_id':
-            setCurrentSessionId(msg.sessionId);
+            setCurrentSessionId(msg.sessionId as string);
             break;
 
           case 'text_delta':
-            streamBuf.current += msg.text;
+            streamBuf.current += msg.text as string;
             setMessages((prev) => {
               const last = prev[prev.length - 1];
               if (last?.role === 'assistant' && last.streaming) {
                 return [
                   ...prev.slice(0, -1),
-                  { role: 'assistant', text: streamBuf.current, streaming: true },
+                  { role: 'assistant' as const, text: streamBuf.current, streaming: true },
                 ];
               }
-              return [...prev, { role: 'assistant', text: streamBuf.current, streaming: true }];
+              return [
+                ...prev,
+                { role: 'assistant' as const, text: streamBuf.current, streaming: true },
+              ];
             });
             scrollToBottom();
             break;
@@ -235,37 +183,44 @@ export function ChatView() {
             setMessages((prev) => {
               const last = prev[prev.length - 1];
               if (last?.role === 'assistant' && last.streaming) {
-                return [...prev.slice(0, -1), { role: 'assistant', text: msg.text }];
+                return [
+                  ...prev.slice(0, -1),
+                  { role: 'assistant' as const, text: msg.text as string },
+                ];
               }
-              return [...prev, { role: 'assistant', text: msg.text }];
+              return [...prev, { role: 'assistant' as const, text: msg.text as string }];
             });
             scrollToBottom();
             break;
 
           case 'tool_call':
             streamBuf.current = '';
-            setMessages((prev) => {
-              const newPrev = streamBuf.current ? [...prev] : prev;
-              return [
-                ...newPrev,
-                { role: 'tool', toolName: msg.toolName, toolId: msg.toolId, toolInput: msg.input },
-              ];
-            });
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: 'tool' as const,
+                toolName: msg.toolName as string,
+                toolId: msg.toolId as string,
+                toolInput: msg.input as string,
+              },
+            ]);
             scrollToBottom();
             break;
 
           case 'tool_result':
             setMessages((prev) =>
-              prev.map((m) => (m.toolId === msg.toolId ? { ...m, toolResult: msg.result } : m)),
+              prev.map((m) =>
+                m.toolId === msg.toolId ? { ...m, toolResult: msg.result as string } : m,
+              ),
             );
             scrollToBottom();
             break;
 
           case 'permission_request':
             setPermission({
-              permId: msg.permId,
-              toolName: msg.toolName,
-              toolInput: msg.toolInput,
+              permId: msg.permId as string,
+              toolName: msg.toolName as string,
+              toolInput: msg.toolInput as string,
             });
             break;
 
@@ -273,40 +228,41 @@ export function ChatView() {
             setPermission((prev) => (prev?.permId === msg.permId ? null : prev));
             break;
 
-          case 'done':
+          case 'done': {
             if (streamBuf.current) {
               const text = streamBuf.current;
               streamBuf.current = '';
               setMessages((prev) => {
                 const last = prev[prev.length - 1];
                 if (last?.role === 'assistant' && last.streaming) {
-                  return [...prev.slice(0, -1), { role: 'assistant', text }];
+                  return [...prev.slice(0, -1), { role: 'assistant' as const, text }];
                 }
-                return [...prev, { role: 'assistant', text }];
+                return [...prev, { role: 'assistant' as const, text }];
               });
             }
             setRunning(false);
             wasRunning.current = false;
-            if (msg.sessionId) setCurrentSessionId(msg.sessionId);
+            if (msg.sessionId) setCurrentSessionId(msg.sessionId as string);
             break;
+          }
 
           case 'error':
             streamBuf.current = '';
             setRunning(false);
             wasRunning.current = false;
-            if (msg.error?.includes('No conversation found')) {
+            if ((msg.error as string)?.includes('No conversation found')) {
               setCurrentSessionId(undefined);
               setMessages((prev) => [
                 ...prev,
                 {
-                  role: 'assistant',
+                  role: 'assistant' as const,
                   text: 'Session expired. Send your message again to start fresh.',
                 },
               ]);
             } else {
               setMessages((prev) => [
                 ...prev,
-                { role: 'assistant', text: `**Error:** ${msg.error}` },
+                { role: 'assistant' as const, text: `**Error:** ${msg.error}` },
               ]);
             }
             scrollToBottom();
@@ -316,18 +272,14 @@ export function ChatView() {
 
       ws.onclose = () => {
         setConnected(false);
-        // Don't setRunning(false) — session may still be alive server-side
         wsRef.current = null;
-
         if (!intentionalClose.current) {
           const delay = 2000 + Math.random() * 2000;
           reconnectTimer.current = setTimeout(connectWs, delay);
         }
       };
 
-      ws.onerror = () => {
-        // onclose will fire after this
-      };
+      ws.onerror = () => {};
     }
 
     const initTimer = setTimeout(connectWs, 100);
@@ -358,7 +310,10 @@ export function ChatView() {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', text: '**Connection lost.** Reconnecting — try again in a moment.' },
+        {
+          role: 'assistant',
+          text: '**Connection lost.** Reconnecting — try again in a moment.',
+        },
       ]);
       return;
     }
@@ -369,7 +324,7 @@ export function ChatView() {
     wasRunning.current = true;
     streamBuf.current = '';
 
-    const payload: Record<string, any> = { type: 'send', prompt: text, model, mode };
+    const payload: Record<string, unknown> = { type: 'send', prompt: text, model, mode };
     if (currentSessionId) payload.resume = currentSessionId;
     if (images?.length) {
       payload.images = images.map((img) => ({ data: img.data, mediaType: img.mediaType }));
@@ -377,31 +332,27 @@ export function ChatView() {
 
     const cwd = searchParams.get('cwd');
     if (cwd) payload.cwd = cwd;
-
     const extraTools = searchParams.get('extraTools');
     if (extraTools) payload.extraTools = extraTools;
 
-    const payloadStr = JSON.stringify(payload);
-    lastPayload.current = payloadStr;
-    ws.send(payloadStr);
+    ws.send(JSON.stringify(payload));
     forceScrollToBottom();
   }
 
-  function handleStop() {
+  const handleStop = useCallback(() => {
     wsRef.current?.send(JSON.stringify({ type: 'stop' }));
     wasRunning.current = false;
-  }
+  }, []);
 
-  function handlePermission(
-    permId: string,
-    decision: 'once' | 'always' | 'deny',
-    toolName: string,
-  ) {
-    wsRef.current?.send(
-      JSON.stringify({ type: 'permission_response', permId, decision, toolName }),
-    );
-    setPermission(null);
-  }
+  const handlePermission = useCallback(
+    (permId: string, decision: 'once' | 'always' | 'deny', toolName: string) => {
+      wsRef.current?.send(
+        JSON.stringify({ type: 'permission_response', permId, decision, toolName }),
+      );
+      setPermission(null);
+    },
+    [],
+  );
 
   function handleModeChange(newMode: 'ask' | 'agent' | 'auto') {
     setMode(newMode);
@@ -418,13 +369,11 @@ export function ChatView() {
         <button className="chat-header-back" onClick={() => navigate('/')}>
           &larr;
         </button>
-        {!connected && running && (
-          <span className="chat-header-offline" title="Reconnecting — session still active">
-            !
-          </span>
-        )}
-        {!connected && !running && (
-          <span className="chat-header-offline" title="Reconnecting...">
+        {!connected && (
+          <span
+            className="chat-header-offline"
+            title={running ? 'Reconnecting — session still active' : 'Reconnecting...'}
+          >
             !
           </span>
         )}

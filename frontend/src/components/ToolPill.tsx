@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import type { Message } from '../pages/ChatView';
+import type { Message } from '../types/chat';
+import { truncate } from '../lib/truncate';
 
 interface Props {
   message: Message;
@@ -9,7 +10,7 @@ export function ToolPill({ message }: Props) {
   const [expanded, setExpanded] = useState(false);
   const done = message.toolResult !== undefined;
   const input = message.toolInput || '';
-  const truncatedInput = input.length > 60 ? input.slice(0, 60) + '...' : input;
+  const truncatedInput = truncate(input, 60);
 
   return (
     <div className={`tool-pill ${done ? 'tool-pill--done' : 'tool-pill--running'}`}>
