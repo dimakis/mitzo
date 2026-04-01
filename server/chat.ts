@@ -3,7 +3,6 @@ import {
   listSessions,
   getSessionMessages,
   type PermissionResult,
-  type PermissionUpdate,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { WebSocket } from 'ws';
 import { execFileSync } from 'child_process';
@@ -179,7 +178,6 @@ function buildPermissionHandler(clientId: string) {
     _toolInput: Record<string, unknown>,
     opts: {
       signal: AbortSignal;
-      suggestions?: PermissionUpdate[];
       toolUseID: string;
       title?: string;
       displayName?: string;
@@ -193,11 +191,15 @@ function buildPermissionHandler(clientId: string) {
     const tier = getToolTier(toolName);
 
     if (shouldAutoAllow(toolName, session.mode)) {
-      return { behavior: 'allow' };
+      return { behavior: 'allow', updatedInput: _toolInput };
     }
 
     if (isAllowListed(session.sessionAllowList, toolName)) {
-      return { behavior: 'allow', decisionClassification: 'user_permanent' };
+      return {
+        behavior: 'allow',
+        decisionClassification: 'user_permanent',
+        updatedInput: _toolInput,
+      };
     }
 
     const inputSummary = summarizeToolInput(toolName, _toolInput);
@@ -226,7 +228,7 @@ function buildPermissionHandler(clientId: string) {
       };
       opts.signal.addEventListener('abort', onAbort, { once: true });
 
-      registerPending(permId, toolName, wrappedResolve, opts.suggestions, tier);
+      registerPending(permId, toolName, wrappedResolve, _toolInput, tier);
 
       send(session.ws, {
         type: 'permission_request',

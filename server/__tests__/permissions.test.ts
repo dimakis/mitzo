@@ -3,6 +3,7 @@ import { registerPending, resolvePending, removePending, hasPending } from '../p
 
 describe('permissions module', () => {
   const permId = 'test-perm-001';
+  const toolInput = { command: 'ls' };
 
   beforeEach(() => {
     removePending(permId);
@@ -13,66 +14,72 @@ describe('permissions module', () => {
   });
 
   it('registerPending makes hasPending return true', () => {
-    registerPending(permId, 'Bash', () => {});
+    registerPending(permId, 'Bash', () => {}, toolInput);
     expect(hasPending(permId)).toBe(true);
   });
 
-  it('resolvePending with "once" calls resolver with allow + user_temporary', () => {
+  it('resolvePending with "once" calls resolver with allow + user_temporary + updatedInput', () => {
     let result: any = null;
-    registerPending(permId, 'Bash', (r) => {
-      result = r;
-    });
+    registerPending(
+      permId,
+      'Bash',
+      (r) => {
+        result = r;
+      },
+      toolInput,
+    );
 
     const ok = resolvePending(permId, 'once');
     expect(ok).toBe(true);
-    expect(result).not.toBeNull();
     expect(result.behavior).toBe('allow');
     expect(result.decisionClassification).toBe('user_temporary');
-    expect(result.updatedPermissions).toBeUndefined();
+    expect(result.updatedInput).toEqual(toolInput);
   });
 
-  it('resolvePending with "always" passes through SDK suggestions as updatedPermissions', () => {
+  it('resolvePending with "always" passes toolInput as updatedInput', () => {
     let result: any = null;
-    const suggestions = [
-      {
-        type: 'addRules' as const,
-        rules: [{ toolName: 'Edit' }],
-        behavior: 'allow' as const,
-        destination: 'session' as const,
-      },
-    ];
     registerPending(
       permId,
       'Edit',
       (r) => {
         result = r;
       },
-      suggestions,
+      toolInput,
     );
 
     resolvePending(permId, 'always');
     expect(result.behavior).toBe('allow');
     expect(result.decisionClassification).toBe('user_permanent');
-    expect(result.updatedPermissions).toEqual(suggestions);
+    expect(result.updatedInput).toEqual(toolInput);
   });
 
-  it('resolvePending with "always" and no suggestions sets updatedPermissions to undefined', () => {
+  it('resolvePending with "always" and empty toolInput still sets updatedInput', () => {
     let result: any = null;
-    registerPending(permId, 'Edit', (r) => {
-      result = r;
-    });
+    registerPending(
+      permId,
+      'Edit',
+      (r) => {
+        result = r;
+      },
+      {},
+    );
 
     resolvePending(permId, 'always');
     expect(result.behavior).toBe('allow');
     expect(result.decisionClassification).toBe('user_permanent');
-    expect(result.updatedPermissions).toBeUndefined();
+    expect(result.updatedInput).toEqual({});
   });
 
   it('resolvePending with "deny" calls resolver with deny + user_reject', () => {
     let result: any = null;
-    registerPending(permId, 'Bash', (r) => {
-      result = r;
-    });
+    registerPending(
+      permId,
+      'Bash',
+      (r) => {
+        result = r;
+      },
+      toolInput,
+    );
 
     resolvePending(permId, 'deny');
     expect(result.behavior).toBe('deny');
@@ -81,45 +88,38 @@ describe('permissions module', () => {
   });
 
   it('resolvePending returns false for already-resolved id', () => {
-    registerPending(permId, 'Bash', () => {});
+    registerPending(permId, 'Bash', () => {}, toolInput);
     resolvePending(permId, 'once');
     expect(resolvePending(permId, 'once')).toBe(false);
   });
 
   it('removePending clears the pending entry', () => {
-    registerPending(permId, 'Bash', () => {});
+    registerPending(permId, 'Bash', () => {}, toolInput);
     removePending(permId);
     expect(hasPending(permId)).toBe(false);
     expect(resolvePending(permId, 'once')).toBe(false);
   });
 
   it('registerPending accepts optional tier parameter', () => {
-    registerPending(permId, 'Bash', () => {}, undefined, 'elevated');
+    registerPending(permId, 'Bash', () => {}, toolInput, 'elevated');
     expect(hasPending(permId)).toBe(true);
   });
 
-  it('registerPending works with both suggestions and tier', () => {
+  it('registerPending works with toolInput and tier', () => {
     let result: any = null;
-    const suggestions = [
-      {
-        type: 'addRules' as const,
-        rules: [{ toolName: 'Bash' }],
-        behavior: 'allow' as const,
-        destination: 'session' as const,
-      },
-    ];
+    const input = { file_path: '/foo/bar.ts' };
     registerPending(
       permId,
       'Bash',
       (r) => {
         result = r;
       },
-      suggestions,
+      input,
       'elevated',
     );
 
     resolvePending(permId, 'always');
     expect(result.behavior).toBe('allow');
-    expect(result.updatedPermissions).toEqual(suggestions);
+    expect(result.updatedInput).toEqual(input);
   });
 });
