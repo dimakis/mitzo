@@ -2,17 +2,19 @@
 
 A mobile-first web interface for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) via the [Agent SDK](https://docs.anthropic.com/en/docs/claude-code/sdk). Run it on a home server, access it from your phone over [Tailscale](https://tailscale.com).
 
-Each chat session gets its own isolated git worktree, so you can run multiple sessions against the same repo without conflicts.
-
 ## What It Does
 
 - **Chat with Claude** from any device — streaming responses, tool calls, markdown rendering
 - **Permission control** — Ask (read-only), Agent (approve tools), Auto (full autonomy), switchable mid-chat
-- **Worktree isolation** — each session branches from your repo's HEAD into its own directory, cleaned up on close
+- **MCP tool integration** — reads MCP server configs from `~/.cursor/mcp.json` and passes them to Claude sessions (Jira, GitLab, etc.)
+- **File browser** — browse repo files and view markdown with full rendering
+- **Sandbox mode** — opt-in git worktree isolation per session, visible in the header
+- **Session resilience** — WebSocket disconnects don't kill sessions; auto-reattach on reconnect
 - **Quick actions** — preconfigured one-tap commands (run scripts, fetch data, triage inbox)
 - **Push notifications** — get notified via [ntfy](https://ntfy.sh) when Claude needs input
-- **Session history** — resume past conversations from the Agent SDK session store
+- **Session history** — resume past conversations, deduplicated, swipe-to-dismiss
 - **Model selection** — switch between Sonnet, Opus, and Haiku per conversation
+- **Image attachments** — send photos/screenshots to Claude from your phone camera
 
 ## Architecture
 
@@ -25,28 +27,40 @@ Phone (over Tailscale)
 Server (Node.js + TypeScript)
   │
   ├── Agent SDK: Claude Code sessions
-  ├── Git worktrees: per-session isolation
+  ├── MCP servers: loaded from Cursor config
+  ├── Git worktrees: opt-in per-session isolation
   └── Passphrase + JWT auth
 ```
 
 **Backend** (`server/`) — Express + TypeScript, run via `tsx`
 
-| File             | Purpose                                                                  |
-| ---------------- | ------------------------------------------------------------------------ |
-| `index.ts`       | Express app, routes, WebSocket server, startup cleanup                   |
-| `chat.ts`        | Agent SDK `query()` integration, worktree lifecycle, permission handling |
-| `worktree.ts`    | Git worktree create/remove/cleanup/list                                  |
-| `permissions.ts` | Permission request registry, SDK suggestion passthrough                  |
-| `notify.ts`      | ntfy push notifications                                                  |
-| `auth.ts`        | Passphrase login, JWT (HS256), cookie auth                               |
+| File                  | Purpose                                                         |
+| --------------------- | --------------------------------------------------------------- |
+| `index.ts`            | Express app, routes, WebSocket server, startup cleanup          |
+| `chat.ts`             | Agent SDK integration, session lifecycle, permission handling   |
+| `session-registry.ts` | Session lifecycle decoupled from WebSocket (detach/reattach)    |
+| `mcp-config.ts`       | Loads MCP server configs from Cursor mcp.json                   |
+| `worktree.ts`         | Git worktree create/remove/cleanup/list                         |
+| `permissions.ts`      | Permission request registry, SDK suggestion passthrough         |
+| `notify.ts`           | ntfy push notifications                                         |
+| `auth.ts`             | Passphrase login, JWT (HS256), cookie auth                      |
+| `content-blocks.ts`   | SDK message content block parsing (shared between stream + API) |
+| `tool-summary.ts`     | Human-readable tool input summarization                         |
 
 **Frontend** (`frontend/`) — React 19 + Vite + TypeScript
 
-| Page          | Purpose                                       |
-| ------------- | --------------------------------------------- |
-| `Login`       | Passphrase entry                              |
-| `SessionList` | Quick action grid + session history           |
-| `ChatView`    | Streaming chat, mode pills, permission banner |
+| Page          | Purpose                                                                    |
+| ------------- | -------------------------------------------------------------------------- |
+| `Login`       | Passphrase entry                                                           |
+| `SessionList` | Quick action grid + session history (swipe-to-dismiss)                     |
+| `ChatView`    | Streaming chat, mode pills, sandbox toggle, branch pill, permission banner |
+| `FileViewer`  | Directory browser + markdown/code file viewer                              |
+
+| Directory     | Purpose                                                             |
+| ------------- | ------------------------------------------------------------------- |
+| `types/`      | Shared TypeScript types (Message, Session, etc.)                    |
+| `lib/`        | Shared utilities (groupMessages, formatTime, truncate, resizeImage) |
+| `components/` | MessageBubble, ToolPill, ToolGroup, PermissionBanner, ChatInput     |
 
 ## Prerequisites
 
@@ -70,14 +84,15 @@ cp .env.example .env
 
 ### Environment variables
 
-| Variable               | Description                                 | Required |
-| ---------------------- | ------------------------------------------- | -------- |
-| `AUTH_PASSPHRASE`      | Login passphrase                            | Yes      |
-| `AUTH_SECRET`          | JWT signing key (min 32 chars)              | Yes      |
-| `REPO_PATH`            | Default repo for chat sessions              | Yes      |
-| `PORT`                 | Server port (default: `3100`)               | No       |
-| `WORKTREE_ENABLED`     | Enable worktree isolation (default: `true`) | No       |
-| `COOKIE_MAX_AGE_HOURS` | Auth cookie expiry (default: `24`)          | No       |
+| Variable               | Description                                             | Required |
+| ---------------------- | ------------------------------------------------------- | -------- |
+| `AUTH_PASSPHRASE`      | Login passphrase                                        | Yes      |
+| `AUTH_SECRET`          | JWT signing key (min 32 chars)                          | Yes      |
+| `REPO_PATH`            | Default repo for chat sessions                          | Yes      |
+| `PORT`                 | Server port (default: `3100`)                           | No       |
+| `WORKTREE_ENABLED`     | Allow worktree creation (default: `true`)               | No       |
+| `MCP_CONFIG_PATH`      | Path to MCP config file (default: `~/.cursor/mcp.json`) | No       |
+| `COOKIE_MAX_AGE_HOURS` | Auth cookie expiry (default: `24`)                      | No       |
 
 See `.env.example` for the full list including ntfy and Vertex AI options.
 
@@ -114,13 +129,38 @@ pm2 save && pm2 startup
 
 No HTTPS needed — Tailscale encrypts everything via WireGuard.
 
+## MCP server integration
+
+Mitzo reads MCP server configurations from `~/.cursor/mcp.json` (the same file Cursor uses). Stdio-type servers are loaded on startup and passed to every Claude session via the Agent SDK's `mcpServers` option. Disabled servers are excluded.
+
+Override the config path with the `MCP_CONFIG_PATH` environment variable.
+
+The server logs which MCP servers were loaded on startup:
+
+```
+[mcp] loaded 1 server(s): atlassian
+```
+
+## Sandbox mode (worktrees)
+
+Worktrees are **off by default**. Toggle the "WT" button in the chat header before sending your first message to opt in.
+
+When sandbox mode is on:
+
+1. Mitzo creates a git worktree at `${REPO_PATH}-sessions/session-<id>/`
+2. The worktree branches from the current HEAD of your repo
+3. Claude works in the isolated worktree
+4. The chat header shows the branch name with an accent indicator
+5. Stale worktrees (>7 days) are pruned on server startup
+
+Disable worktree creation entirely with `WORKTREE_ENABLED=false` in `.env`.
+
 ## Push notifications
 
 Get notified when Claude needs tool approval:
 
 ```bash
 # Add ntfy config to .env:
-NTFY_ENABLED=true
 NTFY_URL=https://ntfy.sh
 NTFY_TOPIC=your-secret-topic
 BASE_URL=http://<tailscale-ip>:3100
@@ -130,28 +170,22 @@ BASE_URL=http://<tailscale-ip>:3100
 ./scripts/setup-hooks.sh
 ```
 
-## How worktrees work
+## Session resilience
 
-When you start a new chat (without a custom `cwd` or resuming a session):
-
-1. Mitzo creates a git worktree at `${REPO_PATH}-sessions/session-<id>/`
-2. The worktree branches from the current HEAD of your repo
-3. Claude works in the isolated worktree — edits, commits, everything
-4. When the session ends, the worktree and branch are cleaned up
-5. Stale worktrees (>7 days) are pruned on server startup
-
-Disable with `WORKTREE_ENABLED=false` in `.env`, or per-session via the WebSocket payload.
+WebSocket disconnects (phone sleep, Tailscale hiccup) no longer kill active sessions. The server detaches the session and keeps the Agent SDK query running. When the phone reconnects, the new WebSocket reattaches to the in-flight session. Detached sessions auto-abort after 2 minutes if no reattach arrives.
 
 ## Tech stack
 
-| Component | Technology                   |
-| --------- | ---------------------------- |
-| Backend   | Node.js, Express, TypeScript |
-| Frontend  | React 19, Vite, TypeScript   |
-| AI        | Claude Agent SDK             |
-| Auth      | JWT via jose                 |
-| Isolation | Git worktrees                |
-| Tests     | Vitest                       |
+| Component | Technology                          |
+| --------- | ----------------------------------- |
+| Backend   | Node.js, Express, TypeScript        |
+| Frontend  | React 19, Vite, TypeScript          |
+| AI        | Claude Agent SDK                    |
+| MCP       | Cursor-compatible stdio servers     |
+| Auth      | JWT via jose                        |
+| Isolation | Git worktrees (opt-in)              |
+| Tests     | Vitest (81 tests)                   |
+| Quality   | ESLint, Prettier, husky, commitlint |
 
 ## Security
 
