@@ -17,35 +17,49 @@ npm run format:check # Prettier (check only)
 npm test             # Vitest
 ```
 
-Pre-commit hooks (husky + lint-staged) run lint and format on staged files. Conventional commit messages enforced via commitlint.
+Pre-commit hooks (husky + lint-staged) run lint and format on staged files. Conventional commit messages enforced via commitlint. CI runs on all PRs via GitHub Actions.
 
 ## Architecture
 
-Web-based command center for Claude Code sessions via the Agent SDK. Two npm projects share one repo:
+Mobile-first web interface for Claude Code via the Agent SDK. Two npm projects share one repo:
 
 **Backend** (`server/`) — Node.js + Express + TypeScript, run via `tsx`
 
-- `index.ts` — Express app, mounts routes, HTTP server + WebSocket. Runs stale worktree cleanup on startup.
-- `chat.ts` — Agent SDK integration. Each chat session gets an isolated git worktree (see below). Manages permission handling, mode switching, and streaming.
-- `worktree.ts` — Git worktree lifecycle: create, remove, cleanup stale, list.
+- `index.ts` — Express app, routes, HTTP server + WebSocket, file viewer API
+- `chat.ts` — Agent SDK `query()` integration, permission handling, mode switching, image support
+- `worktree.ts` — Git worktree lifecycle (create, remove, cleanup, list). Currently opt-in only.
 - `permissions.ts` — Permission request/response registry. Passes SDK `suggestions` through for "Always Allow".
-- `notify.ts` — ntfy push notifications for permission prompts.
-- `auth.ts` — Passphrase login, JWT (HS256 via jose), cookie-based auth.
+- `notify.ts` — ntfy push notifications for permission prompts
+- `auth.ts` — Passphrase login, JWT (HS256 via jose), cookie-based auth
 
 **Frontend** (`frontend/`) — React 19 + Vite + TypeScript
 
-- Three pages: `Login`, `SessionList` (quick actions + history), `ChatView` (streaming chat)
-- Auth check via `ProtectedRoute` wrapper that calls `/api/auth/check`
-- Vite dev server proxies `/api` and `/ws` to backend (port 3100)
+- `pages/Login` — Passphrase entry
+- `pages/SessionList` — Quick action grid (dynamic from `/api/config`) + session history
+- `pages/ChatView` — Streaming chat, mode pills (Ask/Agent/Auto), permission banner, image attachments, auto-reconnecting WebSocket, sessionStorage persistence
+- `pages/FileViewer` — Repo file browser with markdown rendering
+- `components/ToolPill` — Compact single-line tool call display
+- `components/ToolGroup` — Auto-groups 3+ consecutive tool calls
+- `components/MessageBubble` — User/assistant message rendering with markdown
+- `components/ChatInput` — Text input with image attachment (camera/gallery), preview strip
+- `components/PermissionBanner` — Slide-up approval UI for tool permissions
 
-**Worktree isolation:**
+**API endpoints:**
 
-- Each new chat session (without explicit `cwd` or `resume`) gets its own git worktree at `${REPO_PATH}-sessions/session-<clientId>/`, branched from the current HEAD of `REPO_PATH`.
-- Controlled by `WORKTREE_ENABLED` env var (default: `true`) and per-session `worktree` field in the WebSocket payload.
-- The worktree is removed when the session ends (WebSocket close or stop).
-- Stale worktrees older than 7 days are cleaned up on server startup.
-- Sessions with explicit `cwd` (e.g., quick actions targeting other repos) skip worktree creation.
-- `GET /api/worktrees` lists active worktrees for debugging.
+- `POST /api/auth/login` — passphrase auth, returns JWT cookie
+- `GET /api/auth/check` — verify auth
+- `GET /api/sessions` — list past sessions from Agent SDK
+- `GET /api/sessions/:id/messages` — session message history
+- `GET /api/config` — non-sensitive config (repoPath)
+- `GET /api/files?dir=` — directory listing (restricted to REPO_PATH)
+- `GET /api/files/read?path=` — file content (restricted to REPO_PATH)
+- `GET /api/worktrees` — list active worktrees (debug)
+- `GET /api/models` — available model list
+- `WS /ws/chat` — streaming chat via Agent SDK
+
+**Known issue — session stability:**
+
+The session lifecycle needs stabilization. See `.cursor/plans/mitzo_session_stabilization_*.plan.md` for the TDD plan. The core issue: worktree-per-session creates cwd mismatches that break Agent SDK session resume. The fix: simplify to use BASE_REPO as cwd for all sessions, make worktrees opt-in.
 
 **Key conventions:**
 
@@ -53,9 +67,11 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 - Frontend and backend have separate `package.json`, `tsconfig.json`, and `node_modules`
 - `REPO_PATH` env var controls the default repo (required — set in `.env`)
 - No hardcoded machine-specific paths in source code
+- Feature branches + PRs to main. Branch protection requires CI to pass.
 
 ## Code Style
 
 - Write minimal, clean code. This project is open source — others will read and contribute to it.
 - No machine-specific paths or configuration. Everything must be generic and portable.
 - Keep files short and focused. Prefer clarity over cleverness.
+- **Test-driven for session lifecycle.** Write tests before fixing session bugs.

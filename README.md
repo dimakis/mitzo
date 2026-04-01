@@ -2,17 +2,17 @@
 
 A mobile-first web interface for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) via the [Agent SDK](https://docs.anthropic.com/en/docs/claude-code/sdk). Run it on a home server, access it from your phone over [Tailscale](https://tailscale.com).
 
-Each chat session gets its own isolated git worktree, so you can run multiple sessions against the same repo without conflicts.
-
 ## What It Does
 
-- **Chat with Claude** from any device — streaming responses, tool calls, markdown rendering
+- **Chat with Claude** from any device — streaming responses, markdown rendering, tool call visibility
+- **Image attachments** — send photos from your phone camera or gallery for Claude to analyze
 - **Permission control** — Ask (read-only), Agent (approve tools), Auto (full autonomy), switchable mid-chat
-- **Worktree isolation** — each session branches from your repo's HEAD into its own directory, cleaned up on close
+- **File browser** — browse repo directories and read markdown files rendered in the UI
 - **Quick actions** — preconfigured one-tap commands (run scripts, fetch data, triage inbox)
 - **Push notifications** — get notified via [ntfy](https://ntfy.sh) when Claude needs input
-- **Session history** — resume past conversations from the Agent SDK session store
+- **Session history** — resume past conversations, with client-side persistence across page refreshes
 - **Model selection** — switch between Sonnet, Opus, and Haiku per conversation
+- **Smart tool display** — tool calls shown as compact pills, auto-grouped when 3+ fire in sequence
 
 ## Architecture
 
@@ -25,33 +25,33 @@ Phone (over Tailscale)
 Server (Node.js + TypeScript)
   │
   ├── Agent SDK: Claude Code sessions
-  ├── Git worktrees: per-session isolation
+  ├── File viewer API
   └── Passphrase + JWT auth
 ```
 
 **Backend** (`server/`) — Express + TypeScript, run via `tsx`
 
-| File             | Purpose                                                                  |
-| ---------------- | ------------------------------------------------------------------------ |
-| `index.ts`       | Express app, routes, WebSocket server, startup cleanup                   |
-| `chat.ts`        | Agent SDK `query()` integration, worktree lifecycle, permission handling |
-| `worktree.ts`    | Git worktree create/remove/cleanup/list                                  |
-| `permissions.ts` | Permission request registry, SDK suggestion passthrough                  |
-| `notify.ts`      | ntfy push notifications                                                  |
-| `auth.ts`        | Passphrase login, JWT (HS256), cookie auth                               |
+| File             | Purpose                                                             |
+| ---------------- | ------------------------------------------------------------------- |
+| `index.ts`       | Express app, routes, WebSocket server, file viewer API              |
+| `chat.ts`        | Agent SDK `query()` integration, permission handling, image support |
+| `worktree.ts`    | Git worktree create/remove/cleanup (opt-in)                         |
+| `permissions.ts` | Permission request registry, SDK suggestion passthrough             |
+| `notify.ts`      | ntfy push notifications                                             |
+| `auth.ts`        | Passphrase login, JWT (HS256), cookie auth                          |
 
 **Frontend** (`frontend/`) — React 19 + Vite + TypeScript
 
-| Page          | Purpose                                       |
-| ------------- | --------------------------------------------- |
-| `Login`       | Passphrase entry                              |
-| `SessionList` | Quick action grid + session history           |
-| `ChatView`    | Streaming chat, mode pills, permission banner |
+| Page          | Purpose                                                          |
+| ------------- | ---------------------------------------------------------------- |
+| `Login`       | Passphrase entry                                                 |
+| `SessionList` | Quick action grid + session history                              |
+| `ChatView`    | Streaming chat, mode pills, image attachments, permission banner |
+| `FileViewer`  | Repo file browser with markdown rendering                        |
 
 ## Prerequisites
 
 - **Node.js** 20+
-- **Git** (for worktree support)
 - **Claude Code** CLI installed and authenticated
 - **Tailscale** (for remote access)
 
@@ -70,14 +70,13 @@ cp .env.example .env
 
 ### Environment variables
 
-| Variable               | Description                                 | Required |
-| ---------------------- | ------------------------------------------- | -------- |
-| `AUTH_PASSPHRASE`      | Login passphrase                            | Yes      |
-| `AUTH_SECRET`          | JWT signing key (min 32 chars)              | Yes      |
-| `REPO_PATH`            | Default repo for chat sessions              | Yes      |
-| `PORT`                 | Server port (default: `3100`)               | No       |
-| `WORKTREE_ENABLED`     | Enable worktree isolation (default: `true`) | No       |
-| `COOKIE_MAX_AGE_HOURS` | Auth cookie expiry (default: `24`)          | No       |
+| Variable               | Description                        | Required |
+| ---------------------- | ---------------------------------- | -------- |
+| `AUTH_PASSPHRASE`      | Login passphrase                   | Yes      |
+| `AUTH_SECRET`          | JWT signing key (min 32 chars)     | Yes      |
+| `REPO_PATH`            | Default repo for chat sessions     | Yes      |
+| `PORT`                 | Server port (default: `3100`)      | No       |
+| `COOKIE_MAX_AGE_HOURS` | Auth cookie expiry (default: `24`) | No       |
 
 See `.env.example` for the full list including ntfy and Vertex AI options.
 
@@ -130,17 +129,14 @@ BASE_URL=http://<tailscale-ip>:3100
 ./scripts/setup-hooks.sh
 ```
 
-## How worktrees work
+## Quality
 
-When you start a new chat (without a custom `cwd` or resuming a session):
-
-1. Mitzo creates a git worktree at `${REPO_PATH}-sessions/session-<id>/`
-2. The worktree branches from the current HEAD of your repo
-3. Claude works in the isolated worktree — edits, commits, everything
-4. When the session ends, the worktree and branch are cleaned up
-5. Stale worktrees (>7 days) are pruned on server startup
-
-Disable with `WORKTREE_ENABLED=false` in `.env`, or per-session via the WebSocket payload.
+- **ESLint** + **Prettier** for linting and formatting
+- **Vitest** for tests
+- **husky** + **lint-staged** for pre-commit hooks
+- **commitlint** for conventional commit messages
+- **GitHub Actions CI** — lint, typecheck, test, build on every PR
+- **Branch protection** on main — CI must pass to merge
 
 ## Tech stack
 
@@ -150,8 +146,9 @@ Disable with `WORKTREE_ENABLED=false` in `.env`, or per-session via the WebSocke
 | Frontend  | React 19, Vite, TypeScript   |
 | AI        | Claude Agent SDK             |
 | Auth      | JWT via jose                 |
-| Isolation | Git worktrees                |
 | Tests     | Vitest                       |
+| Lint      | ESLint 9, Prettier           |
+| CI        | GitHub Actions               |
 
 ## Security
 
