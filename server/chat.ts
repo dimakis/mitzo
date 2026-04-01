@@ -17,6 +17,7 @@ import { summarizeToolInput } from './tool-summary.js';
 import { parseContentBlocks, extractToolResultText } from './content-blocks.js';
 import { loadMcpServers, type McpServerConfig } from './mcp-config.js';
 import { getToolTier, shouldAutoAllow, getAllowedToolsForMode } from './tool-tiers.js';
+import { loadRepoConfig } from './repo-config.js';
 
 export type { MitzoMode } from './session-registry.js';
 
@@ -42,11 +43,10 @@ const MODE_TO_SDK: Record<MitzoMode, string> = {
 
 export const registry = new SessionRegistry();
 
-const VENV_PATHS = [
-  `${BASE_REPO}/jira_process/.venv/bin`,
-  `${BASE_REPO}/team_home/.venv/bin`,
-  `${BASE_REPO}/team_home/jira_process/.venv/bin`,
-];
+const repoConfig = loadRepoConfig(BASE_REPO);
+export { repoConfig };
+
+const VENV_PATHS = repoConfig.resolvedVenvPaths;
 
 function sdkEnv(): Record<string, string> {
   const env = { ...process.env } as Record<string, string>;

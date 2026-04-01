@@ -23,6 +23,7 @@ import {
   BASE_REPO,
   getMcpServerNames,
   registry,
+  repoConfig,
 } from './chat.js';
 import { cleanupStaleWorktrees, listWorktrees } from './worktree.js';
 
@@ -99,9 +100,17 @@ app.get('/api/auth/check', (_req, res) => res.json({ ok: true }));
 app.get('/api/models', (_req, res) => res.json(AVAILABLE_MODELS));
 
 // Config (exposes non-sensitive settings to frontend)
-app.get('/api/config', (_req, res) =>
-  res.json({ repoPath: BASE_REPO, mcpServers: getMcpServerNames() }),
-);
+app.get('/api/config', (_req, res) => {
+  const actions = repoConfig.quickActions.map((a) => ({
+    ...a,
+    cwd: a.cwd ? join(BASE_REPO, a.cwd) : undefined,
+  }));
+  res.json({
+    repoPath: BASE_REPO,
+    mcpServers: getMcpServerNames(),
+    quickActions: actions,
+  });
+});
 
 // Session routes
 app.get('/api/sessions', async (_req, res) => {
@@ -352,11 +361,21 @@ function handleChatWs(ws: WebSocket, clientId: string) {
   });
 }
 
-server.listen(PORT, () => {
-  console.log(`Chat Agent running on http://localhost:${PORT}`);
-  try {
-    cleanupStaleWorktrees(BASE_REPO);
-  } catch {
-    // Non-fatal — stale worktrees will be cleaned next restart
+import { checkPort } from './port-check.js';
+
+checkPort(PORT).then((inUse) => {
+  if (inUse) {
+    console.error(`\n  Port ${PORT} already in use. Another Mitzo instance may be running.`);
+    console.error(`  Kill it or set a different PORT in .env.\n`);
+    process.exit(1);
   }
+
+  server.listen(PORT, () => {
+    console.log(`Chat Agent running on http://localhost:${PORT}`);
+    try {
+      cleanupStaleWorktrees(BASE_REPO);
+    } catch {
+      // Non-fatal — stale worktrees will be cleaned next restart
+    }
+  });
 });

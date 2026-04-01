@@ -5,7 +5,9 @@ import { ToolPill } from '../components/ToolPill';
 import { ToolGroup } from '../components/ToolGroup';
 import { PermissionBanner } from '../components/PermissionBanner';
 import { ChatInput } from '../components/ChatInput';
+import { MitzoLogo } from '../components/MitzoLogo';
 import { groupMessages } from '../lib/groupMessages';
+import { wsSubscribe, wsSend, wsIsOpen, wsSetRunning, wsDrainBuffer } from '../lib/ws-pool';
 import type { Message, PermissionRequest, ImageAttachment } from '../types/chat';
 
 export function ChatView() {
@@ -24,19 +26,20 @@ export function ChatView() {
   const [sandbox, setSandbox] = useState(false);
   const [branch, setBranch] = useState<string | null>(null);
   const [isWorktree, setIsWorktree] = useState(false);
-
   const [connected, setConnected] = useState(false);
+
   const hasStarted = messages.some((m) => m.role === 'user');
 
-  const wsRef = useRef<WebSocket | null>(null);
+  // Stable pool key: existing sessions use "session:<id>", new sessions
+  // use a per-mount uid so they don't collide with each other.
+  const newSessionUid = useRef(`new:${Math.random().toString(36).slice(2)}`);
+  const poolKey = sessionId ? `session:${sessionId}` : newSessionUid.current;
+
   const streamBuf = useRef('');
   const scrollRef = useRef<HTMLDivElement>(null);
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const intentionalClose = useRef(false);
-  const serverClientId = useRef<string | null>(null);
-  const wasRunning = useRef(false);
   const currentSessionIdRef = useRef(currentSessionId);
   currentSessionIdRef.current = currentSessionId;
+  const pendingSend = useRef<Record<string, unknown> | null>(null);
 
   const isNearBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -57,15 +60,17 @@ export function ChatView() {
     });
   }, []);
 
+  // Persist last session
   useEffect(() => {
     if (currentSessionId) {
       localStorage.setItem('mitzo-last-session', currentSessionId);
     }
   }, [currentSessionId]);
 
+  // Restore messages from cache on mount (only for existing sessions, not new chats)
   useEffect(() => {
-    const resolvedId = sessionId ?? localStorage.getItem('mitzo-last-session') ?? undefined;
-    if (!resolvedId) return;
+    if (!sessionId) return;
+    const resolvedId = sessionId;
 
     const cacheKey = `mitzo-chat-${resolvedId}`;
     const cached = localStorage.getItem(cacheKey);
@@ -78,268 +83,218 @@ export function ChatView() {
           return;
         }
       } catch {
-        // Corrupted cache — fall through to server
+        /* ignore */
       }
     }
 
     fetch(`/api/sessions/${resolvedId}/messages`)
       .then((r) => (r.ok ? r.json() : []))
-      .then(
-        (
-          msgs: Array<{
-            role: string;
-            text?: string;
-            toolCalls?: Array<{ toolName: string; toolId: string; input: string }>;
-            toolResults?: Array<{ toolId: string; result: string }>;
-          }>,
-        ) => {
-          const loaded: Message[] = [];
-          for (const m of msgs) {
-            if (m.text) {
-              loaded.push({ role: m.role === 'user' ? 'user' : 'assistant', text: m.text });
-            }
-            if (m.toolCalls) {
-              for (const tc of m.toolCalls) {
-                loaded.push({
-                  role: 'tool',
-                  toolName: tc.toolName,
-                  toolId: tc.toolId,
-                  toolInput: tc.input,
-                });
-              }
-            }
-            if (m.toolResults) {
-              for (const tr of m.toolResults) {
-                loaded.push({ role: 'tool', toolId: tr.toolId, toolResult: tr.result });
-              }
-            }
-          }
-          if (loaded.length > 0) {
-            setMessages(loaded);
-            setTimeout(forceScrollToBottom, 100);
-          }
-        },
-      )
+      .then((msgs: Message[]) => {
+        if (msgs.length > 0) {
+          setMessages(msgs);
+          setTimeout(forceScrollToBottom, 100);
+        }
+      })
       .catch(() => {});
-  }, [sessionId, currentSessionId, forceScrollToBottom]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Persist messages to localStorage whenever they change
   useEffect(() => {
-    if (currentSessionId && messages.length > 0) {
-      localStorage.setItem(`mitzo-chat-${currentSessionId}`, JSON.stringify(messages));
+    const id = currentSessionIdRef.current;
+    if (!id || messages.length === 0) return;
+    try {
+      localStorage.setItem(`mitzo-chat-${id}`, JSON.stringify(messages));
+    } catch {
+      /* ignore quota errors */
     }
   }, [messages, currentSessionId]);
 
+  // Subscribe to the pool connection for this session key.
+  // Unsubscribing on unmount does NOT close the WS — the connection
+  // stays alive in the pool so in-flight agent runs continue.
+  // On mount, drain any messages buffered while we were away.
   useEffect(() => {
-    intentionalClose.current = false;
+    const handleMsg = (msg: import('../lib/ws-pool').WsMsg) => {
+      switch (msg.type) {
+        case '_open':
+          setConnected(true);
+          break;
 
-    function connectWs() {
-      if (wsRef.current?.readyState === WebSocket.OPEN) return;
-      if (wsRef.current?.readyState === WebSocket.CONNECTING) return;
+        case '_close':
+          setConnected(false);
+          break;
 
-      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      const ws = new WebSocket(`${proto}://${location.host}/ws/chat`);
-      wsRef.current = ws;
+        case 'reattached':
+          setConnected(true);
+          setRunning(true);
+          wsSetRunning(poolKey, true);
+          if (msg.sessionId) setCurrentSessionId(msg.sessionId as string);
+          break;
 
-      ws.onopen = () => setConnected(true);
+        case 'reattach_failed':
+          setRunning(false);
+          wsSetRunning(poolKey, false);
+          break;
 
-      ws.onmessage = (event) => {
-        let msg: Record<string, unknown>;
-        try {
-          msg = JSON.parse(event.data as string);
-        } catch {
-          return;
-        }
+        case 'session_info':
+          setBranch(msg.branch as string);
+          setIsWorktree(msg.worktree as boolean);
+          break;
 
-        switch (msg.type) {
-          case 'client_id':
-            if (wasRunning.current && serverClientId.current) {
-              ws.send(JSON.stringify({ type: 'reattach', clientId: serverClientId.current }));
-            }
-            serverClientId.current = msg.clientId as string;
-            break;
+        case 'session_id':
+          setCurrentSessionId(msg.sessionId as string);
+          break;
 
-          case 'reattached':
-            serverClientId.current = msg.clientId as string;
-            setRunning(true);
-            if (msg.sessionId) setCurrentSessionId(msg.sessionId as string);
-            break;
-
-          case 'reattach_failed':
-            wasRunning.current = false;
-            setRunning(false);
-            break;
-
-          case 'session_info':
-            setBranch(msg.branch as string);
-            setIsWorktree(msg.worktree as boolean);
-            break;
-
-          case 'session_id':
-            setCurrentSessionId(msg.sessionId as string);
-            break;
-
-          case 'text_delta':
-            streamBuf.current += msg.text as string;
-            setMessages((prev) => {
-              const last = prev[prev.length - 1];
-              if (last?.role === 'assistant' && last.streaming) {
-                return [
-                  ...prev.slice(0, -1),
-                  { role: 'assistant' as const, text: streamBuf.current, streaming: true },
-                ];
-              }
+        case 'text_delta':
+          streamBuf.current += msg.text as string;
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.role === 'assistant' && last.streaming) {
               return [
-                ...prev,
+                ...prev.slice(0, -1),
                 { role: 'assistant' as const, text: streamBuf.current, streaming: true },
               ];
-            });
-            scrollToBottom();
-            break;
+            }
+            return [
+              ...prev,
+              { role: 'assistant' as const, text: streamBuf.current, streaming: true },
+            ];
+          });
+          scrollToBottom();
+          break;
 
-          case 'text':
+        case 'text':
+          streamBuf.current = '';
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.role === 'assistant' && last.streaming) {
+              return [
+                ...prev.slice(0, -1),
+                { role: 'assistant' as const, text: msg.text as string },
+              ];
+            }
+            return [...prev, { role: 'assistant' as const, text: msg.text as string }];
+          });
+          scrollToBottom();
+          break;
+
+        case 'tool_call':
+          streamBuf.current = '';
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: 'tool' as const,
+              toolName: msg.toolName as string,
+              toolId: msg.toolId as string,
+              toolInput: msg.input as string,
+            },
+          ]);
+          scrollToBottom();
+          break;
+
+        case 'tool_result':
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.toolId === msg.toolId ? { ...m, toolResult: msg.result as string } : m,
+            ),
+          );
+          scrollToBottom();
+          break;
+
+        case 'permission_request':
+          setPermission({
+            permId: msg.permId as string,
+            toolName: msg.toolName as string,
+            toolInput: msg.toolInput as string,
+            title: msg.title as string | undefined,
+            description: msg.description as string | undefined,
+            displayName: msg.displayName as string | undefined,
+            tier: msg.tier as import('../types/chat').ToolTier | undefined,
+          });
+          break;
+
+        case 'permission_timeout':
+          setPermission((prev) => (prev?.permId === msg.permId ? null : prev));
+          break;
+
+        case 'done': {
+          if (streamBuf.current) {
+            const text = streamBuf.current;
             streamBuf.current = '';
             setMessages((prev) => {
               const last = prev[prev.length - 1];
               if (last?.role === 'assistant' && last.streaming) {
-                return [
-                  ...prev.slice(0, -1),
-                  { role: 'assistant' as const, text: msg.text as string },
-                ];
+                return [...prev.slice(0, -1), { role: 'assistant' as const, text }];
               }
-              return [...prev, { role: 'assistant' as const, text: msg.text as string }];
+              return [...prev, { role: 'assistant' as const, text }];
             });
-            scrollToBottom();
-            break;
-
-          case 'tool_call':
+          }
+          if (msg.sessionId && !currentSessionIdRef.current) {
+            setCurrentSessionId(msg.sessionId as string);
+          }
+          const pending = pendingSend.current;
+          if (pending) {
+            pendingSend.current = null;
+            setRunning(true);
+            wsSetRunning(poolKey, true);
             streamBuf.current = '';
+            wsSend(poolKey, pending);
+          } else {
+            setRunning(false);
+            wsSetRunning(poolKey, false);
+          }
+          break;
+        }
+
+        case 'error':
+          streamBuf.current = '';
+          pendingSend.current = null;
+          setRunning(false);
+          wsSetRunning(poolKey, false);
+          if ((msg.error as string)?.includes('No conversation found')) {
+            const staleId = currentSessionIdRef.current;
+            setCurrentSessionId(undefined);
+            if (staleId) {
+              localStorage.removeItem(`mitzo-chat-${staleId}`);
+              localStorage.removeItem('mitzo-last-session');
+            }
+            if (sessionId) {
+              navigate('/chat', { replace: true });
+            }
             setMessages((prev) => [
               ...prev,
               {
-                role: 'tool' as const,
-                toolName: msg.toolName as string,
-                toolId: msg.toolId as string,
-                toolInput: msg.input as string,
+                role: 'assistant' as const,
+                text: 'Session expired. Send your message again to start fresh.',
               },
             ]);
-            scrollToBottom();
-            break;
-
-          case 'tool_result':
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.toolId === msg.toolId ? { ...m, toolResult: msg.result as string } : m,
-              ),
-            );
-            scrollToBottom();
-            break;
-
-          case 'permission_request':
-            setPermission({
-              permId: msg.permId as string,
-              toolName: msg.toolName as string,
-              toolInput: msg.toolInput as string,
-              title: msg.title as string | undefined,
-              description: msg.description as string | undefined,
-              displayName: msg.displayName as string | undefined,
-              tier: msg.tier as import('../types/chat').ToolTier | undefined,
-            });
-            break;
-
-          case 'permission_timeout':
-            setPermission((prev) => (prev?.permId === msg.permId ? null : prev));
-            break;
-
-          case 'done': {
-            if (streamBuf.current) {
-              const text = streamBuf.current;
-              streamBuf.current = '';
-              setMessages((prev) => {
-                const last = prev[prev.length - 1];
-                if (last?.role === 'assistant' && last.streaming) {
-                  return [...prev.slice(0, -1), { role: 'assistant' as const, text }];
-                }
-                return [...prev, { role: 'assistant' as const, text }];
-              });
-            }
-            setRunning(false);
-            wasRunning.current = false;
-            if (msg.sessionId && !currentSessionIdRef.current) {
-              setCurrentSessionId(msg.sessionId as string);
-            }
-            break;
+          } else {
+            setMessages((prev) => [
+              ...prev,
+              { role: 'assistant' as const, text: `**Error:** ${msg.error}` },
+            ]);
           }
-
-          case 'error':
-            streamBuf.current = '';
-            setRunning(false);
-            wasRunning.current = false;
-            if ((msg.error as string)?.includes('No conversation found')) {
-              const staleId = currentSessionIdRef.current;
-              setCurrentSessionId(undefined);
-              if (staleId) {
-                localStorage.removeItem(`mitzo-chat-${staleId}`);
-                localStorage.removeItem('mitzo-last-session');
-              }
-              if (sessionId) {
-                navigate('/chat', { replace: true });
-              }
-              setMessages((prev) => [
-                ...prev,
-                {
-                  role: 'assistant' as const,
-                  text: 'Session expired. Send your message again to start fresh.',
-                },
-              ]);
-            } else {
-              setMessages((prev) => [
-                ...prev,
-                { role: 'assistant' as const, text: `**Error:** ${msg.error}` },
-              ]);
-            }
-            scrollToBottom();
-            break;
-        }
-      };
-
-      ws.onclose = () => {
-        setConnected(false);
-        wsRef.current = null;
-        if (!intentionalClose.current) {
-          const delay = 2000 + Math.random() * 2000;
-          reconnectTimer.current = setTimeout(connectWs, delay);
-        }
-      };
-
-      ws.onerror = () => {};
-    }
-
-    const initTimer = setTimeout(connectWs, 100);
-
-    const handleVisibility = () => {
-      if (
-        document.visibilityState === 'visible' &&
-        (!wsRef.current || wsRef.current.readyState > WebSocket.OPEN)
-      ) {
-        connectWs();
+          scrollToBottom();
+          break;
       }
     };
-    document.addEventListener('visibilitychange', handleVisibility);
 
-    return () => {
-      intentionalClose.current = true;
-      clearTimeout(initTimer);
-      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
-      wsRef.current?.close();
-      document.removeEventListener('visibilitychange', handleVisibility);
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    const unsubscribe = wsSubscribe(poolKey, handleMsg);
+
+    // Replay messages that arrived while we were unmounted
+    const buffered = wsDrainBuffer(poolKey);
+    for (const msg of buffered) handleMsg(msg);
+
+    // Sync connected state on subscribe (pool may already be open)
+    setConnected(wsIsOpen(poolKey));
+
+    return unsubscribe; // unsubscribe only — connection stays alive
+  }, [poolKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const initialPrompt = searchParams.get('prompt') || undefined;
 
-  function sendMessage(text: string, images?: ImageAttachment[]) {
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
+  function sendMessage(text: string, images?: ImageAttachment[]): boolean {
+    if (!wsIsOpen(poolKey)) {
       setMessages((prev) => [
         ...prev,
         {
@@ -347,18 +302,8 @@ export function ChatView() {
           text: '**Connection lost.** Reconnecting — try again in a moment.',
         },
       ]);
-      return;
+      return false;
     }
-
-    if (running) {
-      ws.send(JSON.stringify({ type: 'stop' }));
-    }
-
-    const previews = images?.map((img) => img.preview);
-    setMessages((prev) => [...prev, { role: 'user', text, images: previews }]);
-    setRunning(true);
-    wasRunning.current = true;
-    streamBuf.current = '';
 
     const payload: Record<string, unknown> = { type: 'send', prompt: text, model, mode };
     if (currentSessionId) payload.resume = currentSessionId;
@@ -372,31 +317,47 @@ export function ChatView() {
     const extraTools = searchParams.get('extraTools');
     if (extraTools) payload.extraTools = extraTools;
 
-    ws.send(JSON.stringify(payload));
+    if (running) {
+      // Queue the send to fire once the current run finishes stopping
+      pendingSend.current = payload;
+      wsSend(poolKey, { type: 'stop' });
+      const previews = images?.map((img) => img.preview);
+      setMessages((prev) => [...prev, { role: 'user', text, images: previews }]);
+      streamBuf.current = '';
+      forceScrollToBottom();
+      return true;
+    }
+
+    const previews = images?.map((img) => img.preview);
+    setMessages((prev) => [...prev, { role: 'user', text, images: previews }]);
+    setRunning(true);
+    wsSetRunning(poolKey, true);
+    streamBuf.current = '';
+
+    wsSend(poolKey, payload);
     forceScrollToBottom();
+    return true;
   }
 
   const handleStop = useCallback(() => {
-    wsRef.current?.send(JSON.stringify({ type: 'stop' }));
-    wasRunning.current = false;
+    wsSend(poolKey, { type: 'stop' });
+    wsSetRunning(poolKey, false);
     setRunning(false);
     streamBuf.current = '';
-  }, []);
+  }, [poolKey]);
 
   const handlePermission = useCallback(
     (permId: string, decision: 'once' | 'always' | 'deny', toolName: string) => {
-      wsRef.current?.send(
-        JSON.stringify({ type: 'permission_response', permId, decision, toolName }),
-      );
+      wsSend(poolKey, { type: 'permission_response', permId, decision, toolName });
       setPermission(null);
     },
-    [],
+    [poolKey],
   );
 
   function handleModeChange(newMode: 'ask' | 'agent' | 'auto') {
     setMode(newMode);
     if (running) {
-      wsRef.current?.send(JSON.stringify({ type: 'set_mode', mode: newMode }));
+      wsSend(poolKey, { type: 'set_mode', mode: newMode });
     }
   }
 
@@ -405,9 +366,7 @@ export function ChatView() {
   return (
     <div className="chat-page">
       <header className="chat-header">
-        <button className="chat-header-back" onClick={() => navigate('/')}>
-          &larr;
-        </button>
+        <MitzoLogo />
         {!connected && (
           <span
             className="chat-header-offline"

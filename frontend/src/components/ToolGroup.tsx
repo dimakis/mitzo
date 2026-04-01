@@ -20,12 +20,13 @@ export function ToolGroup({ tools }: Props) {
     <div className="tool-group">
       <button className="tool-group-header" onClick={() => setExpanded((e) => !e)}>
         <div className="tool-group-dots">
-          {tools.map((t, i) => (
+          {tools.slice(0, 8).map((t, i) => (
             <span
               key={i}
               className={`tool-pill-dot ${t.toolResult !== undefined ? 'tool-pill-dot--done' : 'tool-pill-dot--pending'}`}
             />
           ))}
+          {tools.length > 8 && <span className="tool-group-dots-more">+{tools.length - 8}</span>}
         </div>
         <span className="tool-group-label">
           {allDone ? `${tools.length} tool calls` : `${doneCount}/${tools.length} running...`}

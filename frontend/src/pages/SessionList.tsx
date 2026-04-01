@@ -6,54 +6,24 @@ import { formatRelativeTime } from '../lib/formatTime';
 interface QuickAction {
   label: string;
   desc: string;
-  path: string;
+  path?: string;
   prompt?: string;
   cwd?: string;
   extraTools?: string;
 }
 
-function buildQuickActions(repoPath: string): QuickAction[] {
+const DEFAULT_ACTIONS: QuickAction[] = [
+  { label: 'Chat Session', desc: 'Interactive chat', path: '/chat' },
+  { label: 'Files', desc: 'Browse repo files', path: '/files' },
+];
+
+function buildQuickActions(serverActions: QuickAction[] | undefined): QuickAction[] {
+  if (!serverActions || serverActions.length === 0) return DEFAULT_ACTIONS;
   const actions: QuickAction[] = [
     { label: 'Chat Session', desc: 'Interactive chat', path: '/chat' },
-    {
-      label: 'Morning Briefing',
-      desc: 'Calendar, email, Jira',
-      path: '/chat',
-      prompt:
-        'Run `python command_center/morning_briefing.py` and summarize the output. I want to discuss it after.',
-      extraTools: 'Bash',
-    },
-    {
-      label: 'Team Status',
-      desc: 'Manager status view',
-      path: '/chat',
-      prompt:
-        'Run `python status.py` and give me the highlights. I want to discuss the results after.',
-      extraTools: 'Bash',
-    },
-    {
-      label: 'Refresh Data',
-      desc: 'Fetch Jira + dashboards',
-      path: '/chat',
-      prompt: 'Run `./refresh.sh` and report any errors.',
-      extraTools: 'Bash',
-    },
+    ...serverActions,
+    { label: 'Files', desc: 'Browse repo files', path: '/files' },
   ];
-
-  if (repoPath) {
-    actions.splice(2, 0, {
-      label: 'Jira Inbox',
-      desc: 'Team inbox triage',
-      path: '/chat',
-      prompt:
-        'Run `python inbox.py --save` and summarize what needs my attention. I want to discuss it after.',
-      cwd: `${repoPath}/team_home`,
-      extraTools: 'Bash',
-    });
-  }
-
-  actions.push({ label: 'Files', desc: 'Browse repo files', path: '/files' });
-
   return actions;
 }
 
@@ -127,10 +97,18 @@ function SwipeableSession({
   );
 }
 
+async function refreshUI() {
+  if ('caches' in window) {
+    const keys = await caches.keys();
+    await Promise.all(keys.map((k) => caches.delete(k)));
+  }
+  location.reload();
+}
+
 export function SessionList() {
   const navigate = useNavigate();
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [quickActions, setQuickActions] = useState<QuickAction[]>(buildQuickActions(''));
+  const [quickActions, setQuickActions] = useState<QuickAction[]>(DEFAULT_ACTIONS);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -144,7 +122,7 @@ export function SessionList() {
     ])
       .then(([sessData, config]) => {
         setSessions(sessData);
-        if (config.repoPath) setQuickActions(buildQuickActions(config.repoPath));
+        setQuickActions(buildQuickActions(config.quickActions));
       })
       .finally(() => setLoading(false));
   }, []);
@@ -160,21 +138,27 @@ export function SessionList() {
   }
 
   function handleQuickAction(action: QuickAction) {
+    const path = action.path || '/chat';
     const params = new URLSearchParams();
     if (action.prompt) params.set('prompt', action.prompt);
     if (action.cwd) params.set('cwd', action.cwd);
     if (action.extraTools) params.set('extraTools', action.extraTools);
     const qs = params.toString();
-    navigate(qs ? `${action.path}?${qs}` : action.path);
+    navigate(qs ? `${path}?${qs}` : path);
   }
 
   return (
     <div className="session-list-page">
       <header className="session-list-header">
         <h1>Mitzo</h1>
-        <button className="new-chat-btn" onClick={() => navigate('/chat')}>
-          New Chat
-        </button>
+        <div className="session-list-header-actions">
+          <button className="refresh-ui-btn" onClick={refreshUI} title="Clear cache and reload">
+            ↺
+          </button>
+          <button className="new-chat-btn" onClick={() => navigate('/chat')}>
+            New Chat
+          </button>
+        </div>
       </header>
 
       <div className="quick-grid">
