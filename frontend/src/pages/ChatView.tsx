@@ -58,10 +58,17 @@ export function ChatView() {
   }, []);
 
   useEffect(() => {
-    if (!sessionId) return;
+    if (currentSessionId) {
+      localStorage.setItem('mitzo-last-session', currentSessionId);
+    }
+  }, [currentSessionId]);
 
-    const cacheKey = `mitzo-chat-${sessionId}`;
-    const cached = sessionStorage.getItem(cacheKey);
+  useEffect(() => {
+    const resolvedId = sessionId ?? localStorage.getItem('mitzo-last-session') ?? undefined;
+    if (!resolvedId) return;
+
+    const cacheKey = `mitzo-chat-${resolvedId}`;
+    const cached = localStorage.getItem(cacheKey);
     if (cached) {
       try {
         const restored = JSON.parse(cached) as Message[];
@@ -75,7 +82,7 @@ export function ChatView() {
       }
     }
 
-    fetch(`/api/sessions/${sessionId}/messages`)
+    fetch(`/api/sessions/${resolvedId}/messages`)
       .then((r) => (r.ok ? r.json() : []))
       .then(
         (
@@ -114,11 +121,11 @@ export function ChatView() {
         },
       )
       .catch(() => {});
-  }, [sessionId, forceScrollToBottom]);
+  }, [sessionId, currentSessionId, forceScrollToBottom]);
 
   useEffect(() => {
     if (currentSessionId && messages.length > 0) {
-      sessionStorage.setItem(`mitzo-chat-${currentSessionId}`, JSON.stringify(messages));
+      localStorage.setItem(`mitzo-chat-${currentSessionId}`, JSON.stringify(messages));
     }
   }, [messages, currentSessionId]);
 
@@ -271,7 +278,8 @@ export function ChatView() {
               const staleId = currentSessionIdRef.current;
               setCurrentSessionId(undefined);
               if (staleId) {
-                sessionStorage.removeItem(`mitzo-chat-${staleId}`);
+                localStorage.removeItem(`mitzo-chat-${staleId}`);
+                localStorage.removeItem('mitzo-last-session');
               }
               if (sessionId) {
                 navigate('/chat', { replace: true });
