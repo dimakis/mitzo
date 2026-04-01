@@ -3,8 +3,9 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
-import { readFileSync, existsSync, readdirSync, statSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'fs';
 import { join, dirname, resolve, extname } from 'path';
+import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 import { login, authMiddleware, verifyWsAuth, COOKIE_NAME, MAX_AGE_HOURS } from './auth.js';
@@ -133,8 +134,39 @@ function isAllowedPath(filePath: string): boolean {
   return false;
 }
 
+function resolveRoot(queryRoot: string | undefined): string {
+  if (!queryRoot) return BASE_REPO;
+  const resolved = resolve(queryRoot);
+  if (!isAllowedPath(resolved)) return BASE_REPO;
+  return resolved;
+}
+
+function getGitBranch(cwd: string): string {
+  try {
+    return execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd,
+      stdio: 'pipe',
+      timeout: 5_000,
+    })
+      .toString()
+      .trim();
+  } catch {
+    return 'unknown';
+  }
+}
+
+app.get('/api/git/info', (_req, res) => {
+  const branch = getGitBranch(BASE_REPO);
+  const worktrees = listWorktrees(BASE_REPO).map((wt) => ({
+    ...wt,
+    branch: getGitBranch(wt.path),
+  }));
+  res.json({ branch, repoPath: BASE_REPO, worktrees });
+});
+
 app.get('/api/files', (req, res) => {
-  const dir = (req.query.dir as string) || BASE_REPO;
+  const root = resolveRoot(req.query.root as string | undefined);
+  const dir = (req.query.dir as string) || root;
   if (!dir || !isAllowedPath(dir)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
@@ -181,6 +213,28 @@ app.get('/api/files/read', (req, res) => {
     res.json({ path: filePath, content, ext });
   } catch {
     res.status(500).json({ error: 'Failed to read file' });
+  }
+});
+
+app.put('/api/files/write', (req, res) => {
+  const { path: filePath, content } = req.body as { path?: string; content?: string };
+  if (!filePath || typeof content !== 'string') {
+    res.status(400).json({ error: 'path and content are required' });
+    return;
+  }
+  if (!isAllowedPath(filePath)) {
+    res.status(403).json({ error: 'Path not allowed' });
+    return;
+  }
+  if (!existsSync(filePath)) {
+    res.status(404).json({ error: 'File not found' });
+    return;
+  }
+  try {
+    writeFileSync(filePath, content, 'utf-8');
+    res.json({ ok: true, path: filePath });
+  } catch {
+    res.status(500).json({ error: 'Failed to write file' });
   }
 });
 
