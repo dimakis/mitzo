@@ -14,8 +14,8 @@ import {
   SCROLL_RESTORE_DELAY_MS,
   CHAT_CACHE_KEY_PREFIX,
   LAST_SESSION_KEY,
-  DEFAULT_MODEL,
 } from '../lib/constants';
+import { getPreferredModel, setPreferredModel } from '../lib/model-preference';
 import type { Message, PermissionRequest, ImageAttachment } from '../types/chat';
 
 export function ChatView() {
@@ -27,7 +27,11 @@ export function ChatView() {
   const [running, setRunning] = useState(false);
   const [permission, setPermission] = useState<PermissionRequest | null>(null);
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>(sessionId);
-  const [model, setModel] = useState(DEFAULT_MODEL);
+  const [model, setModelState] = useState(getPreferredModel);
+  const setModel = useCallback((id: string) => {
+    setModelState(id);
+    setPreferredModel(id);
+  }, []);
   const [mode, setMode] = useState<'ask' | 'agent' | 'auto'>(
     searchParams.get('extraTools') ? 'auto' : 'agent',
   );
