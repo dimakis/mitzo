@@ -8,7 +8,7 @@ import { createWorktree } from './worktree.js';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
 import { parseContentBlocks } from './content-blocks.js';
 import { loadMcpServers, type McpServerConfig } from './mcp-config.js';
-import { getAllowedToolsForMode } from './tool-tiers.js';
+import { getAllowedToolsForMode, applyTierOverrides } from './tool-tiers.js';
 import { loadRepoConfig } from './repo-config.js';
 import { buildPermissionHandler } from './permission-handler.js';
 import { runQueryLoop, createWsMessageHandler } from './query-loop.js';
@@ -43,6 +43,13 @@ export const registry = new SessionRegistry();
 
 const repoConfig = loadRepoConfig(BASE_REPO);
 export { repoConfig };
+
+if (Object.keys(repoConfig.toolTierOverrides).length > 0) {
+  applyTierOverrides(repoConfig.toolTierOverrides);
+  log.info('applied tool tier overrides from .mitzo.json', {
+    overrides: repoConfig.toolTierOverrides,
+  });
+}
 
 const VENV_PATHS = repoConfig.resolvedVenvPaths;
 
