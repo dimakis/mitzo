@@ -22,11 +22,13 @@ export function MessageBubble({ message }: Props) {
     );
   }
 
+  const base = message.reasoning ? 'msg-bubble--reasoning' : 'msg-bubble--assistant';
+  const streaming = message.streaming ? ' msg-bubble--streaming' : '';
+
   return (
-    <div className="msg-bubble msg-bubble--assistant">
+    <div className={`msg-bubble ${base}${streaming}`}>
       <div className="msg-bubble-markdown">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text || ''}</ReactMarkdown>
-        {message.streaming && <span className="msg-cursor" />}
       </div>
     </div>
   );

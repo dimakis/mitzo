@@ -17,6 +17,7 @@ export interface Message {
   toolResult?: string;
   rawInput?: RawToolInput;
   streaming?: boolean;
+  reasoning?: boolean;
 }
 
 export type GroupedItem =

@@ -487,7 +487,7 @@ export function ChatView() {
                 : 'Sandbox off — using base repo'
           }
         >
-          {isWorktree ? 'WT' : sandbox ? 'WT' : 'WT'}
+          {isWorktree ? '⎔' : sandbox ? '⎔' : '⎕'}
         </button>
         {branch && (
           <span className={`chat-header-branch${isWorktree ? ' chat-header-branch--wt' : ''}`}>
