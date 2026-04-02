@@ -77,6 +77,18 @@ describe('BLOCK_START', () => {
     expect(state.current!.blockOrder).toEqual(['b1', 'b2', 'b3']);
   });
 
+  it('sets toolName on tool_use block when provided', () => {
+    let state = chatMessagesReducer(INITIAL, { type: 'MESSAGE_START', messageId: 'msg-1' });
+    state = chatMessagesReducer(state, {
+      type: 'BLOCK_START',
+      messageId: 'msg-1',
+      blockId: 'b1',
+      blockType: 'tool_use',
+      toolName: 'Bash',
+    });
+    expect(state.current!.blocks.get('b1')!.toolName).toBe('Bash');
+  });
+
   it('is a no-op when current is null', () => {
     const state = chatMessagesReducer(INITIAL, {
       type: 'BLOCK_START',

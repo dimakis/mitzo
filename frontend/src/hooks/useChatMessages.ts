@@ -25,7 +25,13 @@ export interface ChatMessagesState {
 export type ChatMessagesAction =
   // v2 content events
   | { type: 'MESSAGE_START'; messageId: string }
-  | { type: 'BLOCK_START'; messageId: string; blockId: string; blockType: BlockType }
+  | {
+      type: 'BLOCK_START';
+      messageId: string;
+      blockId: string;
+      blockType: BlockType;
+      toolName?: string;
+    }
   | { type: 'BLOCK_DELTA'; messageId: string; blockId: string; blockType: BlockType; delta: string }
   | {
       type: 'BLOCK_END';
@@ -132,6 +138,7 @@ export function chatMessagesReducer(
         blockType: action.blockType,
         content: '',
         done: false,
+        ...(action.toolName ? { toolName: action.toolName } : {}),
       };
       const newBlocks = new Map(state.current.blocks);
       newBlocks.set(action.blockId, newBlock);
@@ -376,6 +383,7 @@ export function useChatMessages(
             messageId: msg.messageId as string,
             blockId: msg.blockId as string,
             blockType: msg.blockType as BlockType,
+            toolName: msg.toolName as string | undefined,
           });
           break;
 
