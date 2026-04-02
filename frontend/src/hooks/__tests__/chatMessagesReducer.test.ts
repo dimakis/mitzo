@@ -375,6 +375,24 @@ describe('MESSAGE_SNAPSHOT', () => {
     expect(state.current!.blocks.get('b2')!.toolName).toBe('Read');
   });
 
+  it('is a no-op when blocks is undefined', () => {
+    const state = chatMessagesReducer(INITIAL, {
+      type: 'MESSAGE_SNAPSHOT',
+      messageId: 'msg-snap',
+      blocks: undefined as unknown as FinishedBlock[],
+    });
+    expect(state.current).toBeNull();
+  });
+
+  it('is a no-op when blocks is null', () => {
+    const state = chatMessagesReducer(INITIAL, {
+      type: 'MESSAGE_SNAPSHOT',
+      messageId: 'msg-snap',
+      blocks: null as unknown as FinishedBlock[],
+    });
+    expect(state.current).toBeNull();
+  });
+
   it('replaces existing current on snapshot', () => {
     let state = chatMessagesReducer(INITIAL, { type: 'MESSAGE_START', messageId: 'msg-old' });
     state = chatMessagesReducer(state, {
