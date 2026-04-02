@@ -192,9 +192,11 @@ export function chatMessagesReducer(
 
     case 'MESSAGE_SNAPSHOT': {
       // Reconstruct in-flight state from server snapshot on reattach.
+      const snapshotBlocks = action.blocks ?? [];
+      if (!Array.isArray(snapshotBlocks) || snapshotBlocks.length === 0) return state;
       const blocks = new Map<string, StreamingBlock>();
       const blockOrder: string[] = [];
-      for (const b of action.blocks) {
+      for (const b of snapshotBlocks) {
         blocks.set(b.blockId, {
           blockId: b.blockId,
           blockType: b.blockType as BlockType,
@@ -421,11 +423,13 @@ export function useChatMessages(
           break;
 
         case 'message_snapshot':
-          dispatch({
-            type: 'MESSAGE_SNAPSHOT',
-            messageId: msg.messageId as string,
-            blocks: msg.blocks as FinishedBlock[],
-          });
+          if (Array.isArray(msg.blocks)) {
+            dispatch({
+              type: 'MESSAGE_SNAPSHOT',
+              messageId: msg.messageId as string,
+              blocks: msg.blocks as FinishedBlock[],
+            });
+          }
           break;
 
         case 'session_end': {
