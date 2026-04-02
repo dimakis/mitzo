@@ -8,7 +8,11 @@ export function groupMessages(messages: Message[], streaming = false): GroupedIt
   function flushTools() {
     if (toolBuffer.length === 0) return;
     if (!streaming && toolBuffer.length >= TOOL_GROUP_THRESHOLD) {
-      result.push({ type: 'tool-group', tools: toolBuffer });
+      result.push({
+        type: 'tool-group',
+        tools: toolBuffer,
+        key: toolBuffer[0].toolId ?? `tg-${result.length}`,
+      });
     } else {
       for (const t of toolBuffer) {
         result.push({ type: 'message', message: t });

@@ -111,4 +111,46 @@ describe('groupMessages', () => {
       expect(afterDone[1].type).toBe('tool-group');
     });
   });
+
+  describe('stable keys', () => {
+    it('tool-group has a key derived from first tool id', () => {
+      const msgs = [user(), tool('abc'), tool('def'), tool('ghi')];
+      const grouped = groupMessages(msgs);
+      const group = grouped[1];
+      expect(group.type).toBe('tool-group');
+      if (group.type === 'tool-group') {
+        expect(group.key).toBe('abc');
+      }
+    });
+
+    it('key is stable across re-runs with same messages', () => {
+      const msgs = [user(), tool('x1'), tool('x2'), tool('x3')];
+      const a = groupMessages(msgs);
+      const b = groupMessages(msgs);
+      if (a[1].type === 'tool-group' && b[1].type === 'tool-group') {
+        expect(a[1].key).toBe(b[1].key);
+      }
+    });
+
+    it('two separate groups have different keys', () => {
+      const msgs = [
+        user(),
+        tool('a1'),
+        tool('a2'),
+        tool('a3'),
+        assistant(),
+        tool('b1'),
+        tool('b2'),
+        tool('b3'),
+      ];
+      const grouped = groupMessages(msgs);
+      const groups = grouped.filter((g) => g.type === 'tool-group');
+      expect(groups).toHaveLength(2);
+      if (groups[0].type === 'tool-group' && groups[1].type === 'tool-group') {
+        expect(groups[0].key).toBe('a1');
+        expect(groups[1].key).toBe('b1');
+        expect(groups[0].key).not.toBe(groups[1].key);
+      }
+    });
+  });
 });

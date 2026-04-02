@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ToolPill } from './ToolPill';
 import type { Message } from '../types/chat';
 
@@ -9,9 +9,13 @@ interface Props {
 export function ToolGroup({ tools }: Props) {
   const allDone = tools.every((t) => t.toolResult !== undefined);
   const [expanded, setExpanded] = useState(!allDone);
+  const autoCollapsed = useRef(false);
 
   useEffect(() => {
-    if (allDone) setExpanded(false);
+    if (allDone && !autoCollapsed.current) {
+      autoCollapsed.current = true;
+      setExpanded(false);
+    }
   }, [allDone]);
 
   const doneCount = tools.filter((t) => t.toolResult !== undefined).length;
