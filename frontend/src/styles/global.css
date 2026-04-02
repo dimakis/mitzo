@@ -184,14 +184,21 @@ textarea:focus {
 }
 
 .check-update-btn {
-  font-size: 1rem;
+  font-size: 0.85rem;
   padding: 0.35rem 0.55rem;
   border-radius: 8px;
   background: transparent;
   border: none;
   color: var(--text-dim);
   cursor: pointer;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+}
+
+.check-update-btn:active {
+  color: var(--text);
 }
 
 .check-update-btn:disabled {
