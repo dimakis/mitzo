@@ -51,7 +51,7 @@ export function ToolPill({ message }: Props) {
         <span className="tool-pill-name">{message.toolName}</span>
         <span className="tool-pill-input">{input}</span>
         {!done && <span className="tool-pill-status">Running...</span>}
-        {expanded && <span className="tool-pill-chevron">▾</span>}
+        <span className="tool-pill-chevron">{expanded ? '▾' : '▸'}</span>
       </button>
       {expanded && (
         <div className="tool-pill-detail">
