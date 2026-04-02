@@ -1,5 +1,15 @@
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
+const LEVEL_ORDER: Record<LogLevel, number> = {
+  debug: 0,
+  info: 1,
+  warn: 2,
+  error: 3,
+};
+
+const configuredLevel: LogLevel =
+  (process.env.LOG_LEVEL as LogLevel) in LEVEL_ORDER ? (process.env.LOG_LEVEL as LogLevel) : 'info';
+
 interface LogEntry {
   level: LogLevel;
   module: string;
@@ -8,6 +18,8 @@ interface LogEntry {
 }
 
 function emit(entry: LogEntry): void {
+  if (LEVEL_ORDER[entry.level] < LEVEL_ORDER[configuredLevel]) return;
+
   const { level, module, message, ...context } = entry;
   const prefix = `[${module}]`;
   const hasContext = Object.keys(context).length > 0;
