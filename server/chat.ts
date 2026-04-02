@@ -1,35 +1,18 @@
-import {
-  query,
-  listSessions,
-  getSessionMessages,
-  type PermissionResult,
-} from '@anthropic-ai/claude-agent-sdk';
+import { query, listSessions, getSessionMessages } from '@anthropic-ai/claude-agent-sdk';
 import type { WebSocket } from 'ws';
 import { execFileSync } from 'child_process';
 import { writeFileSync, mkdirSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
-import { registerPending, resolvePending, removePending, hasPending } from './permissions.js';
-import { sendPermissionNotification, isConfigured as ntfyConfigured } from './notify.js';
-import {
-  sendPermissionNotification as pushoverSendPermission,
-  isConfigured as pushoverConfigured,
-} from './pushover.js';
 import { createWorktree } from './worktree.js';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
-import { summarizeToolInput, getRawInput } from './tool-summary.js';
-import { parseContentBlocks, extractToolResultText } from './content-blocks.js';
+import { parseContentBlocks } from './content-blocks.js';
 import { loadMcpServers, type McpServerConfig } from './mcp-config.js';
-import { getToolTier, shouldAutoAllow, getAllowedToolsForMode } from './tool-tiers.js';
+import { getAllowedToolsForMode } from './tool-tiers.js';
 import { loadRepoConfig } from './repo-config.js';
-import {
-  PERMISSION_TIMEOUT_MS,
-  NTFY_NOTIFICATION_DELAY_MS,
-  TOOL_RESULT_MAX_CHARS,
-  GIT_BRANCH_TIMEOUT_MS,
-  SESSION_LIST_LIMIT,
-  SESSION_MESSAGES_LIMIT,
-} from './constants.js';
+import { buildPermissionHandler } from './permission-handler.js';
+import { runQueryLoop, createWsMessageHandler } from './query-loop.js';
+import { GIT_BRANCH_TIMEOUT_MS, SESSION_LIST_LIMIT, SESSION_MESSAGES_LIMIT } from './constants.js';
 import { createLogger } from './logger.js';
 
 const log = createLogger('chat');
@@ -63,6 +46,20 @@ export { repoConfig };
 
 const VENV_PATHS = repoConfig.resolvedVenvPaths;
 
+export const AVAILABLE_MODELS = [
+  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', desc: 'Balanced' },
+  { id: 'claude-opus-4-6', label: 'Opus 4.6', desc: 'Most capable' },
+  { id: 'claude-haiku-4-5', label: 'Haiku 4.5', desc: 'Fastest' },
+];
+
+// --- Pure helper functions ---
+
+function send(ws: WebSocket, data: unknown) {
+  if (ws.readyState === ws.OPEN) {
+    ws.send(JSON.stringify(data));
+  }
+}
+
 function sdkEnv(): Record<string, string> {
   const env = { ...process.env } as Record<string, string>;
   env.CLAUDE_CODE_USE_VERTEX = process.env.CLAUDE_CODE_USE_VERTEX || '1';
@@ -78,16 +75,30 @@ function sdkEnv(): Record<string, string> {
   return env;
 }
 
-export const AVAILABLE_MODELS = [
-  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', desc: 'Balanced' },
-  { id: 'claude-opus-4-6', label: 'Opus 4.6', desc: 'Most capable' },
-  { id: 'claude-haiku-4-5', label: 'Haiku 4.5', desc: 'Fastest' },
-];
+function resolveThinking(
+  model?: string,
+): { type: 'adaptive' } | { type: 'enabled'; budgetTokens: number } | undefined {
+  if (!model || model.includes('opus')) return { type: 'adaptive' };
+  if (model.includes('sonnet')) return { type: 'enabled', budgetTokens: 10_000 };
+  return undefined;
+}
 
-function send(ws: WebSocket, data: unknown) {
-  if (ws.readyState === ws.OPEN) {
-    ws.send(JSON.stringify(data));
+function getBranch(cwd: string): string {
+  try {
+    return execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd,
+      stdio: 'pipe',
+      timeout: GIT_BRANCH_TIMEOUT_MS,
+    })
+      .toString()
+      .trim();
+  } catch {
+    return 'unknown';
   }
+}
+
+function buildMcpAllowedTools(): string[] {
+  return Object.keys(mcpServers).map((name) => `mcp__${name}__*`);
 }
 
 function resolveWorktree(
@@ -113,36 +124,15 @@ function resolveWorktree(
   }
 }
 
-/**
- * Allow all MCP tools via allowedTools. The SDK's canUseTool Zod validation
- * is incompatible with our permission response format for MCP tools.
- * Write protection is handled by the system prompt (HITL: Claude asks before
- * mutating) rather than the SDK permission system.
- */
-function buildMcpAllowedTools(): string[] {
-  return Object.keys(mcpServers).map((name) => `mcp__${name}__*`);
-}
-
-function resolveThinking(
-  model?: string,
-): { type: 'adaptive' } | { type: 'enabled'; budgetTokens: number } | undefined {
-  if (!model || model.includes('opus')) return { type: 'adaptive' };
-  if (model.includes('sonnet')) return { type: 'enabled', budgetTokens: 10_000 };
-  return undefined;
-}
-
-function getBranch(cwd: string): string {
-  try {
-    return execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
-      cwd,
-      stdio: 'pipe',
-      timeout: GIT_BRANCH_TIMEOUT_MS,
-    })
-      .toString()
-      .trim();
-  } catch {
-    return 'unknown';
-  }
+export function assemblePrompt(
+  prompt: string,
+  cwd: string,
+  images?: Array<{ data: string; mediaType: string }>,
+): string {
+  if (!images?.length) return prompt;
+  const paths = stageImages(cwd, images);
+  const imageRefs = paths.map((p) => `- ${p}`).join('\n');
+  return `${prompt}\n\nI've attached ${paths.length} image(s). Read them using the Read tool:\n${imageRefs}`;
 }
 
 function stageImages(cwd: string, images: Array<{ data: string; mediaType: string }>): string[] {
@@ -168,123 +158,7 @@ function stageImages(cwd: string, images: Array<{ data: string; mediaType: strin
   return paths;
 }
 
-/**
- * When "Always Allow" is tapped on an MCP tool like mcp__atlassian__jira_get_issue,
- * allow the entire MCP server (mcp__atlassian__*) so the user isn't prompted for
- * every tool from the same server. Non-MCP tools are added individually.
- */
-function addToAllowList(allowList: Set<string>, toolName: string): void {
-  const mcpPrefix = getMcpPrefix(toolName);
-  if (mcpPrefix) {
-    allowList.add(mcpPrefix);
-  } else {
-    allowList.add(toolName);
-  }
-}
-
-function isAllowListed(allowList: Set<string>, toolName: string): boolean {
-  if (allowList.has(toolName)) return true;
-  const mcpPrefix = getMcpPrefix(toolName);
-  return mcpPrefix !== null && allowList.has(mcpPrefix);
-}
-
-function getMcpPrefix(toolName: string): string | null {
-  if (!toolName.startsWith('mcp__')) return null;
-  const parts = toolName.split('__');
-  if (parts.length >= 3) return `${parts[0]}__${parts[1]}__`;
-  return null;
-}
-
-function buildPermissionHandler(clientId: string) {
-  return async (
-    toolName: string,
-    _toolInput: Record<string, unknown>,
-    opts: {
-      signal: AbortSignal;
-      toolUseID: string;
-      title?: string;
-      displayName?: string;
-      description?: string;
-      decisionReason?: string;
-    },
-  ): Promise<PermissionResult> => {
-    const session = registry.get(clientId);
-    if (!session) return { behavior: 'deny', message: 'Session not found' };
-
-    const tier = getToolTier(toolName);
-
-    if (shouldAutoAllow(toolName, session.mode)) {
-      return { behavior: 'allow', updatedInput: _toolInput };
-    }
-
-    if (isAllowListed(session.sessionAllowList, toolName)) {
-      return {
-        behavior: 'allow',
-        decisionClassification: 'user_permanent',
-        updatedInput: _toolInput,
-      };
-    }
-
-    const inputSummary = summarizeToolInput(toolName, _toolInput);
-
-    return new Promise<PermissionResult>((resolve) => {
-      if (opts.signal.aborted) {
-        resolve({ behavior: 'deny', message: 'Aborted' });
-        return;
-      }
-
-      const permId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-      const wrappedResolve = (result: PermissionResult) => {
-        if (result.behavior === 'allow' && result.decisionClassification === 'user_permanent') {
-          addToAllowList(session.sessionAllowList, toolName);
-        }
-        resolve(result);
-      };
-
-      const onAbort = () => {
-        if (hasPending(permId)) {
-          removePending(permId);
-          resolve({ behavior: 'deny', message: 'Aborted' });
-          send(session.ws, { type: 'permission_timeout', permId });
-        }
-      };
-      opts.signal.addEventListener('abort', onAbort, { once: true });
-
-      registerPending(permId, toolName, wrappedResolve, _toolInput, tier);
-
-      send(session.ws, {
-        type: 'permission_request',
-        permId,
-        toolName,
-        toolInput: inputSummary,
-        title: opts.title,
-        description: opts.description,
-        displayName: opts.displayName,
-        decisionReason: opts.decisionReason,
-        tier,
-      });
-
-      if (ntfyConfigured() || pushoverConfigured()) {
-        setTimeout(() => {
-          if (hasPending(permId)) {
-            if (ntfyConfigured()) sendPermissionNotification(toolName, inputSummary, permId);
-            if (pushoverConfigured()) pushoverSendPermission(toolName, inputSummary, permId);
-          }
-        }, NTFY_NOTIFICATION_DELAY_MS);
-      }
-
-      setTimeout(() => {
-        if (hasPending(permId)) {
-          removePending(permId);
-          opts.signal.removeEventListener('abort', onAbort);
-          resolve({ behavior: 'deny', message: 'Permission request timed out' });
-          send(session.ws, { type: 'permission_timeout', permId });
-        }
-      }, PERMISSION_TIMEOUT_MS);
-    });
-  };
-}
+// --- Main orchestrator ---
 
 export async function startChat(
   ws: WebSocket,
@@ -305,13 +179,7 @@ export async function startChat(
   const baseCwd = options.cwd || BASE_REPO;
 
   const { cwd, worktreePath } = resolveWorktree(ws, baseCwd, options);
-
-  let fullPrompt = prompt;
-  if (options.images?.length) {
-    const paths = stageImages(cwd, options.images);
-    const imageRefs = paths.map((p) => `- ${p}`).join('\n');
-    fullPrompt = `${prompt}\n\nI've attached ${paths.length} image(s). Read them using the Read tool:\n${imageRefs}`;
-  }
+  const fullPrompt = assemblePrompt(prompt, cwd, options.images);
 
   const modeAllowed = getAllowedToolsForMode(mode);
   const mcpAllowed = buildMcpAllowedTools();
@@ -326,12 +194,7 @@ export async function startChat(
   });
 
   const branch = getBranch(cwd);
-  send(ws, {
-    type: 'session_info',
-    branch,
-    cwd,
-    worktree: !!worktreePath,
-  });
+  send(ws, { type: 'session_info', branch, cwd, worktree: !!worktreePath });
 
   const q = query({
     prompt: fullPrompt,
@@ -357,107 +220,28 @@ export async function startChat(
       ...(options.model ? { model: options.model } : {}),
       ...(options.resume ? { resume: options.resume } : {}),
       ...(Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
-      canUseTool: buildPermissionHandler(clientId),
+      canUseTool: buildPermissionHandler(clientId, registry),
     },
   });
 
   const session = registry.get(clientId)!;
   session.queryInstance = q;
 
-  const messageHandler = (raw: Buffer) => {
-    try {
-      const msg = JSON.parse(raw.toString());
-      if (msg.type === 'permission_response' && msg.permId) {
-        resolvePending(msg.permId, msg.decision || 'deny');
-      } else if (msg.type === 'set_mode' && msg.mode) {
-        registry.setMode(clientId, msg.mode);
-        send(session.ws, { type: 'mode_changed', mode: msg.mode });
-      }
-    } catch (err: unknown) {
-      log.warn('malformed WS message from client', {
-        clientId,
-        error: err instanceof Error ? err.message : 'parse failure',
-      });
-    }
-  };
+  const messageHandler = createWsMessageHandler(clientId, registry, session.ws);
   ws.on('message', messageHandler);
 
-  try {
-    for await (const msg of q) {
-      const currentSession = registry.get(clientId);
-      if (!currentSession) break;
-      const currentWs = currentSession.ws;
+  await runQueryLoop(
+    q as unknown as AsyncIterable<Record<string, unknown>>,
+    clientId,
+    registry,
+    abortController,
+    ws,
+  );
 
-      if (msg.type === 'assistant') {
-        if (msg.message?.content) {
-          for (const block of msg.message.content) {
-            if (block.type === 'text') {
-              send(currentWs, { type: 'text', text: block.text });
-            } else if (block.type === 'tool_use') {
-              const toolInput = block.input as Record<string, unknown>;
-              send(currentWs, {
-                type: 'tool_call',
-                toolName: block.name,
-                toolId: block.id,
-                input: summarizeToolInput(block.name, toolInput),
-                rawInput: getRawInput(block.name, toolInput),
-              });
-            }
-          }
-        }
-        if (!currentSession.sessionId && msg.session_id) {
-          registry.setSessionId(clientId, msg.session_id);
-          send(currentWs, { type: 'session_id', sessionId: msg.session_id });
-        }
-      } else if (msg.type === 'result') {
-        if (msg.session_id) send(currentWs, { type: 'session_id', sessionId: msg.session_id });
-        send(currentWs, { type: 'done', sessionId: msg.session_id });
-      } else if (msg.type === 'stream_event') {
-        const evt = msg.event;
-        if (evt?.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
-          send(currentWs, { type: 'text_delta', text: evt.delta.text });
-        } else if (evt?.type === 'content_block_start' && evt.content_block?.type === 'thinking') {
-          send(currentWs, { type: 'thinking_start' });
-        } else if (evt?.type === 'content_block_delta' && evt.delta?.type === 'thinking_delta') {
-          send(currentWs, { type: 'thinking_delta', text: evt.delta.thinking });
-        }
-      } else if (msg.type === 'user') {
-        // Send tool results for both local tools and MCP tools.
-        // msg.tool_use_result is only set for local tools; MCP tools
-        // still produce tool_result blocks in content without that field.
-        const content = (msg.message as unknown as Record<string, unknown>)?.content;
-        if (Array.isArray(content)) {
-          for (const block of content) {
-            if (block.type === 'tool_result') {
-              const resultText = extractToolResultText(block.content);
-              send(currentWs, {
-                type: 'tool_result',
-                toolId: block.tool_use_id || '',
-                result: resultText.slice(0, TOOL_RESULT_MAX_CHARS),
-              });
-            }
-          }
-        }
-      }
-    }
-  } catch (err: unknown) {
-    const currentSession = registry.get(clientId);
-    if (currentSession && !abortController.signal.aborted) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      send(currentSession.ws, { type: 'error', error: message });
-    }
-  } finally {
-    ws.removeListener('message', messageHandler);
-    const finalSession = registry.get(clientId);
-    if (finalSession) {
-      const finalWs = finalSession.ws;
-      registry.remove(clientId);
-      if (finalWs.readyState === finalWs.OPEN) {
-        send(finalWs, { type: 'done', sessionId: finalSession.sessionId });
-      }
-    }
-  }
+  ws.removeListener('message', messageHandler);
 }
+
+// --- Session management (thin wrappers) ---
 
 export function stopChat(clientId: string) {
   registry.abort(clientId);
@@ -471,6 +255,8 @@ export function reattachChat(clientId: string, ws: WebSocket): boolean {
 export function isActive(clientId: string): boolean {
   return registry.isActive(clientId);
 }
+
+// --- Session listing ---
 
 function getSessionDirs(): string[] {
   const dirs = [BASE_REPO];
