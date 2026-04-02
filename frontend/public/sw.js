@@ -1,4 +1,4 @@
-const CACHE = 'mitzo-shell-v2';
+const CACHE = 'mitzo-shell-v3';
 
 // On install: take control immediately
 self.addEventListener('install', () => self.skipWaiting());

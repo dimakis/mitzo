@@ -145,10 +145,14 @@ export function chatMessagesReducer(
       };
 
     case 'DONE': {
-      const last = state.messages[state.messages.length - 1];
       let msgs = state.messages;
-      if (last?.role === 'assistant' && last.streaming) {
-        msgs = [...msgs.slice(0, -1), { role: 'assistant' as const, text: last.text || '' }];
+      const lastMsg = msgs[msgs.length - 1];
+      if (lastMsg?.role === 'thinking' && lastMsg.streaming) {
+        msgs = finalizeThinking(msgs, lastMsg.text || '');
+      }
+      const prevLast = msgs[msgs.length - 1];
+      if (prevLast?.role === 'assistant' && prevLast.streaming) {
+        msgs = [...msgs.slice(0, -1), { role: 'assistant' as const, text: prevLast.text || '' }];
       }
       return { ...state, messages: msgs, running: false };
     }

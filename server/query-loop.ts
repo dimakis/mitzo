@@ -44,6 +44,7 @@ export async function runQueryLoop(
   // Buffer tool_use blocks streamed via content_block_start/delta/stop events.
   // Keyed by content block index (resets per API message via message_start).
   const toolInputBuffers = new Map<number, { name: string; id: string; inputBuf: string }>();
+  let doneSent = false;
 
   try {
     for await (const msg of q) {
@@ -67,6 +68,7 @@ export async function runQueryLoop(
         }
       } else if (msg.type === 'result') {
         if (msg.session_id) send(currentWs, { type: 'session_id', sessionId: msg.session_id });
+        doneSent = true;
         send(currentWs, { type: 'done', sessionId: msg.session_id });
       } else if (msg.type === 'stream_event') {
         const evt = msg.event as Record<string, unknown> | undefined;
@@ -139,7 +141,7 @@ export async function runQueryLoop(
     if (finalSession) {
       const finalWs = finalSession.ws;
       registry.remove(clientId);
-      if (finalWs.readyState === finalWs.OPEN) {
+      if (!doneSent && finalWs.readyState === finalWs.OPEN) {
         send(finalWs, { type: 'done', sessionId: finalSession.sessionId });
       }
     }
