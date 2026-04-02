@@ -10,7 +10,7 @@ CI must be green. This is a hard requirement, not a suggestion.
 
 3. **"Bypassed rule violations" is a red flag.** If `git push` output contains "Bypassed rule violations," you pushed past a required status check. This bypass exists for emergencies, not routine work. If you see it, stop and investigate why CI was failing.
 
-4. **Feature branches are the default.** Direct-to-main pushes are only acceptable for trivially correct single-commit fixes (typos, formatting, doc corrections). Everything else goes through a feature branch and PR.
+4. **All work happens on feature branches.** No exceptions. Create a branch (`feat/`, `fix/`, `refactor/`, etc.), push it, open a PR, wait for CI to pass, then merge. Direct-to-main is not acceptable — not for "small" changes, not for "just this once," not for infrastructure fixes. If it touches code, it goes through a branch and PR.
 
 5. **All CI steps must run.** The pipeline is structured so typecheck, tests, and build run even if lint or formatting fails. If you see steps skipped in CI output, the workflow is broken — fix it.
 
