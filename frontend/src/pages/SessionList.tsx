@@ -186,7 +186,7 @@ export function SessionList() {
             disabled={checking}
             title="Check for server updates"
           >
-            {checking ? '…' : '⟳'}
+            {checking ? '…' : '☁↑'}
           </button>
           <button className="refresh-ui-btn" onClick={refreshUI} title="Clear cache and reload">
             ↺
