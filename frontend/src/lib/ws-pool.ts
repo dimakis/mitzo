@@ -6,6 +6,8 @@
  * sessions does not kill in-flight agent runs.
  */
 
+import { WS_RECONNECT_DELAY_MS, WS_RECONNECT_POLL_MS, WS_MAX_BUFFER_SIZE } from './constants';
+
 export type WsMsg = Record<string, unknown>;
 export type MsgListener = (msg: WsMsg) => void;
 
@@ -25,8 +27,6 @@ const BUFFERABLE_TYPES = new Set([
   'mode_changed',
 ]);
 
-export const MAX_BUFFER_SIZE = 500;
-
 interface PoolEntry {
   ws: WebSocket | null;
   clientId: string | null;
@@ -42,7 +42,7 @@ const pool = new Map<string, PoolEntry>();
 function broadcast(entry: PoolEntry, msg: WsMsg) {
   if (entry.listeners.size === 0) {
     if (BUFFERABLE_TYPES.has(msg.type as string)) {
-      if (entry.messageBuffer.length < MAX_BUFFER_SIZE) {
+      if (entry.messageBuffer.length < WS_MAX_BUFFER_SIZE) {
         entry.messageBuffer.push(msg);
       }
     }
@@ -71,7 +71,7 @@ function connectEntry(key: string, entry: PoolEntry) {
     try {
       msg = JSON.parse(e.data as string);
     } catch {
-      return;
+      return; // Malformed JSON from server — drop message
     }
 
     if (msg.type === 'client_id') {
@@ -120,10 +120,12 @@ function connectEntry(key: string, entry: PoolEntry) {
     entry.ws = null;
     broadcast(entry, { type: '_close' });
     // First reconnect attempt immediately; subsequent attempts back off slightly
-    entry.reconnectTimer = setTimeout(() => connectEntry(key, entry), 500);
+    entry.reconnectTimer = setTimeout(() => connectEntry(key, entry), WS_RECONNECT_DELAY_MS);
   };
 
-  ws.onerror = () => {};
+  ws.onerror = () => {
+    // Error events always precede close events — reconnect handled in onclose
+  };
 }
 
 // Reconnect all idle pool entries when the app becomes visible/active.
@@ -147,7 +149,7 @@ if (typeof document !== 'undefined') {
   // Client-side heartbeat: check every 5s and reconnect immediately if any
   // connection is dead. Catches silent drops that never fire a close event
   // (common on iOS Safari PWA when switching apps or locking the screen).
-  setInterval(reconnectAll, 5000);
+  setInterval(reconnectAll, WS_RECONNECT_POLL_MS);
 }
 
 function getOrCreate(key: string): PoolEntry {

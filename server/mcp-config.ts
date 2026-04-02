@@ -1,6 +1,9 @@
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { createLogger } from './logger.js';
+
+const log = createLogger('mcp');
 
 interface CursorMcpEntry {
   command: string;
@@ -43,7 +46,7 @@ export function loadMcpServers(): Record<string, McpServerConfig> {
 
   const count = Object.keys(configs).length;
   if (count > 0) {
-    console.log(`[mcp] loaded ${count} server(s): ${Object.keys(configs).join(', ')}`);
+    log.info(`loaded ${count} server(s): ${Object.keys(configs).join(', ')}`);
   }
 
   return configs;
@@ -80,7 +83,7 @@ export function loadFromFile(configPath: string): Record<string, McpServerConfig
 
       // Only support stdio servers (command + args)
       if (entry.type && entry.type !== 'stdio') {
-        console.log(`[mcp] skipping ${name}: unsupported type '${entry.type}'`);
+        log.info(`skipping ${name}: unsupported type '${entry.type}'`);
         continue;
       }
 
@@ -91,7 +94,7 @@ export function loadFromFile(configPath: string): Record<string, McpServerConfig
     }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[mcp] failed to load ${configPath}: ${message}`);
+    log.error(`failed to load ${configPath}: ${message}`);
   }
 
   return configs;

@@ -1,4 +1,8 @@
 import type { WebSocket } from 'ws';
+import { DETACHED_TTL_MS } from './constants.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('session-registry');
 
 export type MitzoMode = 'ask' | 'agent' | 'auto';
 
@@ -11,9 +15,6 @@ export interface ManagedSession {
   worktreePath?: string;
   queryInstance?: any;
 }
-
-/** How long a detached session stays alive waiting for reattach (ms). */
-export const DETACHED_TTL_MS = 600_000; // 10 minutes
 
 export class SessionRegistry {
   private sessions = new Map<string, ManagedSession>();
@@ -55,7 +56,7 @@ export class SessionRegistry {
     const timer = setTimeout(() => {
       this.detachTimers.delete(clientId);
       if (this.sessions.has(clientId) && !this.attached.has(clientId)) {
-        console.log(`[session-registry] detach TTL expired for ${clientId}, aborting`);
+        log.info(`detach TTL expired for ${clientId}, aborting`);
         this.abort(clientId);
       }
     }, DETACHED_TTL_MS);

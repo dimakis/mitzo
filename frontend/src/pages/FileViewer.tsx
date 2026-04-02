@@ -55,7 +55,9 @@ export function FileViewer() {
           if (!activeRoot) setActiveRoot(data.repoPath);
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        // Network error loading git info — non-fatal, file viewer still works
+      });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {

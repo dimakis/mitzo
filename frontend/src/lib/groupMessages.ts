@@ -1,4 +1,5 @@
 import type { Message, GroupedItem } from '../types/chat';
+import { TOOL_GROUP_THRESHOLD } from './constants';
 
 export function groupMessages(messages: Message[]): GroupedItem[] {
   const result: GroupedItem[] = [];
@@ -6,7 +7,7 @@ export function groupMessages(messages: Message[]): GroupedItem[] {
 
   function flushTools() {
     if (toolBuffer.length === 0) return;
-    if (toolBuffer.length >= 3) {
+    if (toolBuffer.length >= TOOL_GROUP_THRESHOLD) {
       result.push({ type: 'tool-group', tools: toolBuffer });
     } else {
       for (const t of toolBuffer) {

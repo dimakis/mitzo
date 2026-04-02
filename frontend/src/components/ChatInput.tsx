@@ -8,6 +8,7 @@ import {
 } from 'react';
 import type { ImageAttachment } from '../types/chat';
 import { resizeImage } from '../lib/resizeImage';
+import { MAX_IMAGE_ATTACHMENTS } from '../lib/constants';
 
 interface Props {
   onSend: (text: string, images?: ImageAttachment[]) => boolean;
@@ -15,8 +16,6 @@ interface Props {
   running: boolean;
   initialText?: string;
 }
-
-const MAX_IMAGES = 4;
 
 export function ChatInput({ onSend, onStop, running, initialText }: Props) {
   const [text, setText] = useState(initialText || '');
@@ -79,15 +78,15 @@ export function ChatInput({ onSend, onStop, running, initialText }: Props) {
     const files = e.target.files;
     if (!files) return;
 
-    const remaining = MAX_IMAGES - images.length;
+    const remaining = MAX_IMAGE_ATTACHMENTS - images.length;
     const toProcess = Array.from(files).slice(0, remaining);
 
     for (const file of toProcess) {
       try {
         const attachment = await resizeImage(file);
         setImages((prev) => [...prev, attachment]);
-      } catch (err) {
-        console.error('Failed to process image:', err);
+      } catch {
+        // Image resize failed — skip this attachment silently
       }
     }
 
@@ -119,7 +118,7 @@ export function ChatInput({ onSend, onStop, running, initialText }: Props) {
         <button
           className="chat-input-btn chat-input-btn--attach"
           onClick={() => fileInputRef.current?.click()}
-          disabled={running || images.length >= MAX_IMAGES}
+          disabled={running || images.length >= MAX_IMAGE_ATTACHMENTS}
           title="Attach image"
         >
           +

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { SessionRegistry, DETACHED_TTL_MS } from '../session-registry.js';
+import { SessionRegistry } from '../session-registry.js';
+import { DETACHED_TTL_MS } from '../constants.js';
 
 describe('SessionRegistry', () => {
   let registry: SessionRegistry;

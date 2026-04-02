@@ -115,10 +115,10 @@ export function SessionList() {
     Promise.all([
       fetch('/api/sessions')
         .then((r) => r.json())
-        .catch(() => []),
+        .catch(() => []), // Network error — show empty list
       fetch('/api/config')
         .then((r) => r.json())
-        .catch(() => ({})),
+        .catch(() => ({})), // Network error — use default config
     ])
       .then(([sessData, config]) => {
         setSessions(sessData);
@@ -129,12 +129,16 @@ export function SessionList() {
 
   function dismissSession(id: string) {
     setSessions((prev) => prev.filter((s) => s.id !== id));
-    fetch(`/api/sessions/${id}`, { method: 'DELETE' }).catch(() => {});
+    fetch(`/api/sessions/${id}`, { method: 'DELETE' }).catch(() => {
+      // Best-effort server-side dismiss — UI already updated
+    });
   }
 
   function clearAll() {
     setSessions([]);
-    fetch('/api/sessions', { method: 'DELETE' }).catch(() => {});
+    fetch('/api/sessions', { method: 'DELETE' }).catch(() => {
+      // Best-effort server-side clear — UI already updated
+    });
   }
 
   function handleQuickAction(action: QuickAction) {

@@ -17,9 +17,13 @@ export function validateConfig(passphrase?: string, secret?: string): string | n
   return null;
 }
 
+import { createLogger } from './logger.js';
+
+const log = createLogger('auth');
+
 const configError = validateConfig(process.env.AUTH_PASSPHRASE, process.env.AUTH_SECRET);
 if (configError) {
-  console.error(`FATAL: ${configError}`);
+  log.error(`FATAL: ${configError}`);
   process.exit(1);
 }
 

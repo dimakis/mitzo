@@ -58,9 +58,9 @@ describe('shouldAutoAllow', () => {
       expect(shouldAutoAllow('StrReplace', 'agent')).toBe(true);
     });
 
-    it('does not auto-allow elevated tools', () => {
-      expect(shouldAutoAllow('Bash', 'agent')).toBe(false);
-      expect(shouldAutoAllow('Shell', 'agent')).toBe(false);
+    it('auto-allows elevated tools (HITL via system prompt)', () => {
+      expect(shouldAutoAllow('Bash', 'agent')).toBe(true);
+      expect(shouldAutoAllow('Shell', 'agent')).toBe(true);
     });
 
     it('does not auto-allow unknown tools', () => {
@@ -97,13 +97,13 @@ describe('getAllowedToolsForMode', () => {
     expect(allowed).not.toContain('Bash');
   });
 
-  it('agent mode includes safe + standard tools', () => {
+  it('agent mode includes safe + standard + elevated tools', () => {
     const allowed = getAllowedToolsForMode('agent');
     expect(allowed).toContain('Read');
     expect(allowed).toContain('Write');
     expect(allowed).toContain('Edit');
-    expect(allowed).not.toContain('Bash');
-    expect(allowed).not.toContain('Shell');
+    expect(allowed).toContain('Bash');
+    expect(allowed).toContain('Shell');
   });
 
   it('auto mode includes safe + standard + elevated tools', () => {

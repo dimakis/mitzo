@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { MAX_BUFFER_SIZE } from '../ws-pool.js';
+import { WS_MAX_BUFFER_SIZE as MAX_BUFFER_SIZE } from '../constants';
 
 // Mock WebSocket so the pool module doesn't try real connections
 class MockWebSocket {

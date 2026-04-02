@@ -8,6 +8,13 @@ import { ChatInput } from '../components/ChatInput';
 import { MitzoLogo } from '../components/MitzoLogo';
 import { groupMessages } from '../lib/groupMessages';
 import { wsSubscribe, wsSend, wsIsOpen, wsSetRunning, wsDrainBuffer } from '../lib/ws-pool';
+import {
+  SCROLL_NEAR_BOTTOM_PX,
+  SCROLL_RESTORE_DELAY_MS,
+  CHAT_CACHE_KEY_PREFIX,
+  LAST_SESSION_KEY,
+  DEFAULT_MODEL,
+} from '../lib/constants';
 import type { Message, PermissionRequest, ImageAttachment } from '../types/chat';
 
 export function ChatView() {
@@ -19,7 +26,7 @@ export function ChatView() {
   const [running, setRunning] = useState(false);
   const [permission, setPermission] = useState<PermissionRequest | null>(null);
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>(sessionId);
-  const [model, setModel] = useState('claude-sonnet-4-6');
+  const [model, setModel] = useState(DEFAULT_MODEL);
   const [mode, setMode] = useState<'ask' | 'agent' | 'auto'>(
     searchParams.get('extraTools') ? 'auto' : 'agent',
   );
@@ -44,7 +51,7 @@ export function ChatView() {
   const isNearBottom = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return true;
-    return el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_NEAR_BOTTOM_PX;
   }, []);
 
   const scrollToBottom = useCallback(() => {
@@ -63,7 +70,7 @@ export function ChatView() {
   // Persist last session
   useEffect(() => {
     if (currentSessionId) {
-      localStorage.setItem('mitzo-last-session', currentSessionId);
+      localStorage.setItem(LAST_SESSION_KEY, currentSessionId);
     }
   }, [currentSessionId]);
 
@@ -72,18 +79,18 @@ export function ChatView() {
     if (!sessionId) return;
     const resolvedId = sessionId;
 
-    const cacheKey = `mitzo-chat-${resolvedId}`;
+    const cacheKey = `${CHAT_CACHE_KEY_PREFIX}${resolvedId}`;
     const cached = localStorage.getItem(cacheKey);
     if (cached) {
       try {
         const restored = JSON.parse(cached) as Message[];
         if (restored.length > 0) {
           setMessages(restored);
-          setTimeout(forceScrollToBottom, 100);
+          setTimeout(forceScrollToBottom, SCROLL_RESTORE_DELAY_MS);
           return;
         }
       } catch {
-        /* ignore */
+        // Corrupted cache — fall through to API fetch
       }
     }
 
@@ -92,10 +99,12 @@ export function ChatView() {
       .then((msgs: Message[]) => {
         if (msgs.length > 0) {
           setMessages(msgs);
-          setTimeout(forceScrollToBottom, 100);
+          setTimeout(forceScrollToBottom, SCROLL_RESTORE_DELAY_MS);
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        // Network error loading messages — non-fatal, user can retry
+      });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Persist messages to localStorage whenever they change
@@ -103,9 +112,9 @@ export function ChatView() {
     const id = currentSessionIdRef.current;
     if (!id || messages.length === 0) return;
     try {
-      localStorage.setItem(`mitzo-chat-${id}`, JSON.stringify(messages));
+      localStorage.setItem(`${CHAT_CACHE_KEY_PREFIX}${id}`, JSON.stringify(messages));
     } catch {
-      /* ignore quota errors */
+      // localStorage quota exceeded — non-fatal, cache is best-effort
     }
   }, [messages, currentSessionId]);
 
@@ -142,7 +151,9 @@ export function ChatView() {
               .then((data: { messages?: Message[] }) => {
                 if (data.messages?.length) setMessages(data.messages);
               })
-              .catch(() => {});
+              .catch(() => {
+                // Network error fetching finished session — non-fatal
+              });
           }
           break;
 
@@ -265,8 +276,8 @@ export function ChatView() {
             const staleId = currentSessionIdRef.current;
             setCurrentSessionId(undefined);
             if (staleId) {
-              localStorage.removeItem(`mitzo-chat-${staleId}`);
-              localStorage.removeItem('mitzo-last-session');
+              localStorage.removeItem(`${CHAT_CACHE_KEY_PREFIX}${staleId}`);
+              localStorage.removeItem(LAST_SESSION_KEY);
             }
             if (sessionId) {
               navigate('/chat', { replace: true });

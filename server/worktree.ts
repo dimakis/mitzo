@@ -2,9 +2,17 @@
 import { execFileSync } from 'child_process';
 import { existsSync, mkdirSync, readdirSync, statSync, rmSync } from 'fs';
 import { join } from 'path';
+import {
+  WORKTREE_BRANCH_PREFIX,
+  WORKTREE_STALE_HOURS,
+  WORKTREE_GIT_TIMEOUT_MS,
+  WORKTREE_REMOVE_TIMEOUT_MS,
+  WORKTREE_PRUNE_TIMEOUT_MS,
+  WORKTREE_BRANCH_DELETE_TIMEOUT_MS,
+} from './constants.js';
+import { createLogger } from './logger.js';
 
-const BRANCH_PREFIX = 'session/';
-const STALE_HOURS = 168; // 7 days
+const log = createLogger('worktree');
 
 function sessionsDir(baseRepo: string): string {
   return `${baseRepo}-sessions`;
@@ -15,49 +23,58 @@ export function createWorktree(sessionId: string, baseRepo: string): string {
   mkdirSync(dir, { recursive: true });
 
   const worktreePath = join(dir, `session-${sessionId}`);
-  const branch = `${BRANCH_PREFIX}${sessionId}`;
+  const branch = `${WORKTREE_BRANCH_PREFIX}${sessionId}`;
 
   execFileSync('git', ['-C', baseRepo, 'worktree', 'add', '-b', branch, worktreePath], {
     stdio: 'pipe',
-    timeout: 30_000,
+    timeout: WORKTREE_GIT_TIMEOUT_MS,
   });
 
-  console.log(`[worktree] created: ${worktreePath} (${branch})`);
+  log.info(`created: ${worktreePath} (${branch})`);
   return worktreePath;
 }
 
 export function removeWorktree(sessionId: string, baseRepo: string): void {
   const worktreePath = join(sessionsDir(baseRepo), `session-${sessionId}`);
-  const branch = `${BRANCH_PREFIX}${sessionId}`;
+  const branch = `${WORKTREE_BRANCH_PREFIX}${sessionId}`;
 
   try {
     execFileSync('git', ['-C', baseRepo, 'worktree', 'remove', '--force', worktreePath], {
       stdio: 'pipe',
-      timeout: 15_000,
+      timeout: WORKTREE_REMOVE_TIMEOUT_MS,
     });
   } catch {
     if (existsSync(worktreePath)) {
       try {
         rmSync(worktreePath, { recursive: true, force: true });
-      } catch {}
+      } catch (err: unknown) {
+        log.warn('failed to force-remove worktree directory', {
+          path: worktreePath,
+          error: err instanceof Error ? err.message : 'unknown',
+        });
+      }
     }
   }
 
   try {
     execFileSync('git', ['-C', baseRepo, 'branch', '-D', branch], {
       stdio: 'pipe',
-      timeout: 5_000,
+      timeout: WORKTREE_BRANCH_DELETE_TIMEOUT_MS,
     });
-  } catch {}
+  } catch {
+    // Branch may already be deleted or never created
+  }
 
   try {
     execFileSync('git', ['-C', baseRepo, 'worktree', 'prune'], {
       stdio: 'pipe',
-      timeout: 5_000,
+      timeout: WORKTREE_PRUNE_TIMEOUT_MS,
     });
-  } catch {}
+  } catch {
+    // Non-fatal — prune is best-effort cleanup
+  }
 
-  console.log(`[worktree] removed: ${worktreePath}`);
+  log.info(`removed: ${worktreePath}`);
 }
 
 export function getWorktreePath(sessionId: string, baseRepo: string): string | null {
@@ -70,7 +87,7 @@ export function cleanupStaleWorktrees(baseRepo: string): void {
   if (!existsSync(dir)) return;
 
   const now = Date.now();
-  const cutoff = STALE_HOURS * 60 * 60 * 1000;
+  const cutoff = WORKTREE_STALE_HOURS * 60 * 60 * 1000;
   let cleaned = 0;
 
   for (const entry of readdirSync(dir)) {
@@ -84,18 +101,25 @@ export function cleanupStaleWorktrees(baseRepo: string): void {
         removeWorktree(sessionId, baseRepo);
         cleaned++;
       }
-    } catch {}
+    } catch (err: unknown) {
+      log.warn('failed to stat worktree entry during cleanup', {
+        entry,
+        error: err instanceof Error ? err.message : 'unknown',
+      });
+    }
   }
 
   try {
     execFileSync('git', ['-C', baseRepo, 'worktree', 'prune'], {
       stdio: 'pipe',
-      timeout: 5_000,
+      timeout: WORKTREE_PRUNE_TIMEOUT_MS,
     });
-  } catch {}
+  } catch {
+    // Non-fatal — prune is best-effort cleanup
+  }
 
   if (cleaned > 0) {
-    console.log(`[worktree] cleaned up ${cleaned} stale worktree(s)`);
+    log.info(`cleaned up ${cleaned} stale worktree(s)`);
   }
 }
 
@@ -115,7 +139,7 @@ export function listWorktrees(
         const hours = Math.floor((now - stat.mtimeMs) / 3_600_000);
         return { name: entry, path: fullPath, age: hours < 1 ? '<1h' : `${hours}h` };
       } catch {
-        return { name: entry, path: fullPath, age: 'unknown' };
+        return { name: entry, path: fullPath, age: 'unknown' }; // Stat failed — show with unknown age
       }
     });
 }

@@ -18,6 +18,17 @@ import { parseContentBlocks, extractToolResultText } from './content-blocks.js';
 import { loadMcpServers, type McpServerConfig } from './mcp-config.js';
 import { getToolTier, shouldAutoAllow, getAllowedToolsForMode } from './tool-tiers.js';
 import { loadRepoConfig } from './repo-config.js';
+import {
+  PERMISSION_TIMEOUT_MS,
+  NTFY_NOTIFICATION_DELAY_MS,
+  TOOL_RESULT_MAX_CHARS,
+  GIT_BRANCH_TIMEOUT_MS,
+  SESSION_LIST_LIMIT,
+  SESSION_MESSAGES_LIMIT,
+} from './constants.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('chat');
 
 export type { MitzoMode } from './session-registry.js';
 
@@ -25,7 +36,7 @@ let mcpServers: Record<string, McpServerConfig> = {};
 try {
   mcpServers = loadMcpServers();
 } catch (err: unknown) {
-  console.error('[mcp] failed to load MCP servers:', err instanceof Error ? err.message : err);
+  log.error('failed to load MCP servers', { error: err instanceof Error ? err.message : err });
 }
 
 export function getMcpServerNames(): string[] {
@@ -92,7 +103,7 @@ function resolveWorktree(
     return { cwd: worktreePath, worktreePath };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error('[worktree] creation failed, using base repo:', message);
+    log.error('worktree creation failed, using base repo', { error: message });
     send(ws, { type: 'error', error: `Worktree creation failed (using base repo): ${message}` });
     return { cwd: baseCwd };
   }
@@ -113,7 +124,7 @@ function getBranch(cwd: string): string {
     return execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
       cwd,
       stdio: 'pipe',
-      timeout: 5_000,
+      timeout: GIT_BRANCH_TIMEOUT_MS,
     })
       .toString()
       .trim();
@@ -245,7 +256,7 @@ function buildPermissionHandler(clientId: string) {
       if (ntfyConfigured()) {
         setTimeout(() => {
           if (hasPending(permId)) sendPermissionNotification(toolName, inputSummary, permId);
-        }, 10_000);
+        }, NTFY_NOTIFICATION_DELAY_MS);
       }
 
       setTimeout(() => {
@@ -255,7 +266,7 @@ function buildPermissionHandler(clientId: string) {
           resolve({ behavior: 'deny', message: 'Permission request timed out' });
           send(session.ws, { type: 'permission_timeout', permId });
         }
-      }, 120_000);
+      }, PERMISSION_TIMEOUT_MS);
     });
   };
 }
@@ -346,8 +357,11 @@ export async function startChat(
         registry.setMode(clientId, msg.mode);
         send(session.ws, { type: 'mode_changed', mode: msg.mode });
       }
-    } catch {
-      // Malformed WS message — ignore
+    } catch (err: unknown) {
+      log.warn('malformed WS message from client', {
+        clientId,
+        error: err instanceof Error ? err.message : 'parse failure',
+      });
     }
   };
   ws.on('message', messageHandler);
@@ -397,7 +411,7 @@ export async function startChat(
               send(currentWs, {
                 type: 'tool_result',
                 toolId: block.tool_use_id || '',
-                result: resultText.slice(0, 10_000),
+                result: resultText.slice(0, TOOL_RESULT_MAX_CHARS),
               });
             }
           }
@@ -445,7 +459,7 @@ function getSessionDirs(): string[] {
       if (e.startsWith('session-')) dirs.push(join(sessionsDir, e));
     }
   } catch {
-    /* No sessions dir yet */
+    // Expected when sessions dir doesn't exist yet
   }
   const claudeProjects = join(homedir(), '.claude', 'projects');
   const prefix = BASE_REPO.replace(/\//g, '-').replace(/^-/, '-');
@@ -458,7 +472,7 @@ function getSessionDirs(): string[] {
       }
     }
   } catch {
-    /* No claude projects dir */
+    // Expected when ~/.claude/projects doesn't exist yet
   }
   return dirs;
 }
@@ -478,7 +492,7 @@ export async function getSessions() {
   >();
   for (const dir of getSessionDirs()) {
     try {
-      const sessions = await listSessions({ dir, limit: 20 });
+      const sessions = await listSessions({ dir, limit: SESSION_LIST_LIMIT });
       for (const s of sessions) {
         if (hiddenSessionIds.has(s.sessionId)) continue;
         const existing = seen.get(s.sessionId);
@@ -492,12 +506,12 @@ export async function getSessions() {
         }
       }
     } catch {
-      /* Dir might not exist */
+      // Expected when session dir doesn't exist
     }
   }
   const deduped = Array.from(seen.values());
   deduped.sort((a, b) => b.lastModified - a.lastModified);
-  return deduped.slice(0, 20);
+  return deduped.slice(0, SESSION_LIST_LIMIT);
 }
 
 export async function getMessages(sessionId: string) {
@@ -506,11 +520,11 @@ export async function getMessages(sessionId: string) {
     try {
       rawMessages = (await getSessionMessages(sessionId, {
         dir,
-        limit: 100,
+        limit: SESSION_MESSAGES_LIMIT,
       })) as typeof rawMessages;
       if (rawMessages.length > 0) break;
     } catch {
-      /* Try next dir */
+      // Session not in this dir — try next
     }
   }
   try {
@@ -529,7 +543,11 @@ export async function getMessages(sessionId: string) {
       .filter(
         (m): m is NonNullable<typeof m> => m !== null && !!(m.text || m.toolCalls || m.toolResults),
       );
-  } catch {
+  } catch (err: unknown) {
+    log.warn('failed to parse session messages', {
+      sessionId,
+      error: err instanceof Error ? err.message : 'unknown',
+    });
     return [];
   }
 }

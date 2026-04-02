@@ -1,3 +1,5 @@
+import { TOOL_SUMMARY_MAX_CHARS } from './constants.js';
+
 export function summarizeToolInput(toolName: string, input: Record<string, unknown>): string {
   switch (toolName) {
     case 'Read':
@@ -8,7 +10,7 @@ export function summarizeToolInput(toolName: string, input: Record<string, unkno
     case 'StrReplace':
       return `${input.path || ''}`;
     case 'Bash':
-      return `${String(input.command || '').slice(0, 200)}`;
+      return `${String(input.command || '').slice(0, TOOL_SUMMARY_MAX_CHARS)}`;
     case 'Glob':
       return `${input.glob_pattern || ''} in ${input.target_directory || 'workspace'}`;
     case 'Grep':
@@ -18,6 +20,6 @@ export function summarizeToolInput(toolName: string, input: Record<string, unkno
     case 'WebFetch':
       return `${input.url || ''}`;
     default:
-      return JSON.stringify(input).slice(0, 200);
+      return JSON.stringify(input).slice(0, TOOL_SUMMARY_MAX_CHARS);
   }
 }

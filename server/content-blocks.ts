@@ -1,4 +1,5 @@
 import { summarizeToolInput } from './tool-summary.js';
+import { TOOL_RESULT_MAX_CHARS } from './constants.js';
 
 interface ContentBlock {
   type: string;
@@ -57,7 +58,7 @@ export function parseContentBlocks(blocks: ContentBlock[]): ParsedContent {
       const rt = extractToolResultText(block.content);
       toolResults.push({
         toolId: block.tool_use_id || '',
-        result: rt.slice(0, 10_000),
+        result: rt.slice(0, TOOL_RESULT_MAX_CHARS),
       });
     }
   }

@@ -26,9 +26,13 @@ import {
   repoConfig,
 } from './chat.js';
 import { cleanupStaleWorktrees, listWorktrees } from './worktree.js';
+import { GIT_BRANCH_TIMEOUT_MS, HEARTBEAT_INTERVAL_MS, PORT_DEFAULT } from './constants.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('server');
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PORT = parseInt(process.env.PORT || '3100', 10);
+const PORT = parseInt(process.env.PORT || String(PORT_DEFAULT), 10);
 
 const app = express();
 app.use(express.json());
@@ -40,7 +44,7 @@ let buildHash = '';
 try {
   buildHash = createHash('md5').update(readFileSync(indexHtmlPath)).digest('hex').slice(0, 8);
 } catch {
-  // Frontend not built yet — hash stays empty
+  // Expected when frontend hasn't been built yet
 }
 app.get('/api/version', (_req, res) => res.json({ hash: buildHash }));
 
@@ -158,7 +162,7 @@ function getGitBranch(cwd: string): string {
     return execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
       cwd,
       stdio: 'pipe',
-      timeout: 5_000,
+      timeout: GIT_BRANCH_TIMEOUT_MS,
     })
       .toString()
       .trim();
@@ -196,7 +200,7 @@ app.get('/api/files', (req, res) => {
           const stat = statSync(full);
           return { name, isDir: stat.isDirectory() };
         } catch {
-          return { name, isDir: false };
+          return { name, isDir: false }; // Broken symlink or permission error — show as file
         }
       })
       .sort((a, b) => {
@@ -204,7 +208,11 @@ app.get('/api/files', (req, res) => {
         return a.name.localeCompare(b.name);
       });
     res.json({ dir, entries });
-  } catch {
+  } catch (err: unknown) {
+    log.error('failed to read directory', {
+      dir,
+      error: err instanceof Error ? err.message : 'unknown',
+    });
     res.status(500).json({ error: 'Failed to read directory' });
   }
 });
@@ -223,7 +231,11 @@ app.get('/api/files/read', (req, res) => {
     const content = readFileSync(filePath, 'utf-8');
     const ext = extname(filePath).toLowerCase();
     res.json({ path: filePath, content, ext });
-  } catch {
+  } catch (err: unknown) {
+    log.error('failed to read file', {
+      path: filePath,
+      error: err instanceof Error ? err.message : 'unknown',
+    });
     res.status(500).json({ error: 'Failed to read file' });
   }
 });
@@ -245,7 +257,11 @@ app.put('/api/files/write', (req, res) => {
   try {
     writeFileSync(filePath, content, 'utf-8');
     res.json({ ok: true, path: filePath });
-  } catch {
+  } catch (err: unknown) {
+    log.error('failed to write file', {
+      path: filePath,
+      error: err instanceof Error ? err.message : 'unknown',
+    });
     res.status(500).json({ error: 'Failed to write file' });
   }
 });
@@ -280,7 +296,7 @@ server.on('upgrade', async (req, socket, head) => {
 
   wss.handleUpgrade(req, socket, head, (ws) => {
     const clientId = `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    console.log('[ws] chat connected:', clientId);
+    log.info('chat connected', { clientId });
     handleChatWs(ws, clientId);
   });
 });
@@ -292,7 +308,7 @@ function handleChatWs(ws: WebSocket, clientId: string) {
     if (ws.readyState === ws.OPEN) {
       ws.ping();
     }
-  }, 15_000);
+  }, HEARTBEAT_INTERVAL_MS);
 
   ws.on('message', async (raw) => {
     try {
@@ -310,7 +326,7 @@ function handleChatWs(ws: WebSocket, clientId: string) {
               running: true,
             }),
           );
-          console.log('[ws] reattached:', msg.clientId, '(new ws:', clientId, ')');
+          log.info('reattached', { oldClientId: msg.clientId, newClientId: clientId });
         } else {
           ws.send(
             JSON.stringify({
@@ -345,22 +361,24 @@ function handleChatWs(ws: WebSocket, clientId: string) {
       } else if (msg.type === 'stop') {
         stopChat(clientId);
       }
-    } catch (err: any) {
-      ws.send(JSON.stringify({ type: 'error', error: err.message }));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      log.warn('failed to handle WS message', { clientId, error: message });
+      ws.send(JSON.stringify({ type: 'error', error: message }));
     }
   });
 
   ws.on('close', (code, reason) => {
     clearInterval(heartbeat);
-    console.log('[ws] chat disconnected:', clientId, 'code:', code, 'reason:', reason?.toString());
+    log.info('chat disconnected', { clientId, code, reason: reason?.toString() });
     if (isActive(clientId)) {
       detachChat(clientId);
-      console.log('[ws] session detached (surviving):', clientId);
+      log.info('session detached (surviving)', { clientId });
     }
   });
 
   ws.on('error', (err) => {
-    console.error('[ws] error:', clientId, err.message);
+    log.error('ws error', { clientId, error: err.message });
   });
 }
 
@@ -368,17 +386,19 @@ import { checkPort } from './port-check.js';
 
 checkPort(PORT).then((inUse) => {
   if (inUse) {
-    console.error(`\n  Port ${PORT} already in use. Another Mitzo instance may be running.`);
-    console.error(`  Kill it or set a different PORT in .env.\n`);
+    log.error(`Port ${PORT} already in use. Another Mitzo instance may be running.`);
+    log.error('Kill it or set a different PORT in .env.');
     process.exit(1);
   }
 
   server.listen(PORT, () => {
-    console.log(`Chat Agent running on http://localhost:${PORT}`);
+    log.info(`Chat Agent running on http://localhost:${PORT}`);
     try {
       cleanupStaleWorktrees(BASE_REPO);
-    } catch {
-      // Non-fatal — stale worktrees will be cleaned next restart
+    } catch (err: unknown) {
+      log.warn('stale worktree cleanup failed (will retry on next restart)', {
+        error: err instanceof Error ? err.message : 'unknown',
+      });
     }
   });
 });

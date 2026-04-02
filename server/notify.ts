@@ -1,3 +1,8 @@
+import { NOTIFY_INPUT_MAX_CHARS } from './constants.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('ntfy');
+
 const NTFY_URL = process.env.NTFY_URL || 'https://ntfy.sh';
 const NTFY_TOPIC = process.env.NTFY_TOPIC;
 const NTFY_AUTH_TOKEN = process.env.NTFY_AUTH_TOKEN;
@@ -14,7 +19,10 @@ export async function sendPermissionNotification(
 ): Promise<void> {
   if (!NTFY_TOPIC || !BASE_URL) return;
 
-  const truncatedInput = toolInput.length > 100 ? toolInput.slice(0, 100) + '...' : toolInput;
+  const truncatedInput =
+    toolInput.length > NOTIFY_INPUT_MAX_CHARS
+      ? toolInput.slice(0, NOTIFY_INPUT_MAX_CHARS) + '...'
+      : toolInput;
   const token = NTFY_AUTH_TOKEN || '';
 
   const allowUrl = `${BASE_URL}/api/permission/${permId}/respond?decision=once&token=${token}`;
@@ -37,7 +45,9 @@ export async function sendPermissionNotification(
       headers,
       body: `${toolName}: ${truncatedInput}`,
     });
-  } catch (err) {
-    console.error('[ntfy] failed to send notification:', err);
+  } catch (err: unknown) {
+    log.error('failed to send notification', {
+      error: err instanceof Error ? err.message : err,
+    });
   }
 }
