@@ -120,7 +120,6 @@ export function ChatInput({ onSend, onStop, running, initialText }: Props) {
 
   return (
     <div className="chat-input">
-      {running && <div className="chat-input-thinking">Thinking</div>}
       {images.length > 0 && (
         <div className="chat-input-previews">
           {images.map((img, i) => (
@@ -161,20 +160,19 @@ export function ChatInput({ onSend, onStop, running, initialText }: Props) {
           placeholder={running ? 'Type next message...' : 'Message Mitzo...'}
           rows={1}
         />
-        <div className="chat-input-actions">
-          {running && (
-            <button className="chat-input-btn chat-input-btn--stop" onClick={onStop}>
-              Stop
-            </button>
-          )}
+        {running ? (
+          <button className="chat-input-btn chat-input-btn--stop" onClick={onStop}>
+            ■
+          </button>
+        ) : (
           <button
             className="chat-input-btn chat-input-btn--send"
             onClick={handleSend}
             disabled={!canSend}
           >
-            Send
+            ↑
           </button>
-        </div>
+        )}
       </div>
     </div>
   );
