@@ -183,6 +183,41 @@ textarea:focus {
   gap: 0.5rem;
 }
 
+.check-update-btn {
+  font-size: 1rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.check-update-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.update-banner {
+  display: block;
+  width: 100%;
+  padding: 0.55rem 1rem;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-align: center;
+  border: none;
+  cursor: pointer;
+  touch-action: manipulation;
+  letter-spacing: 0.01em;
+}
+
+.update-banner:active {
+  opacity: 0.85;
+}
+
 .refresh-ui-btn {
   font-size: 1.1rem;
   padding: 0.35rem 0.55rem;
