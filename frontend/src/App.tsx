@@ -15,7 +15,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }, []);
   if (auth === 'denied') return <Navigate to="/login" replace />;
   if (auth === 'loading') {
-    return <div style={{ background: '#0f0f1a', minHeight: '100dvh' }} />;
+    return <div style={{ background: 'var(--bg)', minHeight: '100dvh' }} />;
   }
   return <>{children}</>;
 }
