@@ -446,6 +446,46 @@ describe('USER_SEND', () => {
   });
 });
 
+// ─── RESTORE ──────────────────────────────────────────────────────────────────
+
+describe('RESTORE', () => {
+  it('restores valid v2 messages', () => {
+    const messages = [
+      {
+        messageId: 'msg-1',
+        role: 'user' as const,
+        blocks: [{ blockId: 'b1', blockType: 'text' as const, content: 'hello' }],
+      },
+    ];
+    const state = chatMessagesReducer(INITIAL, { type: 'RESTORE', messages });
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0].messageId).toBe('msg-1');
+  });
+
+  it('filters out v1-format messages missing messageId and blocks', () => {
+    const legacyMessages = [
+      { role: 'user', text: 'hello' },
+      { role: 'assistant', text: 'hi' },
+    ] as unknown as import('../../types/chat').FinishedMessage[];
+    const state = chatMessagesReducer(INITIAL, { type: 'RESTORE', messages: legacyMessages });
+    expect(state.messages).toHaveLength(0);
+  });
+
+  it('keeps valid messages and drops invalid ones in a mixed array', () => {
+    const mixed = [
+      { role: 'user', text: 'old format' },
+      {
+        messageId: 'msg-2',
+        role: 'assistant',
+        blocks: [{ blockId: 'b1', blockType: 'text', content: 'valid' }],
+      },
+    ] as unknown as import('../../types/chat').FinishedMessage[];
+    const state = chatMessagesReducer(INITIAL, { type: 'RESTORE', messages: mixed });
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0].messageId).toBe('msg-2');
+  });
+});
+
 // ─── Multi-turn sequence ──────────────────────────────────────────────────────
 
 describe('full turn sequence', () => {

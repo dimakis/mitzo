@@ -254,8 +254,12 @@ export function chatMessagesReducer(
     case 'SESSION_INFO':
       return { ...state, branch: action.branch, isWorktree: action.isWorktree };
 
-    case 'RESTORE':
-      return { ...state, messages: action.messages };
+    case 'RESTORE': {
+      const valid = action.messages.filter(
+        (m) => m && typeof m.messageId === 'string' && Array.isArray(m.blocks),
+      );
+      return { ...state, messages: valid };
+    }
 
     case 'USER_SEND':
       return {

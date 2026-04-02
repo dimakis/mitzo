@@ -6,6 +6,7 @@ export type GroupedBlock =
   | { type: 'tool-group'; tools: FinishedBlock[]; key: string };
 
 export function groupBlocks(blocks: FinishedBlock[]): GroupedBlock[] {
+  if (!Array.isArray(blocks)) return [];
   const result: GroupedBlock[] = [];
   let toolBuffer: FinishedBlock[] = [];
 
