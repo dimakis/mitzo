@@ -935,6 +935,99 @@ textarea:focus {
   margin: 0.15rem 0 0;
 }
 
+.tool-pill-code {
+  color: var(--text);
+  background: var(--code-bg);
+  padding: 0.4rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+.tool-pill-old {
+  color: #f8a0a0;
+  background: rgba(244, 67, 54, 0.08);
+  padding: 0.4rem;
+  border-radius: 4px;
+  border-left: 3px solid rgba(244, 67, 54, 0.4);
+  margin-bottom: 0.25rem;
+}
+
+.tool-pill-new {
+  color: #a0f0a0;
+  background: rgba(76, 175, 80, 0.08);
+  padding: 0.4rem;
+  border-radius: 4px;
+  border-left: 3px solid rgba(76, 175, 80, 0.4);
+}
+
+/* ===== Thinking Block ===== */
+
+.thinking-block {
+  align-self: flex-start;
+  width: 100%;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.thinking-block-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.6rem;
+  width: 100%;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  font-family: inherit;
+  font-style: italic;
+  min-width: 0;
+}
+
+.thinking-block-header:active {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.thinking-block-label {
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  font-style: italic;
+}
+
+.thinking-block--streaming .thinking-block-label {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+.thinking-block-chevron {
+  margin-left: auto;
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  font-style: normal;
+}
+
+.thinking-block-content {
+  padding: 0.4rem 0.6rem;
+  background: var(--code-bg);
+  border-radius: 0 0 6px 6px;
+}
+
+.thinking-block-text {
+  font-family: var(--code-font);
+  font-size: 0.7rem;
+  line-height: 1.4;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 40vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0;
+  opacity: 0.7;
+}
+
 /* ===== Tool Group ===== */
 
 .tool-group {

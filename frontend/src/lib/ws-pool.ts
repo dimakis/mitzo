@@ -14,6 +14,8 @@ export type MsgListener = (msg: WsMsg) => void;
 const BUFFERABLE_TYPES = new Set([
   'text',
   'text_delta',
+  'thinking_start',
+  'thinking_delta',
   'tool_call',
   'tool_result',
   'done',
