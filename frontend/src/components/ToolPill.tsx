@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import type { Message, RawToolInput } from '../types/chat';
+import type { StreamingBlock, FinishedBlock, RawToolInput } from '../types/chat';
 
 interface Props {
-  message: Message;
+  block: StreamingBlock | FinishedBlock;
 }
 
 function RawInputDetail({ raw }: { raw: RawToolInput }) {
@@ -14,7 +14,6 @@ function RawInputDetail({ raw }: { raw: RawToolInput }) {
       </div>
     );
   }
-
   if (raw.type === 'diff') {
     return (
       <div className="tool-pill-section">
@@ -24,7 +23,6 @@ function RawInputDetail({ raw }: { raw: RawToolInput }) {
       </div>
     );
   }
-
   if (raw.type === 'command') {
     return (
       <div className="tool-pill-section">
@@ -33,30 +31,32 @@ function RawInputDetail({ raw }: { raw: RawToolInput }) {
       </div>
     );
   }
-
   return null;
 }
 
-export function ToolPill({ message }: Props) {
+export function ToolPill({ block }: Props) {
   const [expanded, setExpanded] = useState(false);
-  const done = message.toolResult !== undefined;
-  const input = message.toolInput || '';
+  const done = block.toolResult !== undefined;
+  const hasError = (block as StreamingBlock).toolError === true;
+  const input = block.toolInput || '';
 
   return (
-    <div className={`tool-pill ${done ? 'tool-pill--done' : 'tool-pill--running'}`}>
+    <div
+      className={`tool-pill ${done ? (hasError ? 'tool-pill--error' : 'tool-pill--done') : 'tool-pill--running'}`}
+    >
       <button className="tool-pill-header" onClick={() => setExpanded((e) => !e)}>
         <span
-          className={`tool-pill-dot ${done ? 'tool-pill-dot--done' : 'tool-pill-dot--pending'}`}
+          className={`tool-pill-dot ${done ? (hasError ? 'tool-pill-dot--error' : 'tool-pill-dot--done') : 'tool-pill-dot--pending'}`}
         />
-        <span className="tool-pill-name">{message.toolName}</span>
+        <span className="tool-pill-name">{block.toolName}</span>
         <span className="tool-pill-input">{input}</span>
         {!done && <span className="tool-pill-status">Running...</span>}
         <span className="tool-pill-chevron">{expanded ? '▾' : '▸'}</span>
       </button>
       {expanded && (
         <div className="tool-pill-detail">
-          {message.rawInput ? (
-            <RawInputDetail raw={message.rawInput} />
+          {block.rawInput ? (
+            <RawInputDetail raw={block.rawInput} />
           ) : (
             <div className="tool-pill-section">
               <span className="tool-pill-label">Input</span>
@@ -66,7 +66,7 @@ export function ToolPill({ message }: Props) {
           {done && (
             <div className="tool-pill-section">
               <span className="tool-pill-label">Result</span>
-              <pre className="tool-pill-pre">{message.toolResult}</pre>
+              <pre className="tool-pill-pre">{block.toolResult}</pre>
             </div>
           )}
         </div>

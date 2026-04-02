@@ -1,35 +1,52 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { Message } from '../types/chat';
+import type { FinishedMessage } from '../types/chat';
 
-interface Props {
-  message: Message;
+interface UserBubbleProps {
+  text?: string;
+  images?: string[];
 }
 
-export function MessageBubble({ message }: Props) {
-  if (message.role === 'user') {
-    return (
-      <div className="msg-bubble msg-bubble--user">
-        {message.images && message.images.length > 0 && (
-          <div className="msg-bubble-images">
-            {message.images.map((src, i) => (
-              <img key={i} src={src} alt={`Attachment ${i + 1}`} className="msg-bubble-img" />
-            ))}
-          </div>
-        )}
-        {message.text && <div className="msg-bubble-content">{message.text}</div>}
-      </div>
-    );
-  }
-
-  const base = message.reasoning ? 'msg-bubble--reasoning' : 'msg-bubble--assistant';
-  const streaming = message.streaming ? ' msg-bubble--streaming' : '';
-
+export function UserBubble({ text, images }: UserBubbleProps) {
   return (
-    <div className={`msg-bubble ${base}${streaming}`}>
+    <div className="msg-bubble msg-bubble--user">
+      {images && images.length > 0 && (
+        <div className="msg-bubble-images">
+          {images.map((src, i) => (
+            <img key={i} src={src} alt={`Attachment ${i + 1}`} className="msg-bubble-img" />
+          ))}
+        </div>
+      )}
+      {text && <div className="msg-bubble-content">{text}</div>}
+    </div>
+  );
+}
+
+interface TextBubbleProps {
+  content: string;
+  streaming?: boolean;
+}
+
+export function TextBubble({ content, streaming = false }: TextBubbleProps) {
+  return (
+    <div className={`msg-bubble msg-bubble--assistant${streaming ? ' msg-bubble--streaming' : ''}`}>
       <div className="msg-bubble-markdown">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text || ''}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
       </div>
     </div>
   );
+}
+
+// Legacy adapter for session restore — maps FinishedMessage to flat render.
+interface MessageBubbleProps {
+  message: FinishedMessage;
+}
+
+export function MessageBubble({ message }: MessageBubbleProps) {
+  if (message.role === 'user') {
+    const textBlock = message.blocks.find((b) => b.blockType === 'text');
+    return <UserBubble text={textBlock?.content} images={message.images} />;
+  }
+  const textBlock = message.blocks.find((b) => b.blockType === 'text');
+  return <TextBubble content={textBlock?.content || ''} />;
 }

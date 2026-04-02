@@ -1,14 +1,23 @@
 import { useState } from 'react';
-import type { Message } from '../types/chat';
+import type { StreamingBlock, FinishedBlock } from '../types/chat';
 
 interface Props {
-  message: Message;
+  block: StreamingBlock | FinishedBlock;
+  streaming?: boolean;
 }
 
-export function ThinkingBlock({ message }: Props) {
-  const [expanded, setExpanded] = useState(!!message.streaming);
-  const text = message.text || '';
-  const isStreaming = !!message.streaming;
+export function ThinkingBlock({ block, streaming = false }: Props) {
+  const [expanded, setExpanded] = useState(streaming);
+  const text = block.content || '';
+  const isStreaming = streaming && !('done' in block && block.done);
+
+  if (block.blockType === 'redacted_thinking') {
+    return (
+      <div className="thinking-block thinking-block--redacted">
+        <span className="thinking-block-label">Reasoning redacted</span>
+      </div>
+    );
+  }
 
   if (!text && !isStreaming) return null;
 

@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
-import { MessageBubble } from '../components/MessageBubble';
+import { UserBubble, TextBubble } from '../components/MessageBubble';
 import { ThinkingBlock } from '../components/ThinkingBlock';
 import { ToolPill } from '../components/ToolPill';
 import { ToolGroup } from '../components/ToolGroup';
 import { PermissionBanner } from '../components/PermissionBanner';
 import { ChatInput } from '../components/ChatInput';
 import { MitzoLogo } from '../components/MitzoLogo';
-import { groupMessages } from '../lib/groupMessages';
+import { groupBlocks } from '../lib/groupMessages';
 import { wsIsOpen, wsSend, wsSetRunning } from '../lib/ws-pool';
 import {
   SCROLL_NEAR_BOTTOM_PX,
@@ -19,7 +19,7 @@ import { useChatSession } from '../hooks/useChatSession';
 import { useChatMessages } from '../hooks/useChatMessages';
 import { useChatConnection } from '../hooks/useChatConnection';
 import { usePermission } from '../hooks/usePermission';
-import type { ImageAttachment } from '../types/chat';
+import type { FinishedBlock, ImageAttachment } from '../types/chat';
 
 export function ChatView() {
   const { sessionId } = useParams<{ sessionId?: string }>();
@@ -73,7 +73,7 @@ export function ChatView() {
     if (distFromBottom <= SCROLL_NEAR_BOTTOM_PX) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [msgState.messages]);
+  }, [msgState.messages, msgState.current]);
 
   // Restore messages from cache/API on mount for existing sessions
   const restoreAttempted = useRef(false);
@@ -97,7 +97,10 @@ export function ChatView() {
         .then((r) => (r.ok ? r.json() : []))
         .then((msgs: unknown[]) => {
           if (msgs.length > 0) {
-            dispatch({ type: 'RESTORE', messages: msgs as import('../types/chat').Message[] });
+            dispatch({
+              type: 'RESTORE',
+              messages: msgs as import('../types/chat').FinishedMessage[],
+            });
             setTimeout(forceScrollToBottom, SCROLL_RESTORE_DELAY_MS);
           }
         })
@@ -115,12 +118,7 @@ export function ChatView() {
 
   const hasStarted = msgState.messages.some((m) => m.role === 'user');
 
-  function sendMessage(text: string, images?: ImageAttachment[]): boolean {
-    if (!wsIsOpen(poolKey)) {
-      dispatch({ type: 'CONNECTION_LOST' });
-      return false;
-    }
-
+  function buildSendPayload(text: string, images?: ImageAttachment[]): Record<string, unknown> {
     const payload: Record<string, unknown> = {
       type: 'send',
       prompt: text,
@@ -132,31 +130,47 @@ export function ChatView() {
       payload.images = images.map((img) => ({ data: img.data, mediaType: img.mediaType }));
     }
     if (sessionState.sandbox && !sessionState.currentSessionId) payload.worktree = true;
-
     const cwd = searchParams.get('cwd');
     if (cwd) payload.cwd = cwd;
     const extraTools = searchParams.get('extraTools');
     if (extraTools) payload.extraTools = extraTools;
+    return payload;
+  }
+
+  function sendMessage(text: string, images?: ImageAttachment[]): boolean {
+    if (!wsIsOpen(poolKey)) {
+      dispatch({ type: 'CONNECTION_LOST' });
+      return false;
+    }
+
+    const payload = buildSendPayload(text, images);
+    const previews = images?.map((img) => img.preview);
 
     if (msgState.running) {
-      pendingSend.current = payload;
-      wsSend(poolKey, { type: 'stop' });
+      // Server queues it natively — no client-side stop+re-send needed.
+      wsSend(poolKey, payload);
     } else {
       wsSetRunning(poolKey, true);
       wsSend(poolKey, payload);
+      dispatch({ type: 'USER_SEND', text, images: previews });
+      forceScrollToBottom();
     }
 
-    const previews = images?.map((img) => img.preview);
-    dispatch({ type: 'USER_SEND', text, images: previews });
-    forceScrollToBottom();
     return true;
   }
 
+  function interruptMessage(text: string, images?: ImageAttachment[]): void {
+    if (!wsIsOpen(poolKey) || !msgState.running) return;
+    const imagePayload = images?.map((img) => ({ data: img.data, mediaType: img.mediaType }));
+    wsSend(poolKey, { type: 'interrupt', prompt: text, images: imagePayload });
+  }
+
   const handleStop = useCallback(() => {
+    pendingSend.current = null;
     wsSend(poolKey, { type: 'stop' });
     wsSetRunning(poolKey, false);
     dispatch({ type: 'SET_RUNNING', running: false });
-  }, [poolKey, dispatch]);
+  }, [poolKey, dispatch, pendingSend]);
 
   function handleModeChange(newMode: 'ask' | 'agent' | 'auto') {
     sessionActions.setMode(newMode);
@@ -165,10 +179,16 @@ export function ChatView() {
     }
   }
 
-  const grouped = useMemo(
-    () => groupMessages(msgState.messages, msgState.running),
-    [msgState.messages, msgState.running],
+  // Group blocks per finished assistant turn for tool collapsing.
+  const groupedMessages = useMemo(
+    () =>
+      msgState.messages.map((msg) => ({
+        msg,
+        grouped: msg.role === 'assistant' ? groupBlocks(msg.blocks) : null,
+      })),
+    [msgState.messages],
   );
+
   const initialPrompt = searchParams.get('prompt') || undefined;
 
   return (
@@ -233,22 +253,54 @@ export function ChatView() {
       </header>
 
       <div className="chat-messages" ref={scrollRef}>
-        {msgState.messages.length === 0 && !msgState.running && (
+        {msgState.messages.length === 0 && !msgState.current && !msgState.running && (
           <p className="chat-empty">Send a message to start</p>
         )}
-        {grouped.map((item, i) => {
-          if (item.type === 'tool-group') {
-            return <ToolGroup key={`tg-${item.key}`} tools={item.tools} />;
+
+        {/* Finished turns */}
+        {groupedMessages.map(({ msg, grouped }) => {
+          if (msg.role === 'user') {
+            const textBlock = msg.blocks.find((b) => b.blockType === 'text');
+            return <UserBubble key={msg.messageId} text={textBlock?.content} images={msg.images} />;
           }
-          const msg = item.message;
-          if (msg.role === 'thinking') {
-            return <ThinkingBlock key={`th-${i}`} message={msg} />;
-          }
-          if (msg.role === 'tool') {
-            return <ToolPill key={msg.toolId || `t-${i}`} message={msg} />;
-          }
-          return <MessageBubble key={`m-${i}`} message={msg} />;
+
+          // Assistant turn — render grouped blocks
+          return (
+            <div key={msg.messageId} className="msg-turn">
+              {grouped!.map((item, i) => {
+                if (item.type === 'tool-group') {
+                  return <ToolGroup key={item.key} tools={item.tools} />;
+                }
+                const block: FinishedBlock = item.block;
+                if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
+                  return <ThinkingBlock key={block.blockId} block={block} />;
+                }
+                if (block.blockType === 'tool_use') {
+                  return <ToolPill key={block.blockId} block={block} />;
+                }
+                return (
+                  <TextBubble key={block.blockId || `text-${i}`} content={block.content ?? ''} />
+                );
+              })}
+            </div>
+          );
         })}
+
+        {/* In-flight streaming turn — rendered inline, no grouping */}
+        {msgState.current && (
+          <div className="msg-turn msg-turn--streaming">
+            {msgState.current.blockOrder.map((blockId) => {
+              const block = msgState.current!.blocks.get(blockId)!;
+              if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
+                return <ThinkingBlock key={block.blockId} block={block} streaming />;
+              }
+              if (block.blockType === 'tool_use') {
+                return <ToolPill key={block.blockId} block={block} />;
+              }
+              return <TextBubble key={block.blockId} content={block.content ?? ''} streaming />;
+            })}
+          </div>
+        )}
       </div>
 
       {msgState.permission && (
@@ -267,6 +319,7 @@ export function ChatView() {
       <ChatInput
         onSend={sendMessage}
         onStop={handleStop}
+        onInterrupt={interruptMessage}
         running={msgState.running}
         initialText={initialPrompt}
       />

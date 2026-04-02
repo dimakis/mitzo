@@ -14,11 +14,12 @@ import { MAX_IMAGE_ATTACHMENTS } from '../lib/constants';
 interface Props {
   onSend: (text: string, images?: ImageAttachment[]) => boolean;
   onStop: () => void;
+  onInterrupt?: (text: string, images?: ImageAttachment[]) => void;
   running: boolean;
   initialText?: string;
 }
 
-export function ChatInput({ onSend, onStop, running, initialText }: Props) {
+export function ChatInput({ onSend, onStop, onInterrupt, running, initialText }: Props) {
   const [text, setText] = useState(initialText || '');
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -118,6 +119,22 @@ export function ChatInput({ onSend, onStop, running, initialText }: Props) {
 
   const canSend = text.trim() || images.length > 0;
 
+  function handleInterrupt() {
+    if (!onInterrupt) return;
+    const trimmed = text.trim();
+    if (!trimmed && images.length === 0) return;
+    onInterrupt(
+      trimmed || 'What do you see in this image?',
+      images.length > 0 ? images : undefined,
+    );
+    setText('');
+    setImages([]);
+    requestAnimationFrame(() => {
+      autoResize();
+      textareaRef.current?.focus();
+    });
+  }
+
   return (
     <div className="chat-input">
       {images.length > 0 && (
@@ -136,7 +153,7 @@ export function ChatInput({ onSend, onStop, running, initialText }: Props) {
         <button
           className="chat-input-btn chat-input-btn--attach"
           onClick={() => fileInputRef.current?.click()}
-          disabled={running || images.length >= MAX_IMAGE_ATTACHMENTS}
+          disabled={images.length >= MAX_IMAGE_ATTACHMENTS}
           title="Attach image"
         >
           +
@@ -157,13 +174,33 @@ export function ChatInput({ onSend, onStop, running, initialText }: Props) {
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={running ? 'Type next message...' : 'Message Mitzo...'}
+          placeholder={running ? 'Type to queue or interrupt...' : 'Message Mitzo...'}
           rows={1}
         />
         {running ? (
-          <button className="chat-input-btn chat-input-btn--stop" onClick={onStop}>
-            ■
-          </button>
+          <>
+            {canSend && onInterrupt && (
+              <button
+                className="chat-input-btn chat-input-btn--interrupt"
+                onClick={handleInterrupt}
+                title="Interrupt — send now, mid-thinking"
+              >
+                ↯
+              </button>
+            )}
+            {canSend && (
+              <button
+                className="chat-input-btn chat-input-btn--send"
+                onClick={handleSend}
+                title="Queue — send after current turn"
+              >
+                ↑
+              </button>
+            )}
+            <button className="chat-input-btn chat-input-btn--stop" onClick={onStop}>
+              ■
+            </button>
+          </>
         ) : (
           <button
             className="chat-input-btn chat-input-btn--send"

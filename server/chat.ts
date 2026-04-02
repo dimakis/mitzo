@@ -1,4 +1,5 @@
 import { query, listSessions, getSessionMessages } from '@anthropic-ai/claude-agent-sdk';
+import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { WebSocket } from 'ws';
 import { execFileSync } from 'child_process';
 import { writeFileSync, mkdirSync, readdirSync } from 'fs';
@@ -12,6 +13,7 @@ import { getAllowedToolsForMode, applyTierOverrides } from './tool-tiers.js';
 import { loadRepoConfig } from './repo-config.js';
 import { buildPermissionHandler } from './permission-handler.js';
 import { runQueryLoop, createWsMessageHandler } from './query-loop.js';
+import { AsyncQueue } from './async-queue.js';
 import { GIT_BRANCH_TIMEOUT_MS, SESSION_LIST_LIMIT, SESSION_MESSAGES_LIMIT } from './constants.js';
 import { createLogger } from './logger.js';
 
@@ -167,6 +169,18 @@ function stageImages(cwd: string, images: Array<{ data: string; mediaType: strin
 
 // --- Main orchestrator ---
 
+function makeUserMessage(
+  content: string,
+  priority: 'now' | 'next' | 'later' = 'next',
+): SDKUserMessage {
+  return {
+    type: 'user',
+    message: { role: 'user', content },
+    parent_tool_use_id: null,
+    priority,
+  };
+}
+
 export async function startChat(
   ws: WebSocket,
   clientId: string,
@@ -192,19 +206,27 @@ export async function startChat(
   const mcpAllowed = buildMcpAllowedTools();
   const extraTools = options.extraTools ? options.extraTools.split(',').map((t) => t.trim()) : [];
 
+  // Streaming-input queue — kept open for the session lifetime.
+  const inputQueue = new AsyncQueue<SDKUserMessage>();
+  inputQueue.push(makeUserMessage(fullPrompt, 'now'));
+
   registry.register(clientId, {
     ws,
     abortController,
     mode,
+    cwd,
     sessionAllowList: new Set<string>(),
     worktreePath,
   });
+
+  const session = registry.get(clientId)!;
+  session.inputQueue = inputQueue;
 
   const branch = getBranch(cwd);
   send(ws, { type: 'session_info', branch, cwd, worktree: !!worktreePath });
 
   const q = query({
-    prompt: fullPrompt,
+    prompt: inputQueue as AsyncIterable<SDKUserMessage>,
     options: {
       cwd,
       env: sdkEnv(),
@@ -231,7 +253,6 @@ export async function startChat(
     },
   });
 
-  const session = registry.get(clientId)!;
   session.queryInstance = q;
 
   const messageHandler = createWsMessageHandler(clientId, registry);
@@ -248,9 +269,41 @@ export async function startChat(
   ws.removeListener('message', messageHandler);
 }
 
-// --- Session management (thin wrappers) ---
+/** Push a follow-up message into a running session. */
+export function sendToChat(
+  clientId: string,
+  prompt: string,
+  images?: Array<{ data: string; mediaType: string }>,
+): boolean {
+  const session = registry.get(clientId);
+  if (!session?.inputQueue) return false;
+  const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images);
+  session.inputQueue.push(makeUserMessage(fullPrompt, 'next'));
+  return true;
+}
+
+/** Interrupt the current generation and inject a message the model sees immediately. */
+export async function interruptChat(
+  clientId: string,
+  prompt: string,
+  images?: Array<{ data: string; mediaType: string }>,
+): Promise<boolean> {
+  const session = registry.get(clientId);
+  if (!session?.queryInstance || !session?.inputQueue) return false;
+  const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images);
+  await session.queryInstance.interrupt();
+  session.inputQueue.push(makeUserMessage(fullPrompt, 'now'));
+  return true;
+}
+
+// --- Session management ---
 
 export function stopChat(clientId: string) {
+  const session = registry.get(clientId);
+  if (session) {
+    session.inputQueue?.close();
+    session.queryInstance?.close();
+  }
   registry.abort(clientId);
 }
 export function detachChat(clientId: string) {

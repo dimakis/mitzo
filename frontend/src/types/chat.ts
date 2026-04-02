@@ -7,6 +7,50 @@ export interface RawToolInput {
   command?: string;
 }
 
+// --- v2 streaming model ---
+
+export type BlockType = 'text' | 'thinking' | 'redacted_thinking' | 'tool_use';
+
+export interface StreamingBlock {
+  blockId: string;
+  blockType: BlockType;
+  content: string;
+  done: boolean;
+  // tool_use specific
+  toolName?: string;
+  toolId?: string;
+  toolInput?: string;
+  rawInput?: RawToolInput;
+  toolResult?: string;
+  toolError?: boolean;
+}
+
+export interface StreamingMessage {
+  messageId: string;
+  blocks: Map<string, StreamingBlock>; // blockId → block
+  blockOrder: string[]; // insertion order
+}
+
+export interface FinishedBlock {
+  blockId: string;
+  blockType: BlockType;
+  content: string;
+  toolName?: string;
+  toolId?: string;
+  toolInput?: string;
+  rawInput?: RawToolInput;
+  toolResult?: string;
+  toolError?: boolean;
+}
+
+export interface FinishedMessage {
+  messageId: string;
+  role: 'user' | 'assistant';
+  blocks: FinishedBlock[];
+  images?: string[];
+}
+
+// --- Legacy flat Message type (used for restore/session history only) ---
 export interface Message {
   role: 'user' | 'assistant' | 'tool' | 'thinking';
   text?: string;
@@ -16,13 +60,11 @@ export interface Message {
   toolInput?: string;
   toolResult?: string;
   rawInput?: RawToolInput;
-  streaming?: boolean;
-  reasoning?: boolean;
 }
 
 export type GroupedItem =
-  | { type: 'message'; message: Message }
-  | { type: 'tool-group'; tools: Message[]; key: string };
+  | { type: 'message'; message: FinishedBlock | { role: 'user'; text?: string; images?: string[] } }
+  | { type: 'tool-group'; tools: FinishedBlock[]; key: string };
 
 export type ToolTier = 'safe' | 'standard' | 'elevated' | 'unknown';
 

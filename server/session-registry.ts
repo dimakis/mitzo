@@ -1,10 +1,27 @@
 import type { WebSocket } from 'ws';
 import { DETACHED_TTL_MS } from './constants.js';
 import { createLogger } from './logger.js';
+import type { RawToolInput } from './tool-summary.js';
 
 const log = createLogger('session-registry');
 
 export type MitzoMode = 'ask' | 'agent' | 'auto';
+
+export interface SnapshotBlock {
+  blockId: string;
+  blockType: 'text' | 'thinking' | 'redacted_thinking' | 'tool_use';
+  content: string;
+  done: boolean;
+  toolName?: string;
+  toolId?: string;
+  toolInput?: string;
+  rawInput?: RawToolInput;
+}
+
+export interface MessageSnapshot {
+  messageId: string;
+  blocks: SnapshotBlock[];
+}
 
 export interface ManagedSession {
   ws: WebSocket;
@@ -12,8 +29,12 @@ export interface ManagedSession {
   sessionId?: string;
   sessionAllowList: Set<string>;
   mode: MitzoMode;
+  cwd?: string;
   worktreePath?: string;
-  queryInstance?: any;
+  queryInstance?: { interrupt: () => Promise<void>; close: () => void };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  inputQueue?: { push: (msg: any) => void; close: () => void };
+  currentSnapshot: MessageSnapshot | null;
 }
 
 export class SessionRegistry {
@@ -23,9 +44,11 @@ export class SessionRegistry {
 
   register(
     clientId: string,
-    init: Omit<ManagedSession, 'queryInstance'> & { sessionId?: string },
+    init: Omit<ManagedSession, 'queryInstance' | 'inputQueue' | 'currentSnapshot'> & {
+      sessionId?: string;
+    },
   ): void {
-    this.sessions.set(clientId, { ...init });
+    this.sessions.set(clientId, { ...init, currentSnapshot: null });
     this.attached.add(clientId);
   }
 
