@@ -11,6 +11,10 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { registerPending, resolvePending, removePending, hasPending } from './permissions.js';
 import { sendPermissionNotification, isConfigured as ntfyConfigured } from './notify.js';
+import {
+  sendPermissionNotification as pushoverSendPermission,
+  isConfigured as pushoverConfigured,
+} from './pushover.js';
 import { createWorktree } from './worktree.js';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
 import { summarizeToolInput, getRawInput } from './tool-summary.js';
@@ -261,9 +265,12 @@ function buildPermissionHandler(clientId: string) {
         tier,
       });
 
-      if (ntfyConfigured()) {
+      if (ntfyConfigured() || pushoverConfigured()) {
         setTimeout(() => {
-          if (hasPending(permId)) sendPermissionNotification(toolName, inputSummary, permId);
+          if (hasPending(permId)) {
+            if (ntfyConfigured()) sendPermissionNotification(toolName, inputSummary, permId);
+            if (pushoverConfigured()) pushoverSendPermission(toolName, inputSummary, permId);
+          }
         }, NTFY_NOTIFICATION_DELAY_MS);
       }
 
