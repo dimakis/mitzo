@@ -238,7 +238,7 @@ export function ChatView() {
         )}
         {grouped.map((item, i) => {
           if (item.type === 'tool-group') {
-            return <ToolGroup key={`tg-${i}`} tools={item.tools} />;
+            return <ToolGroup key={`tg-${item.key}`} tools={item.tools} />;
           }
           const msg = item.message;
           if (msg.role === 'thinking') {

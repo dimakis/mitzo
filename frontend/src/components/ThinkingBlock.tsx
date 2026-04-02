@@ -10,7 +10,7 @@ export function ThinkingBlock({ message }: Props) {
   const text = message.text || '';
   const isStreaming = !!message.streaming;
 
-  if (!text && !isStreaming) return null;
+  if (!text) return null;
 
   return (
     <div className={`thinking-block ${isStreaming ? 'thinking-block--streaming' : ''}`}>

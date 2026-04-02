@@ -22,7 +22,7 @@ export interface Message {
 
 export type GroupedItem =
   | { type: 'message'; message: Message }
-  | { type: 'tool-group'; tools: Message[] };
+  | { type: 'tool-group'; tools: Message[]; key: string };
 
 export type ToolTier = 'safe' | 'standard' | 'elevated' | 'unknown';
 

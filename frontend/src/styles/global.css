@@ -1018,6 +1018,7 @@ textarea:focus {
   display: flex;
   align-items: center;
   gap: 0.4rem;
+  touch-action: manipulation;
   padding: 0.3rem 0.6rem;
   width: 100%;
   cursor: pointer;
@@ -1086,6 +1087,7 @@ textarea:focus {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  touch-action: manipulation;
   padding: 0.4rem 0.6rem;
   width: 100%;
   cursor: pointer;
