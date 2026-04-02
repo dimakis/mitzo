@@ -79,6 +79,33 @@ export class SessionRegistry {
   }
 
   /**
+   * Re-key a session from oldId to newId. Moves all state (session data,
+   * attached flag, detach timer) atomically. Used after WS reattach so that
+   * the new connection's clientId becomes the canonical key, preventing
+   * split-brain where isActive/stop/send target a stale key.
+   */
+  rekey(oldId: string, newId: string): boolean {
+    const session = this.sessions.get(oldId);
+    if (!session) return false;
+
+    this.sessions.delete(oldId);
+    this.sessions.set(newId, session);
+
+    if (this.attached.has(oldId)) {
+      this.attached.delete(oldId);
+      this.attached.add(newId);
+    }
+
+    const timer = this.detachTimers.get(oldId);
+    if (timer) {
+      this.detachTimers.delete(oldId);
+      this.detachTimers.set(newId, timer);
+    }
+
+    return true;
+  }
+
+  /**
    * Find a session by its SDK session ID (for reconnection by session ID).
    */
   findBySessionId(sessionId: string): { clientId: string; session: ManagedSession } | null {

@@ -14,11 +14,7 @@ function send(ws: WebSocket, data: unknown) {
   }
 }
 
-export function createWsMessageHandler(
-  clientId: string,
-  registry: SessionRegistry,
-  sessionWs: WebSocket,
-) {
+export function createWsMessageHandler(clientId: string, registry: SessionRegistry) {
   return (raw: Buffer) => {
     try {
       const msg = JSON.parse(raw.toString());
@@ -26,7 +22,8 @@ export function createWsMessageHandler(
         resolvePending(msg.permId, msg.decision || 'deny');
       } else if (msg.type === 'set_mode' && msg.mode) {
         registry.setMode(clientId, msg.mode);
-        send(sessionWs, { type: 'mode_changed', mode: msg.mode });
+        const session = registry.get(clientId);
+        if (session) send(session.ws, { type: 'mode_changed', mode: msg.mode });
       }
     } catch (err: unknown) {
       log.warn('malformed WS message from client', {
