@@ -119,6 +119,14 @@ function buildMcpAllowedTools(): string[] {
   return Object.keys(mcpServers).map((name) => `mcp__${name}__*`);
 }
 
+function resolveThinking(
+  model?: string,
+): { type: 'adaptive' } | { type: 'enabled'; budgetTokens: number } | undefined {
+  if (!model || model.includes('opus')) return { type: 'adaptive' };
+  if (model.includes('sonnet')) return { type: 'enabled', budgetTokens: 10_000 };
+  return undefined;
+}
+
 function getBranch(cwd: string): string {
   try {
     return execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
@@ -338,6 +346,7 @@ export async function startChat(
       },
       permissionMode: MODE_TO_SDK[mode] as 'plan' | 'default' | 'bypassPermissions',
       allowedTools: [...modeAllowed, ...mcpAllowed, ...extraTools],
+      thinking: resolveThinking(options.model),
       ...(options.model ? { model: options.model } : {}),
       ...(options.resume ? { resume: options.resume } : {}),
       ...(Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
