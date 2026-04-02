@@ -1,231 +1,61 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { MitzoLogo } from '../components/MitzoLogo';
-
-interface DirEntry {
-  name: string;
-  isDir: boolean;
-}
-
-interface WorktreeInfo {
-  name: string;
-  path: string;
-  branch: string;
-  age: string;
-}
-
-interface GitInfo {
-  branch: string;
-  repoPath: string;
-  worktrees: WorktreeInfo[];
-}
+import { useFileNavigation } from '../hooks/useFileNavigation';
+import { useFileEditor } from '../hooks/useFileEditor';
 
 export function FileViewer() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const nav = useFileNavigation(searchParams, setSearchParams);
+  const { state } = nav;
 
-  const filePath = searchParams.get('path') || '';
-  const dirPath = searchParams.get('dir') || '';
-  const rootParam = searchParams.get('root') || '';
-  const isViewing = !!filePath;
+  const editor = useFileEditor(state.content, state.filePath, nav.setError);
 
-  const [content, setContent] = useState('');
-  const [ext, setExt] = useState('');
-  const [entries, setEntries] = useState<DirEntry[]>([]);
-  const [currentDir, setCurrentDir] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
-  const [activeRoot, setActiveRoot] = useState(rootParam);
-
-  const [editing, setEditing] = useState(false);
-  const [editContent, setEditContent] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [dirty, setDirty] = useState(false);
-  const editorRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    fetch('/api/git/info')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: GitInfo | null) => {
-        if (data) {
-          setGitInfo(data);
-          if (!activeRoot) setActiveRoot(data.repoPath);
-        }
-      })
-      .catch(() => {
-        // Network error loading git info — non-fatal, file viewer still works
-      });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    setLoading(true);
-    setError('');
-
-    const rootQ = activeRoot ? `&root=${encodeURIComponent(activeRoot)}` : '';
-
-    if (isViewing) {
-      fetch(`/api/files/read?path=${encodeURIComponent(filePath)}`)
-        .then((r) => {
-          if (!r.ok) throw new Error('Failed to load file');
-          return r.json();
-        })
-        .then((data) => {
-          setContent(data.content);
-          setExt(data.ext);
-          setEditing(false);
-          setDirty(false);
-        })
-        .catch((err) => setError(err.message))
-        .finally(() => setLoading(false));
-    } else {
-      fetch(`/api/files?dir=${encodeURIComponent(dirPath)}${rootQ}`)
-        .then((r) => {
-          if (!r.ok) throw new Error('Failed to load directory');
-          return r.json();
-        })
-        .then((data) => {
-          setEntries(data.entries);
-          setCurrentDir(data.dir);
-        })
-        .catch((err) => setError(err.message))
-        .finally(() => setLoading(false));
-    }
-  }, [filePath, dirPath, isViewing, activeRoot]);
-
-  function openEntry(entry: DirEntry) {
-    if (dirty && !confirm('Discard unsaved changes?')) return;
-    const full = currentDir ? `${currentDir}/${entry.name}` : entry.name;
-    const params: Record<string, string> = {};
-    if (activeRoot) params.root = activeRoot;
-    if (entry.isDir) {
-      params.dir = full;
-    } else {
-      params.path = full;
-    }
-    setSearchParams(params);
-  }
-
-  function goUp() {
-    if (dirty && !confirm('Discard unsaved changes?')) return;
-    if (!currentDir) return;
-    const parent = currentDir.replace(/\/[^/]+$/, '');
-    const params: Record<string, string> = {};
-    if (activeRoot) params.root = activeRoot;
-    if (parent === currentDir) {
-      setSearchParams(params);
-    } else {
-      params.dir = parent;
-      setSearchParams(params);
-    }
-  }
-
-  function handleBack() {
-    if (dirty && !confirm('Discard unsaved changes?')) return;
-    if (isViewing) {
-      const parentDir = filePath.replace(/\/[^/]+$/, '');
-      const params: Record<string, string> = {};
-      if (activeRoot) params.root = activeRoot;
-      if (parentDir) params.dir = parentDir;
-      setSearchParams(params);
-      setContent('');
-      setExt('');
-      setEditing(false);
-      setDirty(false);
-    } else if (currentDir) {
-      goUp();
-    }
-  }
-
-  function handleRootChange(newRoot: string) {
-    if (dirty && !confirm('Discard unsaved changes?')) return;
-    setActiveRoot(newRoot);
-    const params: Record<string, string> = {};
-    if (newRoot) params.root = newRoot;
-    setSearchParams(params);
-    setEditing(false);
-    setDirty(false);
-  }
-
-  const startEditing = useCallback(() => {
-    setEditContent(content);
-    setEditing(true);
-    setDirty(false);
-    requestAnimationFrame(() => editorRef.current?.focus());
-  }, [content]);
-
-  function handleEditChange(value: string) {
-    setEditContent(value);
-    setDirty(value !== content);
-  }
-
-  function cancelEditing() {
-    if (dirty && !confirm('Discard unsaved changes?')) return;
-    setEditing(false);
-    setDirty(false);
-  }
-
-  async function saveFile() {
-    setSaving(true);
-    try {
-      const res = await fetch('/api/files/write', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: filePath, content: editContent }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({ error: 'Save failed' }));
-        throw new Error(data.error || 'Save failed');
-      }
-      setContent(editContent);
-      setEditing(false);
-      setDirty(false);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Save failed';
-      setError(message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const isMarkdown = ['.md', '.mdx'].includes(ext);
-  const fileName = filePath.split('/').pop() || '';
-  const dirName = currentDir.split('/').pop() || 'Files';
+  const isMarkdown = ['.md', '.mdx'].includes(state.ext);
+  const fileName = state.filePath.split('/').pop() || '';
+  const dirName = state.currentDir.split('/').pop() || 'Files';
   const displayBranch =
-    gitInfo?.worktrees.find((w) => w.path === activeRoot)?.branch || gitInfo?.branch || '';
+    state.gitInfo?.worktrees.find((w) => w.path === state.activeRoot)?.branch ||
+    state.gitInfo?.branch ||
+    '';
 
   return (
     <div className="viewer-page">
       <header className="viewer-header">
         <MitzoLogo />
-        {(isViewing || currentDir) && (
-          <button className="viewer-header-back" onClick={handleBack}>
+        {(state.isViewing || state.currentDir) && (
+          <button
+            className="viewer-header-back"
+            onClick={() => {
+              editor.resetEditor();
+              nav.handleBack(editor.dirty);
+            }}
+          >
             &larr;
           </button>
         )}
-        <span className="viewer-header-title">{isViewing ? fileName : dirName}</span>
+        <span className="viewer-header-title">{state.isViewing ? fileName : dirName}</span>
 
         {displayBranch && <span className="viewer-header-branch">{displayBranch}</span>}
 
-        {isViewing && isMarkdown && !editing && (
-          <button className="viewer-header-action" onClick={startEditing}>
+        {state.isViewing && isMarkdown && !editor.editing && (
+          <button className="viewer-header-action" onClick={editor.startEditing}>
             Edit
           </button>
         )}
-        {editing && (
+        {editor.editing && (
           <>
             <button
               className="viewer-header-action viewer-header-action--save"
-              onClick={saveFile}
-              disabled={saving || !dirty}
+              onClick={() => editor.saveFile(nav.setContent)}
+              disabled={editor.saving || !editor.dirty}
             >
-              {saving ? 'Saving...' : 'Save'}
+              {editor.saving ? 'Saving...' : 'Save'}
             </button>
             <button
               className="viewer-header-action viewer-header-action--cancel"
-              onClick={cancelEditing}
+              onClick={editor.cancelEditing}
             >
               Cancel
             </button>
@@ -233,19 +63,25 @@ export function FileViewer() {
         )}
       </header>
 
-      {gitInfo && gitInfo.worktrees.length > 0 && !isViewing && (
+      {state.gitInfo && state.gitInfo.worktrees.length > 0 && !state.isViewing && (
         <div className="viewer-root-bar">
           <button
-            className={`viewer-root-btn${activeRoot === gitInfo.repoPath ? ' viewer-root-btn--active' : ''}`}
-            onClick={() => handleRootChange(gitInfo.repoPath)}
+            className={`viewer-root-btn${state.activeRoot === state.gitInfo.repoPath ? ' viewer-root-btn--active' : ''}`}
+            onClick={() => {
+              editor.resetEditor();
+              nav.handleRootChange(state.gitInfo!.repoPath, editor.dirty);
+            }}
           >
             main
           </button>
-          {gitInfo.worktrees.map((wt) => (
+          {state.gitInfo.worktrees.map((wt) => (
             <button
               key={wt.path}
-              className={`viewer-root-btn${activeRoot === wt.path ? ' viewer-root-btn--active' : ''}`}
-              onClick={() => handleRootChange(wt.path)}
+              className={`viewer-root-btn${state.activeRoot === wt.path ? ' viewer-root-btn--active' : ''}`}
+              onClick={() => {
+                editor.resetEditor();
+                nav.handleRootChange(wt.path, editor.dirty);
+              }}
               title={`${wt.branch} (${wt.age})`}
             >
               {wt.branch || wt.name}
@@ -255,48 +91,51 @@ export function FileViewer() {
       )}
 
       <div className="viewer-content">
-        {loading && <p className="viewer-status">Loading...</p>}
-        {error && <p className="viewer-status viewer-status--error">{error}</p>}
+        {state.loading && <p className="viewer-status">Loading...</p>}
+        {state.error && <p className="viewer-status viewer-status--error">{state.error}</p>}
 
-        {!loading && !error && isViewing && editing && (
+        {!state.loading && !state.error && state.isViewing && editor.editing && (
           <textarea
-            ref={editorRef}
+            ref={editor.editorRef}
             className="viewer-editor"
-            value={editContent}
-            onChange={(e) => handleEditChange(e.target.value)}
+            value={editor.editContent}
+            onChange={(e) => editor.handleEditChange(e.target.value)}
             spellCheck={false}
           />
         )}
 
-        {!loading && !error && isViewing && !editing && isMarkdown && (
+        {!state.loading && !state.error && state.isViewing && !editor.editing && isMarkdown && (
           <div className="viewer-markdown">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{state.content}</ReactMarkdown>
           </div>
         )}
 
-        {!loading && !error && isViewing && !editing && !isMarkdown && (
-          <pre className="viewer-code">{content}</pre>
+        {!state.loading && !state.error && state.isViewing && !editor.editing && !isMarkdown && (
+          <pre className="viewer-code">{state.content}</pre>
         )}
 
-        {!loading && !error && !isViewing && (
+        {!state.loading && !state.error && !state.isViewing && (
           <div className="viewer-dir">
-            {currentDir && (
-              <button className="viewer-entry viewer-entry--up" onClick={goUp}>
+            {state.currentDir && (
+              <button
+                className="viewer-entry viewer-entry--up"
+                onClick={() => nav.goUp(editor.dirty)}
+              >
                 <span className="viewer-entry-icon">..</span>
                 <span className="viewer-entry-name">Parent directory</span>
               </button>
             )}
-            {entries.map((entry) => (
+            {state.entries.map((entry) => (
               <button
                 key={entry.name}
                 className={`viewer-entry ${entry.isDir ? 'viewer-entry--dir' : ''}`}
-                onClick={() => openEntry(entry)}
+                onClick={() => nav.openEntry(entry, editor.dirty)}
               >
                 <span className="viewer-entry-icon">{entry.isDir ? '/' : ''}</span>
                 <span className="viewer-entry-name">{entry.name}</span>
               </button>
             ))}
-            {entries.length === 0 && <p className="viewer-status">Empty directory</p>}
+            {state.entries.length === 0 && <p className="viewer-status">Empty directory</p>}
           </div>
         )}
       </div>

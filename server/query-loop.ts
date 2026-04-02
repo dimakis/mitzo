@@ -44,6 +44,10 @@ export async function runQueryLoop(
   abortController: AbortController,
   _ws: WebSocket,
 ) {
+  // Buffer tool_use blocks streamed via content_block_start/delta/stop events.
+  // Keyed by content block index (resets per API message via message_start).
+  const toolInputBuffers = new Map<number, { name: string; id: string; inputBuf: string }>();
+
   try {
     for await (const msg of q) {
       const currentSession = registry.get(clientId);
@@ -56,16 +60,8 @@ export async function runQueryLoop(
           for (const block of message.content as Array<Record<string, unknown>>) {
             if (block.type === 'text') {
               send(currentWs, { type: 'text', text: block.text });
-            } else if (block.type === 'tool_use') {
-              const toolInput = block.input as Record<string, unknown>;
-              send(currentWs, {
-                type: 'tool_call',
-                toolName: block.name,
-                toolId: block.id,
-                input: summarizeToolInput(block.name as string, toolInput),
-                rawInput: getRawInput(block.name as string, toolInput),
-              });
             }
+            // tool_use blocks are handled via stream_event (content_block_stop)
           }
         }
         if (!currentSession.sessionId && msg.session_id) {
@@ -77,17 +73,46 @@ export async function runQueryLoop(
         send(currentWs, { type: 'done', sessionId: msg.session_id });
       } else if (msg.type === 'stream_event') {
         const evt = msg.event as Record<string, unknown> | undefined;
-        if (evt?.type === 'content_block_delta') {
+        if (evt?.type === 'message_start') {
+          toolInputBuffers.clear();
+        } else if (evt?.type === 'content_block_start') {
+          const contentBlock = evt.content_block as Record<string, unknown> | undefined;
+          if (contentBlock?.type === 'thinking') {
+            send(currentWs, { type: 'thinking_start' });
+          } else if (contentBlock?.type === 'tool_use') {
+            toolInputBuffers.set(evt.index as number, {
+              name: contentBlock.name as string,
+              id: contentBlock.id as string,
+              inputBuf: '',
+            });
+          }
+        } else if (evt?.type === 'content_block_delta') {
           const delta = evt.delta as Record<string, unknown> | undefined;
           if (delta?.type === 'text_delta') {
             send(currentWs, { type: 'text_delta', text: delta.text });
           } else if (delta?.type === 'thinking_delta') {
             send(currentWs, { type: 'thinking_delta', text: delta.thinking });
+          } else if (delta?.type === 'input_json_delta') {
+            const entry = toolInputBuffers.get(evt.index as number);
+            if (entry) entry.inputBuf += delta.partial_json as string;
           }
-        } else if (evt?.type === 'content_block_start') {
-          const contentBlock = evt.content_block as Record<string, unknown> | undefined;
-          if (contentBlock?.type === 'thinking') {
-            send(currentWs, { type: 'thinking_start' });
+        } else if (evt?.type === 'content_block_stop') {
+          const entry = toolInputBuffers.get(evt.index as number);
+          if (entry) {
+            toolInputBuffers.delete(evt.index as number);
+            let toolInput: Record<string, unknown> = {};
+            try {
+              toolInput = JSON.parse(entry.inputBuf || '{}');
+            } catch {
+              // malformed JSON — use empty input
+            }
+            send(currentWs, {
+              type: 'tool_call',
+              toolName: entry.name,
+              toolId: entry.id,
+              input: summarizeToolInput(entry.name, toolInput),
+              rawInput: getRawInput(entry.name, toolInput),
+            });
           }
         }
       } else if (msg.type === 'user') {
