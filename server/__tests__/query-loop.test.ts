@@ -4,14 +4,14 @@ import { runQueryLoop } from '../query-loop.js';
 import type { SessionRegistry } from '../session-registry.js';
 
 /** Create a fake WebSocket that records sent messages */
-function fakeWs(): WebSocket & { sent: unknown[] } {
-  const sent: unknown[] = [];
+function fakeWs(): WebSocket & { sent: Record<string, unknown>[] } {
+  const sent: Record<string, unknown>[] = [];
   return {
     OPEN: 1,
     readyState: 1,
     send: vi.fn((data: string) => sent.push(JSON.parse(data))),
     sent,
-  } as unknown as WebSocket & { sent: unknown[] };
+  } as unknown as WebSocket & { sent: Record<string, unknown>[] };
 }
 
 /** Create a minimal SessionRegistry stub */
@@ -33,7 +33,7 @@ async function* eventStream(events: Record<string, unknown>[]) {
 }
 
 describe('runQueryLoop', () => {
-  let ws: WebSocket & { sent: unknown[] };
+  let ws: WebSocket & { sent: Record<string, unknown>[] };
   let registry: SessionRegistry;
   const clientId = 'test-client';
   let abortController: AbortController;
