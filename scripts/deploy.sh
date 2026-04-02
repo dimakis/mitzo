@@ -22,9 +22,10 @@ echo "--- Building frontend ---"
 npm run build --silent
 echo ""
 
-echo "--- Restarting server ---"
-pm2 restart mitzo
-pm2 show mitzo | grep -E "status|uptime|pid"
+echo "--- Scheduling restart (2s delay so response can be sent) ---"
+nohup bash -c "sleep 2 && pm2 restart mitzo" > /tmp/mitzo-restart.log 2>&1 &
+echo "Server will restart in 2 seconds. Connection will briefly drop."
+echo "Commit: $(git log --oneline -1)"
 echo ""
 
 echo "=== Deploy complete ==="
