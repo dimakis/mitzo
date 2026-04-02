@@ -1,22 +1,30 @@
 # CI Discipline
 
-CI must be green. This is a hard requirement, not a suggestion.
+Main stays clean at all times. CI must be green. These are hard requirements.
 
-## Rules
+## Never Push to Main
 
-1. **Check CI before pushing to main.** Run `gh run list --limit 1` before any push. If CI is already red, fix it first or don't push to main.
+**All work happens on branches.** Every commit — features, fixes, docs, refactors, rule changes, CI config, typo corrections. No exceptions. No rationalizing.
 
-2. **After every push, verify CI passes.** Run `gh run list --limit 1` or `gh run watch` after pushing. If it fails, fix it before doing anything else. Do not move on to the next task with red CI.
+Workflow:
+1. `git checkout -b <type>/<name>` from main
+2. Develop and commit on the branch
+3. `git push -u origin HEAD`
+4. Open a PR: `gh pr create`
+5. Wait for CI to pass
+6. Merge via the PR (squash or fast-forward)
+7. Delete the branch
 
-3. **"Bypassed rule violations" is a red flag.** If `git push` output contains "Bypassed rule violations," you pushed past a required status check. This bypass exists for emergencies, not routine work. If you see it, stop and investigate why CI was failing.
+If `git push` output contains "Bypassed rule violations," you did it wrong. Stop. Revert. Use a branch.
 
-4. **All work happens on feature branches.** No exceptions. Create a branch (`feat/`, `fix/`, `refactor/`, etc.), push it, open a PR, wait for CI to pass, then merge. Direct-to-main is not acceptable — not for "small" changes, not for "just this once," not for infrastructure fixes. If it touches code, it goes through a branch and PR.
+## CI Must Pass Before Merge
 
-5. **All CI steps must run.** The pipeline is structured so typecheck, tests, and build run even if lint or formatting fails. If you see steps skipped in CI output, the workflow is broken — fix it.
+1. **After every push to a branch**, verify CI passes: `gh run list --limit 1` or `gh run watch`.
+2. **If CI fails**, fix it on the branch before merging. Do not merge with red CI.
+3. **All CI steps must run.** The pipeline runs typecheck, tests, and build even if lint/format fails. If you see steps skipped, the workflow is broken — fix it.
+4. **Pre-commit hooks are not a substitute for CI.** Local hooks only check staged files of specific types. CI checks everything.
 
-6. **Pre-commit hooks are not a substitute for CI.** Local hooks only check staged files of specific types. CI checks everything. Passing locally does not mean CI will pass.
-
-## After Pushing
+## After Pushing a Branch
 
 ```bash
 # Check the latest CI run
@@ -31,4 +39,4 @@ gh run view <run-id> --log-failed
 
 ## If CI Is Red When You Start
 
-Fix it first. A red CI pipeline means every subsequent push is unverified. The longer it stays red, the more unverified code accumulates.
+Fix it first. A red CI pipeline means every subsequent merge is unverified. The longer it stays red, the more unverified code accumulates. Create a `fix/ci-*` branch and fix it through a PR like everything else.
