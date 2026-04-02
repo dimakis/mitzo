@@ -150,6 +150,19 @@ Step N: Build <component> (test-first)
   - Both committed together
 ```
 
+## Git Workflow
+
+**Never push to main.** All work — features, fixes, docs, CI config, rule changes, typo corrections — goes through a branch and PR. No exceptions.
+
+1. `git checkout -b <type>/<name>` from main
+2. Develop and commit on the branch
+3. `git push -u origin HEAD && gh pr create`
+4. Wait for CI to pass (`gh run watch`)
+5. Merge via the PR
+6. Delete the branch
+
+See `.cursor/rules/ci-discipline.mdc` for the full CI discipline rules.
+
 ## Code Style
 
 - Write minimal, clean code. This project is open source — others will read and contribute to it.
