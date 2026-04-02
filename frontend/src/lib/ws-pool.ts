@@ -12,13 +12,16 @@ export type WsMsg = Record<string, unknown>;
 export type MsgListener = (msg: WsMsg) => void;
 
 const BUFFERABLE_TYPES = new Set([
-  'text',
-  'text_delta',
-  'thinking_start',
-  'thinking_delta',
-  'tool_call',
+  // v2 protocol events
+  'message_start',
+  'block_start',
+  'block_delta',
+  'block_end',
   'tool_result',
-  'done',
+  'message_end',
+  'message_snapshot',
+  'session_end',
+  // lifecycle / UI
   'error',
   'session_id',
   'session_info',
@@ -98,14 +101,14 @@ function connectEntry(key: string, entry: PoolEntry) {
       entry.wasRunning = false;
     }
 
-    if (msg.type === 'done' || msg.type === 'error') {
+    if (msg.type === 'session_end' || msg.type === 'error') {
       entry.wasRunning = false;
     }
 
     // When a new session gets assigned a sessionId, also register the
     // entry under "session:<id>" so navigating to /chat/:id finds it.
     const assignedId =
-      (msg.type === 'session_id' || msg.type === 'done') && msg.sessionId
+      (msg.type === 'session_id' || msg.type === 'session_end') && msg.sessionId
         ? (msg.sessionId as string)
         : null;
     if (assignedId) {

@@ -68,15 +68,21 @@ describe('ws-pool message buffering', () => {
     // Remove the listener — simulate unmount
     unsub();
 
-    // Server sends messages while component is unmounted
-    ws.simulateMessage({ type: 'text_delta', text: 'hello' });
-    ws.simulateMessage({ type: 'tool_call', toolName: 'Read', toolId: 't1', input: '' });
-    ws.simulateMessage({ type: 'done', sessionId: 'sess-1' });
+    // Server sends v2 protocol messages while component is unmounted
+    ws.simulateMessage({ type: 'block_delta', blockId: 'b1', delta: 'hello' });
+    ws.simulateMessage({
+      type: 'block_end',
+      blockId: 'b2',
+      blockType: 'tool_use',
+      toolName: 'Read',
+      toolId: 't1',
+    });
+    ws.simulateMessage({ type: 'session_end', sessionId: 'sess-1' });
 
     const buffered = wsDrainBuffer('test-buf-1');
     expect(buffered).toHaveLength(3);
-    expect(buffered[0]).toEqual({ type: 'text_delta', text: 'hello' });
-    expect(buffered[2]).toEqual({ type: 'done', sessionId: 'sess-1' });
+    expect(buffered[0]).toEqual({ type: 'block_delta', blockId: 'b1', delta: 'hello' });
+    expect(buffered[2]).toEqual({ type: 'session_end', sessionId: 'sess-1' });
   });
 
   it('does not buffer non-UI messages like _open, _close, client_id', () => {
@@ -98,7 +104,7 @@ describe('ws-pool message buffering', () => {
     ws.simulateOpen();
     unsub();
 
-    ws.simulateMessage({ type: 'text', text: 'final' });
+    ws.simulateMessage({ type: 'message_end', messageId: 'm1' });
 
     const first = wsDrainBuffer('test-buf-3');
     expect(first).toHaveLength(1);
@@ -114,13 +120,13 @@ describe('ws-pool message buffering', () => {
     unsub();
 
     for (let i = 0; i < MAX_BUFFER_SIZE + 50; i++) {
-      ws.simulateMessage({ type: 'text_delta', text: `chunk-${i}` });
+      ws.simulateMessage({ type: 'block_delta', blockId: 'b1', delta: `chunk-${i}` });
     }
 
     const buffered = wsDrainBuffer('test-buf-4');
     expect(buffered).toHaveLength(MAX_BUFFER_SIZE);
-    expect(buffered[0].text).toBe('chunk-0');
-    expect(buffered[MAX_BUFFER_SIZE - 1].text).toBe(`chunk-${MAX_BUFFER_SIZE - 1}`);
+    expect(buffered[0].delta).toBe('chunk-0');
+    expect(buffered[MAX_BUFFER_SIZE - 1].delta).toBe(`chunk-${MAX_BUFFER_SIZE - 1}`);
   });
 
   it('delivers messages directly when listeners exist (no buffering)', () => {
@@ -129,9 +135,9 @@ describe('ws-pool message buffering', () => {
     const ws = lastCreatedWs!;
     ws.simulateOpen();
 
-    ws.simulateMessage({ type: 'text_delta', text: 'live' });
+    ws.simulateMessage({ type: 'block_delta', blockId: 'b1', delta: 'live' });
 
-    expect(received.some((m) => m.type === 'text_delta')).toBe(true);
+    expect(received.some((m) => m.type === 'block_delta')).toBe(true);
     const buffered = wsDrainBuffer('test-buf-5');
     expect(buffered).toHaveLength(0);
   });
@@ -142,8 +148,8 @@ describe('ws-pool message buffering', () => {
     ws.simulateOpen();
     unsub();
 
-    ws.simulateMessage({ type: 'text_delta', text: 'missed-1' });
-    ws.simulateMessage({ type: 'text', text: 'missed-2' });
+    ws.simulateMessage({ type: 'block_delta', blockId: 'b1', delta: 'missed-1' });
+    ws.simulateMessage({ type: 'message_end', messageId: 'm1' });
 
     // Re-subscribe and drain
     const replayed: Array<Record<string, unknown>> = [];
@@ -151,8 +157,8 @@ describe('ws-pool message buffering', () => {
     const buffered = wsDrainBuffer('test-buf-6');
     for (const msg of buffered) replayed.push(msg);
 
-    expect(replayed.some((m) => m.type === 'text_delta')).toBe(true);
-    expect(replayed.some((m) => m.type === 'text')).toBe(true);
+    expect(replayed.some((m) => m.type === 'block_delta')).toBe(true);
+    expect(replayed.some((m) => m.type === 'message_end')).toBe(true);
   });
 
   it('returns empty array for unknown keys', () => {

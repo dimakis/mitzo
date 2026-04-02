@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { ToolPill } from './ToolPill';
-import type { Message } from '../types/chat';
+import type { FinishedBlock } from '../types/chat';
 
 interface Props {
-  tools: Message[];
+  tools: FinishedBlock[];
 }
 
 export function ToolGroup({ tools }: Props) {
@@ -26,7 +26,7 @@ export function ToolGroup({ tools }: Props) {
         <div className="tool-group-dots">
           {tools.slice(0, 8).map((t, i) => (
             <span
-              key={i}
+              key={t.blockId || i}
               className={`tool-pill-dot ${t.toolResult !== undefined ? 'tool-pill-dot--done' : 'tool-pill-dot--pending'}`}
             />
           ))}
@@ -40,7 +40,7 @@ export function ToolGroup({ tools }: Props) {
       {expanded && (
         <div className="tool-group-list">
           {tools.map((t, i) => (
-            <ToolPill key={t.toolId || i} message={t} />
+            <ToolPill key={t.blockId || i} block={t} />
           ))}
         </div>
       )}

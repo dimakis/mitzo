@@ -1,11 +1,21 @@
 import { useReducer, useRef, useEffect, useCallback } from 'react';
 import { CHAT_CACHE_KEY_PREFIX } from '../lib/constants';
-import type { Message, PermissionRequest, ToolTier, RawToolInput } from '../types/chat';
+import type {
+  FinishedMessage,
+  FinishedBlock,
+  StreamingMessage,
+  StreamingBlock,
+  PermissionRequest,
+  ToolTier,
+  RawToolInput,
+  BlockType,
+} from '../types/chat';
 import type { WsMsg } from '../lib/ws-pool';
 import { wsSetRunning, wsSend } from '../lib/ws-pool';
 
 export interface ChatMessagesState {
-  messages: Message[];
+  messages: FinishedMessage[];
+  current: StreamingMessage | null; // in-flight assistant turn
   running: boolean;
   permission: PermissionRequest | null;
   branch: string | null;
@@ -13,36 +23,93 @@ export interface ChatMessagesState {
 }
 
 export type ChatMessagesAction =
-  | { type: 'THINKING_START' }
-  | { type: 'THINKING_DELTA'; text: string }
-  | { type: 'TEXT_DELTA'; text: string }
-  | { type: 'TEXT'; text: string }
-  | { type: 'TOOL_CALL'; toolName: string; toolId: string; input: string; rawInput?: RawToolInput }
-  | { type: 'TOOL_RESULT'; toolId: string; result: string }
-  | { type: 'PERMISSION_REQUEST'; payload: PermissionRequest }
-  | { type: 'PERMISSION_TIMEOUT'; permId: string }
-  | { type: 'DONE'; sessionId?: string }
+  // v2 content events
+  | { type: 'MESSAGE_START'; messageId: string }
+  | { type: 'BLOCK_START'; messageId: string; blockId: string; blockType: BlockType }
+  | { type: 'BLOCK_DELTA'; messageId: string; blockId: string; blockType: BlockType; delta: string }
+  | {
+      type: 'BLOCK_END';
+      messageId: string;
+      blockId: string;
+      blockType: BlockType;
+      toolName?: string;
+      toolId?: string;
+      input?: string;
+      rawInput?: RawToolInput;
+    }
+  | {
+      type: 'TOOL_RESULT';
+      toolId: string;
+      result: string;
+      isError: boolean;
+    }
+  | { type: 'MESSAGE_END'; messageId: string; sessionId?: string }
+  | { type: 'SESSION_END'; sessionId?: string }
+  // Reattach snapshot
+  | { type: 'MESSAGE_SNAPSHOT'; messageId: string; blocks: FinishedBlock[] }
+  // Session / UI lifecycle
   | { type: 'ERROR'; error: string }
   | { type: 'SESSION_INFO'; branch: string; isWorktree: boolean }
-  | { type: 'RESTORE'; messages: Message[] }
   | { type: 'USER_SEND'; text: string; images?: string[] }
   | { type: 'SET_RUNNING'; running: boolean }
-  | { type: 'CONNECTION_LOST' };
+  | { type: 'CONNECTION_LOST' }
+  | { type: 'PERMISSION_REQUEST'; payload: PermissionRequest }
+  | { type: 'PERMISSION_TIMEOUT'; permId: string }
+  | { type: 'RESTORE'; messages: FinishedMessage[] };
 
 const INITIAL_STATE: ChatMessagesState = {
   messages: [],
+  current: null,
   running: false,
   permission: null,
   branch: null,
   isWorktree: false,
 };
 
-function finalizeThinking(messages: Message[], thinkingText: string): Message[] {
-  const last = messages[messages.length - 1];
-  if (last?.role === 'thinking' && last.streaming) {
-    return [...messages.slice(0, -1), { role: 'thinking' as const, text: thinkingText }];
+function finishCurrent(current: StreamingMessage): FinishedMessage {
+  const blocks: FinishedBlock[] = current.blockOrder.map((blockId) => {
+    const b = current.blocks.get(blockId)!;
+    return {
+      blockId: b.blockId,
+      blockType: b.blockType,
+      content: b.content,
+      toolName: b.toolName,
+      toolId: b.toolId,
+      toolInput: b.toolInput,
+      rawInput: b.rawInput,
+      toolResult: b.toolResult,
+      toolError: b.toolError,
+    };
+  });
+  return { messageId: current.messageId, role: 'assistant', blocks };
+}
+
+function patchToolResult(
+  messages: FinishedMessage[],
+  current: StreamingMessage | null,
+  toolId: string,
+  result: string,
+  isError: boolean,
+): { messages: FinishedMessage[]; current: StreamingMessage | null } {
+  // Check current first (tool result may arrive before message_end in edge cases).
+  if (current) {
+    for (const block of current.blocks.values()) {
+      if (block.toolId === toolId) {
+        const newBlocks = new Map(current.blocks);
+        newBlocks.set(block.blockId, { ...block, toolResult: result, toolError: isError });
+        return { messages, current: { ...current, blocks: newBlocks } };
+      }
+    }
   }
-  return messages;
+  // Search finished messages.
+  const newMessages = messages.map((msg) => {
+    const idx = msg.blocks.findIndex((b) => b.toolId === toolId);
+    if (idx === -1) return msg;
+    const newBlocks = [...msg.blocks];
+    newBlocks[idx] = { ...newBlocks[idx], toolResult: result, toolError: isError };
+    return { ...msg, blocks: newBlocks };
+  });
+  return { messages: newMessages, current };
 }
 
 export function chatMessagesReducer(
@@ -50,90 +117,100 @@ export function chatMessagesReducer(
   action: ChatMessagesAction,
 ): ChatMessagesState {
   switch (action.type) {
-    case 'THINKING_START':
+    case 'MESSAGE_START': {
+      const block = new Map<string, StreamingBlock>();
       return {
         ...state,
-        messages: [...state.messages, { role: 'thinking', text: '', streaming: true }],
-      };
-
-    case 'THINKING_DELTA': {
-      const last = state.messages[state.messages.length - 1];
-      if (last?.role === 'thinking' && last.streaming) {
-        return {
-          ...state,
-          messages: [
-            ...state.messages.slice(0, -1),
-            { role: 'thinking', text: (last.text || '') + action.text, streaming: true },
-          ],
-        };
-      }
-      return state;
-    }
-
-    case 'TEXT_DELTA': {
-      let msgs = state.messages;
-      const last = msgs[msgs.length - 1];
-      if (last?.role === 'thinking' && last.streaming) {
-        msgs = finalizeThinking(msgs, last.text || '');
-      }
-      const prevLast = msgs[msgs.length - 1];
-      if (prevLast?.role === 'assistant' && prevLast.streaming) {
-        return {
-          ...state,
-          messages: [
-            ...msgs.slice(0, -1),
-            { role: 'assistant', text: (prevLast.text || '') + action.text, streaming: true },
-          ],
-        };
-      }
-      return {
-        ...state,
-        messages: [...msgs, { role: 'assistant', text: action.text, streaming: true }],
+        current: { messageId: action.messageId, blocks: block, blockOrder: [] },
       };
     }
 
-    case 'TEXT': {
-      const last = state.messages[state.messages.length - 1];
-      if (last?.role === 'assistant' && last.streaming) {
-        return {
-          ...state,
-          messages: [...state.messages.slice(0, -1), { role: 'assistant', text: action.text }],
-        };
-      }
+    case 'BLOCK_START': {
+      if (!state.current) return state;
+      const newBlock: StreamingBlock = {
+        blockId: action.blockId,
+        blockType: action.blockType,
+        content: '',
+        done: false,
+      };
+      const newBlocks = new Map(state.current.blocks);
+      newBlocks.set(action.blockId, newBlock);
       return {
         ...state,
-        messages: [...state.messages, { role: 'assistant', text: action.text }],
+        current: {
+          ...state.current,
+          blocks: newBlocks,
+          blockOrder: [...state.current.blockOrder, action.blockId],
+        },
       };
     }
 
-    case 'TOOL_CALL': {
-      let msgs = state.messages;
-      const last = msgs[msgs.length - 1];
-      if (last?.role === 'thinking' && last.streaming) {
-        msgs = finalizeThinking(msgs, last.text || '');
-      }
-      return {
-        ...state,
-        messages: [
-          ...msgs,
-          {
-            role: 'tool',
-            toolName: action.toolName,
-            toolId: action.toolId,
-            toolInput: action.input,
-            rawInput: action.rawInput,
-          },
-        ],
-      };
+    case 'BLOCK_DELTA': {
+      if (!state.current) return state;
+      const block = state.current.blocks.get(action.blockId);
+      if (!block) return state;
+      const newBlocks = new Map(state.current.blocks);
+      newBlocks.set(action.blockId, { ...block, content: block.content + action.delta });
+      return { ...state, current: { ...state.current, blocks: newBlocks } };
     }
 
-    case 'TOOL_RESULT':
-      return {
-        ...state,
-        messages: state.messages.map((m) =>
-          m.toolId === action.toolId ? { ...m, toolResult: action.result } : m,
-        ),
-      };
+    case 'BLOCK_END': {
+      if (!state.current) return state;
+      const block = state.current.blocks.get(action.blockId);
+      if (!block) return state;
+      const newBlocks = new Map(state.current.blocks);
+      newBlocks.set(action.blockId, {
+        ...block,
+        done: true,
+        ...(action.toolName ? { toolName: action.toolName } : {}),
+        ...(action.toolId ? { toolId: action.toolId } : {}),
+        ...(action.input ? { toolInput: action.input } : {}),
+        ...(action.rawInput ? { rawInput: action.rawInput } : {}),
+      });
+      return { ...state, current: { ...state.current, blocks: newBlocks } };
+    }
+
+    case 'TOOL_RESULT': {
+      const { messages, current } = patchToolResult(
+        state.messages,
+        state.current,
+        action.toolId,
+        action.result,
+        action.isError,
+      );
+      return { ...state, messages, current };
+    }
+
+    case 'MESSAGE_END': {
+      if (!state.current) return { ...state };
+      const finished = finishCurrent(state.current);
+      return { ...state, messages: [...state.messages, finished], current: null };
+    }
+
+    case 'SESSION_END':
+      return { ...state, running: false, current: state.current ?? null };
+
+    case 'MESSAGE_SNAPSHOT': {
+      // Reconstruct in-flight state from server snapshot on reattach.
+      const blocks = new Map<string, StreamingBlock>();
+      const blockOrder: string[] = [];
+      for (const b of action.blocks) {
+        blocks.set(b.blockId, {
+          blockId: b.blockId,
+          blockType: b.blockType as BlockType,
+          content: b.content ?? '',
+          done: (b as unknown as { done?: boolean }).done ?? false,
+          toolName: b.toolName,
+          toolId: b.toolId,
+          toolInput: b.toolInput,
+          rawInput: b.rawInput,
+          toolResult: b.toolResult,
+          toolError: b.toolError,
+        });
+        blockOrder.push(b.blockId);
+      }
+      return { ...state, current: { messageId: action.messageId, blocks, blockOrder } };
+    }
 
     case 'PERMISSION_REQUEST':
       return { ...state, permission: action.payload };
@@ -144,24 +221,25 @@ export function chatMessagesReducer(
         permission: state.permission?.permId === action.permId ? null : state.permission,
       };
 
-    case 'DONE': {
-      let msgs = state.messages;
-      const lastMsg = msgs[msgs.length - 1];
-      if (lastMsg?.role === 'thinking' && lastMsg.streaming) {
-        msgs = finalizeThinking(msgs, lastMsg.text || '');
-      }
-      const prevLast = msgs[msgs.length - 1];
-      if (prevLast?.role === 'assistant' && prevLast.streaming) {
-        msgs = [...msgs.slice(0, -1), { role: 'assistant' as const, text: prevLast.text || '' }];
-      }
-      return { ...state, messages: msgs, running: false };
-    }
-
     case 'ERROR':
       return {
         ...state,
-        messages: [...state.messages, { role: 'assistant', text: `**Error:** ${action.error}` }],
+        messages: [
+          ...state.messages,
+          {
+            messageId: `err-${Date.now()}`,
+            role: 'assistant',
+            blocks: [
+              {
+                blockId: `err-${Date.now()}`,
+                blockType: 'text',
+                content: `**Error:** ${action.error}`,
+              },
+            ],
+          },
+        ],
         running: false,
+        current: null,
       };
 
     case 'SESSION_INFO':
@@ -173,7 +251,27 @@ export function chatMessagesReducer(
     case 'USER_SEND':
       return {
         ...state,
-        messages: [...state.messages, { role: 'user', text: action.text, images: action.images }],
+        messages: [
+          ...state.messages,
+          {
+            messageId: `user-${Date.now()}`,
+            role: 'user',
+            blocks: [],
+            images: action.images,
+            // Store text in a synthetic text block for rendering convenience.
+            ...(action.text
+              ? {
+                  blocks: [
+                    {
+                      blockId: `user-text-${Date.now()}`,
+                      blockType: 'text' as BlockType,
+                      content: action.text,
+                    },
+                  ],
+                }
+              : {}),
+          },
+        ],
         running: true,
       };
 
@@ -185,7 +283,17 @@ export function chatMessagesReducer(
         ...state,
         messages: [
           ...state.messages,
-          { role: 'assistant', text: '**Connection lost.** Reconnecting — try again in a moment.' },
+          {
+            messageId: `conn-${Date.now()}`,
+            role: 'assistant',
+            blocks: [
+              {
+                blockId: `conn-text-${Date.now()}`,
+                blockType: 'text',
+                content: '**Connection lost.** Reconnecting — try again in a moment.',
+              },
+            ],
+          },
         ],
       };
 
@@ -236,12 +344,10 @@ export function useChatMessages(
               credentials: 'include',
             })
               .then((r) => r.json())
-              .then((data: { messages?: Message[] }) => {
+              .then((data: { messages?: FinishedMessage[] }) => {
                 if (data.messages?.length) dispatch({ type: 'RESTORE', messages: data.messages });
               })
-              .catch(() => {
-                // Network error — non-fatal
-              });
+              .catch(() => {});
           }
           break;
 
@@ -257,28 +363,39 @@ export function useChatMessages(
           onSessionAssigned(msg.sessionId as string);
           break;
 
-        case 'thinking_start':
-          dispatch({ type: 'THINKING_START' });
+        // v2 events
+        case 'message_start':
+          dispatch({ type: 'MESSAGE_START', messageId: msg.messageId as string });
           break;
 
-        case 'thinking_delta':
-          dispatch({ type: 'THINKING_DELTA', text: msg.text as string });
-          break;
-
-        case 'text_delta':
-          dispatch({ type: 'TEXT_DELTA', text: msg.text as string });
-          break;
-
-        case 'text':
-          dispatch({ type: 'TEXT', text: msg.text as string });
-          break;
-
-        case 'tool_call':
+        case 'block_start':
           dispatch({
-            type: 'TOOL_CALL',
-            toolName: msg.toolName as string,
-            toolId: msg.toolId as string,
-            input: msg.input as string,
+            type: 'BLOCK_START',
+            messageId: msg.messageId as string,
+            blockId: msg.blockId as string,
+            blockType: msg.blockType as BlockType,
+          });
+          break;
+
+        case 'block_delta':
+          dispatch({
+            type: 'BLOCK_DELTA',
+            messageId: msg.messageId as string,
+            blockId: msg.blockId as string,
+            blockType: msg.blockType as BlockType,
+            delta: msg.delta as string,
+          });
+          break;
+
+        case 'block_end':
+          dispatch({
+            type: 'BLOCK_END',
+            messageId: msg.messageId as string,
+            blockId: msg.blockId as string,
+            blockType: msg.blockType as BlockType,
+            toolName: msg.toolName as string | undefined,
+            toolId: msg.toolId as string | undefined,
+            input: msg.input as string | undefined,
             rawInput: msg.rawInput as RawToolInput | undefined,
           });
           break;
@@ -288,8 +405,44 @@ export function useChatMessages(
             type: 'TOOL_RESULT',
             toolId: msg.toolId as string,
             result: msg.result as string,
+            isError: (msg.isError as boolean) ?? false,
           });
           break;
+
+        case 'message_end':
+          dispatch({
+            type: 'MESSAGE_END',
+            messageId: msg.messageId as string,
+            sessionId: msg.sessionId as string | undefined,
+          });
+          if (msg.sessionId && !currentSessionIdRef.current) {
+            onSessionAssigned(msg.sessionId as string);
+          }
+          break;
+
+        case 'message_snapshot':
+          dispatch({
+            type: 'MESSAGE_SNAPSHOT',
+            messageId: msg.messageId as string,
+            blocks: msg.blocks as FinishedBlock[],
+          });
+          break;
+
+        case 'session_end': {
+          dispatch({ type: 'SESSION_END', sessionId: msg.sessionId as string | undefined });
+          wsSetRunning(poolKey, false);
+          if (msg.sessionId && !currentSessionIdRef.current) {
+            onSessionAssigned(msg.sessionId as string);
+          }
+          const pending = pendingSend.current;
+          if (pending) {
+            pendingSend.current = null;
+            dispatch({ type: 'SET_RUNNING', running: true });
+            wsSetRunning(poolKey, true);
+            wsSend(poolKey, pending);
+          }
+          break;
+        }
 
         case 'permission_request':
           dispatch({
@@ -309,22 +462,6 @@ export function useChatMessages(
         case 'permission_timeout':
           dispatch({ type: 'PERMISSION_TIMEOUT', permId: msg.permId as string });
           break;
-
-        case 'done': {
-          dispatch({ type: 'DONE', sessionId: msg.sessionId as string | undefined });
-          wsSetRunning(poolKey, false);
-          if (msg.sessionId && !currentSessionIdRef.current) {
-            onSessionAssigned(msg.sessionId as string);
-          }
-          const pending = pendingSend.current;
-          if (pending) {
-            pendingSend.current = null;
-            dispatch({ type: 'SET_RUNNING', running: true });
-            wsSetRunning(poolKey, true);
-            wsSend(poolKey, pending);
-          }
-          break;
-        }
 
         case 'error': {
           const errorMsg = msg.error as string;
