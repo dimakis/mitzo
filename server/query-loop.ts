@@ -57,15 +57,10 @@ export async function runQueryLoop(
       log.debug('sdk event', { clientId, type: msg.type });
 
       if (msg.type === 'assistant') {
-        const message = msg.message as Record<string, unknown> | undefined;
-        if (message?.content) {
-          for (const block of message.content as Array<Record<string, unknown>>) {
-            if (block.type === 'text') {
-              send(currentWs, { type: 'text', text: block.text });
-            }
-            // tool_use blocks are handled via stream_event (content_block_stop)
-          }
-        }
+        // Text and tool_use blocks are already delivered via stream_event
+        // (text_delta, content_block_stop). Re-sending text here would create
+        // duplicate messages in the frontend, especially when tool calls
+        // interleave between streaming and this finalization event.
         if (!currentSession.sessionId && msg.session_id) {
           registry.setSessionId(clientId, msg.session_id as string);
           send(currentWs, { type: 'session_id', sessionId: msg.session_id });
