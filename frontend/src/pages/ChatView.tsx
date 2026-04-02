@@ -39,16 +39,6 @@ export function ChatView() {
     });
   }, []);
 
-  // Auto-scroll during streaming: follow new content if user is near the bottom
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    if (distFromBottom <= SCROLL_NEAR_BOTTOM_PX) {
-      el.scrollTop = el.scrollHeight;
-    }
-  }, [msgState.messages]);
-
   const handleSessionExpired = useCallback(
     (staleId: string | undefined) => {
       sessionActions.setCurrentSessionId(undefined);
@@ -74,6 +64,16 @@ export function ChatView() {
     sessionActions.setCurrentSessionId,
     handleSessionExpired,
   );
+
+  // Auto-scroll during streaming: follow new content if user is near the bottom
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distFromBottom <= SCROLL_NEAR_BOTTOM_PX) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [msgState.messages]);
 
   // Restore messages from cache/API on mount for existing sessions
   const restoreAttempted = useRef(false);
