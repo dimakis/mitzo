@@ -46,11 +46,15 @@ export async function runQueryLoop(
   const toolInputBuffers = new Map<number, { name: string; id: string; inputBuf: string }>();
   let doneSent = false;
 
+  log.info('query loop started', { clientId });
+
   try {
     for await (const msg of q) {
       const currentSession = registry.get(clientId);
       if (!currentSession) break;
       const currentWs = currentSession.ws;
+
+      log.debug('sdk event', { clientId, type: msg.type });
 
       if (msg.type === 'assistant') {
         const message = msg.message as Record<string, unknown> | undefined;
@@ -67,16 +71,20 @@ export async function runQueryLoop(
           send(currentWs, { type: 'session_id', sessionId: msg.session_id });
         }
       } else if (msg.type === 'result') {
+        log.info('result received', { clientId, sessionId: msg.session_id });
         if (msg.session_id) send(currentWs, { type: 'session_id', sessionId: msg.session_id });
         doneSent = true;
         send(currentWs, { type: 'done', sessionId: msg.session_id });
       } else if (msg.type === 'stream_event') {
         const evt = msg.event as Record<string, unknown> | undefined;
+        log.debug('stream event', { clientId, evtType: evt?.type });
         if (evt?.type === 'message_start') {
           toolInputBuffers.clear();
         } else if (evt?.type === 'content_block_start') {
           const contentBlock = evt.content_block as Record<string, unknown> | undefined;
+          log.debug('content block start', { clientId, blockType: contentBlock?.type });
           if (contentBlock?.type === 'thinking') {
+            log.info('thinking block detected', { clientId });
             send(currentWs, { type: 'thinking_start' });
           } else if (contentBlock?.type === 'tool_use') {
             toolInputBuffers.set(evt.index as number, {
@@ -90,6 +98,7 @@ export async function runQueryLoop(
           if (delta?.type === 'text_delta') {
             send(currentWs, { type: 'text_delta', text: delta.text });
           } else if (delta?.type === 'thinking_delta') {
+            log.debug('thinking delta', { clientId });
             send(currentWs, { type: 'thinking_delta', text: delta.thinking });
           } else if (delta?.type === 'input_json_delta') {
             const entry = toolInputBuffers.get(evt.index as number);
@@ -105,6 +114,7 @@ export async function runQueryLoop(
             } catch {
               // malformed JSON — use empty input
             }
+            log.info('tool call', { clientId, tool: entry.name, toolId: entry.id });
             send(currentWs, {
               type: 'tool_call',
               toolName: entry.name,
@@ -134,6 +144,7 @@ export async function runQueryLoop(
     const currentSession = registry.get(clientId);
     if (currentSession && !abortController.signal.aborted) {
       const message = err instanceof Error ? err.message : 'Unknown error';
+      log.warn('query loop error', { clientId, error: message });
       send(currentSession.ws, { type: 'error', error: message });
     }
   } finally {
@@ -145,5 +156,6 @@ export async function runQueryLoop(
         send(finalWs, { type: 'done', sessionId: finalSession.sessionId });
       }
     }
+    log.info('query loop ended', { clientId, doneSent });
   }
 }
