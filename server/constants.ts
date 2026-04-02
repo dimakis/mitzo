@@ -9,6 +9,7 @@ export const NTFY_NOTIFICATION_DELAY_MS = 10_000; // 10 seconds
 export const TOOL_RESULT_MAX_CHARS = 10_000;
 export const NOTIFY_INPUT_MAX_CHARS = 100;
 export const TOOL_SUMMARY_MAX_CHARS = 200;
+export const RAW_INPUT_MAX_CHARS = 50_000;
 
 // --- Worktree ---
 export const WORKTREE_BRANCH_PREFIX = 'session/';

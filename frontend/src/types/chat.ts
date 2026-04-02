@@ -1,11 +1,21 @@
+export interface RawToolInput {
+  type: 'write' | 'diff' | 'command';
+  path?: string;
+  contents?: string;
+  old_string?: string;
+  new_string?: string;
+  command?: string;
+}
+
 export interface Message {
-  role: 'user' | 'assistant' | 'tool';
+  role: 'user' | 'assistant' | 'tool' | 'thinking';
   text?: string;
   images?: string[];
   toolName?: string;
   toolId?: string;
   toolInput?: string;
   toolResult?: string;
+  rawInput?: RawToolInput;
   streaming?: boolean;
 }
 

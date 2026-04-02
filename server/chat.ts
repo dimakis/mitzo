@@ -13,7 +13,7 @@ import { registerPending, resolvePending, removePending, hasPending } from './pe
 import { sendPermissionNotification, isConfigured as ntfyConfigured } from './notify.js';
 import { createWorktree } from './worktree.js';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
-import { summarizeToolInput } from './tool-summary.js';
+import { summarizeToolInput, getRawInput } from './tool-summary.js';
 import { parseContentBlocks, extractToolResultText } from './content-blocks.js';
 import { loadMcpServers, type McpServerConfig } from './mcp-config.js';
 import { getToolTier, shouldAutoAllow, getAllowedToolsForMode } from './tool-tiers.js';
@@ -378,11 +378,13 @@ export async function startChat(
             if (block.type === 'text') {
               send(currentWs, { type: 'text', text: block.text });
             } else if (block.type === 'tool_use') {
+              const toolInput = block.input as Record<string, unknown>;
               send(currentWs, {
                 type: 'tool_call',
                 toolName: block.name,
                 toolId: block.id,
-                input: summarizeToolInput(block.name, block.input as Record<string, unknown>),
+                input: summarizeToolInput(block.name, toolInput),
+                rawInput: getRawInput(block.name, toolInput),
               });
             }
           }
@@ -398,6 +400,10 @@ export async function startChat(
         const evt = msg.event;
         if (evt?.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
           send(currentWs, { type: 'text_delta', text: evt.delta.text });
+        } else if (evt?.type === 'content_block_start' && evt.content_block?.type === 'thinking') {
+          send(currentWs, { type: 'thinking_start' });
+        } else if (evt?.type === 'content_block_delta' && evt.delta?.type === 'thinking_delta') {
+          send(currentWs, { type: 'thinking_delta', text: evt.delta.thinking });
         }
       } else if (msg.type === 'user') {
         // Send tool results for both local tools and MCP tools.

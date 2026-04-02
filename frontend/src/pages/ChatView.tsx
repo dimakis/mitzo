@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { MessageBubble } from '../components/MessageBubble';
+import { ThinkingBlock } from '../components/ThinkingBlock';
 import { ToolPill } from '../components/ToolPill';
 import { ToolGroup } from '../components/ToolGroup';
 import { PermissionBanner } from '../components/PermissionBanner';
@@ -43,6 +44,7 @@ export function ChatView() {
   const poolKey = sessionId ? `session:${sessionId}` : newSessionUid.current;
 
   const streamBuf = useRef('');
+  const thinkingBuf = useRef('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const currentSessionIdRef = useRef(currentSessionId);
   currentSessionIdRef.current = currentSessionId;
@@ -166,7 +168,45 @@ export function ChatView() {
           setCurrentSessionId(msg.sessionId as string);
           break;
 
+        case 'thinking_start':
+          thinkingBuf.current = '';
+          setMessages((prev) => [
+            ...prev,
+            { role: 'thinking' as const, text: '', streaming: true },
+          ]);
+          scrollToBottom();
+          break;
+
+        case 'thinking_delta':
+          thinkingBuf.current += msg.text as string;
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.role === 'thinking' && last.streaming) {
+              return [
+                ...prev.slice(0, -1),
+                { role: 'thinking' as const, text: thinkingBuf.current, streaming: true },
+              ];
+            }
+            return prev;
+          });
+          scrollToBottom();
+          break;
+
         case 'text_delta':
+          // Finalize any in-progress thinking block
+          if (thinkingBuf.current) {
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (last?.role === 'thinking' && last.streaming) {
+                return [
+                  ...prev.slice(0, -1),
+                  { role: 'thinking' as const, text: thinkingBuf.current },
+                ];
+              }
+              return prev;
+            });
+            thinkingBuf.current = '';
+          }
           streamBuf.current += msg.text as string;
           setMessages((prev) => {
             const last = prev[prev.length - 1];
@@ -201,6 +241,19 @@ export function ChatView() {
 
         case 'tool_call':
           streamBuf.current = '';
+          if (thinkingBuf.current) {
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (last?.role === 'thinking' && last.streaming) {
+                return [
+                  ...prev.slice(0, -1),
+                  { role: 'thinking' as const, text: thinkingBuf.current },
+                ];
+              }
+              return prev;
+            });
+            thinkingBuf.current = '';
+          }
           setMessages((prev) => [
             ...prev,
             {
@@ -208,6 +261,7 @@ export function ChatView() {
               toolName: msg.toolName as string,
               toolId: msg.toolId as string,
               toolInput: msg.input as string,
+              rawInput: msg.rawInput as import('../types/chat').RawToolInput | undefined,
             },
           ]);
           scrollToBottom();
@@ -450,6 +504,9 @@ export function ChatView() {
             return <ToolGroup key={`tg-${i}`} tools={item.tools} />;
           }
           const msg = item.message;
+          if (msg.role === 'thinking') {
+            return <ThinkingBlock key={`th-${i}`} message={msg} />;
+          }
           if (msg.role === 'tool') {
             return <ToolPill key={msg.toolId || `t-${i}`} message={msg} />;
           }
