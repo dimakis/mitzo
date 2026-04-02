@@ -397,6 +397,19 @@ export async function getMessages(sessionId: string) {
   }
   try {
     let blockCounter = 0;
+
+    // First pass: collect all tool results from user-type SDK messages.
+    const toolResultMap = new Map<string, string>();
+    for (const m of rawMessages) {
+      const content = m.message?.content;
+      if (!Array.isArray(content)) continue;
+      const parsed = parseContentBlocks(content);
+      for (const tr of parsed.toolResults) {
+        toolResultMap.set(tr.toolId, tr.result);
+      }
+    }
+
+    // Second pass: build v2 FinishedMessage[] from assistant/user turns.
     const messages: Array<{
       messageId: string;
       role: string;
@@ -407,6 +420,7 @@ export async function getMessages(sessionId: string) {
         toolName?: string;
         toolId?: string;
         toolInput?: string;
+        toolResult?: string;
       }>;
     }> = [];
 
@@ -418,14 +432,7 @@ export async function getMessages(sessionId: string) {
 
       const role = m.type === 'assistant' ? 'assistant' : 'user';
       const msgId = (m.message?.id as string) ?? `restored-${Date.now()}-${blockCounter}`;
-      const blocks: Array<{
-        blockId: string;
-        blockType: string;
-        content: string;
-        toolName?: string;
-        toolId?: string;
-        toolInput?: string;
-      }> = [];
+      const blocks: (typeof messages)[number]['blocks'] = [];
 
       if (parsed.text) {
         blocks.push({
@@ -436,20 +443,15 @@ export async function getMessages(sessionId: string) {
       }
 
       for (const tc of parsed.toolCalls) {
-        const bid = `rb${blockCounter++}`;
-        const toolBlock: (typeof blocks)[number] = {
-          blockId: bid,
+        blocks.push({
+          blockId: `rb${blockCounter++}`,
           blockType: 'tool_use',
           content: '',
           toolName: tc.toolName,
           toolId: tc.toolId,
           toolInput: tc.input,
-        };
-        const tr = parsed.toolResults.find((r) => r.toolId === tc.toolId);
-        if (tr) {
-          (toolBlock as Record<string, unknown>).toolResult = tr.result;
-        }
-        blocks.push(toolBlock);
+          toolResult: toolResultMap.get(tc.toolId),
+        });
       }
 
       messages.push({ messageId: msgId, role, blocks });
