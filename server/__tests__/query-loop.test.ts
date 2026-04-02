@@ -176,6 +176,10 @@ describe('runQueryLoop', () => {
 
     const sent = ws.sent;
 
+    const blockStart = sent.find((m) => m.type === 'block_start' && m.blockType === 'tool_use');
+    expect(blockStart).toBeDefined();
+    expect(blockStart).toMatchObject({ toolName: 'Bash' });
+
     const blockEnd = sent.find((m) => m.type === 'block_end' && m.blockType === 'tool_use');
     expect(blockEnd).toBeDefined();
     expect(blockEnd).toMatchObject({ toolName: 'Bash', toolId: 'tool-1' });

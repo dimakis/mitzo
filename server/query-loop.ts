@@ -157,6 +157,7 @@ export async function runQueryLoop(
                 messageId: currentMessageId,
                 blockId,
                 blockType: 'tool_use',
+                toolName: contentBlock!.name as string,
               }),
             );
           } else if (blockType === 'text') {
