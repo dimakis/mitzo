@@ -1,0 +1,34 @@
+# CI Discipline
+
+CI must be green. This is a hard requirement, not a suggestion.
+
+## Rules
+
+1. **Check CI before pushing to main.** Run `gh run list --limit 1` before any push. If CI is already red, fix it first or don't push to main.
+
+2. **After every push, verify CI passes.** Run `gh run list --limit 1` or `gh run watch` after pushing. If it fails, fix it before doing anything else. Do not move on to the next task with red CI.
+
+3. **"Bypassed rule violations" is a red flag.** If `git push` output contains "Bypassed rule violations," you pushed past a required status check. This bypass exists for emergencies, not routine work. If you see it, stop and investigate why CI was failing.
+
+4. **Feature branches are the default.** Direct-to-main pushes are only acceptable for trivially correct single-commit fixes (typos, formatting, doc corrections). Everything else goes through a feature branch and PR.
+
+5. **All CI steps must run.** The pipeline is structured so typecheck, tests, and build run even if lint or formatting fails. If you see steps skipped in CI output, the workflow is broken — fix it.
+
+6. **Pre-commit hooks are not a substitute for CI.** Local hooks only check staged files of specific types. CI checks everything. Passing locally does not mean CI will pass.
+
+## After Pushing
+
+```bash
+# Check the latest CI run
+gh run list --limit 1
+
+# Watch a run until it finishes
+gh run watch
+
+# If it failed, see what broke
+gh run view <run-id> --log-failed
+```
+
+## If CI Is Red When You Start
+
+Fix it first. A red CI pipeline means every subsequent push is unverified. The longer it stays red, the more unverified code accumulates.

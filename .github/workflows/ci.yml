@@ -25,19 +25,42 @@ jobs:
         run: cd frontend && npm ci
 
       - name: Lint
+        id: lint
         run: npm run lint
 
       - name: Format check
+        id: format
         run: npm run format:check
 
       - name: Type check (server)
+        id: typecheck-server
+        if: always()
         run: npx tsc --noEmit
 
       - name: Type check (frontend)
+        id: typecheck-frontend
+        if: always()
         run: cd frontend && npx tsc -b
 
       - name: Test
+        id: test
+        if: always()
         run: npm test
 
       - name: Build
+        id: build
+        if: always()
         run: npm run build
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ "${{ steps.lint.outcome }}" = "failure" ] || \
+             [ "${{ steps.format.outcome }}" = "failure" ] || \
+             [ "${{ steps.typecheck-server.outcome }}" = "failure" ] || \
+             [ "${{ steps.typecheck-frontend.outcome }}" = "failure" ] || \
+             [ "${{ steps.test.outcome }}" = "failure" ] || \
+             [ "${{ steps.build.outcome }}" = "failure" ]; then
+            echo "One or more CI steps failed."
+            exit 1
+          fi
