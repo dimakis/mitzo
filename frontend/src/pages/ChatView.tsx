@@ -149,6 +149,8 @@ export function ChatView() {
     if (msgState.running) {
       // Server queues it natively — no client-side stop+re-send needed.
       wsSend(poolKey, payload);
+      dispatch({ type: 'USER_SEND', text, images: previews });
+      forceScrollToBottom();
     } else {
       wsSetRunning(poolKey, true);
       wsSend(poolKey, payload);

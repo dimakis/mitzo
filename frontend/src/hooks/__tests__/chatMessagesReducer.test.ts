@@ -415,6 +415,15 @@ describe('USER_SEND', () => {
     expect(state.messages[0].blocks[0].content).toBe('hello');
   });
 
+  it('appends user message when already running', () => {
+    const running = { ...INITIAL, running: true };
+    const state = chatMessagesReducer(running, { type: 'USER_SEND', text: 'follow-up' });
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0].role).toBe('user');
+    expect(state.messages[0].blocks[0].content).toBe('follow-up');
+    expect(state.running).toBe(true);
+  });
+
   it('stores image previews on the user message', () => {
     const state = chatMessagesReducer(INITIAL, {
       type: 'USER_SEND',
