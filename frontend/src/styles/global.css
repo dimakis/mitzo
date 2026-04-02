@@ -1321,33 +1321,36 @@ textarea:focus {
 .chat-input {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  padding: 0.6rem 0.75rem;
-  padding-bottom: max(0.6rem, env(safe-area-inset-bottom));
-  background: var(--surface);
-  border-top: 1px solid var(--border);
+  gap: 0.35rem;
+  padding: 0.5rem 0.75rem;
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  background: var(--bg);
   flex-shrink: 0;
 }
 
 .chat-input-row {
   display: flex;
   align-items: flex-end;
-  gap: 0.4rem;
+  gap: 0.5rem;
   width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  padding: 0.35rem 0.35rem 0.35rem 0.5rem;
 }
 
 .chat-input-field {
   flex: 1;
   min-width: 0;
-  min-height: 2.5rem;
+  min-height: 2rem;
   max-height: 10rem;
-  padding: 0.6rem 0.85rem;
+  padding: 0.45rem 0.4rem;
   font-size: 16px;
   font-family: inherit;
   line-height: 1.4;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--bg);
+  border: none;
+  border-radius: 0;
+  background: transparent;
   color: var(--text);
   resize: none;
   overflow-y: auto;
@@ -1356,7 +1359,6 @@ textarea:focus {
 
 .chat-input-field:focus {
   outline: none;
-  border-color: var(--accent);
 }
 
 .chat-input-field::placeholder {
@@ -1365,27 +1367,25 @@ textarea:focus {
 
 .chat-input-btn {
   flex-shrink: 0;
-  padding: 0.5rem 0.85rem;
-  border-radius: 10px;
-  font-size: 0.8rem;
-  font-weight: 600;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   white-space: nowrap;
   min-width: 0;
 }
 
-.chat-input-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  flex-shrink: 0;
-  align-self: flex-end;
-}
-
 .chat-input-btn--send {
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 50%;
+  padding: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
   background: var(--accent);
   color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 
 .chat-input-btn--send:disabled {
@@ -1399,23 +1399,40 @@ textarea:focus {
 }
 
 .chat-input-btn--stop {
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 50%;
+  padding: 0;
+  font-size: 0.75rem;
   background: var(--danger);
   color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .chat-input-btn--attach {
-  padding: 0.5rem 0.6rem;
-  font-size: 1rem;
-  font-weight: 700;
-  background: var(--border);
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 50%;
+  padding: 0;
+  font-size: 1.2rem;
+  font-weight: 600;
+  background: transparent;
   color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
   align-self: flex-end;
 }
 
 .chat-input-btn--attach:hover:not(:disabled) {
-  background: var(--accent);
-  color: #fff;
+  color: var(--text);
+}
+
+.chat-input-btn--attach:active {
+  color: var(--accent);
 }
 
 .chat-input-btn--attach:disabled {
