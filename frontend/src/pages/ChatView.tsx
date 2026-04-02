@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { MessageBubble } from '../components/MessageBubble';
 import { ThinkingBlock } from '../components/ThinkingBlock';
@@ -9,7 +9,12 @@ import { ChatInput } from '../components/ChatInput';
 import { MitzoLogo } from '../components/MitzoLogo';
 import { groupMessages } from '../lib/groupMessages';
 import { wsIsOpen, wsSend, wsSetRunning } from '../lib/ws-pool';
-import { SCROLL_RESTORE_DELAY_MS, CHAT_CACHE_KEY_PREFIX, LAST_SESSION_KEY } from '../lib/constants';
+import {
+  SCROLL_NEAR_BOTTOM_PX,
+  SCROLL_RESTORE_DELAY_MS,
+  CHAT_CACHE_KEY_PREFIX,
+  LAST_SESSION_KEY,
+} from '../lib/constants';
 import { useChatSession } from '../hooks/useChatSession';
 import { useChatMessages } from '../hooks/useChatMessages';
 import { useChatConnection } from '../hooks/useChatConnection';
@@ -33,6 +38,16 @@ export function ChatView() {
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
     });
   }, []);
+
+  // Auto-scroll during streaming: follow new content if user is near the bottom
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distFromBottom <= SCROLL_NEAR_BOTTOM_PX) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [msgState.messages]);
 
   const handleSessionExpired = useCallback(
     (staleId: string | undefined) => {
@@ -150,7 +165,10 @@ export function ChatView() {
     }
   }
 
-  const grouped = useMemo(() => groupMessages(msgState.messages), [msgState.messages]);
+  const grouped = useMemo(
+    () => groupMessages(msgState.messages, msgState.running),
+    [msgState.messages, msgState.running],
+  );
   const initialPrompt = searchParams.get('prompt') || undefined;
 
   return (
