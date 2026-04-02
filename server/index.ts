@@ -329,7 +329,8 @@ server.on('upgrade', async (req, socket, head) => {
   });
 });
 
-function handleChatWs(ws: WebSocket, clientId: string) {
+function handleChatWs(ws: WebSocket, initialClientId: string) {
+  let clientId = initialClientId;
   ws.send(JSON.stringify({ type: 'client_id', clientId }));
 
   const heartbeat = setInterval(() => {
@@ -343,23 +344,27 @@ function handleChatWs(ws: WebSocket, clientId: string) {
       const msg = JSON.parse(raw.toString());
 
       if (msg.type === 'reattach' && msg.clientId) {
-        const ok = reattachChat(msg.clientId, ws);
+        const oldClientId = msg.clientId as string;
+        const ok = reattachChat(oldClientId, ws);
         if (ok) {
-          const session = registry.get(msg.clientId);
+          // Adopt the old clientId so isActive/stop/detach target the
+          // same registry key the running query loop uses.
+          clientId = oldClientId;
+          const session = registry.get(clientId);
           ws.send(
             JSON.stringify({
               type: 'reattached',
-              clientId: msg.clientId,
+              clientId: oldClientId,
               sessionId: session?.sessionId,
               running: true,
             }),
           );
-          log.info('reattached', { oldClientId: msg.clientId, newClientId: clientId });
+          log.info('reattached', { oldClientId, newClientId: initialClientId });
         } else {
           ws.send(
             JSON.stringify({
               type: 'reattach_failed',
-              clientId: msg.clientId,
+              clientId: oldClientId,
               reason: 'Session not found or already finished',
             }),
           );

@@ -234,7 +234,7 @@ export async function startChat(
   const session = registry.get(clientId)!;
   session.queryInstance = q;
 
-  const messageHandler = createWsMessageHandler(clientId, registry, session.ws);
+  const messageHandler = createWsMessageHandler(clientId, registry);
   ws.on('message', messageHandler);
 
   await runQueryLoop(
