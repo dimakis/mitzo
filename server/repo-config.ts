@@ -10,11 +10,14 @@ export interface QuickAction {
   extraTools?: string;
 }
 
+export type ToolTierOverride = 'safe' | 'standard' | 'elevated';
+
 export interface RepoConfig {
   quickActions: QuickAction[];
   venvPaths: string[];
   resolvedVenvPaths: string[];
   allowedPaths: string[];
+  toolTierOverrides: Record<string, ToolTierOverride>;
 }
 
 const EMPTY_CONFIG: RepoConfig = {
@@ -22,6 +25,7 @@ const EMPTY_CONFIG: RepoConfig = {
   venvPaths: [],
   resolvedVenvPaths: [],
   allowedPaths: [],
+  toolTierOverrides: {},
 };
 
 function isValidQuickAction(item: unknown): item is QuickAction {
@@ -67,5 +71,19 @@ export function loadRepoConfig(repoPath: string): RepoConfig {
     ? (obj.allowedPaths as unknown[]).filter((p): p is string => typeof p === 'string')
     : [];
 
-  return { quickActions, venvPaths, resolvedVenvPaths, allowedPaths };
+  const validTiers = new Set(['safe', 'standard', 'elevated']);
+  const toolTierOverrides: Record<string, ToolTierOverride> = {};
+  if (
+    obj.toolTierOverrides &&
+    typeof obj.toolTierOverrides === 'object' &&
+    !Array.isArray(obj.toolTierOverrides)
+  ) {
+    for (const [tool, tier] of Object.entries(obj.toolTierOverrides as Record<string, unknown>)) {
+      if (typeof tier === 'string' && validTiers.has(tier)) {
+        toolTierOverrides[tool] = tier as ToolTierOverride;
+      }
+    }
+  }
+
+  return { quickActions, venvPaths, resolvedVenvPaths, allowedPaths, toolTierOverrides };
 }

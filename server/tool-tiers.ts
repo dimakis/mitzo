@@ -2,7 +2,7 @@ import type { MitzoMode } from './session-registry.js';
 
 export type ToolTier = 'safe' | 'standard' | 'elevated' | 'unknown';
 
-const TOOL_TIERS: Record<string, ToolTier> = {
+const DEFAULT_TOOL_TIERS: Record<string, ToolTier> = {
   Read: 'safe',
   Glob: 'safe',
   Grep: 'safe',
@@ -20,8 +20,14 @@ const TOOL_TIERS: Record<string, ToolTier> = {
   Shell: 'elevated',
 };
 
+let activeTiers: Record<string, ToolTier> = { ...DEFAULT_TOOL_TIERS };
+
+export function applyTierOverrides(overrides: Record<string, ToolTier>): void {
+  activeTiers = { ...DEFAULT_TOOL_TIERS, ...overrides };
+}
+
 export function getToolTier(toolName: string): ToolTier {
-  if (TOOL_TIERS[toolName]) return TOOL_TIERS[toolName];
+  if (activeTiers[toolName]) return activeTiers[toolName];
   if (toolName.startsWith('mcp__')) return 'unknown';
   return 'unknown';
 }
@@ -46,7 +52,7 @@ export function shouldAutoAllow(toolName: string, mode: MitzoMode): boolean {
 
 export function getAllowedToolsForMode(mode: MitzoMode): string[] {
   const allowed: string[] = [];
-  for (const [tool] of Object.entries(TOOL_TIERS)) {
+  for (const [tool] of Object.entries(activeTiers)) {
     if (shouldAutoAllow(tool, mode)) {
       allowed.push(tool);
     }
