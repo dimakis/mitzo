@@ -8,6 +8,10 @@ echo "=== Mitzo Deploy ==="
 echo "Dir: $MITZO_DIR"
 echo ""
 
+echo "--- Switching to main ---"
+git checkout main
+echo ""
+
 echo "--- Pulling latest (fast-forward only) ---"
 git fetch origin main
 git pull --ff-only origin main
