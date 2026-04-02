@@ -277,7 +277,7 @@ export function sendToChat(
 ): boolean {
   const session = registry.get(clientId);
   if (!session?.inputQueue) return false;
-  const fullPrompt = assemblePrompt(prompt, session.cwd, images);
+  const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images);
   session.inputQueue.push(makeUserMessage(fullPrompt, 'next'));
   return true;
 }
@@ -290,7 +290,7 @@ export async function interruptChat(
 ): Promise<boolean> {
   const session = registry.get(clientId);
   if (!session?.queryInstance || !session?.inputQueue) return false;
-  const fullPrompt = assemblePrompt(prompt, session.cwd, images);
+  const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images);
   await session.queryInstance.interrupt();
   session.inputQueue.push(makeUserMessage(fullPrompt, 'now'));
   return true;

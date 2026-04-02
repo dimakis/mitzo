@@ -29,10 +29,11 @@ export interface ManagedSession {
   sessionId?: string;
   sessionAllowList: Set<string>;
   mode: MitzoMode;
-  cwd: string;
+  cwd?: string;
   worktreePath?: string;
   queryInstance?: { interrupt: () => Promise<void>; close: () => void };
-  inputQueue?: { push: (msg: unknown) => void; close: () => void };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  inputQueue?: { push: (msg: any) => void; close: () => void };
   currentSnapshot: MessageSnapshot | null;
 }
 
