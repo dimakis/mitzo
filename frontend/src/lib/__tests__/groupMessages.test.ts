@@ -124,4 +124,12 @@ describe('groupBlocks', () => {
   it('returns empty array for empty input', () => {
     expect(groupBlocks([])).toHaveLength(0);
   });
+
+  it('returns empty array when blocks is undefined', () => {
+    expect(groupBlocks(undefined as unknown as FinishedBlock[])).toHaveLength(0);
+  });
+
+  it('returns empty array when blocks is null', () => {
+    expect(groupBlocks(null as unknown as FinishedBlock[])).toHaveLength(0);
+  });
 });

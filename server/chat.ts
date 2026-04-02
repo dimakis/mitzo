@@ -396,21 +396,66 @@ export async function getMessages(sessionId: string) {
     }
   }
   try {
-    return rawMessages
-      .map((m) => {
-        const content = m.message?.content;
-        if (!Array.isArray(content)) return null;
-        const parsed = parseContentBlocks(content);
-        return {
-          role: m.type,
-          text: parsed.text || undefined,
-          toolCalls: parsed.toolCalls.length > 0 ? parsed.toolCalls : undefined,
-          toolResults: parsed.toolResults.length > 0 ? parsed.toolResults : undefined,
+    let blockCounter = 0;
+    const messages: Array<{
+      messageId: string;
+      role: string;
+      blocks: Array<{
+        blockId: string;
+        blockType: string;
+        content: string;
+        toolName?: string;
+        toolId?: string;
+        toolInput?: string;
+      }>;
+    }> = [];
+
+    for (const m of rawMessages) {
+      const content = m.message?.content;
+      if (!Array.isArray(content)) continue;
+      const parsed = parseContentBlocks(content);
+      if (!parsed.text && parsed.toolCalls.length === 0) continue;
+
+      const role = m.type === 'assistant' ? 'assistant' : 'user';
+      const msgId = (m.message?.id as string) ?? `restored-${Date.now()}-${blockCounter}`;
+      const blocks: Array<{
+        blockId: string;
+        blockType: string;
+        content: string;
+        toolName?: string;
+        toolId?: string;
+        toolInput?: string;
+      }> = [];
+
+      if (parsed.text) {
+        blocks.push({
+          blockId: `rb${blockCounter++}`,
+          blockType: 'text',
+          content: parsed.text,
+        });
+      }
+
+      for (const tc of parsed.toolCalls) {
+        const bid = `rb${blockCounter++}`;
+        const toolBlock: (typeof blocks)[number] = {
+          blockId: bid,
+          blockType: 'tool_use',
+          content: '',
+          toolName: tc.toolName,
+          toolId: tc.toolId,
+          toolInput: tc.input,
         };
-      })
-      .filter(
-        (m): m is NonNullable<typeof m> => m !== null && !!(m.text || m.toolCalls || m.toolResults),
-      );
+        const tr = parsed.toolResults.find((r) => r.toolId === tc.toolId);
+        if (tr) {
+          (toolBlock as Record<string, unknown>).toolResult = tr.result;
+        }
+        blocks.push(toolBlock);
+      }
+
+      messages.push({ messageId: msgId, role, blocks });
+    }
+
+    return messages;
   } catch (err: unknown) {
     log.warn('failed to parse session messages', {
       sessionId,

@@ -84,15 +84,22 @@ export function ChatView() {
     if (cached) {
       try {
         const restored = JSON.parse(cached);
-        if (restored.length > 0) {
+        const isV2 =
+          Array.isArray(restored) &&
+          restored.length > 0 &&
+          typeof restored[0].messageId === 'string' &&
+          Array.isArray(restored[0].blocks);
+        if (isV2) {
           dispatch({ type: 'RESTORE', messages: restored });
           setTimeout(forceScrollToBottom, SCROLL_RESTORE_DELAY_MS);
+        } else {
+          localStorage.removeItem(cacheKey);
         }
       } catch {
-        // Corrupted cache — fall through
+        localStorage.removeItem(cacheKey);
       }
     }
-    if (!cached) {
+    if (!cached || !localStorage.getItem(cacheKey)) {
       fetch(`/api/sessions/${sessionId}/messages`)
         .then((r) => (r.ok ? r.json() : []))
         .then((msgs: unknown[]) => {
@@ -269,7 +276,7 @@ export function ChatView() {
           // Assistant turn — render grouped blocks
           return (
             <div key={msg.messageId} className="msg-turn">
-              {grouped!.map((item, i) => {
+              {(grouped ?? []).map((item, i) => {
                 if (item.type === 'tool-group') {
                   return <ToolGroup key={item.key} tools={item.tools} />;
                 }
