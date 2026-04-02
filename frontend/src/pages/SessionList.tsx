@@ -191,9 +191,6 @@ export function SessionList() {
           <button className="refresh-ui-btn" onClick={refreshUI} title="Clear cache and reload">
             ↺
           </button>
-          <button className="new-chat-btn" onClick={() => navigate('/chat')}>
-            New Chat
-          </button>
         </div>
       </header>
 
@@ -203,19 +200,26 @@ export function SessionList() {
         </button>
       )}
 
-      <div className="quick-grid">
-        {quickActions.map((action) => (
-          <button
-            key={action.label}
-            type="button"
-            className="quick-card"
-            onClick={() => handleQuickAction(action)}
-          >
-            <span className="quick-card-label">{action.label}</span>
-            <span className="quick-card-desc">{action.desc}</span>
-          </button>
-        ))}
-      </div>
+      <button className="hero-chat-btn" onClick={() => navigate('/chat')}>
+        New Chat
+      </button>
+
+      {quickActions.length > 0 && (
+        <div className="quick-list">
+          {quickActions.map((action) => (
+            <button
+              key={action.label}
+              type="button"
+              className="quick-row"
+              onClick={() => handleQuickAction(action)}
+            >
+              <span className="quick-row-label">{action.label}</span>
+              <span className="quick-row-desc">{action.desc}</span>
+              <span className="quick-row-chevron">&rsaquo;</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {loading && <p className="session-list-empty">Loading...</p>}
 
@@ -224,7 +228,7 @@ export function SessionList() {
       {!loading && sessions.length > 0 && (
         <div className="session-list">
           <div className="session-list-section-header">
-            <span className="session-list-section-title">Recent Sessions</span>
+            <span className="session-list-section-title">Recent</span>
             <button className="session-list-clear" onClick={clearAll}>
               Clear
             </button>
