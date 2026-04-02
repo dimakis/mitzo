@@ -8,6 +8,7 @@ import {
 } from 'react';
 import type { ImageAttachment } from '../types/chat';
 import { resizeImage } from '../lib/resizeImage';
+import { extractImageFiles } from '../lib/paste-images';
 import { MAX_IMAGE_ATTACHMENTS } from '../lib/constants';
 
 interface Props {
@@ -93,6 +94,24 @@ export function ChatInput({ onSend, onStop, running, initialText }: Props) {
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
+  async function handlePaste(e: React.ClipboardEvent) {
+    const remaining = MAX_IMAGE_ATTACHMENTS - images.length;
+    if (remaining <= 0) return;
+
+    const files = extractImageFiles(e.clipboardData.items, remaining);
+    if (files.length === 0) return;
+
+    e.preventDefault();
+    for (const file of files) {
+      try {
+        const attachment = await resizeImage(file);
+        setImages((prev) => [...prev, attachment]);
+      } catch {
+        // Image resize failed — skip silently
+      }
+    }
+  }
+
   function removeImage(index: number) {
     setImages((prev) => prev.filter((_, i) => i !== index));
   }
@@ -138,6 +157,7 @@ export function ChatInput({ onSend, onStop, running, initialText }: Props) {
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           placeholder={running ? 'Type next message...' : 'Message Mitzo...'}
           rows={1}
         />
