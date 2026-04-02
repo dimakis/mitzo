@@ -1,13 +1,13 @@
 import type { Message, GroupedItem } from '../types/chat';
 import { TOOL_GROUP_THRESHOLD } from './constants';
 
-export function groupMessages(messages: Message[]): GroupedItem[] {
+export function groupMessages(messages: Message[], streaming = false): GroupedItem[] {
   const result: GroupedItem[] = [];
   let toolBuffer: Message[] = [];
 
   function flushTools() {
     if (toolBuffer.length === 0) return;
-    if (toolBuffer.length >= TOOL_GROUP_THRESHOLD) {
+    if (!streaming && toolBuffer.length >= TOOL_GROUP_THRESHOLD) {
       result.push({ type: 'tool-group', tools: toolBuffer });
     } else {
       for (const t of toolBuffer) {
