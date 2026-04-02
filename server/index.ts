@@ -27,6 +27,7 @@ import {
 } from './chat.js';
 import { cleanupStaleWorktrees, listWorktrees } from './worktree.js';
 import { GIT_BRANCH_TIMEOUT_MS, HEARTBEAT_INTERVAL_MS, PORT_DEFAULT } from './constants.js';
+import { getLocalCommit, isUpdateAvailable } from './git-version.js';
 import { createLogger } from './logger.js';
 
 const log = createLogger('server');
@@ -46,7 +47,34 @@ try {
 } catch {
   // Expected when frontend hasn't been built yet
 }
-app.get('/api/version', (_req, res) => res.json({ hash: buildHash }));
+
+const startupCommit = getLocalCommit();
+let updateAvailable = false;
+
+function broadcastUpdateAvailable() {
+  const msg = JSON.stringify({ type: 'update_available' });
+  wss.clients.forEach((client) => {
+    if (client.readyState === client.OPEN) client.send(msg);
+  });
+}
+
+function runUpdateCheck() {
+  const wasAvailable = updateAvailable;
+  updateAvailable = isUpdateAvailable();
+  if (updateAvailable && !wasAvailable) {
+    log.info('update available — broadcasting to clients');
+    broadcastUpdateAvailable();
+  }
+}
+
+app.get('/api/version', (_req, res) =>
+  res.json({ hash: buildHash, commit: startupCommit, updateAvailable }),
+);
+
+app.post('/api/version/check', authMiddleware, (_req, res) => {
+  runUpdateCheck();
+  res.json({ updateAvailable });
+});
 
 // Token-auth endpoint for ntfy action buttons (before cookie auth middleware)
 import { resolvePending } from './permissions.js';
@@ -400,5 +428,9 @@ checkPort(PORT).then((inUse) => {
         error: err instanceof Error ? err.message : 'unknown',
       });
     }
+
+    // Periodic update check every 2 minutes
+    const UPDATE_CHECK_INTERVAL_MS = 2 * 60 * 1000;
+    setInterval(runUpdateCheck, UPDATE_CHECK_INTERVAL_MS);
   });
 });

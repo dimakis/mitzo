@@ -110,22 +110,46 @@ export function SessionList() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [quickActions, setQuickActions] = useState<QuickAction[]>(DEFAULT_ACTIONS);
   const [loading, setLoading] = useState(true);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     Promise.all([
       fetch('/api/sessions')
         .then((r) => r.json())
-        .catch(() => []), // Network error — show empty list
+        .catch(() => []),
       fetch('/api/config')
         .then((r) => r.json())
-        .catch(() => ({})), // Network error — use default config
+        .catch(() => ({})),
+      fetch('/api/version')
+        .then((r) => r.json())
+        .catch(() => ({})),
     ])
-      .then(([sessData, config]) => {
+      .then(([sessData, config, version]) => {
         setSessions(sessData);
         setQuickActions(buildQuickActions(config.quickActions));
+        if (version?.updateAvailable) setUpdateAvailable(true);
       })
       .finally(() => setLoading(false));
   }, []);
+
+  async function checkForUpdates() {
+    setChecking(true);
+    try {
+      const res = await fetch('/api/version/check', { method: 'POST' });
+      const data = await res.json();
+      setUpdateAvailable(data.updateAvailable);
+    } catch {
+      // Network error — ignore
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  function handleDeployAction() {
+    const deploy = quickActions.find((a) => a.label === 'Deploy Mitzo');
+    if (deploy) handleQuickAction(deploy);
+  }
 
   function dismissSession(id: string) {
     setSessions((prev) => prev.filter((s) => s.id !== id));
@@ -156,6 +180,14 @@ export function SessionList() {
       <header className="session-list-header">
         <h1>Mitzo</h1>
         <div className="session-list-header-actions">
+          <button
+            className="check-update-btn"
+            onClick={checkForUpdates}
+            disabled={checking}
+            title="Check for server updates"
+          >
+            {checking ? '…' : '⟳'}
+          </button>
           <button className="refresh-ui-btn" onClick={refreshUI} title="Clear cache and reload">
             ↺
           </button>
@@ -164,6 +196,12 @@ export function SessionList() {
           </button>
         </div>
       </header>
+
+      {updateAvailable && (
+        <button className="update-banner" onClick={handleDeployAction}>
+          Update available — Deploy Mitzo
+        </button>
+      )}
 
       <div className="quick-grid">
         {quickActions.map((action) => (
