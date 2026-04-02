@@ -11,6 +11,8 @@ import { fileURLToPath } from 'url';
 import { login, authMiddleware, verifyWsAuth, COOKIE_NAME, MAX_AGE_HOURS } from './auth.js';
 import {
   startChat,
+  sendToChat,
+  interruptChat,
   stopChat,
   detachChat,
   reattachChat,
@@ -359,6 +361,19 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
               running: true,
             }),
           );
+          // Send in-flight message snapshot so client can reconstruct state
+          // after an iOS silent-drop reconnect.
+          if (session?.currentSnapshot) {
+            ws.send(
+              JSON.stringify({
+                v: 2,
+                type: 'message_snapshot',
+                ts: Date.now(),
+                messageId: session.currentSnapshot.messageId,
+                blocks: session.currentSnapshot.blocks,
+              }),
+            );
+          }
           log.info('reattached', { oldClientId, newClientId: initialClientId });
         } else {
           ws.send(
@@ -374,23 +389,21 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
 
       if (msg.type === 'send' && msg.prompt) {
         if (isActive(clientId)) {
-          ws.send(
-            JSON.stringify({
-              type: 'error',
-              error: 'A query is already running. Wait for it to finish or stop it.',
-            }),
-          );
-          return;
+          // Session alive — queue the message for the next turn.
+          sendToChat(clientId, msg.prompt, msg.images);
+        } else {
+          startChat(ws, clientId, msg.prompt, {
+            resume: msg.resume,
+            cwd: msg.cwd,
+            model: msg.model,
+            extraTools: msg.extraTools,
+            mode: msg.mode,
+            worktree: msg.worktree,
+            images: msg.images,
+          });
         }
-        startChat(ws, clientId, msg.prompt, {
-          resume: msg.resume,
-          cwd: msg.cwd,
-          model: msg.model,
-          extraTools: msg.extraTools,
-          mode: msg.mode,
-          worktree: msg.worktree,
-          images: msg.images,
-        });
+      } else if (msg.type === 'interrupt' && msg.prompt) {
+        interruptChat(clientId, msg.prompt, msg.images);
       } else if (msg.type === 'stop') {
         stopChat(clientId);
       }

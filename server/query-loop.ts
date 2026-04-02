@@ -4,7 +4,7 @@ import { summarizeToolInput, getRawInput } from './tool-summary.js';
 import { extractToolResultText } from './content-blocks.js';
 import { TOOL_RESULT_MAX_CHARS } from './constants.js';
 import { createLogger } from './logger.js';
-import type { SessionRegistry } from './session-registry.js';
+import type { SessionRegistry, SnapshotBlock } from './session-registry.js';
 
 const log = createLogger('query-loop');
 
@@ -12,6 +12,10 @@ function send(ws: WebSocket, data: unknown) {
   if (ws.readyState === ws.OPEN) {
     ws.send(JSON.stringify(data));
   }
+}
+
+function v2(type: string, rest: Record<string, unknown> = {}): Record<string, unknown> {
+  return { v: 2, type, ts: Date.now(), ...rest };
 }
 
 export function createWsMessageHandler(clientId: string, registry: SessionRegistry) {
@@ -41,10 +45,22 @@ export async function runQueryLoop(
   abortController: AbortController,
   _ws: WebSocket,
 ) {
-  // Buffer tool_use blocks streamed via content_block_start/delta/stop events.
-  // Keyed by content block index (resets per API message via message_start).
-  const toolInputBuffers = new Map<number, { name: string; id: string; inputBuf: string }>();
+  // Tool input buffers keyed by content block index (reset per message_start).
+  const toolInputBuffers = new Map<
+    number,
+    { name: string; id: string; inputBuf: string; blockId: string }
+  >();
+
+  // Map content block index → blockId for all block types.
+  const blockIdByIndex = new Map<number, string>();
+
+  let blockCounter = 0;
+  let currentMessageId: string | null = null;
   let doneSent = false;
+
+  function nextBlockId(): string {
+    return `b${blockCounter++}`;
+  }
 
   log.info('query loop started', { clientId });
 
@@ -57,10 +73,19 @@ export async function runQueryLoop(
       log.debug('sdk event', { clientId, type: msg.type });
 
       if (msg.type === 'assistant') {
-        // Text and tool_use blocks are already delivered via stream_event
-        // (text_delta, content_block_stop). Re-sending text here would create
-        // duplicate messages in the frontend, especially when tool calls
-        // interleave between streaming and this finalization event.
+        // Turn complete. Emit message_end and clear snapshot.
+        if (currentMessageId) {
+          send(
+            currentWs,
+            v2('message_end', {
+              messageId: currentMessageId,
+              ...(msg.session_id ? { sessionId: msg.session_id } : {}),
+            }),
+          );
+          currentMessageId = null;
+          currentSession.currentSnapshot = null;
+        }
+        // Capture session ID on first assistant event.
         if (!currentSession.sessionId && msg.session_id) {
           registry.setSessionId(clientId, msg.session_id as string);
           send(currentWs, { type: 'session_id', sessionId: msg.session_id });
@@ -69,67 +94,196 @@ export async function runQueryLoop(
         log.info('result received', { clientId, sessionId: msg.session_id });
         if (msg.session_id) send(currentWs, { type: 'session_id', sessionId: msg.session_id });
         doneSent = true;
-        send(currentWs, { type: 'done', sessionId: msg.session_id });
+        send(currentWs, v2('session_end', { sessionId: msg.session_id }));
       } else if (msg.type === 'stream_event') {
         const evt = msg.event as Record<string, unknown> | undefined;
         log.debug('stream event', { clientId, evtType: evt?.type });
+
         if (evt?.type === 'message_start') {
           toolInputBuffers.clear();
+          blockIdByIndex.clear();
+          blockCounter = 0;
+          // Use API message ID if available, otherwise generate one.
+          const apiMsg = evt.message as Record<string, unknown> | undefined;
+          currentMessageId = (apiMsg?.id as string | undefined) ?? `msg-${Date.now()}`;
+          // Init snapshot on the session.
+          currentSession.currentSnapshot = { messageId: currentMessageId, blocks: [] };
+          send(currentWs, v2('message_start', { messageId: currentMessageId }));
         } else if (evt?.type === 'content_block_start') {
           const contentBlock = evt.content_block as Record<string, unknown> | undefined;
-          log.debug('content block start', { clientId, blockType: contentBlock?.type });
-          if (contentBlock?.type === 'thinking') {
-            log.info('thinking block detected', { clientId });
-            send(currentWs, { type: 'thinking_start' });
-          } else if (contentBlock?.type === 'tool_use') {
-            toolInputBuffers.set(evt.index as number, {
-              name: contentBlock.name as string,
-              id: contentBlock.id as string,
+          const index = evt.index as number;
+          const blockId = nextBlockId();
+          blockIdByIndex.set(index, blockId);
+
+          const blockType = contentBlock?.type as string | undefined;
+          log.debug('content block start', { clientId, blockType });
+
+          if (blockType === 'thinking' || blockType === 'redacted_thinking') {
+            log.info('thinking block detected', { clientId, blockType });
+            const snapshotBlock: SnapshotBlock = {
+              blockId,
+              blockType: blockType as 'thinking' | 'redacted_thinking',
+              content: '',
+              done: false,
+            };
+            currentSession.currentSnapshot?.blocks.push(snapshotBlock);
+            send(
+              currentWs,
+              v2('block_start', {
+                messageId: currentMessageId,
+                blockId,
+                blockType,
+              }),
+            );
+          } else if (blockType === 'tool_use') {
+            toolInputBuffers.set(index, {
+              name: contentBlock!.name as string,
+              id: contentBlock!.id as string,
               inputBuf: '',
+              blockId,
             });
+            const snapshotBlock: SnapshotBlock = {
+              blockId,
+              blockType: 'tool_use',
+              content: '',
+              done: false,
+              toolName: contentBlock!.name as string,
+              toolId: contentBlock!.id as string,
+            };
+            currentSession.currentSnapshot?.blocks.push(snapshotBlock);
+            send(
+              currentWs,
+              v2('block_start', {
+                messageId: currentMessageId,
+                blockId,
+                blockType: 'tool_use',
+              }),
+            );
+          } else if (blockType === 'text') {
+            const snapshotBlock: SnapshotBlock = {
+              blockId,
+              blockType: 'text',
+              content: '',
+              done: false,
+            };
+            currentSession.currentSnapshot?.blocks.push(snapshotBlock);
+            send(
+              currentWs,
+              v2('block_start', {
+                messageId: currentMessageId,
+                blockId,
+                blockType: 'text',
+              }),
+            );
           }
         } else if (evt?.type === 'content_block_delta') {
           const delta = evt.delta as Record<string, unknown> | undefined;
-          if (delta?.type === 'text_delta') {
-            send(currentWs, { type: 'text_delta', text: delta.text });
-          } else if (delta?.type === 'thinking_delta') {
+          const index = evt.index as number;
+          const blockId = blockIdByIndex.get(index);
+
+          if (delta?.type === 'text_delta' && blockId) {
+            const text = delta.text as string;
+            // Update snapshot
+            const block = currentSession.currentSnapshot?.blocks.find((b) => b.blockId === blockId);
+            if (block) block.content += text;
+            send(
+              currentWs,
+              v2('block_delta', {
+                messageId: currentMessageId,
+                blockId,
+                blockType: 'text',
+                delta: text,
+              }),
+            );
+          } else if (delta?.type === 'thinking_delta' && blockId) {
             log.debug('thinking delta', { clientId });
-            send(currentWs, { type: 'thinking_delta', text: delta.thinking });
+            const text = delta.thinking as string;
+            const block = currentSession.currentSnapshot?.blocks.find((b) => b.blockId === blockId);
+            if (block) block.content += text;
+            send(
+              currentWs,
+              v2('block_delta', {
+                messageId: currentMessageId,
+                blockId,
+                blockType: 'thinking',
+                delta: text,
+              }),
+            );
           } else if (delta?.type === 'input_json_delta') {
-            const entry = toolInputBuffers.get(evt.index as number);
+            const entry = toolInputBuffers.get(index);
             if (entry) entry.inputBuf += delta.partial_json as string;
           }
         } else if (evt?.type === 'content_block_stop') {
-          const entry = toolInputBuffers.get(evt.index as number);
-          if (entry) {
-            toolInputBuffers.delete(evt.index as number);
+          const index = evt.index as number;
+          const blockId = blockIdByIndex.get(index);
+          const toolEntry = toolInputBuffers.get(index);
+
+          if (toolEntry && blockId) {
+            toolInputBuffers.delete(index);
             let toolInput: Record<string, unknown> = {};
             try {
-              toolInput = JSON.parse(entry.inputBuf || '{}');
+              toolInput = JSON.parse(toolEntry.inputBuf || '{}');
             } catch {
               // malformed JSON — use empty input
             }
-            log.info('tool call', { clientId, tool: entry.name, toolId: entry.id });
-            send(currentWs, {
-              type: 'tool_call',
-              toolName: entry.name,
-              toolId: entry.id,
-              input: summarizeToolInput(entry.name, toolInput),
-              rawInput: getRawInput(entry.name, toolInput),
-            });
+            const summarized = summarizeToolInput(toolEntry.name, toolInput);
+            const rawInput = getRawInput(toolEntry.name, toolInput);
+
+            log.info('tool call', { clientId, tool: toolEntry.name, toolId: toolEntry.id });
+
+            // Mark snapshot block done with tool metadata.
+            const block = currentSession.currentSnapshot?.blocks.find((b) => b.blockId === blockId);
+            if (block) {
+              block.done = true;
+              block.toolInput = summarized;
+              block.rawInput = rawInput;
+            }
+
+            send(
+              currentWs,
+              v2('block_end', {
+                messageId: currentMessageId,
+                blockId,
+                blockType: 'tool_use',
+                toolName: toolEntry.name,
+                toolId: toolEntry.id,
+                input: summarized,
+                ...(rawInput ? { rawInput } : {}),
+              }),
+            );
+          } else if (blockId) {
+            // Text or thinking block — mark done in snapshot.
+            const block = currentSession.currentSnapshot?.blocks.find((b) => b.blockId === blockId);
+            if (block) {
+              const bt = block.blockType;
+              block.done = true;
+              send(
+                currentWs,
+                v2('block_end', {
+                  messageId: currentMessageId,
+                  blockId,
+                  blockType: bt,
+                }),
+              );
+            }
           }
         }
       } else if (msg.type === 'user') {
+        // Tool results injected by the SDK after tool execution.
         const content = (msg.message as unknown as Record<string, unknown>)?.content;
         if (Array.isArray(content)) {
           for (const block of content) {
             if (block.type === 'tool_result') {
               const resultText = extractToolResultText(block.content);
-              send(currentWs, {
-                type: 'tool_result',
-                toolId: block.tool_use_id || '',
-                result: resultText.slice(0, TOOL_RESULT_MAX_CHARS),
-              });
+              send(
+                currentWs,
+                v2('tool_result', {
+                  messageId: currentMessageId,
+                  toolId: block.tool_use_id || '',
+                  result: resultText.slice(0, TOOL_RESULT_MAX_CHARS),
+                  isError: block.is_error === true,
+                }),
+              );
             }
           }
         }
@@ -145,10 +299,11 @@ export async function runQueryLoop(
   } finally {
     const finalSession = registry.get(clientId);
     if (finalSession) {
+      finalSession.currentSnapshot = null;
       const finalWs = finalSession.ws;
       registry.remove(clientId);
       if (!doneSent && finalWs.readyState === finalWs.OPEN) {
-        send(finalWs, { type: 'done', sessionId: finalSession.sessionId });
+        send(finalWs, v2('session_end', { sessionId: finalSession.sessionId }));
       }
     }
     log.info('query loop ended', { clientId, doneSent });
