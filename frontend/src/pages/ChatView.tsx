@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { MessageBubble } from '../components/MessageBubble';
 import { ThinkingBlock } from '../components/ThinkingBlock';
@@ -8,64 +8,25 @@ import { PermissionBanner } from '../components/PermissionBanner';
 import { ChatInput } from '../components/ChatInput';
 import { MitzoLogo } from '../components/MitzoLogo';
 import { groupMessages } from '../lib/groupMessages';
-import { wsSubscribe, wsSend, wsIsOpen, wsSetRunning, wsDrainBuffer } from '../lib/ws-pool';
-import {
-  SCROLL_NEAR_BOTTOM_PX,
-  SCROLL_RESTORE_DELAY_MS,
-  CHAT_CACHE_KEY_PREFIX,
-  LAST_SESSION_KEY,
-} from '../lib/constants';
-import { getPreferredModel, setPreferredModel } from '../lib/model-preference';
-import type { Message, PermissionRequest, ImageAttachment } from '../types/chat';
+import { wsIsOpen, wsSend, wsSetRunning } from '../lib/ws-pool';
+import { SCROLL_RESTORE_DELAY_MS, CHAT_CACHE_KEY_PREFIX, LAST_SESSION_KEY } from '../lib/constants';
+import { useChatSession } from '../hooks/useChatSession';
+import { useChatMessages } from '../hooks/useChatMessages';
+import { useChatConnection } from '../hooks/useChatConnection';
+import { usePermission } from '../hooks/usePermission';
+import type { ImageAttachment } from '../types/chat';
 
 export function ChatView() {
   const { sessionId } = useParams<{ sessionId?: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [running, setRunning] = useState(false);
-  const [permission, setPermission] = useState<PermissionRequest | null>(null);
-  const [currentSessionId, setCurrentSessionId] = useState<string | undefined>(sessionId);
-  const [model, setModelState] = useState(getPreferredModel);
-  const setModel = useCallback((id: string) => {
-    setModelState(id);
-    setPreferredModel(id);
-  }, []);
-  const [mode, setMode] = useState<'ask' | 'agent' | 'auto'>(
+  const [sessionState, sessionActions, poolKey] = useChatSession(
+    sessionId,
     searchParams.get('extraTools') ? 'auto' : 'agent',
   );
-  const [sandbox, setSandbox] = useState(false);
-  const [branch, setBranch] = useState<string | null>(null);
-  const [isWorktree, setIsWorktree] = useState(false);
-  const [connected, setConnected] = useState(false);
 
-  const hasStarted = messages.some((m) => m.role === 'user');
-
-  // Stable pool key: existing sessions use "session:<id>", new sessions
-  // use a per-mount uid so they don't collide with each other.
-  const newSessionUid = useRef(`new:${Math.random().toString(36).slice(2)}`);
-  const poolKey = sessionId ? `session:${sessionId}` : newSessionUid.current;
-
-  const streamBuf = useRef('');
-  const thinkingBuf = useRef('');
   const scrollRef = useRef<HTMLDivElement>(null);
-  const currentSessionIdRef = useRef(currentSessionId);
-  currentSessionIdRef.current = currentSessionId;
-  const pendingSend = useRef<Record<string, unknown> | null>(null);
-
-  const isNearBottom = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return true;
-    return el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_NEAR_BOTTOM_PX;
-  }, []);
-
-  const scrollToBottom = useCallback(() => {
-    if (!isNearBottom()) return;
-    requestAnimationFrame(() => {
-      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-    });
-  }, [isNearBottom]);
 
   const forceScrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -73,347 +34,105 @@ export function ChatView() {
     });
   }, []);
 
-  // Persist last session
-  useEffect(() => {
-    if (currentSessionId) {
-      localStorage.setItem(LAST_SESSION_KEY, currentSessionId);
-    }
-  }, [currentSessionId]);
+  const handleSessionExpired = useCallback(
+    (staleId: string | undefined) => {
+      sessionActions.setCurrentSessionId(undefined);
+      if (staleId) {
+        localStorage.removeItem(`${CHAT_CACHE_KEY_PREFIX}${staleId}`);
+        localStorage.removeItem(LAST_SESSION_KEY);
+      }
+      if (sessionId) {
+        navigate('/chat', { replace: true });
+      }
+    },
+    [sessionId, navigate, sessionActions],
+  );
 
-  // Restore messages from cache on mount (only for existing sessions, not new chats)
-  useEffect(() => {
-    if (!sessionId) return;
-    const resolvedId = sessionId;
+  const {
+    state: msgState,
+    dispatch,
+    pendingSend,
+    handleWsMessage,
+  } = useChatMessages(
+    poolKey,
+    sessionState.currentSessionId,
+    sessionActions.setCurrentSessionId,
+    handleSessionExpired,
+  );
 
-    const cacheKey = `${CHAT_CACHE_KEY_PREFIX}${resolvedId}`;
+  // Restore messages from cache/API on mount for existing sessions
+  const restoreAttempted = useRef(false);
+  if (sessionId && !restoreAttempted.current) {
+    restoreAttempted.current = true;
+    const cacheKey = `${CHAT_CACHE_KEY_PREFIX}${sessionId}`;
     const cached = localStorage.getItem(cacheKey);
     if (cached) {
       try {
-        const restored = JSON.parse(cached) as Message[];
+        const restored = JSON.parse(cached);
         if (restored.length > 0) {
-          setMessages(restored);
+          dispatch({ type: 'RESTORE', messages: restored });
           setTimeout(forceScrollToBottom, SCROLL_RESTORE_DELAY_MS);
-          return;
         }
       } catch {
-        // Corrupted cache — fall through to API fetch
+        // Corrupted cache — fall through
       }
     }
-
-    fetch(`/api/sessions/${resolvedId}/messages`)
-      .then((r) => (r.ok ? r.json() : []))
-      .then((msgs: Message[]) => {
-        if (msgs.length > 0) {
-          setMessages(msgs);
-          setTimeout(forceScrollToBottom, SCROLL_RESTORE_DELAY_MS);
-        }
-      })
-      .catch(() => {
-        // Network error loading messages — non-fatal, user can retry
-      });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Persist messages to localStorage whenever they change
-  useEffect(() => {
-    const id = currentSessionIdRef.current;
-    if (!id || messages.length === 0) return;
-    try {
-      localStorage.setItem(`${CHAT_CACHE_KEY_PREFIX}${id}`, JSON.stringify(messages));
-    } catch {
-      // localStorage quota exceeded — non-fatal, cache is best-effort
+    if (!cached) {
+      fetch(`/api/sessions/${sessionId}/messages`)
+        .then((r) => (r.ok ? r.json() : []))
+        .then((msgs: unknown[]) => {
+          if (msgs.length > 0) {
+            dispatch({ type: 'RESTORE', messages: msgs as import('../types/chat').Message[] });
+            setTimeout(forceScrollToBottom, SCROLL_RESTORE_DELAY_MS);
+          }
+        })
+        .catch(() => {
+          // Network error — non-fatal
+        });
     }
-  }, [messages, currentSessionId]);
+  }
 
-  // Subscribe to the pool connection for this session key.
-  // Unsubscribing on unmount does NOT close the WS — the connection
-  // stays alive in the pool so in-flight agent runs continue.
-  // On mount, drain any messages buffered while we were away.
-  useEffect(() => {
-    const handleMsg = (msg: import('../lib/ws-pool').WsMsg) => {
-      switch (msg.type) {
-        case '_open':
-          setConnected(true);
-          break;
+  const { connected } = useChatConnection(poolKey, handleWsMessage);
 
-        case '_close':
-          setConnected(false);
-          break;
+  const { handlePermission } = usePermission(poolKey, () => {
+    dispatch({ type: 'PERMISSION_TIMEOUT', permId: msgState.permission?.permId ?? '' });
+  });
 
-        case 'reattached':
-          setConnected(true);
-          setRunning(true);
-          wsSetRunning(poolKey, true);
-          if (msg.sessionId) setCurrentSessionId(msg.sessionId as string);
-          break;
-
-        case 'reattach_failed':
-          setRunning(false);
-          wsSetRunning(poolKey, false);
-          // Session finished while we were disconnected — fetch its messages
-          // so the completed response is not lost.
-          if (currentSessionId) {
-            fetch(`/api/sessions/${currentSessionId}/messages`, { credentials: 'include' })
-              .then((r) => r.json())
-              .then((data: { messages?: Message[] }) => {
-                if (data.messages?.length) setMessages(data.messages);
-              })
-              .catch(() => {
-                // Network error fetching finished session — non-fatal
-              });
-          }
-          break;
-
-        case 'session_info':
-          setBranch(msg.branch as string);
-          setIsWorktree(msg.worktree as boolean);
-          break;
-
-        case 'session_id':
-          setCurrentSessionId(msg.sessionId as string);
-          break;
-
-        case 'thinking_start':
-          thinkingBuf.current = '';
-          setMessages((prev) => [
-            ...prev,
-            { role: 'thinking' as const, text: '', streaming: true },
-          ]);
-          scrollToBottom();
-          break;
-
-        case 'thinking_delta':
-          thinkingBuf.current += msg.text as string;
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (last?.role === 'thinking' && last.streaming) {
-              return [
-                ...prev.slice(0, -1),
-                { role: 'thinking' as const, text: thinkingBuf.current, streaming: true },
-              ];
-            }
-            return prev;
-          });
-          scrollToBottom();
-          break;
-
-        case 'text_delta':
-          // Finalize any in-progress thinking block
-          if (thinkingBuf.current) {
-            setMessages((prev) => {
-              const last = prev[prev.length - 1];
-              if (last?.role === 'thinking' && last.streaming) {
-                return [
-                  ...prev.slice(0, -1),
-                  { role: 'thinking' as const, text: thinkingBuf.current },
-                ];
-              }
-              return prev;
-            });
-            thinkingBuf.current = '';
-          }
-          streamBuf.current += msg.text as string;
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (last?.role === 'assistant' && last.streaming) {
-              return [
-                ...prev.slice(0, -1),
-                { role: 'assistant' as const, text: streamBuf.current, streaming: true },
-              ];
-            }
-            return [
-              ...prev,
-              { role: 'assistant' as const, text: streamBuf.current, streaming: true },
-            ];
-          });
-          scrollToBottom();
-          break;
-
-        case 'text':
-          streamBuf.current = '';
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (last?.role === 'assistant' && last.streaming) {
-              return [
-                ...prev.slice(0, -1),
-                { role: 'assistant' as const, text: msg.text as string },
-              ];
-            }
-            return [...prev, { role: 'assistant' as const, text: msg.text as string }];
-          });
-          scrollToBottom();
-          break;
-
-        case 'tool_call':
-          streamBuf.current = '';
-          if (thinkingBuf.current) {
-            setMessages((prev) => {
-              const last = prev[prev.length - 1];
-              if (last?.role === 'thinking' && last.streaming) {
-                return [
-                  ...prev.slice(0, -1),
-                  { role: 'thinking' as const, text: thinkingBuf.current },
-                ];
-              }
-              return prev;
-            });
-            thinkingBuf.current = '';
-          }
-          setMessages((prev) => [
-            ...prev,
-            {
-              role: 'tool' as const,
-              toolName: msg.toolName as string,
-              toolId: msg.toolId as string,
-              toolInput: msg.input as string,
-              rawInput: msg.rawInput as import('../types/chat').RawToolInput | undefined,
-            },
-          ]);
-          scrollToBottom();
-          break;
-
-        case 'tool_result':
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.toolId === msg.toolId ? { ...m, toolResult: msg.result as string } : m,
-            ),
-          );
-          scrollToBottom();
-          break;
-
-        case 'permission_request':
-          setPermission({
-            permId: msg.permId as string,
-            toolName: msg.toolName as string,
-            toolInput: msg.toolInput as string,
-            title: msg.title as string | undefined,
-            description: msg.description as string | undefined,
-            displayName: msg.displayName as string | undefined,
-            tier: msg.tier as import('../types/chat').ToolTier | undefined,
-          });
-          break;
-
-        case 'permission_timeout':
-          setPermission((prev) => (prev?.permId === msg.permId ? null : prev));
-          break;
-
-        case 'done': {
-          if (streamBuf.current) {
-            const text = streamBuf.current;
-            streamBuf.current = '';
-            setMessages((prev) => {
-              const last = prev[prev.length - 1];
-              if (last?.role === 'assistant' && last.streaming) {
-                return [...prev.slice(0, -1), { role: 'assistant' as const, text }];
-              }
-              return [...prev, { role: 'assistant' as const, text }];
-            });
-          }
-          if (msg.sessionId && !currentSessionIdRef.current) {
-            setCurrentSessionId(msg.sessionId as string);
-          }
-          const pending = pendingSend.current;
-          if (pending) {
-            pendingSend.current = null;
-            setRunning(true);
-            wsSetRunning(poolKey, true);
-            streamBuf.current = '';
-            wsSend(poolKey, pending);
-          } else {
-            setRunning(false);
-            wsSetRunning(poolKey, false);
-          }
-          break;
-        }
-
-        case 'error':
-          streamBuf.current = '';
-          pendingSend.current = null;
-          setRunning(false);
-          wsSetRunning(poolKey, false);
-          if ((msg.error as string)?.includes('No conversation found')) {
-            const staleId = currentSessionIdRef.current;
-            setCurrentSessionId(undefined);
-            if (staleId) {
-              localStorage.removeItem(`${CHAT_CACHE_KEY_PREFIX}${staleId}`);
-              localStorage.removeItem(LAST_SESSION_KEY);
-            }
-            if (sessionId) {
-              navigate('/chat', { replace: true });
-            }
-            setMessages((prev) => [
-              ...prev,
-              {
-                role: 'assistant' as const,
-                text: 'Session expired. Send your message again to start fresh.',
-              },
-            ]);
-          } else {
-            setMessages((prev) => [
-              ...prev,
-              { role: 'assistant' as const, text: `**Error:** ${msg.error}` },
-            ]);
-          }
-          scrollToBottom();
-          break;
-      }
-    };
-
-    const unsubscribe = wsSubscribe(poolKey, handleMsg);
-
-    // Replay messages that arrived while we were unmounted
-    const buffered = wsDrainBuffer(poolKey);
-    for (const msg of buffered) handleMsg(msg);
-
-    // Sync connected state on subscribe (pool may already be open)
-    setConnected(wsIsOpen(poolKey));
-
-    return unsubscribe; // unsubscribe only — connection stays alive
-  }, [poolKey]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const initialPrompt = searchParams.get('prompt') || undefined;
+  const hasStarted = msgState.messages.some((m) => m.role === 'user');
 
   function sendMessage(text: string, images?: ImageAttachment[]): boolean {
     if (!wsIsOpen(poolKey)) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          text: '**Connection lost.** Reconnecting — try again in a moment.',
-        },
-      ]);
+      dispatch({ type: 'CONNECTION_LOST' });
       return false;
     }
 
-    const payload: Record<string, unknown> = { type: 'send', prompt: text, model, mode };
-    if (currentSessionId) payload.resume = currentSessionId;
+    const payload: Record<string, unknown> = {
+      type: 'send',
+      prompt: text,
+      model: sessionState.model,
+      mode: sessionState.mode,
+    };
+    if (sessionState.currentSessionId) payload.resume = sessionState.currentSessionId;
     if (images?.length) {
       payload.images = images.map((img) => ({ data: img.data, mediaType: img.mediaType }));
     }
-    if (sandbox && !currentSessionId) payload.worktree = true;
+    if (sessionState.sandbox && !sessionState.currentSessionId) payload.worktree = true;
 
     const cwd = searchParams.get('cwd');
     if (cwd) payload.cwd = cwd;
     const extraTools = searchParams.get('extraTools');
     if (extraTools) payload.extraTools = extraTools;
 
-    if (running) {
-      // Queue the send to fire once the current run finishes stopping
+    if (msgState.running) {
       pendingSend.current = payload;
       wsSend(poolKey, { type: 'stop' });
-      const previews = images?.map((img) => img.preview);
-      setMessages((prev) => [...prev, { role: 'user', text, images: previews }]);
-      streamBuf.current = '';
-      forceScrollToBottom();
-      return true;
+    } else {
+      wsSetRunning(poolKey, true);
+      wsSend(poolKey, payload);
     }
 
     const previews = images?.map((img) => img.preview);
-    setMessages((prev) => [...prev, { role: 'user', text, images: previews }]);
-    setRunning(true);
-    wsSetRunning(poolKey, true);
-    streamBuf.current = '';
-
-    wsSend(poolKey, payload);
+    dispatch({ type: 'USER_SEND', text, images: previews });
     forceScrollToBottom();
     return true;
   }
@@ -421,26 +140,18 @@ export function ChatView() {
   const handleStop = useCallback(() => {
     wsSend(poolKey, { type: 'stop' });
     wsSetRunning(poolKey, false);
-    setRunning(false);
-    streamBuf.current = '';
-  }, [poolKey]);
-
-  const handlePermission = useCallback(
-    (permId: string, decision: 'once' | 'always' | 'deny', toolName: string) => {
-      wsSend(poolKey, { type: 'permission_response', permId, decision, toolName });
-      setPermission(null);
-    },
-    [poolKey],
-  );
+    dispatch({ type: 'SET_RUNNING', running: false });
+  }, [poolKey, dispatch]);
 
   function handleModeChange(newMode: 'ask' | 'agent' | 'auto') {
-    setMode(newMode);
-    if (running) {
+    sessionActions.setMode(newMode);
+    if (msgState.running) {
       wsSend(poolKey, { type: 'set_mode', mode: newMode });
     }
   }
 
-  const grouped = useMemo(() => groupMessages(messages), [messages]);
+  const grouped = useMemo(() => groupMessages(msgState.messages), [msgState.messages]);
+  const initialPrompt = searchParams.get('prompt') || undefined;
 
   return (
     <div className="chat-page">
@@ -449,16 +160,16 @@ export function ChatView() {
         {!connected && (
           <span
             className="chat-header-offline"
-            title={running ? 'Reconnecting — session still active' : 'Reconnecting...'}
+            title={msgState.running ? 'Reconnecting — session still active' : 'Reconnecting...'}
           >
             !
           </span>
         )}
         <select
           className="chat-model-select"
-          value={model}
-          onChange={(e) => setModel(e.target.value)}
-          disabled={running}
+          value={sessionState.model}
+          onChange={(e) => sessionActions.setModel(e.target.value)}
+          disabled={msgState.running}
         >
           <option value="claude-sonnet-4-6">Sonnet</option>
           <option value="claude-opus-4-6">Opus</option>
@@ -468,7 +179,7 @@ export function ChatView() {
           {(['ask', 'agent', 'auto'] as const).map((m) => (
             <button
               key={m}
-              className={`mode-pill${mode === m ? ' mode-pill--active' : ''}`}
+              className={`mode-pill${sessionState.mode === m ? ' mode-pill--active' : ''}`}
               onClick={() => handleModeChange(m)}
             >
               {m.charAt(0).toUpperCase() + m.slice(1)}
@@ -476,25 +187,27 @@ export function ChatView() {
           ))}
         </div>
         <button
-          className={`chat-header-sandbox${sandbox || isWorktree ? ' chat-header-sandbox--active' : ''}`}
-          onClick={() => setSandbox((s) => !s)}
+          className={`chat-header-sandbox${sessionState.sandbox || msgState.isWorktree ? ' chat-header-sandbox--active' : ''}`}
+          onClick={() => sessionActions.setSandbox(!sessionState.sandbox)}
           disabled={hasStarted}
           title={
-            isWorktree
+            msgState.isWorktree
               ? 'Running in sandbox worktree'
-              : sandbox
+              : sessionState.sandbox
                 ? 'Sandbox on — will create worktree'
                 : 'Sandbox off — using base repo'
           }
         >
-          {isWorktree ? '⎔' : sandbox ? '⎔' : '⎕'}
+          {msgState.isWorktree ? '⎔' : sessionState.sandbox ? '⎔' : '⎕'}
         </button>
-        {branch && (
-          <span className={`chat-header-branch${isWorktree ? ' chat-header-branch--wt' : ''}`}>
-            {branch}
+        {msgState.branch && (
+          <span
+            className={`chat-header-branch${msgState.isWorktree ? ' chat-header-branch--wt' : ''}`}
+          >
+            {msgState.branch}
           </span>
         )}
-        {running && (
+        {msgState.running && (
           <button className="chat-header-stop" onClick={handleStop}>
             Stop
           </button>
@@ -502,7 +215,9 @@ export function ChatView() {
       </header>
 
       <div className="chat-messages" ref={scrollRef}>
-        {messages.length === 0 && !running && <p className="chat-empty">Send a message to start</p>}
+        {msgState.messages.length === 0 && !msgState.running && (
+          <p className="chat-empty">Send a message to start</p>
+        )}
         {grouped.map((item, i) => {
           if (item.type === 'tool-group') {
             return <ToolGroup key={`tg-${i}`} tools={item.tools} />;
@@ -518,15 +233,15 @@ export function ChatView() {
         })}
       </div>
 
-      {permission && (
+      {msgState.permission && (
         <PermissionBanner
-          permId={permission.permId}
-          toolName={permission.toolName}
-          toolInput={permission.toolInput}
-          title={permission.title}
-          description={permission.description}
-          displayName={permission.displayName}
-          tier={permission.tier}
+          permId={msgState.permission.permId}
+          toolName={msgState.permission.toolName}
+          toolInput={msgState.permission.toolInput}
+          title={msgState.permission.title}
+          description={msgState.permission.description}
+          displayName={msgState.permission.displayName}
+          tier={msgState.permission.tier}
           onRespond={handlePermission}
         />
       )}
@@ -534,7 +249,7 @@ export function ChatView() {
       <ChatInput
         onSend={sendMessage}
         onStop={handleStop}
-        running={running}
+        running={msgState.running}
         initialText={initialPrompt}
       />
     </div>
