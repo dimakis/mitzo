@@ -29,3 +29,4 @@ export const SESSION_MESSAGES_LIMIT = 100;
 // --- Server ---
 export const HEARTBEAT_INTERVAL_MS = 15_000;
 export const PORT_DEFAULT = 3100;
+export const SHUTDOWN_GRACE_MS = 5_000;

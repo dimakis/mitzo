@@ -225,48 +225,56 @@ export async function startChat(
   const branch = getBranch(cwd);
   send(ws, { type: 'session_info', branch, cwd, worktree: !!worktreePath });
 
-  const q = query({
-    prompt: inputQueue as AsyncIterable<SDKUserMessage>,
-    options: {
-      cwd,
-      env: sdkEnv(),
-      abortController,
-      includePartialMessages: true,
-      settingSources: ['project'],
-      systemPrompt: {
-        type: 'preset',
-        preset: 'claude_code',
-        append:
-          'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
-          '- Never take mutating actions (writes, comments, transitions, commits) without explicit user approval. Present analysis first, wait for confirmation.\n' +
-          '- Read operations are fine without asking.\n' +
-          '- Keep responses concise — small screen.\n' +
-          '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.',
+  let messageHandler: ((raw: Buffer) => void) | null = null;
+  try {
+    const q = query({
+      prompt: inputQueue as AsyncIterable<SDKUserMessage>,
+      options: {
+        cwd,
+        env: sdkEnv(),
+        abortController,
+        includePartialMessages: true,
+        settingSources: ['project'],
+        systemPrompt: {
+          type: 'preset',
+          preset: 'claude_code',
+          append:
+            'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
+            '- Never take mutating actions (writes, comments, transitions, commits) without explicit user approval. Present analysis first, wait for confirmation.\n' +
+            '- Read operations are fine without asking.\n' +
+            '- Keep responses concise — small screen.\n' +
+            '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.',
+        },
+        permissionMode: MODE_TO_SDK[mode] as 'plan' | 'default' | 'bypassPermissions',
+        allowedTools: [...modeAllowed, ...mcpAllowed, ...extraTools],
+        thinking: resolveThinking(options.model),
+        ...(options.model ? { model: options.model } : {}),
+        ...(options.resume ? { resume: options.resume } : {}),
+        ...(Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
+        canUseTool: buildPermissionHandler(clientId, registry),
       },
-      permissionMode: MODE_TO_SDK[mode] as 'plan' | 'default' | 'bypassPermissions',
-      allowedTools: [...modeAllowed, ...mcpAllowed, ...extraTools],
-      thinking: resolveThinking(options.model),
-      ...(options.model ? { model: options.model } : {}),
-      ...(options.resume ? { resume: options.resume } : {}),
-      ...(Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
-      canUseTool: buildPermissionHandler(clientId, registry),
-    },
-  });
+    });
 
-  session.queryInstance = q;
+    session.queryInstance = q;
 
-  const messageHandler = createWsMessageHandler(clientId, registry);
-  ws.on('message', messageHandler);
+    messageHandler = createWsMessageHandler(clientId, registry);
+    ws.on('message', messageHandler);
 
-  await runQueryLoop(
-    q as unknown as AsyncIterable<Record<string, unknown>>,
-    clientId,
-    registry,
-    abortController,
-    ws,
-  );
-
-  ws.removeListener('message', messageHandler);
+    await runQueryLoop(
+      q as unknown as AsyncIterable<Record<string, unknown>>,
+      clientId,
+      registry,
+      abortController,
+      ws,
+    );
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    log.error('startChat failed after register, cleaning up', { clientId, error: message });
+    send(ws, { type: 'error', error: message });
+    registry.abort(clientId);
+  } finally {
+    if (messageHandler) ws.removeListener('message', messageHandler);
+  }
 }
 
 /** Push a follow-up message into a running session. */

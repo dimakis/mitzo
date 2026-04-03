@@ -75,12 +75,17 @@ export function ChatView() {
     }
   }, [msgState.messages, msgState.current]);
 
-  // Restore messages from cache/API on mount for existing sessions
-  const restoreAttempted = useRef(false);
-  if (sessionId && !restoreAttempted.current) {
-    restoreAttempted.current = true;
+  // Restore messages from cache or API when sessionId changes.
+  // AbortController prevents a slow response for session A from overwriting
+  // session B's messages when the user navigates quickly between sessions.
+  useEffect(() => {
+    if (!sessionId) return;
+
+    const controller = new AbortController();
     const cacheKey = `${CHAT_CACHE_KEY_PREFIX}${sessionId}`;
     const cached = localStorage.getItem(cacheKey);
+    let restoredFromCache = false;
+
     if (cached) {
       try {
         const restored = JSON.parse(cached);
@@ -92,6 +97,7 @@ export function ChatView() {
         if (isV2) {
           dispatch({ type: 'RESTORE', messages: restored });
           setTimeout(forceScrollToBottom, SCROLL_RESTORE_DELAY_MS);
+          restoredFromCache = true;
         } else {
           localStorage.removeItem(cacheKey);
         }
@@ -99,10 +105,13 @@ export function ChatView() {
         localStorage.removeItem(cacheKey);
       }
     }
-    if (!cached || !localStorage.getItem(cacheKey)) {
-      fetch(`/api/sessions/${sessionId}/messages`)
+
+    if (!restoredFromCache) {
+      dispatch({ type: 'RESTORE', messages: [] });
+      fetch(`/api/sessions/${sessionId}/messages`, { signal: controller.signal })
         .then((r) => (r.ok ? r.json() : []))
         .then((msgs: unknown[]) => {
+          if (controller.signal.aborted) return;
           if (msgs.length > 0) {
             dispatch({
               type: 'RESTORE',
@@ -111,11 +120,11 @@ export function ChatView() {
             setTimeout(forceScrollToBottom, SCROLL_RESTORE_DELAY_MS);
           }
         })
-        .catch(() => {
-          // Network error — non-fatal
-        });
+        .catch(() => {});
     }
-  }
+
+    return () => controller.abort();
+  }, [sessionId, dispatch, forceScrollToBottom]);
 
   const { connected } = useChatConnection(poolKey, handleWsMessage);
 

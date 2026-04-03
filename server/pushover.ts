@@ -54,3 +54,15 @@ export async function sendPermissionNotification(
 
   await sendPushoverNotification(`Mitzo: ${toolName}`, toolInput, mitzoUrl, 'Open Mitzo');
 }
+
+export async function sendTurnCompleteNotification(): Promise<void> {
+  const baseUrl = process.env.BASE_URL;
+  if (!isConfigured() || !baseUrl) return;
+
+  await sendPushoverNotification(
+    'Mitzo: Agent replied',
+    'The agent has finished its turn.',
+    baseUrl,
+    'Open Mitzo',
+  );
+}

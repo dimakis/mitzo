@@ -341,6 +341,7 @@ export function useChatMessages(
   const pendingSend = useRef<Record<string, unknown> | null>(null);
   const currentSessionIdRef = useRef(currentSessionId);
   currentSessionIdRef.current = currentSessionId;
+  const reattachAbort = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const id = currentSessionIdRef.current;
@@ -369,12 +370,19 @@ export function useChatMessages(
           dispatch({ type: 'SET_RUNNING', running: false });
           wsSetRunning(poolKey, false);
           if (currentSessionIdRef.current) {
+            reattachAbort.current?.abort();
+            const controller = new AbortController();
+            reattachAbort.current = controller;
             fetch(`/api/sessions/${currentSessionIdRef.current}/messages`, {
               credentials: 'include',
+              signal: controller.signal,
             })
               .then((r) => r.json())
-              .then((data: { messages?: FinishedMessage[] }) => {
-                if (data.messages?.length) dispatch({ type: 'RESTORE', messages: data.messages });
+              .then((msgs: FinishedMessage[]) => {
+                if (controller.signal.aborted) return;
+                if (Array.isArray(msgs) && msgs.length > 0) {
+                  dispatch({ type: 'RESTORE', messages: msgs });
+                }
               })
               .catch(() => {});
           }

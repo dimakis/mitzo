@@ -213,3 +213,21 @@ export function wsDrainBuffer(key: string): WsMsg[] {
   entry.messageBuffer.length = 0;
   return msgs;
 }
+
+/**
+ * Remove a pool entry if it is idle (not running, no listeners).
+ * Closes the WebSocket, clears reconnect timers, and deletes the entry.
+ * Running sessions are kept alive — the pool exists to survive unmounts.
+ */
+export function wsRemoveIfIdle(key: string): boolean {
+  const entry = pool.get(key);
+  if (!entry) return false;
+  if (entry.wasRunning || entry.listeners.size > 0) return false;
+  if (entry.reconnectTimer) clearTimeout(entry.reconnectTimer);
+  if (entry.ws) {
+    entry.ws.onclose = null;
+    entry.ws.close();
+  }
+  pool.delete(key);
+  return true;
+}

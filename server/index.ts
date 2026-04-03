@@ -14,7 +14,7 @@ import {
   registry,
 } from './chat.js';
 import { cleanupStaleWorktrees } from './worktree.js';
-import { HEARTBEAT_INTERVAL_MS, PORT_DEFAULT } from './constants.js';
+import { HEARTBEAT_INTERVAL_MS, PORT_DEFAULT, SHUTDOWN_GRACE_MS } from './constants.js';
 import { createLogger } from './logger.js';
 import { app, setUpdateBroadcast, runUpdateCheck } from './app.js';
 
@@ -145,6 +145,19 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
     log.error('ws error', { clientId, error: err.message });
   });
 }
+
+function shutdown(signal: string) {
+  log.info(`${signal} received — shutting down gracefully`);
+  server.close();
+  registry.dispose();
+  for (const client of wss.clients) {
+    client.close(1001, 'Server shutting down');
+  }
+  setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS);
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 import { checkPort } from './port-check.js';
 
