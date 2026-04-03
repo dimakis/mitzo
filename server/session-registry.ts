@@ -1,5 +1,5 @@
 import type { WebSocket } from 'ws';
-import { DETACHED_TTL_MS } from './constants.js';
+import { DETACHED_TTL_MS, DETACHED_BUFFER_MAX } from './constants.js';
 import { createLogger } from './logger.js';
 import type { RawToolInput } from './tool-summary.js';
 
@@ -34,6 +34,7 @@ export interface ManagedSession {
   queryInstance?: { interrupt: () => Promise<void>; close: () => void };
   inputQueue?: { push: (msg: unknown) => void; close: () => void };
   currentSnapshot: MessageSnapshot | null;
+  detachedBuffer: unknown[];
 }
 
 export class SessionRegistry {
@@ -47,7 +48,7 @@ export class SessionRegistry {
       sessionId?: string;
     },
   ): void {
-    this.sessions.set(clientId, { ...init, currentSnapshot: null });
+    this.sessions.set(clientId, { ...init, currentSnapshot: null, detachedBuffer: [] });
     this.attached.add(clientId);
   }
 
@@ -137,6 +138,28 @@ export class SessionRegistry {
       }
     }
     return null;
+  }
+
+  /**
+   * Buffer a message for a detached session. Respects DETACHED_BUFFER_MAX.
+   */
+  bufferDetached(clientId: string, msg: unknown): void {
+    const session = this.sessions.get(clientId);
+    if (!session) return;
+    if (session.detachedBuffer.length < DETACHED_BUFFER_MAX) {
+      session.detachedBuffer.push(msg);
+    }
+  }
+
+  /**
+   * Drain and return all buffered messages, clearing the buffer.
+   */
+  drainDetachedBuffer(clientId: string): unknown[] {
+    const session = this.sessions.get(clientId);
+    if (!session || session.detachedBuffer.length === 0) return [];
+    const msgs = session.detachedBuffer.slice();
+    session.detachedBuffer.length = 0;
+    return msgs;
   }
 
   setSessionId(clientId: string, sessionId: string): void {

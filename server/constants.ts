@@ -2,6 +2,7 @@
 
 // --- Session & Permission ---
 export const DETACHED_TTL_MS = 600_000; // 10 minutes
+export const DETACHED_BUFFER_MAX = 1_000; // max messages buffered while client is detached
 export const PERMISSION_TIMEOUT_MS = 120_000; // 2 minutes
 export const NTFY_NOTIFICATION_DELAY_MS = 10_000; // 10 seconds
 

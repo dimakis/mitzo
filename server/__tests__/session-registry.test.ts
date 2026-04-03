@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { SessionRegistry } from '../session-registry.js';
-import { DETACHED_TTL_MS } from '../constants.js';
+import { DETACHED_TTL_MS, DETACHED_BUFFER_MAX } from '../constants.js';
 
 describe('SessionRegistry', () => {
   let registry: SessionRegistry;
@@ -292,6 +292,103 @@ describe('SessionRegistry', () => {
 
       registry.setMode('client-1', 'auto');
       expect(registry.get('client-1')!.mode).toBe('auto');
+    });
+  });
+
+  describe('detachedBuffer', () => {
+    it('initializes with an empty detachedBuffer', () => {
+      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      registry.register('client-1', {
+        ws: fakeWs,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      const session = registry.get('client-1');
+      expect(session!.detachedBuffer).toEqual([]);
+    });
+
+    it('bufferDetached pushes messages to the buffer', () => {
+      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      registry.register('client-1', {
+        ws: fakeWs,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      const msg1 = { type: 'block_start', blockId: 'b0' };
+      const msg2 = { type: 'block_delta', blockId: 'b0', delta: 'hello' };
+
+      registry.bufferDetached('client-1', msg1);
+      registry.bufferDetached('client-1', msg2);
+
+      const session = registry.get('client-1');
+      expect(session!.detachedBuffer).toHaveLength(2);
+      expect(session!.detachedBuffer[0]).toBe(msg1);
+      expect(session!.detachedBuffer[1]).toBe(msg2);
+    });
+
+    it('bufferDetached respects DETACHED_BUFFER_MAX', () => {
+      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      registry.register('client-1', {
+        ws: fakeWs,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      for (let i = 0; i < DETACHED_BUFFER_MAX + 100; i++) {
+        registry.bufferDetached('client-1', { type: 'block_delta', i });
+      }
+
+      const session = registry.get('client-1');
+      expect(session!.detachedBuffer).toHaveLength(DETACHED_BUFFER_MAX);
+    });
+
+    it('bufferDetached is a no-op for unknown clientId', () => {
+      expect(() => registry.bufferDetached('nonexistent', { type: 'test' })).not.toThrow();
+    });
+
+    it('drainDetachedBuffer returns buffered messages and clears the buffer', () => {
+      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      registry.register('client-1', {
+        ws: fakeWs,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      const msg1 = { type: 'block_start' };
+      const msg2 = { type: 'block_end' };
+      registry.bufferDetached('client-1', msg1);
+      registry.bufferDetached('client-1', msg2);
+
+      const drained = registry.drainDetachedBuffer('client-1');
+      expect(drained).toHaveLength(2);
+      expect(drained[0]).toBe(msg1);
+      expect(drained[1]).toBe(msg2);
+
+      // Buffer is now empty
+      const session = registry.get('client-1');
+      expect(session!.detachedBuffer).toHaveLength(0);
+    });
+
+    it('drainDetachedBuffer returns empty array for unknown clientId', () => {
+      expect(registry.drainDetachedBuffer('nonexistent')).toEqual([]);
+    });
+
+    it('drainDetachedBuffer returns empty array when nothing was buffered', () => {
+      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      registry.register('client-1', {
+        ws: fakeWs,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      expect(registry.drainDetachedBuffer('client-1')).toEqual([]);
     });
   });
 
