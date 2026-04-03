@@ -19,6 +19,10 @@ jobs:
           cache: npm
 
       - name: Install root dependencies
+        # TODO: Restore `npm ci` once lockfile is generated on Linux.
+        # jsdom's optional @emnapi/* native deps vary by platform — a macOS-generated
+        # lockfile omits Linux variants, causing npm ci to fail on Ubuntu runners.
+        # Fix: run `npm install` in a Linux container and commit that lockfile.
         run: npm install --no-audit
 
       - name: Install frontend dependencies
@@ -45,13 +49,13 @@ jobs:
       - name: Test
         id: test
         if: always()
-        run: npm test
+        run: npm test 2>&1 | tee test-output.txt
 
       - name: Test count guard
         id: test-count
         if: always()
         run: |
-          COUNT=$(npx vitest run 2>&1 | grep 'Tests' | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')
+          COUNT=$(grep 'Tests' test-output.txt | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')
           echo "Test count: $COUNT"
           if [ -z "$COUNT" ] || [ "$COUNT" -lt 250 ]; then
             echo "::error::Test count dropped below 250 (got ${COUNT:-0}). Did you accidentally delete tests?"
