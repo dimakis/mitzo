@@ -5,6 +5,8 @@ import { extractToolResultText } from './content-blocks.js';
 import { TOOL_RESULT_MAX_CHARS } from './constants.js';
 import { createLogger } from './logger.js';
 import type { SessionRegistry, SnapshotBlock } from './session-registry.js';
+import { sendTurnCompleteNotification as ntfyTurnComplete } from './notify.js';
+import { sendTurnCompleteNotification as pushoverTurnComplete } from './pushover.js';
 
 const log = createLogger('query-loop');
 
@@ -152,6 +154,10 @@ export async function runQueryLoop(
         forceFlushPendingMessage(currentWs, currentSession);
         doneSent = true;
         send(currentWs, v2('session_end', { sessionId: msg.session_id }));
+        if (!registry.isAttached(clientId)) {
+          ntfyTurnComplete().catch(() => {});
+          pushoverTurnComplete().catch(() => {});
+        }
       } else if (msg.type === 'stream_event') {
         const evt = msg.event as Record<string, unknown> | undefined;
         log.debug('stream event', { clientId, evtType: evt?.type });

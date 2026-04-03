@@ -51,3 +51,26 @@ export async function sendPermissionNotification(
     });
   }
 }
+
+export async function sendTurnCompleteNotification(): Promise<void> {
+  if (!NTFY_TOPIC || !BASE_URL) return;
+
+  const headers: Record<string, string> = {
+    Title: 'Mitzo: Agent replied',
+    Priority: '3',
+    Tags: 'speech_balloon',
+    Actions: `view, Open Mitzo, ${BASE_URL}`,
+  };
+
+  try {
+    await fetch(`${NTFY_URL}/${NTFY_TOPIC}`, {
+      method: 'POST',
+      headers,
+      body: 'The agent has finished its turn.',
+    });
+  } catch (err: unknown) {
+    log.error('failed to send turn-complete notification', {
+      error: err instanceof Error ? err.message : err,
+    });
+  }
+}
