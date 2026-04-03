@@ -117,6 +117,40 @@ describe('auth routes', () => {
   });
 });
 
+// --- Security: CSP Headers ---
+
+describe('security headers', () => {
+  it('responses include CSP with img-src allowing data: URIs', async () => {
+    const res = await request(app).get('/api/version');
+    const csp = res.headers['content-security-policy'];
+    expect(csp).toBeDefined();
+    expect(csp).toContain("img-src 'self' data:");
+  });
+
+  it('responses include X-Content-Type-Options', async () => {
+    const res = await request(app).get('/api/version');
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+  });
+});
+
+// --- Security: Login Rate Limiting ---
+
+describe('login rate limiting', () => {
+  it('returns 429 after exceeding login attempts', async () => {
+    const agent = request(app);
+    const attempts = [];
+    for (let i = 0; i < 10; i++) {
+      attempts.push(agent.post('/api/auth/login').send({ passphrase: 'wrong' }));
+    }
+    const results = await Promise.all(attempts);
+    const got429 = results.some((r) => r.status === 429);
+    expect(got429).toBe(true);
+
+    const last429 = results.filter((r) => r.status === 429);
+    expect(last429[0].body.error).toContain('Too many login attempts');
+  });
+});
+
 // --- Permission Route ---
 
 describe('permission route', () => {
