@@ -373,8 +373,10 @@ export function useChatMessages(
               credentials: 'include',
             })
               .then((r) => r.json())
-              .then((data: { messages?: FinishedMessage[] }) => {
-                if (data.messages?.length) dispatch({ type: 'RESTORE', messages: data.messages });
+              .then((msgs: FinishedMessage[]) => {
+                if (Array.isArray(msgs) && msgs.length > 0) {
+                  dispatch({ type: 'RESTORE', messages: msgs });
+                }
               })
               .catch(() => {});
           }
