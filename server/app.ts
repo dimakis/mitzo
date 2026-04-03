@@ -39,6 +39,7 @@ app.use(
         styleSrc: ["'self'", "'unsafe-inline'"],
         connectSrc: ["'self'", 'ws:', 'wss:'],
         imgSrc: ["'self'", 'data:'],
+        upgradeInsecureRequests: null,
       },
     },
   }),
