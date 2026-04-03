@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { wsSubscribe, wsIsOpen, wsDrainBuffer } from '../lib/ws-pool';
+import { wsSubscribe, wsIsOpen, wsDrainBuffer, wsRemoveIfIdle } from '../lib/ws-pool';
 import type { WsMsg } from '../lib/ws-pool';
 
 export function useChatConnection(
@@ -25,7 +25,10 @@ export function useChatConnection(
 
     setConnected(wsIsOpen(poolKey));
 
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      wsRemoveIfIdle(poolKey);
+    };
   }, [poolKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { connected };
