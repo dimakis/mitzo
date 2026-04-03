@@ -1,6 +1,12 @@
 # Mitzo
 
+> **v0.1.0** — [Release notes](https://github.com/dimakis/mitzo/releases/tag/v0.1.0)
+
 A mobile-first web interface for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) via the [Agent SDK](https://docs.anthropic.com/en/docs/claude-code/sdk). Run it on a home server, access it from your phone over [Tailscale](https://tailscale.com).
+
+<!-- Screenshots: replace placeholders after capturing on phone -->
+<!-- ![Home Screen](docs/screenshots/home.png) -->
+<!-- ![Chat with Tools](docs/screenshots/chat-tools.png) -->
 
 ## What It Does
 
@@ -22,52 +28,81 @@ A mobile-first web interface for [Claude Code](https://docs.anthropic.com/en/doc
 Phone (over Tailscale)
   │
   ├── HTTP: REST API (Express)
-  └── WebSocket: streaming chat
+  └── WebSocket: v2 streaming protocol
   │
 Server (Node.js + TypeScript)
   │
-  ├── Agent SDK: Claude Code sessions
+  ├── Agent SDK → v2 event translator (query-loop)
+  ├── Session registry: detach/reattach/snapshot
   ├── MCP servers: loaded from Cursor config
   ├── Git worktrees: opt-in per-session isolation
   └── Passphrase + JWT auth
 ```
 
-**Backend** (`server/`) — Express + TypeScript, run via `tsx`
+### v2 Message Protocol
 
-| File                  | Purpose                                                                             |
-| --------------------- | ----------------------------------------------------------------------------------- |
-| `index.ts`            | Express app, routes, WebSocket server, startup cleanup                              |
-| `chat.ts`             | Agent SDK integration, session lifecycle, permission handling                       |
-| `session-registry.ts` | Session lifecycle decoupled from WebSocket (detach/reattach)                        |
-| `mcp-config.ts`       | Loads MCP server configs from Cursor mcp.json                                       |
-| `worktree.ts`         | Git worktree create/remove/cleanup/list                                             |
-| `tool-tiers.ts`       | Tool risk classification (safe/standard/elevated/unknown) and mode-aware auto-allow |
-| `permissions.ts`      | Permission request registry, SDK suggestion passthrough                             |
-| `notify.ts`           | ntfy push notifications                                                             |
-| `auth.ts`             | Passphrase login, JWT (HS256), cookie auth                                          |
-| `content-blocks.ts`   | SDK message content block parsing (shared between stream + API)                     |
-| `tool-summary.ts`     | Human-readable tool input summarization                                             |
-| `repo-config.ts`      | Reads `.mitzo.json` from repo for quick actions + venv paths                        |
-| `port-check.ts`       | Port-in-use guard — prevents duplicate server instances                             |
+The server translates raw SDK events into an explicit block lifecycle protocol. Every content block has a defined start → delta → end lifecycle. No client-side inference from timing or event absence.
 
-**Frontend** (`frontend/`) — React 19 + Vite + TypeScript
+- `message_start` / `message_end` — assistant turn boundaries
+- `block_start` / `block_delta` / `block_end` — content block lifecycle (text, thinking, tool_use)
+- `tool_result` — paired with tool_use blocks via toolId
+- `message_snapshot` — full state recovery on iOS silent-drop reconnect
+- Deferred `message_end` — server tracks open blocks and only finalizes when all are closed
 
-| Page          | Purpose                                                                        |
-| ------------- | ------------------------------------------------------------------------------ |
-| `Login`       | Passphrase entry                                                               |
-| `SessionList` | Quick action grid + session history (swipe-to-dismiss)                         |
-| `ChatView`    | Streaming chat, mode pills, sandbox toggle, branch pill, permission banner     |
-| `FileViewer`  | Directory browser, markdown viewer/editor, worktree selector, branch indicator |
+See [docs/design/message-protocol-v2.md](docs/design/message-protocol-v2.md) for the full spec.
 
-| Directory     | Purpose                                                                      |
-| ------------- | ---------------------------------------------------------------------------- |
-| `types/`      | Shared TypeScript types (Message, Session, etc.)                             |
-| `lib/`        | Shared utilities (groupMessages, formatTime, truncate, resizeImage, ws-pool) |
-| `components/` | MessageBubble, ToolPill, ToolGroup, PermissionBanner, ChatInput, MitzoLogo   |
+### Backend (`server/`)
+
+Express + TypeScript, run via `tsx`.
+
+| File                    | Purpose                                                            |
+| ----------------------- | ------------------------------------------------------------------ |
+| `index.ts`              | Express app, routes, WebSocket server, startup cleanup             |
+| `chat.ts`               | Agent SDK integration, session lifecycle, prompt assembly          |
+| `query-loop.ts`         | SDK event → v2 protocol translator, deferred message_end, snapshot |
+| `session-registry.ts`   | Session state, detach/reattach, snapshot storage                   |
+| `permission-handler.ts` | canUseTool callback builder for SDK permission flow                |
+| `async-queue.ts`        | AsyncIterable queue for streaming-input (follow-up, interrupt)     |
+| `tool-tiers.ts`         | Tool risk classification and mode-aware auto-allow matrix          |
+| `tool-summary.ts`       | Human-readable tool input summarization (SDK field names)          |
+| `permissions.ts`        | Permission request registry, SDK suggestion passthrough            |
+| `content-blocks.ts`     | SDK content block parsing (stream + session restore API)           |
+| `mcp-config.ts`         | Loads MCP server configs from Cursor mcp.json                      |
+| `worktree.ts`           | Git worktree create/remove/cleanup/list                            |
+| `repo-config.ts`        | Reads `.mitzo.json` for quick actions, venv paths, tier overrides  |
+| `notify.ts`             | ntfy push notifications                                            |
+| `pushover.ts`           | Pushover notifications (Apple Watch)                               |
+| `auth.ts`               | Passphrase login, JWT (HS256), cookie auth                         |
+| `git-version.ts`        | Local/remote commit comparison for update detection                |
+| `logger.ts`             | Structured logger with LOG_LEVEL filtering                         |
+| `constants.ts`          | Server-wide constants (timeouts, limits, defaults)                 |
+| `port-check.ts`         | Port-in-use guard — prevents duplicate server instances            |
+
+### Frontend (`frontend/`)
+
+React 19 + Vite + TypeScript.
+
+| Page          | Purpose                                                                    |
+| ------------- | -------------------------------------------------------------------------- |
+| `Login`       | Passphrase entry                                                           |
+| `SessionList` | Quick action grid + session history (swipe-to-dismiss)                     |
+| `ChatView`    | Streaming chat, mode pills, sandbox toggle, branch pill, permission banner |
+| `FileViewer`  | Directory browser, markdown viewer/editor, worktree selector               |
+
+| Directory     | Purpose                                                                                                       |
+| ------------- | ------------------------------------------------------------------------------------------------------------- |
+| `types/`      | v2 types: StreamingBlock, FinishedMessage, PlanItem                                                           |
+| `hooks/`      | useChatMessages (reducer), useChatSession, useChatConnection, usePermission, useFileNavigation, useFileEditor |
+| `lib/`        | ws-pool, groupMessages, formatTime, constants, paste-images, model-preference                                 |
+| `components/` | MessageBubble, ThinkingBlock, ToolPill, ToolGroup, PermissionBanner, ChatInput, ErrorBoundary, MitzoLogo      |
+
+### MCP Server (`mcp-server/`)
+
+Optional MCP server subproject exposing repo-specific tools to Claude sessions. Build with `npm run build:mcp`, configure with `npm run setup-mcp`.
 
 ## Prerequisites
 
-- **Node.js** 20+
+- **Node.js** 22+
 - **Git** (for worktree support)
 - **Claude Code** CLI installed and authenticated
 - **Tailscale** (for remote access)
@@ -214,7 +249,7 @@ Without a `.mitzo.json`, Mitzo shows a minimal home screen with Chat and Files.
 | MCP       | Cursor-compatible stdio servers     |
 | Auth      | JWT via jose                        |
 | Isolation | Git worktrees (opt-in)              |
-| Tests     | Vitest (118 tests)                  |
+| Tests     | Vitest (209 tests, 22 files)        |
 | Quality   | ESLint, Prettier, husky, commitlint |
 
 ## Security

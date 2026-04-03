@@ -47,10 +47,39 @@ jobs:
         if: always()
         run: npm test
 
+      - name: Test count guard
+        id: test-count
+        if: always()
+        run: |
+          COUNT=$(npx vitest run 2>&1 | grep -oP '(\d+) passed' | head -1 | grep -oP '\d+')
+          echo "Test count: $COUNT"
+          if [ "$COUNT" -lt 200 ]; then
+            echo "::error::Test count dropped below 200 (got $COUNT). Did you accidentally delete tests?"
+            exit 1
+          fi
+
       - name: Build
         id: build
         if: always()
         run: npm run build
+
+      - name: Bundle size
+        id: bundle-size
+        if: always()
+        run: |
+          JS_SIZE=$(stat -c%s frontend/dist/assets/index-*.js 2>/dev/null || echo 0)
+          CSS_SIZE=$(stat -c%s frontend/dist/assets/index-*.css 2>/dev/null || echo 0)
+          JS_KB=$((JS_SIZE / 1024))
+          CSS_KB=$((CSS_SIZE / 1024))
+          echo "JS: ${JS_KB}KB, CSS: ${CSS_KB}KB"
+          echo "### Bundle Size" >> $GITHUB_STEP_SUMMARY
+          echo "| Asset | Size |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| JS | ${JS_KB}KB |" >> $GITHUB_STEP_SUMMARY
+          echo "| CSS | ${CSS_KB}KB |" >> $GITHUB_STEP_SUMMARY
+          if [ "$JS_KB" -gt 600 ]; then
+            echo "::warning::JS bundle exceeds 600KB (${JS_KB}KB)"
+          fi
 
       - name: Summary
         if: always()
@@ -60,6 +89,7 @@ jobs:
              [ "${{ steps.typecheck-server.outcome }}" = "failure" ] || \
              [ "${{ steps.typecheck-frontend.outcome }}" = "failure" ] || \
              [ "${{ steps.test.outcome }}" = "failure" ] || \
+             [ "${{ steps.test-count.outcome }}" = "failure" ] || \
              [ "${{ steps.build.outcome }}" = "failure" ]; then
             echo "One or more CI steps failed."
             exit 1

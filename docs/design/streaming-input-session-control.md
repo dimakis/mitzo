@@ -1,9 +1,11 @@
 # Streaming Input & Session Control
 
-**Status:** Proposal (follow-on to message-protocol-v2)
-**Date:** 2026-04-02
-**Depends on:** Message Protocol v2 (must ship first)
+**Status:** Implemented (v0.1.0)
+**Date:** 2026-04-02 (proposed) / 2026-04-03 (shipped with protocol v2)
+**Depends on:** Message Protocol v2 (shipped)
 **Author:** Claude (with Dimitri)
+
+> **Post-implementation note (2026-04-03):** Shipped as part of the protocol v2 PR (#33). `AsyncQueue` provides the streaming-input `AsyncIterable`, `sendToChat()` pushes follow-up messages, `interruptChat()` interrupts and injects priority messages. The `pendingSend` ref on the frontend was replaced by native server-side queuing.
 
 ## Context
 
