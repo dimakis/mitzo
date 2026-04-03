@@ -75,10 +75,13 @@ export function ChatView() {
     }
   }, [msgState.messages, msgState.current]);
 
-  // Restore messages from cache or API when sessionId changes
+  // Restore messages from cache or API when sessionId changes.
+  // AbortController prevents a slow response for session A from overwriting
+  // session B's messages when the user navigates quickly between sessions.
   useEffect(() => {
     if (!sessionId) return;
 
+    const controller = new AbortController();
     const cacheKey = `${CHAT_CACHE_KEY_PREFIX}${sessionId}`;
     const cached = localStorage.getItem(cacheKey);
     let restoredFromCache = false;
@@ -105,9 +108,10 @@ export function ChatView() {
 
     if (!restoredFromCache) {
       dispatch({ type: 'RESTORE', messages: [] });
-      fetch(`/api/sessions/${sessionId}/messages`)
+      fetch(`/api/sessions/${sessionId}/messages`, { signal: controller.signal })
         .then((r) => (r.ok ? r.json() : []))
         .then((msgs: unknown[]) => {
+          if (controller.signal.aborted) return;
           if (msgs.length > 0) {
             dispatch({
               type: 'RESTORE',
@@ -118,6 +122,8 @@ export function ChatView() {
         })
         .catch(() => {});
     }
+
+    return () => controller.abort();
   }, [sessionId, dispatch, forceScrollToBottom]);
 
   const { connected } = useChatConnection(poolKey, handleWsMessage);
