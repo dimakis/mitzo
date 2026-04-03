@@ -22,6 +22,10 @@ vi.mock('../chat.js', () => {
     repoConfig: {
       quickActions: [],
       allowedPaths: [],
+      roots: [
+        { label: 'Main', path: repo },
+        { label: 'Tools', path: '/some/tools' },
+      ],
       resolvedVenvPaths: [],
       toolTierOverrides: {},
     },
@@ -322,6 +326,15 @@ describe('file routes', () => {
   it('PUT /api/files/write — missing body fields returns 400', async () => {
     const res = await request(app).put('/api/files/write').set('Cookie', authCookie).send({});
     expect(res.status).toBe(400);
+  });
+
+  it('GET /api/files/roots — returns configured roots', async () => {
+    const res = await request(app).get('/api/files/roots').set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([
+      { label: 'Main', path: TEST_REPO },
+      { label: 'Tools', path: '/some/tools' },
+    ]);
   });
 
   it('PUT /api/files/write — disallowed path returns 403', async () => {

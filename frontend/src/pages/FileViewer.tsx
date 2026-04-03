@@ -63,32 +63,48 @@ export function FileViewer() {
         )}
       </header>
 
-      {state.gitInfo && state.gitInfo.worktrees.length > 0 && !state.isViewing && (
-        <div className="viewer-root-bar">
-          <button
-            className={`viewer-root-btn${state.activeRoot === state.gitInfo.repoPath ? ' viewer-root-btn--active' : ''}`}
-            onClick={() => {
-              editor.resetEditor();
-              nav.handleRootChange(state.gitInfo!.repoPath, editor.dirty);
-            }}
-          >
-            main
-          </button>
-          {state.gitInfo.worktrees.map((wt) => (
-            <button
-              key={wt.path}
-              className={`viewer-root-btn${state.activeRoot === wt.path ? ' viewer-root-btn--active' : ''}`}
-              onClick={() => {
-                editor.resetEditor();
-                nav.handleRootChange(wt.path, editor.dirty);
-              }}
-              title={`${wt.branch} (${wt.age})`}
-            >
-              {wt.branch || wt.name}
-            </button>
-          ))}
-        </div>
-      )}
+      {!state.isViewing &&
+        (state.roots.length > 0 || (state.gitInfo && state.gitInfo.worktrees.length > 0)) && (
+          <div className="viewer-root-bar">
+            {state.roots.length > 0 ? (
+              state.roots.map((root) => (
+                <button
+                  key={root.path}
+                  className={`viewer-root-btn${state.activeRoot === root.path ? ' viewer-root-btn--active' : ''}`}
+                  onClick={() => {
+                    editor.resetEditor();
+                    nav.handleRootChange(root.path, editor.dirty);
+                  }}
+                >
+                  {root.label}
+                </button>
+              ))
+            ) : state.gitInfo ? (
+              <button
+                className={`viewer-root-btn${state.activeRoot === state.gitInfo.repoPath ? ' viewer-root-btn--active' : ''}`}
+                onClick={() => {
+                  editor.resetEditor();
+                  nav.handleRootChange(state.gitInfo!.repoPath, editor.dirty);
+                }}
+              >
+                main
+              </button>
+            ) : null}
+            {state.gitInfo?.worktrees.map((wt) => (
+              <button
+                key={wt.path}
+                className={`viewer-root-btn${state.activeRoot === wt.path ? ' viewer-root-btn--active' : ''}`}
+                onClick={() => {
+                  editor.resetEditor();
+                  nav.handleRootChange(wt.path, editor.dirty);
+                }}
+                title={`${wt.branch} (${wt.age})`}
+              >
+                {wt.branch || wt.name}
+              </button>
+            ))}
+          </div>
+        )}
 
       <div className="viewer-content">
         {state.loading && <p className="viewer-status">Loading...</p>}

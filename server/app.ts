@@ -218,6 +218,10 @@ app.get('/api/git/info', (_req, res) => {
   res.json({ branch, repoPath: BASE_REPO, worktrees });
 });
 
+app.get('/api/files/roots', (_req, res) => {
+  res.json(repoConfig.roots);
+});
+
 app.get('/api/files', (req, res) => {
   const root = resolveRoot(req.query.root as string | undefined);
   const dir = (req.query.dir as string) || root;

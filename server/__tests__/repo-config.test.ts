@@ -69,6 +69,48 @@ describe('loadRepoConfig', () => {
     expect(config.venvPaths).toEqual([]);
   });
 
+  it('parses roots from .mitzo.json', () => {
+    const data = {
+      roots: [
+        { label: 'Main', path: '/some/repo' },
+        { label: 'Tools', path: '/some/tools' },
+      ],
+    };
+    writeFileSync(join(TMP_DIR, '.mitzo.json'), JSON.stringify(data));
+
+    const config = loadRepoConfig(TMP_DIR);
+    expect(config.roots).toEqual([
+      { label: 'Main', path: '/some/repo' },
+      { label: 'Tools', path: '/some/tools' },
+    ]);
+  });
+
+  it('returns empty roots when not specified', () => {
+    const data = { quickActions: [] };
+    writeFileSync(join(TMP_DIR, '.mitzo.json'), JSON.stringify(data));
+
+    const config = loadRepoConfig(TMP_DIR);
+    expect(config.roots).toEqual([]);
+  });
+
+  it('filters out invalid root entries', () => {
+    const data = {
+      roots: [
+        { label: 'Valid', path: '/ok' },
+        { label: 'No path' },
+        { path: '/no-label' },
+        'not an object',
+        { label: 'Also Valid', path: '/also/ok' },
+      ],
+    };
+    writeFileSync(join(TMP_DIR, '.mitzo.json'), JSON.stringify(data));
+
+    const config = loadRepoConfig(TMP_DIR);
+    expect(config.roots).toHaveLength(2);
+    expect(config.roots[0].label).toBe('Valid');
+    expect(config.roots[1].label).toBe('Also Valid');
+  });
+
   it('filters out quickActions with missing required fields', () => {
     const data = {
       quickActions: [

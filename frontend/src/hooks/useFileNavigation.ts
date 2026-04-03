@@ -19,6 +19,11 @@ interface GitInfo {
   worktrees: WorktreeInfo[];
 }
 
+interface FileRoot {
+  label: string;
+  path: string;
+}
+
 export interface FileNavState {
   content: string;
   ext: string;
@@ -27,6 +32,7 @@ export interface FileNavState {
   loading: boolean;
   error: string;
   gitInfo: GitInfo | null;
+  roots: FileRoot[];
   activeRoot: string;
   isViewing: boolean;
   filePath: string;
@@ -49,6 +55,7 @@ export function useFileNavigation(
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
+  const [roots, setRoots] = useState<FileRoot[]>([]);
   const [activeRoot, setActiveRoot] = useState(rootParam);
 
   useEffect(() => {
@@ -62,6 +69,15 @@ export function useFileNavigation(
       })
       .catch(() => {
         // Network error loading git info — non-fatal
+      });
+
+    fetch('/api/files/roots')
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: FileRoot[]) => {
+        if (Array.isArray(data)) setRoots(data);
+      })
+      .catch(() => {
+        // Network error loading roots — non-fatal
       });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -156,6 +172,7 @@ export function useFileNavigation(
     loading,
     error,
     gitInfo,
+    roots,
     activeRoot,
     isViewing,
     filePath,
