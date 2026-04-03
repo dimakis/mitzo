@@ -17,14 +17,14 @@ export function getRawInput(
     case 'Write':
       return {
         type: 'write',
-        path: String(input.path || ''),
-        contents: String(input.contents || '').slice(0, RAW_INPUT_MAX_CHARS),
+        path: String(input.file_path || ''),
+        contents: String(input.content || '').slice(0, RAW_INPUT_MAX_CHARS),
       };
     case 'Edit':
     case 'StrReplace':
       return {
         type: 'diff',
-        path: String(input.path || ''),
+        path: String(input.file_path || ''),
         old_string: String(input.old_string || '').slice(0, RAW_INPUT_MAX_CHARS),
         new_string: String(input.new_string || '').slice(0, RAW_INPUT_MAX_CHARS),
       };
@@ -42,16 +42,16 @@ export function getRawInput(
 export function summarizeToolInput(toolName: string, input: Record<string, unknown>): string {
   switch (toolName) {
     case 'Read':
-      return `${input.path || ''}`;
+      return `${input.file_path || ''}`;
     case 'Write':
-      return `${input.path || ''} (${String(input.contents || '').length} chars)`;
+      return `${input.file_path || ''} (${String(input.content || '').length} chars)`;
     case 'Edit':
     case 'StrReplace':
-      return `${input.path || ''}`;
+      return `${input.file_path || ''}`;
     case 'Bash':
       return `${String(input.command || '').slice(0, TOOL_SUMMARY_MAX_CHARS)}`;
     case 'Glob':
-      return `${input.glob_pattern || ''} in ${input.target_directory || 'workspace'}`;
+      return `${input.pattern || ''} in ${input.path || 'workspace'}`;
     case 'Grep':
       return `/${input.pattern || ''}/ in ${input.path || 'workspace'}`;
     case 'WebSearch':
