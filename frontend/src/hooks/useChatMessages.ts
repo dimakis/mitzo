@@ -124,10 +124,16 @@ export function chatMessagesReducer(
 ): ChatMessagesState {
   switch (action.type) {
     case 'MESSAGE_START': {
-      const block = new Map<string, StreamingBlock>();
+      const base = state.current
+        ? { ...state, messages: [...state.messages, finishCurrent(state.current)] }
+        : state;
       return {
-        ...state,
-        current: { messageId: action.messageId, blocks: block, blockOrder: [] },
+        ...base,
+        current: {
+          messageId: action.messageId,
+          blocks: new Map<string, StreamingBlock>(),
+          blockOrder: [],
+        },
       };
     }
 

@@ -292,6 +292,75 @@ describe('runQueryLoop', () => {
     expect(blockEndIdx).toBeLessThan(messageEndIdx);
   });
 
+  it('flushes pending message_end when new message_start arrives (multi-turn race)', async () => {
+    const events: Record<string, unknown>[] = [
+      // Turn 1: thinking block, assistant fires before block_stop
+      { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-t1' } } },
+      {
+        type: 'stream_event',
+        event: { type: 'content_block_start', index: 0, content_block: { type: 'thinking' } },
+      },
+      {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'thinking_delta', thinking: 'hmm' },
+        },
+      },
+      { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+      {
+        type: 'stream_event',
+        event: { type: 'content_block_start', index: 1, content_block: { type: 'text' } },
+      },
+      {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_delta',
+          index: 1,
+          delta: { type: 'text_delta', text: 'Turn 1 response' },
+        },
+      },
+      // assistant fires BEFORE content_block_stop for the text block
+      { type: 'assistant', message: { content: [] }, session_id: 'sess-mt' },
+      // Turn 2 starts before Turn 1's text block_stop arrives
+      { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-t2' } } },
+      // Turn 1's block_stop is now orphaned — server should have force-flushed
+      {
+        type: 'stream_event',
+        event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+      },
+      {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: 'Turn 2 response' },
+        },
+      },
+      { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+      { type: 'assistant', message: { content: [] }, session_id: 'sess-mt' },
+      { type: 'result', session_id: 'sess-mt' },
+    ];
+
+    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+
+    const sent = ws.sent;
+
+    // Turn 1 message_end must exist and come before Turn 2 message_start
+    const t1MsgEnd = sent.findIndex((m) => m.type === 'message_end' && m.messageId === 'msg-t1');
+    const t2MsgStart = sent.findIndex(
+      (m) => m.type === 'message_start' && m.messageId === 'msg-t2',
+    );
+    expect(t1MsgEnd).toBeGreaterThan(-1);
+    expect(t2MsgStart).toBeGreaterThan(-1);
+    expect(t1MsgEnd).toBeLessThan(t2MsgStart);
+
+    // Turn 2 message_end must also exist
+    const t2MsgEnd = sent.findIndex((m) => m.type === 'message_end' && m.messageId === 'msg-t2');
+    expect(t2MsgEnd).toBeGreaterThan(t2MsgStart);
+  });
+
   it('does not emit old-style text or text_delta events', async () => {
     const events: Record<string, unknown>[] = [
       { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-nodupe' } } },

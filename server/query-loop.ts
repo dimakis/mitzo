@@ -73,6 +73,55 @@ export async function runQueryLoop(
     }
   }
 
+  function forceFlushPendingMessage(
+    ws: WebSocket,
+    session: { currentSnapshot: { blocks: SnapshotBlock[] } | null },
+  ) {
+    if (!pendingMessageEnd) return;
+    for (const [index, bid] of blockIdByIndex) {
+      if (openBlockCount <= 0) break;
+      const snap = session.currentSnapshot?.blocks.find((b) => b.blockId === bid);
+      if (snap && !snap.done) {
+        snap.done = true;
+        const toolEntry = toolInputBuffers.get(index);
+        if (toolEntry) {
+          toolInputBuffers.delete(index);
+          let toolInput: Record<string, unknown> = {};
+          try {
+            toolInput = JSON.parse(toolEntry.inputBuf || '{}');
+          } catch {
+            /* empty */
+          }
+          send(
+            ws,
+            v2('block_end', {
+              messageId: currentMessageId,
+              blockId: bid,
+              blockType: 'tool_use',
+              toolName: toolEntry.name,
+              toolId: toolEntry.id,
+              input: summarizeToolInput(toolEntry.name, toolInput),
+            }),
+          );
+        } else {
+          send(
+            ws,
+            v2('block_end', {
+              messageId: currentMessageId,
+              blockId: bid,
+              blockType: snap.blockType,
+            }),
+          );
+        }
+        openBlockCount = Math.max(0, openBlockCount - 1);
+      }
+    }
+    send(ws, pendingMessageEnd);
+    pendingMessageEnd = null;
+    currentMessageId = null;
+    session.currentSnapshot = null;
+  }
+
   log.info('query loop started', { clientId });
 
   try {
@@ -100,51 +149,7 @@ export async function runQueryLoop(
       } else if (msg.type === 'result') {
         log.info('result received', { clientId, sessionId: msg.session_id });
         if (msg.session_id) send(currentWs, { type: 'session_id', sessionId: msg.session_id });
-        // Force-close any open blocks and flush pending message_end before session_end.
-        if (pendingMessageEnd) {
-          for (const [index, bid] of blockIdByIndex) {
-            if (openBlockCount <= 0) break;
-            const snap = currentSession.currentSnapshot?.blocks.find((b) => b.blockId === bid);
-            if (snap && !snap.done) {
-              snap.done = true;
-              const toolEntry = toolInputBuffers.get(index);
-              if (toolEntry) {
-                toolInputBuffers.delete(index);
-                let toolInput: Record<string, unknown> = {};
-                try {
-                  toolInput = JSON.parse(toolEntry.inputBuf || '{}');
-                } catch {
-                  /* empty */
-                }
-                send(
-                  currentWs,
-                  v2('block_end', {
-                    messageId: currentMessageId,
-                    blockId: bid,
-                    blockType: 'tool_use',
-                    toolName: toolEntry.name,
-                    toolId: toolEntry.id,
-                    input: summarizeToolInput(toolEntry.name, toolInput),
-                  }),
-                );
-              } else {
-                send(
-                  currentWs,
-                  v2('block_end', {
-                    messageId: currentMessageId,
-                    blockId: bid,
-                    blockType: snap.blockType,
-                  }),
-                );
-              }
-              openBlockCount = Math.max(0, openBlockCount - 1);
-            }
-          }
-          send(currentWs, pendingMessageEnd);
-          pendingMessageEnd = null;
-          currentMessageId = null;
-          currentSession.currentSnapshot = null;
-        }
+        forceFlushPendingMessage(currentWs, currentSession);
         doneSent = true;
         send(currentWs, v2('session_end', { sessionId: msg.session_id }));
       } else if (msg.type === 'stream_event') {
@@ -152,11 +157,11 @@ export async function runQueryLoop(
         log.debug('stream event', { clientId, evtType: evt?.type });
 
         if (evt?.type === 'message_start') {
+          forceFlushPendingMessage(currentWs, currentSession);
           toolInputBuffers.clear();
           blockIdByIndex.clear();
           blockCounter = 0;
           openBlockCount = 0;
-          pendingMessageEnd = null;
           // Use API message ID if available, otherwise generate one.
           const apiMsg = evt.message as Record<string, unknown> | undefined;
           currentMessageId = (apiMsg?.id as string | undefined) ?? `msg-${Date.now()}`;

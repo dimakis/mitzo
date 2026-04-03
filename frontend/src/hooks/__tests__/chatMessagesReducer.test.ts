@@ -23,14 +23,35 @@ describe('MESSAGE_START', () => {
     expect(state.current!.blocks.size).toBe(0);
   });
 
-  it('replaces an existing current when a new message starts', () => {
-    const withCurrent = chatMessagesReducer(INITIAL, { type: 'MESSAGE_START', messageId: 'msg-1' });
-    const replaced = chatMessagesReducer(withCurrent, {
-      type: 'MESSAGE_START',
-      messageId: 'msg-2',
+  it('finalizes orphaned current into messages when a new message starts', () => {
+    let state = chatMessagesReducer(INITIAL, { type: 'MESSAGE_START', messageId: 'msg-1' });
+    state = chatMessagesReducer(state, {
+      type: 'BLOCK_START',
+      messageId: 'msg-1',
+      blockId: 'b1',
+      blockType: 'text',
     });
-    expect(replaced.current!.messageId).toBe('msg-2');
-    expect(replaced.current!.blockOrder).toHaveLength(0);
+    state = chatMessagesReducer(state, {
+      type: 'BLOCK_DELTA',
+      messageId: 'msg-1',
+      blockId: 'b1',
+      blockType: 'text',
+      delta: 'orphaned content',
+    });
+    // New message starts before old one got MESSAGE_END
+    state = chatMessagesReducer(state, { type: 'MESSAGE_START', messageId: 'msg-2' });
+    expect(state.current!.messageId).toBe('msg-2');
+    expect(state.current!.blockOrder).toHaveLength(0);
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0].messageId).toBe('msg-1');
+    expect(state.messages[0].blocks[0].content).toBe('orphaned content');
+  });
+
+  it('creates new current cleanly when no prior current exists', () => {
+    const state = chatMessagesReducer(INITIAL, { type: 'MESSAGE_START', messageId: 'msg-2' });
+    expect(state.current!.messageId).toBe('msg-2');
+    expect(state.current!.blockOrder).toHaveLength(0);
+    expect(state.messages).toHaveLength(0);
   });
 });
 
