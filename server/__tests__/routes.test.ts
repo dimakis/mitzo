@@ -29,6 +29,8 @@ vi.mock('../chat.js', () => {
       ],
       resolvedVenvPaths: [],
       toolTierOverrides: {},
+      inboxPath: 'mgmt_lib/inbox',
+      resolvedInboxPath: pjoin(repo, 'mgmt_lib/inbox'),
     },
     getMcpServerNames: vi.fn().mockReturnValue(['test-mcp']),
     AVAILABLE_MODELS: [{ id: 'test-model', label: 'Test', desc: 'Test model' }],
@@ -64,11 +66,26 @@ async function getAuthCookie(agent: request.Agent): Promise<string> {
   return cookies[0].split(';')[0];
 }
 
+const INBOX_DIR = join(TEST_REPO, 'mgmt_lib', 'inbox');
+const SAMPLE_INBOX_ITEM = `---
+agent: troubadour
+timestamp: 2026-04-03T15:41:49
+status: pending
+tags: [cross-spoke, okrs]
+---
+
+# Connection: okrs/ → team_home/
+
+Some body text here.
+`;
+
 beforeAll(async () => {
   mkdirSync(TEST_REPO, { recursive: true });
   writeFileSync(join(TEST_REPO, 'test.txt'), 'hello world');
   mkdirSync(join(TEST_REPO, 'subdir'), { recursive: true });
   writeFileSync(join(TEST_REPO, 'subdir', 'nested.txt'), 'nested content');
+  mkdirSync(join(INBOX_DIR, 'archive'), { recursive: true });
+  writeFileSync(join(INBOX_DIR, '20260403_154149_01_troubadour.md'), SAMPLE_INBOX_ITEM);
 
   process.env.NTFY_AUTH_TOKEN = 'test-ntfy-token';
 
@@ -376,5 +393,69 @@ describe('file routes', () => {
       .set('Cookie', authCookie)
       .send({ path: '/tmp/outside/file.txt', content: 'nope' });
     expect(res.status).toBe(403);
+  });
+});
+
+// --- Inbox Routes ---
+
+describe('inbox routes', () => {
+  it('GET /api/inbox — returns inbox items', async () => {
+    const res = await request(app).get('/api/inbox').set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body.length).toBeGreaterThanOrEqual(1);
+    expect(res.body[0]).toHaveProperty('filename');
+    expect(res.body[0]).toHaveProperty('agent');
+    expect(res.body[0]).toHaveProperty('title');
+  });
+
+  it('GET /api/inbox — unauthenticated returns 401', async () => {
+    const res = await request(app).get('/api/inbox');
+    expect(res.status).toBe(401);
+  });
+
+  it('GET /api/inbox/:filename — returns full item content', async () => {
+    const res = await request(app)
+      .get('/api/inbox/20260403_154149_01_troubadour.md')
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('content');
+    expect(res.body.content).toContain('Connection: okrs/');
+  });
+
+  it('GET /api/inbox/:filename — nonexistent returns 404', async () => {
+    const res = await request(app).get('/api/inbox/nonexistent.md').set('Cookie', authCookie);
+    expect(res.status).toBe(404);
+  });
+
+  it('POST /api/inbox/:filename/approve — moves to archive', async () => {
+    // Create a fresh item for this test
+    writeFileSync(join(INBOX_DIR, '20260401_000000_01_test.md'), SAMPLE_INBOX_ITEM);
+    const res = await request(app)
+      .post('/api/inbox/20260401_000000_01_test.md/approve')
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true });
+  });
+
+  it('POST /api/inbox/:filename/approve — nonexistent returns 404', async () => {
+    const res = await request(app)
+      .post('/api/inbox/nonexistent.md/approve')
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(404);
+  });
+
+  it('DELETE /api/inbox/:filename — discards item', async () => {
+    writeFileSync(join(INBOX_DIR, '20260402_000000_01_discard.md'), SAMPLE_INBOX_ITEM);
+    const res = await request(app)
+      .delete('/api/inbox/20260402_000000_01_discard.md')
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true });
+  });
+
+  it('DELETE /api/inbox/:filename — nonexistent returns 404', async () => {
+    const res = await request(app).delete('/api/inbox/nonexistent.md').set('Cookie', authCookie);
+    expect(res.status).toBe(404);
   });
 });
