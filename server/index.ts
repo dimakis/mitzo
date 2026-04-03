@@ -17,6 +17,7 @@ import { cleanupStaleWorktrees } from './worktree.js';
 import { HEARTBEAT_INTERVAL_MS, PORT_DEFAULT, SHUTDOWN_GRACE_MS } from './constants.js';
 import { createLogger } from './logger.js';
 import { app, setUpdateBroadcast, runUpdateCheck } from './app.js';
+import { IncomingWsMessage } from './ws-schemas.js';
 
 const log = createLogger('server');
 
@@ -66,18 +67,25 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
 
   ws.on('message', async (raw) => {
     try {
-      const msg = JSON.parse(raw.toString());
+      const parsed = JSON.parse(raw.toString());
+      const result = IncomingWsMessage.safeParse(parsed);
 
-      if (msg.type === 'reattach' && msg.clientId) {
-        const oldClientId = msg.clientId as string;
-        const ok = reattachChat(oldClientId, ws);
+      if (!result.success) {
+        log.debug('unrecognized WS message', { clientId, type: parsed?.type });
+        return;
+      }
+
+      const msg = result.data;
+
+      if (msg.type === 'reattach') {
+        const ok = reattachChat(msg.clientId, ws);
         if (ok) {
-          clientId = oldClientId;
+          clientId = msg.clientId;
           const session = registry.get(clientId);
           ws.send(
             JSON.stringify({
               type: 'reattached',
-              clientId: oldClientId,
+              clientId: msg.clientId,
               sessionId: session?.sessionId,
               running: true,
             }),
@@ -93,20 +101,17 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
               }),
             );
           }
-          log.info('reattached', { oldClientId, newClientId: initialClientId });
+          log.info('reattached', { oldClientId: msg.clientId, newClientId: initialClientId });
         } else {
           ws.send(
             JSON.stringify({
               type: 'reattach_failed',
-              clientId: oldClientId,
+              clientId: msg.clientId,
               reason: 'Session not found or already finished',
             }),
           );
         }
-        return;
-      }
-
-      if (msg.type === 'send' && msg.prompt) {
+      } else if (msg.type === 'send') {
         if (isActive(clientId)) {
           sendToChat(clientId, msg.prompt, msg.images);
         } else {
@@ -120,7 +125,7 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
             images: msg.images,
           });
         }
-      } else if (msg.type === 'interrupt' && msg.prompt) {
+      } else if (msg.type === 'interrupt') {
         interruptChat(clientId, msg.prompt, msg.images);
       } else if (msg.type === 'stop') {
         stopChat(clientId);

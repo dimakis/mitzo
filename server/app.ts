@@ -23,6 +23,7 @@ import { GIT_BRANCH_TIMEOUT_MS } from './constants.js';
 import { getLocalCommit, isUpdateAvailable } from './git-version.js';
 import { resolvePending } from './permissions.js';
 import { createLogger } from './logger.js';
+import { LoginBody, FileWriteBody, PermissionDecision } from './api-schemas.js';
 
 const log = createLogger('server');
 
@@ -102,26 +103,31 @@ app.post('/api/permission/:permId/respond', (req, res) => {
     return;
   }
 
-  const decision = (req.query.decision || req.body?.decision || 'deny') as string;
-  if (!['once', 'always', 'deny'].includes(decision)) {
+  const raw = req.query.decision || req.body?.decision || 'deny';
+  const parsed = PermissionDecision.safeParse(raw);
+  if (!parsed.success) {
     res.status(400).json({ error: 'Invalid decision' });
     return;
   }
 
-  const ok = resolvePending(req.params.permId as string, decision as 'once' | 'always' | 'deny');
+  const ok = resolvePending(req.params.permId as string, parsed.data);
   if (!ok) {
     res.status(404).json({ error: 'Permission request not found or already resolved' });
     return;
   }
 
-  res.json({ ok: true, decision });
+  res.json({ ok: true, decision: parsed.data });
 });
 
 app.use('/api', authMiddleware);
 
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
-  const { passphrase } = req.body;
-  const token = await login(passphrase);
+  const body = LoginBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: 'passphrase is required' });
+    return;
+  }
+  const token = await login(body.data.passphrase);
   if (!token) {
     res.status(401).json({ error: 'Invalid passphrase' });
     return;
@@ -284,11 +290,12 @@ app.get('/api/files/read', (req, res) => {
 });
 
 app.put('/api/files/write', (req, res) => {
-  const { path: filePath, content } = req.body as { path?: string; content?: string };
-  if (!filePath || typeof content !== 'string') {
+  const body = FileWriteBody.safeParse(req.body);
+  if (!body.success) {
     res.status(400).json({ error: 'path and content are required' });
     return;
   }
+  const { path: filePath, content } = body.data;
   if (!isAllowedPath(filePath)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;

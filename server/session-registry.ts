@@ -32,8 +32,7 @@ export interface ManagedSession {
   cwd?: string;
   worktreePath?: string;
   queryInstance?: { interrupt: () => Promise<void>; close: () => void };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  inputQueue?: { push: (msg: any) => void; close: () => void };
+  inputQueue?: { push: (msg: unknown) => void; close: () => void };
   currentSnapshot: MessageSnapshot | null;
 }
 

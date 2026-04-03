@@ -71,7 +71,7 @@ describe('useChatMessages — reattach_failed handler', () => {
     );
 
     act(() => {
-      result.current.handleWsMessage({ type: 'reattach_failed' });
+      result.current.handleWsMessage({ type: 'reattach_failed', clientId: 'old-client' });
     });
 
     await vi.waitFor(() => {
