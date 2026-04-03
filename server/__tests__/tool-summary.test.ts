@@ -3,20 +3,22 @@ import { summarizeToolInput } from '../tool-summary.js';
 
 describe('summarizeToolInput', () => {
   it('summarizes Read tool with file path', () => {
-    expect(summarizeToolInput('Read', { path: '/home/user/file.ts' })).toBe('/home/user/file.ts');
+    expect(summarizeToolInput('Read', { file_path: '/home/user/file.ts' })).toBe(
+      '/home/user/file.ts',
+    );
   });
 
   it('summarizes Write tool with path and content length', () => {
     const result = summarizeToolInput('Write', {
-      path: '/tmp/out.txt',
-      contents: 'hello world',
+      file_path: '/tmp/out.txt',
+      content: 'hello world',
     });
     expect(result).toBe('/tmp/out.txt (11 chars)');
   });
 
   it('summarizes Edit/StrReplace tool with path', () => {
-    expect(summarizeToolInput('Edit', { path: '/src/index.ts' })).toBe('/src/index.ts');
-    expect(summarizeToolInput('StrReplace', { path: '/src/index.ts' })).toBe('/src/index.ts');
+    expect(summarizeToolInput('Edit', { file_path: '/src/index.ts' })).toBe('/src/index.ts');
+    expect(summarizeToolInput('StrReplace', { file_path: '/src/index.ts' })).toBe('/src/index.ts');
   });
 
   it('summarizes Bash tool with truncated command', () => {
@@ -30,14 +32,14 @@ describe('summarizeToolInput', () => {
   it('summarizes Glob tool with pattern and directory', () => {
     expect(
       summarizeToolInput('Glob', {
-        glob_pattern: '**/*.ts',
-        target_directory: '/src',
+        pattern: '**/*.ts',
+        path: '/src',
       }),
     ).toBe('**/*.ts in /src');
   });
 
   it('summarizes Glob tool with default directory', () => {
-    expect(summarizeToolInput('Glob', { glob_pattern: '*.js' })).toBe('*.js in workspace');
+    expect(summarizeToolInput('Glob', { pattern: '*.js' })).toBe('*.js in workspace');
   });
 
   it('summarizes Grep tool with pattern and path', () => {
@@ -80,5 +82,6 @@ describe('summarizeToolInput', () => {
     expect(summarizeToolInput('Read', {})).toBe('');
     expect(summarizeToolInput('Write', {})).toBe(' (0 chars)');
     expect(summarizeToolInput('Bash', {})).toBe('');
+    expect(summarizeToolInput('Glob', {})).toBe(' in workspace');
   });
 });

@@ -356,6 +356,30 @@ describe('SESSION_END', () => {
     const state = chatMessagesReducer(running, { type: 'SESSION_END' });
     expect(state.running).toBe(false);
   });
+
+  it('force-finalizes current into messages if session ends with in-flight message', () => {
+    let state = chatMessagesReducer(INITIAL, { type: 'MESSAGE_START', messageId: 'msg-orphan' });
+    state = chatMessagesReducer(state, {
+      type: 'BLOCK_START',
+      messageId: 'msg-orphan',
+      blockId: 'b1',
+      blockType: 'text',
+    });
+    state = chatMessagesReducer(state, {
+      type: 'BLOCK_DELTA',
+      messageId: 'msg-orphan',
+      blockId: 'b1',
+      blockType: 'text',
+      delta: 'partial text',
+    });
+    // SESSION_END without MESSAGE_END — current should be force-finalized
+    state = chatMessagesReducer(state, { type: 'SESSION_END' });
+    expect(state.current).toBeNull();
+    expect(state.running).toBe(false);
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0].messageId).toBe('msg-orphan');
+    expect(state.messages[0].blocks[0].content).toBe('partial text');
+  });
 });
 
 // ─── MESSAGE_SNAPSHOT ─────────────────────────────────────────────────────────

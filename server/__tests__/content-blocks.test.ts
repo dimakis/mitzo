@@ -40,7 +40,7 @@ describe('parseContentBlocks', () => {
 
   it('extracts tool_use blocks', () => {
     const blocks = [
-      { type: 'tool_use', name: 'Read', id: 'tc-1', input: { path: '/tmp/file.ts' } },
+      { type: 'tool_use', name: 'Read', id: 'tc-1', input: { file_path: '/tmp/file.ts' } },
     ];
     const result = parseContentBlocks(blocks);
     expect(result.toolCalls).toHaveLength(1);

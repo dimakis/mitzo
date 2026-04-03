@@ -194,8 +194,18 @@ export function chatMessagesReducer(
       return { ...state, messages: [...state.messages, finished], current: null };
     }
 
-    case 'SESSION_END':
-      return { ...state, running: false, current: state.current ?? null };
+    case 'SESSION_END': {
+      if (state.current) {
+        const finished = finishCurrent(state.current);
+        return {
+          ...state,
+          running: false,
+          messages: [...state.messages, finished],
+          current: null,
+        };
+      }
+      return { ...state, running: false };
+    }
 
     case 'MESSAGE_SNAPSHOT': {
       // Reconstruct in-flight state from server snapshot on reattach.

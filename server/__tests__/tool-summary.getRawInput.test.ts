@@ -3,13 +3,13 @@ import { getRawInput } from '../tool-summary.js';
 
 describe('getRawInput', () => {
   it('returns write type for Write tool', () => {
-    const result = getRawInput('Write', { path: 'foo.ts', contents: 'hello world' });
+    const result = getRawInput('Write', { file_path: 'foo.ts', content: 'hello world' });
     expect(result).toEqual({ type: 'write', path: 'foo.ts', contents: 'hello world' });
   });
 
   it('returns diff type for StrReplace tool', () => {
     const result = getRawInput('StrReplace', {
-      path: 'bar.ts',
+      file_path: 'bar.ts',
       old_string: 'old code',
       new_string: 'new code',
     });
@@ -23,7 +23,7 @@ describe('getRawInput', () => {
 
   it('returns diff type for Edit tool', () => {
     const result = getRawInput('Edit', {
-      path: 'baz.ts',
+      file_path: 'baz.ts',
       old_string: 'a',
       new_string: 'b',
     });
@@ -41,7 +41,7 @@ describe('getRawInput', () => {
   });
 
   it('returns undefined for Read tool', () => {
-    expect(getRawInput('Read', { path: 'foo.ts' })).toBeUndefined();
+    expect(getRawInput('Read', { file_path: 'foo.ts' })).toBeUndefined();
   });
 
   it('returns undefined for Grep tool', () => {
@@ -54,13 +54,17 @@ describe('getRawInput', () => {
 
   it('caps contents at RAW_INPUT_MAX_CHARS', () => {
     const bigContent = 'x'.repeat(60_000);
-    const result = getRawInput('Write', { path: 'big.ts', contents: bigContent });
+    const result = getRawInput('Write', { file_path: 'big.ts', content: bigContent });
     expect(result?.contents?.length).toBeLessThanOrEqual(50_000);
   });
 
   it('caps old_string and new_string at RAW_INPUT_MAX_CHARS', () => {
     const big = 'y'.repeat(60_000);
-    const result = getRawInput('StrReplace', { path: 'f.ts', old_string: big, new_string: big });
+    const result = getRawInput('StrReplace', {
+      file_path: 'f.ts',
+      old_string: big,
+      new_string: big,
+    });
     expect(
       (result?.old_string?.length || 0) + (result?.new_string?.length || 0),
     ).toBeLessThanOrEqual(100_000);
