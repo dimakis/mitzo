@@ -220,7 +220,7 @@ export async function startChat(
   });
 
   const session = registry.get(clientId)!;
-  session.inputQueue = inputQueue;
+  session.inputQueue = inputQueue as { push: (msg: unknown) => void; close: () => void };
 
   const branch = getBranch(cwd);
   send(ws, { type: 'session_info', branch, cwd, worktree: !!worktreePath });
