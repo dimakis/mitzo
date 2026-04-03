@@ -169,6 +169,14 @@ export async function runQueryLoop(
           currentSession.currentSnapshot = { messageId: currentMessageId, blocks: [] };
           send(currentWs, v2('message_start', { messageId: currentMessageId }));
         } else if (evt?.type === 'content_block_start') {
+          // Auto-init message context if SDK delivers blocks before message_start.
+          // On the first turn, AssistantMessage can win the async iterator race
+          // and the first content_block_start arrives before message_start.
+          if (!currentMessageId) {
+            currentMessageId = `msg-${Date.now()}`;
+            currentSession.currentSnapshot = { messageId: currentMessageId, blocks: [] };
+            send(currentWs, v2('message_start', { messageId: currentMessageId }));
+          }
           const contentBlock = evt.content_block as Record<string, unknown> | undefined;
           const index = evt.index as number;
           const blockId = nextBlockId();
