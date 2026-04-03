@@ -111,6 +111,32 @@ describe('loadRepoConfig', () => {
     expect(config.roots[1].label).toBe('Also Valid');
   });
 
+  it('parses inboxPath and resolves it relative to repoPath', () => {
+    const data = { inboxPath: 'mgmt_lib/inbox' };
+    writeFileSync(join(TMP_DIR, '.mitzo.json'), JSON.stringify(data));
+
+    const config = loadRepoConfig(TMP_DIR);
+    expect(config.inboxPath).toBe('mgmt_lib/inbox');
+    expect(config.resolvedInboxPath).toBe(join(TMP_DIR, 'mgmt_lib/inbox'));
+  });
+
+  it('returns empty inboxPath when not specified', () => {
+    const data = { quickActions: [] };
+    writeFileSync(join(TMP_DIR, '.mitzo.json'), JSON.stringify(data));
+
+    const config = loadRepoConfig(TMP_DIR);
+    expect(config.inboxPath).toBe('');
+    expect(config.resolvedInboxPath).toBe('');
+  });
+
+  it('ignores non-string inboxPath', () => {
+    const data = { inboxPath: 42 };
+    writeFileSync(join(TMP_DIR, '.mitzo.json'), JSON.stringify(data));
+
+    const config = loadRepoConfig(TMP_DIR);
+    expect(config.inboxPath).toBe('');
+  });
+
   it('filters out quickActions with missing required fields', () => {
     const data = {
       quickActions: [

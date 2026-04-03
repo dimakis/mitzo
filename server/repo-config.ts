@@ -24,6 +24,8 @@ export interface RepoConfig {
   allowedPaths: string[];
   roots: FileRoot[];
   toolTierOverrides: Record<string, ToolTierOverride>;
+  inboxPath: string;
+  resolvedInboxPath: string;
 }
 
 const EMPTY_CONFIG: RepoConfig = {
@@ -33,6 +35,8 @@ const EMPTY_CONFIG: RepoConfig = {
   allowedPaths: [],
   roots: [],
   toolTierOverrides: {},
+  inboxPath: '',
+  resolvedInboxPath: '',
 };
 
 function isValidQuickAction(item: unknown): item is QuickAction {
@@ -100,5 +104,17 @@ export function loadRepoConfig(repoPath: string): RepoConfig {
     }
   }
 
-  return { quickActions, venvPaths, resolvedVenvPaths, allowedPaths, roots, toolTierOverrides };
+  const inboxPath = typeof obj.inboxPath === 'string' ? obj.inboxPath : '';
+  const resolvedInboxPath = inboxPath ? join(repoPath, inboxPath) : '';
+
+  return {
+    quickActions,
+    venvPaths,
+    resolvedVenvPaths,
+    allowedPaths,
+    roots,
+    toolTierOverrides,
+    inboxPath,
+    resolvedInboxPath,
+  };
 }
