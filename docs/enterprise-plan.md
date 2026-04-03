@@ -1,21 +1,25 @@
 # Mitzo Enterprise Engineering Plan
 
-**Version:** 1.2
-**Date:** 2026-04-02
+**Version:** 1.3
+**Date:** 2026-04-03
 **Scope:** Documentation only — no code changes until explicitly requested
 
 ---
 
 ## Executive Summary
 
-Mitzo is a functional, mobile-first Claude Code interface built on Node.js/Express/TypeScript (backend) and React 19/Vite/TypeScript (frontend). It runs in production via pm2 on a personal server, with Pushover + ntfy push notifications, worktree isolation, MCP tool integration, and extended thinking visibility. The architecture works, but the two central files (`chat.ts` at 575 LOC, `ChatView.tsx` at 542 LOC) remain god objects that absorb every new feature.
+Mitzo is a functional, mobile-first Claude Code interface built on Node.js/Express/TypeScript (backend) and React 19/Vite/TypeScript (frontend). It runs in production via pm2 on a personal server, with Pushover + ntfy push notifications, worktree isolation, MCP tool integration, and extended thinking visibility.
 
-**Phase 1 (Foundation) is complete.** Constants centralized, structured logger in place, silent catches fixed, error boundaries added, CI pipeline restructured to run all steps independently. Four risks remain:
+**v0.1.0 released (2026-04-03).** Phase 1 complete, Phase 2 partially complete. The v2 message protocol landed with explicit block lifecycle, deferred message_end, and message snapshots for iOS reattach. The former god objects have been modularized:
 
-1. **Concentration risk** — `chat.ts` (575 LOC) and `ChatView.tsx` (542 LOC) are larger than at plan creation. Every feature lands in these two files. Modularization is overdue.
-2. **Testing blindspots** — 151 tests across 18 files (up from 118/12), but still no route-layer tests, no WS integration tests, no e2e tests. Frontend component tests have started (MessageBubble, paste-images, model-preference) but coverage is thin.
-3. **Type erosion** — `any` in production code, untyped WS messages, no runtime validation. Model catalog duplicated between server (`AVAILABLE_MODELS`) and frontend (hardcoded `<option>` values).
-4. **Security posture** — no rate limiting, CSRF, or request size limits. NTFY auth token still in action URLs. Pushover reuses `NTFY_AUTH_TOKEN` as query param.
+- `chat.ts` reduced from 575 → 468 LOC (query-loop, permission-handler, async-queue extracted)
+- `ChatView.tsx` reduced from 542 → 337 LOC (useChatMessages, useChatSession, useChatConnection, usePermission extracted)
+
+Remaining risks:
+
+1. **Testing blindspots** — 209 tests across 22 files (up from 151/18), but still no route-layer tests, no WS integration tests, no e2e tests. Frontend reducer tests are strong but component test coverage is thin.
+2. **Type erosion** — `any` in production code, untyped WS messages, no runtime validation. Model catalog still duplicated.
+3. **Security posture** — no rate limiting, CSRF, or request size limits.
 
 CI is now green and structurally sound (all steps run independently). Branch discipline enforced via `.cursor/rules/ci-discipline.mdc`.
 
@@ -25,22 +29,24 @@ The five remaining phases address these risks in dependency order.
 
 ## Current State Baseline
 
-Measured against the codebase as of 2026-04-02 (post-Phase 1, post-parity-output work).
+Measured against the codebase as of 2026-04-03 (v0.1.0, post-Phase 2 partial).
 
 ### Codebase Size
 
-| File                                    | LOC | Role                            |
-| --------------------------------------- | --: | ------------------------------- |
-| `server/chat.ts`                        | 575 | Chat orchestration (god object) |
-| `frontend/src/pages/ChatView.tsx`       | 542 | Chat UI (god component)         |
-| `server/index.ts`                       | 436 | Express routes + WS handler     |
-| `frontend/src/pages/FileViewer.tsx`     | 305 | File browser + editor           |
-| `frontend/src/pages/SessionList.tsx`    | 248 | Home screen + session list      |
-| `frontend/src/components/ChatInput.tsx` | 179 | Message input + image paste     |
-| `server/session-registry.ts`            | 147 | Session state management        |
-| `server/worktree.ts`                    | 145 | Git worktree lifecycle          |
+| File                                    | LOC | Role                                                  |
+| --------------------------------------- | --: | ----------------------------------------------------- |
+| `frontend/src/hooks/useChatMessages.ts` | 519 | Chat reducer + WS handler (extracted from ChatView)   |
+| `server/chat.ts`                        | 468 | Chat orchestration (reduced from 575)                 |
+| `server/index.ts`                       | 454 | Express routes + WS handler                           |
+| `server/query-loop.ts`                  | 374 | SDK → v2 protocol translator (extracted from chat.ts) |
+| `frontend/src/pages/ChatView.tsx`       | 337 | Chat UI (reduced from 542)                            |
+| `frontend/src/pages/SessionList.tsx`    | 248 | Home screen + session list                            |
+| `server/session-registry.ts`            | 197 | Session state + snapshot                              |
+| `frontend/src/pages/FileViewer.tsx`     | 144 | File browser + editor                                 |
+| `server/worktree.ts`                    | 145 | Git worktree lifecycle                                |
+| `server/permission-handler.ts`          | 130 | canUseTool callback (extracted from chat.ts)          |
 
-New modules since v1.1: `server/pushover.ts` (56), `server/git-version.ts` (43), `frontend/src/components/ThinkingBlock.tsx` (28), `frontend/src/lib/model-preference.ts`, `frontend/src/lib/paste-images.ts`, `scripts/deploy.sh`.
+New since v1.2: `query-loop.ts`, `permission-handler.ts`, `async-queue.ts`, `useChatMessages.ts` (hook), `useChatSession.ts`, `useChatConnection.ts`, `usePermission.ts`, `ThinkingBlock.tsx`, `ErrorBoundary.tsx`.
 
 ### Phase 1 Status: COMPLETE
 
@@ -56,16 +62,16 @@ New modules since v1.1: `server/pushover.ts` (56), `server/git-version.ts` (43),
 
 ### Testing
 
-| Metric                        |                                             Count |
-| ----------------------------- | ------------------------------------------------: |
-| Test files                    |                                                18 |
-| Test cases (`it()`)           |                                               151 |
-| Frontend component test files |                       1 (`MessageBubble.test.ts`) |
-| Frontend lib test files       | 3 (`ws-pool`, `paste-images`, `model-preference`) |
-| Frontend page test files      |                                                 0 |
-| Route-layer test files        |                                                 0 |
-| WebSocket integration tests   |                                                 0 |
-| E2E test files                |                                                 0 |
+| Metric                      |                                                        Count |
+| --------------------------- | -----------------------------------------------------------: |
+| Test files                  |                                                           22 |
+| Test cases (`it()`)         |                                                          209 |
+| Frontend reducer test files |                1 (`chatMessagesReducer.test.ts` — 30+ cases) |
+| Frontend lib test files     |      3 (`groupMessages`, `paste-images`, `model-preference`) |
+| Server unit test files      | 18 (query-loop, tool-summary, auth, chat, permissions, etc.) |
+| Route-layer test files      |                                                            0 |
+| WebSocket integration tests |                                                            0 |
+| E2E test files              |                                                            0 |
 
 ### Security & CI
 

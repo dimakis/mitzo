@@ -1,8 +1,14 @@
 # Message Protocol v2: Server-Owned Message Lifecycle
 
-**Status:** Proposal
-**Date:** 2026-04-02
+**Status:** Implemented (v0.1.0)
+**Date:** 2026-04-02 (proposed) / 2026-04-03 (shipped)
 **Author:** Claude (with Dimitri)
+
+> **Post-implementation notes (2026-04-03):** The core protocol shipped as designed. Three behaviors evolved beyond the original spec during implementation:
+>
+> 1. **Deferred `message_end`** — the `assistant` SDK event can fire before all `content_block_stop` events. The server tracks `openBlockCount` and defers `message_end` until all blocks are closed.
+> 2. **`forceFlushPendingMessage()`** — at turn boundaries (`message_start` for the next turn) and session end (`result`), any pending `message_end` is force-flushed with synthetic `block_end` events for unclosed blocks. This prevents multi-turn message loss.
+> 3. **Frontend belt-and-suspenders** — `MESSAGE_START` finalizes orphaned `current` into `messages[]`. `SESSION_END` force-finalizes `current`. `RESTORE` validates message shapes and rejects pre-v2 stale caches.
 
 ## Problem
 
