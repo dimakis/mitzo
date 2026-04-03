@@ -90,6 +90,11 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
               running: true,
             }),
           );
+          // Replay messages that were buffered while the client was detached.
+          const buffered = registry.drainDetachedBuffer(clientId);
+          for (const msg of buffered) {
+            ws.send(JSON.stringify(msg));
+          }
           if (session?.currentSnapshot) {
             ws.send(
               JSON.stringify({

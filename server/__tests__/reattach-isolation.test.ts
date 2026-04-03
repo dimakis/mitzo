@@ -108,6 +108,39 @@ describe('SessionRegistry.rekey', () => {
     expect(registry.get('new-client')!.ws).toBe(ws2);
   });
 
+  it('drainDetachedBuffer returns messages buffered during detach', () => {
+    const ws1 = { readyState: 1, OPEN: 1 } as any;
+    const ws2 = { readyState: 1, OPEN: 1 } as any;
+
+    registry.register('old-client', {
+      ws: ws1,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+
+    // Detach and buffer messages
+    registry.detach('old-client');
+    registry.bufferDetached('old-client', { type: 'block_start', blockId: 'b0' });
+    registry.bufferDetached('old-client', { type: 'block_delta', delta: 'hello' });
+    registry.bufferDetached('old-client', { type: 'block_end', blockId: 'b0' });
+    registry.bufferDetached('old-client', { type: 'message_end', messageId: 'msg-1' });
+
+    // Reattach
+    registry.reattach('old-client', ws2);
+
+    // Drain should return all buffered messages in order
+    const drained = registry.drainDetachedBuffer('old-client');
+    expect(drained).toHaveLength(4);
+    expect((drained[0] as any).type).toBe('block_start');
+    expect((drained[1] as any).type).toBe('block_delta');
+    expect((drained[2] as any).type).toBe('block_end');
+    expect((drained[3] as any).type).toBe('message_end');
+
+    // Second drain should be empty
+    expect(registry.drainDetachedBuffer('old-client')).toHaveLength(0);
+  });
+
   it('rekey + reattach full cycle prevents isActive split brain', () => {
     const ws1 = { readyState: 1, OPEN: 1 } as any;
     const ws2 = { readyState: 1, OPEN: 1 } as any;
