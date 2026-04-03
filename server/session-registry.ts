@@ -44,7 +44,10 @@ export class SessionRegistry {
 
   register(
     clientId: string,
-    init: Omit<ManagedSession, 'queryInstance' | 'inputQueue' | 'currentSnapshot'> & {
+    init: Omit<
+      ManagedSession,
+      'queryInstance' | 'inputQueue' | 'currentSnapshot' | 'detachedBuffer'
+    > & {
       sessionId?: string;
     },
   ): void {
