@@ -38,6 +38,7 @@ app.use(
         scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         connectSrc: ["'self'", 'ws:', 'wss:'],
+        imgSrc: ["'self'", 'data:'],
       },
     },
   }),
