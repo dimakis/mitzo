@@ -12,11 +12,17 @@ export interface QuickAction {
 
 export type ToolTierOverride = 'safe' | 'standard' | 'elevated';
 
+export interface FileRoot {
+  label: string;
+  path: string;
+}
+
 export interface RepoConfig {
   quickActions: QuickAction[];
   venvPaths: string[];
   resolvedVenvPaths: string[];
   allowedPaths: string[];
+  roots: FileRoot[];
   toolTierOverrides: Record<string, ToolTierOverride>;
 }
 
@@ -25,6 +31,7 @@ const EMPTY_CONFIG: RepoConfig = {
   venvPaths: [],
   resolvedVenvPaths: [],
   allowedPaths: [],
+  roots: [],
   toolTierOverrides: {},
 };
 
@@ -71,6 +78,14 @@ export function loadRepoConfig(repoPath: string): RepoConfig {
     ? (obj.allowedPaths as unknown[]).filter((p): p is string => typeof p === 'string')
     : [];
 
+  function isValidRoot(item: unknown): item is FileRoot {
+    if (!item || typeof item !== 'object') return false;
+    const o = item as Record<string, unknown>;
+    return typeof o.label === 'string' && typeof o.path === 'string';
+  }
+
+  const roots = Array.isArray(obj.roots) ? (obj.roots as unknown[]).filter(isValidRoot) : [];
+
   const validTiers = new Set(['safe', 'standard', 'elevated']);
   const toolTierOverrides: Record<string, ToolTierOverride> = {};
   if (
@@ -85,5 +100,5 @@ export function loadRepoConfig(repoPath: string): RepoConfig {
     }
   }
 
-  return { quickActions, venvPaths, resolvedVenvPaths, allowedPaths, toolTierOverrides };
+  return { quickActions, venvPaths, resolvedVenvPaths, allowedPaths, roots, toolTierOverrides };
 }
