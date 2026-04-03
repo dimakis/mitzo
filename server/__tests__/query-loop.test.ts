@@ -260,6 +260,38 @@ describe('runQueryLoop', () => {
     expect(sessionEnds).toHaveLength(1);
   });
 
+  it('defers message_end until all blocks are closed', async () => {
+    const events: Record<string, unknown>[] = [
+      { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-defer' } } },
+      {
+        type: 'stream_event',
+        event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+      },
+      {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: 'hi' },
+        },
+      },
+      // assistant fires BEFORE content_block_stop
+      { type: 'assistant', message: { content: [] }, session_id: 'sess-defer' },
+      // block_stop arrives after assistant
+      { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+      { type: 'result', session_id: 'sess-defer' },
+    ];
+
+    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+
+    const sent = ws.sent;
+    const blockEndIdx = sent.findIndex((m) => m.type === 'block_end' && m.blockType === 'text');
+    const messageEndIdx = sent.findIndex((m) => m.type === 'message_end');
+    expect(blockEndIdx).toBeGreaterThan(-1);
+    expect(messageEndIdx).toBeGreaterThan(-1);
+    expect(blockEndIdx).toBeLessThan(messageEndIdx);
+  });
+
   it('does not emit old-style text or text_delta events', async () => {
     const events: Record<string, unknown>[] = [
       { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-nodupe' } } },

@@ -57,9 +57,20 @@ export async function runQueryLoop(
   let blockCounter = 0;
   let currentMessageId: string | null = null;
   let doneSent = false;
+  let openBlockCount = 0;
+  let pendingMessageEnd: Record<string, unknown> | null = null;
 
   function nextBlockId(): string {
     return `b${blockCounter++}`;
+  }
+
+  function tryFlushMessageEnd(ws: WebSocket, session: { currentSnapshot: unknown | null }) {
+    if (pendingMessageEnd && openBlockCount === 0) {
+      send(ws, pendingMessageEnd);
+      pendingMessageEnd = null;
+      currentMessageId = null;
+      (session as { currentSnapshot: null }).currentSnapshot = null;
+    }
   }
 
   log.info('query loop started', { clientId });
@@ -73,17 +84,13 @@ export async function runQueryLoop(
       log.debug('sdk event', { clientId, type: msg.type });
 
       if (msg.type === 'assistant') {
-        // Turn complete. Emit message_end and clear snapshot.
+        // Turn complete — defer message_end until all blocks are closed.
         if (currentMessageId) {
-          send(
-            currentWs,
-            v2('message_end', {
-              messageId: currentMessageId,
-              ...(msg.session_id ? { sessionId: msg.session_id } : {}),
-            }),
-          );
-          currentMessageId = null;
-          currentSession.currentSnapshot = null;
+          pendingMessageEnd = v2('message_end', {
+            messageId: currentMessageId,
+            ...(msg.session_id ? { sessionId: msg.session_id } : {}),
+          });
+          tryFlushMessageEnd(currentWs, currentSession);
         }
         // Capture session ID on first assistant event.
         if (!currentSession.sessionId && msg.session_id) {
@@ -103,6 +110,8 @@ export async function runQueryLoop(
           toolInputBuffers.clear();
           blockIdByIndex.clear();
           blockCounter = 0;
+          openBlockCount = 0;
+          pendingMessageEnd = null;
           // Use API message ID if available, otherwise generate one.
           const apiMsg = evt.message as Record<string, unknown> | undefined;
           currentMessageId = (apiMsg?.id as string | undefined) ?? `msg-${Date.now()}`;
@@ -114,6 +123,7 @@ export async function runQueryLoop(
           const index = evt.index as number;
           const blockId = nextBlockId();
           blockIdByIndex.set(index, blockId);
+          openBlockCount++;
 
           const blockType = contentBlock?.type as string | undefined;
           log.debug('content block start', { clientId, blockType });
@@ -268,6 +278,8 @@ export async function runQueryLoop(
               );
             }
           }
+          openBlockCount = Math.max(0, openBlockCount - 1);
+          tryFlushMessageEnd(currentWs, currentSession);
         }
       } else if (msg.type === 'user') {
         // Tool results injected by the SDK after tool execution.
