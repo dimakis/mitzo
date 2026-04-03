@@ -14,13 +14,19 @@ function fakeWs(): WebSocket & { sent: Record<string, unknown>[] } {
   } as unknown as WebSocket & { sent: Record<string, unknown>[] };
 }
 
-/** Create a minimal SessionRegistry stub with currentSnapshot support */
-function fakeRegistry(ws: WebSocket): SessionRegistry {
+/** Create a minimal SessionRegistry stub with currentSnapshot and detachedBuffer support */
+function fakeRegistry(
+  ws: WebSocket,
+  opts?: { attached?: boolean },
+): SessionRegistry & { detachedBuffer: unknown[] } {
   let removed = false;
+  let attached = opts?.attached ?? true;
+  const detachedBuffer: unknown[] = [];
   const session = {
     ws,
     sessionId: undefined as string | undefined,
     currentSnapshot: null as null | { messageId: string; blocks: unknown[] },
+    detachedBuffer,
   };
   return {
     get: vi.fn(() => (removed ? null : session)),
@@ -31,7 +37,16 @@ function fakeRegistry(ws: WebSocket): SessionRegistry {
       removed = true;
     }),
     setMode: vi.fn(),
-  } as unknown as SessionRegistry;
+    isAttached: vi.fn(() => attached),
+    bufferDetached: vi.fn((_clientId: string, msg: unknown) => {
+      detachedBuffer.push(msg);
+    }),
+    detachedBuffer,
+    // Allow tests to toggle attached state mid-stream
+    _setAttached: (v: boolean) => {
+      attached = v;
+    },
+  } as unknown as SessionRegistry & { detachedBuffer: unknown[] };
 }
 
 /** Build an async iterable from an array of SDK events */
@@ -359,6 +374,76 @@ describe('runQueryLoop', () => {
     // Turn 2 message_end must also exist
     const t2MsgEnd = sent.findIndex((m) => m.type === 'message_end' && m.messageId === 'msg-t2');
     expect(t2MsgEnd).toBeGreaterThan(t2MsgStart);
+  });
+
+  it('buffers messages when session is detached instead of dropping them', async () => {
+    // Start attached, then detach mid-stream
+    registry = fakeRegistry(ws);
+    const reg = registry as unknown as {
+      _setAttached: (v: boolean) => void;
+      detachedBuffer: unknown[];
+    };
+
+    // Create a custom event stream that detaches after message_start
+    const events: Record<string, unknown>[] = [
+      { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-detach' } } },
+      {
+        type: 'stream_event',
+        event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+      },
+      {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: 'before detach' },
+        },
+      },
+    ];
+
+    // Events that arrive while detached
+    const detachedEvents: Record<string, unknown>[] = [
+      {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: ' after detach' },
+        },
+      },
+      { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+      { type: 'assistant', message: { content: [] }, session_id: 'sess-detach' },
+      { type: 'result', session_id: 'sess-detach' },
+    ];
+
+    async function* detachingStream() {
+      for (const e of events) yield e;
+      // Simulate client disconnect
+      reg._setAttached(false);
+      for (const e of detachedEvents) yield e;
+    }
+
+    await runQueryLoop(detachingStream(), clientId, registry, abortController, ws);
+
+    // Messages sent while attached should be on the WS
+    expect(ws.sent.some((m) => m.type === 'message_start')).toBe(true);
+    const attachedDeltas = ws.sent.filter(
+      (m) => m.type === 'block_delta' && m.delta === 'before detach',
+    );
+    expect(attachedDeltas).toHaveLength(1);
+
+    // Messages sent while detached should be in the buffer, not on the WS
+    const detachedDeltas = ws.sent.filter(
+      (m) => m.type === 'block_delta' && m.delta === ' after detach',
+    );
+    expect(detachedDeltas).toHaveLength(0);
+
+    // Buffer should have the detached messages
+    expect(reg.detachedBuffer.length).toBeGreaterThan(0);
+    const bufferedDelta = reg.detachedBuffer.find(
+      (m: any) => m.type === 'block_delta' && m.delta === ' after detach',
+    );
+    expect(bufferedDelta).toBeDefined();
   });
 
   it('does not emit old-style text or text_delta events', async () => {
