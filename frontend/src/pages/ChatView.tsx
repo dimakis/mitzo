@@ -53,6 +53,21 @@ export function ChatView() {
     [sessionId, navigate, sessionActions],
   );
 
+  // When a session ID is assigned mid-conversation (started from /chat),
+  // update the URL so refreshes and back-navigation land on /chat/:id
+  // and can restore messages from cache or the API.
+  // Uses replaceState to avoid a React Router remount that would kill
+  // the live streaming view.
+  const handleSessionAssigned = useCallback(
+    (id: string) => {
+      sessionActions.setCurrentSessionId(id);
+      if (!sessionId && window.location.pathname === '/chat') {
+        window.history.replaceState(null, '', `/chat/${id}`);
+      }
+    },
+    [sessionId, sessionActions],
+  );
+
   const {
     state: msgState,
     dispatch,
@@ -61,7 +76,7 @@ export function ChatView() {
   } = useChatMessages(
     poolKey,
     sessionState.currentSessionId,
-    sessionActions.setCurrentSessionId,
+    handleSessionAssigned,
     handleSessionExpired,
   );
 
