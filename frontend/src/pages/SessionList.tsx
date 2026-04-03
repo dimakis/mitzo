@@ -114,23 +114,30 @@ export function SessionList() {
   const [checking, setChecking] = useState(false);
 
   useEffect(() => {
-    Promise.all([
-      fetch('/api/sessions')
-        .then((r) => r.json())
-        .catch(() => []),
-      fetch('/api/config')
-        .then((r) => r.json())
-        .catch(() => ({})),
-      fetch('/api/version')
-        .then((r) => r.json())
-        .catch(() => ({})),
-    ])
-      .then(([sessData, config, version]) => {
+    const loadAll = () =>
+      Promise.all([
+        fetch('/api/sessions')
+          .then((r) => r.json())
+          .catch(() => []),
+        fetch('/api/config')
+          .then((r) => r.json())
+          .catch(() => ({})),
+        fetch('/api/version')
+          .then((r) => r.json())
+          .catch(() => ({})),
+      ]).then(([sessData, config, version]) => {
         setSessions(sessData);
         setQuickActions(buildQuickActions(config.quickActions));
         if (version?.updateAvailable) setUpdateAvailable(true);
-      })
-      .finally(() => setLoading(false));
+      });
+
+    loadAll().finally(() => setLoading(false));
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') loadAll();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
   }, []);
 
   async function checkForUpdates() {
