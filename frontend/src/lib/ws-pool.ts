@@ -7,8 +7,16 @@
  */
 
 import { WS_RECONNECT_DELAY_MS, WS_RECONNECT_POLL_MS, WS_MAX_BUFFER_SIZE } from './constants';
+import type { ServerMessage } from '../types/ws-messages';
 
-export type WsMsg = Record<string, unknown>;
+interface PoolOpenEvent {
+  type: '_open';
+}
+interface PoolCloseEvent {
+  type: '_close';
+}
+
+export type WsMsg = ServerMessage | PoolOpenEvent | PoolCloseEvent;
 export type MsgListener = (msg: WsMsg) => void;
 
 const BUFFERABLE_TYPES = new Set([

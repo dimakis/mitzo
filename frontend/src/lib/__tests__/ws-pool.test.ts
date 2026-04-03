@@ -54,6 +54,7 @@ Object.defineProperty(globalThis, 'location', {
 
 // Import after mocks are set up
 const { wsSubscribe, wsDrainBuffer } = await import('../ws-pool.js');
+type WsMsg = import('../ws-pool.js').WsMsg;
 
 describe('ws-pool message buffering', () => {
   beforeEach(() => {
@@ -125,12 +126,14 @@ describe('ws-pool message buffering', () => {
 
     const buffered = wsDrainBuffer('test-buf-4');
     expect(buffered).toHaveLength(MAX_BUFFER_SIZE);
-    expect(buffered[0].delta).toBe('chunk-0');
-    expect(buffered[MAX_BUFFER_SIZE - 1].delta).toBe(`chunk-${MAX_BUFFER_SIZE - 1}`);
+    const first = buffered[0];
+    const last = buffered[MAX_BUFFER_SIZE - 1];
+    expect(first.type === 'block_delta' && first.delta).toBe('chunk-0');
+    expect(last.type === 'block_delta' && last.delta).toBe(`chunk-${MAX_BUFFER_SIZE - 1}`);
   });
 
   it('delivers messages directly when listeners exist (no buffering)', () => {
-    const received: Array<Record<string, unknown>> = [];
+    const received: Array<WsMsg> = [];
     wsSubscribe('test-buf-5', (msg) => received.push(msg));
     const ws = lastCreatedWs!;
     ws.simulateOpen();
@@ -152,7 +155,7 @@ describe('ws-pool message buffering', () => {
     ws.simulateMessage({ type: 'message_end', messageId: 'm1' });
 
     // Re-subscribe and drain
-    const replayed: Array<Record<string, unknown>> = [];
+    const replayed: Array<WsMsg> = [];
     wsSubscribe('test-buf-6', (msg) => replayed.push(msg));
     const buffered = wsDrainBuffer('test-buf-6');
     for (const msg of buffered) replayed.push(msg);
