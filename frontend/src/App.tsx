@@ -4,6 +4,7 @@ import { Login } from './pages/Login';
 import { SessionList } from './pages/SessionList';
 import { ChatView } from './pages/ChatView';
 import { FileViewer } from './pages/FileViewer';
+import { InboxView } from './pages/InboxView';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -51,6 +52,14 @@ export function App() {
                 <ErrorBoundary>
                   <ChatView />
                 </ErrorBoundary>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/inbox"
+            element={
+              <ProtectedRoute>
+                <InboxView />
               </ProtectedRoute>
             }
           />
