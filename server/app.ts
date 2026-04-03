@@ -1,5 +1,7 @@
 import express from 'express';
 import cookieParser from 'cookie-parser';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'fs';
 import { join, dirname, resolve, extname } from 'path';
 import { execFileSync } from 'child_process';
@@ -27,8 +29,30 @@ const log = createLogger('server');
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const app = express();
-app.use(express.json());
+
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        connectSrc: ["'self'", 'ws:', 'wss:'],
+        imgSrc: ["'self'", 'data:'],
+      },
+    },
+  }),
+);
+app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
+
+const loginLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 5,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts, try again in a minute' },
+});
 
 // --- Version / update state ---
 
@@ -94,7 +118,7 @@ app.post('/api/permission/:permId/respond', (req, res) => {
 
 app.use('/api', authMiddleware);
 
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', loginLimiter, async (req, res) => {
   const { passphrase } = req.body;
   const token = await login(passphrase);
   if (!token) {
