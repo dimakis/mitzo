@@ -89,7 +89,7 @@ describe('auth routes', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
     expect(res.headers['set-cookie']).toBeDefined();
-    const cookie = (res.headers['set-cookie'] as string[])[0];
+    const cookie = (res.headers['set-cookie'] as unknown as string[])[0];
     expect(cookie).toContain('cc_auth=');
   });
 
