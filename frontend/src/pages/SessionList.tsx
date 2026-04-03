@@ -170,6 +170,7 @@ export function SessionList() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [quickActions, setQuickActions] = useState<QuickAction[]>(DEFAULT_ACTIONS);
   const [loading, setLoading] = useState(true);
+  const [inboxCount, setInboxCount] = useState(0);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [checking, setChecking] = useState(false);
 
@@ -182,13 +183,17 @@ export function SessionList() {
         fetch('/api/config')
           .then((r) => r.json())
           .catch(() => ({})),
+        fetch('/api/inbox')
+          .then((r) => r.json())
+          .catch(() => []),
         fetch('/api/version')
           .then((r) => r.json())
           .catch(() => ({})),
-      ]).then(([sessData, config, version]) => {
+      ]).then(([sessData, config, version, inboxData]) => {
         setSessions(sessData);
         setQuickActions(buildQuickActions(config.quickActions));
         if (version?.updateAvailable) setUpdateAvailable(true);
+        if (Array.isArray(inboxData)) setInboxCount(inboxData.length);
       });
 
     loadAll().finally(() => setLoading(false));
@@ -281,6 +286,12 @@ export function SessionList() {
 
       <button className="hero-chat-btn" onClick={() => navigate('/chat')}>
         New Chat
+      </button>
+
+      <button className="inbox-nav-btn" onClick={() => navigate('/inbox')}>
+        <span className="inbox-nav-label">Inbox</span>
+        {inboxCount > 0 && <span className="inbox-nav-badge">{inboxCount}</span>}
+        <span className="quick-row-chevron">&rsaquo;</span>
       </button>
 
       {quickActions.length > 0 && (
