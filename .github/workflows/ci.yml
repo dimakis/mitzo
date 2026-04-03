@@ -53,10 +53,21 @@ jobs:
         run: |
           COUNT=$(npx vitest run 2>&1 | grep 'Tests' | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')
           echo "Test count: $COUNT"
-          if [ -z "$COUNT" ] || [ "$COUNT" -lt 200 ]; then
-            echo "::error::Test count dropped below 200 (got ${COUNT:-0}). Did you accidentally delete tests?"
+          if [ -z "$COUNT" ] || [ "$COUNT" -lt 250 ]; then
+            echo "::error::Test count dropped below 250 (got ${COUNT:-0}). Did you accidentally delete tests?"
             exit 1
           fi
+
+      - name: Audit
+        id: audit
+        if: always()
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
+      - name: Build MCP server
+        id: build-mcp
+        if: always()
+        run: cd mcp-server && npm ci && npm run build
 
       - name: Build
         id: build
@@ -90,6 +101,7 @@ jobs:
              [ "${{ steps.typecheck-frontend.outcome }}" = "failure" ] || \
              [ "${{ steps.test.outcome }}" = "failure" ] || \
              [ "${{ steps.test-count.outcome }}" = "failure" ] || \
+             [ "${{ steps.build-mcp.outcome }}" = "failure" ] || \
              [ "${{ steps.build.outcome }}" = "failure" ]; then
             echo "One or more CI steps failed."
             exit 1
