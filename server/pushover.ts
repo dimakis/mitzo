@@ -8,6 +8,12 @@ export function isConfigured(): boolean {
   return !!(process.env.PUSHOVER_API_TOKEN && process.env.PUSHOVER_USER_KEY);
 }
 
+function sessionUrl(sessionId?: string): string {
+  const base = process.env.BASE_URL;
+  if (!base) return '';
+  return sessionId ? `${base}/chat/${sessionId}` : base;
+}
+
 export async function sendPushoverNotification(
   title: string,
   message: string,
@@ -45,24 +51,29 @@ export async function sendPermissionNotification(
   toolName: string,
   toolInput: string,
   permId: string,
+  sessionId?: string,
 ): Promise<void> {
   const baseUrl = process.env.BASE_URL;
   if (!isConfigured() || !baseUrl) return;
 
-  const ntfyToken = process.env.NTFY_AUTH_TOKEN || '';
-  const mitzoUrl = `${baseUrl}/api/permission/${permId}/respond?decision=once&token=${ntfyToken}`;
-
-  await sendPushoverNotification(`Mitzo: ${toolName}`, toolInput, mitzoUrl, 'Open Mitzo');
+  await sendPushoverNotification(
+    `Mitzo: ${toolName}`,
+    toolInput,
+    sessionUrl(sessionId),
+    'Open Mitzo',
+  );
 }
 
-export async function sendTurnCompleteNotification(): Promise<void> {
-  const baseUrl = process.env.BASE_URL;
-  if (!isConfigured() || !baseUrl) return;
+export async function sendTurnCompleteNotification(
+  sessionId?: string,
+  snippet?: string,
+): Promise<void> {
+  if (!isConfigured()) return;
 
   await sendPushoverNotification(
     'Mitzo: Agent replied',
-    'The agent has finished its turn.',
-    baseUrl,
+    snippet || 'The agent has finished its turn.',
+    sessionUrl(sessionId),
     'Open Mitzo',
   );
 }

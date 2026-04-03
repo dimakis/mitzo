@@ -111,8 +111,10 @@ export function buildPermissionHandler(clientId: string, registry: SessionRegist
       if (ntfyConfigured() || pushoverConfigured()) {
         setTimeout(() => {
           if (hasPending(permId)) {
-            if (ntfyConfigured()) sendPermissionNotification(toolName, inputSummary, permId);
-            if (pushoverConfigured()) pushoverSendPermission(toolName, inputSummary, permId);
+            if (ntfyConfigured())
+              sendPermissionNotification(toolName, inputSummary, permId, session.sessionId);
+            if (pushoverConfigured())
+              pushoverSendPermission(toolName, inputSummary, permId, session.sessionId);
           }
         }, NTFY_NOTIFICATION_DELAY_MS);
       }
