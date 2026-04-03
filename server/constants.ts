@@ -11,6 +11,9 @@ export const NOTIFY_INPUT_MAX_CHARS = 100;
 export const TOOL_SUMMARY_MAX_CHARS = 200;
 export const RAW_INPUT_MAX_CHARS = 50_000;
 
+// --- Notifications ---
+export const NOTIFY_SNIPPET_MAX_CHARS = 150;
+
 // --- Worktree ---
 export const WORKTREE_BRANCH_PREFIX = 'session/';
 export const WORKTREE_STALE_HOURS = 168; // 7 days

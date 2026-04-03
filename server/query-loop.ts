@@ -7,6 +7,8 @@ import { createLogger } from './logger.js';
 import type { SessionRegistry, SnapshotBlock } from './session-registry.js';
 import { sendTurnCompleteNotification as ntfyTurnComplete } from './notify.js';
 import { sendTurnCompleteNotification as pushoverTurnComplete } from './pushover.js';
+import { extractSnippet } from './notification-helpers.js';
+import { NOTIFY_SNIPPET_MAX_CHARS } from './constants.js';
 import { PermissionResponseMessage, SetModeMessage } from './ws-schemas.js';
 
 const log = createLogger('query-loop');
@@ -155,13 +157,17 @@ export async function runQueryLoop(
         }
       } else if (msg.type === 'result') {
         log.info('result received', { clientId, sessionId: msg.session_id });
+        // Capture snapshot blocks before flush (forceFlush nulls the snapshot).
+        const snapshotBlocks = currentSession.currentSnapshot?.blocks ?? [];
         if (msg.session_id) send(currentWs, { type: 'session_id', sessionId: msg.session_id });
         forceFlushPendingMessage(currentWs, currentSession);
         doneSent = true;
         send(currentWs, v2('session_end', { sessionId: msg.session_id }));
         if (!registry.isAttached(clientId)) {
-          ntfyTurnComplete().catch(() => {});
-          pushoverTurnComplete().catch(() => {});
+          const snippet = extractSnippet(snapshotBlocks, NOTIFY_SNIPPET_MAX_CHARS);
+          const sid = (msg.session_id as string) || currentSession.sessionId;
+          ntfyTurnComplete(sid, snippet).catch(() => {});
+          pushoverTurnComplete(sid, snippet).catch(() => {});
         }
       } else if (msg.type === 'stream_event') {
         const evt = msg.event as Record<string, unknown> | undefined;

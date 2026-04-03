@@ -1,4 +1,9 @@
-import { query, listSessions, getSessionMessages } from '@anthropic-ai/claude-agent-sdk';
+import {
+  query,
+  listSessions,
+  getSessionMessages,
+  renameSession,
+} from '@anthropic-ai/claude-agent-sdk';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { WebSocket } from 'ws';
 import { execFileSync } from 'child_process';
@@ -359,6 +364,19 @@ export function hideSession(sessionId: string) {
 }
 export function clearHiddenSessions() {
   hiddenSessionIds.clear();
+}
+
+export async function renameSessionById(sessionId: string, title: string): Promise<void> {
+  const errors: string[] = [];
+  for (const dir of getSessionDirs()) {
+    try {
+      await renameSession(sessionId, title, { dir });
+      return;
+    } catch (err: unknown) {
+      errors.push(err instanceof Error ? err.message : String(err));
+    }
+  }
+  throw new Error('Session not found');
 }
 
 export async function getSessions() {

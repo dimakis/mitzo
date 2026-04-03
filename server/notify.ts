@@ -12,10 +12,16 @@ export function isConfigured(): boolean {
   return !!(NTFY_TOPIC && BASE_URL);
 }
 
+function sessionUrl(sessionId?: string): string {
+  if (!BASE_URL) return '';
+  return sessionId ? `${BASE_URL}/chat/${sessionId}` : BASE_URL;
+}
+
 export async function sendPermissionNotification(
   toolName: string,
   toolInput: string,
   permId: string,
+  sessionId?: string,
 ): Promise<void> {
   if (!NTFY_TOPIC || !BASE_URL) return;
 
@@ -35,7 +41,7 @@ export async function sendPermissionNotification(
     Actions: [
       `http, Allow, ${allowUrl}, method=POST, clear=true`,
       `http, Deny, ${denyUrl}, method=POST, clear=true`,
-      `view, Open Mitzo, ${BASE_URL}`,
+      `view, Open Mitzo, ${sessionUrl(sessionId)}`,
     ].join('; '),
   };
 
@@ -52,21 +58,24 @@ export async function sendPermissionNotification(
   }
 }
 
-export async function sendTurnCompleteNotification(): Promise<void> {
+export async function sendTurnCompleteNotification(
+  sessionId?: string,
+  snippet?: string,
+): Promise<void> {
   if (!NTFY_TOPIC || !BASE_URL) return;
 
   const headers: Record<string, string> = {
     Title: 'Mitzo: Agent replied',
     Priority: '3',
     Tags: 'speech_balloon',
-    Actions: `view, Open Mitzo, ${BASE_URL}`,
+    Actions: `view, Open Mitzo, ${sessionUrl(sessionId)}`,
   };
 
   try {
     await fetch(`${NTFY_URL}/${NTFY_TOPIC}`, {
       method: 'POST',
       headers,
-      body: 'The agent has finished its turn.',
+      body: snippet || 'The agent has finished its turn.',
     });
   } catch (err: unknown) {
     log.error('failed to send turn-complete notification', {

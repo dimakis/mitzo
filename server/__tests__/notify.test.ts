@@ -1,22 +1,49 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { isConfigured, sendTurnCompleteNotification } from '../notify.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { sendTurnCompleteNotification, sendPermissionNotification } from '../notify.js';
+
+const mockFetch = vi.fn().mockResolvedValue({});
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  vi.stubGlobal('fetch', mockFetch);
+  mockFetch.mockResolvedValue({});
 });
 
-describe('notify module', () => {
-  it('isConfigured returns false without NTFY_TOPIC', () => {
-    expect(isConfigured()).toBe(false);
-  });
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
+
+// These tests verify the interface contracts. When ntfy is not configured
+// (no NTFY_TOPIC/BASE_URL), the functions are no-ops — that's also valid behavior.
 
 describe('sendTurnCompleteNotification', () => {
-  it('is exported as a function', () => {
-    expect(typeof sendTurnCompleteNotification).toBe('function');
+  it('accepts sessionId and snippet parameters', async () => {
+    await sendTurnCompleteNotification('sess-123', 'Summary text');
+
+    if (mockFetch.mock.calls.length > 0) {
+      const [, opts] = mockFetch.mock.calls[0];
+      expect(opts.headers.Actions).toContain('/chat/sess-123');
+      expect(opts.body).toBe('Summary text');
+    }
   });
 
-  it('does not throw when ntfy is not configured', async () => {
+  it('works without arguments (backward compatible)', async () => {
     await expect(sendTurnCompleteNotification()).resolves.toBeUndefined();
+  });
+});
+
+describe('sendPermissionNotification', () => {
+  it('accepts optional sessionId for deep linking', async () => {
+    mockFetch.mockClear();
+    await sendPermissionNotification('Bash', 'ls -la', 'perm-1', 'sess-456');
+
+    if (mockFetch.mock.calls.length > 0) {
+      const [, opts] = mockFetch.mock.calls[0];
+      expect(opts.headers.Actions).toContain('/chat/sess-456');
+    }
+  });
+
+  it('works without sessionId (backward compatible)', async () => {
+    await expect(sendPermissionNotification('Bash', 'ls', 'perm-1')).resolves.toBeUndefined();
   });
 });

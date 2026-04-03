@@ -16,6 +16,7 @@ vi.mock('../chat.js', () => {
   return {
     getSessions: vi.fn().mockResolvedValue([{ id: 's1', summary: 'Test', lastModified: 1 }]),
     getMessages: vi.fn().mockResolvedValue([{ messageId: 'm1', role: 'assistant', blocks: [] }]),
+    renameSessionById: vi.fn().mockResolvedValue(undefined),
     hideSession: vi.fn(),
     clearHiddenSessions: vi.fn(),
     BASE_REPO: repo,
@@ -49,7 +50,7 @@ vi.mock('../git-version.js', () => ({
   isUpdateAvailable: vi.fn().mockReturnValue(false),
 }));
 
-import { hideSession, clearHiddenSessions } from '../chat.js';
+import { hideSession, clearHiddenSessions, renameSessionById } from '../chat.js';
 import { resolvePending } from '../permissions.js';
 
 let app: Express;
@@ -220,6 +221,38 @@ describe('session routes', () => {
     const res = await request(app).delete('/api/sessions').set('Cookie', authCookie);
     expect(res.status).toBe(200);
     expect(clearHiddenSessions).toHaveBeenCalled();
+  });
+
+  it('PUT /api/sessions/:id/rename — renames session', async () => {
+    const res = await request(app)
+      .put('/api/sessions/s1/rename')
+      .set('Cookie', authCookie)
+      .send({ title: 'New Name' });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true });
+    expect(renameSessionById).toHaveBeenCalledWith('s1', 'New Name');
+  });
+
+  it('PUT /api/sessions/:id/rename — empty body returns 400', async () => {
+    const res = await request(app)
+      .put('/api/sessions/s1/rename')
+      .set('Cookie', authCookie)
+      .send({});
+    expect(res.status).toBe(400);
+  });
+
+  it('PUT /api/sessions/:id/rename — not found returns 404', async () => {
+    vi.mocked(renameSessionById).mockRejectedValueOnce(new Error('Session not found'));
+    const res = await request(app)
+      .put('/api/sessions/bad/rename')
+      .set('Cookie', authCookie)
+      .send({ title: 'Name' });
+    expect(res.status).toBe(404);
+  });
+
+  it('PUT /api/sessions/:id/rename — unauthenticated returns 401', async () => {
+    const res = await request(app).put('/api/sessions/s1/rename').send({ title: 'Name' });
+    expect(res.status).toBe(401);
   });
 });
 

@@ -1,7 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Session } from '../types/chat';
 import { formatRelativeTime } from '../lib/formatTime';
+import { renameSession } from '../lib/rename-session';
+import { useLongPress } from '../hooks/useLongPress';
 
 interface QuickAction {
   label: string;
@@ -31,26 +33,65 @@ function SwipeableSession({
   session,
   onDismiss,
   onClick,
+  onRename,
 }: {
   session: Session;
   onDismiss: (id: string) => void;
   onClick: (id: string) => void;
+  onRename: (id: string, title: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const startX = useRef(0);
   const currentX = useRef(0);
   const swiping = useRef(false);
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const enterEditMode = useCallback(() => {
+    setEditValue(session.summary || '');
+    setEditing(true);
+  }, [session.summary]);
+
+  const longPress = useLongPress(enterEditMode);
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editing]);
+
+  function handleSave() {
+    const trimmed = editValue.trim();
+    setEditing(false);
+    if (trimmed && trimmed !== session.summary) {
+      onRename(session.id, trimmed);
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSave();
+    } else if (e.key === 'Escape') {
+      setEditing(false);
+    }
+  }
 
   function handleTouchStart(e: React.TouchEvent) {
     startX.current = e.touches[0].clientX;
     currentX.current = startX.current;
     swiping.current = true;
+    if (!editing) longPress.start();
   }
 
   function handleTouchMove(e: React.TouchEvent) {
     if (!swiping.current || !ref.current) return;
     currentX.current = e.touches[0].clientX;
     const dx = currentX.current - startX.current;
+    // Cancel long-press on horizontal movement
+    if (Math.abs(dx) > 10) longPress.cancel();
     if (dx < 0) {
       ref.current.style.transform = `translateX(${dx}px)`;
       ref.current.style.opacity = `${Math.max(0, 1 + dx / 200)}`;
@@ -58,6 +99,7 @@ function SwipeableSession({
   }
 
   function handleTouchEnd() {
+    longPress.cancel();
     if (!swiping.current || !ref.current) return;
     swiping.current = false;
     const dx = currentX.current - startX.current;
@@ -76,23 +118,41 @@ function SwipeableSession({
     }
   }
 
+  function handleClick() {
+    if (longPress.didFire() || editing) return;
+    onClick(session.id);
+  }
+
   return (
     <div
       ref={ref}
       className="session-item"
-      onClick={() => onClick(session.id)}
+      onClick={handleClick}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
     >
       <div className="session-item-content">
-        <div className="session-item-summary">{session.summary || 'Untitled session'}</div>
+        {editing ? (
+          <input
+            ref={inputRef}
+            className="session-rename-input"
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={handleSave}
+            onKeyDown={handleKeyDown}
+            onClick={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+          />
+        ) : (
+          <div className="session-item-summary">{session.summary || 'Untitled session'}</div>
+        )}
         <div className="session-item-meta">
           <span className="session-item-time">{formatRelativeTime(session.lastModified)}</span>
           {session.branch && <span className="session-item-branch">{session.branch}</span>}
         </div>
       </div>
-      <span className="session-item-chevron">&rsaquo;</span>
+      {!editing && <span className="session-item-chevron">&rsaquo;</span>}
     </div>
   );
 }
@@ -172,6 +232,18 @@ export function SessionList() {
     });
   }
 
+  function handleRename(id: string, title: string) {
+    // Optimistic update
+    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, summary: title } : s)));
+    renameSession(id, title).catch(() => {
+      // Revert on failure — reload from server
+      fetch('/api/sessions')
+        .then((r) => r.json())
+        .then(setSessions)
+        .catch(() => {});
+    });
+  }
+
   function handleQuickAction(action: QuickAction) {
     const path = action.path || '/chat';
     const params = new URLSearchParams();
@@ -246,6 +318,7 @@ export function SessionList() {
               session={s}
               onDismiss={dismissSession}
               onClick={(id) => navigate(`/chat/${id}`)}
+              onRename={handleRename}
             />
           ))}
         </div>

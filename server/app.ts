@@ -13,6 +13,7 @@ import {
   getMessages,
   hideSession,
   clearHiddenSessions,
+  renameSessionById,
   AVAILABLE_MODELS,
   BASE_REPO,
   getMcpServerNames,
@@ -177,6 +178,20 @@ app.delete('/api/sessions/:id', (req, res) => {
 app.delete('/api/sessions', (_req, res) => {
   clearHiddenSessions();
   res.json({ ok: true });
+});
+
+app.put('/api/sessions/:id/rename', async (req, res) => {
+  const { title } = req.body || {};
+  if (!title || typeof title !== 'string') {
+    res.status(400).json({ error: 'title is required' });
+    return;
+  }
+  try {
+    await renameSessionById(req.params.id, title.slice(0, 200));
+    res.json({ ok: true });
+  } catch {
+    res.status(404).json({ error: 'Session not found' });
+  }
 });
 
 app.get('/api/worktrees', (_req, res) => {

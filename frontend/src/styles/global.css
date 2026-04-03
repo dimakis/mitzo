@@ -385,6 +385,18 @@ textarea:focus {
   white-space: nowrap;
 }
 
+.session-rename-input {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text);
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 0.2rem 0.4rem;
+  width: 100%;
+  outline: none;
+}
+
 .session-item-meta {
   display: flex;
   align-items: center;
