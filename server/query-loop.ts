@@ -7,6 +7,7 @@ import { createLogger } from './logger.js';
 import type { SessionRegistry, SnapshotBlock } from './session-registry.js';
 import { sendTurnCompleteNotification as ntfyTurnComplete } from './notify.js';
 import { sendTurnCompleteNotification as pushoverTurnComplete } from './pushover.js';
+import { PermissionResponseMessage, SetModeMessage } from './ws-schemas.js';
 
 const log = createLogger('query-loop');
 
@@ -23,13 +24,17 @@ function v2(type: string, rest: Record<string, unknown> = {}): Record<string, un
 export function createWsMessageHandler(clientId: string, registry: SessionRegistry) {
   return (raw: Buffer) => {
     try {
-      const msg = JSON.parse(raw.toString());
-      if (msg.type === 'permission_response' && msg.permId) {
-        resolvePending(msg.permId, msg.decision || 'deny');
-      } else if (msg.type === 'set_mode' && msg.mode) {
-        registry.setMode(clientId, msg.mode);
+      const parsed = JSON.parse(raw.toString());
+      const permResult = PermissionResponseMessage.safeParse(parsed);
+      if (permResult.success) {
+        resolvePending(permResult.data.permId, permResult.data.decision || 'deny');
+        return;
+      }
+      const modeResult = SetModeMessage.safeParse(parsed);
+      if (modeResult.success) {
+        registry.setMode(clientId, modeResult.data.mode);
         const session = registry.get(clientId);
-        if (session) send(session.ws, { type: 'mode_changed', mode: msg.mode });
+        if (session) send(session.ws, { type: 'mode_changed', mode: modeResult.data.mode });
       }
     } catch (err: unknown) {
       log.warn('malformed WS message from client', {
