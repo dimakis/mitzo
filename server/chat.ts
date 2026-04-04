@@ -408,95 +408,103 @@ export async function getSessions() {
   return deduped.slice(0, SESSION_LIST_LIMIT);
 }
 
+export interface RawSdkMessage {
+  type: string;
+  message?: Record<string, unknown>;
+}
+
+export interface RestoredMessage {
+  messageId: string;
+  role: string;
+  blocks: Array<{
+    blockId: string;
+    blockType: string;
+    content: string;
+    toolName?: string;
+    toolId?: string;
+    toolInput?: string;
+    toolResult?: string;
+  }>;
+}
+
+export function reconstructMessages(rawMessages: RawSdkMessage[]): RestoredMessage[] {
+  let blockCounter = 0;
+
+  const toolResultMap = new Map<string, string>();
+  for (const m of rawMessages) {
+    const content = m.message?.content;
+    if (!Array.isArray(content)) continue;
+    const parsed = parseContentBlocks(content);
+    for (const tr of parsed.toolResults) {
+      toolResultMap.set(tr.toolId, tr.result);
+    }
+  }
+
+  const messages: RestoredMessage[] = [];
+
+  for (const m of rawMessages) {
+    const content = m.message?.content;
+    const role = m.type === 'assistant' ? 'assistant' : 'user';
+    const msgId = (m.message?.id as string) ?? `restored-${Date.now()}-${blockCounter}`;
+    const blocks: RestoredMessage['blocks'] = [];
+
+    if (typeof content === 'string') {
+      if (content) {
+        blocks.push({
+          blockId: `rb${blockCounter++}`,
+          blockType: 'text',
+          content,
+        });
+      }
+    } else if (Array.isArray(content)) {
+      const parsed = parseContentBlocks(content);
+      if (!parsed.text && parsed.toolCalls.length === 0) continue;
+
+      if (parsed.text) {
+        blocks.push({
+          blockId: `rb${blockCounter++}`,
+          blockType: 'text',
+          content: parsed.text,
+        });
+      }
+
+      for (const tc of parsed.toolCalls) {
+        blocks.push({
+          blockId: `rb${blockCounter++}`,
+          blockType: 'tool_use',
+          content: '',
+          toolName: tc.toolName,
+          toolId: tc.toolId,
+          toolInput: tc.input,
+          toolResult: toolResultMap.get(tc.toolId),
+        });
+      }
+    } else {
+      continue;
+    }
+
+    if (blocks.length === 0) continue;
+    messages.push({ messageId: msgId, role, blocks });
+  }
+
+  return messages;
+}
+
 export async function getMessages(sessionId: string) {
-  let rawMessages: Array<{ type: string; message?: Record<string, unknown> }> = [];
+  let rawMessages: RawSdkMessage[] = [];
   for (const dir of getSessionDirs()) {
     try {
       rawMessages = (await getSessionMessages(sessionId, {
         dir,
         limit: SESSION_MESSAGES_LIMIT,
-      })) as typeof rawMessages;
+      })) as RawSdkMessage[];
       if (rawMessages.length > 0) break;
     } catch {
       // Session not in this dir — try next
     }
   }
   try {
-    let blockCounter = 0;
-
-    // First pass: collect all tool results from user-type SDK messages.
-    const toolResultMap = new Map<string, string>();
-    for (const m of rawMessages) {
-      const content = m.message?.content;
-      if (!Array.isArray(content)) continue;
-      const parsed = parseContentBlocks(content);
-      for (const tr of parsed.toolResults) {
-        toolResultMap.set(tr.toolId, tr.result);
-      }
-    }
-
-    // Second pass: build v2 FinishedMessage[] from assistant/user turns.
-    const messages: Array<{
-      messageId: string;
-      role: string;
-      blocks: Array<{
-        blockId: string;
-        blockType: string;
-        content: string;
-        toolName?: string;
-        toolId?: string;
-        toolInput?: string;
-        toolResult?: string;
-      }>;
-    }> = [];
-
-    for (const m of rawMessages) {
-      const content = m.message?.content;
-      const role = m.type === 'assistant' ? 'assistant' : 'user';
-      const msgId = (m.message?.id as string) ?? `restored-${Date.now()}-${blockCounter}`;
-      const blocks: (typeof messages)[number]['blocks'] = [];
-
-      // User prompts are stored as plain strings by the SDK.
-      if (typeof content === 'string') {
-        if (content) {
-          blocks.push({
-            blockId: `rb${blockCounter++}`,
-            blockType: 'text',
-            content,
-          });
-        }
-      } else if (Array.isArray(content)) {
-        const parsed = parseContentBlocks(content);
-        if (!parsed.text && parsed.toolCalls.length === 0) continue;
-
-        if (parsed.text) {
-          blocks.push({
-            blockId: `rb${blockCounter++}`,
-            blockType: 'text',
-            content: parsed.text,
-          });
-        }
-
-        for (const tc of parsed.toolCalls) {
-          blocks.push({
-            blockId: `rb${blockCounter++}`,
-            blockType: 'tool_use',
-            content: '',
-            toolName: tc.toolName,
-            toolId: tc.toolId,
-            toolInput: tc.input,
-            toolResult: toolResultMap.get(tc.toolId),
-          });
-        }
-      } else {
-        continue;
-      }
-
-      if (blocks.length === 0) continue;
-      messages.push({ messageId: msgId, role, blocks });
-    }
-
-    return messages;
+    return reconstructMessages(rawMessages);
   } catch (err: unknown) {
     log.warn('failed to parse session messages', {
       sessionId,
