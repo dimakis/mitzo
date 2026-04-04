@@ -137,6 +137,48 @@ describe('loadRepoConfig', () => {
     expect(config.inboxPath).toBe('');
   });
 
+  it('parses repos from .mitzo.json', () => {
+    const data = {
+      repos: {
+        mgmt: '/Users/test/redhat/mgmt',
+        team_home: '/Users/test/redhat/team_home',
+      },
+    };
+    writeFileSync(join(TMP_DIR, '.mitzo.json'), JSON.stringify(data));
+
+    const config = loadRepoConfig(TMP_DIR);
+    expect(config.repos).toEqual({
+      mgmt: '/Users/test/redhat/mgmt',
+      team_home: '/Users/test/redhat/team_home',
+    });
+  });
+
+  it('returns empty repos when not specified', () => {
+    const data = { quickActions: [] };
+    writeFileSync(join(TMP_DIR, '.mitzo.json'), JSON.stringify(data));
+
+    const config = loadRepoConfig(TMP_DIR);
+    expect(config.repos).toEqual({});
+  });
+
+  it('filters out non-string repo values', () => {
+    const data = {
+      repos: {
+        valid: '/some/path',
+        invalid: 42,
+        alsoInvalid: null,
+        alsoValid: '/other/path',
+      },
+    };
+    writeFileSync(join(TMP_DIR, '.mitzo.json'), JSON.stringify(data));
+
+    const config = loadRepoConfig(TMP_DIR);
+    expect(config.repos).toEqual({
+      valid: '/some/path',
+      alsoValid: '/other/path',
+    });
+  });
+
   it('filters out quickActions with missing required fields', () => {
     const data = {
       quickActions: [

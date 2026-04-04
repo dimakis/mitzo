@@ -12,6 +12,11 @@ import type {
 import type { WsMsg } from '../lib/ws-pool';
 import { wsSetRunning, wsSend } from '../lib/ws-pool';
 
+export interface ActiveWorktree {
+  repoName: string;
+  path: string;
+}
+
 export interface ChatMessagesState {
   messages: FinishedMessage[];
   current: StreamingMessage | null; // in-flight assistant turn
@@ -19,6 +24,7 @@ export interface ChatMessagesState {
   permission: PermissionRequest | null;
   branch: string | null;
   isWorktree: boolean;
+  activeWorktrees: ActiveWorktree[];
 }
 
 export type ChatMessagesAction =
@@ -60,7 +66,8 @@ export type ChatMessagesAction =
   | { type: 'CONNECTION_LOST' }
   | { type: 'PERMISSION_REQUEST'; payload: PermissionRequest }
   | { type: 'PERMISSION_TIMEOUT'; permId: string }
-  | { type: 'RESTORE'; messages: FinishedMessage[]; interrupted?: boolean };
+  | { type: 'RESTORE'; messages: FinishedMessage[]; interrupted?: boolean }
+  | { type: 'WORKTREE_OPENED'; repoName: string; path: string };
 
 const INITIAL_STATE: ChatMessagesState = {
   messages: [],
@@ -69,6 +76,7 @@ const INITIAL_STATE: ChatMessagesState = {
   permission: null,
   branch: null,
   isWorktree: false,
+  activeWorktrees: [],
 };
 
 function finishCurrent(current: StreamingMessage): FinishedMessage {
@@ -269,6 +277,18 @@ export function chatMessagesReducer(
     case 'SESSION_INFO':
       return { ...state, branch: action.branch, isWorktree: action.isWorktree };
 
+    case 'WORKTREE_OPENED': {
+      const already = state.activeWorktrees.some((w) => w.repoName === action.repoName);
+      if (already) return state;
+      return {
+        ...state,
+        activeWorktrees: [
+          ...state.activeWorktrees,
+          { repoName: action.repoName, path: action.path },
+        ],
+      };
+    }
+
     case 'RESTORE': {
       const valid = action.messages.filter(
         (m) => m && typeof m.messageId === 'string' && Array.isArray(m.blocks),
@@ -405,6 +425,14 @@ export function useChatMessages(
             type: 'SESSION_INFO',
             branch: msg.branch as string,
             isWorktree: msg.worktree as boolean,
+          });
+          break;
+
+        case 'worktree_opened':
+          dispatch({
+            type: 'WORKTREE_OPENED',
+            repoName: msg.repoName as string,
+            path: msg.path as string,
           });
           break;
 

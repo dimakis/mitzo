@@ -8,8 +8,9 @@ import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { WebSocket } from 'ws';
 import { execFileSync } from 'child_process';
 import { writeFileSync, mkdirSync, readdirSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { homedir } from 'os';
+import { fileURLToPath } from 'url';
 import { createWorktree } from './worktree.js';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
 import { parseContentBlocks } from './content-blocks.js';
@@ -19,11 +20,17 @@ import { loadRepoConfig } from './repo-config.js';
 import { buildPermissionHandler } from './permission-handler.js';
 import { runQueryLoop, createWsMessageHandler } from './query-loop.js';
 import { AsyncQueue } from './async-queue.js';
-import { GIT_BRANCH_TIMEOUT_MS, SESSION_LIST_LIMIT, SESSION_MESSAGES_LIMIT } from './constants.js';
+import {
+  GIT_BRANCH_TIMEOUT_MS,
+  SESSION_LIST_LIMIT,
+  SESSION_MESSAGES_LIMIT,
+  INTERNAL_TOKEN,
+} from './constants.js';
 import { EventStore } from './event-store.js';
 import { createLogger } from './logger.js';
 
 const log = createLogger('chat');
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // --- Event store (durable session persistence) ---
 function initEventStore(): EventStore {
@@ -124,7 +131,45 @@ function getBranch(cwd: string): string {
 }
 
 function buildMcpAllowedTools(): string[] {
-  return Object.keys(mcpServers).map((name) => `mcp__${name}__*`);
+  const patterns = Object.keys(mcpServers).map((name) => `mcp__${name}__*`);
+  if (Object.keys(repoConfig.repos).length > 0) {
+    patterns.push('mcp__mitzo_repos__*');
+  }
+  return patterns;
+}
+
+const REPO_MCP_SERVER_NAME = 'mitzo_repos';
+
+function buildRepoMcpServer(clientId: string): Record<string, McpServerConfig> | null {
+  if (Object.keys(repoConfig.repos).length === 0) return null;
+  const port = process.env.PORT || '3100';
+  return {
+    [REPO_MCP_SERVER_NAME]: {
+      command: 'node',
+      args: [
+        '--import',
+        'tsx',
+        join(__dirname, 'repo-mcp-server.ts'),
+        '--base-url',
+        `http://localhost:${port}`,
+        '--client-id',
+        clientId,
+        '--token',
+        INTERNAL_TOKEN,
+      ],
+    },
+  };
+}
+
+function buildRepoSystemPrompt(): string {
+  const repoNames = Object.keys(repoConfig.repos);
+  if (repoNames.length === 0) return '';
+  return (
+    '\n\nYou have access to multiple repositories via the open_repo MCP tool. ' +
+    `Available repos: ${repoNames.join(', ')}. ` +
+    'Call open_repo with a repo name to get an isolated worktree. ' +
+    'Use the returned absolute path for all file operations in that repo.'
+  );
 }
 
 function resolveWorktree(
@@ -242,6 +287,10 @@ export async function startChat(
   const branch = getBranch(cwd);
   send(ws, { type: 'session_info', branch, cwd, worktree: !!worktreePath });
 
+  // Merge repo MCP server if repos are configured and worktree mode is active
+  const repoMcp = worktreePath ? buildRepoMcpServer(clientId) : null;
+  const allMcpServers = { ...mcpServers, ...repoMcp };
+
   let messageHandler: ((raw: Buffer) => void) | null = null;
   try {
     const q = query({
@@ -260,14 +309,15 @@ export async function startChat(
             '- Never take mutating actions (writes, comments, transitions, commits) without explicit user approval. Present analysis first, wait for confirmation.\n' +
             '- Read operations are fine without asking.\n' +
             '- Keep responses concise — small screen.\n' +
-            '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.',
+            '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.' +
+            (worktreePath ? buildRepoSystemPrompt() : ''),
         },
         permissionMode: MODE_TO_SDK[mode] as 'plan' | 'default' | 'bypassPermissions',
         allowedTools: [...modeAllowed, ...mcpAllowed, ...extraTools],
         thinking: resolveThinking(options.model),
         ...(options.model ? { model: options.model } : {}),
         ...(options.resume ? { resume: options.resume } : {}),
-        ...(Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
+        ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
         canUseTool: buildPermissionHandler(clientId, registry),
       },
     });

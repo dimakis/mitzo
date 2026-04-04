@@ -17,6 +17,7 @@ const INITIAL_STATE: ChatMessagesState = {
   permission: null,
   branch: null,
   isWorktree: false,
+  activeWorktrees: [],
 };
 
 beforeEach(() => {
@@ -139,6 +140,48 @@ describe('chatMessagesReducer', () => {
     ];
     const result = chatMessagesReducer(INITIAL_STATE, { type: 'RESTORE', messages: msgs });
     expect(result.messages).toHaveLength(1);
+  });
+
+  it('WORKTREE_OPENED adds a new worktree to activeWorktrees', () => {
+    const result = chatMessagesReducer(INITIAL_STATE, {
+      type: 'WORKTREE_OPENED',
+      repoName: 'team_home',
+      path: '/tmp/team_home-sessions/session-wt-123',
+    });
+    expect(result.activeWorktrees).toHaveLength(1);
+    expect(result.activeWorktrees[0]).toEqual({
+      repoName: 'team_home',
+      path: '/tmp/team_home-sessions/session-wt-123',
+    });
+  });
+
+  it('WORKTREE_OPENED is idempotent for same repo', () => {
+    const state1 = chatMessagesReducer(INITIAL_STATE, {
+      type: 'WORKTREE_OPENED',
+      repoName: 'team_home',
+      path: '/tmp/team_home-sessions/session-wt-123',
+    });
+    const state2 = chatMessagesReducer(state1, {
+      type: 'WORKTREE_OPENED',
+      repoName: 'team_home',
+      path: '/tmp/team_home-sessions/session-wt-456',
+    });
+    expect(state2.activeWorktrees).toHaveLength(1);
+    expect(state2).toBe(state1); // reference equality — no change
+  });
+
+  it('WORKTREE_OPENED tracks multiple repos', () => {
+    const state1 = chatMessagesReducer(INITIAL_STATE, {
+      type: 'WORKTREE_OPENED',
+      repoName: 'mgmt',
+      path: '/tmp/mgmt-sessions/session-wt-1',
+    });
+    const state2 = chatMessagesReducer(state1, {
+      type: 'WORKTREE_OPENED',
+      repoName: 'team_home',
+      path: '/tmp/team_home-sessions/session-wt-2',
+    });
+    expect(state2.activeWorktrees).toHaveLength(2);
   });
 });
 

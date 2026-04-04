@@ -31,6 +31,7 @@ vi.mock('../chat.js', () => {
       toolTierOverrides: {},
       inboxPath: 'mgmt_lib/inbox',
       resolvedInboxPath: pjoin(repo, 'mgmt_lib/inbox'),
+      repos: {},
     },
     getMcpServerNames: vi.fn().mockReturnValue(['test-mcp']),
     AVAILABLE_MODELS: [{ id: 'test-model', label: 'Test', desc: 'Test model' }],
