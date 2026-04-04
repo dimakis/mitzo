@@ -4,6 +4,7 @@ import type { Session } from '../types/chat';
 import { formatRelativeTime } from '../lib/formatTime';
 import { renameSession } from '../lib/rename-session';
 import { useLongPress } from '../hooks/useLongPress';
+import { computeSwipeState, REVEAL_WIDTH } from '../lib/swipe-reveal';
 
 interface QuickAction {
   label: string;
@@ -46,6 +47,7 @@ function SwipeableSession({
   const swiping = useRef(false);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
+  const [revealed, setRevealed] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const enterEditMode = useCallback(() => {
@@ -79,6 +81,29 @@ function SwipeableSession({
     }
   }
 
+  function snapTo(x: number) {
+    if (!ref.current) return;
+    ref.current.style.transition = 'transform 0.2s';
+    ref.current.style.transform = `translateX(${x}px)`;
+    setTimeout(() => {
+      if (ref.current) ref.current.style.transition = '';
+    }, 200);
+  }
+
+  function closeReveal() {
+    setRevealed(false);
+    snapTo(0);
+  }
+
+  function handleDeleteTap(e: React.MouseEvent | React.TouchEvent) {
+    e.stopPropagation();
+    if (!ref.current) return;
+    ref.current.style.transition = 'transform 0.2s, opacity 0.2s';
+    ref.current.style.transform = 'translateX(-100%)';
+    ref.current.style.opacity = '0';
+    setTimeout(() => onDismiss(session.id), 200);
+  }
+
   function handleTouchStart(e: React.TouchEvent) {
     startX.current = e.touches[0].clientX;
     currentX.current = startX.current;
@@ -92,9 +117,15 @@ function SwipeableSession({
     const dx = currentX.current - startX.current;
     // Cancel long-press on horizontal movement
     if (Math.abs(dx) > 10) longPress.cancel();
-    if (dx < 0) {
-      ref.current.style.transform = `translateX(${dx}px)`;
-      ref.current.style.opacity = `${Math.max(0, 1 + dx / 200)}`;
+
+    if (revealed) {
+      // When revealed, allow swiping back to close
+      const offset = Math.min(0, -REVEAL_WIDTH + dx);
+      ref.current.style.transform = `translateX(${offset}px)`;
+    } else if (dx < 0) {
+      // Clamp drag to reveal width
+      const clamped = Math.max(dx, -REVEAL_WIDTH);
+      ref.current.style.transform = `translateX(${clamped}px)`;
     }
   }
 
@@ -103,56 +134,68 @@ function SwipeableSession({
     if (!swiping.current || !ref.current) return;
     swiping.current = false;
     const dx = currentX.current - startX.current;
-    if (dx < -100) {
-      ref.current.style.transition = 'transform 0.2s, opacity 0.2s';
-      ref.current.style.transform = 'translateX(-100%)';
-      ref.current.style.opacity = '0';
-      setTimeout(() => onDismiss(session.id), 200);
+
+    const phase = computeSwipeState(dx, revealed);
+
+    if (phase === 'reveal') {
+      setRevealed(true);
+      snapTo(-REVEAL_WIDTH);
+    } else if (phase === 'close' || phase === 'idle') {
+      closeReveal();
     } else {
-      ref.current.style.transition = 'transform 0.2s, opacity 0.2s';
-      ref.current.style.transform = 'translateX(0)';
-      ref.current.style.opacity = '1';
-      setTimeout(() => {
-        if (ref.current) ref.current.style.transition = '';
-      }, 200);
+      // dragging but didn't reach threshold — snap back
+      snapTo(0);
     }
   }
 
   function handleClick() {
     if (longPress.didFire() || editing) return;
+    if (revealed) {
+      closeReveal();
+      return;
+    }
     onClick(session.id);
   }
 
   return (
-    <div
-      ref={ref}
-      className="session-item"
-      onClick={handleClick}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-    >
-      <div className="session-item-content">
-        {editing ? (
-          <input
-            ref={inputRef}
-            className="session-rename-input"
-            value={editValue}
-            onChange={(e) => setEditValue(e.target.value)}
-            onBlur={handleSave}
-            onKeyDown={handleKeyDown}
-            onClick={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
-          />
-        ) : (
-          <div className="session-item-summary">{session.summary || 'Untitled session'}</div>
-        )}
-        <div className="session-item-meta">
-          <span className="session-item-time">{formatRelativeTime(session.lastModified)}</span>
-          {session.branch && <span className="session-item-branch">{session.branch}</span>}
-        </div>
+    <div className="session-item-wrapper">
+      <div
+        className="session-item-delete-action"
+        onClick={handleDeleteTap}
+        onTouchEnd={handleDeleteTap}
+      >
+        Delete
       </div>
-      {!editing && <span className="session-item-chevron">&rsaquo;</span>}
+      <div
+        ref={ref}
+        className="session-item"
+        onClick={handleClick}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+        <div className="session-item-content">
+          {editing ? (
+            <input
+              ref={inputRef}
+              className="session-rename-input"
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onBlur={handleSave}
+              onKeyDown={handleKeyDown}
+              onClick={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <div className="session-item-summary">{session.summary || 'Untitled session'}</div>
+          )}
+          <div className="session-item-meta">
+            <span className="session-item-time">{formatRelativeTime(session.lastModified)}</span>
+            {session.branch && <span className="session-item-branch">{session.branch}</span>}
+          </div>
+        </div>
+        {!editing && <span className="session-item-chevron">&rsaquo;</span>}
+      </div>
     </div>
   );
 }
