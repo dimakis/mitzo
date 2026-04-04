@@ -6,7 +6,7 @@
  * sessions does not kill in-flight agent runs.
  */
 
-import { WS_RECONNECT_DELAY_MS, WS_RECONNECT_POLL_MS, WS_MAX_BUFFER_SIZE } from './constants';
+import { WS_RECONNECT_DELAY_MS, WS_RECONNECT_POLL_MS } from './constants';
 import type { ServerMessage } from '../types/ws-messages';
 
 interface PoolOpenEvent {
@@ -19,27 +19,6 @@ interface PoolCloseEvent {
 export type WsMsg = ServerMessage | PoolOpenEvent | PoolCloseEvent;
 export type MsgListener = (msg: WsMsg) => void;
 
-const BUFFERABLE_TYPES = new Set([
-  // v2 protocol events
-  'message_start',
-  'block_start',
-  'block_delta',
-  'block_end',
-  'tool_result',
-  'message_end',
-  'message_snapshot',
-  'session_end',
-  // lifecycle / UI
-  'error',
-  'session_id',
-  'session_info',
-  'permission_request',
-  'permission_timeout',
-  'reattached',
-  'reattach_failed',
-  'mode_changed',
-]);
-
 interface PoolEntry {
   ws: WebSocket | null;
   clientId: string | null;
@@ -48,20 +27,11 @@ interface PoolEntry {
   lastSeq: number;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
   listeners: Set<MsgListener>;
-  messageBuffer: WsMsg[];
 }
 
 const pool = new Map<string, PoolEntry>();
 
 function broadcast(entry: PoolEntry, msg: WsMsg) {
-  if (entry.listeners.size === 0) {
-    if (BUFFERABLE_TYPES.has(msg.type as string)) {
-      if (entry.messageBuffer.length < WS_MAX_BUFFER_SIZE) {
-        entry.messageBuffer.push(msg);
-      }
-    }
-    return;
-  }
   entry.listeners.forEach((l) => l(msg));
 }
 
@@ -191,7 +161,6 @@ function getOrCreate(key: string): PoolEntry {
       lastSeq: 0,
       reconnectTimer: null,
       listeners: new Set(),
-      messageBuffer: [],
     };
     pool.set(key, entry);
     connectEntry(key, entry);
@@ -227,15 +196,6 @@ export function wsIsOpen(key: string): boolean {
 export function wsSetRunning(key: string, running: boolean) {
   const entry = pool.get(key);
   if (entry) entry.wasRunning = running;
-}
-
-/** Drain and return all buffered messages, clearing the buffer. */
-export function wsDrainBuffer(key: string): WsMsg[] {
-  const entry = pool.get(key);
-  if (!entry || entry.messageBuffer.length === 0) return [];
-  const msgs = entry.messageBuffer.slice();
-  entry.messageBuffer.length = 0;
-  return msgs;
 }
 
 /**

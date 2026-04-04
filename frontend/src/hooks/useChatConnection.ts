@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { wsSubscribe, wsIsOpen, wsDrainBuffer, wsRemoveIfIdle } from '../lib/ws-pool';
+import { wsSubscribe, wsIsOpen, wsRemoveIfIdle } from '../lib/ws-pool';
 import type { WsMsg } from '../lib/ws-pool';
 
 export function useChatConnection(
@@ -19,9 +19,6 @@ export function useChatConnection(
     };
 
     const unsubscribe = wsSubscribe(poolKey, wrappedHandler);
-
-    const buffered = wsDrainBuffer(poolKey);
-    for (const msg of buffered) wrappedHandler(msg);
 
     setConnected(wsIsOpen(poolKey));
 
