@@ -1,4 +1,12 @@
-import { readdirSync, readFileSync, renameSync, unlinkSync, existsSync, mkdirSync } from 'fs';
+import {
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+  renameSync,
+  unlinkSync,
+  existsSync,
+  mkdirSync,
+} from 'fs';
 import { join, basename } from 'path';
 
 export interface InboxItemSummary {
@@ -112,4 +120,47 @@ export function discardInboxItem(inboxPath: string, filename: string): boolean {
   if (!existsSync(target)) return false;
   unlinkSync(target);
   return true;
+}
+
+export function createInboxItem(
+  inboxPath: string,
+  opts: { source: string; title: string; body: string; tags?: string[] },
+): InboxItemSummary | null {
+  try {
+    mkdirSync(inboxPath, { recursive: true });
+    const now = new Date();
+    const ts = now.toISOString().replace(/[-:T]/g, '').slice(0, 14);
+    const safeName = opts.source.replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
+    const filename = `${ts}_${safeName}.md`;
+    const tagsLine = opts.tags?.length ? `tags: [${opts.tags.join(', ')}]\n` : '';
+
+    const content = [
+      '---',
+      `agent: ${opts.source}`,
+      `timestamp: ${now.toISOString()}`,
+      'status: pending',
+      tagsLine ? tagsLine.trimEnd() : null,
+      '---',
+      '',
+      `# ${opts.title}`,
+      '',
+      opts.body,
+      '',
+    ]
+      .filter((line) => line !== null)
+      .join('\n');
+
+    writeFileSync(join(inboxPath, filename), content);
+
+    return {
+      filename,
+      agent: opts.source,
+      title: opts.title,
+      tags: opts.tags ?? [],
+      timestamp: now.toISOString(),
+      preview: opts.body.slice(0, 150),
+    };
+  } catch {
+    return null;
+  }
 }

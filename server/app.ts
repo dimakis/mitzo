@@ -25,7 +25,13 @@ import { getLocalCommit, isUpdateAvailable } from './git-version.js';
 import { resolvePending } from './permissions.js';
 import { createLogger } from './logger.js';
 import { LoginBody, FileWriteBody, PermissionDecision } from './api-schemas.js';
-import { listInboxItems, readInboxItem, approveInboxItem, discardInboxItem } from './inbox.js';
+import {
+  listInboxItems,
+  readInboxItem,
+  approveInboxItem,
+  discardInboxItem,
+  createInboxItem,
+} from './inbox.js';
 
 const log = createLogger('server');
 
@@ -341,6 +347,30 @@ app.get('/api/inbox', (_req, res) => {
     return;
   }
   res.json(listInboxItems(inboxPath));
+});
+
+app.post('/api/inbox', (req, res) => {
+  const inboxPath = repoConfig.resolvedInboxPath;
+  if (!inboxPath) {
+    res.status(404).json({ error: 'Inbox not configured' });
+    return;
+  }
+  const { source, title, body, tags } = req.body || {};
+  if (!title || typeof title !== 'string' || !body || typeof body !== 'string') {
+    res.status(400).json({ error: 'title and body are required strings' });
+    return;
+  }
+  const item = createInboxItem(inboxPath, {
+    source: typeof source === 'string' ? source : 'chat',
+    title,
+    body,
+    tags: Array.isArray(tags) ? tags : undefined,
+  });
+  if (!item) {
+    res.status(500).json({ error: 'Failed to create inbox item' });
+    return;
+  }
+  res.status(201).json(item);
 });
 
 app.get('/api/inbox/:filename', (req, res) => {
