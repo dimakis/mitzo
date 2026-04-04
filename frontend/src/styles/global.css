@@ -355,7 +355,32 @@ textarea:focus {
   background: rgba(244, 67, 54, 0.08);
 }
 
+.session-item-wrapper {
+  position: relative;
+  overflow: hidden;
+}
+
+.session-item-delete-action {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e53935;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
 .session-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -365,6 +390,8 @@ textarea:focus {
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
   transition: background 0.1s;
+  background: var(--bg);
+  z-index: 1;
 }
 
 .session-item:active {
