@@ -10,20 +10,21 @@
 
 Mitzo is a functional, mobile-first Claude Code interface built on Node.js/Express/TypeScript (backend) and React 19/Vite/TypeScript (frontend). It runs in production via pm2 on a personal server, with Pushover + ntfy push notifications, worktree isolation, MCP tool integration, and extended thinking visibility.
 
-**v0.1.0 released (2026-04-03).** Phase 1 complete, Phase 2 partially complete. The v2 message protocol landed with explicit block lifecycle, deferred message_end, and message snapshots for iOS reattach. The former god objects have been modularized:
+**v0.1.0 released (2026-04-03).** Phases 1-4 complete, Phase 5 mostly complete. The v2 message protocol landed with explicit block lifecycle, deferred message_end, and message snapshots for iOS reattach. The former god objects have been modularized:
 
-- `chat.ts` reduced from 575 → 468 LOC (query-loop, permission-handler, async-queue extracted)
-- `ChatView.tsx` reduced from 542 → 337 LOC (useChatMessages, useChatSession, useChatConnection, usePermission extracted)
+- `chat.ts` reduced from 575 → 476 LOC (query-loop, permission-handler, async-queue extracted)
+- `ChatView.tsx` reduced from 542 → 346 LOC (useChatMessages, useChatSession, useChatConnection, usePermission extracted)
 
-Remaining risks:
+Current state (2026-04-03):
 
-1. **Testing blindspots** — 209 tests across 22 files (up from 151/18), but still no route-layer tests, no WS integration tests, no e2e tests. Frontend reducer tests are strong but component test coverage is thin.
-2. **Type erosion** — `any` in production code, untyped WS messages, no runtime validation. Model catalog still duplicated.
-3. **Security posture** — no rate limiting, CSRF, or request size limits.
+1. **Testing** — 297 tests across 34 files. Route-layer tests, WS integration tests, component tests, hook tests all in place. No e2e tests yet.
+2. **Type safety** — Zod schemas validate all incoming WS messages and HTTP bodies. Production `any` count is 0. `ServerMessage` discriminated union covers all frontend WS types.
+3. **Security** — Helmet CSP, login rate limiting, request size limits, graceful shutdown. CSRF and NTFY token signing remain.
+4. **Session resilience** — AbortController on fetch races, session list auto-refresh, WS pool cleanup, registry leak guard, turn-complete push notifications.
 
-CI is now green and structurally sound (all steps run independently). Branch discipline enforced via `.cursor/rules/ci-discipline.mdc`.
+CI is green and structurally sound (all steps run independently). Branch discipline enforced via `.cursor/rules/ci-discipline.mdc`.
 
-The five remaining phases address these risks in dependency order.
+The remaining work is Phase 5 completion (CSRF, token signing) and Phase 6 (e2e tests, coverage, deployment hardening).
 
 ---
 
@@ -62,32 +63,37 @@ New since v1.2: `query-loop.ts`, `permission-handler.ts`, `async-queue.ts`, `use
 
 ### Testing
 
-| Metric                      |                                                        Count |
-| --------------------------- | -----------------------------------------------------------: |
-| Test files                  |                                                           22 |
-| Test cases (`it()`)         |                                                          209 |
-| Frontend reducer test files |                1 (`chatMessagesReducer.test.ts` — 30+ cases) |
-| Frontend lib test files     |      3 (`groupMessages`, `paste-images`, `model-preference`) |
-| Server unit test files      | 18 (query-loop, tool-summary, auth, chat, permissions, etc.) |
-| Route-layer test files      |                                                            0 |
-| WebSocket integration tests |                                                            0 |
-| E2E test files              |                                                            0 |
+| Metric                        |                                                                             Count |
+| ----------------------------- | --------------------------------------------------------------------------------: |
+| Test files                    |                                                                                34 |
+| Test cases (`it()`)           |                                                                               297 |
+| Frontend reducer test files   |                                     1 (`chatMessagesReducer.test.ts` — 30+ cases) |
+| Frontend hook test files      |     4 (`useChatSession`, `useChatConnection`, `usePermission`, `useChatMessages`) |
+| Frontend component test files | 5 (`ErrorBoundary`, `PermissionBanner`, `ThinkingBlock`, `ToolGroup`, `ToolPill`) |
+| Frontend lib test files       |                           3 (`groupMessages`, `paste-images`, `model-preference`) |
+| Server unit test files        |         18+ (query-loop, tool-summary, auth, chat, permissions, ws-schemas, etc.) |
+| Route-layer test files        |                                                1 (`routes.test.ts` via supertest) |
+| WebSocket integration tests   |                                            1 (`ws.integration.test.ts` — 8 tests) |
+| E2E test files                |                                                                                 0 |
 
 ### Security & CI
 
-| Item                                     | Status                                                   |
-| ---------------------------------------- | -------------------------------------------------------- |
-| Rate limiting                            | None                                                     |
-| CSRF protection                          | None (partial via `sameSite: 'strict'`)                  |
-| Request size limits                      | None (`express.json()` unlimited)                        |
-| Security headers (helmet)                | Not installed                                            |
-| Notification tokens                      | NTFY token in URLs; Pushover reuses `NTFY_AUTH_TOKEN`    |
-| CI: lint + typecheck + unit test + build | Yes (all steps independent)                              |
-| CI: e2e tests                            | No                                                       |
-| CI: security scanning                    | No                                                       |
-| CI: coverage reporting                   | No                                                       |
-| CI: bundle size tracking                 | No                                                       |
-| Deployment                               | `scripts/deploy.sh` (git pull + npm build + pm2 restart) |
+| Item                                     | Status                                                                                                  |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Rate limiting                            | Login endpoint (5/min via `express-rate-limit`)                                                         |
+| CSRF protection                          | Partial (`sameSite: 'strict'`) — explicit tokens not yet added                                          |
+| Request size limits                      | `express.json({ limit: '10mb' })`                                                                       |
+| Security headers (helmet)                | Installed — CSP, X-Content-Type-Options, etc. (`upgrade-insecure-requests` disabled for HTTP/Tailscale) |
+| Runtime validation                       | Zod `safeParse` on all WS messages and HTTP bodies                                                      |
+| Notification tokens                      | NTFY token in URLs; Pushover reuses `NTFY_AUTH_TOKEN` (HMAC signing not yet done)                       |
+| Graceful shutdown                        | SIGTERM/SIGINT handler — closes server, disposes sessions, closes WS                                    |
+| CI: lint + typecheck + unit test + build | Yes (all steps independent, `if: always()`)                                                             |
+| CI: npm audit                            | Yes (`--audit-level=high`)                                                                              |
+| CI: bundle size tracking                 | Yes (JS/CSS size in step summary, warning at 600KB)                                                     |
+| CI: test count guard                     | Yes (fails if below 250 tests)                                                                          |
+| CI: e2e tests                            | No                                                                                                      |
+| CI: coverage reporting                   | No                                                                                                      |
+| Deployment                               | `scripts/deploy.sh` (git pull + npm build + pm2 restart)                                                |
 
 ---
 
@@ -792,17 +798,17 @@ Phase 6 (CI/CD) ← after Phase 3
 
 ## Effort Summary
 
-| Phase         | Title              | Estimated Effort | Unlocks                | Status       |
-| ------------- | ------------------ | ---------------- | ---------------------- | ------------ |
-| 1             | Foundation         | 3–5 days         | Everything             | **COMPLETE** |
-| 2             | Modularization     | 5–8 days         | Phases 3, 4            | Next         |
-| 3             | Testing            | 7–10 days        | Phase 6 CI gates       | Pending      |
-| 4             | Type Safety        | 4–6 days         | Production reliability | Pending      |
-| 5             | Security Hardening | 3–5 days         | Production deployment  | Pending      |
-| 6             | CI/CD Enhancement  | 3–5 days         | Continuous quality     | Pending      |
-| **Remaining** |                    | **22–34 days**   |                        |              |
+| Phase         | Title              | Estimated Effort | Unlocks                | Status                                                                                               |
+| ------------- | ------------------ | ---------------- | ---------------------- | ---------------------------------------------------------------------------------------------------- |
+| 1             | Foundation         | 3–5 days         | Everything             | **COMPLETE**                                                                                         |
+| 2             | Modularization     | 5–8 days         | Phases 3, 4            | **MOSTLY COMPLETE** (LOC targets aspirational, all extractions done)                                 |
+| 3             | Testing            | 7–10 days        | Phase 6 CI gates       | **SUBSTANTIALLY COMPLETE** (297 tests/34 files; WS integration + route tests done; e2e remains)      |
+| 4             | Type Safety        | 4–6 days         | Production reliability | **COMPLETE** (Zod WS + HTTP schemas, `any` removed, typed WS union)                                  |
+| 5             | Security Hardening | 3–5 days         | Production deployment  | **MOSTLY COMPLETE** (helmet, rate limit, size limit, graceful shutdown; CSRF + token signing remain) |
+| 6             | CI/CD Enhancement  | 3–5 days         | Continuous quality     | **PARTIALLY COMPLETE** (npm audit, bundle size, test count guard; e2e + coverage remain)             |
+| **Remaining** |                    | **~5–8 days**    |                        |                                                                                                      |
 
-Phases 3, 4, and 5 can be parallelized after Phase 2 completes, reducing wall-clock time to approximately 12–17 days remaining.
+Remaining work: Phase 5 completion (CSRF tokens, NTFY HMAC signing), Phase 6 completion (Playwright e2e, coverage reporting, deployment hardening).
 
 ---
 
