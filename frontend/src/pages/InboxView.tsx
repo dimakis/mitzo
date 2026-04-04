@@ -161,6 +161,7 @@ export function InboxView() {
   const navigate = useNavigate();
   const [items, setItems] = useState<InboxItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeFilter, setActiveFilter] = useState<string | null>(null);
 
   const loadItems = useCallback(() => {
     fetch('/api/inbox')
@@ -190,6 +191,9 @@ export function InboxView() {
     fetch(`/api/inbox/${encodeURIComponent(filename)}`, { method: 'DELETE' }).catch(() => {});
   }
 
+  const sources = [...new Set(items.map((i) => i.agent))].sort();
+  const filtered = activeFilter ? items.filter((i) => i.agent === activeFilter) : items;
+
   return (
     <div className="inbox-page">
       <header className="inbox-header">
@@ -208,12 +212,35 @@ export function InboxView() {
         </div>
       )}
 
+      {sources.length > 1 && (
+        <div className="inbox-filters">
+          <button
+            className={`inbox-filter-pill${activeFilter === null ? ' inbox-filter-pill--active' : ''}`}
+            onClick={() => setActiveFilter(null)}
+          >
+            All
+          </button>
+          {sources.map((src) => (
+            <button
+              key={src}
+              className={`inbox-filter-pill${activeFilter === src ? ' inbox-filter-pill--active' : ''}`}
+              onClick={() => setActiveFilter(activeFilter === src ? null : src)}
+            >
+              {src}
+              <span className="inbox-filter-count">
+                {items.filter((i) => i.agent === src).length}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="inbox-hint">
-        {items.length > 0 && <span>Swipe right to approve, left to discard</span>}
+        {filtered.length > 0 && <span>Swipe right to approve, left to discard</span>}
       </div>
 
       <div className="inbox-list">
-        {items.map((item) => (
+        {filtered.map((item) => (
           <InboxCard
             key={item.filename}
             item={item}
