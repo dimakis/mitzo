@@ -8,13 +8,9 @@ import { PermissionBanner } from '../components/PermissionBanner';
 import { ChatInput } from '../components/ChatInput';
 import { MitzoLogo } from '../components/MitzoLogo';
 import { groupBlocks } from '../lib/groupMessages';
+import { shouldAutoScroll } from '../lib/scroll';
 import { wsIsOpen, wsSend, wsSetRunning } from '../lib/ws-pool';
-import {
-  SCROLL_NEAR_BOTTOM_PX,
-  SCROLL_RESTORE_DELAY_MS,
-  CHAT_CACHE_KEY_PREFIX,
-  LAST_SESSION_KEY,
-} from '../lib/constants';
+import { SCROLL_RESTORE_DELAY_MS, CHAT_CACHE_KEY_PREFIX, LAST_SESSION_KEY } from '../lib/constants';
 import { useChatSession } from '../hooks/useChatSession';
 import { useChatMessages } from '../hooks/useChatMessages';
 import { useChatConnection } from '../hooks/useChatConnection';
@@ -82,13 +78,19 @@ export function ChatView() {
     forceScrollToBottom,
   );
 
-  // Auto-scroll during streaming: follow new content if user is near the bottom
+  // Auto-scroll during streaming: follow new content if user is near the bottom.
+  // Uses a larger threshold during active streaming so rapid tool call
+  // accumulation doesn't outpace auto-follow (fixes #64).
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    if (distFromBottom <= SCROLL_NEAR_BOTTOM_PX) {
-      el.scrollTop = el.scrollHeight;
+    const isStreaming = msgState.current !== null;
+    if (shouldAutoScroll(el.scrollHeight, el.scrollTop, el.clientHeight, isStreaming)) {
+      // requestAnimationFrame ensures scrollHeight is fully recalculated
+      // before we scroll — required for reliable behavior on iOS Safari.
+      requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight;
+      });
     }
   }, [msgState.messages, msgState.current]);
 
