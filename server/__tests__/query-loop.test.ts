@@ -475,8 +475,7 @@ describe('runQueryLoop', () => {
 
     it('appends v2 events to the store when store is provided', async () => {
       // Set sessionId on the registry session so append knows the session
-      const reg = registry as unknown as { get: ReturnType<typeof vi.fn> };
-      const session = reg.get(clientId);
+      const session = registry.get(clientId)!;
       session.sessionId = 'sess-store';
 
       const events: Record<string, unknown>[] = [
@@ -509,8 +508,7 @@ describe('runQueryLoop', () => {
     });
 
     it('injects seq into sent WS messages when store is provided', async () => {
-      const reg = registry as unknown as { get: ReturnType<typeof vi.fn> };
-      const session = reg.get(clientId);
+      const session = registry.get(clientId)!;
       session.sessionId = 'sess-seq';
 
       const events: Record<string, unknown>[] = [
@@ -550,11 +548,8 @@ describe('runQueryLoop', () => {
 
     it('persists events even when session is detached', async () => {
       registry = fakeRegistry(ws);
-      const reg = registry as unknown as {
-        _setAttached: (v: boolean) => void;
-        get: ReturnType<typeof vi.fn>;
-      };
-      const session = reg.get(clientId);
+      const reg = registry as unknown as { _setAttached: (v: boolean) => void };
+      const session = registry.get(clientId)!;
       session.sessionId = 'sess-detach-store';
 
       async function* detachingStream() {

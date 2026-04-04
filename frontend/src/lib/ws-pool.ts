@@ -59,8 +59,9 @@ function connectEntry(key: string, entry: PoolEntry) {
     }
 
     // Track lastSeq from any message that carries a seq field
-    if (typeof (msg as Record<string, unknown>).seq === 'number') {
-      entry.lastSeq = (msg as Record<string, unknown>).seq as number;
+    const msgAny = msg as unknown as Record<string, unknown>;
+    if (typeof msgAny.seq === 'number') {
+      entry.lastSeq = msgAny.seq as number;
     }
 
     if (msg.type === 'client_id') {
