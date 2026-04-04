@@ -535,6 +535,44 @@ textarea:focus {
   color: var(--success);
 }
 
+.inbox-filters {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0 1rem 0.75rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.inbox-filters::-webkit-scrollbar {
+  display: none;
+}
+
+.inbox-filter-pill {
+  flex-shrink: 0;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.inbox-filter-pill--active {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+.inbox-filter-count {
+  font-size: 0.68rem;
+  opacity: 0.7;
+}
+.inbox-filter-pill--active .inbox-filter-count {
+  opacity: 0.9;
+}
+
 .inbox-hint {
   text-align: center;
   font-size: 0.72rem;
