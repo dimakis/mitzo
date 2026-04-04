@@ -18,6 +18,7 @@ import {
   BASE_REPO,
   getMcpServerNames,
   repoConfig,
+  eventStore,
 } from './chat.js';
 import { listWorktrees } from './worktree.js';
 import { GIT_BRANCH_TIMEOUT_MS } from './constants.js';
@@ -180,6 +181,16 @@ app.get('/api/sessions/:id/messages', async (req, res) => {
 app.delete('/api/sessions/:id', (req, res) => {
   hideSession(req.params.id as string);
   res.json({ ok: true });
+});
+
+app.get('/api/sessions/:id/events', (req, res) => {
+  const afterSeq = parseInt(req.query.after as string, 10);
+  if (isNaN(afterSeq)) {
+    res.status(400).json({ error: 'after query parameter is required (number)' });
+    return;
+  }
+  const events = eventStore.getEventsAfter(req.params.id, afterSeq);
+  res.json(events.map((e) => ({ ...e.payload, seq: e.seq })));
 });
 
 app.delete('/api/sessions', (_req, res) => {
