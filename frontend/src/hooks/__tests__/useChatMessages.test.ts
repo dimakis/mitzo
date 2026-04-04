@@ -25,6 +25,99 @@ beforeEach(() => {
 });
 
 describe('chatMessagesReducer', () => {
+  it('RESTORE with interrupted flag appends a notice message', () => {
+    const msgs = [
+      {
+        messageId: 'm1',
+        role: 'assistant' as const,
+        blocks: [{ blockId: 'b1', blockType: 'text' as const, content: 'hi' }],
+      },
+    ];
+    const result = chatMessagesReducer(INITIAL_STATE, {
+      type: 'RESTORE',
+      messages: msgs,
+      interrupted: true,
+    });
+    expect(result.messages).toHaveLength(2);
+    expect(result.messages[0].messageId).toBe('m1');
+    // The notice message should be appended
+    const notice = result.messages[1];
+    expect(notice.role).toBe('assistant');
+    expect(notice.blocks[0].content).toContain('interrupted');
+  });
+
+  it('RESTORE without interrupted flag does not append notice', () => {
+    const msgs = [
+      {
+        messageId: 'm1',
+        role: 'assistant' as const,
+        blocks: [{ blockId: 'b1', blockType: 'text' as const, content: 'hi' }],
+      },
+    ];
+    const result = chatMessagesReducer(INITIAL_STATE, { type: 'RESTORE', messages: msgs });
+    expect(result.messages).toHaveLength(1);
+  });
+
+  it('RESTORE does not replace when state has more messages than incoming', () => {
+    const existing: ChatMessagesState = {
+      ...INITIAL_STATE,
+      messages: [
+        {
+          messageId: 'm1',
+          role: 'assistant',
+          blocks: [{ blockId: 'b1', blockType: 'text', content: 'first' }],
+        },
+        {
+          messageId: 'm2',
+          role: 'user',
+          blocks: [{ blockId: 'b2', blockType: 'text', content: 'second' }],
+        },
+        {
+          messageId: 'm3',
+          role: 'assistant',
+          blocks: [{ blockId: 'b3', blockType: 'text', content: 'third' }],
+        },
+      ],
+    };
+    // API returns fewer messages — should NOT replace
+    const apiMsgs = [
+      {
+        messageId: 'm1',
+        role: 'assistant' as const,
+        blocks: [{ blockId: 'b1', blockType: 'text' as const, content: 'first' }],
+      },
+    ];
+    const result = chatMessagesReducer(existing, { type: 'RESTORE', messages: apiMsgs });
+    expect(result.messages).toHaveLength(3); // kept existing
+  });
+
+  it('RESTORE replaces when incoming has more messages than state', () => {
+    const existing: ChatMessagesState = {
+      ...INITIAL_STATE,
+      messages: [
+        {
+          messageId: 'm1',
+          role: 'assistant',
+          blocks: [{ blockId: 'b1', blockType: 'text', content: 'first' }],
+        },
+      ],
+    };
+    const apiMsgs = [
+      {
+        messageId: 'm1',
+        role: 'assistant' as const,
+        blocks: [{ blockId: 'b1', blockType: 'text' as const, content: 'first' }],
+      },
+      {
+        messageId: 'm2',
+        role: 'user' as const,
+        blocks: [{ blockId: 'b2', blockType: 'text' as const, content: 'second' }],
+      },
+    ];
+    const result = chatMessagesReducer(existing, { type: 'RESTORE', messages: apiMsgs });
+    expect(result.messages).toHaveLength(2); // replaced with API data
+  });
+
   it('RESTORE replaces messages with valid v2 messages', () => {
     const msgs = [
       {
@@ -75,14 +168,74 @@ describe('useChatMessages — reattach_failed handler', () => {
     });
 
     await vi.waitFor(() => {
-      expect(result.current.state.messages).toHaveLength(1);
+      expect(result.current.state.messages.length).toBeGreaterThanOrEqual(1);
+      expect(result.current.state.messages[0].messageId).toBe('r1');
     });
 
-    expect(result.current.state.messages[0].messageId).toBe('r1');
+    // reattach_failed dispatches RESTORE with interrupted: true,
+    // so a notice message is appended after the restored messages.
+    expect(result.current.state.messages).toHaveLength(2);
+    expect(result.current.state.messages[1].blocks[0].content).toContain('interrupted');
     expect(result.current.state.running).toBe(false);
     expect(global.fetch).toHaveBeenCalledWith(
       '/api/sessions/test-session-id/messages',
       expect.objectContaining({ credentials: 'include' }),
     );
+  });
+
+  it('sets restoredViaReattach flag after successful reattach restore', async () => {
+    const apiMessages = [
+      {
+        messageId: 'r1',
+        role: 'assistant',
+        blocks: [{ blockId: 'b1', blockType: 'text', content: 'restored' }],
+      },
+    ];
+
+    global.fetch = vi.fn().mockResolvedValue({
+      json: () => Promise.resolve(apiMessages),
+    });
+
+    const { result } = renderHook(() =>
+      useChatMessages('session:test', 'test-session-id', vi.fn(), vi.fn()),
+    );
+
+    expect(result.current.restoredViaReattach).toBe(false);
+
+    act(() => {
+      result.current.handleWsMessage({ type: 'reattach_failed', clientId: 'old-client' });
+    });
+
+    await vi.waitFor(() => {
+      expect(result.current.restoredViaReattach).toBe(true);
+    });
+  });
+
+  it('calls onMessagesRestored callback after reattach restore', async () => {
+    const apiMessages = [
+      {
+        messageId: 'r1',
+        role: 'assistant',
+        blocks: [{ blockId: 'b1', blockType: 'text', content: 'restored' }],
+      },
+    ];
+
+    global.fetch = vi.fn().mockResolvedValue({
+      json: () => Promise.resolve(apiMessages),
+    });
+
+    const onMessagesRestored = vi.fn();
+
+    const { result } = renderHook(() =>
+      useChatMessages('session:test', 'test-session-id', vi.fn(), vi.fn(), onMessagesRestored),
+    );
+
+    act(() => {
+      result.current.handleWsMessage({ type: 'reattach_failed', clientId: 'old-client' });
+    });
+
+    await vi.waitFor(() => {
+      expect(onMessagesRestored).toHaveBeenCalledTimes(1);
+    });
   });
 });

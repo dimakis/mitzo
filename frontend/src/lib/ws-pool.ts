@@ -107,6 +107,9 @@ function connectEntry(key: string, entry: PoolEntry) {
 
     if (msg.type === 'reattach_failed') {
       entry.wasRunning = false;
+      // Signal that the connection is live even though reattach failed —
+      // without this, the component never learns the WS is open.
+      broadcast(entry, { type: '_open' });
     }
 
     if (msg.type === 'session_end' || msg.type === 'error') {

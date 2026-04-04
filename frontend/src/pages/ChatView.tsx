@@ -73,11 +73,13 @@ export function ChatView() {
     dispatch,
     pendingSend,
     handleWsMessage,
+    restoredViaReattach,
   } = useChatMessages(
     poolKey,
     sessionState.currentSessionId,
     handleSessionAssigned,
     handleSessionExpired,
+    forceScrollToBottom,
   );
 
   // Auto-scroll during streaming: follow new content if user is near the bottom
@@ -93,13 +95,13 @@ export function ChatView() {
   // Restore messages when sessionId changes. Show cached data instantly,
   // then always reconcile with the API to catch anything the cache missed
   // (e.g. messages that streamed in after the last cache write).
+  // Skip if messages were already restored via reattach to avoid racing.
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId || restoredViaReattach) return;
 
     const controller = new AbortController();
     const cacheKey = `${CHAT_CACHE_KEY_PREFIX}${sessionId}`;
     const cached = localStorage.getItem(cacheKey);
-    let cacheCount = 0;
 
     if (cached) {
       try {
@@ -112,7 +114,6 @@ export function ChatView() {
         if (isV2) {
           dispatch({ type: 'RESTORE', messages: restored });
           setTimeout(forceScrollToBottom, SCROLL_RESTORE_DELAY_MS);
-          cacheCount = restored.length;
         } else {
           localStorage.removeItem(cacheKey);
         }
@@ -121,8 +122,9 @@ export function ChatView() {
       }
     }
 
-    // Always fetch from API — if the response has more messages than the
-    // cache (or the cache was empty), replace with the authoritative data.
+    // Always fetch from API for authoritative data. The reducer guards
+    // against replacing state that already has more messages (e.g. from
+    // buffer drain), so we don't need to compare counts here.
     fetch(`/api/sessions/${sessionId}/messages`, {
       credentials: 'include',
       signal: controller.signal,
@@ -131,7 +133,7 @@ export function ChatView() {
       .then((msgs: unknown[]) => {
         if (controller.signal.aborted) return;
         const apiMsgs = msgs as import('../types/chat').FinishedMessage[];
-        if (apiMsgs.length > 0 && apiMsgs.length >= cacheCount) {
+        if (apiMsgs.length > 0) {
           dispatch({ type: 'RESTORE', messages: apiMsgs });
           setTimeout(forceScrollToBottom, SCROLL_RESTORE_DELAY_MS);
         }
@@ -139,7 +141,7 @@ export function ChatView() {
       .catch(() => {});
 
     return () => controller.abort();
-  }, [sessionId, dispatch, forceScrollToBottom]);
+  }, [sessionId, restoredViaReattach, dispatch, forceScrollToBottom]);
 
   const { connected } = useChatConnection(poolKey, handleWsMessage);
 

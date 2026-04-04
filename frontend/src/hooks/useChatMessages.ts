@@ -61,7 +61,7 @@ export type ChatMessagesAction =
   | { type: 'CONNECTION_LOST' }
   | { type: 'PERMISSION_REQUEST'; payload: PermissionRequest }
   | { type: 'PERMISSION_TIMEOUT'; permId: string }
-  | { type: 'RESTORE'; messages: FinishedMessage[] };
+  | { type: 'RESTORE'; messages: FinishedMessage[]; interrupted?: boolean };
 
 const INITIAL_STATE: ChatMessagesState = {
   messages: [],
@@ -274,6 +274,26 @@ export function chatMessagesReducer(
       const valid = action.messages.filter(
         (m) => m && typeof m.messageId === 'string' && Array.isArray(m.blocks),
       );
+      // Don't replace if state already has more messages (e.g. from buffer
+      // drain that added messages the API hasn't persisted yet).
+      if (!action.interrupted && valid.length < state.messages.length) {
+        return state;
+      }
+      if (action.interrupted) {
+        const notice: FinishedMessage = {
+          messageId: `notice-${Date.now()}`,
+          role: 'assistant',
+          blocks: [
+            {
+              blockId: `notice-text-${Date.now()}`,
+              blockType: 'text',
+              content:
+                '**Session interrupted.** Messages above were restored from history — some recent content may be missing.',
+            },
+          ],
+        };
+        return { ...state, messages: [...valid, notice] };
+      }
       return { ...state, messages: valid };
     }
 
@@ -336,6 +356,7 @@ export function useChatMessages(
   currentSessionId: string | undefined,
   onSessionAssigned: (id: string) => void,
   onSessionExpired: (sessionId: string | undefined) => void,
+  onMessagesRestored?: () => void,
 ) {
   const [state, dispatch] = useReducer(chatMessagesReducer, INITIAL_STATE);
   const pendingSend = useRef<Record<string, unknown> | null>(null);
@@ -344,6 +365,7 @@ export function useChatMessages(
   const reattachAbort = useRef<AbortController | null>(null);
   const messagesRef = useRef(state.messages);
   messagesRef.current = state.messages;
+  const restoredViaReattachRef = useRef(false);
 
   useEffect(() => {
     const id = currentSessionIdRef.current;
@@ -398,7 +420,9 @@ export function useChatMessages(
               .then((msgs: FinishedMessage[]) => {
                 if (controller.signal.aborted) return;
                 if (Array.isArray(msgs) && msgs.length > 0) {
-                  dispatch({ type: 'RESTORE', messages: msgs });
+                  dispatch({ type: 'RESTORE', messages: msgs, interrupted: true });
+                  restoredViaReattachRef.current = true;
+                  onMessagesRestored?.();
                 }
               })
               .catch(() => {});
@@ -540,5 +564,11 @@ export function useChatMessages(
     [poolKey, onSessionAssigned, onSessionExpired],
   );
 
-  return { state, dispatch, pendingSend, handleWsMessage };
+  return {
+    state,
+    dispatch,
+    pendingSend,
+    handleWsMessage,
+    restoredViaReattach: restoredViaReattachRef.current,
+  };
 }
