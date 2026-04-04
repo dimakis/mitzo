@@ -561,7 +561,7 @@ export function useChatMessages(
         }
       }
     },
-    [poolKey, onSessionAssigned, onSessionExpired],
+    [poolKey, onSessionAssigned, onSessionExpired, onMessagesRestored],
   );
 
   return {
