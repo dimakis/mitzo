@@ -1,5 +1,4 @@
-import { useReducer, useRef, useEffect, useCallback } from 'react';
-import { CHAT_CACHE_KEY_PREFIX } from '../lib/constants';
+import { useReducer, useRef, useCallback } from 'react';
 import type {
   FinishedMessage,
   FinishedBlock,
@@ -363,34 +362,6 @@ export function useChatMessages(
   const currentSessionIdRef = useRef(currentSessionId);
   currentSessionIdRef.current = currentSessionId;
   const reattachAbort = useRef<AbortController | null>(null);
-  const messagesRef = useRef(state.messages);
-  messagesRef.current = state.messages;
-  const restoredViaReattachRef = useRef(false);
-
-  useEffect(() => {
-    const id = currentSessionIdRef.current;
-    if (!id || state.messages.length === 0) return;
-    try {
-      localStorage.setItem(`${CHAT_CACHE_KEY_PREFIX}${id}`, JSON.stringify(state.messages));
-    } catch {
-      // localStorage quota exceeded — non-fatal
-    }
-  }, [state.messages, currentSessionId]);
-
-  // Flush latest messages to localStorage on unmount so navigating away
-  // mid-conversation doesn't leave a stale or empty cache.
-  useEffect(() => {
-    return () => {
-      const id = currentSessionIdRef.current;
-      const msgs = messagesRef.current;
-      if (!id || msgs.length === 0) return;
-      try {
-        localStorage.setItem(`${CHAT_CACHE_KEY_PREFIX}${id}`, JSON.stringify(msgs));
-      } catch {
-        // localStorage quota exceeded — non-fatal
-      }
-    };
-  }, []);
 
   const handleWsMessage = useCallback(
     (msg: WsMsg) => {
@@ -408,6 +379,7 @@ export function useChatMessages(
         case 'reattach_failed':
           dispatch({ type: 'SET_RUNNING', running: false });
           wsSetRunning(poolKey, false);
+          // Session is gone — try to restore from the events API as a last resort.
           if (currentSessionIdRef.current) {
             reattachAbort.current?.abort();
             const controller = new AbortController();
@@ -421,7 +393,6 @@ export function useChatMessages(
                 if (controller.signal.aborted) return;
                 if (Array.isArray(msgs) && msgs.length > 0) {
                   dispatch({ type: 'RESTORE', messages: msgs, interrupted: true });
-                  restoredViaReattachRef.current = true;
                   onMessagesRestored?.();
                 }
               })
@@ -569,6 +540,5 @@ export function useChatMessages(
     dispatch,
     pendingSend,
     handleWsMessage,
-    restoredViaReattach: restoredViaReattachRef.current,
   };
 }

@@ -183,34 +183,6 @@ describe('useChatMessages — reattach_failed handler', () => {
     );
   });
 
-  it('sets restoredViaReattach flag after successful reattach restore', async () => {
-    const apiMessages = [
-      {
-        messageId: 'r1',
-        role: 'assistant',
-        blocks: [{ blockId: 'b1', blockType: 'text', content: 'restored' }],
-      },
-    ];
-
-    global.fetch = vi.fn().mockResolvedValue({
-      json: () => Promise.resolve(apiMessages),
-    });
-
-    const { result } = renderHook(() =>
-      useChatMessages('session:test', 'test-session-id', vi.fn(), vi.fn()),
-    );
-
-    expect(result.current.restoredViaReattach).toBe(false);
-
-    act(() => {
-      result.current.handleWsMessage({ type: 'reattach_failed', clientId: 'old-client' });
-    });
-
-    await vi.waitFor(() => {
-      expect(result.current.restoredViaReattach).toBe(true);
-    });
-  });
-
   it('calls onMessagesRestored callback after reattach restore', async () => {
     const apiMessages = [
       {
