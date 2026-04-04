@@ -45,6 +45,7 @@ interface PoolEntry {
   clientId: string | null;
   prevClientId: string | null;
   wasRunning: boolean;
+  lastSeq: number;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
   listeners: Set<MsgListener>;
   messageBuffer: WsMsg[];
@@ -87,13 +88,24 @@ function connectEntry(key: string, entry: PoolEntry) {
       return; // Malformed JSON from server — drop message
     }
 
+    // Track lastSeq from any message that carries a seq field
+    if (typeof (msg as Record<string, unknown>).seq === 'number') {
+      entry.lastSeq = (msg as Record<string, unknown>).seq as number;
+    }
+
     if (msg.type === 'client_id') {
       // Save current as prev BEFORE overwriting — prev is what the server
       // knows us by and what we need to send in the reattach request.
       entry.prevClientId = entry.clientId;
       entry.clientId = msg.clientId as string;
       if (entry.wasRunning && entry.prevClientId) {
-        ws.send(JSON.stringify({ type: 'reattach', clientId: entry.prevClientId }));
+        ws.send(
+          JSON.stringify({
+            type: 'reattach',
+            clientId: entry.prevClientId,
+            lastSeq: entry.lastSeq,
+          }),
+        );
         return; // wait for reattach/reattach_failed before broadcasting _open
       }
       broadcast(entry, { type: '_open' });
@@ -176,6 +188,7 @@ function getOrCreate(key: string): PoolEntry {
       clientId: null,
       prevClientId: null,
       wasRunning: false,
+      lastSeq: 0,
       reconnectTimer: null,
       listeners: new Set(),
       messageBuffer: [],
