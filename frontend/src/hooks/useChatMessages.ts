@@ -342,6 +342,8 @@ export function useChatMessages(
   const currentSessionIdRef = useRef(currentSessionId);
   currentSessionIdRef.current = currentSessionId;
   const reattachAbort = useRef<AbortController | null>(null);
+  const messagesRef = useRef(state.messages);
+  messagesRef.current = state.messages;
 
   useEffect(() => {
     const id = currentSessionIdRef.current;
@@ -352,6 +354,21 @@ export function useChatMessages(
       // localStorage quota exceeded — non-fatal
     }
   }, [state.messages, currentSessionId]);
+
+  // Flush latest messages to localStorage on unmount so navigating away
+  // mid-conversation doesn't leave a stale or empty cache.
+  useEffect(() => {
+    return () => {
+      const id = currentSessionIdRef.current;
+      const msgs = messagesRef.current;
+      if (!id || msgs.length === 0) return;
+      try {
+        localStorage.setItem(`${CHAT_CACHE_KEY_PREFIX}${id}`, JSON.stringify(msgs));
+      } catch {
+        // localStorage quota exceeded — non-fatal
+      }
+    };
+  }, []);
 
   const handleWsMessage = useCallback(
     (msg: WsMsg) => {
