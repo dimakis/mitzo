@@ -6,7 +6,7 @@ export const PERMISSION_TIMEOUT_MS = 120_000; // 2 minutes
 export const NTFY_NOTIFICATION_DELAY_MS = 10_000; // 10 seconds
 
 // --- Tool display ---
-export const TOOL_RESULT_MAX_CHARS = 10_000;
+export const TOOL_RESULT_MAX_CHARS = 50_000;
 export const NOTIFY_INPUT_MAX_CHARS = 100;
 export const TOOL_SUMMARY_MAX_CHARS = 200;
 export const RAW_INPUT_MAX_CHARS = 50_000;

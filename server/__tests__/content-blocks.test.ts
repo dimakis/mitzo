@@ -57,10 +57,10 @@ describe('parseContentBlocks', () => {
     expect(result.toolResults[0].result).toBe('file contents here');
   });
 
-  it('truncates tool results to 10000 chars', () => {
-    const blocks = [{ type: 'tool_result', tool_use_id: 'tc-1', content: 'x'.repeat(12000) }];
+  it('truncates tool results to 50000 chars', () => {
+    const blocks = [{ type: 'tool_result', tool_use_id: 'tc-1', content: 'x'.repeat(60000) }];
     const result = parseContentBlocks(blocks);
-    expect(result.toolResults[0].result.length).toBe(10_000);
+    expect(result.toolResults[0].result.length).toBe(50_000);
   });
 
   it('handles mixed blocks', () => {
