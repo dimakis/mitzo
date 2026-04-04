@@ -31,7 +31,18 @@ export function TextBubble({ content, streaming = false }: TextBubbleProps) {
   return (
     <div className={`msg-bubble msg-bubble--assistant${streaming ? ' msg-bubble--streaming' : ''}`}>
       <div className="msg-bubble-markdown">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            table: ({ children, ...props }) => (
+              <div className="table-scroll-wrapper">
+                <table {...props}>{children}</table>
+              </div>
+            ),
+          }}
+        >
+          {content}
+        </ReactMarkdown>
       </div>
     </div>
   );

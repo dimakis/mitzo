@@ -1154,10 +1154,16 @@ textarea:focus {
   margin: 0.75em 0;
 }
 
+.msg-bubble--assistant .table-scroll-wrapper {
+  overflow-x: auto;
+  margin: 0.5em 0;
+  -webkit-overflow-scrolling: touch;
+}
+
 .msg-bubble--assistant table {
   border-collapse: collapse;
-  width: 100%;
-  margin: 0.5em 0;
+  width: max-content;
+  min-width: 100%;
   font-size: 0.85em;
 }
 
@@ -1166,6 +1172,7 @@ textarea:focus {
   border: 1px solid var(--border);
   padding: 0.35em 0.6em;
   text-align: left;
+  white-space: nowrap;
 }
 
 .msg-bubble--assistant th {
