@@ -53,7 +53,7 @@ Object.defineProperty(globalThis, 'location', {
 });
 
 // Import after mocks are set up
-const { wsSubscribe, wsDrainBuffer } = await import('../ws-pool.js');
+const { wsSubscribe, wsDrainBuffer, wsSetRunning } = await import('../ws-pool.js');
 type WsMsg = import('../ws-pool.js').WsMsg;
 
 describe('ws-pool message buffering', () => {
@@ -166,5 +166,45 @@ describe('ws-pool message buffering', () => {
 
   it('returns empty array for unknown keys', () => {
     expect(wsDrainBuffer('nonexistent')).toEqual([]);
+  });
+});
+
+describe('ws-pool reattach_failed handling', () => {
+  it('broadcasts _open after reattach_failed so component knows connection is live', () => {
+    const received: Array<WsMsg> = [];
+    wsSubscribe('test-reattach-fail-1', (msg) => received.push(msg));
+    const ws1 = lastCreatedWs!;
+    ws1.simulateOpen();
+
+    // Simulate an active session: client_id assigned, marked as running
+    ws1.simulateMessage({ type: 'client_id', clientId: 'old-id' });
+    wsSetRunning('test-reattach-fail-1', true);
+
+    // Clear initial messages
+    received.length = 0;
+
+    // Simulate disconnect + reconnect
+    ws1.simulateClose();
+    const ws2 = lastCreatedWs!;
+    ws2.simulateOpen();
+
+    // Server sends new client_id — pool sees wasRunning=true + prevClientId='old-id'
+    // so it sends reattach and does NOT broadcast _open yet
+    ws2.simulateMessage({ type: 'client_id', clientId: 'new-id' });
+
+    // At this point, _open should NOT have been sent (waiting for reattach result)
+    const typesBeforeReattach = received.filter((m) => m.type === '_open');
+    // _open from ws2.simulateOpen is there (ws.onopen always fires), but the
+    // client_id handler should NOT add another _open
+    const openCountBefore = typesBeforeReattach.length;
+
+    // Server responds with reattach_failed — pool should broadcast _open now
+    ws2.simulateMessage({ type: 'reattach_failed', reason: 'no session' });
+
+    const types = received.map((m) => m.type);
+    expect(types).toContain('reattach_failed');
+    // Must have an _open AFTER the reattach_failed to signal connection is live
+    const openCountAfter = received.filter((m) => m.type === '_open').length;
+    expect(openCountAfter).toBeGreaterThan(openCountBefore);
   });
 });
