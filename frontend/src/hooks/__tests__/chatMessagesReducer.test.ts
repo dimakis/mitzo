@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { chatMessagesReducer } from '../useChatMessages';
 import type { ChatMessagesState } from '../useChatMessages';
 import type { FinishedBlock } from '../../types/chat';
+import { groupBlocks } from '../../lib/groupMessages';
 
 const INITIAL: ChatMessagesState = {
   messages: [],
@@ -532,6 +533,139 @@ describe('RESTORE', () => {
 });
 
 // ─── Multi-turn sequence ──────────────────────────────────────────────────────
+
+describe('multi-turn with many tool calls (#64)', () => {
+  it('preserves summary text after 15 tool calls across two turns', () => {
+    let state = INITIAL;
+
+    // User sends
+    state = chatMessagesReducer(state, { type: 'USER_SEND', text: 'do many things' });
+
+    // Turn 1: 15 tool calls
+    state = chatMessagesReducer(state, { type: 'MESSAGE_START', messageId: 'turn-1' });
+    state = chatMessagesReducer(state, {
+      type: 'BLOCK_START',
+      messageId: 'turn-1',
+      blockId: 'intro',
+      blockType: 'text',
+    });
+    state = chatMessagesReducer(state, {
+      type: 'BLOCK_DELTA',
+      messageId: 'turn-1',
+      blockId: 'intro',
+      blockType: 'text',
+      delta: 'Working on it...',
+    });
+    state = chatMessagesReducer(state, {
+      type: 'BLOCK_END',
+      messageId: 'turn-1',
+      blockId: 'intro',
+      blockType: 'text',
+    });
+
+    for (let i = 0; i < 15; i++) {
+      const bid = `tool-b${i}`;
+      const tid = `tool-id-${i}`;
+      state = chatMessagesReducer(state, {
+        type: 'BLOCK_START',
+        messageId: 'turn-1',
+        blockId: bid,
+        blockType: 'tool_use',
+        toolName: 'Write',
+      });
+      state = chatMessagesReducer(state, {
+        type: 'BLOCK_END',
+        messageId: 'turn-1',
+        blockId: bid,
+        blockType: 'tool_use',
+        toolName: 'Write',
+        toolId: tid,
+        input: `file${i}.ts`,
+      });
+    }
+
+    // Turn 1 ends
+    state = chatMessagesReducer(state, { type: 'MESSAGE_END', messageId: 'turn-1' });
+    expect(state.current).toBeNull();
+    expect(state.messages).toHaveLength(2); // user + turn-1
+
+    // Tool results arrive between turns
+    for (let i = 0; i < 15; i++) {
+      state = chatMessagesReducer(state, {
+        type: 'TOOL_RESULT',
+        toolId: `tool-id-${i}`,
+        result: `wrote file${i}.ts`,
+        isError: false,
+      });
+    }
+
+    // Turn 2: summary text
+    state = chatMessagesReducer(state, { type: 'MESSAGE_START', messageId: 'turn-2' });
+    state = chatMessagesReducer(state, {
+      type: 'BLOCK_START',
+      messageId: 'turn-2',
+      blockId: 'summary',
+      blockType: 'text',
+    });
+    state = chatMessagesReducer(state, {
+      type: 'BLOCK_DELTA',
+      messageId: 'turn-2',
+      blockId: 'summary',
+      blockType: 'text',
+      delta: 'All 15 files created successfully.',
+    });
+    state = chatMessagesReducer(state, {
+      type: 'BLOCK_END',
+      messageId: 'turn-2',
+      blockId: 'summary',
+      blockType: 'text',
+    });
+    state = chatMessagesReducer(state, { type: 'MESSAGE_END', messageId: 'turn-2' });
+
+    // Session ends
+    state = chatMessagesReducer(state, { type: 'SESSION_END' });
+
+    // Verify: 3 messages (user + turn-1 + turn-2)
+    expect(state.messages).toHaveLength(3);
+    expect(state.running).toBe(false);
+    expect(state.current).toBeNull();
+
+    // Turn 1: intro text + 15 tool blocks, all with results
+    const turn1 = state.messages[1];
+    expect(turn1.blocks).toHaveLength(16); // 1 text + 15 tools
+    expect(turn1.blocks[0].content).toBe('Working on it...');
+    for (let i = 0; i < 15; i++) {
+      expect(turn1.blocks[i + 1].toolResult).toBe(`wrote file${i}.ts`);
+    }
+
+    // Turn 2: summary text preserved
+    const turn2 = state.messages[2];
+    expect(turn2.blocks).toHaveLength(1);
+    expect(turn2.blocks[0].blockType).toBe('text');
+    expect(turn2.blocks[0].content).toBe('All 15 files created successfully.');
+  });
+
+  it('preserves trailing text in groupBlocks after tool group', () => {
+    // Simulate the grouped output of turn-1 with intro + 15 tools
+    const blocks: FinishedBlock[] = [
+      { blockId: 'intro', blockType: 'text', content: 'Working...' },
+      ...Array.from({ length: 15 }, (_, i) => ({
+        blockId: `t${i}`,
+        blockType: 'tool_use' as const,
+        content: '',
+        toolName: 'Write',
+        toolId: `tid-${i}`,
+      })),
+    ];
+    const grouped = groupBlocks(blocks);
+
+    // Should be: text block + tool group (15 tools)
+    expect(grouped).toHaveLength(2);
+    expect(grouped[0].type).toBe('block');
+    expect(grouped[1].type).toBe('tool-group');
+    expect(grouped[1].type === 'tool-group' && grouped[1].tools).toHaveLength(15);
+  });
+});
 
 describe('full turn sequence', () => {
   it('handles user → assistant turn with tool call correctly', () => {
