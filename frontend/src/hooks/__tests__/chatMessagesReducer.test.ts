@@ -10,6 +10,7 @@ const INITIAL: ChatMessagesState = {
   permission: null,
   branch: null,
   isWorktree: false,
+  activeWorktrees: [],
 };
 
 // ─── MESSAGE_START ────────────────────────────────────────────────────────────
