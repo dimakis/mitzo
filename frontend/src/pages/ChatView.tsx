@@ -90,16 +90,16 @@ export function ChatView() {
     }
   }, [msgState.messages, msgState.current]);
 
-  // Restore messages from cache or API when sessionId changes.
-  // AbortController prevents a slow response for session A from overwriting
-  // session B's messages when the user navigates quickly between sessions.
+  // Restore messages when sessionId changes. Show cached data instantly,
+  // then always reconcile with the API to catch anything the cache missed
+  // (e.g. messages that streamed in after the last cache write).
   useEffect(() => {
     if (!sessionId) return;
 
     const controller = new AbortController();
     const cacheKey = `${CHAT_CACHE_KEY_PREFIX}${sessionId}`;
     const cached = localStorage.getItem(cacheKey);
-    let restoredFromCache = false;
+    let cacheCount = 0;
 
     if (cached) {
       try {
@@ -112,7 +112,7 @@ export function ChatView() {
         if (isV2) {
           dispatch({ type: 'RESTORE', messages: restored });
           setTimeout(forceScrollToBottom, SCROLL_RESTORE_DELAY_MS);
-          restoredFromCache = true;
+          cacheCount = restored.length;
         } else {
           localStorage.removeItem(cacheKey);
         }
@@ -121,22 +121,22 @@ export function ChatView() {
       }
     }
 
-    if (!restoredFromCache) {
-      dispatch({ type: 'RESTORE', messages: [] });
-      fetch(`/api/sessions/${sessionId}/messages`, { signal: controller.signal })
-        .then((r) => (r.ok ? r.json() : []))
-        .then((msgs: unknown[]) => {
-          if (controller.signal.aborted) return;
-          if (msgs.length > 0) {
-            dispatch({
-              type: 'RESTORE',
-              messages: msgs as import('../types/chat').FinishedMessage[],
-            });
-            setTimeout(forceScrollToBottom, SCROLL_RESTORE_DELAY_MS);
-          }
-        })
-        .catch(() => {});
-    }
+    // Always fetch from API — if the response has more messages than the
+    // cache (or the cache was empty), replace with the authoritative data.
+    fetch(`/api/sessions/${sessionId}/messages`, {
+      credentials: 'include',
+      signal: controller.signal,
+    })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((msgs: unknown[]) => {
+        if (controller.signal.aborted) return;
+        const apiMsgs = msgs as import('../types/chat').FinishedMessage[];
+        if (apiMsgs.length > 0 && apiMsgs.length >= cacheCount) {
+          dispatch({ type: 'RESTORE', messages: apiMsgs });
+          setTimeout(forceScrollToBottom, SCROLL_RESTORE_DELAY_MS);
+        }
+      })
+      .catch(() => {});
 
     return () => controller.abort();
   }, [sessionId, dispatch, forceScrollToBottom]);
