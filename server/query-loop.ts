@@ -5,6 +5,7 @@ import { extractToolResultText } from './content-blocks.js';
 import { TOOL_RESULT_MAX_CHARS } from './constants.js';
 import { createLogger } from './logger.js';
 import type { SessionRegistry, SnapshotBlock } from './session-registry.js';
+import type { EventStore } from './event-store.js';
 import { sendTurnCompleteNotification as ntfyTurnComplete } from './notify.js';
 import { sendTurnCompleteNotification as pushoverTurnComplete } from './pushover.js';
 import { extractSnippet } from './notification-helpers.js';
@@ -20,14 +21,27 @@ function send(ws: WebSocket, data: unknown) {
 }
 
 /**
- * Send a message to the client, or buffer it if the session is detached.
- * This prevents message loss during mid-session disconnects.
+ * Persist a v2 event to the durable store (if available), then send or buffer.
+ * The store.append() is synchronous and happens before WS delivery,
+ * so events survive even if the connection drops mid-send.
  */
-function sendOrBuffer(ws: WebSocket, data: unknown, clientId: string, registry: SessionRegistry) {
+function sendOrBuffer(
+  ws: WebSocket,
+  data: Record<string, unknown>,
+  clientId: string,
+  registry: SessionRegistry,
+  store?: EventStore,
+  sessionId?: string,
+) {
+  let enriched: Record<string, unknown> = data;
+  if (store && sessionId && data.v === 2) {
+    const seq = store.append(sessionId, data.type as string, data);
+    enriched = { ...data, seq };
+  }
   if (registry.isAttached(clientId)) {
-    send(ws, data);
+    send(ws, enriched);
   } else {
-    registry.bufferDetached(clientId, data);
+    registry.bufferDetached(clientId, enriched);
   }
 }
 
@@ -65,6 +79,7 @@ export async function runQueryLoop(
   registry: SessionRegistry,
   abortController: AbortController,
   _ws: WebSocket,
+  store?: EventStore,
 ) {
   // Tool input buffers keyed by content block index (reset per message_start).
   const toolInputBuffers = new Map<
@@ -80,6 +95,12 @@ export async function runQueryLoop(
   let doneSent = false;
   let openBlockCount = 0;
   let pendingMessageEnd: Record<string, unknown> | null = null;
+  let resolvedSessionId: string | undefined;
+
+  /** Wrapper that auto-injects store + sessionId into sendOrBuffer */
+  function emit(ws: WebSocket, data: Record<string, unknown>) {
+    sendOrBuffer(ws, data, clientId, registry, store, resolvedSessionId);
+  }
 
   function nextBlockId(): string {
     return `b${blockCounter++}`;
@@ -87,7 +108,7 @@ export async function runQueryLoop(
 
   function tryFlushMessageEnd(ws: WebSocket, session: { currentSnapshot: unknown | null }) {
     if (pendingMessageEnd && openBlockCount === 0) {
-      sendOrBuffer(ws, pendingMessageEnd, clientId, registry);
+      emit(ws, pendingMessageEnd);
       pendingMessageEnd = null;
       currentMessageId = null;
       (session as { currentSnapshot: null }).currentSnapshot = null;
@@ -113,7 +134,7 @@ export async function runQueryLoop(
           } catch {
             /* empty */
           }
-          sendOrBuffer(
+          emit(
             ws,
             v2('block_end', {
               messageId: currentMessageId,
@@ -123,25 +144,21 @@ export async function runQueryLoop(
               toolId: toolEntry.id,
               input: summarizeToolInput(toolEntry.name, toolInput),
             }),
-            clientId,
-            registry,
           );
         } else {
-          sendOrBuffer(
+          emit(
             ws,
             v2('block_end', {
               messageId: currentMessageId,
               blockId: bid,
               blockType: snap.blockType,
             }),
-            clientId,
-            registry,
           );
         }
         openBlockCount = Math.max(0, openBlockCount - 1);
       }
     }
-    sendOrBuffer(ws, pendingMessageEnd, clientId, registry);
+    emit(ws, pendingMessageEnd);
     pendingMessageEnd = null;
     currentMessageId = null;
     session.currentSnapshot = null;
@@ -154,6 +171,9 @@ export async function runQueryLoop(
       const currentSession = registry.get(clientId);
       if (!currentSession) break;
       const currentWs = currentSession.ws;
+      if (!resolvedSessionId && currentSession.sessionId) {
+        resolvedSessionId = currentSession.sessionId;
+      }
 
       log.debug('sdk event', { clientId, type: msg.type });
 
@@ -168,33 +188,18 @@ export async function runQueryLoop(
         }
         // Capture session ID on first assistant event.
         if (!currentSession.sessionId && msg.session_id) {
-          registry.setSessionId(clientId, msg.session_id as string);
-          sendOrBuffer(
-            currentWs,
-            { type: 'session_id', sessionId: msg.session_id },
-            clientId,
-            registry,
-          );
+          resolvedSessionId = msg.session_id as string;
+          registry.setSessionId(clientId, resolvedSessionId);
+          emit(currentWs, { type: 'session_id', sessionId: msg.session_id });
         }
       } else if (msg.type === 'result') {
         log.info('result received', { clientId, sessionId: msg.session_id });
         // Capture snapshot blocks before flush (forceFlush nulls the snapshot).
         const snapshotBlocks = currentSession.currentSnapshot?.blocks ?? [];
-        if (msg.session_id)
-          sendOrBuffer(
-            currentWs,
-            { type: 'session_id', sessionId: msg.session_id },
-            clientId,
-            registry,
-          );
+        if (msg.session_id) emit(currentWs, { type: 'session_id', sessionId: msg.session_id });
         forceFlushPendingMessage(currentWs, currentSession);
         doneSent = true;
-        sendOrBuffer(
-          currentWs,
-          v2('session_end', { sessionId: msg.session_id }),
-          clientId,
-          registry,
-        );
+        emit(currentWs, v2('session_end', { sessionId: msg.session_id }));
         if (!registry.isAttached(clientId)) {
           const snippet = extractSnippet(snapshotBlocks, NOTIFY_SNIPPET_MAX_CHARS);
           const sid = (msg.session_id as string) || currentSession.sessionId;
@@ -216,12 +221,7 @@ export async function runQueryLoop(
           currentMessageId = (apiMsg?.id as string | undefined) ?? `msg-${Date.now()}`;
           // Init snapshot on the session.
           currentSession.currentSnapshot = { messageId: currentMessageId, blocks: [] };
-          sendOrBuffer(
-            currentWs,
-            v2('message_start', { messageId: currentMessageId }),
-            clientId,
-            registry,
-          );
+          emit(currentWs, v2('message_start', { messageId: currentMessageId }));
         } else if (evt?.type === 'content_block_start') {
           // Auto-init message context if SDK delivers blocks before message_start.
           // On the first turn, AssistantMessage can win the async iterator race
@@ -229,12 +229,7 @@ export async function runQueryLoop(
           if (!currentMessageId) {
             currentMessageId = `msg-${Date.now()}`;
             currentSession.currentSnapshot = { messageId: currentMessageId, blocks: [] };
-            sendOrBuffer(
-              currentWs,
-              v2('message_start', { messageId: currentMessageId }),
-              clientId,
-              registry,
-            );
+            emit(currentWs, v2('message_start', { messageId: currentMessageId }));
           }
           const contentBlock = evt.content_block as Record<string, unknown> | undefined;
           const index = evt.index as number;
@@ -254,15 +249,13 @@ export async function runQueryLoop(
               done: false,
             };
             currentSession.currentSnapshot?.blocks.push(snapshotBlock);
-            sendOrBuffer(
+            emit(
               currentWs,
               v2('block_start', {
                 messageId: currentMessageId,
                 blockId,
                 blockType,
               }),
-              clientId,
-              registry,
             );
           } else if (blockType === 'tool_use') {
             toolInputBuffers.set(index, {
@@ -280,7 +273,7 @@ export async function runQueryLoop(
               toolId: contentBlock!.id as string,
             };
             currentSession.currentSnapshot?.blocks.push(snapshotBlock);
-            sendOrBuffer(
+            emit(
               currentWs,
               v2('block_start', {
                 messageId: currentMessageId,
@@ -288,8 +281,6 @@ export async function runQueryLoop(
                 blockType: 'tool_use',
                 toolName: contentBlock!.name as string,
               }),
-              clientId,
-              registry,
             );
           } else if (blockType === 'text') {
             const snapshotBlock: SnapshotBlock = {
@@ -299,15 +290,13 @@ export async function runQueryLoop(
               done: false,
             };
             currentSession.currentSnapshot?.blocks.push(snapshotBlock);
-            sendOrBuffer(
+            emit(
               currentWs,
               v2('block_start', {
                 messageId: currentMessageId,
                 blockId,
                 blockType: 'text',
               }),
-              clientId,
-              registry,
             );
           }
         } else if (evt?.type === 'content_block_delta') {
@@ -320,7 +309,7 @@ export async function runQueryLoop(
             // Update snapshot
             const block = currentSession.currentSnapshot?.blocks.find((b) => b.blockId === blockId);
             if (block) block.content += text;
-            sendOrBuffer(
+            emit(
               currentWs,
               v2('block_delta', {
                 messageId: currentMessageId,
@@ -328,15 +317,13 @@ export async function runQueryLoop(
                 blockType: 'text',
                 delta: text,
               }),
-              clientId,
-              registry,
             );
           } else if (delta?.type === 'thinking_delta' && blockId) {
             log.debug('thinking delta', { clientId });
             const text = delta.thinking as string;
             const block = currentSession.currentSnapshot?.blocks.find((b) => b.blockId === blockId);
             if (block) block.content += text;
-            sendOrBuffer(
+            emit(
               currentWs,
               v2('block_delta', {
                 messageId: currentMessageId,
@@ -344,8 +331,6 @@ export async function runQueryLoop(
                 blockType: 'thinking',
                 delta: text,
               }),
-              clientId,
-              registry,
             );
           } else if (delta?.type === 'input_json_delta') {
             const entry = toolInputBuffers.get(index);
@@ -377,7 +362,7 @@ export async function runQueryLoop(
               block.rawInput = rawInput;
             }
 
-            sendOrBuffer(
+            emit(
               currentWs,
               v2('block_end', {
                 messageId: currentMessageId,
@@ -388,8 +373,6 @@ export async function runQueryLoop(
                 input: summarized,
                 ...(rawInput ? { rawInput } : {}),
               }),
-              clientId,
-              registry,
             );
           } else if (blockId) {
             // Text or thinking block — mark done in snapshot.
@@ -397,15 +380,13 @@ export async function runQueryLoop(
             if (block) {
               const bt = block.blockType;
               block.done = true;
-              sendOrBuffer(
+              emit(
                 currentWs,
                 v2('block_end', {
                   messageId: currentMessageId,
                   blockId,
                   blockType: bt,
                 }),
-                clientId,
-                registry,
               );
             }
           }
@@ -419,7 +400,7 @@ export async function runQueryLoop(
           for (const block of content) {
             if (block.type === 'tool_result') {
               const resultText = extractToolResultText(block.content);
-              sendOrBuffer(
+              emit(
                 currentWs,
                 v2('tool_result', {
                   messageId: currentMessageId,
@@ -427,8 +408,6 @@ export async function runQueryLoop(
                   result: resultText.slice(0, TOOL_RESULT_MAX_CHARS),
                   isError: block.is_error === true,
                 }),
-                clientId,
-                registry,
               );
             }
           }
