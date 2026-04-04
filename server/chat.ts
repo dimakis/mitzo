@@ -20,9 +20,21 @@ import { buildPermissionHandler } from './permission-handler.js';
 import { runQueryLoop, createWsMessageHandler } from './query-loop.js';
 import { AsyncQueue } from './async-queue.js';
 import { GIT_BRANCH_TIMEOUT_MS, SESSION_LIST_LIMIT, SESSION_MESSAGES_LIMIT } from './constants.js';
+import { EventStore } from './event-store.js';
 import { createLogger } from './logger.js';
 
 const log = createLogger('chat');
+
+// --- Event store (durable session persistence) ---
+function initEventStore(): EventStore {
+  const repoPath = process.env.REPO_PATH || '.';
+  const mitzoDir = join(repoPath, '.mitzo');
+  mkdirSync(mitzoDir, { recursive: true });
+  const dbPath = join(mitzoDir, 'events.db');
+  return new EventStore(dbPath);
+}
+
+export const eventStore = initEventStore();
 
 export type { MitzoMode } from './session-registry.js';
 
@@ -271,6 +283,7 @@ export async function startChat(
       registry,
       abortController,
       ws,
+      eventStore,
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
@@ -408,11 +421,6 @@ export async function getSessions() {
   return deduped.slice(0, SESSION_LIST_LIMIT);
 }
 
-export interface RawSdkMessage {
-  type: string;
-  message?: Record<string, unknown>;
-}
-
 export interface RestoredMessage {
   messageId: string;
   role: string;
@@ -423,8 +431,129 @@ export interface RestoredMessage {
     toolName?: string;
     toolId?: string;
     toolInput?: string;
+    rawInput?: unknown;
     toolResult?: string;
+    toolError?: boolean;
   }>;
+}
+
+/**
+ * Replay v2 events from the event store into finished messages.
+ */
+function replayEventsToMessages(
+  events: import('./event-store.js').StoredEvent[],
+): RestoredMessage[] {
+  const messages: RestoredMessage[] = [];
+  let currentMsg: RestoredMessage | null = null;
+  const blockContent = new Map<string, string>();
+  const toolResults = new Map<string, { result: string; isError: boolean }>();
+
+  // First pass: collect tool results
+  for (const evt of events) {
+    if (evt.type === 'tool_result') {
+      const p = evt.payload;
+      toolResults.set(p.toolId as string, {
+        result: p.result as string,
+        isError: (p.isError as boolean) ?? false,
+      });
+    }
+  }
+
+  for (const evt of events) {
+    const p = evt.payload;
+    switch (evt.type) {
+      case 'message_start':
+        if (currentMsg && currentMsg.blocks.length > 0) {
+          messages.push(currentMsg);
+        }
+        currentMsg = { messageId: p.messageId as string, role: 'assistant', blocks: [] };
+        break;
+
+      case 'block_start':
+        if (currentMsg) {
+          blockContent.set(p.blockId as string, '');
+        }
+        break;
+
+      case 'block_delta':
+        if (currentMsg) {
+          const existing = blockContent.get(p.blockId as string) ?? '';
+          blockContent.set(p.blockId as string, existing + (p.delta as string));
+        }
+        break;
+
+      case 'block_end':
+        if (currentMsg) {
+          const content = blockContent.get(p.blockId as string) ?? '';
+          const toolId = p.toolId as string | undefined;
+          const tr = toolId ? toolResults.get(toolId) : undefined;
+          currentMsg.blocks.push({
+            blockId: p.blockId as string,
+            blockType: p.blockType as string,
+            content,
+            ...(p.toolName ? { toolName: p.toolName as string } : {}),
+            ...(toolId ? { toolId } : {}),
+            ...(p.input ? { toolInput: p.input as string } : {}),
+            ...(p.rawInput ? { rawInput: p.rawInput } : {}),
+            ...(tr ? { toolResult: tr.result, toolError: tr.isError } : {}),
+          });
+          blockContent.delete(p.blockId as string);
+        }
+        break;
+
+      case 'message_end':
+        if (currentMsg && currentMsg.blocks.length > 0) {
+          messages.push(currentMsg);
+        }
+        currentMsg = null;
+        break;
+    }
+  }
+
+  // Flush any in-flight message
+  if (currentMsg && currentMsg.blocks.length > 0) {
+    messages.push(currentMsg);
+  }
+
+  return messages;
+}
+
+export async function getMessages(sessionId: string) {
+  // Primary: replay from durable event store
+  const events = eventStore.getSessionEvents(sessionId);
+  if (events.length > 0) {
+    return replayEventsToMessages(events);
+  }
+
+  // Fallback: SDK JSONL for pre-migration sessions
+  let rawMessages: RawSdkMessage[] = [];
+  for (const dir of getSessionDirs()) {
+    try {
+      rawMessages = (await getSessionMessages(sessionId, {
+        dir,
+        limit: SESSION_MESSAGES_LIMIT,
+      })) as RawSdkMessage[];
+      if (rawMessages.length > 0) break;
+    } catch {
+      // Session not in this dir — try next
+    }
+  }
+  try {
+    return reconstructMessages(rawMessages);
+  } catch (err: unknown) {
+    log.warn('failed to parse session messages', {
+      sessionId,
+      error: err instanceof Error ? err.message : 'unknown',
+    });
+    return [];
+  }
+}
+
+// --- Legacy SDK JSONL reconstruction (fallback for pre-migration sessions) ---
+
+export interface RawSdkMessage {
+  type: string;
+  message?: Record<string, unknown>;
 }
 
 export function reconstructMessages(rawMessages: RawSdkMessage[]): RestoredMessage[] {
@@ -488,28 +617,4 @@ export function reconstructMessages(rawMessages: RawSdkMessage[]): RestoredMessa
   }
 
   return messages;
-}
-
-export async function getMessages(sessionId: string) {
-  let rawMessages: RawSdkMessage[] = [];
-  for (const dir of getSessionDirs()) {
-    try {
-      rawMessages = (await getSessionMessages(sessionId, {
-        dir,
-        limit: SESSION_MESSAGES_LIMIT,
-      })) as RawSdkMessage[];
-      if (rawMessages.length > 0) break;
-    } catch {
-      // Session not in this dir — try next
-    }
-  }
-  try {
-    return reconstructMessages(rawMessages);
-  } catch (err: unknown) {
-    log.warn('failed to parse session messages', {
-      sessionId,
-      error: err instanceof Error ? err.message : 'unknown',
-    });
-    return [];
-  }
 }

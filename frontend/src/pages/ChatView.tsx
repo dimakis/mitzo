@@ -9,12 +9,7 @@ import { ChatInput } from '../components/ChatInput';
 import { MitzoLogo } from '../components/MitzoLogo';
 import { groupBlocks } from '../lib/groupMessages';
 import { wsIsOpen, wsSend, wsSetRunning } from '../lib/ws-pool';
-import {
-  SCROLL_NEAR_BOTTOM_PX,
-  SCROLL_RESTORE_DELAY_MS,
-  CHAT_CACHE_KEY_PREFIX,
-  LAST_SESSION_KEY,
-} from '../lib/constants';
+import { SCROLL_NEAR_BOTTOM_PX, SCROLL_RESTORE_DELAY_MS, LAST_SESSION_KEY } from '../lib/constants';
 import { useChatSession } from '../hooks/useChatSession';
 import { useChatMessages } from '../hooks/useChatMessages';
 import { useChatConnection } from '../hooks/useChatConnection';
@@ -43,7 +38,6 @@ export function ChatView() {
     (staleId: string | undefined) => {
       sessionActions.setCurrentSessionId(undefined);
       if (staleId) {
-        localStorage.removeItem(`${CHAT_CACHE_KEY_PREFIX}${staleId}`);
         localStorage.removeItem(LAST_SESSION_KEY);
       }
       if (sessionId) {
@@ -73,7 +67,6 @@ export function ChatView() {
     dispatch,
     pendingSend,
     handleWsMessage,
-    restoredViaReattach,
   } = useChatMessages(
     poolKey,
     sessionState.currentSessionId,
@@ -92,39 +85,13 @@ export function ChatView() {
     }
   }, [msgState.messages, msgState.current]);
 
-  // Restore messages when sessionId changes. Show cached data instantly,
-  // then always reconcile with the API to catch anything the cache missed
-  // (e.g. messages that streamed in after the last cache write).
-  // Skip if messages were already restored via reattach to avoid racing.
+  // Restore messages when navigating to an existing session.
+  // Fetch from the API (single source of truth — no localStorage cache).
   useEffect(() => {
-    if (!sessionId || restoredViaReattach) return;
+    if (!sessionId) return;
 
     const controller = new AbortController();
-    const cacheKey = `${CHAT_CACHE_KEY_PREFIX}${sessionId}`;
-    const cached = localStorage.getItem(cacheKey);
 
-    if (cached) {
-      try {
-        const restored = JSON.parse(cached);
-        const isV2 =
-          Array.isArray(restored) &&
-          restored.length > 0 &&
-          typeof restored[0].messageId === 'string' &&
-          Array.isArray(restored[0].blocks);
-        if (isV2) {
-          dispatch({ type: 'RESTORE', messages: restored });
-          setTimeout(forceScrollToBottom, SCROLL_RESTORE_DELAY_MS);
-        } else {
-          localStorage.removeItem(cacheKey);
-        }
-      } catch {
-        localStorage.removeItem(cacheKey);
-      }
-    }
-
-    // Always fetch from API for authoritative data. The reducer guards
-    // against replacing state that already has more messages (e.g. from
-    // buffer drain), so we don't need to compare counts here.
     fetch(`/api/sessions/${sessionId}/messages`, {
       credentials: 'include',
       signal: controller.signal,
@@ -141,7 +108,7 @@ export function ChatView() {
       .catch(() => {});
 
     return () => controller.abort();
-  }, [sessionId, restoredViaReattach, dispatch, forceScrollToBottom]);
+  }, [sessionId, dispatch, forceScrollToBottom]);
 
   const { connected } = useChatConnection(poolKey, handleWsMessage);
 

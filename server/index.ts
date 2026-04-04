@@ -12,6 +12,7 @@ import {
   isActive,
   BASE_REPO,
   registry,
+  eventStore,
 } from './chat.js';
 import { cleanupStaleWorktrees } from './worktree.js';
 import { HEARTBEAT_INTERVAL_MS, PORT_DEFAULT, SHUTDOWN_GRACE_MS } from './constants.js';
@@ -90,10 +91,12 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
               running: true,
             }),
           );
-          // Replay messages that were buffered while the client was detached.
-          const buffered = registry.drainDetachedBuffer(clientId);
-          for (const msg of buffered) {
-            ws.send(JSON.stringify(msg));
+          // Replay missed events from durable event store.
+          if (session?.sessionId && msg.lastSeq != null) {
+            const missed = eventStore.getEventsAfter(session.sessionId, msg.lastSeq);
+            for (const evt of missed) {
+              ws.send(JSON.stringify({ ...evt.payload, seq: evt.seq }));
+            }
           }
           if (session?.currentSnapshot) {
             ws.send(

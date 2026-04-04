@@ -8,6 +8,7 @@ const ImageSchema = z.object({
 export const ReattachMessage = z.object({
   type: z.literal('reattach'),
   clientId: z.string(),
+  lastSeq: z.number().optional(),
 });
 
 export const SendMessage = z.object({

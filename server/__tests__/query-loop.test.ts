@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { WebSocket } from 'ws';
 import { runQueryLoop } from '../query-loop.js';
 import type { SessionRegistry } from '../session-registry.js';
+import { EventStore } from '../event-store.js';
 
 /** Create a fake WebSocket that records sent messages */
 function fakeWs(): WebSocket & { sent: Record<string, unknown>[] } {
@@ -14,19 +15,14 @@ function fakeWs(): WebSocket & { sent: Record<string, unknown>[] } {
   } as unknown as WebSocket & { sent: Record<string, unknown>[] };
 }
 
-/** Create a minimal SessionRegistry stub with currentSnapshot and detachedBuffer support */
-function fakeRegistry(
-  ws: WebSocket,
-  opts?: { attached?: boolean },
-): SessionRegistry & { detachedBuffer: unknown[] } {
+/** Create a minimal SessionRegistry stub with currentSnapshot support */
+function fakeRegistry(ws: WebSocket, opts?: { attached?: boolean }): SessionRegistry {
   let removed = false;
   let attached = opts?.attached ?? true;
-  const detachedBuffer: unknown[] = [];
   const session = {
     ws,
     sessionId: undefined as string | undefined,
     currentSnapshot: null as null | { messageId: string; blocks: unknown[] },
-    detachedBuffer,
   };
   return {
     get: vi.fn(() => (removed ? null : session)),
@@ -38,15 +34,11 @@ function fakeRegistry(
     }),
     setMode: vi.fn(),
     isAttached: vi.fn(() => attached),
-    bufferDetached: vi.fn((_clientId: string, msg: unknown) => {
-      detachedBuffer.push(msg);
-    }),
-    detachedBuffer,
     // Allow tests to toggle attached state mid-stream
     _setAttached: (v: boolean) => {
       attached = v;
     },
-  } as unknown as SessionRegistry & { detachedBuffer: unknown[] };
+  } as unknown as SessionRegistry;
 }
 
 /** Build an async iterable from an array of SDK events */
@@ -376,15 +368,13 @@ describe('runQueryLoop', () => {
     expect(t2MsgEnd).toBeGreaterThan(t2MsgStart);
   });
 
-  it('buffers messages when session is detached instead of dropping them', async () => {
+  it('drops messages when session is detached (recovery via event store)', async () => {
     // Start attached, then detach mid-stream
     registry = fakeRegistry(ws);
     const reg = registry as unknown as {
       _setAttached: (v: boolean) => void;
-      detachedBuffer: unknown[];
     };
 
-    // Create a custom event stream that detaches after message_start
     const events: Record<string, unknown>[] = [
       { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-detach' } } },
       {
@@ -401,7 +391,6 @@ describe('runQueryLoop', () => {
       },
     ];
 
-    // Events that arrive while detached
     const detachedEvents: Record<string, unknown>[] = [
       {
         type: 'stream_event',
@@ -418,7 +407,6 @@ describe('runQueryLoop', () => {
 
     async function* detachingStream() {
       for (const e of events) yield e;
-      // Simulate client disconnect
       reg._setAttached(false);
       for (const e of detachedEvents) yield e;
     }
@@ -432,18 +420,11 @@ describe('runQueryLoop', () => {
     );
     expect(attachedDeltas).toHaveLength(1);
 
-    // Messages sent while detached should be in the buffer, not on the WS
+    // Messages sent while detached should NOT be on the WS
     const detachedDeltas = ws.sent.filter(
       (m) => m.type === 'block_delta' && m.delta === ' after detach',
     );
     expect(detachedDeltas).toHaveLength(0);
-
-    // Buffer should have the detached messages
-    expect(reg.detachedBuffer.length).toBeGreaterThan(0);
-    const bufferedDelta = reg.detachedBuffer.find(
-      (m: any) => m.type === 'block_delta' && m.delta === ' after detach',
-    );
-    expect(bufferedDelta).toBeDefined();
   });
 
   it('does not emit old-style text or text_delta events', async () => {
@@ -479,5 +460,160 @@ describe('runQueryLoop', () => {
     // v2 equivalents ARE present
     expect(ws.sent.some((m) => m.type === 'block_delta')).toBe(true);
     expect(ws.sent.some((m) => m.type === 'session_end')).toBe(true);
+  });
+
+  describe('EventStore integration', () => {
+    let store: EventStore;
+
+    beforeEach(() => {
+      store = new EventStore(':memory:');
+    });
+
+    afterEach(() => {
+      store.close();
+    });
+
+    it('appends v2 events to the store when store is provided', async () => {
+      // Set sessionId on the registry session so append knows the session
+      const session = registry.get(clientId)!;
+      session.sessionId = 'sess-store';
+
+      const events: Record<string, unknown>[] = [
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-s1' } } },
+        {
+          type: 'stream_event',
+          event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+        },
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'Hello' },
+          },
+        },
+        { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-store' },
+        { type: 'result', session_id: 'sess-store' },
+      ];
+
+      await runQueryLoop(eventStream(events), clientId, registry, abortController, ws, store);
+
+      const stored = store.getSessionEvents('sess-store');
+      expect(stored.length).toBeGreaterThan(0);
+      expect(stored.some((e) => e.type === 'message_start')).toBe(true);
+      expect(stored.some((e) => e.type === 'block_delta')).toBe(true);
+      expect(stored.some((e) => e.type === 'message_end')).toBe(true);
+      expect(stored.some((e) => e.type === 'session_end')).toBe(true);
+    });
+
+    it('injects seq into sent WS messages when store is provided', async () => {
+      const session = registry.get(clientId)!;
+      session.sessionId = 'sess-seq';
+
+      const events: Record<string, unknown>[] = [
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-seq' } } },
+        {
+          type: 'stream_event',
+          event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+        },
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'Hi' },
+          },
+        },
+        { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-seq' },
+        { type: 'result', session_id: 'sess-seq' },
+      ];
+
+      await runQueryLoop(eventStream(events), clientId, registry, abortController, ws, store);
+
+      // All v2 messages should have a seq field
+      const v2Messages = ws.sent.filter((m) => m.v === 2);
+      expect(v2Messages.length).toBeGreaterThan(0);
+      for (const msg of v2Messages) {
+        expect(msg.seq).toEqual(expect.any(Number));
+      }
+
+      // Seq numbers should be monotonically increasing
+      const seqs = v2Messages.map((m) => m.seq as number);
+      for (let i = 1; i < seqs.length; i++) {
+        expect(seqs[i]).toBeGreaterThan(seqs[i - 1]);
+      }
+    });
+
+    it('persists events even when session is detached', async () => {
+      registry = fakeRegistry(ws);
+      const reg = registry as unknown as { _setAttached: (v: boolean) => void };
+      const session = registry.get(clientId)!;
+      session.sessionId = 'sess-detach-store';
+
+      async function* detachingStream() {
+        yield {
+          type: 'stream_event',
+          event: { type: 'message_start', message: { id: 'msg-ds' } },
+        };
+        // Detach after message_start
+        reg._setAttached(false);
+        yield {
+          type: 'stream_event',
+          event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+        };
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'while detached' },
+          },
+        };
+        yield { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } };
+        yield { type: 'assistant', message: { content: [] }, session_id: 'sess-detach-store' };
+        yield { type: 'result', session_id: 'sess-detach-store' };
+      }
+
+      await runQueryLoop(detachingStream(), clientId, registry, abortController, ws, store);
+
+      // Events should be in the store regardless of attachment state
+      const stored = store.getSessionEvents('sess-detach-store');
+      expect(stored.length).toBeGreaterThan(0);
+      expect(stored.some((e) => e.type === 'block_delta')).toBe(true);
+      expect(stored.some((e) => e.type === 'session_end')).toBe(true);
+    });
+
+    it('works without a store (backward compatible)', async () => {
+      const events: Record<string, unknown>[] = [
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-nostore' } } },
+        {
+          type: 'stream_event',
+          event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+        },
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'no store' },
+          },
+        },
+        { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-ns' },
+        { type: 'result', session_id: 'sess-ns' },
+      ];
+
+      // No store argument — should work exactly as before
+      await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+
+      expect(ws.sent.some((m) => m.type === 'message_start')).toBe(true);
+      // v2 messages should NOT have seq when no store
+      const v2Messages = ws.sent.filter((m) => m.v === 2);
+      for (const msg of v2Messages) {
+        expect(msg.seq).toBeUndefined();
+      }
+    });
   });
 });

@@ -4,12 +4,11 @@ import { renderHook } from '@testing-library/react';
 
 const mockSubscribe = vi.fn().mockReturnValue(vi.fn());
 const mockIsOpen = vi.fn().mockReturnValue(false);
-const mockDrainBuffer = vi.fn().mockReturnValue([]);
 
 vi.mock('../../lib/ws-pool', () => ({
   wsSubscribe: (...args: unknown[]) => mockSubscribe(...args),
   wsIsOpen: (...args: unknown[]) => mockIsOpen(...args),
-  wsDrainBuffer: (...args: unknown[]) => mockDrainBuffer(...args),
+  wsRemoveIfIdle: vi.fn(),
 }));
 
 import { useChatConnection } from '../useChatConnection';
@@ -17,7 +16,6 @@ import { useChatConnection } from '../useChatConnection';
 beforeEach(() => {
   mockSubscribe.mockClear().mockReturnValue(vi.fn());
   mockIsOpen.mockClear().mockReturnValue(false);
-  mockDrainBuffer.mockClear().mockReturnValue([]);
 });
 
 describe('useChatConnection', () => {
@@ -54,11 +52,9 @@ describe('useChatConnection', () => {
     expect(onMessage).toHaveBeenCalledWith({ type: '_close' });
   });
 
-  it('drains buffer on mount', () => {
-    mockDrainBuffer.mockReturnValue([{ type: '_open' }, { type: 'session_id', sessionId: 's1' }]);
+  it('subscribes to pool on mount', () => {
     const onMessage = vi.fn();
     renderHook(() => useChatConnection('key1', onMessage));
-    expect(mockDrainBuffer).toHaveBeenCalledWith('key1');
-    expect(onMessage).toHaveBeenCalledTimes(2);
+    expect(mockSubscribe).toHaveBeenCalledWith('key1', expect.any(Function));
   });
 });
