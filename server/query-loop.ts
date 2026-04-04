@@ -191,6 +191,14 @@ export async function runQueryLoop(
           resolvedSessionId = msg.session_id as string;
           registry.setSessionId(clientId, resolvedSessionId);
           emit(currentWs, { type: 'session_id', sessionId: msg.session_id });
+          // Persist session metadata to durable store
+          if (store) {
+            store.upsertSession({
+              sessionId: resolvedSessionId,
+              cwd: currentSession.cwd,
+              mode: currentSession.mode,
+            });
+          }
         }
       } else if (msg.type === 'result') {
         log.info('result received', { clientId, sessionId: msg.session_id });
@@ -430,6 +438,10 @@ export async function runQueryLoop(
       if (!doneSent && finalWs.readyState === finalWs.OPEN) {
         send(finalWs, v2('session_end', { sessionId: finalSession.sessionId }));
       }
+    }
+    // Mark session as inactive in durable store
+    if (store && resolvedSessionId) {
+      store.markSessionInactive(resolvedSessionId);
     }
     log.info('query loop ended', { clientId, doneSent });
   }

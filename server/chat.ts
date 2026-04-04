@@ -20,9 +20,21 @@ import { buildPermissionHandler } from './permission-handler.js';
 import { runQueryLoop, createWsMessageHandler } from './query-loop.js';
 import { AsyncQueue } from './async-queue.js';
 import { GIT_BRANCH_TIMEOUT_MS, SESSION_LIST_LIMIT, SESSION_MESSAGES_LIMIT } from './constants.js';
+import { EventStore } from './event-store.js';
 import { createLogger } from './logger.js';
 
 const log = createLogger('chat');
+
+// --- Event store (durable session persistence) ---
+function initEventStore(): EventStore {
+  const repoPath = process.env.REPO_PATH || '.';
+  const mitzoDir = join(repoPath, '.mitzo');
+  mkdirSync(mitzoDir, { recursive: true });
+  const dbPath = join(mitzoDir, 'events.db');
+  return new EventStore(dbPath);
+}
+
+export const eventStore = initEventStore();
 
 export type { MitzoMode } from './session-registry.js';
 
@@ -271,6 +283,7 @@ export async function startChat(
       registry,
       abortController,
       ws,
+      eventStore,
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
