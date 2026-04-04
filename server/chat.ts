@@ -452,34 +452,47 @@ export async function getMessages(sessionId: string) {
 
     for (const m of rawMessages) {
       const content = m.message?.content;
-      if (!Array.isArray(content)) continue;
-      const parsed = parseContentBlocks(content);
-      if (!parsed.text && parsed.toolCalls.length === 0) continue;
-
       const role = m.type === 'assistant' ? 'assistant' : 'user';
       const msgId = (m.message?.id as string) ?? `restored-${Date.now()}-${blockCounter}`;
       const blocks: (typeof messages)[number]['blocks'] = [];
 
-      if (parsed.text) {
-        blocks.push({
-          blockId: `rb${blockCounter++}`,
-          blockType: 'text',
-          content: parsed.text,
-        });
+      // User prompts are stored as plain strings by the SDK.
+      if (typeof content === 'string') {
+        if (content) {
+          blocks.push({
+            blockId: `rb${blockCounter++}`,
+            blockType: 'text',
+            content,
+          });
+        }
+      } else if (Array.isArray(content)) {
+        const parsed = parseContentBlocks(content);
+        if (!parsed.text && parsed.toolCalls.length === 0) continue;
+
+        if (parsed.text) {
+          blocks.push({
+            blockId: `rb${blockCounter++}`,
+            blockType: 'text',
+            content: parsed.text,
+          });
+        }
+
+        for (const tc of parsed.toolCalls) {
+          blocks.push({
+            blockId: `rb${blockCounter++}`,
+            blockType: 'tool_use',
+            content: '',
+            toolName: tc.toolName,
+            toolId: tc.toolId,
+            toolInput: tc.input,
+            toolResult: toolResultMap.get(tc.toolId),
+          });
+        }
+      } else {
+        continue;
       }
 
-      for (const tc of parsed.toolCalls) {
-        blocks.push({
-          blockId: `rb${blockCounter++}`,
-          blockType: 'tool_use',
-          content: '',
-          toolName: tc.toolName,
-          toolId: tc.toolId,
-          toolInput: tc.input,
-          toolResult: toolResultMap.get(tc.toolId),
-        });
-      }
-
+      if (blocks.length === 0) continue;
       messages.push({ messageId: msgId, role, blocks });
     }
 
