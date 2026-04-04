@@ -40,9 +40,8 @@ function sendOrBuffer(
   }
   if (registry.isAttached(clientId)) {
     send(ws, enriched);
-  } else {
-    registry.bufferDetached(clientId, enriched);
   }
+  // When detached, messages are dropped — recovery via event store replay on reattach.
 }
 
 function v2(type: string, rest: Record<string, unknown> = {}): Record<string, unknown> {

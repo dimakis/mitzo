@@ -15,19 +15,14 @@ function fakeWs(): WebSocket & { sent: Record<string, unknown>[] } {
   } as unknown as WebSocket & { sent: Record<string, unknown>[] };
 }
 
-/** Create a minimal SessionRegistry stub with currentSnapshot and detachedBuffer support */
-function fakeRegistry(
-  ws: WebSocket,
-  opts?: { attached?: boolean },
-): SessionRegistry & { detachedBuffer: unknown[] } {
+/** Create a minimal SessionRegistry stub with currentSnapshot support */
+function fakeRegistry(ws: WebSocket, opts?: { attached?: boolean }): SessionRegistry {
   let removed = false;
   let attached = opts?.attached ?? true;
-  const detachedBuffer: unknown[] = [];
   const session = {
     ws,
     sessionId: undefined as string | undefined,
     currentSnapshot: null as null | { messageId: string; blocks: unknown[] },
-    detachedBuffer,
   };
   return {
     get: vi.fn(() => (removed ? null : session)),
@@ -39,15 +34,11 @@ function fakeRegistry(
     }),
     setMode: vi.fn(),
     isAttached: vi.fn(() => attached),
-    bufferDetached: vi.fn((_clientId: string, msg: unknown) => {
-      detachedBuffer.push(msg);
-    }),
-    detachedBuffer,
     // Allow tests to toggle attached state mid-stream
     _setAttached: (v: boolean) => {
       attached = v;
     },
-  } as unknown as SessionRegistry & { detachedBuffer: unknown[] };
+  } as unknown as SessionRegistry;
 }
 
 /** Build an async iterable from an array of SDK events */
@@ -377,15 +368,13 @@ describe('runQueryLoop', () => {
     expect(t2MsgEnd).toBeGreaterThan(t2MsgStart);
   });
 
-  it('buffers messages when session is detached instead of dropping them', async () => {
+  it('drops messages when session is detached (recovery via event store)', async () => {
     // Start attached, then detach mid-stream
     registry = fakeRegistry(ws);
     const reg = registry as unknown as {
       _setAttached: (v: boolean) => void;
-      detachedBuffer: unknown[];
     };
 
-    // Create a custom event stream that detaches after message_start
     const events: Record<string, unknown>[] = [
       { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-detach' } } },
       {
@@ -402,7 +391,6 @@ describe('runQueryLoop', () => {
       },
     ];
 
-    // Events that arrive while detached
     const detachedEvents: Record<string, unknown>[] = [
       {
         type: 'stream_event',
@@ -419,7 +407,6 @@ describe('runQueryLoop', () => {
 
     async function* detachingStream() {
       for (const e of events) yield e;
-      // Simulate client disconnect
       reg._setAttached(false);
       for (const e of detachedEvents) yield e;
     }
@@ -433,18 +420,11 @@ describe('runQueryLoop', () => {
     );
     expect(attachedDeltas).toHaveLength(1);
 
-    // Messages sent while detached should be in the buffer, not on the WS
+    // Messages sent while detached should NOT be on the WS
     const detachedDeltas = ws.sent.filter(
       (m) => m.type === 'block_delta' && m.delta === ' after detach',
     );
     expect(detachedDeltas).toHaveLength(0);
-
-    // Buffer should have the detached messages
-    expect(reg.detachedBuffer.length).toBeGreaterThan(0);
-    const bufferedDelta = reg.detachedBuffer.find(
-      (m: any) => m.type === 'block_delta' && m.delta === ' after detach',
-    );
-    expect(bufferedDelta).toBeDefined();
   });
 
   it('does not emit old-style text or text_delta events', async () => {
