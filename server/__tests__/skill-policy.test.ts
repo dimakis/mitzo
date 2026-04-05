@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SessionRegistry } from '../session-registry.js';
 import { checkSkillPolicy, setSkillPolicy, clearSkillPolicy } from '../skill-policy.js';
+import { buildPermissionHandler } from '../permission-handler.js';
 
 describe('skill policy', () => {
   let registry: SessionRegistry;
@@ -24,7 +25,7 @@ describe('skill policy', () => {
     it('sets allowed-tools restriction on the session', () => {
       setSkillPolicy(registry, clientId, ['Read', 'Glob', 'Grep']);
       const session = registry.get(clientId)!;
-      expect(session.activeSkillPolicy).toEqual(['Read', 'Glob', 'Grep']);
+      expect(session.activeSkillPolicy).toEqual(new Set(['Read', 'Glob', 'Grep']));
     });
 
     it('clears skill policy from the session', () => {
@@ -83,6 +84,45 @@ describe('skill policy', () => {
       // Simulate: user sends plain text → policy cleared
       clearSkillPolicy(registry, clientId);
       expect(checkSkillPolicy(registry, clientId, 'Bash')).toBe('allow');
+    });
+  });
+
+  describe('integration with permission handler', () => {
+    it('skill policy denies Bash even in agent mode via buildPermissionHandler', async () => {
+      // Set a read-only skill policy
+      setSkillPolicy(registry, clientId, ['Read', 'Glob', 'Grep']);
+
+      const handler = buildPermissionHandler(clientId, registry);
+      const ac = new AbortController();
+      const result = await handler(
+        'Bash',
+        { command: 'ls' },
+        {
+          signal: ac.signal,
+          toolUseID: 'test-tool-1',
+        },
+      );
+
+      expect(result.behavior).toBe('deny');
+      expect(result.message).toContain('skill policy');
+    });
+
+    it('allows Read through permission handler when in skill policy', async () => {
+      setSkillPolicy(registry, clientId, ['Read', 'Glob', 'Grep']);
+
+      const handler = buildPermissionHandler(clientId, registry);
+      const ac = new AbortController();
+      const result = await handler(
+        'Read',
+        { file_path: '/tmp/test' },
+        {
+          signal: ac.signal,
+          toolUseID: 'test-tool-2',
+        },
+      );
+
+      // Read is safe-tier AND in skill policy — should be allowed
+      expect(result.behavior).toBe('allow');
     });
   });
 

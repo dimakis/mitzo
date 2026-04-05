@@ -11,7 +11,7 @@ export function setSkillPolicy(
 ): void {
   const session = registry.get(clientId);
   if (session) {
-    session.activeSkillPolicy = allowedTools;
+    session.activeSkillPolicy = new Set(allowedTools);
   }
 }
 
@@ -44,5 +44,5 @@ export function checkSkillPolicy(
   const policy = session.activeSkillPolicy;
   if (!policy) return 'allow';
 
-  return policy.includes(toolName) ? 'allow' : 'deny';
+  return policy.has(toolName) ? 'allow' : 'deny';
 }

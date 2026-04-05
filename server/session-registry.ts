@@ -35,7 +35,7 @@ export interface ManagedSession {
   queryInstance?: { interrupt: () => Promise<void>; close: () => void };
   inputQueue?: { push: (msg: unknown) => void; close: () => void };
   currentSnapshot: MessageSnapshot | null;
-  activeSkillPolicy: string[] | null;
+  activeSkillPolicy: Set<string> | null;
 }
 
 export class SessionRegistry {
