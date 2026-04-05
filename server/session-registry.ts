@@ -31,6 +31,7 @@ export interface ManagedSession {
   mode: MitzoMode;
   cwd?: string;
   worktreePath?: string;
+  worktreePaths: Map<string, string>;
   queryInstance?: { interrupt: () => Promise<void>; close: () => void };
   inputQueue?: { push: (msg: unknown) => void; close: () => void };
   currentSnapshot: MessageSnapshot | null;
@@ -43,11 +44,14 @@ export class SessionRegistry {
 
   register(
     clientId: string,
-    init: Omit<ManagedSession, 'queryInstance' | 'inputQueue' | 'currentSnapshot'> & {
+    init: Omit<
+      ManagedSession,
+      'queryInstance' | 'inputQueue' | 'currentSnapshot' | 'worktreePaths'
+    > & {
       sessionId?: string;
     },
   ): void {
-    this.sessions.set(clientId, { ...init, currentSnapshot: null });
+    this.sessions.set(clientId, { ...init, worktreePaths: new Map(), currentSnapshot: null });
     this.attached.add(clientId);
   }
 

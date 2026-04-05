@@ -13,6 +13,7 @@ import {
   BASE_REPO,
   registry,
   eventStore,
+  repoConfig,
 } from './chat.js';
 import { cleanupStaleWorktrees } from './worktree.js';
 import { HEARTBEAT_INTERVAL_MS, PORT_DEFAULT, SHUTDOWN_GRACE_MS } from './constants.js';
@@ -183,12 +184,15 @@ checkPort(PORT).then((inUse) => {
 
   server.listen(PORT, () => {
     log.info(`Chat Agent running on http://localhost:${PORT}`);
-    try {
-      cleanupStaleWorktrees(BASE_REPO);
-    } catch (err: unknown) {
-      log.warn('stale worktree cleanup failed (will retry on next restart)', {
-        error: err instanceof Error ? err.message : 'unknown',
-      });
+    // Clean up stale worktrees across all repos
+    for (const [label, repoPath] of [['primary', BASE_REPO], ...Object.entries(repoConfig.repos)]) {
+      try {
+        cleanupStaleWorktrees(repoPath);
+      } catch (err: unknown) {
+        log.warn(`stale worktree cleanup failed for ${label}`, {
+          error: err instanceof Error ? err.message : 'unknown',
+        });
+      }
     }
 
     const UPDATE_CHECK_INTERVAL_MS = 2 * 60 * 1000;

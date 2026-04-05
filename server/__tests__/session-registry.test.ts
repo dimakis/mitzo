@@ -55,6 +55,20 @@ describe('SessionRegistry', () => {
     it('isActive returns false for unknown clientId', () => {
       expect(registry.isActive('nonexistent')).toBe(false);
     });
+
+    it('initializes worktreePaths as empty Map', () => {
+      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      registry.register('client-1', {
+        ws: fakeWs,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      const session = registry.get('client-1')!;
+      expect(session.worktreePaths).toBeInstanceOf(Map);
+      expect(session.worktreePaths.size).toBe(0);
+    });
   });
 
   describe('detach', () => {

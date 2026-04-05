@@ -125,6 +125,12 @@ interface UpdateAvailableMsg {
   type: 'update_available';
 }
 
+interface WorktreeOpenedMsg {
+  type: 'worktree_opened';
+  repoName: string;
+  path: string;
+}
+
 export type ServerMessage =
   | ClientIdMsg
   | ReattachedMsg
@@ -143,4 +149,5 @@ export type ServerMessage =
   | PermissionTimeoutMsg
   | ErrorMsg
   | ModeChangedMsg
-  | UpdateAvailableMsg;
+  | UpdateAvailableMsg
+  | WorktreeOpenedMsg;
