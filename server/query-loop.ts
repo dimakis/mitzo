@@ -90,6 +90,7 @@ export async function runQueryLoop(
   const blockIdByIndex = new Map<number, string>();
 
   let blockCounter = 0;
+  let userMsgCounter = 0;
   let currentMessageId: string | null = null;
   let doneSent = false;
   let openBlockCount = 0;
@@ -403,24 +404,18 @@ export async function runQueryLoop(
       } else if (msg.type === 'user') {
         const content = (msg.message as unknown as Record<string, unknown>)?.content;
         if (typeof content === 'string' && content) {
-          // Plain string user message (follow-up prompt)
           emit(
             currentWs,
             v2('user_message', {
-              messageId: `umsg-${Date.now()}`,
+              messageId: `umsg-${Date.now()}-${userMsgCounter++}`,
               text: content,
             }),
           );
         } else if (Array.isArray(content)) {
+          const textParts: string[] = [];
           for (const block of content) {
             if (block.type === 'text' && block.text) {
-              emit(
-                currentWs,
-                v2('user_message', {
-                  messageId: `umsg-${Date.now()}`,
-                  text: block.text as string,
-                }),
-              );
+              textParts.push(block.text as string);
             } else if (block.type === 'tool_result') {
               const resultText = extractToolResultText(block.content);
               emit(
@@ -433,6 +428,15 @@ export async function runQueryLoop(
                 }),
               );
             }
+          }
+          if (textParts.length > 0) {
+            emit(
+              currentWs,
+              v2('user_message', {
+                messageId: `umsg-${Date.now()}-${userMsgCounter++}`,
+                text: textParts.join('\n\n'),
+              }),
+            );
           }
         }
       }

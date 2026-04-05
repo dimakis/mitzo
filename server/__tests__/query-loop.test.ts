@@ -571,6 +571,43 @@ describe('runQueryLoop', () => {
     expect(toolResult).toMatchObject({ toolId: 'tool-mix' });
   });
 
+  it('concatenates multiple text blocks into a single user_message event', async () => {
+    const events: Record<string, unknown>[] = [
+      { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-cat' } } },
+      {
+        type: 'stream_event',
+        event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+      },
+      {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: 'Response' },
+        },
+      },
+      { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+      { type: 'assistant', message: { content: [] }, session_id: 'sess-cat' },
+      {
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Part one' },
+            { type: 'text', text: 'Part two' },
+          ],
+        },
+      },
+      { type: 'result', session_id: 'sess-cat' },
+    ];
+
+    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+
+    const userMsgs = ws.sent.filter((m) => m.type === 'user_message');
+    expect(userMsgs).toHaveLength(1);
+    expect(userMsgs[0]).toMatchObject({ text: 'Part one\n\nPart two' });
+  });
+
   it('does not emit user_message for user messages with only tool_result blocks', async () => {
     const events: Record<string, unknown>[] = [
       { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-tr' } } },

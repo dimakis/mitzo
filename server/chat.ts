@@ -513,6 +513,7 @@ export interface RestoredMessage {
 /**
  * Replay v2 events from the event store into finished messages.
  */
+/** Exported for testing. */
 export function replayEventsToMessages(
   events: import('./event-store.js').StoredEvent[],
 ): RestoredMessage[] {
