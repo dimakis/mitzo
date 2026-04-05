@@ -115,10 +115,23 @@ Low-level TTS utilities, separated from the hook for testability:
 /** Split text at sentence boundaries for chunked synthesis. */
 export function chunkText(text: string, maxLen?: number): string[];
 
-/** Synthesize a single chunk via Yapper. Returns a WAV Blob. */
-export function synthesize(text: string, voice: string, url: string): Promise<Blob>;
+/** Synthesize a single chunk via Yapper. Returns a WAV Blob. Accepts AbortSignal for cancellation. */
+export function synthesize(
+  text: string,
+  voice: string,
+  url: string,
+  signal?: AbortSignal,
+): Promise<Blob>;
 
-/** Play a WAV blob via AudioContext. Returns a handle to stop playback. */
+/**
+ * Manages a singleton AudioContext (lazy, created on first use).
+ * Browsers cap AudioContext instances at ~6 — reuse is mandatory.
+ * close() must be called on unmount to release resources.
+ */
+export function getOrCreateAudioContext(): AudioContext;
+export function closeAudioContext(): void;
+
+/** Play a WAV blob via the shared AudioContext. Returns a handle to stop playback. */
 export function playAudio(blob: Blob): { play: () => Promise<void>; stop: () => void };
 ```
 
@@ -132,14 +145,19 @@ Rendered in the chat header (or a settings dropdown). Contains:
 
 ### Modified: `pages/ChatView.tsx`
 
-Add a `useEffect` that watches `msgState.messages` length. When a new assistant message appears and `ttsEnabled` is true:
+Track the last spoken message ID in a ref. When `msgState.messages` changes, compare the latest assistant message ID against it — only speak if it's new. This avoids the fragile `messages.length` dependency (which can miss messages if length stays constant across add/remove).
 
 ```typescript
+const lastSpokenIdRef = useRef<string | null>(null);
+
 useEffect(() => {
   if (!voice.ttsEnabled || !voice.ttsAvailable) return;
 
   const lastMsg = msgState.messages[msgState.messages.length - 1];
   if (!lastMsg || lastMsg.role !== 'assistant') return;
+  if (lastMsg.messageId === lastSpokenIdRef.current) return;
+
+  lastSpokenIdRef.current = lastMsg.messageId;
 
   const text = lastMsg.blocks
     .filter((b) => b.blockType === 'text')
@@ -147,7 +165,7 @@ useEffect(() => {
     .join('\n');
 
   if (text.trim()) voice.speak(text);
-}, [msgState.messages.length]);
+}, [msgState.messages]);
 ```
 
 Also: stop speaking when user sends a new message (in `sendMessage` callback).
@@ -193,21 +211,21 @@ For responses longer than ~500 characters, split at sentence boundaries and synt
 1. Split on sentence-ending punctuation followed by whitespace: /(?<=[.!?])\s+/
 2. Merge short fragments (< 20 chars) with the previous chunk
 3. Split any remaining chunks that exceed MAX_CHARS at the nearest word boundary
-4. Synthesize chunk[0], start playing, synthesize chunk[1] concurrently (pipeline)
 ```
 
-### Pipelining
+Note: the sentence-boundary regex won't handle abbreviations ("Dr. Smith"), ellipses ("wait..."), or decimals ("3.14") perfectly. Acceptable for MVP — odd splits are cosmetic, not functional.
 
-To minimize gaps between chunks, use a two-ahead pipeline:
+### Sequential Playback (MVP)
+
+For MVP, synthesize and play chunks sequentially — no pipelining:
 
 ```
-Synthesize chunk 1 → Play chunk 1
-Synthesize chunk 2 (concurrent with play 1) → Play chunk 2
-Synthesize chunk 3 (concurrent with play 2) → Play chunk 3
-...
+Synthesize chunk 1 → Play chunk 1 → Synthesize chunk 2 → Play chunk 2 → ...
 ```
 
-If the user interrupts (sends a message, toggles TTS off), cancel all pending synthesis requests and stop the current audio.
+This avoids concurrency bugs (race conditions on stop, ordering). Pipelining can be added later if inter-chunk latency is a real problem.
+
+If the user interrupts (sends a message, toggles TTS off), abort in-flight synthesis via `AbortController` and stop the current audio.
 
 ## AudioContext Playback
 
@@ -218,24 +236,46 @@ Use `AudioContext` + `AudioBufferSourceNode` rather than `<audio>` element for:
 - Better compatibility with mobile auto-play policies (AudioContext can be resumed on user gesture — the TTS toggle tap satisfies this)
 
 ```typescript
-const ctx = new AudioContext();
-const buffer = await ctx.decodeAudioData(wavArrayBuffer);
-const source = ctx.createBufferSource();
+// Singleton — reused across all playback calls. Created lazily.
+let ctx: AudioContext | null = null;
+
+function getOrCreateAudioContext(): AudioContext {
+  if (!ctx) ctx = new AudioContext();
+  return ctx;
+}
+
+function closeAudioContext(): void {
+  ctx?.close();
+  ctx = null;
+}
+
+// Playback
+const ac = getOrCreateAudioContext();
+const buffer = await ac.decodeAudioData(wavArrayBuffer);
+const source = ac.createBufferSource();
 source.buffer = buffer;
-source.connect(ctx.destination);
+source.connect(ac.destination);
 source.start();
 // To stop: source.stop();
+
+// Cancellable synthesis
+const controller = new AbortController();
+const blob = await synthesize(text, voice, url, controller.signal);
+// On interrupt: controller.abort();
 ```
 
-### Mobile Autoplay
+### Lifecycle
 
-iOS Safari requires `AudioContext` to be created/resumed during a user gesture. The TTS toggle tap satisfies this requirement. We create the `AudioContext` lazily on the first `setTtsEnabled(true)` call.
+- `AudioContext` is created lazily on first `setTtsEnabled(true)` tap (satisfies iOS autoplay gesture requirement)
+- `closeAudioContext()` is called in the hook's cleanup (`useEffect` return)
+- `stopSpeaking()` calls `AbortController.abort()` on all in-flight synthesis fetches and `source.stop()` on the current playback
 
 ## Voice Selection
 
-- Fetch voices from `/v1/voices` once on hook mount (if TTS is available)
+- Fetch voices from `/v1/voices` lazily on first `setTtsEnabled(true)`, not on mount (avoids wasted request when TTS is off)
+- Cache in hook state, re-fetch if TTS becomes unavailable and then available again
 - Store selected voice ID in localStorage (`mitzo-tts-voice`)
-- Default: `af_heart` (Kokoro's default)
+- Default: first voice from `/v1/voices` response (not hardcoded — adapts if Yapper's voice list changes). Falls back to `af_heart` only if the voice list fetch fails
 - Group by language in the dropdown for readability
 
 ## localStorage Keys
