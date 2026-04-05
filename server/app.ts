@@ -50,15 +50,30 @@ const USER_SKILLS_DIR = join(homedir(), '.mitzo', 'skills');
 /** Reserved native command names — skills with these names are ignored. */
 export const NATIVE_COMMAND_NAMES = new Set(['skills']);
 
-/** Build a SkillRegistry for a given cwd (repo root). */
+/** Cached registries keyed by cwd — avoids re-scanning the filesystem on every request. */
+const registryCache = new Map<string, SkillRegistry>();
+
+/** Build or retrieve a cached SkillRegistry for a given cwd (repo root). */
 export function buildSkillRegistry(cwd?: string): SkillRegistry {
+  const key = cwd ?? '';
+  const cached = registryCache.get(key);
+  if (cached) return cached;
+
   const repoDir = cwd ? join(cwd, '.mitzo', 'skills') : undefined;
-  return new SkillRegistry({
+  const registry = new SkillRegistry({
     bundledDir: BUNDLED_SKILLS_DIR,
     userDir: USER_SKILLS_DIR,
     repoDir,
     nativeNames: NATIVE_COMMAND_NAMES,
   });
+  registryCache.set(key, registry);
+  return registry;
+}
+
+/** Invalidate all cached registries — forces rediscovery on next request. */
+export function invalidateSkillRegistries(): void {
+  for (const reg of registryCache.values()) reg.invalidate();
+  registryCache.clear();
 }
 
 const app = express();
@@ -279,14 +294,7 @@ app.get('/api/skills', (req, res) => {
     return;
   }
   const skillRegistry = buildSkillRegistry(cwd);
-  const skills = skillRegistry.list().map((s) => ({
-    name: s.name,
-    description: s.description,
-    scope: s.scope,
-    allowedTools: s.allowedTools,
-    collisions: s.collisions,
-  }));
-  res.json(skills);
+  res.json(skillRegistry.listPublic());
 });
 
 app.get('/api/sessions', async (_req, res) => {

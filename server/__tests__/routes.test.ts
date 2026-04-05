@@ -498,6 +498,10 @@ describe('skills routes', () => {
   });
 
   it('GET /api/skills — skill entries have expected shape', async () => {
+    // Invalidate the cached registry so newly written skills are discovered
+    const { invalidateSkillRegistries } = await import('../app.js');
+    invalidateSkillRegistries();
+
     // Create a skill in the test repo
     const skillsDir = join(TEST_REPO, '.mitzo', 'skills', 'test-skill');
     mkdirSync(skillsDir, { recursive: true });

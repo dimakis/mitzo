@@ -56,6 +56,7 @@ export function ChatInput({ onSend, onStop, onInterrupt, running, initialText, c
   }, [text, autoResize]);
 
   // Show/hide slash picker based on input
+  // TODO: Verify picker reopens correctly on backspace after space (e.g. "/simplify " → "/simplify")
   useEffect(() => {
     const trimmed = text.trimStart();
     if (trimmed.startsWith('/') && !trimmed.includes(' ')) {
