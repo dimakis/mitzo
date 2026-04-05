@@ -334,6 +334,7 @@ export async function startChat(
       abortController,
       ws,
       eventStore,
+      options.resume ? undefined : fullPrompt,
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
@@ -359,6 +360,15 @@ export function sendToChat(
   const session = registry.get(clientId);
   if (!session?.inputQueue) return false;
   const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images);
+  if (session.sessionId) {
+    eventStore.append(session.sessionId, 'user_message', {
+      v: 2,
+      type: 'user_message',
+      ts: Date.now(),
+      messageId: `umsg-${Date.now()}-send`,
+      text: fullPrompt,
+    });
+  }
   session.inputQueue.push(makeUserMessage(fullPrompt, 'next'));
   return true;
 }
@@ -372,6 +382,15 @@ export async function interruptChat(
   const session = registry.get(clientId);
   if (!session?.queryInstance || !session?.inputQueue) return false;
   const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images);
+  if (session.sessionId) {
+    eventStore.append(session.sessionId, 'user_message', {
+      v: 2,
+      type: 'user_message',
+      ts: Date.now(),
+      messageId: `umsg-${Date.now()}-interrupt`,
+      text: fullPrompt,
+    });
+  }
   await session.queryInstance.interrupt();
   session.inputQueue.push(makeUserMessage(fullPrompt, 'now'));
   return true;
@@ -522,7 +541,14 @@ export function replayEventsToMessages(
   const blockContent = new Map<string, string>();
   const toolResults = new Map<string, { result: string; isError: boolean }>();
 
-  // First pass: collect tool results
+  // First pass: collect tool results and find initial prompt
+  // The initial prompt's user_message may appear after the first assistant turn
+  // in the event store (sessionId isn't known until the first assistant event).
+  // Detect this by finding user_messages that appear after a message_start but
+  // before any message_end — these are out-of-order initial prompts.
+  let initialPromptEvent: import('./event-store.js').StoredEvent | null = null;
+  let seenMessageStart = false;
+  let seenMessageEnd = false;
   for (const evt of events) {
     if (evt.type === 'tool_result') {
       const p = evt.payload;
@@ -531,9 +557,34 @@ export function replayEventsToMessages(
         isError: (p.isError as boolean) ?? false,
       });
     }
+    if (evt.type === 'message_start') seenMessageStart = true;
+    if (evt.type === 'message_end') seenMessageEnd = true;
+    // A user_message that appears after message_start but before/at message_end
+    // is an out-of-order initial prompt
+    if (evt.type === 'user_message' && seenMessageStart && !seenMessageEnd) {
+      initialPromptEvent = evt;
+    }
+  }
+
+  // Inject initial prompt at the start if it was out of order
+  if (initialPromptEvent) {
+    const p = initialPromptEvent.payload;
+    messages.push({
+      messageId: p.messageId as string,
+      role: 'user',
+      blocks: [
+        {
+          blockId: `user-${p.messageId as string}`,
+          blockType: 'text',
+          content: p.text as string,
+        },
+      ],
+    });
   }
 
   for (const evt of events) {
+    // Skip the initial prompt — already injected above
+    if (evt === initialPromptEvent) continue;
     const p = evt.payload;
     switch (evt.type) {
       case 'user_message':
