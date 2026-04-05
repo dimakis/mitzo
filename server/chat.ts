@@ -17,6 +17,7 @@ import { parseContentBlocks } from './content-blocks.js';
 import { loadMcpServers, type McpServerConfig } from './mcp-config.js';
 import { getAllowedToolsForMode, applyTierOverrides } from './tool-tiers.js';
 import { loadRepoConfig } from './repo-config.js';
+import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
 import { runQueryLoop, createWsMessageHandler } from './query-loop.js';
 import { AsyncQueue } from './async-queue.js';
@@ -286,6 +287,9 @@ export async function startChat(
   const repoMcp = buildRepoMcpServer(clientId);
   const allMcpServers = { ...mcpServers, ...repoMcp };
 
+  // Load project hooks from .claude/settings.json (e.g. SessionStart boot context)
+  const hooks = loadProjectHooks(cwd);
+
   let messageHandler: ((raw: Buffer) => void) | null = null;
   try {
     const q = query({
@@ -313,6 +317,7 @@ export async function startChat(
         ...(options.model ? { model: options.model } : {}),
         ...(options.resume ? { resume: options.resume } : {}),
         ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
+        ...(hooks ? { hooks } : {}),
         canUseTool: buildPermissionHandler(clientId, registry),
       },
     });
