@@ -79,6 +79,7 @@ export async function runQueryLoop(
   abortController: AbortController,
   _ws: WebSocket,
   store?: EventStore,
+  initialPrompt?: string,
 ) {
   // Tool input buffers keyed by content block index (reset per message_start).
   const toolInputBuffers = new Map<
@@ -198,6 +199,16 @@ export async function runQueryLoop(
               cwd: currentSession.cwd,
               mode: currentSession.mode,
             });
+            // Persist the initial user prompt now that we have a sessionId
+            if (initialPrompt) {
+              emit(
+                currentWs,
+                v2('user_message', {
+                  messageId: `umsg-${Date.now()}-${userMsgCounter++}`,
+                  text: initialPrompt,
+                }),
+              );
+            }
           }
         }
       } else if (msg.type === 'result') {

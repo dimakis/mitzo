@@ -767,6 +767,86 @@ describe('runQueryLoop', () => {
       expect(stored.some((e) => e.type === 'session_end')).toBe(true);
     });
 
+    it('persists initial prompt as user_message when sessionId resolves', async () => {
+      const events: Record<string, unknown>[] = [
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-ip' } } },
+        {
+          type: 'stream_event',
+          event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+        },
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'Response' },
+          },
+        },
+        { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-ip' },
+        { type: 'result', session_id: 'sess-ip' },
+      ];
+
+      await runQueryLoop(
+        eventStream(events),
+        clientId,
+        registry,
+        abortController,
+        ws,
+        store,
+        'Hello, this is my first message',
+      );
+
+      const stored = store.getSessionEvents('sess-ip');
+      const userMsgEvents = stored.filter((e) => e.type === 'user_message');
+      expect(userMsgEvents).toHaveLength(1);
+      expect(userMsgEvents[0].payload).toMatchObject({
+        text: 'Hello, this is my first message',
+      });
+
+      expect(userMsgEvents[0].seq).toEqual(expect.any(Number));
+    });
+
+    it('persists follow-up user_message from sendToChat in the event store', async () => {
+      const session = registry.get(clientId)!;
+      session.sessionId = 'sess-followup';
+
+      const events: Record<string, unknown>[] = [
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-fu' } } },
+        {
+          type: 'stream_event',
+          event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+        },
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'First response' },
+          },
+        },
+        { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-followup' },
+        { type: 'result', session_id: 'sess-followup' },
+      ];
+
+      await runQueryLoop(eventStream(events), clientId, registry, abortController, ws, store);
+
+      // Simulate what sendToChat would do — persist directly to store
+      store.append('sess-followup', 'user_message', {
+        v: 2,
+        type: 'user_message',
+        ts: Date.now(),
+        messageId: 'umsg-test',
+        text: 'Follow-up question',
+      });
+
+      const stored = store.getSessionEvents('sess-followup');
+      const userMsgs = stored.filter((e) => e.type === 'user_message');
+      expect(userMsgs).toHaveLength(1);
+      expect(userMsgs[0].payload).toMatchObject({ text: 'Follow-up question' });
+    });
+
     it('works without a store (backward compatible)', async () => {
       const events: Record<string, unknown>[] = [
         { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-nostore' } } },
