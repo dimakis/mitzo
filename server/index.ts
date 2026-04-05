@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { existsSync } from 'fs';
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { verifyWsAuth } from './auth.js';
@@ -96,6 +97,21 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
           if (session?.sessionId && msg.lastSeq != null) {
             const missed = eventStore.getEventsAfter(session.sessionId, msg.lastSeq);
             for (const evt of missed) {
+              // Skip worktree_opened events whose paths were cleaned up (e.g. server restart)
+              if (evt.type === 'worktree_opened') {
+                const p = evt.payload as { path?: string; repoName?: string };
+                if (p.path && !existsSync(p.path)) {
+                  log.info('skipping stale worktree_opened event on reattach', { path: p.path });
+                  continue;
+                }
+                // Re-populate in-memory worktreePaths for valid worktrees
+                if (p.path && p.repoName && !session.worktreePaths.has(p.repoName)) {
+                  const match = p.path.match(/session-(wt-[^/]+)$/);
+                  if (match) {
+                    session.worktreePaths.set(p.repoName, { path: p.path, wtId: match[1] });
+                  }
+                }
+              }
               ws.send(JSON.stringify({ ...evt.payload, seq: evt.seq }));
             }
           }
