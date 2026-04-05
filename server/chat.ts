@@ -11,7 +11,7 @@ import { writeFileSync, mkdirSync, readdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
-import { createWorktree } from './worktree.js';
+import { createWorktree, removeWorktree } from './worktree.js';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
 import { parseContentBlocks } from './content-blocks.js';
 import { loadMcpServers, type McpServerConfig } from './mcp-config.js';
@@ -20,12 +20,8 @@ import { loadRepoConfig } from './repo-config.js';
 import { buildPermissionHandler } from './permission-handler.js';
 import { runQueryLoop, createWsMessageHandler } from './query-loop.js';
 import { AsyncQueue } from './async-queue.js';
-import {
-  GIT_BRANCH_TIMEOUT_MS,
-  SESSION_LIST_LIMIT,
-  SESSION_MESSAGES_LIMIT,
-  INTERNAL_TOKEN,
-} from './constants.js';
+import { GIT_BRANCH_TIMEOUT_MS, SESSION_LIST_LIMIT, SESSION_MESSAGES_LIMIT } from './constants.js';
+import { INTERNAL_TOKEN } from './internal-token.js';
 import { EventStore } from './event-store.js';
 import { createLogger } from './logger.js';
 
@@ -339,9 +335,14 @@ export async function startChat(
     const message = err instanceof Error ? err.message : 'Unknown error';
     log.error('startChat failed after register, cleaning up', { clientId, error: message });
     send(ws, { type: 'error', error: message });
+    const failedSession = registry.get(clientId);
+    if (failedSession) cleanupSessionWorktrees(failedSession);
     registry.abort(clientId);
   } finally {
     if (messageHandler) ws.removeListener('message', messageHandler);
+    // Clean up secondary worktrees after query loop ends (session may already
+    // be removed from registry, so use the captured reference).
+    cleanupSessionWorktrees(session);
   }
 }
 
@@ -374,9 +375,30 @@ export async function interruptChat(
 
 // --- Session management ---
 
+/** Best-effort cleanup of all secondary worktrees for a session. */
+function cleanupSessionWorktrees(session: import('./session-registry.js').ManagedSession): void {
+  for (const [repoName, worktreePath] of session.worktreePaths) {
+    const repoPath = repoConfig.repos[repoName];
+    if (!repoPath) continue;
+    // Extract the session ID from the worktree path (session-wt-xxx → wt-xxx)
+    const match = worktreePath.match(/session-(wt-[^/]+)$/);
+    if (!match) continue;
+    try {
+      removeWorktree(match[1], repoPath);
+    } catch (err: unknown) {
+      log.warn('failed to clean up session worktree', {
+        repoName,
+        error: err instanceof Error ? err.message : 'unknown',
+      });
+    }
+  }
+  session.worktreePaths.clear();
+}
+
 export function stopChat(clientId: string) {
   const session = registry.get(clientId);
   if (session) {
+    cleanupSessionWorktrees(session);
     session.inputQueue?.close();
     session.queryInstance?.close();
   }

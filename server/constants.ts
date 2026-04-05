@@ -1,5 +1,3 @@
-import { randomBytes } from 'crypto';
-
 // Server-wide constants. Every hardcoded value lives here.
 
 // --- Session & Permission ---
@@ -35,7 +33,3 @@ export const SESSION_MESSAGES_LIMIT = 100;
 export const HEARTBEAT_INTERVAL_MS = 15_000;
 export const PORT_DEFAULT = 3100;
 export const SHUTDOWN_GRACE_MS = 5_000;
-
-// --- Internal auth ---
-/** Shared token for MCP server → Mitzo API calls (generated at startup). */
-export const INTERNAL_TOKEN = randomBytes(32).toString('hex');

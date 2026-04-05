@@ -22,7 +22,8 @@ import {
   registry,
 } from './chat.js';
 import { createWorktree, listWorktrees } from './worktree.js';
-import { GIT_BRANCH_TIMEOUT_MS, INTERNAL_TOKEN } from './constants.js';
+import { GIT_BRANCH_TIMEOUT_MS } from './constants.js';
+import { INTERNAL_TOKEN } from './internal-token.js';
 import { getLocalCommit, isUpdateAvailable } from './git-version.js';
 import { resolvePending } from './permissions.js';
 import { createLogger } from './logger.js';
@@ -129,6 +130,85 @@ app.post('/api/permission/:permId/respond', (req, res) => {
   res.json({ ok: true, decision: parsed.data });
 });
 
+// --- Repo registry API (internal-token auth, no cookie needed) ---
+
+function verifyInternalToken(req: express.Request): boolean {
+  return req.headers['x-internal-token'] === INTERNAL_TOKEN;
+}
+
+app.get('/api/repos', (req, res) => {
+  if (!verifyInternalToken(req)) {
+    res.status(401).json({ error: 'Internal token required' });
+    return;
+  }
+  res.json(Object.entries(repoConfig.repos).map(([name, path]) => ({ name, path })));
+});
+
+app.post('/api/repos/open', (req, res) => {
+  if (!verifyInternalToken(req)) {
+    res.status(401).json({ error: 'Internal token required' });
+    return;
+  }
+
+  const { repoName, clientId } = req.body || {};
+
+  if (!repoName || typeof repoName !== 'string') {
+    res.status(400).json({ error: 'repoName is required' });
+    return;
+  }
+
+  const repoPath = repoConfig.repos[repoName];
+  if (!repoPath) {
+    const available = Object.keys(repoConfig.repos).join(', ');
+    res.status(404).json({ error: `Unknown repo "${repoName}". Available: ${available}` });
+    return;
+  }
+
+  if (!clientId || typeof clientId !== 'string') {
+    res.status(400).json({ error: 'clientId is required' });
+    return;
+  }
+
+  const session = registry.get(clientId);
+  if (!session) {
+    res.status(404).json({ error: 'Session not found' });
+    return;
+  }
+
+  // Idempotent: return existing worktree if already open for this repo
+  const existing = session.worktreePaths.get(repoName);
+  if (existing) {
+    res.json({ path: existing, repoName, created: false });
+    return;
+  }
+
+  // Create a new worktree for this repo using a unique ID
+  const wtId = `wt-${Date.now().toString(36)}`;
+  try {
+    const worktreePath = createWorktree(wtId, repoPath);
+    session.worktreePaths.set(repoName, worktreePath);
+
+    // Persist to event store for replay on reattach
+    const event = { v: 2, type: 'worktree_opened', ts: Date.now(), repoName, path: worktreePath };
+    let seq: number | undefined;
+    if (session.sessionId) {
+      seq = eventStore.append(session.sessionId, 'worktree_opened', event);
+    }
+
+    // Notify the frontend
+    if (session.ws.readyState === session.ws.OPEN) {
+      session.ws.send(JSON.stringify({ ...event, ...(seq != null ? { seq } : {}) }));
+    }
+
+    log.info('opened repo worktree', { repoName, worktreePath, clientId });
+    res.json({ path: worktreePath, repoName, created: true });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error('failed to create repo worktree', { repoName, error: message });
+    res.status(500).json({ error: `Failed to create worktree: ${message}` });
+  }
+});
+
 app.use('/api', authMiddleware);
 
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
@@ -224,78 +304,6 @@ app.get('/api/worktrees', (_req, res) => {
     }
   }
   res.json(worktrees);
-});
-
-// --- Repo registry API (multi-repo worktrees) ---
-
-function verifyInternalToken(req: express.Request): boolean {
-  return req.headers['x-internal-token'] === INTERNAL_TOKEN;
-}
-
-app.get('/api/repos', (req, res) => {
-  if (!verifyInternalToken(req)) {
-    res.status(401).json({ error: 'Internal token required' });
-    return;
-  }
-  res.json(Object.entries(repoConfig.repos).map(([name, path]) => ({ name, path })));
-});
-
-app.post('/api/repos/open', (req, res) => {
-  if (!verifyInternalToken(req)) {
-    res.status(401).json({ error: 'Internal token required' });
-    return;
-  }
-
-  const { repoName, clientId } = req.body || {};
-
-  if (!repoName || typeof repoName !== 'string') {
-    res.status(400).json({ error: 'repoName is required' });
-    return;
-  }
-
-  const repoPath = repoConfig.repos[repoName];
-  if (!repoPath) {
-    const available = Object.keys(repoConfig.repos).join(', ');
-    res.status(404).json({ error: `Unknown repo "${repoName}". Available: ${available}` });
-    return;
-  }
-
-  if (!clientId || typeof clientId !== 'string') {
-    res.status(400).json({ error: 'clientId is required' });
-    return;
-  }
-
-  const session = registry.get(clientId);
-  if (!session) {
-    res.status(404).json({ error: 'Session not found' });
-    return;
-  }
-
-  // Idempotent: return existing worktree if already open for this repo
-  const existing = session.worktreePaths.get(repoName);
-  if (existing) {
-    res.json({ path: existing, repoName, created: false });
-    return;
-  }
-
-  // Create a new worktree for this repo using a unique ID
-  const wtId = `wt-${Date.now().toString(36)}`;
-  try {
-    const worktreePath = createWorktree(wtId, repoPath);
-    session.worktreePaths.set(repoName, worktreePath);
-
-    // Notify the frontend
-    if (session.ws.readyState === session.ws.OPEN) {
-      session.ws.send(JSON.stringify({ type: 'worktree_opened', repoName, path: worktreePath }));
-    }
-
-    log.info('opened repo worktree', { repoName, worktreePath, clientId });
-    res.json({ path: worktreePath, repoName, created: true });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error('failed to create repo worktree', { repoName, error: message });
-    res.status(500).json({ error: `Failed to create worktree: ${message}` });
-  }
 });
 
 // --- File viewer API ---
