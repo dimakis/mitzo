@@ -67,6 +67,7 @@ export type ChatMessagesAction =
   | { type: 'PERMISSION_REQUEST'; payload: PermissionRequest }
   | { type: 'PERMISSION_TIMEOUT'; permId: string }
   | { type: 'RESTORE'; messages: FinishedMessage[]; interrupted?: boolean }
+  | { type: 'USER_MESSAGE_RECEIVED'; messageId: string; text: string }
   | { type: 'WORKTREE_OPENED'; repoName: string; path: string }
   | { type: 'NATIVE_COMMAND_RESULT'; command: string; content: string };
 
@@ -313,10 +314,17 @@ export function chatMessagesReducer(
       const valid = action.messages.filter(
         (m) => m && typeof m.messageId === 'string' && Array.isArray(m.blocks),
       );
-      // Don't replace if state already has more messages (e.g. from buffer
-      // drain that added messages the API hasn't persisted yet).
-      if (!action.interrupted && valid.length < state.messages.length) {
-        return state;
+      // Don't replace if state already has all the API messages (e.g. from
+      // buffer drain that added messages the API hasn't persisted yet).
+      // Use messageId-based comparison instead of array length — length
+      // comparison silently rejects valid API data when stale pool state
+      // happens to have more entries.
+      if (!action.interrupted) {
+        const existingIds = new Set(state.messages.map((m) => m.messageId));
+        const hasNewMessages = valid.some((m) => !existingIds.has(m.messageId));
+        if (!hasNewMessages && state.messages.length > 0) {
+          return state;
+        }
       }
       if (action.interrupted) {
         const notice: FinishedMessage = {
@@ -334,6 +342,32 @@ export function chatMessagesReducer(
         return { ...state, messages: [...valid, notice] };
       }
       return { ...state, messages: valid };
+    }
+
+    case 'USER_MESSAGE_RECEIVED': {
+      // Server-side user_message event (from reattach replay or live emit).
+      // Deduplicate: USER_SEND already added this message client-side during
+      // the live session, so skip if a message with this ID already exists.
+      if (state.messages.some((m) => m.messageId === action.messageId)) {
+        return state;
+      }
+      return {
+        ...state,
+        messages: [
+          ...state.messages,
+          {
+            messageId: action.messageId,
+            role: 'user',
+            blocks: [
+              {
+                blockId: `user-text-${action.messageId}`,
+                blockType: 'text' as BlockType,
+                content: action.text,
+              },
+            ],
+          },
+        ],
+      };
     }
 
     case 'USER_SEND':
@@ -573,6 +607,14 @@ export function useChatMessages(
 
         case 'skill_invoked':
           // TODO: Implement skill badge rendering on the last user message
+          break;
+
+        case 'user_message':
+          dispatch({
+            type: 'USER_MESSAGE_RECEIVED',
+            messageId: msg.messageId as string,
+            text: msg.text as string,
+          });
           break;
 
         case 'error': {

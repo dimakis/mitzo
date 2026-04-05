@@ -413,21 +413,16 @@ export async function runQueryLoop(
           tryFlushMessageEnd(currentWs, currentSession);
         }
       } else if (msg.type === 'user') {
+        // Only extract tool_result events from SDK user turns.
+        // Do NOT emit user_message here — human input is persisted at the
+        // entry points (startChat, sendToChat, interruptChat) via PR #100.
+        // Emitting user_message from the SDK stream would capture internal
+        // API conversation turns (agent sub-prompts, tool-result text) and
+        // replay them as user bubbles on session rejoin.
         const content = (msg.message as unknown as Record<string, unknown>)?.content;
-        if (typeof content === 'string' && content) {
-          emit(
-            currentWs,
-            v2('user_message', {
-              messageId: `umsg-${Date.now()}-${userMsgCounter++}`,
-              text: content,
-            }),
-          );
-        } else if (Array.isArray(content)) {
-          const textParts: string[] = [];
+        if (Array.isArray(content)) {
           for (const block of content) {
-            if (block.type === 'text' && block.text) {
-              textParts.push(block.text as string);
-            } else if (block.type === 'tool_result') {
+            if (block.type === 'tool_result') {
               const resultText = extractToolResultText(block.content);
               emit(
                 currentWs,
@@ -439,15 +434,6 @@ export async function runQueryLoop(
                 }),
               );
             }
-          }
-          if (textParts.length > 0) {
-            emit(
-              currentWs,
-              v2('user_message', {
-                messageId: `umsg-${Date.now()}-${userMsgCounter++}`,
-                text: textParts.join('\n\n'),
-              }),
-            );
           }
         }
       }
