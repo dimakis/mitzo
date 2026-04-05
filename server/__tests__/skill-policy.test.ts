@@ -104,7 +104,9 @@ describe('skill policy', () => {
       );
 
       expect(result.behavior).toBe('deny');
-      expect(result.message).toContain('skill policy');
+      if (result.behavior === 'deny') {
+        expect(result.message).toContain('skill policy');
+      }
     });
 
     it('allows Read through permission handler when in skill policy', async () => {
