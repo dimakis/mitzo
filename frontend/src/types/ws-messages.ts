@@ -146,6 +146,13 @@ interface SkillInvokedMsg {
   arguments: string;
 }
 
+interface UserMessageMsg {
+  type: 'user_message';
+  v: 2;
+  messageId: string;
+  text: string;
+}
+
 export type ServerMessage =
   | ClientIdMsg
   | ReattachedMsg
@@ -167,4 +174,5 @@ export type ServerMessage =
   | UpdateAvailableMsg
   | WorktreeOpenedMsg
   | NativeCommandResultMsg
-  | SkillInvokedMsg;
+  | SkillInvokedMsg
+  | UserMessageMsg;

@@ -462,7 +462,10 @@ describe('runQueryLoop', () => {
     expect(ws.sent.some((m) => m.type === 'session_end')).toBe(true);
   });
 
-  it('emits user_message event for user messages with string content', async () => {
+  it('does not emit user_message for SDK user events with string content', async () => {
+    // SDK user events are internal API conversation turns (agent sub-prompts,
+    // multi-turn machinery). Only entry points (startChat, sendToChat,
+    // interruptChat) should persist user_message events.
     const events: Record<string, unknown>[] = [
       { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-a1' } } },
       {
@@ -479,7 +482,6 @@ describe('runQueryLoop', () => {
       },
       { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
       { type: 'assistant', message: { content: [] }, session_id: 'sess-um' },
-      // User follow-up with string content
       { type: 'user', message: { role: 'user', content: 'Follow-up question' } },
       { type: 'result', session_id: 'sess-um' },
     ];
@@ -487,11 +489,10 @@ describe('runQueryLoop', () => {
     await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
 
     const userMsg = ws.sent.find((m) => m.type === 'user_message');
-    expect(userMsg).toBeDefined();
-    expect(userMsg).toMatchObject({ v: 2, type: 'user_message', text: 'Follow-up question' });
+    expect(userMsg).toBeUndefined();
   });
 
-  it('emits user_message event for user messages with text content blocks', async () => {
+  it('does not emit user_message for SDK user events with text content blocks', async () => {
     const events: Record<string, unknown>[] = [
       { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-a2' } } },
       {
@@ -508,7 +509,6 @@ describe('runQueryLoop', () => {
       },
       { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
       { type: 'assistant', message: { content: [] }, session_id: 'sess-um2' },
-      // User message with content blocks array containing text
       {
         type: 'user',
         message: {
@@ -522,11 +522,10 @@ describe('runQueryLoop', () => {
     await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
 
     const userMsg = ws.sent.find((m) => m.type === 'user_message');
-    expect(userMsg).toBeDefined();
-    expect(userMsg).toMatchObject({ v: 2, type: 'user_message', text: 'Another question' });
+    expect(userMsg).toBeUndefined();
   });
 
-  it('emits both user_message and tool_result for mixed content blocks', async () => {
+  it('emits only tool_result (not user_message) for mixed content blocks', async () => {
     const events: Record<string, unknown>[] = [
       { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-mix' } } },
       {
@@ -562,16 +561,17 @@ describe('runQueryLoop', () => {
 
     await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
 
+    // Text content from SDK user events must NOT produce user_message
     const userMsg = ws.sent.find((m) => m.type === 'user_message');
-    expect(userMsg).toBeDefined();
-    expect(userMsg).toMatchObject({ text: 'Here is context' });
+    expect(userMsg).toBeUndefined();
 
+    // tool_result extraction should still work
     const toolResult = ws.sent.find((m) => m.type === 'tool_result');
     expect(toolResult).toBeDefined();
     expect(toolResult).toMatchObject({ toolId: 'tool-mix' });
   });
 
-  it('concatenates multiple text blocks into a single user_message event', async () => {
+  it('does not emit user_message for SDK user events with multiple text blocks', async () => {
     const events: Record<string, unknown>[] = [
       { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-cat' } } },
       {
@@ -604,8 +604,7 @@ describe('runQueryLoop', () => {
     await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
 
     const userMsgs = ws.sent.filter((m) => m.type === 'user_message');
-    expect(userMsgs).toHaveLength(1);
-    expect(userMsgs[0]).toMatchObject({ text: 'Part one\n\nPart two' });
+    expect(userMsgs).toHaveLength(0);
   });
 
   it('does not emit user_message for user messages with only tool_result blocks', async () => {
