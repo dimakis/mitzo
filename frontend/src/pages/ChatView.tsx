@@ -85,13 +85,13 @@ export function ChatView() {
     const el = scrollRef.current;
     if (!el) return;
     const isStreaming = msgState.current !== null;
-    if (shouldAutoScroll(el.scrollHeight, el.scrollTop, el.clientHeight, isStreaming)) {
-      // requestAnimationFrame ensures scrollHeight is fully recalculated
-      // before we scroll — required for reliable behavior on iOS Safari.
-      requestAnimationFrame(() => {
-        el.scrollTop = el.scrollHeight;
-      });
-    }
+    if (!shouldAutoScroll(el.scrollHeight, el.scrollTop, el.clientHeight, isStreaming)) return;
+    // requestAnimationFrame ensures scrollHeight is fully recalculated
+    // before we scroll — required for reliable behavior on iOS Safari.
+    const raf = requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+    return () => cancelAnimationFrame(raf);
   }, [msgState.messages, msgState.current]);
 
   // Restore messages when sessionId changes. Show cached data instantly,
