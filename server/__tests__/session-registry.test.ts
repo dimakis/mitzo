@@ -69,6 +69,25 @@ describe('SessionRegistry', () => {
       expect(session.worktreePaths).toBeInstanceOf(Map);
       expect(session.worktreePaths.size).toBe(0);
     });
+
+    it('worktreePaths stores path and wtId', () => {
+      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      registry.register('client-1', {
+        ws: fakeWs,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      const session = registry.get('client-1')!;
+      session.worktreePaths.set('team_home', {
+        path: '/tmp/team_home-sessions/session-wt-abc',
+        wtId: 'wt-abc',
+      });
+      const entry = session.worktreePaths.get('team_home')!;
+      expect(entry.path).toBe('/tmp/team_home-sessions/session-wt-abc');
+      expect(entry.wtId).toBe('wt-abc');
+    });
   });
 
   describe('detach', () => {
