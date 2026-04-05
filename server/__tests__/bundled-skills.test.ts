@@ -3,6 +3,7 @@ import { statSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { SkillRegistry, SKILL_SIZE_LIMIT } from '../skills.js';
+import { renderSkillPrompt } from '../slash-commands.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SKILLS_DIR = join(__dirname, '..', '..', 'skills');
@@ -44,17 +45,16 @@ describe('bundled skills', () => {
   });
 
   it('each bundled skill body contains an approval gate instruction', () => {
+    // All bundled skills must include BOTH "present" AND "before making changes"
+    // so users always see findings before any modifications happen.
     for (const skill of skills) {
-      const body = registry.getBody(skill.name);
+      const body = registry.getBody(skill.name)!;
       expect(body).toBeDefined();
-      // Check for approval gate language
-      const hasGate =
-        body!.toLowerCase().includes('approval') ||
-        body!.toLowerCase().includes('wait for') ||
-        body!.toLowerCase().includes('present') ||
-        body!.toLowerCase().includes('before making changes') ||
-        body!.toLowerCase().includes('do not modify');
-      expect(hasGate).toBe(true);
+      const lower = body.toLowerCase();
+      expect(
+        lower.includes('present') && lower.includes('before making changes'),
+        `Skill "${skill.name}" must contain both "present" and "before making changes"`,
+      ).toBe(true);
     }
   });
 
@@ -96,5 +96,22 @@ describe('bundled skills', () => {
     for (const skill of skills) {
       expect(skill.scope).toBe('bundled');
     }
+  });
+
+  it('renderSkillPrompt correctly substitutes $ARGUMENTS in real bundled skill content', () => {
+    const body = registry.getBody('simplify')!;
+    expect(body).toBeDefined();
+    expect(body).toContain('$ARGUMENTS');
+
+    const rendered = renderSkillPrompt(body, 'src/lib', {
+      name: 'simplify',
+      scope: 'bundled',
+    });
+
+    // $ARGUMENTS replaced with the actual argument
+    expect(rendered).toContain('src/lib');
+    expect(rendered).not.toContain('$ARGUMENTS');
+    // Envelope present
+    expect(rendered).toContain('[Skill: /simplify | source: bundled]');
   });
 });

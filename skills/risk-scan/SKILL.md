@@ -22,4 +22,4 @@ For each risk:
 - Rate severity: **critical**, **high**, **medium**, or **low**
 - Suggest a mitigation
 
-Present all findings ranked by severity. Do not modify any files — this is an analysis-only scan. Wait for approval before proposing fixes.
+Present all findings ranked by severity before making changes. Do not modify any files — this is an analysis-only scan. Wait for approval before proposing fixes.
