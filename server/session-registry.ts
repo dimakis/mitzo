@@ -35,6 +35,7 @@ export interface ManagedSession {
   queryInstance?: { interrupt: () => Promise<void>; close: () => void };
   inputQueue?: { push: (msg: unknown) => void; close: () => void };
   currentSnapshot: MessageSnapshot | null;
+  activeSkillPolicy: Set<string> | null;
 }
 
 export class SessionRegistry {
@@ -46,12 +47,17 @@ export class SessionRegistry {
     clientId: string,
     init: Omit<
       ManagedSession,
-      'queryInstance' | 'inputQueue' | 'currentSnapshot' | 'worktreePaths'
+      'queryInstance' | 'inputQueue' | 'currentSnapshot' | 'worktreePaths' | 'activeSkillPolicy'
     > & {
       sessionId?: string;
     },
   ): void {
-    this.sessions.set(clientId, { ...init, worktreePaths: new Map(), currentSnapshot: null });
+    this.sessions.set(clientId, {
+      ...init,
+      worktreePaths: new Map(),
+      currentSnapshot: null,
+      activeSkillPolicy: null,
+    });
     this.attached.add(clientId);
   }
 
