@@ -155,7 +155,10 @@ describe('chatMessagesReducer', () => {
     });
   });
 
-  it('WORKTREE_OPENED is idempotent for same repo', () => {
+  it('WORKTREE_OPENED ignores duplicate repo (first-write-wins)', () => {
+    // The server is the source of truth for worktree paths. Once a repo
+    // is opened, subsequent events for the same repo are ignored — the
+    // original path is the canonical one for this session.
     const state1 = chatMessagesReducer(INITIAL_STATE, {
       type: 'WORKTREE_OPENED',
       repoName: 'team_home',
@@ -167,7 +170,8 @@ describe('chatMessagesReducer', () => {
       path: '/tmp/team_home-sessions/session-wt-456',
     });
     expect(state2.activeWorktrees).toHaveLength(1);
-    expect(state2).toBe(state1); // reference equality — no change
+    expect(state2.activeWorktrees[0].path).toBe('/tmp/team_home-sessions/session-wt-123');
+    expect(state2).toBe(state1); // reference equality — no state change
   });
 
   it('WORKTREE_OPENED tracks multiple repos', () => {
