@@ -178,7 +178,7 @@ app.post('/api/repos/open', (req, res) => {
   // Idempotent: return existing worktree if already open for this repo
   const existing = session.worktreePaths.get(repoName);
   if (existing) {
-    res.json({ path: existing, repoName, created: false });
+    res.json({ path: existing.path, repoName, created: false });
     return;
   }
 
@@ -186,7 +186,7 @@ app.post('/api/repos/open', (req, res) => {
   const wtId = `wt-${Date.now().toString(36)}`;
   try {
     const worktreePath = createWorktree(wtId, repoPath);
-    session.worktreePaths.set(repoName, worktreePath);
+    session.worktreePaths.set(repoName, { path: worktreePath, wtId });
 
     // Persist to event store for replay on reattach
     const event = { v: 2, type: 'worktree_opened', ts: Date.now(), repoName, path: worktreePath };

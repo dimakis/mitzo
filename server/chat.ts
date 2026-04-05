@@ -377,14 +377,11 @@ export async function interruptChat(
 
 /** Best-effort cleanup of all secondary worktrees for a session. */
 function cleanupSessionWorktrees(session: import('./session-registry.js').ManagedSession): void {
-  for (const [repoName, worktreePath] of session.worktreePaths) {
+  for (const [repoName, { wtId }] of session.worktreePaths) {
     const repoPath = repoConfig.repos[repoName];
     if (!repoPath) continue;
-    // Extract the session ID from the worktree path (session-wt-xxx → wt-xxx)
-    const match = worktreePath.match(/session-(wt-[^/]+)$/);
-    if (!match) continue;
     try {
-      removeWorktree(match[1], repoPath);
+      removeWorktree(wtId, repoPath);
     } catch (err: unknown) {
       log.warn('failed to clean up session worktree', {
         repoName,

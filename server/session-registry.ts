@@ -31,7 +31,7 @@ export interface ManagedSession {
   mode: MitzoMode;
   cwd?: string;
   worktreePath?: string;
-  worktreePaths: Map<string, string>;
+  worktreePaths: Map<string, { path: string; wtId: string }>;
   queryInstance?: { interrupt: () => Promise<void>; close: () => void };
   inputQueue?: { push: (msg: unknown) => void; close: () => void };
   currentSnapshot: MessageSnapshot | null;
