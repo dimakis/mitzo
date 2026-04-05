@@ -178,34 +178,36 @@ export function ChatInput({ onSend, onStop, onInterrupt, running, initialText, c
         </div>
       )}
       <div className="chat-input-row">
-        <button
-          className="chat-input-btn chat-input-btn--skills"
-          onClick={() => {
-            if (!text.startsWith('/')) setText('/');
-            setShowSlashPicker(true);
-            textareaRef.current?.focus();
-          }}
-          title="Skills"
-        >
-          /
-        </button>
-        <button
-          className="chat-input-btn chat-input-btn--attach"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={images.length >= MAX_IMAGE_ATTACHMENTS}
-          title="Attach image"
-        >
-          +
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/jpeg,image/png,image/gif,image/webp"
-          multiple
-          capture="environment"
-          onChange={handleFileChange}
-          className="sr-only"
-        />
+        <div className="chat-input-actions">
+          <button
+            className="chat-input-btn chat-input-btn--skills"
+            onClick={() => {
+              if (!text.startsWith('/')) setText('/');
+              setShowSlashPicker(true);
+              textareaRef.current?.focus();
+            }}
+            title="Skills"
+          >
+            /
+          </button>
+          <button
+            className="chat-input-btn chat-input-btn--attach"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={images.length >= MAX_IMAGE_ATTACHMENTS}
+            title="Attach image"
+          >
+            +
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/gif,image/webp"
+            multiple
+            capture="environment"
+            onChange={handleFileChange}
+            className="sr-only"
+          />
+        </div>
         <textarea
           ref={textareaRef}
           className="chat-input-field"
