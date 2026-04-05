@@ -67,7 +67,8 @@ export type ChatMessagesAction =
   | { type: 'PERMISSION_REQUEST'; payload: PermissionRequest }
   | { type: 'PERMISSION_TIMEOUT'; permId: string }
   | { type: 'RESTORE'; messages: FinishedMessage[]; interrupted?: boolean }
-  | { type: 'WORKTREE_OPENED'; repoName: string; path: string };
+  | { type: 'WORKTREE_OPENED'; repoName: string; path: string }
+  | { type: 'NATIVE_COMMAND_RESULT'; command: string; content: string };
 
 const INITIAL_STATE: ChatMessagesState = {
   messages: [],
@@ -286,6 +287,25 @@ export function chatMessagesReducer(
           ...state.activeWorktrees,
           { repoName: action.repoName, path: action.path },
         ],
+      };
+    }
+
+    case 'NATIVE_COMMAND_RESULT': {
+      // Render native command results as a system-style assistant message
+      const cmdMsg: FinishedMessage = {
+        messageId: `native-${Date.now()}`,
+        role: 'assistant',
+        blocks: [
+          {
+            blockId: `native-b-${Date.now()}`,
+            blockType: 'text',
+            content: action.content,
+          },
+        ],
+      };
+      return {
+        ...state,
+        messages: [...state.messages, cmdMsg],
       };
     }
 
@@ -543,6 +563,18 @@ export function useChatMessages(
           dispatch({ type: 'PERMISSION_TIMEOUT', permId: msg.permId as string });
           break;
 
+        case 'native_command_result':
+          dispatch({
+            type: 'NATIVE_COMMAND_RESULT',
+            command: msg.command as string,
+            content: msg.content as string,
+          });
+          break;
+
+        case 'skill_invoked':
+          // TODO: Implement skill badge rendering on the last user message
+          break;
+
         case 'error': {
           const errorMsg = msg.error as string;
           wsSetRunning(poolKey, false);
@@ -560,7 +592,7 @@ export function useChatMessages(
         }
       }
     },
-    [poolKey, onSessionAssigned, onSessionExpired],
+    [poolKey, onSessionAssigned, onSessionExpired, onMessagesRestored],
   );
 
   return {

@@ -131,6 +131,21 @@ interface WorktreeOpenedMsg {
   path: string;
 }
 
+interface NativeCommandResultMsg {
+  type: 'native_command_result';
+  v: 2;
+  command: string;
+  content: string;
+}
+
+interface SkillInvokedMsg {
+  type: 'skill_invoked';
+  v: 2;
+  name: string;
+  source: 'repo' | 'user' | 'bundled';
+  arguments: string;
+}
+
 export type ServerMessage =
   | ClientIdMsg
   | ReattachedMsg
@@ -150,4 +165,6 @@ export type ServerMessage =
   | ErrorMsg
   | ModeChangedMsg
   | UpdateAvailableMsg
-  | WorktreeOpenedMsg;
+  | WorktreeOpenedMsg
+  | NativeCommandResultMsg
+  | SkillInvokedMsg;
