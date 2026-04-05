@@ -81,6 +81,80 @@ export function createRecorder(stream: MediaStream, mimeType: string): Recorder 
   return recorder;
 }
 
+export interface StreamingRecorder {
+  start: () => void;
+  stop: () => void;
+  cancel: () => void;
+  onChunk: ((data: Blob) => void) | null;
+  onStop: (() => void) | null;
+  onAutoStop: (() => void) | null;
+}
+
+const DEFAULT_TIMESLICE_MS = 250;
+
+/** Create a streaming recorder that emits chunks during recording via timeslice. */
+export function createStreamingRecorder(
+  stream: MediaStream,
+  mimeType: string,
+  timesliceMs = DEFAULT_TIMESLICE_MS,
+): StreamingRecorder {
+  const mr = new MediaRecorder(stream, { mimeType });
+  let autoStopTimer: ReturnType<typeof setTimeout> | undefined;
+  let cancelled = false;
+
+  const recorder: StreamingRecorder = {
+    onChunk: null,
+    onStop: null,
+    onAutoStop: null,
+
+    start() {
+      cancelled = false;
+
+      mr.ondataavailable = (e) => {
+        if (e.data.size > 0 && !cancelled) {
+          recorder.onChunk?.(e.data);
+        }
+      };
+
+      mr.onstop = () => {
+        clearTimeout(autoStopTimer);
+        if (!cancelled) {
+          recorder.onStop?.();
+        }
+      };
+
+      mr.start(timesliceMs);
+
+      autoStopTimer = setTimeout(() => {
+        if (mr.state === 'recording') {
+          recorder.onAutoStop?.();
+          mr.stop();
+          stopTracks(stream);
+        }
+      }, MAX_RECORDING_DURATION_MS);
+    },
+
+    stop() {
+      clearTimeout(autoStopTimer);
+      if (mr.state === 'recording') {
+        mr.stop();
+      }
+      stopTracks(stream);
+    },
+
+    cancel() {
+      cancelled = true;
+      clearTimeout(autoStopTimer);
+      if (mr.state === 'recording') {
+        mr.stop();
+      }
+      stopTracks(stream);
+    },
+  };
+
+  return recorder;
+}
+
 function stopTracks(stream: MediaStream) {
   stream.getTracks().forEach((t) => t.stop());
 }
