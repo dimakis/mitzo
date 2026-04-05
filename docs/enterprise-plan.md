@@ -1,7 +1,7 @@
 # Mitzo Enterprise Engineering Plan
 
-**Version:** 1.3
-**Date:** 2026-04-03
+**Version:** 1.4
+**Date:** 2026-04-05
 **Scope:** Documentation only — no code changes until explicitly requested
 
 ---
@@ -15,9 +15,19 @@ Mitzo is a functional, mobile-first Claude Code interface built on Node.js/Expre
 - `chat.ts` reduced from 575 → 476 LOC (query-loop, permission-handler, async-queue extracted)
 - `ChatView.tsx` reduced from 542 → 346 LOC (useChatMessages, useChatSession, useChatConnection, usePermission extracted)
 
-Current state (2026-04-03):
+**Post-v0.1.0 features shipped (2026-04-03 → 2026-04-05):**
 
-1. **Testing** — 297 tests across 34 files. Route-layer tests, WS integration tests, component tests, hook tests all in place. No e2e tests yet.
+- **Skills system** — full implementation across 6 PRs: skill registry with scoped discovery, slash-command parsing, per-turn tool restriction policy, skills API + slash picker UX, native command registry, and bundled skill pack (`/simplify`, `/risk-scan`, `/pr-review`).
+- **Project hooks bridge** — `.claude/settings.json` hooks forwarded to Agent SDK sessions.
+- **Event store** — persistent event store for session message replay.
+- **Auto-rename sessions** — LLM-based session renaming every N user prompts.
+- **Voice integration** — push-to-talk STT (phase 1) and TTS playback (phase 2, PR #108) via Yapper. Client-direct architecture — server stays text-only.
+- **User message persistence** — user messages persisted at entry points, not query loop.
+- Server module count grew from 20 → 33.
+
+Current state (2026-04-05):
+
+1. **Testing** — 525 tests across 48 files (~559 with voice TTS PR). Route-layer tests, WS integration tests, component tests, hook tests all in place. No e2e tests yet.
 2. **Type safety** — Zod schemas validate all incoming WS messages and HTTP bodies. Production `any` count is 0. `ServerMessage` discriminated union covers all frontend WS types.
 3. **Security** — Helmet CSP, login rate limiting, request size limits, graceful shutdown. CSRF and NTFY token signing remain.
 4. **Session resilience** — AbortController on fetch races, session list auto-refresh, WS pool cleanup, registry leak guard, turn-complete push notifications.
@@ -30,7 +40,7 @@ The remaining work is Phase 5 completion (CSRF, token signing) and Phase 6 (e2e 
 
 ## Current State Baseline
 
-Measured against the codebase as of 2026-04-03 (v0.1.0, post-Phase 2 partial).
+Measured against the codebase as of 2026-04-05 (post-v0.1.0, skills + voice shipped).
 
 ### Codebase Size
 
@@ -65,8 +75,8 @@ New since v1.2: `query-loop.ts`, `permission-handler.ts`, `async-queue.ts`, `use
 
 | Metric                        |                                                                             Count |
 | ----------------------------- | --------------------------------------------------------------------------------: |
-| Test files                    |                                                                                34 |
-| Test cases (`it()`)           |                                                                               297 |
+| Test files                    |                                                                                48 |
+| Test cases (`it()`)           |                                                                               525 |
 | Frontend reducer test files   |                                     1 (`chatMessagesReducer.test.ts` — 30+ cases) |
 | Frontend hook test files      |     4 (`useChatSession`, `useChatConnection`, `usePermission`, `useChatMessages`) |
 | Frontend component test files | 5 (`ErrorBoundary`, `PermissionBanner`, `ThinkingBlock`, `ToolGroup`, `ToolPill`) |

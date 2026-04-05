@@ -65,6 +65,12 @@ The `/api/files`, `/api/files/read`, and `/api/files/write` endpoints restrict a
 
 `PUT /api/files/write` only overwrites existing files within allowed paths — it cannot create new files or write outside the repo boundary. All file endpoints are behind cookie auth middleware.
 
+## Skills System
+
+Skills (invoked via `/slash-command`) can declare `allowed-tools` in their YAML frontmatter. This is enforced by `skill-policy.ts` as a **ceiling** — skills can only restrict the tools available to a session, never expand them. A skill that declares `allowed-tools: [Read, Grep]` will block writes and shell access for that turn, regardless of the session's mode. Native commands (TypeScript) bypass this — they are product behavior, not prompt-based.
+
+Skill files are read-only markdown loaded from disk (bundled, `~/.mitzo/skills/`, or `${cwd}/.mitzo/skills/`). They cannot execute code — they expand into system prompt content.
+
 ## Known Limitations
 
 - **No HTTPS**: traffic is encrypted by Tailscale (WireGuard), but the HTTP layer itself is plaintext. If accessed outside Tailscale, cookies and passphrases would be transmitted in the clear.

@@ -14,7 +14,7 @@ npm run lint         # ESLint (server + frontend)
 npm run lint:fix     # ESLint with auto-fix
 npm run format       # Prettier (write)
 npm run format:check # Prettier (check only)
-npm test             # Vitest (209 tests, 22 files)
+npm test             # Vitest (525 tests, 48 files)
 ```
 
 Pre-commit hooks (husky + lint-staged) run lint and format on staged files. Conventional commit messages enforced via commitlint. **Pre-commit hooks are not a substitute for CI** — they only check staged files of specific types. Always verify CI passes after pushing (see `.cursor/rules/ci-discipline.mdc`).
@@ -26,6 +26,7 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 **Backend** (`server/`) — Node.js + Express + TypeScript, run via `tsx`
 
 - `index.ts` — Express app, mounts routes, HTTP server + WebSocket. Sends `client_id` on WS connect for session reattach. Runs stale worktree cleanup on startup.
+- `app.ts` — Express app factory (extracted from index.ts for testability via supertest).
 - `chat.ts` — Agent SDK integration: `startChat()` assembles prompts, creates streaming-input `AsyncQueue`, starts `query()`, wires message handler. `sendToChat()` and `interruptChat()` push follow-up messages. Session listing via `listSessions`/`getSessionMessages` SDK calls. `getMessages()` returns v2 `FinishedMessage[]` format for session restore.
 - `query-loop.ts` — Core event translator: SDK events → v2 protocol. Maintains `openBlockCount` for deferred `message_end`. `forceFlushPendingMessage()` force-closes open blocks at turn boundaries and session end. Tracks snapshot state for iOS reattach recovery.
 - `session-registry.ts` — `SessionRegistry` class: detach/reattach/rekey, TTL-based abort (10 min), `currentSnapshot` for reattach recovery, `findBySessionId` for reconnection.
@@ -35,6 +36,19 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 - `tool-summary.ts` — Tool input summarization. **SDK field names**: `file_path` (not `path`), `content` (not `contents`), `pattern`/`path` for Glob (not `glob_pattern`/`target_directory`).
 - `content-blocks.ts` — SDK content block parsing (text, tool_use, tool_result). Used by stream and session restore API.
 - `permissions.ts` — Permission request/response registry with tier metadata.
+- `skills.ts` — Skill registry: scoped discovery (bundled → user → repo), lazy metadata/body loading, deterministic precedence, collision tracking.
+- `slash-commands.ts` — Slash-command parsing, prompt expansion, skill resolution from user input.
+- `skill-policy.ts` — Per-turn tool restriction: skills declare `allowed-tools` in frontmatter, enforced as a ceiling on `canUseTool`.
+- `native-commands.ts` — Built-in native commands (`/skills`) — TypeScript product behavior, not prompt-based.
+- `auto-rename.ts` — Automatic session renaming every N user prompts via LLM summarization.
+- `event-store.ts` — Persistent event store for session message replay.
+- `hook-bridge.ts` — Bridges project-level hooks (`.claude/settings.json`) to Agent SDK sessions.
+- `api-schemas.ts` — Zod schemas for HTTP request/response validation.
+- `ws-schemas.ts` — Zod schemas for WebSocket message validation.
+- `internal-token.ts` — Internal token generation for inter-process auth.
+- `repo-mcp-server.ts` — Repo-scoped MCP server configuration.
+- `notification-helpers.ts` — Shared notification formatting utilities.
+- `inbox.ts` — Inbox integration endpoint.
 - `mcp-config.ts` — Loads MCP server configs from Cursor mcp.json.
 - `worktree.ts` — Git worktree lifecycle.
 - `repo-config.ts` — `.mitzo.json` reader for quick actions, venv paths, tier overrides.
@@ -48,10 +62,11 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 **Frontend** (`frontend/`) — React 19 + Vite + TypeScript
 
 - `types/chat.ts` — v2 types: `StreamingBlock`, `StreamingMessage`, `FinishedBlock`, `FinishedMessage`, `BlockType`, `RawToolInput`, `PermissionRequest`, `ToolTier`, `Session`, `ImageAttachment`.
-- `hooks/` — `useChatMessages` (useReducer for v2 protocol: MESSAGE_START/BLOCK_START/BLOCK_DELTA/BLOCK_END/TOOL_RESULT/MESSAGE_END/SESSION_END/MESSAGE_SNAPSHOT/RESTORE), `useChatSession`, `useChatConnection`, `usePermission`, `useFileNavigation`, `useFileEditor`.
-- `lib/` — `ws-pool` (module-level WebSocket pool with 500-message buffer and auto-reconnect), `groupMessages` (tool block grouping with configurable threshold), `constants`, `formatTime`, `paste-images`, `model-preference`.
-- Pages: `Login`, `SessionList`, `ChatView` (renders `current` inline + `messages[]` grouped), `FileViewer`.
-- Components: `MessageBubble` (UserBubble/TextBubble), `ThinkingBlock`, `ToolPill`, `ToolGroup`, `PermissionBanner`, `ChatInput`, `ErrorBoundary`, `MitzoLogo`.
+- `types/ws-messages.ts` — Typed WebSocket message unions (client → server, server → client).
+- `hooks/` — `useChatMessages` (useReducer for v2 protocol: MESSAGE_START/BLOCK_START/BLOCK_DELTA/BLOCK_END/TOOL_RESULT/MESSAGE_END/SESSION_END/MESSAGE_SNAPSHOT/RESTORE), `useChatSession`, `useChatConnection`, `usePermission`, `useFileNavigation`, `useFileEditor`, `useLongPress`.
+- `lib/` — `ws-pool` (module-level WebSocket pool with 500-message buffer and auto-reconnect), `groupMessages` (tool block grouping with configurable threshold), `constants`, `formatTime`, `paste-images`, `model-preference`, `rename-session`, `resizeImage`, `swipe-reveal`, `truncate`.
+- Pages: `Login`, `SessionList`, `ChatView` (renders `current` inline + `messages[]` grouped), `FileViewer`, `InboxView`.
+- Components: `MessageBubble` (UserBubble/TextBubble), `ThinkingBlock`, `ToolPill`, `ToolGroup`, `PermissionBanner`, `ChatInput`, `SlashPicker`, `ErrorBoundary`, `MitzoLogo`.
 - Auth via `ProtectedRoute` wrapper. Vite dev server proxies `/api` and `/ws` to backend.
 
 **v2 protocol — key reducer behaviors:**
@@ -108,6 +123,25 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 - Claude sessions get all configured MCP tools (Jira, GitLab, etc.) automatically.
 - `GET /api/config` exposes server names (not credentials) to the frontend.
 
+**Skills system:**
+
+- Skills are reusable prompt packages invoked via `/slash-command` in chat input.
+- Three scopes: **Native** (TypeScript commands like `/skills`), **Skills** (markdown with YAML frontmatter), **Quick actions** (launchers from `.mitzo.json`).
+- Discovery: repo-local (`.mitzo/skills/`), user (`~/.mitzo/skills/`), bundled (`server/bundled-skills/`).
+- Resolution order: Native → Repo → User → Bundled. Deterministic precedence with collision metadata.
+- `SlashPicker` component shows available skills when user types `/` in chat input, with type badges and collision notes.
+- Skills can declare `allowed-tools` in frontmatter — enforced as a ceiling (never expands permissions) via `skill-policy.ts`.
+- Bundled skills: `/simplify` (code review), `/risk-scan` (security audit), `/pr-review` (PR review).
+- `GET /api/skills` returns merged registry with collision info, scoped by `cwd` query param.
+
+**Voice integration (landing with PR #108):**
+
+- Client-direct architecture: frontend talks to [Yapper](~/projects/yapper/) for STT/TTS, server stays text-only.
+- `lib/tts.ts` — Text chunking at sentence boundaries, WAV synthesis via Yapper API, singleton AudioContext playback.
+- `hooks/useVoice.ts` — STT (push-to-talk) + TTS (auto-speak toggle, voice selection, sequential chunk playback).
+- `components/VoiceSettings.tsx` — Speaker toggle with pulse indicator, voice picker dropdown grouped by language.
+- Graceful degradation when Yapper is offline — voice features hide automatically.
+
 **Key conventions:**
 
 - All server imports use `.js` extensions (required for ESM + tsx)
@@ -119,7 +153,7 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 
 ## What is Mitzo?
 
-Mitzo is a web-based command center for Claude Code sessions, built on the Anthropic Agent SDK. It provides a mobile-first interface for managing AI-assisted workflows — chat sessions, file browsing/editing, worktree isolation, MCP tool integration, and quick actions.
+Mitzo is a web-based command center for Claude Code sessions, built on the Anthropic Agent SDK. It provides a mobile-first interface for managing AI-assisted workflows — chat sessions with slash-command skills, file browsing/editing, worktree isolation, MCP tool integration, voice input/output via Yapper, and quick actions.
 
 Mitzo lives at `~/tools/mitzo/` and is pointed at the `mgmt` workspace via the `REPO_PATH` env var. It is open source and designed to be portable — no hardcoded paths or machine-specific configuration.
 
