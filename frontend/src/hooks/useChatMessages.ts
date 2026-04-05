@@ -67,7 +67,9 @@ export type ChatMessagesAction =
   | { type: 'PERMISSION_REQUEST'; payload: PermissionRequest }
   | { type: 'PERMISSION_TIMEOUT'; permId: string }
   | { type: 'RESTORE'; messages: FinishedMessage[]; interrupted?: boolean }
-  | { type: 'WORKTREE_OPENED'; repoName: string; path: string };
+  | { type: 'WORKTREE_OPENED'; repoName: string; path: string }
+  | { type: 'NATIVE_COMMAND_RESULT'; command: string; content: string }
+  | { type: 'SKILL_INVOKED'; name: string; source: string; arguments: string };
 
 const INITIAL_STATE: ChatMessagesState = {
   messages: [],
@@ -287,6 +289,31 @@ export function chatMessagesReducer(
           { repoName: action.repoName, path: action.path },
         ],
       };
+    }
+
+    case 'NATIVE_COMMAND_RESULT': {
+      // Render native command results as a system-style assistant message
+      const cmdMsg: FinishedMessage = {
+        messageId: `native-${Date.now()}`,
+        role: 'assistant',
+        blocks: [
+          {
+            blockId: `native-b-${Date.now()}`,
+            blockType: 'text',
+            content: action.content,
+          },
+        ],
+      };
+      return {
+        ...state,
+        messages: [...state.messages, cmdMsg],
+      };
+    }
+
+    case 'SKILL_INVOKED': {
+      // Badge the last user message with skill info (add a note block)
+      // For now, just store it — the UI can render it as a badge
+      return state;
     }
 
     case 'RESTORE': {
@@ -543,6 +570,23 @@ export function useChatMessages(
           dispatch({ type: 'PERMISSION_TIMEOUT', permId: msg.permId as string });
           break;
 
+        case 'native_command_result':
+          dispatch({
+            type: 'NATIVE_COMMAND_RESULT',
+            command: msg.command as string,
+            content: msg.content as string,
+          });
+          break;
+
+        case 'skill_invoked':
+          dispatch({
+            type: 'SKILL_INVOKED',
+            name: msg.name as string,
+            source: msg.source as string,
+            arguments: msg.arguments as string,
+          });
+          break;
+
         case 'error': {
           const errorMsg = msg.error as string;
           wsSetRunning(poolKey, false);
@@ -560,7 +604,7 @@ export function useChatMessages(
         }
       }
     },
-    [poolKey, onSessionAssigned, onSessionExpired],
+    [poolKey, onSessionAssigned, onSessionExpired, onMessagesRestored],
   );
 
   return {
