@@ -11,6 +11,8 @@ import { resizeImage } from '../lib/resizeImage';
 import { extractImageFiles } from '../lib/paste-images';
 import { MAX_IMAGE_ATTACHMENTS } from '../lib/constants';
 import { SlashPicker } from './SlashPicker';
+import { MicButton } from './MicButton';
+import type { UseVoiceReturn } from '../hooks/useVoice';
 
 interface Props {
   onSend: (text: string, images?: ImageAttachment[]) => boolean;
@@ -19,9 +21,18 @@ interface Props {
   running: boolean;
   initialText?: string;
   cwd?: string;
+  voice?: UseVoiceReturn;
 }
 
-export function ChatInput({ onSend, onStop, onInterrupt, running, initialText, cwd }: Props) {
+export function ChatInput({
+  onSend,
+  onStop,
+  onInterrupt,
+  running,
+  initialText,
+  cwd,
+  voice,
+}: Props) {
   const [text, setText] = useState(initialText || '');
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [showSlashPicker, setShowSlashPicker] = useState(false);
@@ -208,6 +219,23 @@ export function ChatInput({ onSend, onStop, onInterrupt, running, initialText, c
             className="sr-only"
           />
         </div>
+        {voice && (
+          <MicButton
+            available={voice.available}
+            recording={voice.recording}
+            transcribing={voice.transcribing}
+            micBlocked={voice.micBlocked}
+            onRecordStart={voice.startRecording}
+            onRecordStop={async () => {
+              const transcript = await voice.stopRecording();
+              if (transcript) {
+                setText((prev) => (prev ? `${prev} ${transcript}` : transcript));
+                textareaRef.current?.focus();
+              }
+            }}
+            onRecordCancel={voice.cancelRecording}
+          />
+        )}
         <textarea
           ref={textareaRef}
           className="chat-input-field"
