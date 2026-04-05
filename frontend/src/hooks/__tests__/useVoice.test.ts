@@ -6,6 +6,16 @@ import { YAPPER_HEALTH_POLL_MS } from '../../lib/constants';
 
 // --- Mocks ---
 
+// Mock streaming recorder
+const mockStreamingRecorder = {
+  start: vi.fn(),
+  stop: vi.fn(),
+  cancel: vi.fn(),
+  onChunk: null as ((data: Blob) => void) | null,
+  onStop: null as (() => void) | null,
+  onAutoStop: null as (() => void) | null,
+};
+
 // Mock audio module
 vi.mock('../../lib/audio', () => ({
   negotiateMimeType: vi.fn(() => 'audio/webm;codecs=opus'),
@@ -15,11 +25,26 @@ vi.mock('../../lib/audio', () => ({
     cancel: vi.fn(),
     onAutoStop: null,
   })),
+  createStreamingRecorder: vi.fn(() => mockStreamingRecorder),
   blobToFormData: vi.fn((blob: Blob) => {
     const fd = new FormData();
     fd.append('file', blob);
     return fd;
   }),
+}));
+
+// Mock yapper-ws
+const mockWsClient = {
+  sendFormat: vi.fn(),
+  sendAudio: vi.fn(),
+  sendEnd: vi.fn(),
+  close: vi.fn(),
+  onTranscript: null as ((e: { type: string; text: string }) => void) | null,
+  onError: null as ((e: Event) => void) | null,
+};
+
+vi.mock('../../lib/yapper-ws', () => ({
+  createYapperStreamClient: vi.fn(() => mockWsClient),
 }));
 
 // Mock tts module
@@ -151,12 +176,6 @@ describe('useVoice', () => {
 
     it('stops recording and returns transcript', async () => {
       mockHealthy();
-      // Mock transcription response
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ text: 'hello world', language: 'en', duration: 1.5 }),
-      });
-
       const { result } = renderHook(() => useVoice());
       await waitFor(() => expect(result.current.available).toBe(true));
 
@@ -165,13 +184,22 @@ describe('useVoice', () => {
       });
 
       let transcript: string | undefined;
+      let stopPromise: Promise<string>;
+      act(() => {
+        stopPromise = result.current.stopRecording();
+      });
+
+      // Simulate final transcript from WS
+      act(() => {
+        mockWsClient.onTranscript?.({ type: 'final', text: 'hello world' });
+      });
+
       await act(async () => {
-        transcript = await result.current.stopRecording();
+        transcript = await stopPromise!;
       });
 
       expect(transcript).toBe('hello world');
       expect(result.current.recording).toBe(false);
-      expect(result.current.transcribing).toBe(false);
     });
 
     it('cancel discards recording without transcribing', async () => {
@@ -197,9 +225,8 @@ describe('useVoice', () => {
   });
 
   describe('transcription errors', () => {
-    it('returns empty string on transcription failure', async () => {
+    it('returns empty string on batch transcription failure', async () => {
       mockHealthy();
-      mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
 
       const { result } = renderHook(() => useVoice());
       await waitFor(() => expect(result.current.available).toBe(true));
@@ -208,6 +235,14 @@ describe('useVoice', () => {
         await result.current.startRecording();
       });
 
+      // Simulate WS error so it falls back to batch
+      act(() => {
+        mockWsClient.onError?.(new Event('error'));
+      });
+
+      // Mock batch transcription failure
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
+
       let transcript: string | undefined;
       await act(async () => {
         transcript = await result.current.stopRecording();
@@ -215,6 +250,179 @@ describe('useVoice', () => {
 
       expect(transcript).toBe('');
       expect(result.current.error).toBeTruthy();
+    });
+  });
+
+  describe('streaming STT', () => {
+    it('uses streaming recorder + WS client when available', async () => {
+      mockHealthy();
+      const { result } = renderHook(() => useVoice());
+      await waitFor(() => expect(result.current.available).toBe(true));
+
+      await act(async () => {
+        await result.current.startRecording();
+      });
+
+      expect(result.current.recording).toBe(true);
+      // Streaming recorder should have been started
+      expect(mockStreamingRecorder.start).toHaveBeenCalled();
+    });
+
+    it('shows partial transcript from WS partial events', async () => {
+      mockHealthy();
+      const { result } = renderHook(() => useVoice());
+      await waitFor(() => expect(result.current.available).toBe(true));
+
+      await act(async () => {
+        await result.current.startRecording();
+      });
+
+      // Simulate a partial transcript from the WS
+      act(() => {
+        mockWsClient.onTranscript?.({ type: 'partial', text: 'hello' });
+      });
+
+      expect(result.current.partialTranscript).toBe('hello');
+    });
+
+    it('updates partial transcript on each new partial', async () => {
+      mockHealthy();
+      const { result } = renderHook(() => useVoice());
+      await waitFor(() => expect(result.current.available).toBe(true));
+
+      await act(async () => {
+        await result.current.startRecording();
+      });
+
+      act(() => {
+        mockWsClient.onTranscript?.({ type: 'partial', text: 'hel' });
+      });
+      expect(result.current.partialTranscript).toBe('hel');
+
+      act(() => {
+        mockWsClient.onTranscript?.({ type: 'partial', text: 'hello wor' });
+      });
+      expect(result.current.partialTranscript).toBe('hello wor');
+    });
+
+    it('stopRecording sends END and returns final transcript', async () => {
+      mockHealthy();
+      const { result } = renderHook(() => useVoice());
+      await waitFor(() => expect(result.current.available).toBe(true));
+
+      await act(async () => {
+        await result.current.startRecording();
+      });
+
+      // Simulate partials
+      act(() => {
+        mockWsClient.onTranscript?.({ type: 'partial', text: 'hello' });
+      });
+
+      // Stop recording — should send END and wait for final
+      let transcriptPromise: Promise<string>;
+      act(() => {
+        transcriptPromise = result.current.stopRecording();
+      });
+
+      // Simulate the final transcript arriving
+      act(() => {
+        mockWsClient.onTranscript?.({ type: 'final', text: 'hello world' });
+      });
+
+      const transcript = await transcriptPromise!;
+      expect(transcript).toBe('hello world');
+      expect(mockWsClient.sendEnd).toHaveBeenCalled();
+      expect(mockStreamingRecorder.stop).toHaveBeenCalled();
+      expect(result.current.recording).toBe(false);
+      await waitFor(() => {
+        expect(result.current.partialTranscript).toBe('');
+      });
+    });
+
+    it('sends audio chunks to WS as they arrive', async () => {
+      mockHealthy();
+      const { result } = renderHook(() => useVoice());
+      await waitFor(() => expect(result.current.available).toBe(true));
+
+      await act(async () => {
+        await result.current.startRecording();
+      });
+
+      // Simulate a chunk from the streaming recorder
+      const chunkBlob = new Blob(['audio-chunk'], { type: 'audio/webm' });
+      await act(async () => {
+        mockStreamingRecorder.onChunk?.(chunkBlob);
+        // Give it a tick for the async arrayBuffer conversion
+        await new Promise((r) => setTimeout(r, 0));
+      });
+
+      expect(mockWsClient.sendAudio).toHaveBeenCalled();
+    });
+
+    it('sends format frame before audio', async () => {
+      mockHealthy();
+      const { result } = renderHook(() => useVoice());
+      await waitFor(() => expect(result.current.available).toBe(true));
+
+      await act(async () => {
+        await result.current.startRecording();
+      });
+
+      expect(mockWsClient.sendFormat).toHaveBeenCalledWith('webm/opus');
+    });
+
+    it('cancelRecording closes WS and clears partial', async () => {
+      mockHealthy();
+      const { result } = renderHook(() => useVoice());
+      await waitFor(() => expect(result.current.available).toBe(true));
+
+      await act(async () => {
+        await result.current.startRecording();
+      });
+
+      act(() => {
+        mockWsClient.onTranscript?.({ type: 'partial', text: 'hel' });
+      });
+      expect(result.current.partialTranscript).toBe('hel');
+
+      act(() => {
+        result.current.cancelRecording();
+      });
+
+      expect(result.current.recording).toBe(false);
+      expect(result.current.partialTranscript).toBe('');
+      expect(mockWsClient.close).toHaveBeenCalled();
+      expect(mockStreamingRecorder.cancel).toHaveBeenCalled();
+    });
+
+    it('falls back to batch on WS error during recording', async () => {
+      mockHealthy();
+      // Mock the batch transcription response for fallback
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ text: 'batch fallback', language: 'en', duration: 1.0 }),
+      });
+
+      const { result } = renderHook(() => useVoice());
+      await waitFor(() => expect(result.current.available).toBe(true));
+
+      await act(async () => {
+        await result.current.startRecording();
+      });
+
+      // Simulate WS error
+      act(() => {
+        mockWsClient.onError?.(new Event('error'));
+      });
+
+      // stopRecording should use batch fallback
+      let transcript: string | undefined;
+      await act(async () => {
+        transcript = await result.current.stopRecording();
+      });
+
+      expect(transcript).toBe('batch fallback');
     });
   });
 

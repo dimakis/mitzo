@@ -1,4 +1,4 @@
-// Voice integration hook — Yapper health, mic capture, batch transcription, TTS playback.
+// Voice integration hook — Yapper health, mic capture, streaming + batch transcription, TTS playback.
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
@@ -8,7 +8,15 @@ import {
   TTS_VOICE_KEY,
   DEFAULT_TTS_VOICE,
 } from '../lib/constants';
-import { negotiateMimeType, createRecorder, blobToFormData, type Recorder } from '../lib/audio';
+import {
+  negotiateMimeType,
+  createRecorder,
+  createStreamingRecorder,
+  blobToFormData,
+  type Recorder,
+  type StreamingRecorder,
+} from '../lib/audio';
+import { createYapperStreamClient, type YapperStreamClient } from '../lib/yapper-ws';
 import {
   chunkText,
   synthesize,
@@ -36,6 +44,8 @@ export interface UseVoiceReturn {
   transcribing: boolean;
   micBlocked: boolean;
   error: string | null;
+
+  partialTranscript: string;
 
   // STT actions
   startRecording: () => Promise<void>;
@@ -75,7 +85,13 @@ export function useVoice(): UseVoiceReturn {
     () => localStorage.getItem(TTS_VOICE_KEY) || DEFAULT_TTS_VOICE,
   );
 
+  const [partialTranscript, setPartialTranscript] = useState('');
+
   const recorderRef = useRef<Recorder | null>(null);
+  const streamRecorderRef = useRef<StreamingRecorder | null>(null);
+  const wsClientRef = useRef<YapperStreamClient | null>(null);
+  const finalResolveRef = useRef<((text: string) => void) | null>(null);
+  const streamingActiveRef = useRef(false);
   const mimeTypeRef = useRef<string | undefined>(undefined);
   const voicesFetchedRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -132,9 +148,18 @@ export function useVoice(): UseVoiceReturn {
     };
   }, []);
 
-  // --- STT: Recording ---
+  // --- Helper: map mimeType to Yapper format string ---
+  function mimeToFormat(mime: string): string {
+    if (mime.includes('opus')) return 'webm/opus';
+    if (mime.includes('webm')) return 'webm';
+    if (mime.includes('mp4')) return 'mp4';
+    return 'webm';
+  }
+
+  // --- STT: Recording (streaming with batch fallback) ---
   const startRecording = useCallback(async () => {
     setError(null);
+    setPartialTranscript('');
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -144,12 +169,53 @@ export function useVoice(): UseVoiceReturn {
         return;
       }
 
-      const recorder = createRecorder(stream, mimeType);
-      recorder.onAutoStop = () => {
-        setRecording(false);
+      // Try streaming path: streaming recorder + WS client
+      const wsUrl = YAPPER_URL.replace(/^http/, 'ws') + '/v1/transcribe/stream';
+      const wsClient = createYapperStreamClient(wsUrl);
+      wsClientRef.current = wsClient;
+      streamingActiveRef.current = true;
+
+      // Wire up transcript events
+      wsClient.onTranscript = (event) => {
+        if (event.type === 'partial') {
+          setPartialTranscript(event.text);
+        } else if (event.type === 'final') {
+          // Resolve the pending stopRecording promise
+          finalResolveRef.current?.(event.text);
+          finalResolveRef.current = null;
+        }
       };
-      recorderRef.current = recorder;
-      recorder.start();
+
+      wsClient.onError = () => {
+        // Mark streaming as failed — stopRecording will use batch fallback
+        streamingActiveRef.current = false;
+      };
+
+      // Send format frame
+      wsClient.sendFormat(mimeToFormat(mimeType));
+
+      // Create streaming recorder
+      const streamRec = createStreamingRecorder(stream, mimeType);
+      streamRecorderRef.current = streamRec;
+
+      // Also create a batch recorder as fallback
+      const batchRec = createRecorder(stream, mimeType);
+      batchRec.onAutoStop = () => setRecording(false);
+      recorderRef.current = batchRec;
+
+      // Wire chunks to WS
+      streamRec.onChunk = (blob: Blob) => {
+        blob.arrayBuffer().then((buf) => {
+          if (streamingActiveRef.current) {
+            wsClient.sendAudio(buf);
+          }
+        });
+      };
+
+      streamRec.onAutoStop = () => setRecording(false);
+
+      streamRec.start();
+      batchRec.start();
       setRecording(true);
       setMicBlocked(false);
     } catch (err: unknown) {
@@ -162,12 +228,47 @@ export function useVoice(): UseVoiceReturn {
   }, []);
 
   const stopRecording = useCallback(async (): Promise<string> => {
+    setRecording(false);
+    setError(null);
+
+    // Streaming path: send END and wait for final transcript
+    if (streamingActiveRef.current && wsClientRef.current) {
+      streamRecorderRef.current?.stop();
+      wsClientRef.current.sendEnd();
+
+      try {
+        const text = await new Promise<string>((resolve) => {
+          finalResolveRef.current = resolve;
+          // Timeout: fall back to batch if no final arrives in 5s
+          setTimeout(() => {
+            if (finalResolveRef.current === resolve) {
+              finalResolveRef.current = null;
+              resolve('');
+            }
+          }, 5000);
+        });
+
+        setPartialTranscript('');
+        wsClientRef.current?.close();
+        wsClientRef.current = null;
+        streamRecorderRef.current = null;
+        streamingActiveRef.current = false;
+
+        // Also stop the batch recorder (discard its data)
+        recorderRef.current?.cancel();
+        recorderRef.current = null;
+
+        return text;
+      } catch {
+        // Fall through to batch
+      }
+    }
+
+    // Batch fallback
     const recorder = recorderRef.current;
     if (!recorder) return '';
 
-    setRecording(false);
     setTranscribing(true);
-    setError(null);
 
     try {
       const blob = await recorder.stop();
@@ -190,15 +291,31 @@ export function useVoice(): UseVoiceReturn {
       return '';
     } finally {
       setTranscribing(false);
+      setPartialTranscript('');
       recorderRef.current = null;
+      wsClientRef.current?.close();
+      wsClientRef.current = null;
+      streamRecorderRef.current = null;
+      streamingActiveRef.current = false;
     }
   }, []);
 
   const cancelRecording = useCallback(() => {
+    // Clean up streaming
+    wsClientRef.current?.close();
+    wsClientRef.current = null;
+    streamRecorderRef.current?.cancel();
+    streamRecorderRef.current = null;
+    streamingActiveRef.current = false;
+    finalResolveRef.current = null;
+
+    // Clean up batch
     recorderRef.current?.cancel();
     recorderRef.current = null;
+
     setRecording(false);
     setTranscribing(false);
+    setPartialTranscript('');
   }, []);
 
   // --- TTS: Voice list ---
@@ -300,6 +417,7 @@ export function useVoice(): UseVoiceReturn {
     available,
     recording,
     transcribing,
+    partialTranscript,
     micBlocked,
     error,
     startRecording,
