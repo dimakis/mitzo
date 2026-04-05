@@ -25,6 +25,7 @@ import {
   runUpdateCheck,
   buildSkillRegistry,
   NATIVE_COMMAND_NAMES,
+  isAllowedPath,
 } from './app.js';
 import { IncomingWsMessage } from './ws-schemas.js';
 import { resolveSlashCommand } from './slash-commands.js';
@@ -149,7 +150,8 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
         }
       } else if (msg.type === 'send') {
         // Resolve slash commands server-side before routing
-        const cwd = msg.cwd || registry.get(clientId)?.cwd || BASE_REPO;
+        const rawCwd = msg.cwd || registry.get(clientId)?.cwd || BASE_REPO;
+        const cwd = rawCwd && isAllowedPath(rawCwd) ? rawCwd : BASE_REPO;
         const skillRegistry = buildSkillRegistry(cwd);
         const resolution = resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
 

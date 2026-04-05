@@ -68,8 +68,7 @@ export type ChatMessagesAction =
   | { type: 'PERMISSION_TIMEOUT'; permId: string }
   | { type: 'RESTORE'; messages: FinishedMessage[]; interrupted?: boolean }
   | { type: 'WORKTREE_OPENED'; repoName: string; path: string }
-  | { type: 'NATIVE_COMMAND_RESULT'; command: string; content: string }
-  | { type: 'SKILL_INVOKED'; name: string; source: string; arguments: string };
+  | { type: 'NATIVE_COMMAND_RESULT'; command: string; content: string };
 
 const INITIAL_STATE: ChatMessagesState = {
   messages: [],
@@ -308,12 +307,6 @@ export function chatMessagesReducer(
         ...state,
         messages: [...state.messages, cmdMsg],
       };
-    }
-
-    case 'SKILL_INVOKED': {
-      // Badge the last user message with skill info (add a note block)
-      // For now, just store it — the UI can render it as a badge
-      return state;
     }
 
     case 'RESTORE': {
@@ -579,12 +572,7 @@ export function useChatMessages(
           break;
 
         case 'skill_invoked':
-          dispatch({
-            type: 'SKILL_INVOKED',
-            name: msg.name as string,
-            source: msg.source as string,
-            arguments: msg.arguments as string,
-          });
+          // TODO: Implement skill badge rendering on the last user message
           break;
 
         case 'error': {
