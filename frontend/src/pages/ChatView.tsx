@@ -64,6 +64,10 @@ export function ChatView() {
     [sessionId, sessionActions],
   );
 
+  const handleSessionRenamed = useCallback((name: string) => {
+    document.title = `${name} — Mitzo`;
+  }, []);
+
   const {
     state: msgState,
     dispatch,
@@ -75,6 +79,7 @@ export function ChatView() {
     handleSessionAssigned,
     handleSessionExpired,
     forceScrollToBottom,
+    handleSessionRenamed,
   );
 
   // Auto-scroll during streaming: follow new content if user is near the bottom

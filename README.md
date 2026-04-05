@@ -9,10 +9,13 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 
 - **Streaming chat** with thinking blocks, tool pills, and markdown
 - **Three modes** — Ask (read-only), Agent (file edits allowed), Auto (shell too). Switch mid-chat.
+- **Slash-command skills** — `/simplify`, `/risk-scan`, `/pr-review`, plus repo-local and user skills. Type `/` to browse.
+- **Voice** — push-to-talk input (STT) and auto-speak output (TTS) via [Yapper](https://github.com/dimakis/yapper). Graceful degradation when offline.
 - **MCP tools** — reads `~/.cursor/mcp.json`, passes servers to every session
 - **File browser** — view and edit repo files, switch between worktree roots
 - **Worktree sandbox** — opt-in git worktree isolation per session
 - **Session resilience** — phone sleeps, WS drops, session survives. Reattach on reconnect. Message snapshot recovery for iOS silent drops.
+- **Auto-rename sessions** — sessions get meaningful names via LLM summarization after every few prompts
 - **Quick actions** — one-tap commands via `.mitzo.json`
 - **Push notifications** — ntfy + Pushover (Apple Watch) when Claude needs approval
 - **Image attachments** — send photos/screenshots from your camera
@@ -47,7 +50,7 @@ Phone (Tailscale) ──┬── HTTP: REST API
 
 The server translates raw SDK stream events into a v2 block lifecycle protocol (`block_start` → `block_delta` → `block_end`). Explicit turn boundaries (`message_start`/`message_end`), deferred finalization, and message snapshots for reconnect recovery. See [docs/design/message-protocol-v2.md](docs/design/message-protocol-v2.md).
 
-### Backend (`server/`) — 20 modules
+### Backend (`server/`) — 33 modules
 
 | Core                    | Purpose                                                                             |
 | ----------------------- | ----------------------------------------------------------------------------------- |
@@ -57,12 +60,23 @@ The server translates raw SDK stream events into a v2 block lifecycle protocol (
 | `permission-handler.ts` | `canUseTool` callback — auto-allow by tier, prompt via WS + push notifications      |
 | `async-queue.ts`        | `AsyncIterable` queue for follow-up messages and interrupt                          |
 
+| Skills               | Purpose                                                   |
+| -------------------- | --------------------------------------------------------- |
+| `skills.ts`          | Skill registry — scoped discovery, precedence, collisions |
+| `slash-commands.ts`  | Slash-command parsing and prompt expansion                |
+| `skill-policy.ts`    | Per-turn tool restriction from skill frontmatter          |
+| `native-commands.ts` | Built-in native commands (`/skills`)                      |
+
 | Supporting                                                                     | Purpose                                           |
 | ------------------------------------------------------------------------------ | ------------------------------------------------- |
 | `tool-tiers.ts`                                                                | Risk classification + mode/tier auto-allow matrix |
 | `tool-summary.ts`                                                              | Summarizes tool inputs for pill display           |
 | `permissions.ts`                                                               | Request/response registry                         |
 | `content-blocks.ts`                                                            | SDK content block parsing                         |
+| `event-store.ts`                                                               | Persistent event store for session replay         |
+| `auto-rename.ts`                                                               | LLM-based session auto-renaming                   |
+| `hook-bridge.ts`                                                               | Project hooks → Agent SDK bridge                  |
+| `api-schemas.ts` / `ws-schemas.ts`                                             | Zod validation schemas                            |
 | `mcp-config.ts`                                                                | Loads Cursor MCP config                           |
 | `worktree.ts`                                                                  | Git worktree lifecycle                            |
 | `repo-config.ts`                                                               | `.mitzo.json` reader                              |
@@ -72,7 +86,7 @@ The server translates raw SDK stream events into a v2 block lifecycle protocol (
 
 ### Frontend (`frontend/`) — React 19 + Vite
 
-Four pages (`Login`, `SessionList`, `ChatView`, `FileViewer`), a `useReducer`-based message state machine (`useChatMessages`), module-level WebSocket pool with 500-message buffer, and components for thinking blocks, tool pills, tool groups, and permission banners.
+Five pages (`Login`, `SessionList`, `ChatView`, `FileViewer`, `InboxView`), a `useReducer`-based message state machine (`useChatMessages`), module-level WebSocket pool with 500-message buffer, and components for thinking blocks, tool pills, tool groups, permission banners, and a slash-command picker.
 
 ## Environment
 
@@ -109,7 +123,7 @@ Drop this in your repo root for quick actions and Python venv support:
 
 ```bash
 npm run dev          # backend + frontend concurrently
-npm test             # vitest (209 tests)
+npm test             # vitest (525 tests, 48 files)
 npm run lint         # eslint
 npm run format:check # prettier
 ```

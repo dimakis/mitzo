@@ -24,6 +24,7 @@ import { AsyncQueue } from './async-queue.js';
 import { GIT_BRANCH_TIMEOUT_MS, SESSION_LIST_LIMIT, SESSION_MESSAGES_LIMIT } from './constants.js';
 import { INTERNAL_TOKEN } from './internal-token.js';
 import { EventStore } from './event-store.js';
+import { shouldAutoRename, extractRecentPrompts, generateSessionName } from './auto-rename.js';
 import { createLogger } from './logger.js';
 
 const log = createLogger('chat');
@@ -351,6 +352,46 @@ export async function startChat(
   }
 }
 
+/**
+ * Check if an auto-rename should fire for a session and perform it if so.
+ * Runs asynchronously — errors are logged but don't affect the session.
+ */
+function tryAutoRename(sessionId: string, clientId: string): void {
+  try {
+    const sessionMeta = eventStore.getSession(sessionId);
+    if (!sessionMeta) return;
+
+    const promptCount = eventStore.incrementPromptCount(sessionId);
+    if (!shouldAutoRename(promptCount, sessionMeta.manuallyRenamed)) return;
+
+    const events = eventStore.getSessionEvents(sessionId);
+    const prompts = extractRecentPrompts(events);
+    const newName = generateSessionName(prompts);
+    if (!newName) return;
+
+    log.info('auto-renaming session', { sessionId, promptCount, newName });
+
+    // Update the SDK session name (best-effort, fire-and-forget)
+    renameSessionById(sessionId, newName, false).catch((err: unknown) => {
+      log.warn('auto-rename SDK call failed', {
+        sessionId,
+        error: err instanceof Error ? err.message : 'unknown',
+      });
+    });
+
+    // Push the new name to the connected frontend
+    const session = registry.get(clientId);
+    if (session && session.ws.readyState === session.ws.OPEN) {
+      send(session.ws, { type: 'session_renamed', sessionId, name: newName });
+    }
+  } catch (err: unknown) {
+    log.warn('auto-rename failed', {
+      sessionId,
+      error: err instanceof Error ? err.message : 'unknown',
+    });
+  }
+}
+
 /** Push a follow-up message into a running session. */
 export function sendToChat(
   clientId: string,
@@ -368,6 +409,7 @@ export function sendToChat(
       messageId: `umsg-${Date.now()}-send`,
       text: fullPrompt,
     });
+    tryAutoRename(session.sessionId, clientId);
   }
   session.inputQueue.push(makeUserMessage(fullPrompt, 'next'));
   return true;
@@ -471,11 +513,20 @@ export function clearHiddenSessions() {
   hiddenSessionIds.clear();
 }
 
-export async function renameSessionById(sessionId: string, title: string): Promise<void> {
+export async function renameSessionById(
+  sessionId: string,
+  title: string,
+  manual = true,
+): Promise<void> {
   const errors: string[] = [];
   for (const dir of getSessionDirs()) {
     try {
       await renameSession(sessionId, title, { dir });
+      if (manual) {
+        eventStore.markManuallyRenamed(sessionId);
+      }
+      // Also update the summary in the event store
+      eventStore.upsertSession({ sessionId, summary: title });
       return;
     } catch (err: unknown) {
       errors.push(err instanceof Error ? err.message : String(err));

@@ -19,6 +19,8 @@ export interface SessionMeta {
   mode: string;
   isActive: boolean;
   isHidden: boolean;
+  promptCount: number;
+  manuallyRenamed: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -39,6 +41,8 @@ interface SessionRow {
   mode: string;
   is_active: number;
   is_hidden: number;
+  prompt_count: number;
+  manually_renamed: number;
   created_at: number;
   updated_at: number;
 }
@@ -62,6 +66,8 @@ const SCHEMA = `
     mode        TEXT NOT NULL DEFAULT 'agent',
     is_active   INTEGER NOT NULL DEFAULT 1,
     is_hidden   INTEGER NOT NULL DEFAULT 0,
+    prompt_count     INTEGER NOT NULL DEFAULT 0,
+    manually_renamed INTEGER NOT NULL DEFAULT 0,
     created_at  INTEGER NOT NULL DEFAULT (unixepoch('now', 'subsec') * 1000),
     updated_at  INTEGER NOT NULL DEFAULT (unixepoch('now', 'subsec') * 1000)
   );
@@ -88,6 +94,9 @@ export class EventStore {
     // WAL mode for concurrent reads during writes
     db.pragma('journal_mode = WAL');
     db.exec(SCHEMA);
+
+    // Migrate existing databases that lack the new columns
+    this.migratePromptTracking(db);
 
     this.stmts = {
       append: db.prepare('INSERT INTO events (session_id, type, payload) VALUES (?, ?, ?)'),
@@ -116,6 +125,20 @@ export class EventStore {
     };
 
     log.info('EventStore initialized', { dbPath });
+  }
+
+  /** Add prompt_count and manually_renamed columns if they don't exist yet. */
+  private migratePromptTracking(db: Database.Database): void {
+    const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
+    const columnNames = new Set(columns.map((c) => c.name));
+    if (!columnNames.has('prompt_count')) {
+      db.exec('ALTER TABLE sessions ADD COLUMN prompt_count INTEGER NOT NULL DEFAULT 0');
+      log.info('migrated sessions table: added prompt_count');
+    }
+    if (!columnNames.has('manually_renamed')) {
+      db.exec('ALTER TABLE sessions ADD COLUMN manually_renamed INTEGER NOT NULL DEFAULT 0');
+      log.info('migrated sessions table: added manually_renamed');
+    }
   }
 
   close(): void {
@@ -204,6 +227,33 @@ export class EventStore {
   hideSession(sessionId: string): void {
     this.stmts.hide.run(sessionId);
   }
+
+  /**
+   * Increment prompt_count for a session and return the new count.
+   * Creates the session row if it doesn't exist.
+   */
+  incrementPromptCount(sessionId: string): number {
+    const existing = this.getSession(sessionId);
+    if (!existing) {
+      this.db!.prepare('INSERT INTO sessions (session_id, prompt_count) VALUES (?, 1)').run(
+        sessionId,
+      );
+      return 1;
+    }
+    this.db!.prepare(
+      "UPDATE sessions SET prompt_count = prompt_count + 1, updated_at = unixepoch('now', 'subsec') * 1000 WHERE session_id = ?",
+    ).run(sessionId);
+    return existing.promptCount + 1;
+  }
+
+  /**
+   * Mark a session as manually renamed (disables auto-rename).
+   */
+  markManuallyRenamed(sessionId: string): void {
+    this.db!.prepare(
+      "UPDATE sessions SET manually_renamed = 1, updated_at = unixepoch('now', 'subsec') * 1000 WHERE session_id = ?",
+    ).run(sessionId);
+  }
 }
 
 function rowToEvent(row: EventRow): StoredEvent {
@@ -225,6 +275,8 @@ function rowToSession(row: SessionRow): SessionMeta {
     mode: row.mode,
     isActive: row.is_active === 1,
     isHidden: row.is_hidden === 1,
+    promptCount: row.prompt_count ?? 0,
+    manuallyRenamed: (row.manually_renamed ?? 0) === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
