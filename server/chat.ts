@@ -282,8 +282,8 @@ export async function startChat(
   const branch = getBranch(cwd);
   send(ws, { type: 'session_info', branch, cwd, worktree: !!worktreePath });
 
-  // Merge repo MCP server if repos are configured and worktree mode is active
-  const repoMcp = worktreePath ? buildRepoMcpServer(clientId) : null;
+  // Merge repo MCP server if repos are configured (works with or without sandbox mode)
+  const repoMcp = buildRepoMcpServer(clientId);
   const allMcpServers = { ...mcpServers, ...repoMcp };
 
   let messageHandler: ((raw: Buffer) => void) | null = null;
@@ -305,7 +305,7 @@ export async function startChat(
             '- Read operations are fine without asking.\n' +
             '- Keep responses concise — small screen.\n' +
             '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.' +
-            (worktreePath ? buildRepoSystemPrompt() : ''),
+            buildRepoSystemPrompt(),
         },
         permissionMode: MODE_TO_SDK[mode] as 'plan' | 'default' | 'bypassPermissions',
         allowedTools: [...modeAllowed, ...mcpAllowed, ...extraTools],
