@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { SkillRegistry, SKILL_SIZE_LIMIT } from '../skills.js';
+import { SkillRegistry, SKILL_SIZE_LIMIT, type PublicSkillMetadata } from '../skills.js';
 
 // --- Helpers ---
 
@@ -283,6 +283,41 @@ describe('SkillRegistry', () => {
 
       registry.invalidate();
       expect(registry.list()).toHaveLength(2);
+    });
+  });
+
+  describe('public metadata', () => {
+    it('listPublic() omits filePath from results', () => {
+      const dir = createTempDir();
+      const skillsDir = join(dir, 'skills');
+      writeSkill(skillsDir, 'deploy', { description: 'Deploy' });
+
+      const registry = new SkillRegistry({ bundledDir: skillsDir });
+      const publicSkills: PublicSkillMetadata[] = registry.listPublic();
+
+      expect(publicSkills).toHaveLength(1);
+      expect(publicSkills[0].name).toBe('deploy');
+      expect(publicSkills[0]).not.toHaveProperty('filePath');
+    });
+  });
+
+  describe('frontmatter validation', () => {
+    it('warns on unknown frontmatter keys (typos)', () => {
+      const dir = createTempDir();
+      const skillsDir = join(dir, 'skills');
+      // 'allowed-tool' is a typo for 'allowed-tools'
+      writeSkill(skillsDir, 'deploy', {
+        description: 'Deploy',
+        'allowed-tool': ['Bash'],
+      });
+
+      const registry = new SkillRegistry({ bundledDir: skillsDir });
+      const skills = registry.list();
+
+      // Skill is still discovered (unknown keys don't block)
+      expect(skills).toHaveLength(1);
+      // But allowedTools is undefined since the typo key is ignored
+      expect(skills[0].allowedTools).toBeUndefined();
     });
   });
 

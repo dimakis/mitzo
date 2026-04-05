@@ -18,6 +18,9 @@ export interface SkillMetadata {
   filePath: string;
 }
 
+/** Safe subset of SkillMetadata for API responses — omits server filesystem paths. */
+export type PublicSkillMetadata = Omit<SkillMetadata, 'filePath'>;
+
 interface SkillRegistryOptions {
   bundledDir?: string;
   userDir?: string;
@@ -87,6 +90,13 @@ function parseFrontmatter(raw: string): { meta: Record<string, unknown>; body: s
   // Flush final list
   if (currentKey && currentList) {
     meta[currentKey] = currentList;
+  }
+
+  const KNOWN_KEYS = new Set(['description', 'allowed-tools']);
+  for (const key of Object.keys(meta)) {
+    if (!KNOWN_KEYS.has(key)) {
+      log.warn(`Unknown frontmatter key "${key}" — check for typos`);
+    }
   }
 
   return { meta, body };
@@ -249,7 +259,14 @@ export class SkillRegistry {
     return this.list().find((s) => s.name === name);
   }
 
-  /** Clear cached data — forces rediscovery on next list() call. */
+  /** Return skill metadata safe for API responses (no filesystem paths). */
+  listPublic(): PublicSkillMetadata[] {
+    return this.list().map(({ filePath: _, ...rest }) => rest);
+  }
+
+  /** Clear cached data — forces rediscovery on next list() call.
+   *  TODO: Add file-watcher for hot-reload so skill changes on disk
+   *  don't require a server restart or explicit invalidate() call. */
   invalidate(): void {
     this.cache = null;
     this.bodyCache.clear();
