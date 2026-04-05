@@ -401,11 +401,27 @@ export async function runQueryLoop(
           tryFlushMessageEnd(currentWs, currentSession);
         }
       } else if (msg.type === 'user') {
-        // Tool results injected by the SDK after tool execution.
         const content = (msg.message as unknown as Record<string, unknown>)?.content;
-        if (Array.isArray(content)) {
+        if (typeof content === 'string' && content) {
+          // Plain string user message (follow-up prompt)
+          emit(
+            currentWs,
+            v2('user_message', {
+              messageId: `umsg-${Date.now()}`,
+              text: content,
+            }),
+          );
+        } else if (Array.isArray(content)) {
           for (const block of content) {
-            if (block.type === 'tool_result') {
+            if (block.type === 'text' && block.text) {
+              emit(
+                currentWs,
+                v2('user_message', {
+                  messageId: `umsg-${Date.now()}`,
+                  text: block.text as string,
+                }),
+              );
+            } else if (block.type === 'tool_result') {
               const resultText = extractToolResultText(block.content);
               emit(
                 currentWs,

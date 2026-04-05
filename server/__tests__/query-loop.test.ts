@@ -462,6 +462,151 @@ describe('runQueryLoop', () => {
     expect(ws.sent.some((m) => m.type === 'session_end')).toBe(true);
   });
 
+  it('emits user_message event for user messages with string content', async () => {
+    const events: Record<string, unknown>[] = [
+      { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-a1' } } },
+      {
+        type: 'stream_event',
+        event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+      },
+      {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: 'Response' },
+        },
+      },
+      { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+      { type: 'assistant', message: { content: [] }, session_id: 'sess-um' },
+      // User follow-up with string content
+      { type: 'user', message: { role: 'user', content: 'Follow-up question' } },
+      { type: 'result', session_id: 'sess-um' },
+    ];
+
+    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+
+    const userMsg = ws.sent.find((m) => m.type === 'user_message');
+    expect(userMsg).toBeDefined();
+    expect(userMsg).toMatchObject({ v: 2, type: 'user_message', text: 'Follow-up question' });
+  });
+
+  it('emits user_message event for user messages with text content blocks', async () => {
+    const events: Record<string, unknown>[] = [
+      { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-a2' } } },
+      {
+        type: 'stream_event',
+        event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+      },
+      {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: 'Response' },
+        },
+      },
+      { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+      { type: 'assistant', message: { content: [] }, session_id: 'sess-um2' },
+      // User message with content blocks array containing text
+      {
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'Another question' }],
+        },
+      },
+      { type: 'result', session_id: 'sess-um2' },
+    ];
+
+    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+
+    const userMsg = ws.sent.find((m) => m.type === 'user_message');
+    expect(userMsg).toBeDefined();
+    expect(userMsg).toMatchObject({ v: 2, type: 'user_message', text: 'Another question' });
+  });
+
+  it('emits both user_message and tool_result for mixed content blocks', async () => {
+    const events: Record<string, unknown>[] = [
+      { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-mix' } } },
+      {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_start',
+          index: 0,
+          content_block: { type: 'tool_use', name: 'Bash', id: 'tool-mix' },
+        },
+      },
+      {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'input_json_delta', partial_json: '{}' },
+        },
+      },
+      { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+      { type: 'assistant', message: { content: [] }, session_id: 'sess-mix' },
+      {
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Here is context' },
+            { type: 'tool_result', tool_use_id: 'tool-mix', content: 'output' },
+          ],
+        },
+      },
+      { type: 'result', session_id: 'sess-mix' },
+    ];
+
+    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+
+    const userMsg = ws.sent.find((m) => m.type === 'user_message');
+    expect(userMsg).toBeDefined();
+    expect(userMsg).toMatchObject({ text: 'Here is context' });
+
+    const toolResult = ws.sent.find((m) => m.type === 'tool_result');
+    expect(toolResult).toBeDefined();
+    expect(toolResult).toMatchObject({ toolId: 'tool-mix' });
+  });
+
+  it('does not emit user_message for user messages with only tool_result blocks', async () => {
+    const events: Record<string, unknown>[] = [
+      { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-tr' } } },
+      {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_start',
+          index: 0,
+          content_block: { type: 'tool_use', name: 'Bash', id: 'tool-only' },
+        },
+      },
+      {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'input_json_delta', partial_json: '{}' },
+        },
+      },
+      { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+      { type: 'assistant', message: { content: [] }, session_id: 'sess-tr' },
+      {
+        type: 'user',
+        message: {
+          content: [{ type: 'tool_result', tool_use_id: 'tool-only', content: 'result' }],
+        },
+      },
+      { type: 'result', session_id: 'sess-tr' },
+    ];
+
+    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+
+    const userMsg = ws.sent.find((m) => m.type === 'user_message');
+    expect(userMsg).toBeUndefined();
+  });
+
   describe('EventStore integration', () => {
     let store: EventStore;
 

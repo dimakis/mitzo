@@ -513,7 +513,7 @@ export interface RestoredMessage {
 /**
  * Replay v2 events from the event store into finished messages.
  */
-function replayEventsToMessages(
+export function replayEventsToMessages(
   events: import('./event-store.js').StoredEvent[],
 ): RestoredMessage[] {
   const messages: RestoredMessage[] = [];
@@ -535,6 +535,24 @@ function replayEventsToMessages(
   for (const evt of events) {
     const p = evt.payload;
     switch (evt.type) {
+      case 'user_message':
+        if (currentMsg && currentMsg.blocks.length > 0) {
+          messages.push(currentMsg);
+          currentMsg = null;
+        }
+        messages.push({
+          messageId: p.messageId as string,
+          role: 'user',
+          blocks: [
+            {
+              blockId: `user-${p.messageId as string}`,
+              blockType: 'text',
+              content: p.text as string,
+            },
+          ],
+        });
+        break;
+
       case 'message_start':
         if (currentMsg && currentMsg.blocks.length > 0) {
           messages.push(currentMsg);
