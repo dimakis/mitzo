@@ -1667,7 +1667,15 @@ textarea:focus {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 22px;
-  padding: 0.35rem 0.35rem 0.35rem 0.5rem;
+  padding: 0.35rem 0.35rem 0.35rem 0.35rem;
+}
+
+.chat-input-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  align-self: flex-end;
+  flex-shrink: 0;
 }
 
 .chat-input-field {
@@ -1751,11 +1759,11 @@ textarea:focus {
 }
 
 .chat-input-btn--attach {
-  width: 2.2rem;
-  height: 2.2rem;
+  width: 1.7rem;
+  height: 1.7rem;
   border-radius: 50%;
   padding: 0;
-  font-size: 1.2rem;
+  font-size: 1rem;
   font-weight: 600;
   background: transparent;
   color: var(--text-dim);
@@ -1763,7 +1771,6 @@ textarea:focus {
   align-items: center;
   justify-content: center;
   line-height: 1;
-  align-self: flex-end;
 }
 
 .chat-input-btn--attach:hover:not(:disabled) {
@@ -1779,11 +1786,11 @@ textarea:focus {
 }
 
 .chat-input-btn--skills {
-  width: 2.2rem;
-  height: 2.2rem;
+  width: 1.7rem;
+  height: 1.7rem;
   border-radius: 50%;
   padding: 0;
-  font-size: 1rem;
+  font-size: 0.85rem;
   font-weight: 700;
   background: transparent;
   color: var(--text-dim);
@@ -1791,7 +1798,6 @@ textarea:focus {
   align-items: center;
   justify-content: center;
   line-height: 1;
-  align-self: flex-end;
   font-family: monospace;
 }
 
