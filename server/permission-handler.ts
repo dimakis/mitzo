@@ -8,6 +8,7 @@ import {
 } from './pushover.js';
 import { getToolTier, shouldAutoAllow } from './tool-tiers.js';
 import { summarizeToolInput } from './tool-summary.js';
+import { checkSkillPolicy } from './skill-policy.js';
 import { PERMISSION_TIMEOUT_MS, NTFY_NOTIFICATION_DELAY_MS } from './constants.js';
 import type { SessionRegistry } from './session-registry.js';
 
@@ -54,6 +55,13 @@ export function buildPermissionHandler(clientId: string, registry: SessionRegist
   ): Promise<PermissionResult> => {
     const session = registry.get(clientId);
     if (!session) return { behavior: 'deny', message: 'Session not found' };
+
+    // Skill restrictions are checked FIRST — a safe-tier tool not in the
+    // skill's allowed-tools list must be denied even if shouldAutoAllow
+    // would normally permit it.
+    if (checkSkillPolicy(registry, clientId, toolName) === 'deny') {
+      return { behavior: 'deny', message: 'Tool not allowed by active skill policy' };
+    }
 
     if (shouldAutoAllow(toolName, session.mode)) {
       return { behavior: 'allow', updatedInput: _toolInput };
