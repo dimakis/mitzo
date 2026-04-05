@@ -3,8 +3,8 @@
  * Repo MCP Server — exposes open_repo and list_repos tools to the Agent SDK.
  *
  * Launched as a child process by Mitzo's chat.ts. Calls back to the Mitzo
- * HTTP API to provision worktrees. Receives config as CLI args:
- *   --base-url <url>  --client-id <id>  --token <token>
+ * HTTP API to provision worktrees. Receives config as CLI args + env:
+ *   --base-url <url>  --client-id <id>  env MITZO_INTERNAL_TOKEN
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -13,14 +13,13 @@ import { z } from 'zod';
 function parseArgs(argv: string[]): { baseUrl: string; clientId: string; token: string } {
   let baseUrl = '';
   let clientId = '';
-  let token = '';
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--base-url' && argv[i + 1]) baseUrl = argv[++i];
     else if (argv[i] === '--client-id' && argv[i + 1]) clientId = argv[++i];
-    else if (argv[i] === '--token' && argv[i + 1]) token = argv[++i];
   }
+  const token = process.env.MITZO_INTERNAL_TOKEN || '';
   if (!baseUrl || !clientId || !token) {
-    throw new Error('Missing required args: --base-url, --client-id, --token');
+    throw new Error('Missing required args: --base-url, --client-id; env: MITZO_INTERNAL_TOKEN');
   }
   return { baseUrl, clientId, token };
 }
