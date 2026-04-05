@@ -35,10 +35,46 @@ import {
   discardInboxItem,
   createInboxItem,
 } from './inbox.js';
+import { SkillRegistry } from './skills.js';
+
+import { homedir } from 'os';
 
 const log = createLogger('server');
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// Skill registry directories
+const BUNDLED_SKILLS_DIR = join(__dirname, '..', 'skills');
+const USER_SKILLS_DIR = join(homedir(), '.mitzo', 'skills');
+
+/** Reserved native command names — skills with these names are ignored. */
+export const NATIVE_COMMAND_NAMES = new Set(['skills']);
+
+/** Cached registries keyed by cwd — avoids re-scanning the filesystem on every request. */
+const registryCache = new Map<string, SkillRegistry>();
+
+/** Build or retrieve a cached SkillRegistry for a given cwd (repo root). */
+export function buildSkillRegistry(cwd?: string): SkillRegistry {
+  const key = cwd ?? '';
+  const cached = registryCache.get(key);
+  if (cached) return cached;
+
+  const repoDir = cwd ? join(cwd, '.mitzo', 'skills') : undefined;
+  const registry = new SkillRegistry({
+    bundledDir: BUNDLED_SKILLS_DIR,
+    userDir: USER_SKILLS_DIR,
+    repoDir,
+    nativeNames: NATIVE_COMMAND_NAMES,
+  });
+  registryCache.set(key, registry);
+  return registry;
+}
+
+/** Invalidate all cached registries — forces rediscovery on next request. */
+export function invalidateSkillRegistries(): void {
+  for (const reg of registryCache.values()) reg.invalidate();
+  registryCache.clear();
+}
 
 const app = express();
 
@@ -249,6 +285,16 @@ app.get('/api/config', (_req, res) => {
     mcpServers: getMcpServerNames(),
     quickActions: actions,
   });
+});
+
+app.get('/api/skills', (req, res) => {
+  const cwd = (req.query.cwd as string) || BASE_REPO;
+  if (cwd && !isAllowedPath(cwd)) {
+    res.status(403).json({ error: 'Path not allowed' });
+    return;
+  }
+  const skillRegistry = buildSkillRegistry(cwd);
+  res.json(skillRegistry.listPublic());
 });
 
 app.get('/api/sessions', async (_req, res) => {

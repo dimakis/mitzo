@@ -460,3 +460,67 @@ describe('inbox routes', () => {
     expect(res.status).toBe(404);
   });
 });
+
+// --- Skills Routes ---
+
+describe('skills routes', () => {
+  it('GET /api/skills — returns array of skills', async () => {
+    const res = await request(app).get('/api/skills').set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+  });
+
+  it('GET /api/skills — defaults to BASE_REPO when cwd omitted', async () => {
+    const res = await request(app).get('/api/skills').set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+  });
+
+  it('GET /api/skills — rejects cwd outside allowed paths', async () => {
+    const res = await request(app)
+      .get('/api/skills')
+      .query({ cwd: '/etc' })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(403);
+  });
+
+  it('GET /api/skills — accepts valid cwd', async () => {
+    const res = await request(app)
+      .get('/api/skills')
+      .query({ cwd: TEST_REPO })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+  });
+
+  it('GET /api/skills — unauthenticated returns 401', async () => {
+    const res = await request(app).get('/api/skills');
+    expect(res.status).toBe(401);
+  });
+
+  it('GET /api/skills — skill entries have expected shape', async () => {
+    // Invalidate the cached registry so newly written skills are discovered
+    const { invalidateSkillRegistries } = await import('../app.js');
+    invalidateSkillRegistries();
+
+    // Create a skill in the test repo
+    const skillsDir = join(TEST_REPO, '.mitzo', 'skills', 'test-skill');
+    mkdirSync(skillsDir, { recursive: true });
+    writeFileSync(
+      join(skillsDir, 'SKILL.md'),
+      '---\ndescription: "A test skill"\nallowed-tools:\n  - Read\n  - Glob\n---\n\nDo the thing with $ARGUMENTS',
+    );
+
+    const res = await request(app)
+      .get('/api/skills')
+      .query({ cwd: TEST_REPO })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    const skill = res.body.find((s: { name: string }) => s.name === 'test-skill');
+    expect(skill).toBeDefined();
+    expect(skill.description).toBe('A test skill');
+    expect(skill.scope).toBe('repo');
+    expect(skill.allowedTools).toEqual(['Read', 'Glob']);
+    // filePath should NOT be exposed to the client
+    expect(skill.filePath).toBeUndefined();
+  });
+});

@@ -10,6 +10,7 @@ import type { ImageAttachment } from '../types/chat';
 import { resizeImage } from '../lib/resizeImage';
 import { extractImageFiles } from '../lib/paste-images';
 import { MAX_IMAGE_ATTACHMENTS } from '../lib/constants';
+import { SlashPicker } from './SlashPicker';
 
 interface Props {
   onSend: (text: string, images?: ImageAttachment[]) => boolean;
@@ -17,11 +18,13 @@ interface Props {
   onInterrupt?: (text: string, images?: ImageAttachment[]) => void;
   running: boolean;
   initialText?: string;
+  cwd?: string;
 }
 
-export function ChatInput({ onSend, onStop, onInterrupt, running, initialText }: Props) {
+export function ChatInput({ onSend, onStop, onInterrupt, running, initialText, cwd }: Props) {
   const [text, setText] = useState(initialText || '');
   const [images, setImages] = useState<ImageAttachment[]>([]);
+  const [showSlashPicker, setShowSlashPicker] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const initialApplied = useRef(false);
@@ -51,6 +54,23 @@ export function ChatInput({ onSend, onStop, onInterrupt, running, initialText }:
   useEffect(() => {
     autoResize();
   }, [text, autoResize]);
+
+  // Show/hide slash picker based on input
+  // TODO: Verify picker reopens correctly on backspace after space (e.g. "/simplify " → "/simplify")
+  useEffect(() => {
+    const trimmed = text.trimStart();
+    if (trimmed.startsWith('/') && !trimmed.includes(' ')) {
+      setShowSlashPicker(true);
+    } else if (!trimmed.startsWith('/')) {
+      setShowSlashPicker(false);
+    }
+  }, [text]);
+
+  function handleSlashSelect(name: string) {
+    setText(`/${name} `);
+    setShowSlashPicker(false);
+    textareaRef.current?.focus();
+  }
 
   function handleSend() {
     const trimmed = text.trim();
@@ -137,6 +157,14 @@ export function ChatInput({ onSend, onStop, onInterrupt, running, initialText }:
 
   return (
     <div className="chat-input">
+      {showSlashPicker && (
+        <SlashPicker
+          query={text.trimStart()}
+          onSelect={handleSlashSelect}
+          onClose={() => setShowSlashPicker(false)}
+          cwd={cwd}
+        />
+      )}
       {images.length > 0 && (
         <div className="chat-input-previews">
           {images.map((img, i) => (
@@ -150,6 +178,17 @@ export function ChatInput({ onSend, onStop, onInterrupt, running, initialText }:
         </div>
       )}
       <div className="chat-input-row">
+        <button
+          className="chat-input-btn chat-input-btn--skills"
+          onClick={() => {
+            if (!text.startsWith('/')) setText('/');
+            setShowSlashPicker(true);
+            textareaRef.current?.focus();
+          }}
+          title="Skills"
+        >
+          /
+        </button>
         <button
           className="chat-input-btn chat-input-btn--attach"
           onClick={() => fileInputRef.current?.click()}
