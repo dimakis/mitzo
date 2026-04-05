@@ -50,6 +50,9 @@ export type SlashResolution =
 /**
  * Resolve a user message to a slash command result.
  * This is the single server-authoritative resolution point.
+ *
+ * TODO: Accept NativeCommandRegistry directly instead of a loose Set<string>
+ * so the source of truth is always authoritative (see feat/native-commands).
  */
 export function resolveSlashCommand(
   input: string,
@@ -106,6 +109,12 @@ export function resolveSlashCommand(
 
 // --- Prompt rendering ---
 
+/** Sanitise a value for use in the prompt envelope — strip newlines and control chars. */
+function sanitiseEnvelopeValue(value: string): string {
+  // eslint-disable-next-line no-control-regex
+  return value.replace(/[\n\r\x00-\x1f]/g, '');
+}
+
 /**
  * Render a skill body with $ARGUMENTS substitution and an envelope.
  */
@@ -115,8 +124,10 @@ export function renderSkillPrompt(
   meta: { name: string; scope: string },
 ): string {
   const substituted = body.replace(/\$ARGUMENTS/g, args);
+  const safeName = sanitiseEnvelopeValue(meta.name);
+  const safeScope = sanitiseEnvelopeValue(meta.scope);
 
-  return [`[Skill: /${meta.name} | source: ${meta.scope}]`, '', substituted].join('\n');
+  return [`[Skill: /${safeName} | source: ${safeScope}]`, '', substituted].join('\n');
 }
 
 // --- Suggestion matching ---

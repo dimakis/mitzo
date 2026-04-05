@@ -187,4 +187,14 @@ describe('renderSkillPrompt', () => {
     });
     expect(result).toContain('Just do the thing');
   });
+
+  it('sanitises newlines in name and scope to prevent envelope injection', () => {
+    const result = renderSkillPrompt('body', 'args', {
+      name: 'evil\ninjected',
+      scope: 'repo\r\nfake',
+    });
+    // Envelope line should not contain raw newlines from name/scope
+    const envelopeLine = result.split('\n')[0];
+    expect(envelopeLine).toBe('[Skill: /evilinjected | source: repofake]');
+  });
 });
