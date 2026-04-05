@@ -1,5 +1,8 @@
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { createLogger } from './logger.js';
+
+const log = createLogger('repo-config');
 
 export interface QuickAction {
   label: string;
@@ -112,9 +115,16 @@ export function loadRepoConfig(repoPath: string): RepoConfig {
   const repos: Record<string, string> = {};
   if (obj.repos && typeof obj.repos === 'object' && !Array.isArray(obj.repos)) {
     for (const [name, path] of Object.entries(obj.repos as Record<string, unknown>)) {
-      if (typeof path === 'string') {
-        repos[name] = path;
+      if (typeof path !== 'string') continue;
+      if (!existsSync(path)) {
+        log.warn(`repos.${name}: path does not exist: ${path}`);
+        continue;
       }
+      if (!existsSync(join(path, '.git'))) {
+        log.warn(`repos.${name}: not a git repository: ${path}`);
+        continue;
+      }
+      repos[name] = path;
     }
   }
 

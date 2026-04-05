@@ -138,19 +138,17 @@ describe('loadRepoConfig', () => {
   });
 
   it('parses repos from .mitzo.json', () => {
-    const data = {
-      repos: {
-        mgmt: '/Users/test/redhat/mgmt',
-        team_home: '/Users/test/redhat/team_home',
-      },
-    };
+    // Create fake repo dirs with .git
+    const repo1 = join(TMP_DIR, 'repo1');
+    const repo2 = join(TMP_DIR, 'repo2');
+    mkdirSync(join(repo1, '.git'), { recursive: true });
+    mkdirSync(join(repo2, '.git'), { recursive: true });
+
+    const data = { repos: { mgmt: repo1, team_home: repo2 } };
     writeFileSync(join(TMP_DIR, '.mitzo.json'), JSON.stringify(data));
 
     const config = loadRepoConfig(TMP_DIR);
-    expect(config.repos).toEqual({
-      mgmt: '/Users/test/redhat/mgmt',
-      team_home: '/Users/test/redhat/team_home',
-    });
+    expect(config.repos).toEqual({ mgmt: repo1, team_home: repo2 });
   });
 
   it('returns empty repos when not specified', () => {
@@ -161,22 +159,47 @@ describe('loadRepoConfig', () => {
     expect(config.repos).toEqual({});
   });
 
-  it('filters out non-string repo values', () => {
+  it('excludes repo paths that do not exist', () => {
     const data = {
       repos: {
-        valid: '/some/path',
+        valid: TMP_DIR, // TMP_DIR exists
+        missing: '/nonexistent/path/that/does/not/exist',
+      },
+    };
+    writeFileSync(join(TMP_DIR, '.mitzo.json'), JSON.stringify(data));
+    // Make TMP_DIR look like a git repo
+    mkdirSync(join(TMP_DIR, '.git'), { recursive: true });
+
+    const config = loadRepoConfig(TMP_DIR);
+    expect(config.repos).toEqual({ valid: TMP_DIR });
+  });
+
+  it('excludes repo paths that are not git repos', () => {
+    const nonGitDir = join(TMP_DIR, 'not-a-repo');
+    mkdirSync(nonGitDir, { recursive: true });
+
+    const data = { repos: { bad: nonGitDir } };
+    writeFileSync(join(TMP_DIR, '.mitzo.json'), JSON.stringify(data));
+
+    const config = loadRepoConfig(TMP_DIR);
+    expect(config.repos).toEqual({});
+  });
+
+  it('filters out non-string repo values', () => {
+    const validDir = join(TMP_DIR, 'valid-repo');
+    mkdirSync(join(validDir, '.git'), { recursive: true });
+
+    const data = {
+      repos: {
+        valid: validDir,
         invalid: 42,
         alsoInvalid: null,
-        alsoValid: '/other/path',
       },
     };
     writeFileSync(join(TMP_DIR, '.mitzo.json'), JSON.stringify(data));
 
     const config = loadRepoConfig(TMP_DIR);
-    expect(config.repos).toEqual({
-      valid: '/some/path',
-      alsoValid: '/other/path',
-    });
+    expect(config.repos).toEqual({ valid: validDir });
   });
 
   it('filters out quickActions with missing required fields', () => {
