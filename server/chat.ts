@@ -150,9 +150,8 @@ function buildRepoMcpServer(clientId: string): Record<string, McpServerConfig> |
         `http://localhost:${port}`,
         '--client-id',
         clientId,
-        '--token',
-        INTERNAL_TOKEN,
       ],
+      env: { MITZO_INTERNAL_TOKEN: INTERNAL_TOKEN },
     },
   };
 }
