@@ -109,7 +109,7 @@ export function createCommandCallback(
   toolUseID: string | undefined,
   options: { signal: AbortSignal },
 ) => Promise<HookJSONOutput> {
-  return async (input, _toolUseID, _options) => {
+  return async (input, _toolUseID, options) => {
     const hookEventName =
       input && typeof input === 'object' && 'hook_event_name' in input
         ? String((input as Record<string, unknown>).hook_event_name)
@@ -143,12 +143,15 @@ export function createCommandCallback(
         },
       );
 
+      // Kill child if the session is aborted
+      options.signal.addEventListener('abort', () => child.kill(), { once: true });
+
       // Pipe hook input to stdin
-      try {
-        child.stdin?.write(JSON.stringify(input));
-        child.stdin?.end();
-      } catch {
-        // stdin may not be available; that's fine
+      const stdinPayload = JSON.stringify(input);
+      if (child.stdin) {
+        child.stdin.write(stdinPayload, () => {
+          child.stdin?.end();
+        });
       }
     });
   };

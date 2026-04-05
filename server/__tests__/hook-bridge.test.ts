@@ -203,6 +203,16 @@ describe('createCommandCallback', () => {
       },
     });
   });
+
+  it('returns empty object when aborted', async () => {
+    const controller = new AbortController();
+    // sleep command that we'll abort immediately
+    const cb = createCommandCallback('sleep 10', TEST_DIR, 10000);
+    const promise = cb({} as never, undefined, { signal: controller.signal });
+    controller.abort();
+    const result = await promise;
+    expect(result).toEqual({});
+  });
 });
 
 // --- loadProjectHooks ---
