@@ -19,12 +19,23 @@ import {
 import { cleanupStaleWorktrees } from './worktree.js';
 import { HEARTBEAT_INTERVAL_MS, PORT_DEFAULT, SHUTDOWN_GRACE_MS } from './constants.js';
 import { createLogger } from './logger.js';
-import { app, setUpdateBroadcast, runUpdateCheck } from './app.js';
+import {
+  app,
+  setUpdateBroadcast,
+  runUpdateCheck,
+  buildSkillRegistry,
+  NATIVE_COMMAND_NAMES,
+} from './app.js';
 import { IncomingWsMessage } from './ws-schemas.js';
+import { resolveSlashCommand } from './slash-commands.js';
+import { NativeCommandRegistry } from './native-commands.js';
+import { setSkillPolicy, clearSkillPolicy } from './skill-policy.js';
 
 const log = createLogger('server');
 
 const PORT = parseInt(process.env.PORT || String(PORT_DEFAULT), 10);
+
+const nativeCommands = new NativeCommandRegistry();
 
 // WebSocket for chat
 const server = createServer(app);
@@ -137,18 +148,80 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
           );
         }
       } else if (msg.type === 'send') {
-        if (isActive(clientId)) {
-          sendToChat(clientId, msg.prompt, msg.images);
+        // Resolve slash commands server-side before routing
+        const cwd = msg.cwd || registry.get(clientId)?.cwd || BASE_REPO;
+        const skillRegistry = buildSkillRegistry(cwd);
+        const resolution = resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
+
+        if (resolution.type === 'native') {
+          // Native commands execute directly — never touch the SDK
+          const result = nativeCommands.execute(
+            resolution.name,
+            resolution.arguments,
+            skillRegistry,
+          );
+          if (result) {
+            ws.send(
+              JSON.stringify({
+                type: 'native_command_result',
+                v: 2,
+                command: result.command,
+                content: result.content,
+              }),
+            );
+          }
+        } else if (resolution.type === 'error') {
+          ws.send(JSON.stringify({ type: 'error', error: resolution.message }));
+        } else if (resolution.type === 'skill') {
+          // Set skill policy for tool restrictions
+          if (resolution.allowedTools) {
+            setSkillPolicy(registry, clientId, resolution.allowedTools);
+          } else {
+            clearSkillPolicy(registry, clientId);
+          }
+
+          // Emit skill_invoked event for frontend badging
+          ws.send(
+            JSON.stringify({
+              type: 'skill_invoked',
+              v: 2,
+              name: resolution.name,
+              source: skillRegistry.get(resolution.name)?.scope || 'bundled',
+              arguments: resolution.arguments,
+              ...(resolution.collisions ? { collisions: resolution.collisions } : {}),
+            }),
+          );
+
+          // Pass rendered prompt through to normal chat flow
+          if (isActive(clientId)) {
+            sendToChat(clientId, resolution.renderedPrompt, msg.images);
+          } else {
+            startChat(ws, clientId, resolution.renderedPrompt, {
+              resume: msg.resume,
+              cwd: msg.cwd,
+              model: msg.model,
+              extraTools: msg.extraTools,
+              mode: msg.mode,
+              worktree: msg.worktree,
+              images: msg.images,
+            });
+          }
         } else {
-          startChat(ws, clientId, msg.prompt, {
-            resume: msg.resume,
-            cwd: msg.cwd,
-            model: msg.model,
-            extraTools: msg.extraTools,
-            mode: msg.mode,
-            worktree: msg.worktree,
-            images: msg.images,
-          });
+          // Passthrough — plain text, no slash command
+          clearSkillPolicy(registry, clientId);
+          if (isActive(clientId)) {
+            sendToChat(clientId, msg.prompt, msg.images);
+          } else {
+            startChat(ws, clientId, msg.prompt, {
+              resume: msg.resume,
+              cwd: msg.cwd,
+              model: msg.model,
+              extraTools: msg.extraTools,
+              mode: msg.mode,
+              worktree: msg.worktree,
+              images: msg.images,
+            });
+          }
         }
       } else if (msg.type === 'interrupt') {
         interruptChat(clientId, msg.prompt, msg.images);
