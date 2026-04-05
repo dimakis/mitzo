@@ -153,6 +153,12 @@ interface UserMessageMsg {
   text: string;
 }
 
+interface SessionRenamedMsg {
+  type: 'session_renamed';
+  sessionId: string;
+  name: string;
+}
+
 export type ServerMessage =
   | ClientIdMsg
   | ReattachedMsg
@@ -175,4 +181,5 @@ export type ServerMessage =
   | WorktreeOpenedMsg
   | NativeCommandResultMsg
   | SkillInvokedMsg
-  | UserMessageMsg;
+  | UserMessageMsg
+  | SessionRenamedMsg;

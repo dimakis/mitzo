@@ -430,6 +430,7 @@ export function useChatMessages(
   onSessionAssigned: (id: string) => void,
   onSessionExpired: (sessionId: string | undefined) => void,
   onMessagesRestored?: () => void,
+  onSessionRenamed?: (name: string) => void,
 ) {
   const [state, dispatch] = useReducer(chatMessagesReducer, INITIAL_STATE);
   const pendingSend = useRef<Record<string, unknown> | null>(null);
@@ -492,6 +493,10 @@ export function useChatMessages(
 
         case 'session_id':
           onSessionAssigned(msg.sessionId as string);
+          break;
+
+        case 'session_renamed':
+          onSessionRenamed?.(msg.name as string);
           break;
 
         // v2 events

@@ -208,6 +208,8 @@ export async function runQueryLoop(
                   text: initialPrompt,
                 }),
               );
+              // Count the initial prompt for auto-rename tracking
+              store.incrementPromptCount(resolvedSessionId);
             }
           }
         }
