@@ -21,6 +21,15 @@ function makeVoice(overrides: Partial<UseVoiceReturn> = {}): UseVoiceReturn {
     startRecording: vi.fn(),
     stopRecording: vi.fn(() => Promise.resolve('hello world')),
     cancelRecording: vi.fn(),
+    ttsAvailable: false,
+    ttsEnabled: false,
+    speaking: false,
+    voices: [],
+    selectedVoice: 'af_heart',
+    speak: vi.fn(),
+    stopSpeaking: vi.fn(),
+    setTtsEnabled: vi.fn(),
+    setVoice: vi.fn(),
     ...overrides,
   };
 }
