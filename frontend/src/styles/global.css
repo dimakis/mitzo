@@ -1809,6 +1809,67 @@ textarea:focus {
   color: var(--accent);
 }
 
+/* Mic button (voice) */
+
+.mic-btn {
+  flex-shrink: 0;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 50%;
+  border: none;
+  background: var(--surface);
+  color: var(--text-dim);
+  font-size: 1rem;
+  cursor: pointer;
+  touch-action: manipulation;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.mic-btn:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.mic-btn--recording {
+  background: #e53935;
+  color: #fff;
+  animation: mic-pulse 1s ease-in-out infinite;
+}
+
+.mic-btn--transcribing {
+  background: var(--surface);
+  color: var(--text-dim);
+  animation: mic-spin 1s linear infinite;
+}
+
+.mic-btn--blocked {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+@keyframes mic-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(229, 57, 53, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(229, 57, 53, 0);
+  }
+}
+
+@keyframes mic-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Slash picker dropdown */
 
 .slash-picker {

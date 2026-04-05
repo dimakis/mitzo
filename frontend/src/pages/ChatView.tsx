@@ -14,6 +14,7 @@ import { useChatSession } from '../hooks/useChatSession';
 import { useChatMessages } from '../hooks/useChatMessages';
 import { useChatConnection } from '../hooks/useChatConnection';
 import { usePermission } from '../hooks/usePermission';
+import { useVoice } from '../hooks/useVoice';
 import type { FinishedBlock, ImageAttachment } from '../types/chat';
 
 export function ChatView() {
@@ -26,6 +27,7 @@ export function ChatView() {
     searchParams.get('extraTools') ? 'auto' : 'agent',
   );
 
+  const voice = useVoice();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const forceScrollToBottom = useCallback(() => {
@@ -324,6 +326,7 @@ export function ChatView() {
         onInterrupt={interruptMessage}
         running={msgState.running}
         initialText={initialPrompt}
+        voice={voice}
       />
     </div>
   );
