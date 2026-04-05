@@ -22,6 +22,16 @@ vi.mock('../../lib/audio', () => ({
   }),
 }));
 
+// Mock tts module
+const mockPlayHandle = { play: vi.fn(() => Promise.resolve()), stop: vi.fn() };
+vi.mock('../../lib/tts', () => ({
+  chunkText: vi.fn((text: string) => (text ? [text] : [])),
+  synthesize: vi.fn(() => Promise.resolve(new Blob(['wav'], { type: 'audio/wav' }))),
+  playAudio: vi.fn(() => mockPlayHandle),
+  getOrCreateAudioContext: vi.fn(() => ({ state: 'running' })),
+  closeAudioContext: vi.fn(),
+}));
+
 // Mock fetch
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -205,6 +215,165 @@ describe('useVoice', () => {
 
       expect(transcript).toBe('');
       expect(result.current.error).toBeTruthy();
+    });
+  });
+
+  describe('TTS', () => {
+    // Helper: health with TTS available
+    function mockHealthyWithTts() {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ready', models: { stt: true, tts: true } }),
+      });
+    }
+
+    it('sets ttsAvailable from health poll models.tts', async () => {
+      mockHealthyWithTts();
+      const { result } = renderHook(() => useVoice());
+
+      await waitFor(() => {
+        expect(result.current.ttsAvailable).toBe(true);
+      });
+    });
+
+    it('ttsAvailable is false when models.tts is false', async () => {
+      mockHealthy(); // stt=true, tts=false
+      const { result } = renderHook(() => useVoice());
+
+      await waitFor(() => {
+        expect(result.current.available).toBe(true);
+        expect(result.current.ttsAvailable).toBe(false);
+      });
+    });
+
+    it('ttsEnabled defaults to false', async () => {
+      mockHealthyWithTts();
+      const { result } = renderHook(() => useVoice());
+
+      await waitFor(() => expect(result.current.ttsAvailable).toBe(true));
+      expect(result.current.ttsEnabled).toBe(false);
+    });
+
+    it('setTtsEnabled toggles and persists to localStorage', async () => {
+      mockHealthyWithTts();
+      // Mock voices fetch when enabling TTS
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            voices: [
+              { id: 'af_heart', name: 'Heart', language: 'American English', gender: 'female' },
+            ],
+          }),
+      });
+
+      const { result } = renderHook(() => useVoice());
+      await waitFor(() => expect(result.current.ttsAvailable).toBe(true));
+
+      await act(async () => {
+        result.current.setTtsEnabled(true);
+      });
+
+      expect(result.current.ttsEnabled).toBe(true);
+      expect(localStorage.getItem('mitzo-tts-enabled')).toBe('true');
+    });
+
+    it('fetches voices lazily on first setTtsEnabled(true)', async () => {
+      mockHealthyWithTts();
+      const { result } = renderHook(() => useVoice());
+      await waitFor(() => expect(result.current.ttsAvailable).toBe(true));
+
+      // No voices fetch yet
+      const voiceFetchesBefore = mockFetch.mock.calls.filter(
+        (call) => typeof call[0] === 'string' && call[0].includes('/v1/voices'),
+      );
+      expect(voiceFetchesBefore).toHaveLength(0);
+
+      // Enable TTS — should fetch voices
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            voices: [
+              { id: 'af_heart', name: 'Heart', language: 'American English', gender: 'female' },
+              { id: 'am_adam', name: 'Adam', language: 'American English', gender: 'male' },
+            ],
+          }),
+      });
+
+      await act(async () => {
+        result.current.setTtsEnabled(true);
+      });
+
+      await waitFor(() => {
+        expect(result.current.voices).toHaveLength(2);
+      });
+    });
+
+    it('speak() synthesizes and plays audio', async () => {
+      const { synthesize, playAudio } = await import('../../lib/tts');
+      mockHealthyWithTts();
+      const { result } = renderHook(() => useVoice());
+      await waitFor(() => expect(result.current.ttsAvailable).toBe(true));
+
+      await act(async () => {
+        await result.current.speak('Hello world');
+      });
+
+      expect(synthesize).toHaveBeenCalled();
+      expect(playAudio).toHaveBeenCalled();
+      expect(mockPlayHandle.play).toHaveBeenCalled();
+    });
+
+    it('stopSpeaking() stops current playback', async () => {
+      // Make play() hang so we can interrupt it
+      let resolvePlay!: () => void;
+      mockPlayHandle.play.mockImplementationOnce(
+        () =>
+          new Promise<void>((r) => {
+            resolvePlay = r;
+          }),
+      );
+
+      mockHealthyWithTts();
+      const { result } = renderHook(() => useVoice());
+      await waitFor(() => expect(result.current.ttsAvailable).toBe(true));
+
+      // Start speaking (will hang on play)
+      let speakDone = false;
+      act(() => {
+        result.current.speak('Hello world').then(() => {
+          speakDone = true;
+        });
+      });
+
+      // Wait for speaking state
+      await waitFor(() => expect(result.current.speaking).toBe(true));
+
+      // Now stop
+      act(() => {
+        result.current.stopSpeaking();
+      });
+
+      expect(mockPlayHandle.stop).toHaveBeenCalled();
+      expect(result.current.speaking).toBe(false);
+
+      // Clean up the hanging promise
+      resolvePlay();
+      await waitFor(() => expect(speakDone).toBe(true));
+    });
+
+    it('setVoice persists to localStorage', async () => {
+      mockHealthyWithTts();
+      const { result } = renderHook(() => useVoice());
+      await waitFor(() => expect(result.current.ttsAvailable).toBe(true));
+
+      act(() => {
+        result.current.setVoice('am_adam');
+      });
+
+      expect(result.current.selectedVoice).toBe('am_adam');
+      expect(localStorage.getItem('mitzo-tts-voice')).toBe('am_adam');
     });
   });
 });
