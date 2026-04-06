@@ -5,14 +5,14 @@ import type { FinishedMessage } from '../types/chat';
 interface UserBubbleProps {
   text?: string;
   images?: string[];
-  contextNames?: string[];
+  contextBlocks?: string[];
 }
 
-export function UserBubble({ text, images, contextNames }: UserBubbleProps) {
+export function UserBubble({ text, images, contextBlocks }: UserBubbleProps) {
   return (
     <div className="msg-bubble msg-bubble--user">
-      {contextNames && contextNames.length > 0 && (
-        <div className="msg-bubble-context">@ {contextNames.join(', ')}</div>
+      {contextBlocks && contextBlocks.length > 0 && (
+        <div className="msg-bubble-context">@ {contextBlocks.join(', ')}</div>
       )}
       {images && images.length > 0 && (
         <div className="msg-bubble-images">

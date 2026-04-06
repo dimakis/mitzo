@@ -48,7 +48,7 @@ export interface FinishedMessage {
   role: 'user' | 'assistant';
   blocks: FinishedBlock[];
   images?: string[];
-  contextNames?: string[];
+  contextBlocks?: string[];
 }
 
 // --- Legacy flat Message type (used for restore/session history only) ---

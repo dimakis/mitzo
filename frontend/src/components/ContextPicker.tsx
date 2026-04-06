@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 export interface ContextBlockEntry {
   name: string;
@@ -58,13 +58,6 @@ export function ContextPicker({ selected, onToggle, onClose }: Props) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [onClose]);
 
-  const handleToggle = useCallback(
-    (name: string) => {
-      onToggle(name);
-    },
-    [onToggle],
-  );
-
   if (!loaded) return null;
 
   if (blocks.length === 0) {
@@ -84,7 +77,7 @@ export function ContextPicker({ selected, onToggle, onClose }: Props) {
             <button
               key={block.name}
               className={`context-picker-item${isSelected ? ' context-picker-item--selected' : ''}`}
-              onClick={() => handleToggle(block.name)}
+              onClick={() => onToggle(block.name)}
             >
               <span className="context-picker-check">{isSelected ? '✓' : ''}</span>
               <span className="context-picker-name">{block.name}</span>

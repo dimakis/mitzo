@@ -174,12 +174,12 @@ export function ChatView() {
     if (msgState.running) {
       // Server queues it natively — no client-side stop+re-send needed.
       wsSend(poolKey, payload);
-      dispatch({ type: 'USER_SEND', text, images: previews, contextNames: contextBlocks });
+      dispatch({ type: 'USER_SEND', text, images: previews, contextBlocks });
       forceScrollToBottom();
     } else {
       wsSetRunning(poolKey, true);
       wsSend(poolKey, payload);
-      dispatch({ type: 'USER_SEND', text, images: previews, contextNames: contextBlocks });
+      dispatch({ type: 'USER_SEND', text, images: previews, contextBlocks });
       forceScrollToBottom();
     }
 
@@ -193,12 +193,15 @@ export function ChatView() {
   ): void {
     if (!wsIsOpen(poolKey) || !msgState.running) return;
     const imagePayload = images?.map((img) => ({ data: img.data, mediaType: img.mediaType }));
+    const previews = images?.map((img) => img.preview);
     wsSend(poolKey, {
       type: 'interrupt',
       prompt: text,
       images: imagePayload,
       ...(contextBlocks?.length ? { contextBlocks } : {}),
     });
+    dispatch({ type: 'USER_SEND', text, images: previews, contextBlocks });
+    forceScrollToBottom();
   }
 
   const handleStop = useCallback(() => {
@@ -304,7 +307,7 @@ export function ChatView() {
                 key={msg.messageId}
                 text={textBlock?.content}
                 images={msg.images}
-                contextNames={msg.contextNames}
+                contextBlocks={msg.contextBlocks}
               />
             );
           }

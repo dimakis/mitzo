@@ -111,6 +111,49 @@ describe('assemblePrompt — context blocks', () => {
     expect(result).toContain(`source="${filePath}"`);
   });
 
+  it('escapes XML-unsafe characters in name and path', () => {
+    const unsafeName = 'My "Block" <test>';
+    const filePath = join(TMP_DIR, 'unsafe.md');
+    writeFileSync(filePath, 'safe content');
+    mockContextBlocks[unsafeName] = filePath;
+
+    const result = assemblePrompt('Q', TMP_DIR, undefined, [unsafeName]);
+
+    // Name must be escaped in the XML attribute
+    expect(result).toContain('name="My &quot;Block&quot; &lt;test&gt;"');
+    expect(result).not.toContain(`name="${unsafeName}"`);
+    expect(result).toContain('safe content');
+  });
+
+  it('truncates files larger than 100 KB', () => {
+    const filePath = join(TMP_DIR, 'large.md');
+    // Create a file just over 100 KB
+    const content = 'A'.repeat(100 * 1024 + 500);
+    writeFileSync(filePath, content);
+    mockContextBlocks['Large'] = filePath;
+
+    const result = assemblePrompt('Q', TMP_DIR, undefined, ['Large']);
+
+    expect(result).toContain('[… truncated at 100 KB]');
+    // Should not contain the full content
+    expect(result).not.toContain('A'.repeat(100 * 1024 + 500));
+    // But should contain the preamble and context tags
+    expect(result).toContain('<context name="Large"');
+    expect(result).toContain('</context>');
+  });
+
+  it('does not truncate files under 100 KB', () => {
+    const filePath = join(TMP_DIR, 'small.md');
+    const content = 'B'.repeat(50 * 1024);
+    writeFileSync(filePath, content);
+    mockContextBlocks['Small'] = filePath;
+
+    const result = assemblePrompt('Q', TMP_DIR, undefined, ['Small']);
+
+    expect(result).not.toContain('[… truncated');
+    expect(result).toContain(content);
+  });
+
   it('works alongside images', () => {
     const filePath = join(TMP_DIR, 'workflow.md');
     writeFileSync(filePath, 'Workflow content');

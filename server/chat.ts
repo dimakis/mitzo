@@ -192,6 +192,17 @@ function resolveWorktree(
   }
 }
 
+const CONTEXT_BLOCK_MAX_BYTES = 100 * 1024; // 100 KB
+
+/** Escape characters that would break XML attribute values. */
+function escapeXmlAttr(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 export function assemblePrompt(
   prompt: string,
   cwd: string,
@@ -213,7 +224,20 @@ export function assemblePrompt(
         log.warn('context block file not found', { name, path: filePath });
         continue;
       }
-      blocks.push(`<context name="${name}" source="${filePath}">\n${content}\n</context>`);
+      if (Buffer.byteLength(content, 'utf-8') > CONTEXT_BLOCK_MAX_BYTES) {
+        content = Buffer.from(content, 'utf-8')
+          .subarray(0, CONTEXT_BLOCK_MAX_BYTES)
+          .toString('utf-8');
+        content += '\n\n[… truncated at 100 KB]';
+        log.warn('context block truncated', {
+          name,
+          path: filePath,
+          maxBytes: CONTEXT_BLOCK_MAX_BYTES,
+        });
+      }
+      const safeName = escapeXmlAttr(name);
+      const safePath = escapeXmlAttr(filePath);
+      blocks.push(`<context name="${safeName}" source="${safePath}">\n${content}\n</context>`);
     }
     if (blocks.length > 0) {
       const preamble =
