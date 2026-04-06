@@ -1,6 +1,9 @@
 import 'dotenv/config';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { createServer } from 'http';
+import { createServer as createHttpsServer } from 'https';
+import { join } from 'path';
+import { fileURLToPath } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { verifyWsAuth } from './auth.js';
 import {
@@ -38,8 +41,17 @@ const PORT = parseInt(process.env.PORT || String(PORT_DEFAULT), 10);
 
 const nativeCommands = new NativeCommandRegistry();
 
-// WebSocket for chat
-const server = createServer(app);
+// Resolve cert paths relative to the project root (where package.json lives)
+const __filename = fileURLToPath(import.meta.url);
+const PROJECT_ROOT = join(__filename, '..', '..');
+const CERT_PATH = join(PROJECT_ROOT, 'certs', 'cert.pem');
+const KEY_PATH = join(PROJECT_ROOT, 'certs', 'key.pem');
+const USE_TLS = existsSync(CERT_PATH) && existsSync(KEY_PATH);
+
+// WebSocket for chat — use HTTPS when certs are available
+const server = USE_TLS
+  ? createHttpsServer({ cert: readFileSync(CERT_PATH), key: readFileSync(KEY_PATH) }, app)
+  : createServer(app);
 const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
 
 setUpdateBroadcast(() => {
@@ -276,7 +288,8 @@ checkPort(PORT).then((inUse) => {
   }
 
   server.listen(PORT, () => {
-    log.info(`Chat Agent running on http://localhost:${PORT}`);
+    const protocol = USE_TLS ? 'https' : 'http';
+    log.info(`Chat Agent running on ${protocol}://localhost:${PORT}${USE_TLS ? ' (TLS)' : ''}`);
     // Clean up stale worktrees across all repos
     for (const [label, repoPath] of [['primary', BASE_REPO], ...Object.entries(repoConfig.repos)]) {
       try {
