@@ -17,7 +17,7 @@ import {
   AVAILABLE_MODELS,
   BASE_REPO,
   getMcpServerNames,
-  repoConfig,
+  getRepoConfig,
   eventStore,
   registry,
 } from './chat.js';
@@ -177,7 +177,7 @@ app.get('/api/repos', (req, res) => {
     res.status(401).json({ error: 'Internal token required' });
     return;
   }
-  res.json(Object.entries(repoConfig.repos).map(([name, path]) => ({ name, path })));
+  res.json(Object.entries(getRepoConfig().repos).map(([name, path]) => ({ name, path })));
 });
 
 app.post('/api/repos/open', (req, res) => {
@@ -193,9 +193,10 @@ app.post('/api/repos/open', (req, res) => {
     return;
   }
 
-  const repoPath = repoConfig.repos[repoName];
+  const config = getRepoConfig();
+  const repoPath = config.repos[repoName];
   if (!repoPath) {
-    const available = Object.keys(repoConfig.repos).join(', ');
+    const available = Object.keys(config.repos).join(', ');
     res.status(404).json({ error: `Unknown repo "${repoName}". Available: ${available}` });
     return;
   }
@@ -276,12 +277,13 @@ app.get('/api/auth/check', (_req, res) => res.json({ ok: true }));
 app.get('/api/models', (_req, res) => res.json(AVAILABLE_MODELS));
 
 app.get('/api/config', (_req, res) => {
-  const actions = repoConfig.quickActions.map((a) => ({
+  const config = getRepoConfig();
+  const actions = config.quickActions.map((a) => ({
     ...a,
     cwd: a.cwd ? join(BASE_REPO, a.cwd) : undefined,
   }));
   const contextBlocks: Record<string, { path: string; sizeBytes: number }> = {};
-  for (const [name, path] of Object.entries(repoConfig.contextBlocks)) {
+  for (const [name, path] of Object.entries(config.contextBlocks)) {
     let sizeBytes = 0;
     try {
       sizeBytes = statSync(path).size;
@@ -352,7 +354,7 @@ app.put('/api/sessions/:id/rename', async (req, res) => {
 
 app.get('/api/worktrees', (_req, res) => {
   const worktrees = listWorktrees(BASE_REPO).map((wt) => ({ ...wt, repo: 'primary' }));
-  for (const [name, repoPath] of Object.entries(repoConfig.repos)) {
+  for (const [name, repoPath] of Object.entries(getRepoConfig().repos)) {
     try {
       const repoWts = listWorktrees(repoPath).map((wt) => ({ ...wt, repo: name }));
       worktrees.push(...repoWts);
@@ -369,11 +371,12 @@ export function isAllowedPath(filePath: string): boolean {
   const resolved = resolve(filePath);
   if (BASE_REPO && resolved.startsWith(resolve(BASE_REPO))) return true;
   if (BASE_REPO && resolved.startsWith(resolve(`${BASE_REPO}-sessions`))) return true;
-  for (const repoPath of Object.values(repoConfig.repos)) {
+  const config = getRepoConfig();
+  for (const repoPath of Object.values(config.repos)) {
     if (resolved.startsWith(resolve(repoPath))) return true;
     if (resolved.startsWith(resolve(`${repoPath}-sessions`))) return true;
   }
-  for (const extra of repoConfig.allowedPaths) {
+  for (const extra of config.allowedPaths) {
     if (resolved.startsWith(resolve(extra))) return true;
   }
   return false;
@@ -407,7 +410,7 @@ app.get('/api/git/info', (_req, res) => {
     branch: getGitBranch(wt.path),
     repo: 'primary',
   }));
-  for (const [name, repoPath] of Object.entries(repoConfig.repos)) {
+  for (const [name, repoPath] of Object.entries(getRepoConfig().repos)) {
     try {
       const repoWts = listWorktrees(repoPath).map((wt) => ({
         ...wt,
@@ -423,7 +426,7 @@ app.get('/api/git/info', (_req, res) => {
 });
 
 app.get('/api/files/roots', (_req, res) => {
-  res.json(repoConfig.roots);
+  res.json(getRepoConfig().roots);
 });
 
 app.get('/api/files', (req, res) => {
@@ -516,7 +519,7 @@ app.put('/api/files/write', (req, res) => {
 // --- Inbox API ---
 
 app.get('/api/inbox', (_req, res) => {
-  const inboxPath = repoConfig.resolvedInboxPath;
+  const inboxPath = getRepoConfig().resolvedInboxPath;
   if (!inboxPath) {
     res.json([]);
     return;
@@ -525,7 +528,7 @@ app.get('/api/inbox', (_req, res) => {
 });
 
 app.post('/api/inbox', (req, res) => {
-  const inboxPath = repoConfig.resolvedInboxPath;
+  const inboxPath = getRepoConfig().resolvedInboxPath;
   if (!inboxPath) {
     res.status(404).json({ error: 'Inbox not configured' });
     return;
@@ -549,7 +552,7 @@ app.post('/api/inbox', (req, res) => {
 });
 
 app.get('/api/inbox/:filename', (req, res) => {
-  const inboxPath = repoConfig.resolvedInboxPath;
+  const inboxPath = getRepoConfig().resolvedInboxPath;
   if (!inboxPath) {
     res.status(404).json({ error: 'Inbox not configured' });
     return;
@@ -563,7 +566,7 @@ app.get('/api/inbox/:filename', (req, res) => {
 });
 
 app.post('/api/inbox/:filename/approve', (req, res) => {
-  const inboxPath = repoConfig.resolvedInboxPath;
+  const inboxPath = getRepoConfig().resolvedInboxPath;
   if (!inboxPath) {
     res.status(404).json({ error: 'Inbox not configured' });
     return;
@@ -577,7 +580,7 @@ app.post('/api/inbox/:filename/approve', (req, res) => {
 });
 
 app.delete('/api/inbox/:filename', (req, res) => {
-  const inboxPath = repoConfig.resolvedInboxPath;
+  const inboxPath = getRepoConfig().resolvedInboxPath;
   if (!inboxPath) {
     res.status(404).json({ error: 'Inbox not configured' });
     return;
