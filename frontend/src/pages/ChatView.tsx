@@ -6,6 +6,7 @@ import { ToolPill } from '../components/ToolPill';
 import { ToolGroup } from '../components/ToolGroup';
 import { PermissionBanner } from '../components/PermissionBanner';
 import { ChatInput } from '../components/ChatInput';
+import { VoiceSettings } from '../components/VoiceSettings';
 import { MitzoLogo } from '../components/MitzoLogo';
 import { groupBlocks } from '../lib/groupMessages';
 import { wsIsOpen, wsSend, wsSetRunning } from '../lib/ws-pool';
@@ -15,6 +16,7 @@ import { useChatMessages } from '../hooks/useChatMessages';
 import { useChatConnection } from '../hooks/useChatConnection';
 import { usePermission } from '../hooks/usePermission';
 import { useVoice } from '../hooks/useVoice';
+import { useAutoSpeak } from '../hooks/useAutoSpeak';
 import type { FinishedBlock, ImageAttachment } from '../types/chat';
 
 export function ChatView() {
@@ -118,6 +120,14 @@ export function ChatView() {
     dispatch({ type: 'PERMISSION_TIMEOUT', permId: msgState.permission?.permId ?? '' });
   });
 
+  useAutoSpeak({
+    messages: msgState.messages,
+    running: msgState.running,
+    ttsEnabled: voice.ttsEnabled,
+    ttsAvailable: voice.ttsAvailable,
+    speak: voice.speak,
+  });
+
   const hasStarted = msgState.messages.some((m) => m.role === 'user');
 
   function buildSendPayload(text: string, images?: ImageAttachment[]): Record<string, unknown> {
@@ -144,6 +154,9 @@ export function ChatView() {
       dispatch({ type: 'CONNECTION_LOST' });
       return false;
     }
+
+    // Stop TTS playback when user sends a new message
+    voice.stopSpeaking();
 
     const payload = buildSendPayload(text, images);
     const previews = images?.map((img) => img.preview);
@@ -242,6 +255,15 @@ export function ChatView() {
         >
           {msgState.isWorktree ? '⎔' : sessionState.sandbox ? '⎔' : '⎕'}
         </button>
+        <VoiceSettings
+          ttsAvailable={voice.ttsAvailable}
+          ttsEnabled={voice.ttsEnabled}
+          speaking={voice.speaking}
+          voices={voice.voices}
+          selectedVoice={voice.selectedVoice}
+          onToggle={() => voice.setTtsEnabled(!voice.ttsEnabled)}
+          onVoiceChange={voice.setVoice}
+        />
         {msgState.branch && (
           <span
             className={`chat-header-branch${msgState.isWorktree ? ' chat-header-branch--wt' : ''}`}
