@@ -16,11 +16,21 @@ function makeVoice(overrides: Partial<UseVoiceReturn> = {}): UseVoiceReturn {
     available: true,
     recording: false,
     transcribing: false,
+    partialTranscript: '',
     micBlocked: false,
     error: null,
     startRecording: vi.fn(),
     stopRecording: vi.fn(() => Promise.resolve('hello world')),
     cancelRecording: vi.fn(),
+    ttsAvailable: false,
+    ttsEnabled: false,
+    speaking: false,
+    voices: [],
+    selectedVoice: 'af_heart',
+    speak: vi.fn(),
+    stopSpeaking: vi.fn(),
+    setTtsEnabled: vi.fn(),
+    setVoice: vi.fn(),
     ...overrides,
   };
 }
@@ -81,5 +91,31 @@ describe('ChatInput with voice', () => {
     const voice = makeVoice({ micBlocked: true });
     render(<ChatInput onSend={noop} onStop={noopVoid} running={false} voice={voice} />);
     expect(screen.getByTitle('Microphone blocked')).toBeTruthy();
+  });
+
+  it('shows partial transcript overlay during recording', () => {
+    const voice = makeVoice({ recording: true, partialTranscript: 'hello wor' });
+    const { container } = render(
+      <ChatInput onSend={noop} onStop={noopVoid} running={false} voice={voice} />,
+    );
+    const overlay = container.querySelector('.voice-partial');
+    expect(overlay).toBeTruthy();
+    expect(overlay?.textContent).toBe('hello wor');
+  });
+
+  it('hides partial transcript overlay when not recording', () => {
+    const voice = makeVoice({ recording: false, partialTranscript: '' });
+    const { container } = render(
+      <ChatInput onSend={noop} onStop={noopVoid} running={false} voice={voice} />,
+    );
+    expect(container.querySelector('.voice-partial')).toBeNull();
+  });
+
+  it('hides partial transcript overlay when partial is empty', () => {
+    const voice = makeVoice({ recording: true, partialTranscript: '' });
+    const { container } = render(
+      <ChatInput onSend={noop} onStop={noopVoid} running={false} voice={voice} />,
+    );
+    expect(container.querySelector('.voice-partial')).toBeNull();
   });
 });

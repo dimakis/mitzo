@@ -188,6 +188,9 @@ export function ChatInput({
           ))}
         </div>
       )}
+      {voice?.recording && voice.partialTranscript && (
+        <div className="voice-partial">{voice.partialTranscript}</div>
+      )}
       <div className="chat-input-row">
         <div className="chat-input-actions">
           <button

@@ -20,8 +20,16 @@ export interface Recorder {
   onAutoStop: (() => void) | null;
 }
 
-/** Create a Recorder that wraps MediaRecorder with auto-stop and cancel. */
-export function createRecorder(stream: MediaStream, mimeType: string): Recorder {
+/**
+ * Create a Recorder that wraps MediaRecorder with auto-stop and cancel.
+ * When `ownsStream` is true (default), the recorder stops media tracks on stop/cancel.
+ * Pass `ownsStream: false` when multiple recorders share the same stream.
+ */
+export function createRecorder(
+  stream: MediaStream,
+  mimeType: string,
+  { ownsStream = true } = {},
+): Recorder {
   const mr = new MediaRecorder(stream, { mimeType });
   const chunks: Blob[] = [];
   let autoStopTimer: ReturnType<typeof setTimeout> | undefined;
@@ -52,7 +60,7 @@ export function createRecorder(stream: MediaStream, mimeType: string): Recorder 
         if (mr.state === 'recording') {
           recorder.onAutoStop?.();
           mr.stop();
-          stopTracks(stream);
+          if (ownsStream) stopTracks(stream);
         }
       }, MAX_RECORDING_DURATION_MS);
     },
@@ -64,7 +72,7 @@ export function createRecorder(stream: MediaStream, mimeType: string): Recorder 
           mr.stop();
         }
         clearTimeout(autoStopTimer);
-        stopTracks(stream);
+        if (ownsStream) stopTracks(stream);
       });
     },
 
@@ -74,7 +82,85 @@ export function createRecorder(stream: MediaStream, mimeType: string): Recorder 
       if (mr.state === 'recording') {
         mr.stop();
       }
-      stopTracks(stream);
+      if (ownsStream) stopTracks(stream);
+    },
+  };
+
+  return recorder;
+}
+
+export interface StreamingRecorder {
+  start: () => void;
+  stop: () => void;
+  cancel: () => void;
+  onChunk: ((data: Blob) => void) | null;
+  onStop: (() => void) | null;
+  onAutoStop: (() => void) | null;
+}
+
+const DEFAULT_TIMESLICE_MS = 250;
+
+/**
+ * Create a streaming recorder that emits chunks during recording via timeslice.
+ * When `ownsStream` is true (default), the recorder stops media tracks on stop/cancel.
+ * Pass `ownsStream: false` when multiple recorders share the same stream.
+ */
+export function createStreamingRecorder(
+  stream: MediaStream,
+  mimeType: string,
+  { timesliceMs = DEFAULT_TIMESLICE_MS, ownsStream = true } = {},
+): StreamingRecorder {
+  const mr = new MediaRecorder(stream, { mimeType });
+  let autoStopTimer: ReturnType<typeof setTimeout> | undefined;
+  let cancelled = false;
+
+  const recorder: StreamingRecorder = {
+    onChunk: null,
+    onStop: null,
+    onAutoStop: null,
+
+    start() {
+      cancelled = false;
+
+      mr.ondataavailable = (e) => {
+        if (e.data.size > 0 && !cancelled) {
+          recorder.onChunk?.(e.data);
+        }
+      };
+
+      mr.onstop = () => {
+        clearTimeout(autoStopTimer);
+        if (!cancelled) {
+          recorder.onStop?.();
+        }
+      };
+
+      mr.start(timesliceMs);
+
+      autoStopTimer = setTimeout(() => {
+        if (mr.state === 'recording') {
+          recorder.onAutoStop?.();
+          mr.stop();
+          if (ownsStream) stopTracks(stream);
+        }
+      }, MAX_RECORDING_DURATION_MS);
+    },
+
+    stop() {
+      clearTimeout(autoStopTimer);
+      if (mr.state === 'recording') {
+        mr.stop();
+      }
+      if (ownsStream) stopTracks(stream);
+    },
+
+    cancel() {
+      cancelled = true;
+      clearTimeout(autoStopTimer);
+      if (mr.state === 'recording') {
+        mr.stop();
+      }
+      if (ownsStream) stopTracks(stream);
     },
   };
 

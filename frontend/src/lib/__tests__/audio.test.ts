@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { negotiateMimeType, createRecorder, blobToFormData } from '../audio';
+import {
+  negotiateMimeType,
+  createRecorder,
+  createStreamingRecorder,
+  blobToFormData,
+} from '../audio';
 import { MAX_RECORDING_DURATION_MS } from '../constants';
 
 // --- Mock MediaRecorder ---
@@ -17,12 +22,24 @@ class MockMediaRecorder {
     public options?: { mimeType?: string },
   ) {}
 
-  start() {
+  private timesliceInterval: ReturnType<typeof setInterval> | undefined;
+
+  start(timeslice?: number) {
     this.state = 'recording';
+    if (timeslice) {
+      this.timesliceInterval = setInterval(() => {
+        if (this.state === 'recording') {
+          this.ondataavailable?.({
+            data: new Blob(['chunk'], { type: this.options?.mimeType }),
+          });
+        }
+      }, timeslice);
+    }
   }
 
   stop() {
     this.state = 'inactive';
+    clearInterval(this.timesliceInterval);
     // Simulate async data + stop events
     setTimeout(() => {
       this.ondataavailable?.({ data: new Blob(['audio-data'], { type: this.options?.mimeType }) });
@@ -128,5 +145,77 @@ describe('blobToFormData', () => {
 
     const file = fd.get('file') as File;
     expect(file.name).toBe('recording.mp4');
+  });
+});
+
+describe('createStreamingRecorder', () => {
+  it('emits chunks via onChunk callback during recording', async () => {
+    vi.useFakeTimers();
+    const stream = mockStream();
+    const recorder = createStreamingRecorder(stream, 'audio/webm;codecs=opus', {
+      timesliceMs: 100,
+    });
+    const chunks: Blob[] = [];
+    recorder.onChunk = (blob) => chunks.push(blob);
+
+    recorder.start();
+
+    // Advance past two timeslice intervals
+    vi.advanceTimersByTime(250);
+    expect(chunks.length).toBeGreaterThanOrEqual(2);
+
+    recorder.stop();
+    vi.useRealTimers();
+  });
+
+  it('fires onStop when recording ends', async () => {
+    vi.useFakeTimers();
+    const stream = mockStream();
+    const recorder = createStreamingRecorder(stream, 'audio/webm;codecs=opus', {
+      timesliceMs: 100,
+    });
+    const onStop = vi.fn();
+    recorder.onStop = onStop;
+
+    recorder.start();
+    recorder.stop();
+
+    // onstop fires async
+    vi.advanceTimersByTime(10);
+    expect(onStop).toHaveBeenCalled();
+
+    vi.useRealTimers();
+  });
+
+  it('cancel stops without firing onStop', () => {
+    const stream = mockStream();
+    const recorder = createStreamingRecorder(stream, 'audio/webm;codecs=opus', {
+      timesliceMs: 100,
+    });
+    const onStop = vi.fn();
+    recorder.onStop = onStop;
+
+    recorder.start();
+    recorder.cancel();
+
+    expect(onStop).not.toHaveBeenCalled();
+    const tracks = stream.getTracks();
+    expect(tracks[0].stop).toHaveBeenCalled();
+  });
+
+  it('auto-stops after MAX_RECORDING_DURATION_MS', () => {
+    vi.useFakeTimers();
+    const stream = mockStream();
+    const recorder = createStreamingRecorder(stream, 'audio/webm;codecs=opus', {
+      timesliceMs: 100,
+    });
+    const onAutoStop = vi.fn();
+    recorder.onAutoStop = onAutoStop;
+
+    recorder.start();
+    vi.advanceTimersByTime(MAX_RECORDING_DURATION_MS);
+
+    expect(onAutoStop).toHaveBeenCalled();
+    vi.useRealTimers();
   });
 });
