@@ -269,13 +269,6 @@ export function ChatView() {
           onToggle={() => voice.setTtsEnabled(!voice.ttsEnabled)}
           onVoiceChange={voice.setVoice}
         />
-        {msgState.branch && (
-          <span
-            className={`chat-header-branch${msgState.isWorktree ? ' chat-header-branch--wt' : ''}`}
-          >
-            {msgState.branch}
-          </span>
-        )}
         {msgState.running && (
           <button className="chat-header-stop" onClick={handleStop}>
             Stop
@@ -354,6 +347,8 @@ export function ChatView() {
         running={msgState.running}
         initialText={initialPrompt}
         voice={voice}
+        branch={msgState.branch || undefined}
+        isWorktree={msgState.isWorktree}
       />
     </div>
   );

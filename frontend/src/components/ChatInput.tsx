@@ -22,6 +22,8 @@ interface Props {
   initialText?: string;
   cwd?: string;
   voice?: UseVoiceReturn;
+  branch?: string;
+  isWorktree?: boolean;
 }
 
 export function ChatInput({
@@ -32,6 +34,8 @@ export function ChatInput({
   initialText,
   cwd,
   voice,
+  branch,
+  isWorktree,
 }: Props) {
   const [text, setText] = useState(initialText || '');
   const [images, setImages] = useState<ImageAttachment[]>([]);
@@ -150,6 +154,24 @@ export function ChatInput({
 
   const canSend = text.trim() || images.length > 0;
 
+  const micProps = voice
+    ? {
+        available: voice.available,
+        recording: voice.recording,
+        transcribing: voice.transcribing,
+        micBlocked: voice.micBlocked,
+        onRecordStart: voice.startRecording,
+        onRecordStop: async () => {
+          const transcript = await voice.stopRecording();
+          if (transcript) {
+            setText((prev) => (prev ? `${prev} ${transcript}` : transcript));
+            textareaRef.current?.focus();
+          }
+        },
+        onRecordCancel: voice.cancelRecording,
+      }
+    : null;
+
   function handleInterrupt() {
     if (!onInterrupt) return;
     const trimmed = text.trim();
@@ -191,54 +213,46 @@ export function ChatInput({
       {voice?.recording && voice.partialTranscript && (
         <div className="voice-partial">{voice.partialTranscript}</div>
       )}
-      <div className="chat-input-row">
-        <div className="chat-input-actions">
-          <button
-            className="chat-input-btn chat-input-btn--skills"
-            onClick={() => {
-              if (!text.startsWith('/')) setText('/');
-              setShowSlashPicker(true);
-              textareaRef.current?.focus();
-            }}
-            title="Skills"
+      <div className="chat-input-command-strip">
+        <button
+          className="chat-input-btn chat-input-btn--skills"
+          onClick={() => {
+            if (!text.startsWith('/')) setText('/');
+            setShowSlashPicker(true);
+            textareaRef.current?.focus();
+          }}
+          title="Skills"
+        >
+          /
+        </button>
+        <button
+          className="chat-input-btn chat-input-btn--attach"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={images.length >= MAX_IMAGE_ATTACHMENTS}
+          title="Attach image"
+        >
+          +
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/gif,image/webp"
+          multiple
+          capture="environment"
+          onChange={handleFileChange}
+          className="sr-only"
+        />
+        {micProps && <MicButton {...micProps} />}
+        {branch && (
+          <span
+            className={`chat-input-branch${isWorktree ? ' chat-input-branch--wt' : ''}`}
+            title={branch}
           >
-            /
-          </button>
-          <button
-            className="chat-input-btn chat-input-btn--attach"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={images.length >= MAX_IMAGE_ATTACHMENTS}
-            title="Attach image"
-          >
-            +
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/jpeg,image/png,image/gif,image/webp"
-            multiple
-            capture="environment"
-            onChange={handleFileChange}
-            className="sr-only"
-          />
-        </div>
-        {voice && (
-          <MicButton
-            available={voice.available}
-            recording={voice.recording}
-            transcribing={voice.transcribing}
-            micBlocked={voice.micBlocked}
-            onRecordStart={voice.startRecording}
-            onRecordStop={async () => {
-              const transcript = await voice.stopRecording();
-              if (transcript) {
-                setText((prev) => (prev ? `${prev} ${transcript}` : transcript));
-                textareaRef.current?.focus();
-              }
-            }}
-            onRecordCancel={voice.cancelRecording}
-          />
+            {branch}
+          </span>
         )}
+      </div>
+      <div className="chat-input-row">
         <textarea
           ref={textareaRef}
           className="chat-input-field"
