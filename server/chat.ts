@@ -65,17 +65,10 @@ const MODE_TO_SDK: Record<MitzoMode, string> = {
 
 export const registry = new SessionRegistry();
 
-const repoConfig = loadRepoConfig(BASE_REPO);
-export { repoConfig };
-
-if (Object.keys(repoConfig.toolTierOverrides).length > 0) {
-  applyTierOverrides(repoConfig.toolTierOverrides);
-  log.info('applied tool tier overrides from .mitzo.json', {
-    overrides: repoConfig.toolTierOverrides,
-  });
+/** Load repo config fresh on each call so edits to .mitzo.json take effect without restart. */
+export function getRepoConfig() {
+  return loadRepoConfig(BASE_REPO);
 }
-
-const VENV_PATHS = repoConfig.resolvedVenvPaths;
 
 export const AVAILABLE_MODELS = [
   { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', desc: 'Balanced' },
@@ -98,7 +91,8 @@ function sdkEnv(): Record<string, string> {
   env.CLOUD_ML_REGION = process.env.CLOUD_ML_REGION || 'us-east5';
 
   const existingPath = env.PATH || '/usr/bin:/bin:/usr/local/bin';
-  env.PATH = [...VENV_PATHS, existingPath].join(':');
+  const venvPaths = getRepoConfig().resolvedVenvPaths;
+  env.PATH = [...venvPaths, existingPath].join(':');
 
   delete env.AUTH_PASSPHRASE;
   delete env.AUTH_SECRET;
@@ -130,7 +124,7 @@ function getBranch(cwd: string): string {
 
 function buildMcpAllowedTools(): string[] {
   const patterns = Object.keys(mcpServers).map((name) => `mcp__${name}__*`);
-  if (Object.keys(repoConfig.repos).length > 0) {
+  if (Object.keys(getRepoConfig().repos).length > 0) {
     patterns.push('mcp__mitzo_repos__*');
   }
   return patterns;
@@ -139,7 +133,7 @@ function buildMcpAllowedTools(): string[] {
 const REPO_MCP_SERVER_NAME = 'mitzo_repos';
 
 function buildRepoMcpServer(clientId: string): Record<string, McpServerConfig> | null {
-  if (Object.keys(repoConfig.repos).length === 0) return null;
+  if (Object.keys(getRepoConfig().repos).length === 0) return null;
   const port = process.env.PORT || '3100';
   return {
     [REPO_MCP_SERVER_NAME]: {
@@ -159,7 +153,7 @@ function buildRepoMcpServer(clientId: string): Record<string, McpServerConfig> |
 }
 
 function buildRepoSystemPrompt(): string {
-  const repoNames = Object.keys(repoConfig.repos);
+  const repoNames = Object.keys(getRepoConfig().repos);
   if (repoNames.length === 0) return '';
   return (
     '\n\nYou have access to multiple repositories via the open_repo MCP tool. ' +
@@ -213,9 +207,10 @@ export function assemblePrompt(
 
   // Inject context blocks before the user's message
   if (contextBlocks?.length) {
+    const config = getRepoConfig();
     const blocks: string[] = [];
     for (const name of contextBlocks) {
-      const filePath = repoConfig.contextBlocks[name];
+      const filePath = config.contextBlocks[name];
       if (!filePath) continue;
       let content: string;
       try {
@@ -315,6 +310,12 @@ export async function startChat(
 
   const { cwd, worktreePath } = resolveWorktree(ws, baseCwd, options);
   const fullPrompt = assemblePrompt(prompt, cwd, options.images, options.contextBlocks);
+
+  // Apply tier overrides from current .mitzo.json (re-read each session start)
+  const currentConfig = getRepoConfig();
+  if (Object.keys(currentConfig.toolTierOverrides).length > 0) {
+    applyTierOverrides(currentConfig.toolTierOverrides);
+  }
 
   const modeAllowed = getAllowedToolsForMode(mode);
   const mcpAllowed = buildMcpAllowedTools();
@@ -509,8 +510,9 @@ export async function interruptChat(
 
 /** Best-effort cleanup of all secondary worktrees for a session. */
 function cleanupSessionWorktrees(session: import('./session-registry.js').ManagedSession): void {
+  const config = getRepoConfig();
   for (const [repoName, { wtId }] of session.worktreePaths) {
-    const repoPath = repoConfig.repos[repoName];
+    const repoPath = config.repos[repoName];
     if (!repoPath) continue;
     try {
       removeWorktree(wtId, repoPath);
