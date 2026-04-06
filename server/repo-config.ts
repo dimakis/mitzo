@@ -30,6 +30,7 @@ export interface RepoConfig {
   inboxPath: string;
   resolvedInboxPath: string;
   repos: Record<string, string>;
+  contextBlocks: Record<string, string>;
 }
 
 const EMPTY_CONFIG: RepoConfig = {
@@ -42,6 +43,7 @@ const EMPTY_CONFIG: RepoConfig = {
   inboxPath: '',
   resolvedInboxPath: '',
   repos: {},
+  contextBlocks: {},
 };
 
 function isValidQuickAction(item: unknown): item is QuickAction {
@@ -128,6 +130,18 @@ export function loadRepoConfig(repoPath: string): RepoConfig {
     }
   }
 
+  const contextBlocks: Record<string, string> = {};
+  if (
+    obj.contextBlocks &&
+    typeof obj.contextBlocks === 'object' &&
+    !Array.isArray(obj.contextBlocks)
+  ) {
+    for (const [name, path] of Object.entries(obj.contextBlocks as Record<string, unknown>)) {
+      if (typeof path !== 'string') continue;
+      contextBlocks[name] = path.startsWith('/') ? path : join(repoPath, path);
+    }
+  }
+
   return {
     quickActions,
     venvPaths,
@@ -138,5 +152,6 @@ export function loadRepoConfig(repoPath: string): RepoConfig {
     inboxPath,
     resolvedInboxPath,
     repos,
+    contextBlocks,
   };
 }

@@ -7,7 +7,7 @@ import {
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { WebSocket } from 'ws';
 import { execFileSync } from 'child_process';
-import { writeFileSync, mkdirSync, readdirSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
@@ -192,15 +192,68 @@ function resolveWorktree(
   }
 }
 
+const CONTEXT_BLOCK_MAX_BYTES = 100 * 1024; // 100 KB
+
+/** Escape characters that would break XML attribute values. */
+function escapeXmlAttr(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 export function assemblePrompt(
   prompt: string,
   cwd: string,
   images?: Array<{ data: string; mediaType: string }>,
+  contextBlocks?: string[],
 ): string {
-  if (!images?.length) return prompt;
-  const paths = stageImages(cwd, images);
-  const imageRefs = paths.map((p) => `- ${p}`).join('\n');
-  return `${prompt}\n\nI've attached ${paths.length} image(s). Read them using the Read tool:\n${imageRefs}`;
+  let result = prompt;
+
+  // Inject context blocks before the user's message
+  if (contextBlocks?.length) {
+    const blocks: string[] = [];
+    for (const name of contextBlocks) {
+      const filePath = repoConfig.contextBlocks[name];
+      if (!filePath) continue;
+      let content: string;
+      try {
+        content = readFileSync(filePath, 'utf-8');
+      } catch {
+        log.warn('context block file not found', { name, path: filePath });
+        continue;
+      }
+      if (Buffer.byteLength(content, 'utf-8') > CONTEXT_BLOCK_MAX_BYTES) {
+        content = Buffer.from(content, 'utf-8')
+          .subarray(0, CONTEXT_BLOCK_MAX_BYTES)
+          .toString('utf-8');
+        content += '\n\n[… truncated at 100 KB]';
+        log.warn('context block truncated', {
+          name,
+          path: filePath,
+          maxBytes: CONTEXT_BLOCK_MAX_BYTES,
+        });
+      }
+      const safeName = escapeXmlAttr(name);
+      const safePath = escapeXmlAttr(filePath);
+      blocks.push(`<context name="${safeName}" source="${safePath}">\n${content}\n</context>`);
+    }
+    if (blocks.length > 0) {
+      const preamble =
+        'The user has attached the following reference files for this message.\nUse them to inform your response.';
+      result = `${preamble}\n\n${blocks.join('\n\n')}\n\n---CONTEXT_END---\n${result}`;
+    }
+  }
+
+  // Append image references
+  if (images?.length) {
+    const paths = stageImages(cwd, images);
+    const imageRefs = paths.map((p) => `- ${p}`).join('\n');
+    result = `${result}\n\nI've attached ${paths.length} image(s). Read them using the Read tool:\n${imageRefs}`;
+  }
+
+  return result;
 }
 
 function stageImages(cwd: string, images: Array<{ data: string; mediaType: string }>): string[] {
@@ -252,6 +305,7 @@ export async function startChat(
     mode?: MitzoMode;
     worktree?: boolean;
     images?: Array<{ data: string; mediaType: string }>;
+    contextBlocks?: string[];
   },
 ) {
   const abortController = new AbortController();
@@ -259,7 +313,7 @@ export async function startChat(
   const baseCwd = options.cwd || BASE_REPO;
 
   const { cwd, worktreePath } = resolveWorktree(ws, baseCwd, options);
-  const fullPrompt = assemblePrompt(prompt, cwd, options.images);
+  const fullPrompt = assemblePrompt(prompt, cwd, options.images, options.contextBlocks);
 
   const modeAllowed = getAllowedToolsForMode(mode);
   const mcpAllowed = buildMcpAllowedTools();
@@ -397,10 +451,11 @@ export function sendToChat(
   clientId: string,
   prompt: string,
   images?: Array<{ data: string; mediaType: string }>,
+  contextBlocks?: string[],
 ): boolean {
   const session = registry.get(clientId);
   if (!session?.inputQueue) return false;
-  const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images);
+  const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
   if (session.sessionId) {
     eventStore.append(session.sessionId, 'user_message', {
       v: 2,
@@ -420,10 +475,11 @@ export async function interruptChat(
   clientId: string,
   prompt: string,
   images?: Array<{ data: string; mediaType: string }>,
+  contextBlocks?: string[],
 ): Promise<boolean> {
   const session = registry.get(clientId);
   if (!session?.queryInstance || !session?.inputQueue) return false;
-  const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images);
+  const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
   if (session.sessionId) {
     eventStore.append(session.sessionId, 'user_message', {
       v: 2,

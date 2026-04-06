@@ -61,7 +61,7 @@ export type ChatMessagesAction =
   // Session / UI lifecycle
   | { type: 'ERROR'; error: string }
   | { type: 'SESSION_INFO'; branch: string; isWorktree: boolean }
-  | { type: 'USER_SEND'; text: string; images?: string[] }
+  | { type: 'USER_SEND'; text: string; images?: string[]; contextBlocks?: string[] }
   | { type: 'SET_RUNNING'; running: boolean }
   | { type: 'CONNECTION_LOST' }
   | { type: 'PERMISSION_REQUEST'; payload: PermissionRequest }
@@ -380,6 +380,7 @@ export function chatMessagesReducer(
             role: 'user',
             blocks: [],
             images: action.images,
+            contextBlocks: action.contextBlocks,
             // Store text in a synthetic text block for rendering convenience.
             ...(action.text
               ? {

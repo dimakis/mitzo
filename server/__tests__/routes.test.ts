@@ -32,6 +32,7 @@ vi.mock('../chat.js', () => {
       inboxPath: 'mgmt_lib/inbox',
       resolvedInboxPath: pjoin(repo, 'mgmt_lib/inbox'),
       repos: {},
+      contextBlocks: {},
     },
     getMcpServerNames: vi.fn().mockReturnValue(['test-mcp']),
     AVAILABLE_MODELS: [{ id: 'test-model', label: 'Test', desc: 'Test model' }],
@@ -291,12 +292,14 @@ describe('config routes', () => {
     expect(res.body[0]).toHaveProperty('id');
   });
 
-  it('GET /api/config — returns config', async () => {
+  it('GET /api/config — returns config with contextBlocks', async () => {
     const res = await request(app).get('/api/config').set('Cookie', authCookie);
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('repoPath');
     expect(res.body).toHaveProperty('mcpServers');
     expect(res.body).toHaveProperty('quickActions');
+    expect(res.body).toHaveProperty('contextBlocks');
+    expect(typeof res.body.contextBlocks).toBe('object');
   });
 
   it('GET /api/worktrees — returns worktree list', async () => {

@@ -202,6 +202,60 @@ describe('loadRepoConfig', () => {
     expect(config.repos).toEqual({ valid: validDir });
   });
 
+  it('parses contextBlocks from .mitzo.json', () => {
+    const data = {
+      contextBlocks: {
+        Workflow: 'context/workflow.md',
+        Org: 'context/org.md',
+      },
+    };
+    writeFileSync(join(TMP_DIR, '.mitzo.json'), JSON.stringify(data));
+
+    const config = loadRepoConfig(TMP_DIR);
+    expect(config.contextBlocks).toEqual({
+      Workflow: join(TMP_DIR, 'context/workflow.md'),
+      Org: join(TMP_DIR, 'context/org.md'),
+    });
+  });
+
+  it('returns empty contextBlocks when not specified', () => {
+    const data = { quickActions: [] };
+    writeFileSync(join(TMP_DIR, '.mitzo.json'), JSON.stringify(data));
+
+    const config = loadRepoConfig(TMP_DIR);
+    expect(config.contextBlocks).toEqual({});
+  });
+
+  it('filters out non-string contextBlock values', () => {
+    const data = {
+      contextBlocks: {
+        Valid: 'context/valid.md',
+        Invalid: 42,
+        AlsoInvalid: null,
+      },
+    };
+    writeFileSync(join(TMP_DIR, '.mitzo.json'), JSON.stringify(data));
+
+    const config = loadRepoConfig(TMP_DIR);
+    expect(config.contextBlocks).toEqual({
+      Valid: join(TMP_DIR, 'context/valid.md'),
+    });
+  });
+
+  it('resolves absolute contextBlock paths without joining', () => {
+    const data = {
+      contextBlocks: {
+        Absolute: '/absolute/path/file.md',
+      },
+    };
+    writeFileSync(join(TMP_DIR, '.mitzo.json'), JSON.stringify(data));
+
+    const config = loadRepoConfig(TMP_DIR);
+    expect(config.contextBlocks).toEqual({
+      Absolute: '/absolute/path/file.md',
+    });
+  });
+
   it('filters out quickActions with missing required fields', () => {
     const data = {
       quickActions: [

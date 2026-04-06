@@ -21,12 +21,14 @@ export const SendMessage = z.object({
   extraTools: z.string().optional(),
   worktree: z.boolean().optional(),
   images: z.array(ImageSchema).optional(),
+  contextBlocks: z.array(z.string()).optional(),
 });
 
 export const InterruptMessage = z.object({
   type: z.literal('interrupt'),
   prompt: z.string().min(1),
   images: z.array(ImageSchema).optional(),
+  contextBlocks: z.array(z.string()).optional(),
 });
 
 export const StopMessage = z.object({
