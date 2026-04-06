@@ -269,7 +269,6 @@ export function ChatView() {
           onToggle={() => voice.setTtsEnabled(!voice.ttsEnabled)}
           onVoiceChange={voice.setVoice}
         />
-        {/* Branch pill moved to command strip in ChatInput */}
         {msgState.running && (
           <button className="chat-header-stop" onClick={handleStop}>
             Stop

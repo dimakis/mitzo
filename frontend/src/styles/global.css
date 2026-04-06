@@ -1687,11 +1687,6 @@ textarea:focus {
   background: rgba(108, 99, 255, 0.1);
 }
 
-/* When idle (no text), mic is the last child — push it right to align above send */
-.chat-input-command-strip > .mic-btn:last-child {
-  margin-left: auto;
-}
-
 .chat-input-row {
   display: flex;
   align-items: flex-end;

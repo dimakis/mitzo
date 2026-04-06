@@ -242,13 +242,12 @@ export function ChatInput({
           onChange={handleFileChange}
           className="sr-only"
         />
-        {micProps && canSend && <MicButton {...micProps} />}
+        {micProps && <MicButton {...micProps} />}
         {branch && (
           <span className={`chat-input-branch${isWorktree ? ' chat-input-branch--wt' : ''}`}>
             {branch}
           </span>
         )}
-        {micProps && !canSend && <MicButton {...micProps} />}
       </div>
       <div className="chat-input-row">
         <textarea
