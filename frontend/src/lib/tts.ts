@@ -97,9 +97,13 @@ export function closeAudioContext(): void {
 export function playAudio(blob: Blob): { play: () => Promise<void>; stop: () => void } {
   let source: AudioBufferSourceNode | null = null;
   let stopped = false;
+  let playing = false;
 
   return {
     async play() {
+      if (playing || stopped) return;
+      playing = true;
+
       const ctx = getOrCreateAudioContext();
       if (ctx.state === 'suspended') await ctx.resume();
 
@@ -113,13 +117,17 @@ export function playAudio(blob: Blob): { play: () => Promise<void>; stop: () => 
       source.connect(ctx.destination);
 
       return new Promise<void>((resolve) => {
-        source!.onended = () => resolve();
+        source!.onended = () => {
+          playing = false;
+          resolve();
+        };
         source!.start();
       });
     },
 
     stop() {
       stopped = true;
+      playing = false;
       try {
         source?.stop();
       } catch {

@@ -120,9 +120,12 @@ export function ChatView() {
     dispatch({ type: 'PERMISSION_TIMEOUT', permId: msgState.permission?.permId ?? '' });
   });
 
-  // --- TTS: auto-speak on new assistant message ---
+  // --- TTS: auto-speak on completed assistant message ---
+  const { ttsEnabled, ttsAvailable, speak } = voice;
   useEffect(() => {
-    if (!voice.ttsEnabled || !voice.ttsAvailable) return;
+    if (!ttsEnabled || !ttsAvailable) return;
+    // Wait until streaming is done so we speak the full message
+    if (msgState.running) return;
 
     const lastMsg = msgState.messages[msgState.messages.length - 1];
     if (!lastMsg || lastMsg.role !== 'assistant') return;
@@ -135,8 +138,8 @@ export function ChatView() {
       .map((b) => b.content)
       .join('\n');
 
-    if (text.trim()) voice.speak(text);
-  }, [msgState.messages, voice.ttsEnabled, voice.ttsAvailable, voice.speak]);
+    if (text.trim()) speak(text);
+  }, [msgState.messages, msgState.running, ttsEnabled, ttsAvailable, speak]);
 
   const hasStarted = msgState.messages.some((m) => m.role === 'user');
 
