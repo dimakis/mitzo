@@ -280,10 +280,21 @@ app.get('/api/config', (_req, res) => {
     ...a,
     cwd: a.cwd ? join(BASE_REPO, a.cwd) : undefined,
   }));
+  const contextBlocks: Record<string, { path: string; sizeBytes: number }> = {};
+  for (const [name, path] of Object.entries(repoConfig.contextBlocks)) {
+    let sizeBytes = 0;
+    try {
+      sizeBytes = statSync(path).size;
+    } catch {
+      // File may not exist yet — show 0 size
+    }
+    contextBlocks[name] = { path, sizeBytes };
+  }
   res.json({
     repoPath: BASE_REPO,
     mcpServers: getMcpServerNames(),
     quickActions: actions,
+    contextBlocks,
   });
 });
 
