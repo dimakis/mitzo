@@ -84,6 +84,9 @@ This keeps the chat history readable. The full content is in the prompt the agen
 On send, the assembled prompt looks like:
 
 ```
+The user has attached the following reference files for this message.
+Use them to inform your response.
+
 <context name="Workflow" source="jira_process/context/workflow.md">
 {file contents}
 </context>
@@ -92,14 +95,18 @@ On send, the assembled prompt looks like:
 {file contents}
 </context>
 
+---CONTEXT_END---
 Explain the team structure and how tickets flow through review
 ```
 
-The `<context>` tags give the agent clear boundaries and source attribution. The user's message follows after all context blocks.
+The preamble tells the agent what the blocks are and why they're there. The `<context>` tags give clear boundaries and source attribution. The `---CONTEXT_END---` separator marks where context ends and the user's actual message begins.
 
 ## Display Separator
 
-To enable the UI to distinguish injected context from the user's actual message, the prompt uses a separator token:
+The `---CONTEXT_END---` separator serves double duty:
+
+1. **For the agent**: clear boundary between reference material and the user's question.
+2. **For the UI**: on replay, split the stored prompt to render a compact `📎 Name1, Name2` line instead of dumping file contents into the user bubble.
 
 ```
 <context name="Workflow" source="...">
