@@ -7,7 +7,7 @@ import {
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { WebSocket } from 'ws';
 import { execFileSync } from 'child_process';
-import { writeFileSync, mkdirSync, readdirSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
@@ -196,11 +196,40 @@ export function assemblePrompt(
   prompt: string,
   cwd: string,
   images?: Array<{ data: string; mediaType: string }>,
+  contextBlocks?: string[],
 ): string {
-  if (!images?.length) return prompt;
-  const paths = stageImages(cwd, images);
-  const imageRefs = paths.map((p) => `- ${p}`).join('\n');
-  return `${prompt}\n\nI've attached ${paths.length} image(s). Read them using the Read tool:\n${imageRefs}`;
+  let result = prompt;
+
+  // Inject context blocks before the user's message
+  if (contextBlocks?.length) {
+    const blocks: string[] = [];
+    for (const name of contextBlocks) {
+      const filePath = repoConfig.contextBlocks[name];
+      if (!filePath) continue;
+      let content: string;
+      try {
+        content = readFileSync(filePath, 'utf-8');
+      } catch {
+        log.warn('context block file not found', { name, path: filePath });
+        continue;
+      }
+      blocks.push(`<context name="${name}" source="${filePath}">\n${content}\n</context>`);
+    }
+    if (blocks.length > 0) {
+      const preamble =
+        'The user has attached the following reference files for this message.\nUse them to inform your response.';
+      result = `${preamble}\n\n${blocks.join('\n\n')}\n\n---CONTEXT_END---\n${result}`;
+    }
+  }
+
+  // Append image references
+  if (images?.length) {
+    const paths = stageImages(cwd, images);
+    const imageRefs = paths.map((p) => `- ${p}`).join('\n');
+    result = `${result}\n\nI've attached ${paths.length} image(s). Read them using the Read tool:\n${imageRefs}`;
+  }
+
+  return result;
 }
 
 function stageImages(cwd: string, images: Array<{ data: string; mediaType: string }>): string[] {
