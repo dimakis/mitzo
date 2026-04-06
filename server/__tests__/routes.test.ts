@@ -20,7 +20,7 @@ vi.mock('../chat.js', () => {
     hideSession: vi.fn(),
     clearHiddenSessions: vi.fn(),
     BASE_REPO: repo,
-    repoConfig: {
+    getRepoConfig: vi.fn(() => ({
       quickActions: [],
       allowedPaths: [],
       roots: [
@@ -33,7 +33,7 @@ vi.mock('../chat.js', () => {
       resolvedInboxPath: pjoin(repo, 'mgmt_lib/inbox'),
       repos: {},
       contextBlocks: {},
-    },
+    })),
     getMcpServerNames: vi.fn().mockReturnValue(['test-mcp']),
     AVAILABLE_MODELS: [{ id: 'test-model', label: 'Test', desc: 'Test model' }],
     registry: { get: vi.fn() },
