@@ -1663,7 +1663,7 @@ textarea:focus {
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  padding: 0 0.25rem;
+  padding: 0.25rem 0.25rem;
 }
 
 .chat-input-branch {

@@ -347,7 +347,7 @@ export function ChatView() {
         running={msgState.running}
         initialText={initialPrompt}
         voice={voice}
-        branch={msgState.branch ?? undefined}
+        branch={msgState.branch || undefined}
         isWorktree={msgState.isWorktree}
       />
     </div>

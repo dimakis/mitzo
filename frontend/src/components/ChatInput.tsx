@@ -244,7 +244,10 @@ export function ChatInput({
         />
         {micProps && <MicButton {...micProps} />}
         {branch && (
-          <span className={`chat-input-branch${isWorktree ? ' chat-input-branch--wt' : ''}`}>
+          <span
+            className={`chat-input-branch${isWorktree ? ' chat-input-branch--wt' : ''}`}
+            title={branch}
+          >
             {branch}
           </span>
         )}
