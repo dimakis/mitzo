@@ -154,7 +154,11 @@ export function ChatView() {
     return payload;
   }
 
-  function sendMessage(text: string, images?: ImageAttachment[]): boolean {
+  function sendMessage(
+    text: string,
+    images?: ImageAttachment[],
+    contextBlocks?: string[],
+  ): boolean {
     if (!wsIsOpen(poolKey)) {
       dispatch({ type: 'CONNECTION_LOST' });
       return false;
@@ -164,27 +168,37 @@ export function ChatView() {
     voice.stopSpeaking();
 
     const payload = buildSendPayload(text, images);
+    if (contextBlocks?.length) payload.contextBlocks = contextBlocks;
     const previews = images?.map((img) => img.preview);
 
     if (msgState.running) {
       // Server queues it natively — no client-side stop+re-send needed.
       wsSend(poolKey, payload);
-      dispatch({ type: 'USER_SEND', text, images: previews });
+      dispatch({ type: 'USER_SEND', text, images: previews, contextNames: contextBlocks });
       forceScrollToBottom();
     } else {
       wsSetRunning(poolKey, true);
       wsSend(poolKey, payload);
-      dispatch({ type: 'USER_SEND', text, images: previews });
+      dispatch({ type: 'USER_SEND', text, images: previews, contextNames: contextBlocks });
       forceScrollToBottom();
     }
 
     return true;
   }
 
-  function interruptMessage(text: string, images?: ImageAttachment[]): void {
+  function interruptMessage(
+    text: string,
+    images?: ImageAttachment[],
+    contextBlocks?: string[],
+  ): void {
     if (!wsIsOpen(poolKey) || !msgState.running) return;
     const imagePayload = images?.map((img) => ({ data: img.data, mediaType: img.mediaType }));
-    wsSend(poolKey, { type: 'interrupt', prompt: text, images: imagePayload });
+    wsSend(poolKey, {
+      type: 'interrupt',
+      prompt: text,
+      images: imagePayload,
+      ...(contextBlocks?.length ? { contextBlocks } : {}),
+    });
   }
 
   const handleStop = useCallback(() => {
@@ -285,7 +299,14 @@ export function ChatView() {
         {groupedMessages.map(({ msg, grouped }) => {
           if (msg.role === 'user') {
             const textBlock = msg.blocks.find((b) => b.blockType === 'text');
-            return <UserBubble key={msg.messageId} text={textBlock?.content} images={msg.images} />;
+            return (
+              <UserBubble
+                key={msg.messageId}
+                text={textBlock?.content}
+                images={msg.images}
+                contextNames={msg.contextNames}
+              />
+            );
           }
 
           // Assistant turn — render grouped blocks

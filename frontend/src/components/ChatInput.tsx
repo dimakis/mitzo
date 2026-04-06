@@ -11,13 +11,14 @@ import { resizeImage } from '../lib/resizeImage';
 import { extractImageFiles } from '../lib/paste-images';
 import { MAX_IMAGE_ATTACHMENTS } from '../lib/constants';
 import { SlashPicker } from './SlashPicker';
+import { ContextPicker } from './ContextPicker';
 import { MicButton } from './MicButton';
 import type { UseVoiceReturn } from '../hooks/useVoice';
 
 interface Props {
-  onSend: (text: string, images?: ImageAttachment[]) => boolean;
+  onSend: (text: string, images?: ImageAttachment[], contextBlocks?: string[]) => boolean;
   onStop: () => void;
-  onInterrupt?: (text: string, images?: ImageAttachment[]) => void;
+  onInterrupt?: (text: string, images?: ImageAttachment[], contextBlocks?: string[]) => void;
   running: boolean;
   initialText?: string;
   cwd?: string;
@@ -40,6 +41,8 @@ export function ChatInput({
   const [text, setText] = useState(initialText || '');
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [showSlashPicker, setShowSlashPicker] = useState(false);
+  const [showContextPicker, setShowContextPicker] = useState(false);
+  const [contextBlocks, setContextBlocks] = useState<string[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const initialApplied = useRef(false);
@@ -93,10 +96,12 @@ export function ChatInput({
     const sent = onSend(
       trimmed || 'What do you see in this image?',
       images.length > 0 ? images : undefined,
+      contextBlocks.length > 0 ? contextBlocks : undefined,
     );
     if (sent) {
       setText('');
       setImages([]);
+      setContextBlocks([]);
       requestAnimationFrame(() => {
         autoResize();
         textareaRef.current?.focus();
@@ -179,9 +184,11 @@ export function ChatInput({
     onInterrupt(
       trimmed || 'What do you see in this image?',
       images.length > 0 ? images : undefined,
+      contextBlocks.length > 0 ? contextBlocks : undefined,
     );
     setText('');
     setImages([]);
+    setContextBlocks([]);
     requestAnimationFrame(() => {
       autoResize();
       textareaRef.current?.focus();
@@ -198,6 +205,17 @@ export function ChatInput({
           cwd={cwd}
         />
       )}
+      {showContextPicker && (
+        <ContextPicker
+          selected={contextBlocks}
+          onToggle={(name) =>
+            setContextBlocks((prev) =>
+              prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
+            )
+          }
+          onClose={() => setShowContextPicker(false)}
+        />
+      )}
       {images.length > 0 && (
         <div className="chat-input-previews">
           {images.map((img, i) => (
@@ -207,6 +225,21 @@ export function ChatInput({
                 &times;
               </button>
             </div>
+          ))}
+        </div>
+      )}
+      {contextBlocks.length > 0 && (
+        <div className="chat-input-context-pills">
+          {contextBlocks.map((name) => (
+            <span key={name} className="chat-input-context-pill">
+              {name}
+              <button
+                className="chat-input-context-pill-remove"
+                onClick={() => setContextBlocks((prev) => prev.filter((n) => n !== name))}
+              >
+                &times;
+              </button>
+            </span>
           ))}
         </div>
       )}
@@ -232,6 +265,13 @@ export function ChatInput({
           title="Attach image"
         >
           +
+        </button>
+        <button
+          className={`chat-input-btn chat-input-btn--context${contextBlocks.length > 0 ? ' chat-input-btn--active' : ''}`}
+          onClick={() => setShowContextPicker((v) => !v)}
+          title="Attach context"
+        >
+          @
         </button>
         <input
           ref={fileInputRef}

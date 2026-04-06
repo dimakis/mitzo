@@ -5,11 +5,15 @@ import type { FinishedMessage } from '../types/chat';
 interface UserBubbleProps {
   text?: string;
   images?: string[];
+  contextNames?: string[];
 }
 
-export function UserBubble({ text, images }: UserBubbleProps) {
+export function UserBubble({ text, images, contextNames }: UserBubbleProps) {
   return (
     <div className="msg-bubble msg-bubble--user">
+      {contextNames && contextNames.length > 0 && (
+        <div className="msg-bubble-context">@ {contextNames.join(', ')}</div>
+      )}
       {images && images.length > 0 && (
         <div className="msg-bubble-images">
           {images.map((src, i) => (

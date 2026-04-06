@@ -2041,6 +2041,116 @@ textarea:focus {
   text-align: center;
 }
 
+/* Context picker (multi-select, triggered by @ button) */
+
+.context-picker {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  max-height: 240px;
+  overflow-y: auto;
+  margin-bottom: 0.25rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+.context-picker-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.context-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  font-size: 0.85rem;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.context-picker-item:last-child {
+  border-bottom: none;
+}
+
+.context-picker-item:hover {
+  background: var(--hover);
+}
+
+.context-picker-item--selected {
+  background: rgba(108, 99, 255, 0.08);
+}
+
+.context-picker-check {
+  flex-shrink: 0;
+  width: 1rem;
+  text-align: center;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.context-picker-name {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.context-picker-size {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  margin-left: auto;
+}
+
+.context-picker-empty {
+  padding: 0.75rem;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+/* Context pills (selected blocks shown above textarea) */
+
+.chat-input-context-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.chat-input-context-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.7rem;
+  color: var(--accent);
+  background: rgba(108, 99, 255, 0.1);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 0.1rem 0.35rem;
+}
+
+.chat-input-context-pill-remove {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.chat-input-btn--context {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.chat-input-btn--active {
+  color: var(--accent);
+}
+
 /* Image preview strip above input */
 
 .chat-input-previews {
@@ -2086,6 +2196,13 @@ textarea:focus {
 }
 
 /* Images in message bubbles */
+
+.msg-bubble-context {
+  font-size: 0.7rem;
+  color: var(--accent);
+  margin-bottom: 0.3rem;
+  opacity: 0.8;
+}
 
 .msg-bubble-images {
   display: flex;
