@@ -199,10 +199,14 @@ export async function runQueryLoop(
               cwd: currentSession.cwd,
               mode: currentSession.mode,
             });
-            // Persist the initial user prompt now that we have a sessionId
+            // Persist the initial user prompt now that we have a sessionId.
+            // Store only — do NOT emit to WS. The live client already rendered
+            // this message optimistically via USER_SEND; emitting it would
+            // cause a duplicate bubble (mismatched messageId defeats dedup).
             if (initialPrompt) {
-              emit(
-                currentWs,
+              store.append(
+                resolvedSessionId,
+                'user_message',
                 v2('user_message', {
                   messageId: `umsg-${Date.now()}-${userMsgCounter++}`,
                   text: initialPrompt,

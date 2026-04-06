@@ -804,6 +804,11 @@ describe('runQueryLoop', () => {
       });
 
       expect(userMsgEvents[0].seq).toEqual(expect.any(Number));
+
+      // Must NOT be sent to WS — the live client already rendered it
+      // optimistically via USER_SEND; emitting would cause a duplicate bubble.
+      const wsMsgs = ws.sent.filter((m) => m.type === 'user_message');
+      expect(wsMsgs).toHaveLength(0);
     });
 
     it('persists follow-up user_message from sendToChat in the event store', async () => {
