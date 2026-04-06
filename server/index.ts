@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { existsSync, readFileSync } from 'fs';
 import { createServer } from 'http';
 import { createServer as createHttpsServer } from 'https';
+import type { Socket } from 'net';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -29,6 +30,7 @@ import {
   buildSkillRegistry,
   NATIVE_COMMAND_NAMES,
   isAllowedPath,
+  yapperWsProxy,
 } from './app.js';
 import { IncomingWsMessage } from './ws-schemas.js';
 import { resolveSlashCommand } from './slash-commands.js';
@@ -63,6 +65,13 @@ setUpdateBroadcast(() => {
 
 server.on('upgrade', async (req, socket, head) => {
   const url = new URL(req.url || '', `http://${req.headers.host}`);
+
+  // Yapper WebSocket proxy — no auth required (voice is local-only)
+  if (url.pathname.startsWith('/api/yapper-ws')) {
+    yapperWsProxy.upgrade(req, socket as Socket, head);
+    return;
+  }
+
   if (!url.pathname.startsWith('/ws/chat')) {
     socket.destroy();
     return;
