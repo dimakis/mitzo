@@ -91,7 +91,6 @@ export async function runQueryLoop(
   const blockIdByIndex = new Map<number, string>();
 
   let blockCounter = 0;
-  let userMsgCounter = 0;
   let currentMessageId: string | null = null;
   let doneSent = false;
   let openBlockCount = 0;
@@ -192,22 +191,15 @@ export async function runQueryLoop(
           resolvedSessionId = msg.session_id as string;
           registry.setSessionId(clientId, resolvedSessionId);
           emit(currentWs, { type: 'session_id', sessionId: msg.session_id });
-          // Persist session metadata to durable store
+          // Persist session metadata (including initial prompt) to durable store
           if (store) {
             store.upsertSession({
               sessionId: resolvedSessionId,
               cwd: currentSession.cwd,
               mode: currentSession.mode,
+              ...(initialPrompt ? { initialPrompt } : {}),
             });
-            // Persist the initial user prompt now that we have a sessionId
             if (initialPrompt) {
-              emit(
-                currentWs,
-                v2('user_message', {
-                  messageId: `umsg-${Date.now()}-${userMsgCounter++}`,
-                  text: initialPrompt,
-                }),
-              );
               // Count the initial prompt for auto-rename tracking
               store.incrementPromptCount(resolvedSessionId);
             }

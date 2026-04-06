@@ -203,9 +203,7 @@ describe('replayEventsToMessages — user_message events', () => {
     expect(result[3]).toMatchObject({ role: 'assistant' });
   });
 
-  it('reorders out-of-order initial prompt before first assistant message', () => {
-    // Simulates the real event store order: sessionId resolves on the assistant
-    // event, so the initial user_message is stored after the first turn's events
+  it('injects initialPrompt as first message when provided', () => {
     const events: StoredEvent[] = [
       evt(1, 'message_start', { messageId: 'msg-a1' }),
       evt(2, 'block_start', { messageId: 'msg-a1', blockId: 'b0', blockType: 'text' }),
@@ -216,16 +214,62 @@ describe('replayEventsToMessages — user_message events', () => {
         delta: 'Hi!',
       }),
       evt(4, 'block_end', { messageId: 'msg-a1', blockId: 'b0', blockType: 'text' }),
+      evt(5, 'message_end', { messageId: 'msg-a1' }),
+    ];
+    const result = replayEventsToMessages(events, 'Hello Claude');
+    expect(result).toHaveLength(2);
+    expect(result[0]).toMatchObject({
+      role: 'user',
+      blocks: [{ blockType: 'text', content: 'Hello Claude' }],
+    });
+    expect(result[1]).toMatchObject({ messageId: 'msg-a1', role: 'assistant' });
+  });
+
+  it('does not duplicate initial prompt if also present as event', () => {
+    // Legacy events may still have user_message in the stream — initialPrompt wins
+    const events: StoredEvent[] = [
+      evt(1, 'message_start', { messageId: 'msg-a1' }),
+      evt(2, 'block_start', { messageId: 'msg-a1', blockId: 'b0', blockType: 'text' }),
+      evt(3, 'block_delta', { messageId: 'msg-a1', blockId: 'b0', delta: 'Hi!' }),
+      evt(4, 'block_end', { messageId: 'msg-a1', blockId: 'b0', blockType: 'text' }),
+      evt(5, 'user_message', { messageId: 'umsg-initial', text: 'Hello Claude' }),
+      evt(6, 'message_end', { messageId: 'msg-a1' }),
+    ];
+    const result = replayEventsToMessages(events, 'Hello Claude');
+    expect(result).toHaveLength(2);
+    expect(result[0]).toMatchObject({ role: 'user', blocks: [{ content: 'Hello Claude' }] });
+    expect(result[1]).toMatchObject({ role: 'assistant' });
+  });
+
+  it('still handles legacy out-of-order initial prompts without initialPrompt param', () => {
+    // Backward compat: old sessions stored the initial prompt as an out-of-order event
+    const events: StoredEvent[] = [
+      evt(1, 'message_start', { messageId: 'msg-a1' }),
+      evt(2, 'block_start', { messageId: 'msg-a1', blockId: 'b0', blockType: 'text' }),
+      evt(3, 'block_delta', { messageId: 'msg-a1', blockId: 'b0', delta: 'Hi!' }),
+      evt(4, 'block_end', { messageId: 'msg-a1', blockId: 'b0', blockType: 'text' }),
       evt(5, 'user_message', { messageId: 'umsg-initial', text: 'Hello Claude' }),
       evt(6, 'message_end', { messageId: 'msg-a1' }),
     ];
     const result = replayEventsToMessages(events);
     expect(result).toHaveLength(2);
-    // User message should come FIRST despite being stored after message_start
-    expect(result[0]).toMatchObject({
-      role: 'user',
-      blocks: [{ content: 'Hello Claude' }],
-    });
+    expect(result[0]).toMatchObject({ role: 'user', blocks: [{ content: 'Hello Claude' }] });
+    expect(result[1]).toMatchObject({ role: 'assistant' });
+  });
+
+  it('handles out-of-order initial prompt after message_end (race condition)', () => {
+    // Bug case: message_end flushes before user_message is emitted
+    const events: StoredEvent[] = [
+      evt(1, 'message_start', { messageId: 'msg-a1' }),
+      evt(2, 'block_start', { messageId: 'msg-a1', blockId: 'b0', blockType: 'text' }),
+      evt(3, 'block_delta', { messageId: 'msg-a1', blockId: 'b0', delta: 'Hi!' }),
+      evt(4, 'block_end', { messageId: 'msg-a1', blockId: 'b0', blockType: 'text' }),
+      evt(5, 'message_end', { messageId: 'msg-a1' }),
+      evt(6, 'user_message', { messageId: 'umsg-initial', text: 'Hello Claude' }),
+    ];
+    const result = replayEventsToMessages(events, 'Hello Claude');
+    expect(result).toHaveLength(2);
+    expect(result[0]).toMatchObject({ role: 'user', blocks: [{ content: 'Hello Claude' }] });
     expect(result[1]).toMatchObject({ role: 'assistant' });
   });
 
@@ -236,5 +280,14 @@ describe('replayEventsToMessages — user_message events', () => {
     const result = replayEventsToMessages(events);
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({ role: 'user', blocks: [{ content: 'Unanswered' }] });
+  });
+
+  it('injects initialPrompt even with no events', () => {
+    const result = replayEventsToMessages([], 'Hello from empty session');
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      role: 'user',
+      blocks: [{ content: 'Hello from empty session' }],
+    });
   });
 });
