@@ -1,8 +1,26 @@
 // TTS utilities — text chunking, synthesis fetch, AudioContext playback.
 
-import { TTS_CHUNK_MAX_CHARS } from './constants';
+import { TTS_CHUNK_MAX_CHARS, TTS_CHUNK_MIN_CHARS, TTS_MAX_SPEAK_CHARS } from './constants';
 
-const MIN_FRAGMENT_LEN = 10;
+// --- Pre-processing ---
+
+/** Strip fenced code blocks and inline code so TTS doesn't read raw source. */
+export function stripCodeForTts(text: string): string {
+  // Remove fenced code blocks (``` ... ```)
+  let result = text.replace(/```[\s\S]*?```/g, '');
+  // Remove inline code (`...`)
+  result = result.replace(/`[^`]+`/g, '');
+  // Collapse multiple blank lines left behind
+  result = result.replace(/\n{3,}/g, '\n\n');
+  return result.trim();
+}
+
+/** Truncate text to TTS_MAX_SPEAK_CHARS at a word boundary. */
+export function truncateForTts(text: string, max = TTS_MAX_SPEAK_CHARS): string {
+  if (text.length <= max) return text;
+  const cut = text.lastIndexOf(' ', max);
+  return (cut > 0 ? text.slice(0, cut) : text.slice(0, max)) + '...';
+}
 
 // --- Text chunking ---
 
@@ -17,7 +35,7 @@ export function chunkText(text: string, maxLen = TTS_CHUNK_MAX_CHARS): string[] 
   // Merge short fragments with previous chunk
   const merged: string[] = [];
   for (const fragment of raw) {
-    if (merged.length > 0 && fragment.length < MIN_FRAGMENT_LEN) {
+    if (merged.length > 0 && fragment.length < TTS_CHUNK_MIN_CHARS) {
       merged[merged.length - 1] += ' ' + fragment;
     } else {
       merged.push(fragment);
@@ -97,9 +115,12 @@ export function closeAudioContext(): void {
 export function playAudio(blob: Blob): { play: () => Promise<void>; stop: () => void } {
   let source: AudioBufferSourceNode | null = null;
   let stopped = false;
+  let started = false;
 
   return {
     async play() {
+      if (started || stopped) return;
+      started = true;
       const ctx = getOrCreateAudioContext();
       if (ctx.state === 'suspended') await ctx.resume();
 

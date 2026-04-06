@@ -1,12 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   chunkText,
+  stripCodeForTts,
+  truncateForTts,
   synthesize,
   getOrCreateAudioContext,
   closeAudioContext,
   playAudio,
 } from '../tts';
-import { TTS_CHUNK_MAX_CHARS } from '../constants';
+import { TTS_CHUNK_MAX_CHARS, TTS_MAX_SPEAK_CHARS } from '../constants';
 
 // --- Mocks ---
 
@@ -98,6 +100,52 @@ describe('chunkText', () => {
   });
 });
 
+// --- stripCodeForTts ---
+
+describe('stripCodeForTts', () => {
+  it('removes fenced code blocks', () => {
+    const text = 'Here is code:\n```js\nconsole.log("hi");\n```\nDone.';
+    expect(stripCodeForTts(text)).toBe('Here is code:\n\nDone.');
+  });
+
+  it('removes inline code', () => {
+    expect(stripCodeForTts('Use `useState` for state.')).toBe('Use  for state.');
+  });
+
+  it('handles multiple code blocks', () => {
+    const text = 'A\n```\nfoo\n```\nB\n```\nbar\n```\nC';
+    expect(stripCodeForTts(text)).toBe('A\n\nB\n\nC');
+  });
+
+  it('returns plain text unchanged', () => {
+    expect(stripCodeForTts('Hello world.')).toBe('Hello world.');
+  });
+
+  it('handles empty string', () => {
+    expect(stripCodeForTts('')).toBe('');
+  });
+});
+
+// --- truncateForTts ---
+
+describe('truncateForTts', () => {
+  it('returns short text unchanged', () => {
+    expect(truncateForTts('Hello.')).toBe('Hello.');
+  });
+
+  it('truncates at word boundary with ellipsis', () => {
+    const text = 'word '.repeat(500).trim();
+    const result = truncateForTts(text);
+    expect(result.length).toBeLessThanOrEqual(TTS_MAX_SPEAK_CHARS + 5);
+    expect(result.endsWith('...')).toBe(true);
+  });
+
+  it('respects custom max', () => {
+    const result = truncateForTts('one two three four five', 10);
+    expect(result).toBe('one two...');
+  });
+});
+
 // --- synthesize ---
 
 describe('synthesize', () => {
@@ -184,5 +232,18 @@ describe('playAudio', () => {
     handle.stop();
     await playPromise;
     // Should not throw
+  });
+
+  it('play() is idempotent — second call is a no-op', async () => {
+    const blob = new Blob(['audio'], { type: 'audio/wav' });
+    const handle = playAudio(blob);
+
+    await handle.play();
+    const ctx = getOrCreateAudioContext() as unknown as MockAudioContext;
+    const callCount = ctx.decodeAudioData.mock.calls.length;
+
+    // Second play should not decode again
+    await handle.play();
+    expect(ctx.decodeAudioData.mock.calls.length).toBe(callCount);
   });
 });
