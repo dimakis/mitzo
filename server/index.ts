@@ -18,7 +18,7 @@ import {
   BASE_REPO,
   registry,
   eventStore,
-  repoConfig,
+  getRepoConfig,
 } from './chat.js';
 import { cleanupStaleWorktrees } from './worktree.js';
 import { HEARTBEAT_INTERVAL_MS, PORT_DEFAULT, SHUTDOWN_GRACE_MS } from './constants.js';
@@ -316,7 +316,10 @@ checkPort(PORT).then((inUse) => {
     const protocol = USE_TLS ? 'https' : 'http';
     log.info(`Chat Agent running on ${protocol}://localhost:${PORT}${USE_TLS ? ' (TLS)' : ''}`);
     // Clean up stale worktrees across all repos
-    for (const [label, repoPath] of [['primary', BASE_REPO], ...Object.entries(repoConfig.repos)]) {
+    for (const [label, repoPath] of [
+      ['primary', BASE_REPO],
+      ...Object.entries(getRepoConfig().repos),
+    ]) {
       try {
         cleanupStaleWorktrees(repoPath);
       } catch (err: unknown) {
