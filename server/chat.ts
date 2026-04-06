@@ -281,6 +281,7 @@ export async function startChat(
     mode?: MitzoMode;
     worktree?: boolean;
     images?: Array<{ data: string; mediaType: string }>;
+    contextBlocks?: string[];
   },
 ) {
   const abortController = new AbortController();
@@ -288,7 +289,7 @@ export async function startChat(
   const baseCwd = options.cwd || BASE_REPO;
 
   const { cwd, worktreePath } = resolveWorktree(ws, baseCwd, options);
-  const fullPrompt = assemblePrompt(prompt, cwd, options.images);
+  const fullPrompt = assemblePrompt(prompt, cwd, options.images, options.contextBlocks);
 
   const modeAllowed = getAllowedToolsForMode(mode);
   const mcpAllowed = buildMcpAllowedTools();
@@ -426,10 +427,11 @@ export function sendToChat(
   clientId: string,
   prompt: string,
   images?: Array<{ data: string; mediaType: string }>,
+  contextBlocks?: string[],
 ): boolean {
   const session = registry.get(clientId);
   if (!session?.inputQueue) return false;
-  const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images);
+  const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
   if (session.sessionId) {
     eventStore.append(session.sessionId, 'user_message', {
       v: 2,
@@ -449,10 +451,11 @@ export async function interruptChat(
   clientId: string,
   prompt: string,
   images?: Array<{ data: string; mediaType: string }>,
+  contextBlocks?: string[],
 ): Promise<boolean> {
   const session = registry.get(clientId);
   if (!session?.queryInstance || !session?.inputQueue) return false;
-  const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images);
+  const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
   if (session.sessionId) {
     eventStore.append(session.sessionId, 'user_message', {
       v: 2,
