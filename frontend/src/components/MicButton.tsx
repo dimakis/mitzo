@@ -1,5 +1,9 @@
 // Push-to-talk mic button for voice capture.
 // Hold to record, release to send, drag away to cancel.
+// Uses touch events on mobile (iOS WebKit ignores pointer events on buttons)
+// with pointer events as desktop fallback.
+
+import { useRef } from 'react';
 
 interface Props {
   available: boolean;
@@ -20,6 +24,8 @@ export function MicButton({
   onRecordStop,
   onRecordCancel,
 }: Props) {
+  const touchActiveRef = useRef(false);
+
   if (!available) return null;
 
   if (micBlocked) {
@@ -40,15 +46,33 @@ export function MicButton({
       title={title}
       disabled={transcribing}
       style={{ touchAction: 'none' }}
-      onPointerDown={(e) => {
+      onTouchStart={(e) => {
         if (transcribing) return;
+        e.preventDefault();
+        touchActiveRef.current = true;
+        onRecordStart();
+      }}
+      onTouchEnd={() => {
+        if (!touchActiveRef.current) return;
+        touchActiveRef.current = false;
+        if (recording) onRecordStop();
+      }}
+      onTouchCancel={() => {
+        if (!touchActiveRef.current) return;
+        touchActiveRef.current = false;
+        if (recording) onRecordCancel();
+      }}
+      onPointerDown={(e) => {
+        if (transcribing || touchActiveRef.current) return;
         e.preventDefault();
         onRecordStart();
       }}
       onPointerUp={() => {
+        if (touchActiveRef.current) return;
         if (recording) onRecordStop();
       }}
       onPointerLeave={() => {
+        if (touchActiveRef.current) return;
         if (recording) onRecordCancel();
       }}
     >
