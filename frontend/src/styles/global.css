@@ -1659,6 +1659,39 @@ textarea:focus {
   flex-shrink: 0;
 }
 
+.chat-input-command-strip {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0 0.25rem;
+}
+
+.chat-input-branch {
+  font-family: var(--code-font);
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  background: var(--surface);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  max-width: 7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-left: 0.5rem;
+}
+
+.chat-input-branch--wt {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(108, 99, 255, 0.1);
+}
+
+/* When idle (no text), mic is the last child — push it right to align above send */
+.chat-input-command-strip > .mic-btn:last-child {
+  margin-left: auto;
+}
+
 .chat-input-row {
   display: flex;
   align-items: flex-end;
@@ -1667,15 +1700,7 @@ textarea:focus {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 22px;
-  padding: 0.35rem 0.35rem 0.35rem 0.35rem;
-}
-
-.chat-input-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  align-self: flex-end;
-  flex-shrink: 0;
+  padding: 0.35rem 0.35rem 0.35rem 0.75rem;
 }
 
 .chat-input-field {
