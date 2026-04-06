@@ -16,6 +16,7 @@ import { useChatMessages } from '../hooks/useChatMessages';
 import { useChatConnection } from '../hooks/useChatConnection';
 import { usePermission } from '../hooks/usePermission';
 import { useVoice } from '../hooks/useVoice';
+import { useAutoSpeak } from '../hooks/useAutoSpeak';
 import type { FinishedBlock, ImageAttachment } from '../types/chat';
 
 export function ChatView() {
@@ -30,7 +31,6 @@ export function ChatView() {
 
   const voice = useVoice();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const lastSpokenIdRef = useRef<string | null>(null);
 
   const forceScrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -120,26 +120,13 @@ export function ChatView() {
     dispatch({ type: 'PERMISSION_TIMEOUT', permId: msgState.permission?.permId ?? '' });
   });
 
-  // --- TTS: auto-speak on completed assistant message ---
-  const { ttsEnabled, ttsAvailable, speak } = voice;
-  useEffect(() => {
-    if (!ttsEnabled || !ttsAvailable) return;
-    // Wait until streaming is done so we speak the full message
-    if (msgState.running) return;
-
-    const lastMsg = msgState.messages[msgState.messages.length - 1];
-    if (!lastMsg || lastMsg.role !== 'assistant') return;
-    if (lastMsg.messageId === lastSpokenIdRef.current) return;
-
-    lastSpokenIdRef.current = lastMsg.messageId;
-
-    const text = lastMsg.blocks
-      .filter((b) => b.blockType === 'text')
-      .map((b) => b.content)
-      .join('\n');
-
-    if (text.trim()) speak(text);
-  }, [msgState.messages, msgState.running, ttsEnabled, ttsAvailable, speak]);
+  useAutoSpeak({
+    messages: msgState.messages,
+    running: msgState.running,
+    ttsEnabled: voice.ttsEnabled,
+    ttsAvailable: voice.ttsAvailable,
+    speak: voice.speak,
+  });
 
   const hasStarted = msgState.messages.some((m) => m.role === 'user');
 
