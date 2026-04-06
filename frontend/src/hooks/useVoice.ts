@@ -27,7 +27,7 @@ import {
 
 interface YapperHealth {
   status: string;
-  models: { stt: boolean; tts: boolean };
+  models?: { stt?: boolean; tts?: boolean };
 }
 
 export interface Voice {
@@ -126,8 +126,12 @@ export function useVoice(): UseVoiceReturn {
         }
         const data: YapperHealth = await res.json();
         if (mounted) {
-          setAvailable(data.status === 'ready' && data.models.stt === true);
-          setTtsAvailable(data.status === 'ready' && data.models.tts === true);
+          const isReady = data.status === 'ready' || data.status === 'ok';
+          // Yapper may omit `models` — when status is ok, assume both capabilities
+          const stt = data.models ? data.models.stt === true : isReady;
+          const tts = data.models ? data.models.tts === true : isReady;
+          setAvailable(isReady && stt);
+          setTtsAvailable(isReady && tts);
         }
       } catch {
         if (mounted) {
