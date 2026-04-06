@@ -39,6 +39,7 @@ export function MicButton({
       className={`mic-btn ${stateClass}`.trim()}
       title={title}
       disabled={transcribing}
+      style={{ touchAction: 'none' }}
       onPointerDown={(e) => {
         if (transcribing) return;
         e.preventDefault();
