@@ -186,7 +186,10 @@ export function useVoice(): UseVoiceReturn {
       }
 
       // Try streaming path: streaming recorder + WS client
-      const wsUrl = YAPPER_URL.replace(/^http/, 'ws') + '/v1/transcribe/stream';
+      // HTTP proxy is at /api/yapper; WS proxy is at /api/yapper-ws
+      const wsUrl =
+        YAPPER_URL.replace(/^http/, 'ws').replace('/api/yapper', '/api/yapper-ws') +
+        '/v1/transcribe/stream';
       const wsClient = createYapperStreamClient(wsUrl);
       wsClientRef.current = wsClient;
       streamingActiveRef.current = true;

@@ -7,6 +7,7 @@ import { join, dirname, resolve, extname } from 'path';
 import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
+import { createProxyMiddleware } from 'http-proxy-middleware';
 import { login, authMiddleware, COOKIE_NAME, MAX_AGE_HOURS } from './auth.js';
 import {
   getSessions,
@@ -130,6 +131,25 @@ export function runUpdateCheck() {
     onUpdateAvailable?.();
   }
 }
+
+// --- Yapper proxy (mounted before authMiddleware — no login required for voice) ---
+
+const YAPPER_TARGET = process.env.YAPPER_PROXY_TARGET || 'http://localhost:8700';
+
+export const yapperHttpProxy = createProxyMiddleware({
+  target: YAPPER_TARGET,
+  changeOrigin: true,
+  pathRewrite: { '^/api/yapper': '' },
+});
+
+export const yapperWsProxy = createProxyMiddleware({
+  target: YAPPER_TARGET.replace(/^http/, 'ws'),
+  changeOrigin: true,
+  ws: true,
+  pathRewrite: { '^/api/yapper-ws': '' },
+});
+
+app.use('/api/yapper', yapperHttpProxy);
 
 // --- Routes ---
 

@@ -18,7 +18,7 @@ export const MAX_IMAGE_ATTACHMENTS = 4;
 // --- Voice / Yapper ---
 export const YAPPER_URL =
   import.meta.env.VITE_YAPPER_URL ||
-  `http://${typeof window !== 'undefined' ? window.location.hostname : 'localhost'}:8700`;
+  `${typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : 'http://localhost'}/api/yapper`;
 export const YAPPER_HEALTH_POLL_MS = 30_000;
 export const MAX_RECORDING_DURATION_MS = 120_000;
 export const MIN_RECORDING_DURATION_MS = 500;
