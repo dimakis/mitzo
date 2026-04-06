@@ -66,6 +66,14 @@ export interface UseVoiceReturn {
   setVoice: (id: string) => void;
 }
 
+/** Map mimeType to Yapper format string. */
+function mimeToFormat(mime: string): string {
+  if (mime.includes('opus')) return 'webm/opus';
+  if (mime.includes('webm')) return 'webm';
+  if (mime.includes('mp4')) return 'mp4';
+  return 'webm';
+}
+
 export function useVoice(): UseVoiceReturn {
   // --- STT state ---
   const [available, setAvailable] = useState(false);
@@ -85,10 +93,16 @@ export function useVoice(): UseVoiceReturn {
     () => localStorage.getItem(TTS_VOICE_KEY) || DEFAULT_TTS_VOICE,
   );
 
-  const [partialTranscript, setPartialTranscript] = useState('');
+  const [partialTranscript, setPartialTranscriptState] = useState('');
+  const partialRef = useRef('');
+  const setPartialTranscript = useCallback((text: string) => {
+    partialRef.current = text;
+    setPartialTranscriptState(text);
+  }, []);
 
   const recorderRef = useRef<Recorder | null>(null);
   const streamRecorderRef = useRef<StreamingRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
   const wsClientRef = useRef<YapperStreamClient | null>(null);
   const finalResolveRef = useRef<((text: string) => void) | null>(null);
   const streamingActiveRef = useRef(false);
@@ -148,13 +162,11 @@ export function useVoice(): UseVoiceReturn {
     };
   }, []);
 
-  // --- Helper: map mimeType to Yapper format string ---
-  function mimeToFormat(mime: string): string {
-    if (mime.includes('opus')) return 'webm/opus';
-    if (mime.includes('webm')) return 'webm';
-    if (mime.includes('mp4')) return 'mp4';
-    return 'webm';
-  }
+  // --- Helper: release the shared MediaStream ---
+  const releaseStream = useCallback(() => {
+    mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+    mediaStreamRef.current = null;
+  }, []);
 
   // --- STT: Recording (streaming with batch fallback) ---
   const startRecording = useCallback(async () => {
@@ -194,12 +206,15 @@ export function useVoice(): UseVoiceReturn {
       // Send format frame
       wsClient.sendFormat(mimeToFormat(mimeType));
 
-      // Create streaming recorder
-      const streamRec = createStreamingRecorder(stream, mimeType);
+      // Store the stream — the hook owns track cleanup, not the recorders
+      mediaStreamRef.current = stream;
+
+      // Create streaming recorder (doesn't own stream)
+      const streamRec = createStreamingRecorder(stream, mimeType, { ownsStream: false });
       streamRecorderRef.current = streamRec;
 
-      // Also create a batch recorder as fallback
-      const batchRec = createRecorder(stream, mimeType);
+      // Also create a batch recorder as fallback (doesn't own stream)
+      const batchRec = createRecorder(stream, mimeType, { ownsStream: false });
       batchRec.onAutoStop = () => setRecording(false);
       recorderRef.current = batchRec;
 
@@ -239,11 +254,11 @@ export function useVoice(): UseVoiceReturn {
       try {
         const text = await new Promise<string>((resolve) => {
           finalResolveRef.current = resolve;
-          // Timeout: fall back to batch if no final arrives in 5s
+          // Timeout: use best-effort partial transcript if no final arrives in 5s
           setTimeout(() => {
             if (finalResolveRef.current === resolve) {
               finalResolveRef.current = null;
-              resolve('');
+              resolve(partialRef.current);
             }
           }, 5000);
         });
@@ -258,6 +273,7 @@ export function useVoice(): UseVoiceReturn {
         recorderRef.current?.cancel();
         recorderRef.current = null;
 
+        releaseStream();
         return text;
       } catch {
         // Fall through to batch
@@ -297,8 +313,9 @@ export function useVoice(): UseVoiceReturn {
       wsClientRef.current = null;
       streamRecorderRef.current = null;
       streamingActiveRef.current = false;
+      releaseStream();
     }
-  }, []);
+  }, [releaseStream]);
 
   const cancelRecording = useCallback(() => {
     // Clean up streaming
@@ -313,10 +330,11 @@ export function useVoice(): UseVoiceReturn {
     recorderRef.current?.cancel();
     recorderRef.current = null;
 
+    releaseStream();
     setRecording(false);
     setTranscribing(false);
     setPartialTranscript('');
-  }, []);
+  }, [releaseStream]);
 
   // --- TTS: Voice list ---
   const fetchVoices = useCallback(async () => {

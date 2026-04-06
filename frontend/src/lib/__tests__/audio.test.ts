@@ -152,7 +152,9 @@ describe('createStreamingRecorder', () => {
   it('emits chunks via onChunk callback during recording', async () => {
     vi.useFakeTimers();
     const stream = mockStream();
-    const recorder = createStreamingRecorder(stream, 'audio/webm;codecs=opus', 100);
+    const recorder = createStreamingRecorder(stream, 'audio/webm;codecs=opus', {
+      timesliceMs: 100,
+    });
     const chunks: Blob[] = [];
     recorder.onChunk = (blob) => chunks.push(blob);
 
@@ -169,7 +171,9 @@ describe('createStreamingRecorder', () => {
   it('fires onStop when recording ends', async () => {
     vi.useFakeTimers();
     const stream = mockStream();
-    const recorder = createStreamingRecorder(stream, 'audio/webm;codecs=opus', 100);
+    const recorder = createStreamingRecorder(stream, 'audio/webm;codecs=opus', {
+      timesliceMs: 100,
+    });
     const onStop = vi.fn();
     recorder.onStop = onStop;
 
@@ -185,7 +189,9 @@ describe('createStreamingRecorder', () => {
 
   it('cancel stops without firing onStop', () => {
     const stream = mockStream();
-    const recorder = createStreamingRecorder(stream, 'audio/webm;codecs=opus', 100);
+    const recorder = createStreamingRecorder(stream, 'audio/webm;codecs=opus', {
+      timesliceMs: 100,
+    });
     const onStop = vi.fn();
     recorder.onStop = onStop;
 
@@ -200,7 +206,9 @@ describe('createStreamingRecorder', () => {
   it('auto-stops after MAX_RECORDING_DURATION_MS', () => {
     vi.useFakeTimers();
     const stream = mockStream();
-    const recorder = createStreamingRecorder(stream, 'audio/webm;codecs=opus', 100);
+    const recorder = createStreamingRecorder(stream, 'audio/webm;codecs=opus', {
+      timesliceMs: 100,
+    });
     const onAutoStop = vi.fn();
     recorder.onAutoStop = onAutoStop;
 
