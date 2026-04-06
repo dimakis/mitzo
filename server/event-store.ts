@@ -21,6 +21,7 @@ export interface SessionMeta {
   isHidden: boolean;
   promptCount: number;
   manuallyRenamed: boolean;
+  initialPrompt: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -43,6 +44,7 @@ interface SessionRow {
   is_hidden: number;
   prompt_count: number;
   manually_renamed: number;
+  initial_prompt: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -127,7 +129,7 @@ export class EventStore {
     log.info('EventStore initialized', { dbPath });
   }
 
-  /** Add prompt_count and manually_renamed columns if they don't exist yet. */
+  /** Add prompt_count, manually_renamed, and initial_prompt columns if they don't exist yet. */
   private migratePromptTracking(db: Database.Database): void {
     const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
     const columnNames = new Set(columns.map((c) => c.name));
@@ -138,6 +140,10 @@ export class EventStore {
     if (!columnNames.has('manually_renamed')) {
       db.exec('ALTER TABLE sessions ADD COLUMN manually_renamed INTEGER NOT NULL DEFAULT 0');
       log.info('migrated sessions table: added manually_renamed');
+    }
+    if (!columnNames.has('initial_prompt')) {
+      db.exec('ALTER TABLE sessions ADD COLUMN initial_prompt TEXT');
+      log.info('migrated sessions table: added initial_prompt');
     }
   }
 
@@ -191,6 +197,10 @@ export class EventStore {
         fields.push('is_active = ?');
         values.push(meta.isActive ? 1 : 0);
       }
+      if (meta.initialPrompt !== undefined) {
+        fields.push('initial_prompt = ?');
+        values.push(meta.initialPrompt);
+      }
       fields.push("updated_at = unixepoch('now', 'subsec') * 1000");
       values.push(meta.sessionId);
       this.db!.prepare(`UPDATE sessions SET ${fields.join(', ')} WHERE session_id = ?`).run(
@@ -198,13 +208,14 @@ export class EventStore {
       );
     } else {
       this.db!.prepare(
-        'INSERT INTO sessions (session_id, summary, branch, cwd, mode) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO sessions (session_id, summary, branch, cwd, mode, initial_prompt) VALUES (?, ?, ?, ?, ?, ?)',
       ).run(
         meta.sessionId,
         meta.summary ?? null,
         meta.branch ?? null,
         meta.cwd ?? null,
         meta.mode ?? 'agent',
+        meta.initialPrompt ?? null,
       );
     }
   }
@@ -277,6 +288,7 @@ function rowToSession(row: SessionRow): SessionMeta {
     isHidden: row.is_hidden === 1,
     promptCount: row.prompt_count ?? 0,
     manuallyRenamed: (row.manually_renamed ?? 0) === 1,
+    initialPrompt: row.initial_prompt ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

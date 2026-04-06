@@ -766,7 +766,7 @@ describe('runQueryLoop', () => {
       expect(stored.some((e) => e.type === 'session_end')).toBe(true);
     });
 
-    it('persists initial prompt as user_message when sessionId resolves', async () => {
+    it('persists initial prompt on session metadata when sessionId resolves', async () => {
       const events: Record<string, unknown>[] = [
         { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-ip' } } },
         {
@@ -796,14 +796,15 @@ describe('runQueryLoop', () => {
         'Hello, this is my first message',
       );
 
+      // Initial prompt is stored on session metadata, not as an event
+      const session = store.getSession('sess-ip');
+      expect(session).toBeTruthy();
+      expect(session!.initialPrompt).toBe('Hello, this is my first message');
+
+      // No user_message event should be in the event stream
       const stored = store.getSessionEvents('sess-ip');
       const userMsgEvents = stored.filter((e) => e.type === 'user_message');
-      expect(userMsgEvents).toHaveLength(1);
-      expect(userMsgEvents[0].payload).toMatchObject({
-        text: 'Hello, this is my first message',
-      });
-
-      expect(userMsgEvents[0].seq).toEqual(expect.any(Number));
+      expect(userMsgEvents).toHaveLength(0);
     });
 
     it('persists follow-up user_message from sendToChat in the event store', async () => {

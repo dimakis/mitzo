@@ -582,22 +582,27 @@ export interface RestoredMessage {
 
 /**
  * Replay v2 events from the event store into finished messages.
+ *
+ * @param initialPrompt — If provided (from session metadata), injected as the
+ *   first user message. This is the primary mechanism for initial prompts.
+ *   Legacy sessions that stored the initial prompt as an out-of-order
+ *   user_message event are still handled as a fallback.
  */
 /** Exported for testing. */
 export function replayEventsToMessages(
   events: import('./event-store.js').StoredEvent[],
+  initialPrompt?: string,
 ): RestoredMessage[] {
   const messages: RestoredMessage[] = [];
   let currentMsg: RestoredMessage | null = null;
   const blockContent = new Map<string, string>();
   const toolResults = new Map<string, { result: string; isError: boolean }>();
 
-  // First pass: collect tool results and find initial prompt
-  // The initial prompt's user_message may appear after the first assistant turn
-  // in the event store (sessionId isn't known until the first assistant event).
-  // Detect this by finding user_messages that appear after a message_start but
-  // before any message_end — these are out-of-order initial prompts.
-  let initialPromptEvent: import('./event-store.js').StoredEvent | null = null;
+  // First pass: collect tool results and detect legacy out-of-order initial prompts.
+  // Legacy sessions stored the initial user_message after the first assistant turn
+  // (sessionId wasn't known until the first assistant event). Detect these so we
+  // can either skip them (if initialPrompt is provided) or reorder them (fallback).
+  let legacyInitialPromptEvent: import('./event-store.js').StoredEvent | null = null;
   let seenMessageStart = false;
   let seenMessageEnd = false;
   for (const evt of events) {
@@ -610,16 +615,24 @@ export function replayEventsToMessages(
     }
     if (evt.type === 'message_start') seenMessageStart = true;
     if (evt.type === 'message_end') seenMessageEnd = true;
-    // A user_message that appears after message_start but before/at message_end
-    // is an out-of-order initial prompt
+    // A user_message that appears after message_start but before any message_end
+    // is an out-of-order initial prompt from the legacy storage path.
+    // After the first message_end, user_messages are normal follow-ups.
     if (evt.type === 'user_message' && seenMessageStart && !seenMessageEnd) {
-      initialPromptEvent = evt;
+      if (!legacyInitialPromptEvent) legacyInitialPromptEvent = evt;
     }
   }
 
-  // Inject initial prompt at the start if it was out of order
-  if (initialPromptEvent) {
-    const p = initialPromptEvent.payload;
+  // Inject the initial prompt as the first message.
+  // Priority: initialPrompt param (from session metadata) > legacy out-of-order event
+  if (initialPrompt) {
+    messages.push({
+      messageId: `umsg-initial-${Date.now()}`,
+      role: 'user',
+      blocks: [{ blockId: 'user-initial', blockType: 'text', content: initialPrompt }],
+    });
+  } else if (legacyInitialPromptEvent) {
+    const p = legacyInitialPromptEvent.payload;
     messages.push({
       messageId: p.messageId as string,
       role: 'user',
@@ -634,8 +647,12 @@ export function replayEventsToMessages(
   }
 
   for (const evt of events) {
-    // Skip the initial prompt — already injected above
-    if (evt === initialPromptEvent) continue;
+    // Skip legacy out-of-order initial prompt — already injected above
+    if (evt === legacyInitialPromptEvent) continue;
+    // Skip any user_message event whose text matches the injected initialPrompt
+    // (prevents duplicates from legacy events still in the store)
+    if (initialPrompt && evt.type === 'user_message' && evt.payload.text === initialPrompt)
+      continue;
     const p = evt.payload;
     switch (evt.type) {
       case 'user_message':
@@ -716,7 +733,8 @@ export async function getMessages(sessionId: string) {
   // Primary: replay from durable event store
   const events = eventStore.getSessionEvents(sessionId);
   if (events.length > 0) {
-    return replayEventsToMessages(events);
+    const session = eventStore.getSession(sessionId);
+    return replayEventsToMessages(events, session?.initialPrompt ?? undefined);
   }
 
   // Fallback: SDK JSONL for pre-migration sessions
