@@ -101,6 +101,25 @@ export function getOrCreateAudioContext(): AudioContext {
   return audioCtx;
 }
 
+/**
+ * Unlock the AudioContext for iOS Safari.
+ *
+ * iOS requires audio to be played during a user gesture to "unlock" the context.
+ * Call this when the user toggles TTS on — it plays a tiny silent buffer so that
+ * later programmatic playback (when assistant messages arrive) is not blocked.
+ */
+export async function unlockAudioContext(): Promise<void> {
+  const ctx = getOrCreateAudioContext();
+  if (ctx.state === 'suspended') {
+    await ctx.resume();
+  }
+  const buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  source.connect(ctx.destination);
+  source.start(0);
+}
+
 /** Close and release the shared AudioContext. Call on unmount. */
 export function closeAudioContext(): void {
   if (audioCtx) {

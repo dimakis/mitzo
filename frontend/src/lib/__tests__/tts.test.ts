@@ -7,6 +7,7 @@ import {
   getOrCreateAudioContext,
   closeAudioContext,
   playAudio,
+  unlockAudioContext,
 } from '../tts';
 import { TTS_CHUNK_MAX_CHARS, TTS_MAX_SPEAK_CHARS } from '../constants';
 
@@ -29,7 +30,9 @@ class MockAudioBufferSourceNode {
 
 class MockAudioContext {
   state = 'running';
+  sampleRate = 44100;
   decodeAudioData = vi.fn(() => Promise.resolve({ duration: 1, length: 44100, sampleRate: 44100 }));
+  createBuffer = vi.fn(() => ({ length: 1, numberOfChannels: 1, sampleRate: 44100 }));
   createBufferSource = vi.fn(() => new MockAudioBufferSourceNode());
   destination = {};
   close = vi.fn();
@@ -208,6 +211,40 @@ describe('AudioContext management', () => {
     const ctx2 = getOrCreateAudioContext();
     expect(ctx2).not.toBe(ctx1);
     expect(ctx1.close).toHaveBeenCalled();
+  });
+});
+
+// --- unlockAudioContext ---
+
+describe('unlockAudioContext', () => {
+  it('creates an AudioContext if none exists', async () => {
+    await unlockAudioContext();
+    const ctx = getOrCreateAudioContext() as unknown as MockAudioContext;
+    expect(ctx).toBeInstanceOf(MockAudioContext);
+  });
+
+  it('resumes a suspended context', async () => {
+    const ctx = getOrCreateAudioContext() as unknown as MockAudioContext;
+    ctx.state = 'suspended';
+    await unlockAudioContext();
+    expect(ctx.resume).toHaveBeenCalled();
+  });
+
+  it('creates a buffer source, connects it, and starts it (playing silence)', async () => {
+    await unlockAudioContext();
+    const ctx = getOrCreateAudioContext() as unknown as MockAudioContext;
+    expect(ctx.createBufferSource).toHaveBeenCalled();
+    const source = ctx.createBufferSource.mock.results[0].value as MockAudioBufferSourceNode;
+    expect(source.connect).toHaveBeenCalledWith(ctx.destination);
+    expect(source.start).toHaveBeenCalledWith(0);
+  });
+
+  it('is safe to call multiple times', async () => {
+    await unlockAudioContext();
+    await unlockAudioContext();
+    // Should not throw, and context should be reused
+    const ctx = getOrCreateAudioContext() as unknown as MockAudioContext;
+    expect(ctx).toBeInstanceOf(MockAudioContext);
   });
 });
 
