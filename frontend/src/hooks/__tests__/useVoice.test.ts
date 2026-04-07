@@ -55,6 +55,7 @@ vi.mock('../../lib/tts', () => ({
   playAudio: vi.fn(() => mockPlayHandle),
   getOrCreateAudioContext: vi.fn(() => ({ state: 'running' })),
   closeAudioContext: vi.fn(),
+  unlockAudioContext: vi.fn(() => Promise.resolve()),
 }));
 
 // Mock fetch
@@ -516,6 +517,30 @@ describe('useVoice', () => {
       await waitFor(() => {
         expect(result.current.voices).toHaveLength(2);
       });
+    });
+
+    it('setTtsEnabled(true) calls unlockAudioContext for iOS Safari', async () => {
+      const { unlockAudioContext } = await import('../../lib/tts');
+      mockHealthyWithTts();
+      // Mock voices fetch
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            voices: [
+              { id: 'af_heart', name: 'Heart', language: 'American English', gender: 'female' },
+            ],
+          }),
+      });
+
+      const { result } = renderHook(() => useVoice());
+      await waitFor(() => expect(result.current.ttsAvailable).toBe(true));
+
+      await act(async () => {
+        result.current.setTtsEnabled(true);
+      });
+
+      expect(unlockAudioContext).toHaveBeenCalled();
     });
 
     it('speak() synthesizes and plays audio', async () => {

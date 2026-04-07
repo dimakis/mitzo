@@ -21,7 +21,7 @@ import {
   chunkText,
   synthesize,
   playAudio,
-  getOrCreateAudioContext,
+  unlockAudioContext,
   closeAudioContext,
 } from '../lib/tts';
 
@@ -372,8 +372,9 @@ export function useVoice(): UseVoiceReturn {
       setTtsEnabledState(v);
       localStorage.setItem(TTS_ENABLED_KEY, String(v));
       if (v) {
-        // Lazy AudioContext creation on user gesture
-        getOrCreateAudioContext();
+        // Unlock AudioContext on user gesture — plays a silent buffer so iOS
+        // Safari allows programmatic playback later when assistant messages arrive.
+        unlockAudioContext().catch(() => {});
         // Lazy voice list fetch
         fetchVoices();
       }
