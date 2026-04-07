@@ -14,6 +14,7 @@ interface AutoSpeakOpts {
 
 export function useAutoSpeak({
   messages,
+  running,
   ttsEnabled,
   ttsAvailable,
   speak,
@@ -21,15 +22,19 @@ export function useAutoSpeak({
   const spokenIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    if (!ttsEnabled || !ttsAvailable) return;
+    if (running || !ttsEnabled || !ttsAvailable) return;
+
+    // Prune IDs no longer present in messages
+    const currentIds = new Set(messages.map((m) => m.messageId));
+    for (const id of spokenIdsRef.current) {
+      if (!currentIds.has(id)) spokenIdsRef.current.delete(id);
+    }
 
     // Find the newest unspoken assistant message
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
       if (msg.role !== 'assistant') continue;
-      if (spokenIdsRef.current.has(msg.messageId)) break; // already spoken — nothing newer
-
-      spokenIdsRef.current.add(msg.messageId);
+      if (spokenIdsRef.current.has(msg.messageId)) continue; // already spoken
 
       const raw = msg.blocks
         .filter((b) => b.blockType === 'text')
@@ -37,8 +42,11 @@ export function useAutoSpeak({
         .join('\n');
 
       const text = truncateForTts(stripCodeForTts(raw)).trim();
-      if (text) speak(text);
+      if (text) {
+        spokenIdsRef.current.add(msg.messageId);
+        speak(text);
+      }
       break;
     }
-  }, [messages, ttsEnabled, ttsAvailable, speak]);
+  }, [messages, running, ttsEnabled, ttsAvailable, speak]);
 }
