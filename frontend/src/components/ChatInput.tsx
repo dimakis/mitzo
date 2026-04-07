@@ -25,6 +25,9 @@ interface Props {
   voice?: UseVoiceReturn;
   branch?: string;
   isWorktree?: boolean;
+  sandbox?: boolean;
+  onSandboxToggle?: () => void;
+  sandboxDisabled?: boolean;
 }
 
 export function ChatInput({
@@ -37,6 +40,9 @@ export function ChatInput({
   voice,
   branch,
   isWorktree,
+  sandbox,
+  onSandboxToggle,
+  sandboxDisabled,
 }: Props) {
   const [text, setText] = useState(initialText || '');
   const [images, setImages] = useState<ImageAttachment[]>([]);
@@ -282,10 +288,28 @@ export function ChatInput({
           onChange={handleFileChange}
           className="sr-only"
         />
+        {onSandboxToggle && (
+          <button
+            className={`chat-input-btn chat-input-btn--worktree${sandbox || isWorktree ? ' chat-input-btn--worktree-active' : ''}`}
+            onClick={onSandboxToggle}
+            disabled={sandboxDisabled}
+            title={
+              isWorktree
+                ? 'Running in sandbox worktree'
+                : sandbox
+                  ? 'Sandbox on — will create worktree'
+                  : 'Sandbox off — using base repo'
+            }
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+              <path d="M12 2C12 2 12 8 12 10C9 7 5 8 5 12C5 14 6 15.5 8 16C6 16.5 4 18 4 20.5V22H20V20.5C20 18 18 16.5 16 16C18 15.5 19 14 19 12C19 8 15 7 12 10C12 8 12 2 12 2Z" />
+            </svg>
+          </button>
+        )}
         {branch && (
           <span
             className={`chat-input-branch${isWorktree ? ' chat-input-branch--wt' : ''}`}
-            title={branch}
+            title={isWorktree ? `worktree: ${branch}` : branch}
           >
             {branch}
           </span>
