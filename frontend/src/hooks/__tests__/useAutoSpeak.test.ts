@@ -42,26 +42,31 @@ describe('useAutoSpeak', () => {
     expect(speak).toHaveBeenCalledWith('Hello there.');
   });
 
-  it('does not speak when still streaming (running=true)', () => {
+  it('speaks assistant messages immediately even while running', () => {
     const speak = vi.fn();
-    const msg = makeMsg('assistant', 'Partial...');
+    const msg = makeMsg('assistant', 'Let me check that.', 'msg-1');
     renderHook(() => useAutoSpeak(baseOpts({ messages: [msg], running: true, speak })));
 
-    expect(speak).not.toHaveBeenCalled();
+    expect(speak).toHaveBeenCalledWith('Let me check that.');
   });
 
-  it('speaks once streaming finishes', () => {
+  it('speaks each new assistant message during a multi-turn tool-use session', () => {
     const speak = vi.fn();
-    const msg = makeMsg('assistant', 'Full message.', 'msg-1');
+    const msg1 = makeMsg('assistant', 'Checking the file.', 'msg-1');
+
     const { rerender } = renderHook((props) => useAutoSpeak(props), {
-      initialProps: baseOpts({ messages: [msg], running: true, speak }),
+      initialProps: baseOpts({ messages: [msg1], running: true, speak }),
     });
 
-    expect(speak).not.toHaveBeenCalled();
+    expect(speak).toHaveBeenCalledTimes(1);
+    expect(speak).toHaveBeenCalledWith('Checking the file.');
 
-    // Streaming ends
-    rerender(baseOpts({ messages: [msg], running: false, speak }));
-    expect(speak).toHaveBeenCalledWith('Full message.');
+    // Second assistant message arrives (after tool result)
+    const msg2 = makeMsg('assistant', 'Here is what I found.', 'msg-2');
+    rerender(baseOpts({ messages: [msg1, msg2], running: true, speak }));
+
+    expect(speak).toHaveBeenCalledTimes(2);
+    expect(speak).toHaveBeenCalledWith('Here is what I found.');
   });
 
   it('does not speak the same message twice', () => {
@@ -74,6 +79,21 @@ describe('useAutoSpeak', () => {
 
     // Re-render with same messages
     rerender(opts);
+    expect(speak).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not re-speak earlier messages when running transitions to false', () => {
+    const speak = vi.fn();
+    const msg = makeMsg('assistant', 'Already spoken.', 'msg-1');
+
+    const { rerender } = renderHook((props) => useAutoSpeak(props), {
+      initialProps: baseOpts({ messages: [msg], running: true, speak }),
+    });
+
+    expect(speak).toHaveBeenCalledTimes(1);
+
+    // running → false, same messages — should not re-speak
+    rerender(baseOpts({ messages: [msg], running: false, speak }));
     expect(speak).toHaveBeenCalledTimes(1);
   });
 
@@ -137,5 +157,19 @@ describe('useAutoSpeak', () => {
 
     expect(stripCodeForTts).toHaveBeenCalledWith('Some text.');
     expect(truncateForTts).toHaveBeenCalled();
+  });
+
+  it('skips assistant messages with only non-text blocks', () => {
+    const speak = vi.fn();
+    const msg: FinishedMessage = {
+      messageId: 'msg-tools-only',
+      role: 'assistant',
+      blocks: [
+        { blockId: 'b1', blockType: 'tool_use', content: '{}', toolName: 'read' },
+      ],
+    };
+    renderHook(() => useAutoSpeak(baseOpts({ messages: [msg], speak })));
+
+    expect(speak).not.toHaveBeenCalled();
   });
 });
