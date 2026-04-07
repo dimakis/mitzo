@@ -374,7 +374,7 @@ export function useVoice(): UseVoiceReturn {
       if (v) {
         // Unlock AudioContext on user gesture — plays a silent buffer so iOS
         // Safari allows programmatic playback later when assistant messages arrive.
-        unlockAudioContext();
+        unlockAudioContext().catch(() => {});
         // Lazy voice list fetch
         fetchVoices();
       }
