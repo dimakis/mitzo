@@ -70,11 +70,11 @@ AUTH_SECRET=any-random-string-at-least-32-characters-long
 REPO_PATH=/absolute/path/to/your/main/repo
 ```
 
-| Variable          | What it does                                                                             |
-| ----------------- | ---------------------------------------------------------------------------------------- |
-| `AUTH_PASSPHRASE` | The password you'll type to log in from your phone                                       |
-| `AUTH_SECRET`     | JWT signing key — any random string, 32+ chars. Generate one with `openssl rand -hex 32` |
-| `REPO_PATH`       | The repo Mitzo will work in by default. Point it at whatever you work in most.           |
+| Variable          | What it does                                                                                                                                                                                                                                                                                             |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AUTH_PASSPHRASE` | The password you'll type to log in from your phone                                                                                                                                                                                                                                                       |
+| `AUTH_SECRET`     | JWT signing key — any random string, 32+ chars. Generate one with `openssl rand -hex 32`                                                                                                                                                                                                                 |
+| `REPO_PATH`       | The default repo for Claude sessions (absolute path). This is where Claude starts — file browser, quick actions, and new chats all default to this directory. Pick the repo you work in most. If you work across multiple repos, you'll configure `roots` in `.mitzo.json` later to switch between them. |
 
 Leave everything else at defaults for now.
 
@@ -168,32 +168,44 @@ pm2 logs mitzo      # view logs
 pm2 restart mitzo   # restart after config changes
 ```
 
-## Customizing for your repo
+## Configuring your repo (`.mitzo.json`)
 
-### Quick actions (`.mitzo.json`)
+The `.mitzo.json` file in your repo root is how you teach Mitzo about your workspace. It controls the home screen, what Claude can access, and what domain knowledge gets injected into sessions. Drop this in the repo you set as `REPO_PATH`.
 
-Drop a `.mitzo.json` file in your repo root to add one-tap shortcuts to the home screen:
+Here's a full example — adapt it to your setup:
 
 ```json
 {
   "quickActions": [
     {
-      "label": "Run Tests",
-      "desc": "Full test suite",
-      "prompt": "Run the test suite and summarize results.",
+      "label": "Status Check",
+      "desc": "What needs my attention",
+      "prompt": "Check the current state of the repo and summarize what needs attention.",
       "extraTools": "Bash"
     },
     {
       "label": "PR Summary",
-      "desc": "Summarize open PRs",
-      "prompt": "List open PRs on this repo with a one-line summary of each.",
+      "desc": "Open pull requests",
+      "prompt": "List open PRs with a one-line summary of each. Flag any that are stale or need review.",
       "extraTools": "Bash"
     }
-  ]
+  ],
+  "roots": [
+    { "label": "My Repo", "path": "/Users/you/projects/my-repo" },
+    { "label": "Other Repo", "path": "/Users/you/projects/other-repo" }
+  ],
+  "allowedPaths": ["/Users/you/projects"],
+  "contextBlocks": {
+    "Team Structure": "/Users/you/projects/my-repo/docs/team.md",
+    "Architecture": "/Users/you/projects/my-repo/docs/architecture.md"
+  },
+  "venvPaths": [".venv/bin"]
 }
 ```
 
-Each quick action becomes a button on the home screen that starts a chat with the given prompt.
+### Quick actions
+
+One-tap buttons on the home screen. Each starts a chat with the given prompt.
 
 | Field        | Required | Description                                          |
 | ------------ | -------- | ---------------------------------------------------- |
@@ -203,18 +215,57 @@ Each quick action becomes a button on the home screen that starts a chat with th
 | `extraTools` | No       | Additional tools to allow (e.g. `"Bash"`)            |
 | `cwd`        | No       | Working directory override (relative to `REPO_PATH`) |
 
-### Python virtual environments
+Think of these as the things you do repeatedly — status checks, report generation, triage. If you find yourself typing the same prompt more than twice, make it a quick action.
 
-If your repo uses Python with a venv, tell Mitzo where it is so Claude has access to the right Python:
+### Roots (multi-repo navigation)
 
 ```json
-{
-  "quickActions": [...],
-  "venvPaths": [".venv/bin"]
+"roots": [
+  { "label": "Main", "path": "/Users/you/projects/main-repo" },
+  { "label": "Tooling", "path": "/Users/you/projects/tooling" }
+]
+```
+
+Roots let you switch between repos from the Mitzo file browser without restarting. The first root is your default; the others appear as tabs. Useful if you work across multiple repos.
+
+### Allowed paths
+
+```json
+"allowedPaths": [
+  "/Users/you/projects",
+  "/Users/you/tools"
+]
+```
+
+By default Claude can only access files under `REPO_PATH`. If you need it to read or write files in other directories (sibling repos, shared tooling, config files), list those paths here. These are additive — `REPO_PATH` is always accessible.
+
+### Context blocks (domain knowledge injection)
+
+```json
+"contextBlocks": {
+  "Team Structure": "/Users/you/docs/team.md",
+  "Workflow": "/Users/you/docs/workflow.md"
 }
 ```
 
-Paths are relative to `REPO_PATH`.
+Context blocks are markdown files that get injected into every Claude session as reference material. This is how you give Claude persistent domain knowledge without repeating yourself — org structure, project conventions, Jira workflows, architecture docs.
+
+Each entry is a label (shown in the UI) and an absolute path to a markdown file. The files are read at session start and included as context. They don't need to live in the same repo — they can be anywhere on your filesystem.
+
+Good candidates for context blocks:
+
+- Team structure and responsibilities
+- Project architecture overviews
+- Workflow docs (how your team uses Jira, Git, etc.)
+- `CLAUDE.md` or `CONSTITUTION.md` from repos you work in often
+
+### Python virtual environments
+
+```json
+"venvPaths": [".venv/bin"]
+```
+
+If your repo uses Python venvs, list the paths (relative to `REPO_PATH`) so Claude sessions have the right Python and packages on `PATH`.
 
 ### Custom skills
 
