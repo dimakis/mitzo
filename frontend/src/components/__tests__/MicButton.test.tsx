@@ -33,7 +33,7 @@ describe('MicButton', () => {
         onRecordCancel={vi.fn()}
       />,
     );
-    expect(screen.getByTitle('Hold to record')).toBeTruthy();
+    expect(screen.getByTitle('Tap to record')).toBeTruthy();
   });
 
   it('shows recording state with red styling', () => {
@@ -49,6 +49,21 @@ describe('MicButton', () => {
       />,
     );
     expect(container.querySelector('.mic-btn--recording')).toBeTruthy();
+  });
+
+  it('shows correct title for recording state', () => {
+    render(
+      <MicButton
+        available={true}
+        recording={true}
+        transcribing={false}
+        micBlocked={false}
+        onRecordStart={vi.fn()}
+        onRecordStop={vi.fn()}
+        onRecordCancel={vi.fn()}
+      />,
+    );
+    expect(screen.getByTitle('Tap to stop')).toBeTruthy();
   });
 
   it('shows transcribing state with spinner', () => {
@@ -81,7 +96,7 @@ describe('MicButton', () => {
     expect(screen.getByTitle('Microphone blocked')).toBeTruthy();
   });
 
-  it('calls onRecordStart on pointerdown', () => {
+  it('calls onRecordStart on click when idle', () => {
     const onStart = vi.fn();
     render(
       <MicButton
@@ -94,11 +109,11 @@ describe('MicButton', () => {
         onRecordCancel={vi.fn()}
       />,
     );
-    fireEvent.pointerDown(screen.getByTitle('Hold to record'));
+    fireEvent.click(screen.getByTitle('Tap to record'));
     expect(onStart).toHaveBeenCalledTimes(1);
   });
 
-  it('calls onRecordStop on pointerup when recording', () => {
+  it('calls onRecordStop on click when recording', () => {
     const onStop = vi.fn();
     render(
       <MicButton
@@ -111,11 +126,11 @@ describe('MicButton', () => {
         onRecordCancel={vi.fn()}
       />,
     );
-    fireEvent.pointerUp(screen.getByTitle('Release to send'));
+    fireEvent.click(screen.getByTitle('Tap to stop'));
     expect(onStop).toHaveBeenCalledTimes(1);
   });
 
-  it('calls onRecordCancel on pointer leave when recording', () => {
+  it('does not call onRecordCancel on pointer leave when recording', () => {
     const onCancel = vi.fn();
     render(
       <MicButton
@@ -128,8 +143,25 @@ describe('MicButton', () => {
         onRecordCancel={onCancel}
       />,
     );
-    fireEvent.pointerLeave(screen.getByTitle('Release to send'));
-    expect(onCancel).toHaveBeenCalledTimes(1);
+    fireEvent.pointerLeave(screen.getByTitle('Tap to stop'));
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it('does not start recording on pointerDown alone', () => {
+    const onStart = vi.fn();
+    render(
+      <MicButton
+        available={true}
+        recording={false}
+        transcribing={false}
+        micBlocked={false}
+        onRecordStart={onStart}
+        onRecordStop={vi.fn()}
+        onRecordCancel={vi.fn()}
+      />,
+    );
+    fireEvent.pointerDown(screen.getByTitle('Tap to record'));
+    expect(onStart).not.toHaveBeenCalled();
   });
 
   it('is disabled while transcribing', () => {
@@ -145,7 +177,7 @@ describe('MicButton', () => {
         onRecordCancel={vi.fn()}
       />,
     );
-    fireEvent.pointerDown(screen.getByRole('button'));
+    fireEvent.click(screen.getByRole('button'));
     expect(onStart).not.toHaveBeenCalled();
   });
 });

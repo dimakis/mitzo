@@ -42,24 +42,24 @@ describe('ChatInput with voice', () => {
   it('shows mic button when voice is available', () => {
     const voice = makeVoice();
     render(<ChatInput onSend={noop} onStop={noopVoid} running={false} voice={voice} />);
-    expect(screen.getByTitle('Hold to record')).toBeTruthy();
+    expect(screen.getByTitle('Tap to record')).toBeTruthy();
   });
 
   it('hides mic button when voice is unavailable', () => {
     const voice = makeVoice({ available: false });
     render(<ChatInput onSend={noop} onStop={noopVoid} running={false} voice={voice} />);
-    expect(screen.queryByTitle('Hold to record')).toBeNull();
+    expect(screen.queryByTitle('Tap to record')).toBeNull();
   });
 
   it('hides mic button when no voice prop', () => {
     render(<ChatInput onSend={noop} onStop={noopVoid} running={false} />);
-    expect(screen.queryByTitle('Hold to record')).toBeNull();
+    expect(screen.queryByTitle('Tap to record')).toBeNull();
   });
 
-  it('calls startRecording on pointer down', () => {
+  it('calls startRecording on click', () => {
     const voice = makeVoice();
     render(<ChatInput onSend={noop} onStop={noopVoid} running={false} voice={voice} />);
-    fireEvent.pointerDown(screen.getByTitle('Hold to record'));
+    fireEvent.click(screen.getByTitle('Tap to record'));
     expect(voice.startRecording).toHaveBeenCalledTimes(1);
   });
 
@@ -70,7 +70,7 @@ describe('ChatInput with voice', () => {
     );
 
     // Trigger stop — the onRecordStop handler calls voice.stopRecording and sets text
-    fireEvent.pointerUp(screen.getByTitle('Release to send'));
+    fireEvent.click(screen.getByTitle('Tap to stop'));
 
     // Wait for the async transcript to resolve
     await vi.waitFor(() => {
