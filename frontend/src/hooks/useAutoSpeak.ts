@@ -1,4 +1,4 @@
-// Auto-speak: reads aloud the last completed assistant message via TTS.
+// Auto-speak: reads aloud each completed assistant message via TTS.
 
 import { useEffect, useRef } from 'react';
 import { stripCodeForTts, truncateForTts } from '../lib/tts';
@@ -14,30 +14,31 @@ interface AutoSpeakOpts {
 
 export function useAutoSpeak({
   messages,
-  running,
   ttsEnabled,
   ttsAvailable,
   speak,
 }: AutoSpeakOpts) {
-  const lastSpokenIdRef = useRef<string | null>(null);
+  const spokenIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!ttsEnabled || !ttsAvailable) return;
-    // Wait until streaming is done so we speak the full message
-    if (running) return;
 
-    const lastMsg = messages[messages.length - 1];
-    if (!lastMsg || lastMsg.role !== 'assistant') return;
-    if (lastMsg.messageId === lastSpokenIdRef.current) return;
+    // Find the newest unspoken assistant message
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role !== 'assistant') continue;
+      if (spokenIdsRef.current.has(msg.messageId)) break; // already spoken — nothing newer
 
-    lastSpokenIdRef.current = lastMsg.messageId;
+      spokenIdsRef.current.add(msg.messageId);
 
-    const raw = lastMsg.blocks
-      .filter((b) => b.blockType === 'text')
-      .map((b) => b.content)
-      .join('\n');
+      const raw = msg.blocks
+        .filter((b) => b.blockType === 'text')
+        .map((b) => b.content)
+        .join('\n');
 
-    const text = truncateForTts(stripCodeForTts(raw)).trim();
-    if (text) speak(text);
-  }, [messages, running, ttsEnabled, ttsAvailable, speak]);
+      const text = truncateForTts(stripCodeForTts(raw)).trim();
+      if (text) speak(text);
+      break;
+    }
+  }, [messages, ttsEnabled, ttsAvailable, speak]);
 }
