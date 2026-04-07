@@ -112,6 +112,7 @@ export const yapperWsProxy = createProxyMiddleware({
 });
 
 app.use('/api/yapper', yapperHttpProxy);
+app.use('/api/yapper-ws', yapperWsProxy);
 
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
