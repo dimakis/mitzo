@@ -93,6 +93,26 @@ app.use(
     },
   }),
 );
+
+// --- Yapper proxy (mounted before body parsing and authMiddleware — no login required for voice) ---
+
+const YAPPER_TARGET = process.env.YAPPER_PROXY_TARGET || 'http://localhost:8700';
+
+export const yapperHttpProxy = createProxyMiddleware({
+  target: YAPPER_TARGET,
+  changeOrigin: true,
+  pathRewrite: { '^/api/yapper': '' },
+});
+
+export const yapperWsProxy = createProxyMiddleware({
+  target: YAPPER_TARGET.replace(/^http/, 'ws'),
+  changeOrigin: true,
+  ws: true,
+  pathRewrite: { '^/api/yapper-ws': '' },
+});
+
+app.use('/api/yapper', yapperHttpProxy);
+
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
 
@@ -131,25 +151,6 @@ export function runUpdateCheck() {
     onUpdateAvailable?.();
   }
 }
-
-// --- Yapper proxy (mounted before authMiddleware — no login required for voice) ---
-
-const YAPPER_TARGET = process.env.YAPPER_PROXY_TARGET || 'http://localhost:8700';
-
-export const yapperHttpProxy = createProxyMiddleware({
-  target: YAPPER_TARGET,
-  changeOrigin: true,
-  pathRewrite: { '^/api/yapper': '' },
-});
-
-export const yapperWsProxy = createProxyMiddleware({
-  target: YAPPER_TARGET.replace(/^http/, 'ws'),
-  changeOrigin: true,
-  ws: true,
-  pathRewrite: { '^/api/yapper-ws': '' },
-});
-
-app.use('/api/yapper', yapperHttpProxy);
 
 // --- Routes ---
 
