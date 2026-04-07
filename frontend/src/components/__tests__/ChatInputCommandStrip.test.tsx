@@ -74,14 +74,15 @@ describe('ChatInput command strip', () => {
     expect(pill?.getAttribute('title')).toBe(longBranch);
   });
 
-  it('renders mic button in command strip when voice is available', () => {
+  it('renders mic button in input row, not command strip', () => {
     const voice = makeVoice();
     const { container } = render(
       <ChatInput onSend={noop} onStop={noopVoid} running={false} voice={voice} />,
     );
     const strip = container.querySelector('.chat-input-command-strip');
-    const mic = strip?.querySelector('.mic-btn');
-    expect(mic).toBeTruthy();
+    expect(strip?.querySelector('.mic-btn')).toBeNull();
+    const row = container.querySelector('.chat-input-row');
+    expect(row?.querySelector('.mic-btn')).toBeTruthy();
   });
 
   it('keeps single mic button regardless of text input', () => {
