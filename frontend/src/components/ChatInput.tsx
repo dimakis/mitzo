@@ -282,7 +282,6 @@ export function ChatInput({
           onChange={handleFileChange}
           className="sr-only"
         />
-        {micProps && <MicButton {...micProps} />}
         {branch && (
           <span
             className={`chat-input-branch${isWorktree ? ' chat-input-branch--wt' : ''}`}
@@ -336,6 +335,7 @@ export function ChatInput({
             ↑
           </button>
         )}
+        {micProps && <MicButton {...micProps} />}
       </div>
     </div>
   );
