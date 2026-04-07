@@ -80,6 +80,18 @@ beforeAll(async () => {
       );
       return;
     }
+    if (req.url === '/v1/synthesize' && req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk: Buffer) => {
+        body += chunk.toString();
+      });
+      req.on('end', () => {
+        const parsed = JSON.parse(body);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ echoed: parsed }));
+      });
+      return;
+    }
     res.writeHead(404);
     res.end('not found');
   });
@@ -129,5 +141,17 @@ describe('/api/yapper proxy — mounted before authMiddleware', () => {
     // No cookie sent — should still proxy, not 401
     const res = await request(app).get('/api/yapper/health');
     expect(res.status).toBe(200);
+  });
+});
+
+describe('POST /api/yapper/v1/synthesize', () => {
+  it('forwards POST body to Yapper without express.json() consuming it', async () => {
+    const payload = { text: 'Hello world', voice: 'af_heart' };
+    const res = await request(app)
+      .post('/api/yapper/v1/synthesize')
+      .send(payload)
+      .set('Content-Type', 'application/json');
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ echoed: payload });
   });
 });
