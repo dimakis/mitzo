@@ -377,11 +377,25 @@ export function chatMessagesReducer(
 
     case 'USER_MESSAGE_RECEIVED': {
       // Server-side user_message event (from reattach replay or live emit).
-      // Deduplicate: USER_SEND already added this message client-side during
-      // the live session, so skip if a message with this ID already exists.
+      // Exact ID match — already have this message (reattach replay).
       if (state.messages.some((m) => m.messageId === action.messageId)) {
         return state;
       }
+      // Content match — optimistic USER_SEND already rendered this message.
+      // Upgrade the ID to the server's canonical one so reconnect/restore
+      // can find it by the persisted ID.
+      const optimisticIdx = state.messages.findIndex(
+        (m) =>
+          m.role === 'user' &&
+          m.messageId.startsWith('user-') &&
+          m.blocks[0]?.content === action.text,
+      );
+      if (optimisticIdx !== -1) {
+        const updated = [...state.messages];
+        updated[optimisticIdx] = { ...updated[optimisticIdx], messageId: action.messageId };
+        return { ...state, messages: updated };
+      }
+      // No match — add as new (reconnect/reattach scenario).
       return {
         ...state,
         messages: [

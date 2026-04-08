@@ -376,7 +376,7 @@ describe('USER_MESSAGE_RECEIVED deduplication', () => {
     expect(result).toBe(stateWithAssistant);
   });
 
-  it('adds message with different ID even if text is identical', () => {
+  it('adds message with different ID when no optimistic match exists', () => {
     const stateWithMsg: ChatMessagesState = {
       ...INITIAL_STATE,
       messages: [
@@ -387,6 +387,7 @@ describe('USER_MESSAGE_RECEIVED deduplication', () => {
         },
       ],
     };
+    // umsg-100 is a server ID (not optimistic user-*), so same text should still add
     const result = chatMessagesReducer(stateWithMsg, {
       type: 'USER_MESSAGE_RECEIVED',
       messageId: 'umsg-200',
@@ -394,6 +395,54 @@ describe('USER_MESSAGE_RECEIVED deduplication', () => {
     });
     expect(result.messages).toHaveLength(2);
     expect(result.messages[1].messageId).toBe('umsg-200');
+  });
+
+  it('deduplicates optimistic USER_SEND when server echo arrives with different ID', () => {
+    // Simulate: user sends message (optimistic), then server echoes it back
+    const afterSend = chatMessagesReducer(INITIAL_STATE, {
+      type: 'USER_SEND',
+      text: "Yep. Let's go",
+    });
+    expect(afterSend.messages).toHaveLength(1);
+    expect(afterSend.messages[0].messageId).toMatch(/^user-/);
+
+    // Server echoes back with a different ID
+    const afterEcho = chatMessagesReducer(afterSend, {
+      type: 'USER_MESSAGE_RECEIVED',
+      messageId: 'umsg-999-send',
+      text: "Yep. Let's go",
+    });
+    // Should NOT duplicate — should upgrade the ID instead
+    expect(afterEcho.messages).toHaveLength(1);
+    expect(afterEcho.messages[0].messageId).toBe('umsg-999-send');
+    expect(afterEcho.messages[0].blocks[0].content).toBe("Yep. Let's go");
+  });
+
+  it('adds server echo when no optimistic message matches the text', () => {
+    // User sent "hello" optimistically, but server echoes "different text"
+    const afterSend = chatMessagesReducer(INITIAL_STATE, {
+      type: 'USER_SEND',
+      text: 'hello',
+    });
+    const result = chatMessagesReducer(afterSend, {
+      type: 'USER_MESSAGE_RECEIVED',
+      messageId: 'umsg-999-send',
+      text: 'different text',
+    });
+    // Different text — should add as a new message
+    expect(result.messages).toHaveLength(2);
+    expect(result.messages[1].messageId).toBe('umsg-999-send');
+  });
+
+  it('adds server message when no optimistic user-* message exists (reconnect)', () => {
+    // Reconnect scenario: no optimistic message in state, server replays
+    const result = chatMessagesReducer(INITIAL_STATE, {
+      type: 'USER_MESSAGE_RECEIVED',
+      messageId: 'umsg-500-send',
+      text: 'reconnected message',
+    });
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0].messageId).toBe('umsg-500-send');
   });
 
   it('deduplicates after RESTORE with interrupted flow', () => {
