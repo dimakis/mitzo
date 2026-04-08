@@ -9,7 +9,7 @@ allowed-tools:
 
 Triage all review comments on $ARGUMENTS.
 
-If `$ARGUMENTS` is a PR number, fetch comments with `gh api repos/{owner}/{repo}/pulls/{number}/reviews` and `gh api repos/{owner}/{repo}/pulls/{number}/comments`. If no number is given, detect the current branch's open PR with `gh pr view --json number,url`.
+If `$ARGUMENTS` is a PR number, fetch review comments with `gh pr view {number} --json reviews,comments` and `gh api repos/:owner/:repo/pulls/{number}/comments` (`:owner/:repo` is resolved automatically by `gh`). If no number is given, detect the current branch's open PR with `gh pr view --json number,url`.
 
 For **every** finding:
 

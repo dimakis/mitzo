@@ -458,7 +458,7 @@ export function sendToChat(
   const session = registry.get(clientId);
   if (!session?.inputQueue) return false;
   const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
-  const messageId = clientMsgId ?? `umsg-${Date.now()}-send`;
+  const messageId = clientMsgId || `umsg-${Date.now()}-send`;
   if (session.sessionId) {
     eventStore.append(session.sessionId, 'user_message', {
       v: 2,
@@ -488,7 +488,7 @@ export async function interruptChat(
   const session = registry.get(clientId);
   if (!session?.queryInstance || !session?.inputQueue) return false;
   const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
-  const messageId = clientMsgId ?? `umsg-${Date.now()}-interrupt`;
+  const messageId = clientMsgId || `umsg-${Date.now()}-interrupt`;
   if (session.sessionId) {
     eventStore.append(session.sessionId, 'user_message', {
       v: 2,

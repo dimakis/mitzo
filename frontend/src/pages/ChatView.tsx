@@ -19,6 +19,10 @@ import { useVoice } from '../hooks/useVoice';
 import { useAutoSpeak } from '../hooks/useAutoSpeak';
 import type { FinishedBlock, ImageAttachment } from '../types/chat';
 
+function generateClientMsgId(): string {
+  return `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export function ChatView() {
   const { sessionId } = useParams<{ sessionId?: string }>();
   const [searchParams] = useSearchParams();
@@ -134,10 +138,6 @@ export function ChatView() {
   });
 
   const hasStarted = msgState.messages.some((m) => m.role === 'user');
-
-  function generateClientMsgId(): string {
-    return `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  }
 
   function buildSendPayload(
     text: string,
