@@ -232,7 +232,7 @@ export function SessionList() {
         fetch('/api/version')
           .then((r) => r.json())
           .catch(() => ({})),
-      ]).then(([sessData, config, version, inboxData]) => {
+      ]).then(([sessData, config, inboxData, version]) => {
         setSessions(sessData);
         setQuickActions(buildQuickActions(config.quickActions));
         if (version?.updateAvailable) setUpdateAvailable(true);
