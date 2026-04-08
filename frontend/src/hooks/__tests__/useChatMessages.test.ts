@@ -189,6 +189,159 @@ describe('chatMessagesReducer', () => {
   });
 });
 
+describe('RESTORE with interrupted preserves optimistic user messages', () => {
+  it('merges optimistic user sends not present in restored set', () => {
+    const stateWithOptimistic: ChatMessagesState = {
+      ...INITIAL_STATE,
+      messages: [
+        {
+          messageId: 'user-1234',
+          role: 'user',
+          blocks: [{ blockId: 'user-text-1234', blockType: 'text', content: 'my question' }],
+        },
+        {
+          messageId: 'a1',
+          role: 'assistant',
+          blocks: [{ blockId: 'b1', blockType: 'text', content: 'response' }],
+        },
+        {
+          messageId: 'user-5678',
+          role: 'user',
+          blocks: [{ blockId: 'user-text-5678', blockType: 'text', content: 'follow-up' }],
+        },
+      ],
+    };
+
+    // Restored set includes first user + assistant, but NOT the optimistic follow-up
+    const restoredMsgs = [
+      {
+        messageId: 'user-1234' as string,
+        role: 'user' as const,
+        blocks: [{ blockId: 'user-text-1234', blockType: 'text' as const, content: 'my question' }],
+      },
+      {
+        messageId: 'a1' as string,
+        role: 'assistant' as const,
+        blocks: [{ blockId: 'b1', blockType: 'text' as const, content: 'response' }],
+      },
+    ];
+
+    const result = chatMessagesReducer(stateWithOptimistic, {
+      type: 'RESTORE',
+      messages: restoredMsgs,
+      interrupted: true,
+    });
+
+    // Should have: restored msgs + optimistic user + notice
+    const userMsgs = result.messages.filter((m) => m.role === 'user');
+    expect(userMsgs).toHaveLength(2);
+    expect(userMsgs.some((m) => m.messageId === 'user-5678')).toBe(true);
+  });
+
+  it('does not duplicate user messages already in restored set', () => {
+    const stateWithOptimistic: ChatMessagesState = {
+      ...INITIAL_STATE,
+      messages: [
+        {
+          messageId: 'user-1234',
+          role: 'user',
+          blocks: [{ blockId: 'user-text-1234', blockType: 'text', content: 'question' }],
+        },
+      ],
+    };
+
+    const restoredMsgs = [
+      {
+        messageId: 'user-1234' as string,
+        role: 'user' as const,
+        blocks: [{ blockId: 'user-text-1234', blockType: 'text' as const, content: 'question' }],
+      },
+      {
+        messageId: 'a1' as string,
+        role: 'assistant' as const,
+        blocks: [{ blockId: 'b1', blockType: 'text' as const, content: 'answer' }],
+      },
+    ];
+
+    const result = chatMessagesReducer(stateWithOptimistic, {
+      type: 'RESTORE',
+      messages: restoredMsgs,
+      interrupted: true,
+    });
+
+    // user-1234 should appear only once (from restored set)
+    const user1234 = result.messages.filter((m) => m.messageId === 'user-1234');
+    expect(user1234).toHaveLength(1);
+  });
+
+  it('does not merge assistant messages as optimistic', () => {
+    const stateWithOrphan: ChatMessagesState = {
+      ...INITIAL_STATE,
+      messages: [
+        {
+          messageId: 'orphan-assistant',
+          role: 'assistant',
+          blocks: [{ blockId: 'ob1', blockType: 'text', content: 'stale' }],
+        },
+      ],
+    };
+
+    const restoredMsgs = [
+      {
+        messageId: 'a1' as string,
+        role: 'assistant' as const,
+        blocks: [{ blockId: 'b1', blockType: 'text' as const, content: 'fresh' }],
+      },
+    ];
+
+    const result = chatMessagesReducer(stateWithOrphan, {
+      type: 'RESTORE',
+      messages: restoredMsgs,
+      interrupted: true,
+    });
+
+    // Should NOT include the orphan assistant message
+    const assistantMsgs = result.messages.filter(
+      (m) => m.role === 'assistant' && !m.blocks[0].content.includes('interrupted'),
+    );
+    expect(assistantMsgs).toHaveLength(1);
+    expect(assistantMsgs[0].messageId).toBe('a1');
+  });
+});
+
+describe('USER_MESSAGE_RECEIVED deduplication', () => {
+  it('adds user message when not already present', () => {
+    const result = chatMessagesReducer(INITIAL_STATE, {
+      type: 'USER_MESSAGE_RECEIVED',
+      messageId: 'umsg-100',
+      text: 'hello',
+    });
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0].messageId).toBe('umsg-100');
+    expect(result.messages[0].role).toBe('user');
+  });
+
+  it('skips duplicate when message with same ID already exists', () => {
+    const stateWithMsg: ChatMessagesState = {
+      ...INITIAL_STATE,
+      messages: [
+        {
+          messageId: 'umsg-100',
+          role: 'user',
+          blocks: [{ blockId: 'ut', blockType: 'text', content: 'hello' }],
+        },
+      ],
+    };
+    const result = chatMessagesReducer(stateWithMsg, {
+      type: 'USER_MESSAGE_RECEIVED',
+      messageId: 'umsg-100',
+      text: 'hello',
+    });
+    expect(result.messages).toHaveLength(1);
+    expect(result).toBe(stateWithMsg); // reference equality — no state change
+  });
+});
+
 describe('useChatMessages — reattach_failed handler', () => {
   it('restores messages from API array response on reattach_failed', async () => {
     const apiMessages = [
