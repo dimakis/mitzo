@@ -225,4 +225,24 @@ describe('useAutoSpeak', () => {
     expect(speak).toHaveBeenCalledTimes(3);
     expect(speak).toHaveBeenCalledWith('Third.');
   });
+
+  it('speaks only the latest new message when multiple arrive in a single rerender', () => {
+    const speak = vi.fn();
+    const msg1 = makeMsg('assistant', 'First.', 'msg-1');
+    const msg2 = makeMsg('assistant', 'Second.', 'msg-2');
+    const msg3 = makeMsg('assistant', 'Third.', 'msg-3');
+
+    const { rerender } = renderHook((props) => useAutoSpeak(props), {
+      initialProps: baseOpts({ messages: [msg1], running: true, speak }),
+    });
+
+    expect(speak).toHaveBeenCalledTimes(1);
+    expect(speak).toHaveBeenCalledWith('First.');
+
+    // Two new messages arrive at once — only msg3 should be spoken, msg2 silently marked
+    rerender(baseOpts({ messages: [msg1, msg2, msg3], running: true, speak }));
+    expect(speak).toHaveBeenCalledTimes(2);
+    expect(speak).toHaveBeenLastCalledWith('Third.');
+    expect(speak).not.toHaveBeenCalledWith('Second.');
+  });
 });

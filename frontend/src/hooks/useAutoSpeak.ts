@@ -24,27 +24,34 @@ export function useAutoSpeak({ messages, ttsEnabled, ttsAvailable, speak }: Auto
       if (!currentIds.has(id)) spokenIdsRef.current.delete(id);
     }
 
-    // Find the latest unspoken assistant message
-    let latestUnspoken: FinishedMessage | null = null;
+    // Collect all unspoken assistant messages
+    const unspoken: FinishedMessage[] = [];
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
       if (msg.role !== 'assistant') continue;
       if (spokenIdsRef.current.has(msg.messageId)) continue;
-      if (!latestUnspoken) latestUnspoken = msg;
-      // Mark ALL unspoken assistant messages as spoken (prevents pile-up)
-      spokenIdsRef.current.add(msg.messageId);
+      unspoken.push(msg);
     }
 
-    // Only speak the latest one
-    if (latestUnspoken) {
-      const raw = latestUnspoken.blocks
-        .filter((b) => b.blockType === 'text')
-        .map((b) => b.content)
-        .join('\n');
-      const text = truncateForTts(stripCodeForTts(raw)).trim();
-      if (text) {
-        speak(text);
+    if (unspoken.length === 0) return;
+
+    // The latest unspoken is first in the array (reverse iteration)
+    const latestUnspoken = unspoken[0];
+    const raw = latestUnspoken.blocks
+      .filter((b) => b.blockType === 'text')
+      .map((b) => b.content)
+      .join('\n');
+    const text = truncateForTts(stripCodeForTts(raw)).trim();
+
+    if (text) {
+      // Only mark all as spoken when speak actually fires
+      for (const msg of unspoken) {
+        spokenIdsRef.current.add(msg.messageId);
       }
+      speak(text);
+    } else {
+      // Latest had no speakable text — only mark it, leave older messages for next pass
+      spokenIdsRef.current.add(latestUnspoken.messageId);
     }
   }, [messages, ttsEnabled, ttsAvailable, speak]);
 }
