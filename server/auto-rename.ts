@@ -135,6 +135,7 @@ export function shouldAutoRename(promptCount: number, manuallyRenamed: boolean):
   if (manuallyRenamed) return false;
   if (promptCount === 0) return false;
   if (promptCount === 1) return true;
+  if (promptCount <= 2) return false;
   return promptCount % AUTO_RENAME_INTERVAL === 0;
 }
 
@@ -209,18 +210,21 @@ export async function generateSessionName(prompts: string[]): Promise<string> {
 
   try {
     const client = clientFactory();
-    const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 20,
-      system:
-        'Generate a 3-6 word title for this chat session. Be specific and descriptive. Return only the title, nothing else.',
-      messages: [
-        {
-          role: 'user',
-          content: prompts.join('\n'),
-        },
-      ],
-    });
+    const response = await client.messages.create(
+      {
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 20,
+        system:
+          'Generate a 3-6 word title for this chat session. Be specific and descriptive. Return only the title, nothing else.',
+        messages: [
+          {
+            role: 'user',
+            content: prompts.join('\n'),
+          },
+        ],
+      },
+      { timeout: 5000 },
+    );
 
     const textBlock = response.content.find((b) => b.type === 'text');
     const name = textBlock?.text?.trim() ?? '';

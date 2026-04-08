@@ -15,8 +15,8 @@ describe('shouldAutoRename', () => {
     expect(shouldAutoRename(1, false)).toBe(true);
   });
 
-  it('returns true at prompt count 2', () => {
-    expect(shouldAutoRename(2, false)).toBe(true);
+  it('returns false at prompt count 2 (skip back-to-back with prompt 1)', () => {
+    expect(shouldAutoRename(2, false)).toBe(false);
   });
 
   it('returns true at prompt count 4', () => {
@@ -148,18 +148,21 @@ describe('generateSessionName', () => {
 
     expect(result).toBe('Auth Bug Fix Session');
     expect(mockCreate).toHaveBeenCalledOnce();
-    expect(mockCreate).toHaveBeenCalledWith({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 20,
-      system:
-        'Generate a 3-6 word title for this chat session. Be specific and descriptive. Return only the title, nothing else.',
-      messages: [
-        {
-          role: 'user',
-          content: 'Fix the auth bug\nUpdate login page',
-        },
-      ],
-    });
+    expect(mockCreate).toHaveBeenCalledWith(
+      {
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 20,
+        system:
+          'Generate a 3-6 word title for this chat session. Be specific and descriptive. Return only the title, nothing else.',
+        messages: [
+          {
+            role: 'user',
+            content: 'Fix the auth bug\nUpdate login page',
+          },
+        ],
+      },
+      { timeout: 5000 },
+    );
   });
 
   it('falls back to keyword extraction when API call fails', async () => {
