@@ -600,10 +600,11 @@ describe('useVoice', () => {
       const { chunkText, synthesize, playAudio } = await import('../../lib/tts');
       const mockChunk = chunkText as ReturnType<typeof vi.fn>;
       const mockSynth = synthesize as ReturnType<typeof vi.fn>;
+      const mockPlayAudio = playAudio as ReturnType<typeof vi.fn>;
 
       // Clear any calls from previous tests
       mockSynth.mockClear();
-      (playAudio as ReturnType<typeof vi.fn>).mockClear();
+      mockPlayAudio.mockClear();
 
       // 3 chunks: first succeeds, second fails, third succeeds
       mockChunk.mockReturnValueOnce(['chunk1', 'chunk2', 'chunk3']);
@@ -624,7 +625,7 @@ describe('useVoice', () => {
       // synthesize called 3 times (didn't abort after failure)
       expect(mockSynth).toHaveBeenCalledTimes(3);
       // playAudio called for chunk1 and chunk3 (skipped chunk2)
-      expect(playAudio).toHaveBeenCalledTimes(2);
+      expect(mockPlayAudio).toHaveBeenCalledTimes(2);
     });
 
     it('setVoice persists to localStorage', async () => {
