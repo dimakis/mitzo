@@ -5,6 +5,7 @@ import { formatRelativeTime } from '../lib/formatTime';
 import { renameSession } from '../lib/rename-session';
 import { useLongPress } from '../hooks/useLongPress';
 import { computeSwipeState, REVEAL_WIDTH } from '../lib/swipe-reveal';
+import { wsSubscribe } from '../lib/ws-pool';
 
 interface QuickAction {
   label: string;
@@ -226,13 +227,13 @@ export function SessionList() {
         fetch('/api/config')
           .then((r) => r.json())
           .catch(() => ({})),
-        fetch('/api/inbox')
-          .then((r) => r.json())
-          .catch(() => []),
         fetch('/api/version')
           .then((r) => r.json())
           .catch(() => ({})),
-      ]).then(([sessData, config, inboxData, version]) => {
+        fetch('/api/inbox')
+          .then((r) => r.json())
+          .catch(() => []),
+      ]).then(([sessData, config, version, inboxData]) => {
         setSessions(sessData);
         setQuickActions(buildQuickActions(config.quickActions));
         if (version?.updateAvailable) setUpdateAvailable(true);
@@ -245,7 +246,28 @@ export function SessionList() {
       if (document.visibilityState === 'visible') loadAll();
     };
     document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
+
+    // Subscribe to WS for real-time inbox count updates
+    let inboxFetchTimer: ReturnType<typeof setTimeout> | null = null;
+    const unsub = wsSubscribe('global:system', (msg) => {
+      if (msg.type === 'inbox_updated') {
+        if (inboxFetchTimer) clearTimeout(inboxFetchTimer);
+        inboxFetchTimer = setTimeout(() => {
+          fetch('/api/inbox')
+            .then((r) => r.json())
+            .then((data) => {
+              if (Array.isArray(data)) setInboxCount(data.length);
+            })
+            .catch(() => {});
+        }, 300);
+      }
+    });
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      if (inboxFetchTimer) clearTimeout(inboxFetchTimer);
+      unsub();
+    };
   }, []);
 
   async function checkForUpdates() {

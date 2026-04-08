@@ -8,6 +8,9 @@ import {
   mkdirSync,
 } from 'fs';
 import { join, basename } from 'path';
+import { createLogger } from './logger.js';
+
+const log = createLogger('inbox');
 
 export interface InboxItemSummary {
   filename: string;
@@ -68,7 +71,11 @@ export function listInboxItems(inboxPath: string): InboxItemSummary[] {
   let files: string[];
   try {
     files = readdirSync(inboxPath).filter((f) => f.endsWith('.md'));
-  } catch {
+  } catch (err: unknown) {
+    log.warn('failed to read inbox directory', {
+      path: inboxPath,
+      error: err instanceof Error ? err.message : 'unknown',
+    });
     return [];
   }
 
@@ -85,8 +92,11 @@ export function listInboxItems(inboxPath: string): InboxItemSummary[] {
         timestamp: meta.timestamp || '',
         preview: extractPreview(body),
       });
-    } catch {
-      // Skip unreadable files
+    } catch (err: unknown) {
+      log.warn('failed to read inbox item', {
+        filename,
+        error: err instanceof Error ? err.message : 'unknown',
+      });
     }
   }
 
@@ -99,7 +109,11 @@ export function readInboxItem(inboxPath: string, filename: string): string | nul
   if (!isSafeFilename(filename)) return null;
   try {
     return readFileSync(join(inboxPath, filename), 'utf-8');
-  } catch {
+  } catch (err: unknown) {
+    log.warn('failed to read inbox item', {
+      filename,
+      error: err instanceof Error ? err.message : 'unknown',
+    });
     return null;
   }
 }
@@ -122,6 +136,10 @@ export function discardInboxItem(inboxPath: string, filename: string): boolean {
   return true;
 }
 
+// Module-level counter to reduce same-millisecond collisions within this process.
+// Note: does not prevent collisions across multiple processes writing to the same inbox.
+let seqCounter = 0;
+
 export function createInboxItem(
   inboxPath: string,
   opts: { source: string; title: string; body: string; tags?: string[] },
@@ -129,9 +147,15 @@ export function createInboxItem(
   try {
     mkdirSync(inboxPath, { recursive: true });
     const now = new Date();
-    const ts = now.toISOString().replace(/[-:T]/g, '').slice(0, 14);
+    // Include milliseconds, PID, and a sequence counter to reduce collisions
+    const ts = now
+      .toISOString()
+      .replace(/[-:T.Z]/g, '')
+      .slice(0, 17);
+    const seq = String(seqCounter++).padStart(4, '0');
+    const pid = String(process.pid).slice(-5);
     const safeName = opts.source.replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
-    const filename = `${ts}_${safeName}.md`;
+    const filename = `${ts}_${pid}_${seq}_${safeName}.md`;
     const tagsLine = opts.tags?.length ? `tags: [${opts.tags.join(', ')}]\n` : '';
 
     const content = [
@@ -151,6 +175,7 @@ export function createInboxItem(
       .join('\n');
 
     writeFileSync(join(inboxPath, filename), content);
+    log.info('inbox item created', { filename, source: opts.source });
 
     return {
       filename,
@@ -160,7 +185,11 @@ export function createInboxItem(
       timestamp: now.toISOString(),
       preview: opts.body.slice(0, 150),
     };
-  } catch {
+  } catch (err: unknown) {
+    log.error('failed to create inbox item', {
+      source: opts.source,
+      error: err instanceof Error ? err.message : 'unknown',
+    });
     return null;
   }
 }

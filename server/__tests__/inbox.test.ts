@@ -1,7 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'path';
-import { mkdirSync, writeFileSync, rmSync } from 'fs';
-import { listInboxItems, readInboxItem, approveInboxItem, discardInboxItem } from '../inbox.js';
+import { mkdirSync, writeFileSync, rmSync, readdirSync } from 'fs';
+import {
+  listInboxItems,
+  readInboxItem,
+  approveInboxItem,
+  discardInboxItem,
+  createInboxItem,
+} from '../inbox.js';
 
 const TMP_DIR = join(import.meta.dirname, '..', '..', '.test-inbox');
 
@@ -156,5 +162,60 @@ describe('discardInboxItem', () => {
   it('rejects path traversal attempts', () => {
     const ok = discardInboxItem(TMP_DIR, '../../../important-file');
     expect(ok).toBe(false);
+  });
+});
+
+describe('createInboxItem', () => {
+  it('creates a valid inbox item file', () => {
+    const item = createInboxItem(TMP_DIR, {
+      source: 'test-agent',
+      title: 'Test Item',
+      body: 'Some body text',
+      tags: ['tag1', 'tag2'],
+    });
+
+    expect(item).not.toBeNull();
+    expect(item!.agent).toBe('test-agent');
+    expect(item!.title).toBe('Test Item');
+    expect(item!.tags).toEqual(['tag1', 'tag2']);
+
+    // File should be listable
+    const items = listInboxItems(TMP_DIR);
+    expect(items).toHaveLength(1);
+    expect(items[0].title).toBe('Test Item');
+  });
+
+  it('generates unique filenames for rapid successive calls', () => {
+    const results = [];
+    for (let i = 0; i < 5; i++) {
+      const item = createInboxItem(TMP_DIR, {
+        source: 'test-agent',
+        title: `Item ${i}`,
+        body: `Body ${i}`,
+      });
+      results.push(item);
+    }
+
+    // All should succeed
+    expect(results.every((r) => r !== null)).toBe(true);
+
+    // All filenames should be unique
+    const filenames = results.map((r) => r!.filename);
+    expect(new Set(filenames).size).toBe(5);
+
+    // All files should exist
+    const files = readdirSync(TMP_DIR).filter((f) => f.endsWith('.md'));
+    expect(files).toHaveLength(5);
+  });
+
+  it('returns null for invalid inbox path', () => {
+    // Use a path that will fail (file as directory)
+    writeFileSync(join(TMP_DIR, 'not-a-dir'), 'block');
+    const item = createInboxItem(join(TMP_DIR, 'not-a-dir', 'sub'), {
+      source: 'test',
+      title: 'Test',
+      body: 'Body',
+    });
+    expect(item).toBeNull();
   });
 });
