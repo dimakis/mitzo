@@ -263,20 +263,6 @@ export function ChatView() {
             </button>
           ))}
         </div>
-        <button
-          className={`chat-header-sandbox${sessionState.sandbox || msgState.isWorktree ? ' chat-header-sandbox--active' : ''}`}
-          onClick={() => sessionActions.setSandbox(!sessionState.sandbox)}
-          disabled={hasStarted}
-          title={
-            msgState.isWorktree
-              ? 'Running in sandbox worktree'
-              : sessionState.sandbox
-                ? 'Sandbox on — will create worktree'
-                : 'Sandbox off — using base repo'
-          }
-        >
-          {msgState.isWorktree ? '⎔' : sessionState.sandbox ? '⎔' : '⎕'}
-        </button>
         <VoiceSettings
           ttsAvailable={voice.ttsAvailable}
           ttsEnabled={voice.ttsEnabled}
@@ -286,11 +272,6 @@ export function ChatView() {
           onToggle={() => voice.setTtsEnabled(!voice.ttsEnabled)}
           onVoiceChange={voice.setVoice}
         />
-        {msgState.running && (
-          <button className="chat-header-stop" onClick={handleStop}>
-            Stop
-          </button>
-        )}
       </header>
 
       <div className="chat-messages" ref={scrollRef}>
@@ -373,6 +354,9 @@ export function ChatView() {
         voice={voice}
         branch={msgState.branch || undefined}
         isWorktree={msgState.isWorktree}
+        sandbox={sessionState.sandbox}
+        onSandboxToggle={() => sessionActions.setSandbox(!sessionState.sandbox)}
+        sandboxDisabled={hasStarted}
       />
     </div>
   );

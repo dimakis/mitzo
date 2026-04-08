@@ -1,4 +1,4 @@
-// Auto-speak: reads aloud the last completed assistant message via TTS.
+// Auto-speak: reads aloud each completed assistant message via TTS.
 
 import { useEffect, useRef } from 'react';
 import { stripCodeForTts, truncateForTts } from '../lib/tts';
@@ -12,32 +12,34 @@ interface AutoSpeakOpts {
   speak: (text: string) => void;
 }
 
-export function useAutoSpeak({
-  messages,
-  running,
-  ttsEnabled,
-  ttsAvailable,
-  speak,
-}: AutoSpeakOpts) {
-  const lastSpokenIdRef = useRef<string | null>(null);
+export function useAutoSpeak({ messages, ttsEnabled, ttsAvailable, speak }: AutoSpeakOpts) {
+  const spokenIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!ttsEnabled || !ttsAvailable) return;
-    // Wait until streaming is done so we speak the full message
-    if (running) return;
 
-    const lastMsg = messages[messages.length - 1];
-    if (!lastMsg || lastMsg.role !== 'assistant') return;
-    if (lastMsg.messageId === lastSpokenIdRef.current) return;
+    // Prune IDs no longer present in messages
+    const currentIds = new Set(messages.map((m) => m.messageId));
+    for (const id of spokenIdsRef.current) {
+      if (!currentIds.has(id)) spokenIdsRef.current.delete(id);
+    }
 
-    lastSpokenIdRef.current = lastMsg.messageId;
+    // Speak all unspoken assistant messages
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role !== 'assistant') continue;
+      if (spokenIdsRef.current.has(msg.messageId)) continue; // already spoken
 
-    const raw = lastMsg.blocks
-      .filter((b) => b.blockType === 'text')
-      .map((b) => b.content)
-      .join('\n');
+      const raw = msg.blocks
+        .filter((b) => b.blockType === 'text')
+        .map((b) => b.content)
+        .join('\n');
 
-    const text = truncateForTts(stripCodeForTts(raw)).trim();
-    if (text) speak(text);
-  }, [messages, running, ttsEnabled, ttsAvailable, speak]);
+      const text = truncateForTts(stripCodeForTts(raw)).trim();
+      if (text) {
+        spokenIdsRef.current.add(msg.messageId);
+        speak(text);
+      }
+    }
+  }, [messages, ttsEnabled, ttsAvailable, speak]);
 }
