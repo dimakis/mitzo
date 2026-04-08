@@ -6,6 +6,7 @@ import {
   generateSessionNameFallback,
   setClientFactory,
   resetClientFactory,
+  createAnthropicClient,
   AUTO_RENAME_INTERVAL,
   AUTO_RENAME_MODEL,
 } from '../auto-rename.js';
@@ -230,5 +231,31 @@ describe('generateSessionName', () => {
 describe('AUTO_RENAME_INTERVAL', () => {
   it('is 2', () => {
     expect(AUTO_RENAME_INTERVAL).toBe(2);
+  });
+});
+
+describe('createAnthropicClient (Vertex)', () => {
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  it('returns AnthropicVertex client when CLAUDE_CODE_USE_VERTEX is set', async () => {
+    process.env.CLAUDE_CODE_USE_VERTEX = '1';
+    process.env.ANTHROPIC_VERTEX_PROJECT_ID = 'my-project';
+    process.env.CLOUD_ML_REGION = 'us-east5';
+
+    const { AnthropicVertex } = await import('@anthropic-ai/vertex-sdk');
+    const client = createAnthropicClient();
+    expect(client).toBeInstanceOf(AnthropicVertex);
+  });
+
+  it('returns standard Anthropic client when CLAUDE_CODE_USE_VERTEX is not set', async () => {
+    delete process.env.CLAUDE_CODE_USE_VERTEX;
+    const { default: Anthropic } = await import('@anthropic-ai/sdk');
+
+    const client = createAnthropicClient();
+    expect(client).toBeInstanceOf(Anthropic);
   });
 });

@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
 import type { StoredEvent } from './event-store.js';
 import { createLogger } from './logger.js';
 
@@ -7,8 +8,11 @@ const log = createLogger('auto-rename');
 /** Every Nth user prompt triggers an auto-rename. */
 export const AUTO_RENAME_INTERVAL = 2;
 
-/** Model used for LLM-based session naming. */
+/** Model used for LLM-based session naming (standard API format). */
 export const AUTO_RENAME_MODEL = 'claude-haiku-4-5-20251001';
+
+/** Model name on Vertex AI (uses different naming convention). */
+const VERTEX_MODEL = 'claude-3-5-haiku@20241022';
 
 /** Max total characters of concatenated prompts sent to the LLM. */
 const MAX_PROMPT_INPUT_CHARS = 2000;
@@ -111,19 +115,25 @@ const STOP_WORDS = new Set([
 ]);
 
 /**
- * Create an Anthropic client instance. Exported so tests can mock it.
+ * Create an Anthropic client instance. Uses Vertex AI when CLAUDE_CODE_USE_VERTEX
+ * is set, falling back to the standard Anthropic API otherwise.
  */
-export function createAnthropicClient(): Anthropic {
+export function createAnthropicClient(): Anthropic | AnthropicVertex {
+  if (process.env.CLAUDE_CODE_USE_VERTEX === '1') {
+    const projectId = process.env.ANTHROPIC_VERTEX_PROJECT_ID || '';
+    const region = process.env.CLOUD_ML_REGION || 'us-east5';
+    return new AnthropicVertex({ projectId, region });
+  }
   return new Anthropic();
 }
 
 /** Module-level client factory — reassignable for testing. */
-let clientFactory: () => Anthropic = createAnthropicClient;
+let clientFactory: () => Anthropic | AnthropicVertex = createAnthropicClient;
 
 /**
  * Override the client factory (used by tests to inject mocks).
  */
-export function setClientFactory(factory: () => Anthropic): void {
+export function setClientFactory(factory: () => Anthropic | AnthropicVertex): void {
   clientFactory = factory;
 }
 
@@ -219,13 +229,14 @@ export async function generateSessionName(prompts: string[]): Promise<string> {
 
   try {
     const client = clientFactory();
+    const isVertex = client instanceof AnthropicVertex;
     let input = prompts.join('\n');
     if (input.length > MAX_PROMPT_INPUT_CHARS) {
       input = input.slice(0, MAX_PROMPT_INPUT_CHARS);
     }
     const response = await client.messages.create(
       {
-        model: AUTO_RENAME_MODEL,
+        model: isVertex ? VERTEX_MODEL : AUTO_RENAME_MODEL,
         max_tokens: 20,
         system:
           'Generate a 3-6 word title for this chat session. Be specific and descriptive. Return only the title, nothing else.',
