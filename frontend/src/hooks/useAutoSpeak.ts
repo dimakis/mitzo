@@ -24,20 +24,25 @@ export function useAutoSpeak({ messages, ttsEnabled, ttsAvailable, speak }: Auto
       if (!currentIds.has(id)) spokenIdsRef.current.delete(id);
     }
 
-    // Speak all unspoken assistant messages
+    // Find the latest unspoken assistant message
+    let latestUnspoken: FinishedMessage | null = null;
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
       if (msg.role !== 'assistant') continue;
-      if (spokenIdsRef.current.has(msg.messageId)) continue; // already spoken
+      if (spokenIdsRef.current.has(msg.messageId)) continue;
+      if (!latestUnspoken) latestUnspoken = msg;
+      // Mark ALL unspoken assistant messages as spoken (prevents pile-up)
+      spokenIdsRef.current.add(msg.messageId);
+    }
 
-      const raw = msg.blocks
+    // Only speak the latest one
+    if (latestUnspoken) {
+      const raw = latestUnspoken.blocks
         .filter((b) => b.blockType === 'text')
         .map((b) => b.content)
         .join('\n');
-
       const text = truncateForTts(stripCodeForTts(raw)).trim();
       if (text) {
-        spokenIdsRef.current.add(msg.messageId);
         speak(text);
       }
     }
