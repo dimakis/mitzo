@@ -136,7 +136,8 @@ export function discardInboxItem(inboxPath: string, filename: string): boolean {
   return true;
 }
 
-// Module-level counter to disambiguate items created within the same millisecond
+// Module-level counter to reduce same-millisecond collisions within this process.
+// Note: does not prevent collisions across multiple processes writing to the same inbox.
 let seqCounter = 0;
 
 export function createInboxItem(
@@ -146,14 +147,15 @@ export function createInboxItem(
   try {
     mkdirSync(inboxPath, { recursive: true });
     const now = new Date();
-    // Include milliseconds and a sequence counter to prevent collisions
+    // Include milliseconds, PID, and a sequence counter to reduce collisions
     const ts = now
       .toISOString()
       .replace(/[-:T.Z]/g, '')
       .slice(0, 17);
-    const seq = String(seqCounter++).padStart(2, '0');
+    const seq = String(seqCounter++).padStart(4, '0');
+    const pid = String(process.pid).slice(-5);
     const safeName = opts.source.replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
-    const filename = `${ts}_${seq}_${safeName}.md`;
+    const filename = `${ts}_${pid}_${seq}_${safeName}.md`;
     const tagsLine = opts.tags?.length ? `tags: [${opts.tags.join(', ')}]\n` : '';
 
     const content = [

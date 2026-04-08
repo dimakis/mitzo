@@ -227,13 +227,13 @@ export function SessionList() {
         fetch('/api/config')
           .then((r) => r.json())
           .catch(() => ({})),
-        fetch('/api/inbox')
-          .then((r) => r.json())
-          .catch(() => []),
         fetch('/api/version')
           .then((r) => r.json())
           .catch(() => ({})),
-      ]).then(([sessData, config, inboxData, version]) => {
+        fetch('/api/inbox')
+          .then((r) => r.json())
+          .catch(() => []),
+      ]).then(([sessData, config, version, inboxData]) => {
         setSessions(sessData);
         setQuickActions(buildQuickActions(config.quickActions));
         if (version?.updateAvailable) setUpdateAvailable(true);
@@ -243,24 +243,29 @@ export function SessionList() {
     loadAll().finally(() => setLoading(false));
 
     const onVisible = () => {
-      if (document.visibilityState === 'visible') loadAll();
+if (document.visibilityState === 'visible') loadAll();
     };
     document.addEventListener('visibilitychange', onVisible);
 
     // Subscribe to WS for real-time inbox count updates
+    let inboxFetchTimer: ReturnType<typeof setTimeout> | null = null;
     const unsub = wsSubscribe('global:system', (msg) => {
       if (msg.type === 'inbox_updated') {
-        fetch('/api/inbox')
-          .then((r) => r.json())
-          .then((data) => {
-            if (Array.isArray(data)) setInboxCount(data.length);
-          })
-          .catch(() => {});
+        if (inboxFetchTimer) clearTimeout(inboxFetchTimer);
+        inboxFetchTimer = setTimeout(() => {
+          fetch('/api/inbox')
+            .then((r) => r.json())
+            .then((data) => {
+              if (Array.isArray(data)) setInboxCount(data.length);
+            })
+            .catch(() => {});
+        }, 300);
       }
     });
 
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
+      if (inboxFetchTimer) clearTimeout(inboxFetchTimer);
       unsub();
     };
   }, []);
