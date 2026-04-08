@@ -3,26 +3,38 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
-// Set env before importing module
-const ORIG_ENV = { ...process.env };
+let isConfigured: () => boolean;
+let sendPushoverNotification: (...args: any[]) => Promise<void>;
 
-beforeEach(() => {
-  process.env.PUSHOVER_USER_KEY = 'test-user-key';
-  process.env.PUSHOVER_API_TOKEN = 'test-api-token';
-  process.env.BASE_URL = 'http://localhost:3100';
+beforeEach(async () => {
+  vi.stubEnv('PUSHOVER_USER_KEY', 'test-user-key');
+  vi.stubEnv('PUSHOVER_API_TOKEN', 'test-api-token');
+  vi.stubEnv('BASE_URL', 'http://localhost:3100');
   mockFetch.mockResolvedValue({ ok: true });
+
+  vi.resetModules();
+  const mod = await import('../pushover.js');
+  isConfigured = mod.isConfigured;
+  sendPushoverNotification = mod.sendPushoverNotification;
 });
 
 afterEach(() => {
-  process.env = { ...ORIG_ENV };
+  vi.unstubAllEnvs();
   vi.clearAllMocks();
 });
-
-const { isConfigured, sendPushoverNotification } = await import('../pushover.js');
 
 describe('isConfigured', () => {
   it('returns true when both keys are set', () => {
     expect(isConfigured()).toBe(true);
+  });
+
+  it('returns false when keys are missing', async () => {
+    vi.unstubAllEnvs();
+    delete process.env.PUSHOVER_USER_KEY;
+    delete process.env.PUSHOVER_API_TOKEN;
+    vi.resetModules();
+    const mod = await import('../pushover.js');
+    expect(mod.isConfigured()).toBe(false);
   });
 });
 
@@ -54,9 +66,18 @@ describe('sendPushoverNotification', () => {
     await expect(sendPushoverNotification('Title', 'Message')).resolves.not.toThrow();
   });
 
+  it('does not throw on non-ok response', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 400 });
+    await expect(sendPushoverNotification('Title', 'Message')).resolves.not.toThrow();
+  });
+
   it('does nothing when not configured', async () => {
+    vi.unstubAllEnvs();
     delete process.env.PUSHOVER_USER_KEY;
-    await sendPushoverNotification('Title', 'Message');
+    delete process.env.PUSHOVER_API_TOKEN;
+    vi.resetModules();
+    const mod = await import('../pushover.js');
+    await mod.sendPushoverNotification('Title', 'Message');
     expect(mockFetch).not.toHaveBeenCalled();
   });
 });
