@@ -302,7 +302,7 @@ export function ChatInput({
             }
           >
             <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-              <path d="M12 2C12 2 12 8 12 10C9 7 5 8 5 12C5 14 6 15.5 8 16C6 16.5 4 18 4 20.5V22H20V20.5C20 18 18 16.5 16 16C18 15.5 19 14 19 12C19 8 15 7 12 10C12 8 12 2 12 2Z" />
+              <path d="M12 2L7 10H10L6 16H9V22H15V16H18L14 10H17L12 2Z" />
             </svg>
           </button>
         )}
