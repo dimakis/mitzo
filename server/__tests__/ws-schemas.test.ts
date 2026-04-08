@@ -56,6 +56,14 @@ describe('WS message schemas', () => {
     expect(result.success).toBe(true);
   });
 
+  it('rejects interrupt without clientMsgId', () => {
+    const result = IncomingWsMessage.safeParse({
+      type: 'interrupt',
+      prompt: 'wait',
+    });
+    expect(result.success).toBe(false);
+  });
+
   it('accepts permission_response', () => {
     const result = IncomingWsMessage.safeParse({
       type: 'permission_response',

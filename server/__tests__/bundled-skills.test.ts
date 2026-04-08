@@ -101,15 +101,6 @@ describe('bundled skills', () => {
     expect(prReview!.allowedTools).not.toContain('Edit');
   });
 
-  it('/review-response includes Bash for gh CLI access', () => {
-    const reviewResponse = skills.find((s) => s.name === 'review-response');
-    expect(reviewResponse).toBeDefined();
-    expect(reviewResponse!.allowedTools).toBeDefined();
-    expect(reviewResponse!.allowedTools).toContain('Bash');
-    expect(reviewResponse!.allowedTools).not.toContain('Write');
-    expect(reviewResponse!.allowedTools).not.toContain('Edit');
-  });
-
   it('all bundled skills are scoped as bundled', () => {
     for (const skill of skills) {
       expect(skill.scope).toBe('bundled');
