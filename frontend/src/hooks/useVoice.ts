@@ -415,8 +415,13 @@ export function useVoice(): UseVoiceReturn {
             currentPlayRef.current = handle;
             await handle.play();
           } catch (chunkErr: unknown) {
-            // AbortError means user interrupted — stop all playback
-            if (chunkErr instanceof Error && chunkErr.name === 'AbortError') throw chunkErr;
+            // Abort: re-throw to halt the loop (check signal as fallback for wrapped errors)
+            if (
+              controller.signal.aborted ||
+              (chunkErr instanceof Error && chunkErr.name === 'AbortError')
+            ) {
+              throw chunkErr;
+            }
             // Other errors (synthesis failure, decode failure): skip chunk, continue
             console.warn(
               'TTS chunk skipped:',
@@ -425,8 +430,8 @@ export function useVoice(): UseVoiceReturn {
           }
         }
       } catch (err: unknown) {
-        // AbortError is expected on interrupt — suppress it
-        if (err instanceof Error && err.name !== 'AbortError') {
+        // AbortError / signal abort is expected on interrupt — suppress it
+        if (!controller.signal.aborted && err instanceof Error && err.name !== 'AbortError') {
           console.warn('TTS error:', err.message);
         }
       } finally {

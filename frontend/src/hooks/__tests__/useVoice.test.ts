@@ -227,6 +227,9 @@ describe('useVoice', () => {
 
   describe('transcription errors', () => {
     it('returns empty string on batch transcription failure', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
       mockHealthy();
 
       const { result } = renderHook(() => useVoice());
@@ -251,6 +254,11 @@ describe('useVoice', () => {
 
       expect(transcript).toBe('');
       expect(result.current.error).toBeTruthy();
+      // Verify error was logged, not silently swallowed
+      expect(consoleWarnSpy.mock.calls.length + consoleErrorSpy.mock.calls.length).toBeGreaterThan(0);
+
+      consoleWarnSpy.mockRestore();
+      consoleErrorSpy.mockRestore();
     });
   });
 
@@ -480,7 +488,7 @@ describe('useVoice', () => {
       await waitFor(() => expect(result.current.ttsAvailable).toBe(true));
 
       await act(async () => {
-        result.current.setTtsEnabled(true);
+result.current.setTtsEnabled(true);
       });
 
       expect(result.current.ttsEnabled).toBe(true);
@@ -600,10 +608,11 @@ describe('useVoice', () => {
       const { chunkText, synthesize, playAudio } = await import('../../lib/tts');
       const mockChunk = chunkText as ReturnType<typeof vi.fn>;
       const mockSynth = synthesize as ReturnType<typeof vi.fn>;
+      const mockPlayAudio = playAudio as ReturnType<typeof vi.fn>;
 
       // Clear any calls from previous tests
       mockSynth.mockClear();
-      (playAudio as ReturnType<typeof vi.fn>).mockClear();
+      mockPlayAudio.mockClear();
 
       // 3 chunks: first succeeds, second fails, third succeeds
       mockChunk.mockReturnValueOnce(['chunk1', 'chunk2', 'chunk3']);
@@ -624,7 +633,7 @@ describe('useVoice', () => {
       // synthesize called 3 times (didn't abort after failure)
       expect(mockSynth).toHaveBeenCalledTimes(3);
       // playAudio called for chunk1 and chunk3 (skipped chunk2)
-      expect(playAudio).toHaveBeenCalledTimes(2);
+      expect(mockPlayAudio).toHaveBeenCalledTimes(2);
     });
 
     it('setVoice persists to localStorage', async () => {

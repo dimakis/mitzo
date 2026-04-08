@@ -119,6 +119,10 @@ describe('stripCodeForTts', () => {
     expect(stripCodeForTts('Use ``useState`` for state.')).toBe('Use useState for state.');
   });
 
+  it('strips triple-backtick inline code but keeps text', () => {
+    expect(stripCodeForTts('Use ``` code ``` for state.')).toBe('Use  code  for state.');
+  });
+
   it('handles multiple inline code spans', () => {
     expect(stripCodeForTts('`auto-rename.ts` uses `claude-haiku-4-5-20251001` to generate')).toBe(
       'auto-rename.ts uses claude-haiku-4-5-20251001 to generate',
