@@ -12,12 +12,7 @@ interface AutoSpeakOpts {
   speak: (text: string) => void;
 }
 
-export function useAutoSpeak({
-  messages,
-  ttsEnabled,
-  ttsAvailable,
-  speak,
-}: AutoSpeakOpts) {
+export function useAutoSpeak({ messages, ttsEnabled, ttsAvailable, speak }: AutoSpeakOpts) {
   const spokenIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {

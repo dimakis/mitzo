@@ -164,9 +164,7 @@ describe('useAutoSpeak', () => {
     const msg: FinishedMessage = {
       messageId: 'msg-tools-only',
       role: 'assistant',
-      blocks: [
-        { blockId: 'b1', blockType: 'tool_use', content: '{}', toolName: 'read' },
-      ],
+      blocks: [{ blockId: 'b1', blockType: 'tool_use', content: '{}', toolName: 'read' }],
     };
     renderHook(() => useAutoSpeak(baseOpts({ messages: [msg], speak })));
 
