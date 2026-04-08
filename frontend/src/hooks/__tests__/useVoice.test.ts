@@ -596,6 +596,38 @@ describe('useVoice', () => {
       await waitFor(() => expect(speakDone).toBe(true));
     });
 
+    it('continues playing remaining chunks when one chunk fails', async () => {
+      const { chunkText, synthesize, playAudio } = await import('../../lib/tts');
+      const mockChunk = chunkText as ReturnType<typeof vi.fn>;
+      const mockSynth = synthesize as ReturnType<typeof vi.fn>;
+      const mockPlayAudio = playAudio as ReturnType<typeof vi.fn>;
+
+      // Clear any calls from previous tests
+      mockSynth.mockClear();
+      mockPlayAudio.mockClear();
+
+      // 3 chunks: first succeeds, second fails, third succeeds
+      mockChunk.mockReturnValueOnce(['chunk1', 'chunk2', 'chunk3']);
+      const goodBlob = new Blob(['wav'], { type: 'audio/wav' });
+      mockSynth
+        .mockResolvedValueOnce(goodBlob) // chunk1 ok
+        .mockRejectedValueOnce(new Error('Synthesis failed (500)')) // chunk2 fails
+        .mockResolvedValueOnce(goodBlob); // chunk3 ok
+
+      mockHealthyWithTts();
+      const { result } = renderHook(() => useVoice());
+      await waitFor(() => expect(result.current.ttsAvailable).toBe(true));
+
+      await act(async () => {
+        await result.current.speak('some long text');
+      });
+
+      // synthesize called 3 times (didn't abort after failure)
+      expect(mockSynth).toHaveBeenCalledTimes(3);
+      // playAudio called for chunk1 and chunk3 (skipped chunk2)
+      expect(mockPlayAudio).toHaveBeenCalledTimes(2);
+    });
+
     it('setVoice persists to localStorage', async () => {
       mockHealthyWithTts();
       const { result } = renderHook(() => useVoice());

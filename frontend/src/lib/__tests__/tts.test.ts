@@ -111,8 +111,18 @@ describe('stripCodeForTts', () => {
     expect(stripCodeForTts(text)).toBe('Here is code:\n\nDone.');
   });
 
-  it('removes inline code', () => {
-    expect(stripCodeForTts('Use `useState` for state.')).toBe('Use  for state.');
+  it('strips backticks but keeps inline code text', () => {
+    expect(stripCodeForTts('Use `useState` for state.')).toBe('Use useState for state.');
+  });
+
+  it('strips double backticks but keeps text', () => {
+    expect(stripCodeForTts('Use ``useState`` for state.')).toBe('Use useState for state.');
+  });
+
+  it('handles multiple inline code spans', () => {
+    expect(stripCodeForTts('`auto-rename.ts` uses `claude-haiku-4-5-20251001` to generate')).toBe(
+      'auto-rename.ts uses claude-haiku-4-5-20251001 to generate',
+    );
   });
 
   it('handles multiple code blocks', () => {
