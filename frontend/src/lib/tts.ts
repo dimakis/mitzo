@@ -8,8 +8,9 @@ import { TTS_CHUNK_MAX_CHARS, TTS_CHUNK_MIN_CHARS, TTS_MAX_SPEAK_CHARS } from '.
 export function stripCodeForTts(text: string): string {
   // Remove fenced code blocks (``` ... ```)
   let result = text.replace(/```[\s\S]*?```/g, '');
-  // Remove inline code (`...`)
-  result = result.replace(/`[^`]+`/g, '');
+  // Strip backticks from inline code but keep the text (``code`` and `code`)
+  result = result.replace(/``([^`]+)``/g, '$1');
+  result = result.replace(/`([^`]+)`/g, '$1');
   // Collapse multiple blank lines left behind
   result = result.replace(/\n{3,}/g, '\n\n');
   return result.trim();
