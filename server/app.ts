@@ -139,9 +139,19 @@ const startupCommit = getLocalCommit();
 let updateAvailable = false;
 
 let onUpdateAvailable: (() => void) | null = null;
+let onInboxUpdated: (() => void) | null = null;
 
 export function setUpdateBroadcast(fn: () => void) {
   onUpdateAvailable = fn;
+}
+
+export function setInboxBroadcast(fn: () => void) {
+  onInboxUpdated = fn;
+}
+
+/** Broadcast inbox_updated to all connected WS clients. */
+export function broadcastInboxUpdate() {
+  onInboxUpdated?.();
 }
 
 export function runUpdateCheck() {
@@ -568,6 +578,7 @@ app.post('/api/inbox', (req, res) => {
     return;
   }
   res.status(201).json(item);
+  broadcastInboxUpdate();
 });
 
 app.get('/api/inbox/:filename', (req, res) => {
@@ -596,6 +607,7 @@ app.post('/api/inbox/:filename/approve', (req, res) => {
     return;
   }
   res.json({ ok: true });
+  broadcastInboxUpdate();
 });
 
 app.delete('/api/inbox/:filename', (req, res) => {
@@ -610,6 +622,7 @@ app.delete('/api/inbox/:filename', (req, res) => {
     return;
   }
   res.json({ ok: true });
+  broadcastInboxUpdate();
 });
 
 // --- Static files ---

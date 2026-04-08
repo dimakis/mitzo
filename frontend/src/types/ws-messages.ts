@@ -182,4 +182,9 @@ export type ServerMessage =
   | NativeCommandResultMsg
   | SkillInvokedMsg
   | UserMessageMsg
-  | SessionRenamedMsg;
+  | SessionRenamedMsg
+  | InboxUpdatedMsg;
+
+export interface InboxUpdatedMsg {
+  type: 'inbox_updated';
+}

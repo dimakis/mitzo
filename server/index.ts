@@ -26,6 +26,7 @@ import { createLogger } from './logger.js';
 import {
   app,
   setUpdateBroadcast,
+  setInboxBroadcast,
   runUpdateCheck,
   buildSkillRegistry,
   NATIVE_COMMAND_NAMES,
@@ -58,6 +59,13 @@ const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
 
 setUpdateBroadcast(() => {
   const msg = JSON.stringify({ type: 'update_available' });
+  wss.clients.forEach((client) => {
+    if (client.readyState === client.OPEN) client.send(msg);
+  });
+});
+
+setInboxBroadcast(() => {
+  const msg = JSON.stringify({ type: 'inbox_updated' });
   wss.clients.forEach((client) => {
     if (client.readyState === client.OPEN) client.send(msg);
   });
