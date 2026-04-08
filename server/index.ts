@@ -225,7 +225,13 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
 
           // Pass rendered prompt through to normal chat flow
           if (isActive(clientId)) {
-            sendToChat(clientId, resolution.renderedPrompt, msg.images, msg.contextBlocks);
+            sendToChat(
+              clientId,
+              resolution.renderedPrompt,
+              msg.images,
+              msg.contextBlocks,
+              msg.clientMsgId,
+            );
           } else {
             startChat(ws, clientId, resolution.renderedPrompt, {
               resume: msg.resume,
@@ -236,13 +242,14 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
               worktree: msg.worktree,
               images: msg.images,
               contextBlocks: msg.contextBlocks,
+              clientMsgId: msg.clientMsgId,
             });
           }
         } else {
           // Passthrough — plain text, no slash command
           clearSkillPolicy(registry, clientId);
           if (isActive(clientId)) {
-            sendToChat(clientId, msg.prompt, msg.images, msg.contextBlocks);
+            sendToChat(clientId, msg.prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
           } else {
             startChat(ws, clientId, msg.prompt, {
               resume: msg.resume,
@@ -253,11 +260,12 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
               worktree: msg.worktree,
               images: msg.images,
               contextBlocks: msg.contextBlocks,
+              clientMsgId: msg.clientMsgId,
             });
           }
         }
       } else if (msg.type === 'interrupt') {
-        interruptChat(clientId, msg.prompt, msg.images, msg.contextBlocks);
+        interruptChat(clientId, msg.prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
       } else if (msg.type === 'stop') {
         stopChat(clientId);
       }

@@ -376,7 +376,7 @@ describe('USER_MESSAGE_RECEIVED deduplication', () => {
     expect(result).toBe(stateWithAssistant);
   });
 
-  it('adds message with different ID when no optimistic match exists', () => {
+  it('adds message with different ID even if text is identical', () => {
     const stateWithMsg: ChatMessagesState = {
       ...INITIAL_STATE,
       messages: [
@@ -387,7 +387,6 @@ describe('USER_MESSAGE_RECEIVED deduplication', () => {
         },
       ],
     };
-    // umsg-100 is a server ID (not optimistic user-*), so same text should still add
     const result = chatMessagesReducer(stateWithMsg, {
       type: 'USER_MESSAGE_RECEIVED',
       messageId: 'umsg-200',
@@ -397,52 +396,65 @@ describe('USER_MESSAGE_RECEIVED deduplication', () => {
     expect(result.messages[1].messageId).toBe('umsg-200');
   });
 
-  it('deduplicates optimistic USER_SEND when server echo arrives with different ID', () => {
-    // Simulate: user sends message (optimistic), then server echoes it back
+  it('deduplicates when server echoes back the same clientMsgId', () => {
+    // Client sends with a clientMsgId — both USER_SEND and server echo use it
+    const clientMsgId = 'user-1234-abc';
     const afterSend = chatMessagesReducer(INITIAL_STATE, {
       type: 'USER_SEND',
       text: "Yep. Let's go",
+      clientMsgId,
     });
     expect(afterSend.messages).toHaveLength(1);
-    expect(afterSend.messages[0].messageId).toMatch(/^user-/);
+    expect(afterSend.messages[0].messageId).toBe(clientMsgId);
 
-    // Server echoes back with a different ID
+    // Server echoes back the same ID
     const afterEcho = chatMessagesReducer(afterSend, {
       type: 'USER_MESSAGE_RECEIVED',
-      messageId: 'umsg-999-send',
+      messageId: clientMsgId,
       text: "Yep. Let's go",
     });
-    // Should NOT duplicate — should upgrade the ID instead
+    // Exact ID match — no duplicate
     expect(afterEcho.messages).toHaveLength(1);
-    expect(afterEcho.messages[0].messageId).toBe('umsg-999-send');
-    expect(afterEcho.messages[0].blocks[0].content).toBe("Yep. Let's go");
+    expect(afterEcho).toBe(afterSend); // reference equality — no state change
   });
 
-  it('adds server echo when no optimistic message matches the text', () => {
-    // User sent "hello" optimistically, but server echoes "different text"
-    const afterSend = chatMessagesReducer(INITIAL_STATE, {
+  it('handles duplicate text sent twice with different clientMsgIds', () => {
+    const afterSend1 = chatMessagesReducer(INITIAL_STATE, {
       type: 'USER_SEND',
       text: 'hello',
+      clientMsgId: 'user-1-aaa',
     });
-    const result = chatMessagesReducer(afterSend, {
+    const afterSend2 = chatMessagesReducer(afterSend1, {
+      type: 'USER_SEND',
+      text: 'hello',
+      clientMsgId: 'user-2-bbb',
+    });
+    expect(afterSend2.messages).toHaveLength(2);
+
+    // Server echoes both — each deduplicates against its own optimistic copy
+    const afterEcho1 = chatMessagesReducer(afterSend2, {
       type: 'USER_MESSAGE_RECEIVED',
-      messageId: 'umsg-999-send',
-      text: 'different text',
+      messageId: 'user-1-aaa',
+      text: 'hello',
     });
-    // Different text — should add as a new message
-    expect(result.messages).toHaveLength(2);
-    expect(result.messages[1].messageId).toBe('umsg-999-send');
+    expect(afterEcho1.messages).toHaveLength(2);
+    const afterEcho2 = chatMessagesReducer(afterEcho1, {
+      type: 'USER_MESSAGE_RECEIVED',
+      messageId: 'user-2-bbb',
+      text: 'hello',
+    });
+    expect(afterEcho2.messages).toHaveLength(2);
   });
 
-  it('adds server message when no optimistic user-* message exists (reconnect)', () => {
+  it('adds server message when no optimistic message exists (reconnect)', () => {
     // Reconnect scenario: no optimistic message in state, server replays
     const result = chatMessagesReducer(INITIAL_STATE, {
       type: 'USER_MESSAGE_RECEIVED',
-      messageId: 'umsg-500-send',
+      messageId: 'user-500-xyz',
       text: 'reconnected message',
     });
     expect(result.messages).toHaveLength(1);
-    expect(result.messages[0].messageId).toBe('umsg-500-send');
+    expect(result.messages[0].messageId).toBe('user-500-xyz');
   });
 
   it('deduplicates after RESTORE with interrupted flow', () => {

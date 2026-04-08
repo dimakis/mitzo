@@ -135,10 +135,19 @@ export function ChatView() {
 
   const hasStarted = msgState.messages.some((m) => m.role === 'user');
 
-  function buildSendPayload(text: string, images?: ImageAttachment[]): Record<string, unknown> {
+  function generateClientMsgId(): string {
+    return `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  function buildSendPayload(
+    text: string,
+    clientMsgId: string,
+    images?: ImageAttachment[],
+  ): Record<string, unknown> {
     const payload: Record<string, unknown> = {
       type: 'send',
       prompt: text,
+      clientMsgId,
       model: sessionState.model,
       mode: sessionState.mode,
     };
@@ -167,19 +176,20 @@ export function ChatView() {
     // Stop TTS playback when user sends a new message
     voice.stopSpeaking();
 
-    const payload = buildSendPayload(text, images);
+    const clientMsgId = generateClientMsgId();
+    const payload = buildSendPayload(text, clientMsgId, images);
     if (contextBlocks?.length) payload.contextBlocks = contextBlocks;
     const previews = images?.map((img) => img.preview);
 
     if (msgState.running) {
       // Server queues it natively — no client-side stop+re-send needed.
       wsSend(poolKey, payload);
-      dispatch({ type: 'USER_SEND', text, images: previews, contextBlocks });
+      dispatch({ type: 'USER_SEND', text, clientMsgId, images: previews, contextBlocks });
       forceScrollToBottom();
     } else {
       wsSetRunning(poolKey, true);
       wsSend(poolKey, payload);
-      dispatch({ type: 'USER_SEND', text, images: previews, contextBlocks });
+      dispatch({ type: 'USER_SEND', text, clientMsgId, images: previews, contextBlocks });
       forceScrollToBottom();
     }
 
@@ -192,15 +202,17 @@ export function ChatView() {
     contextBlocks?: string[],
   ): void {
     if (!wsIsOpen(poolKey) || !msgState.running) return;
+    const clientMsgId = generateClientMsgId();
     const imagePayload = images?.map((img) => ({ data: img.data, mediaType: img.mediaType }));
     const previews = images?.map((img) => img.preview);
     wsSend(poolKey, {
       type: 'interrupt',
       prompt: text,
+      clientMsgId,
       images: imagePayload,
       ...(contextBlocks?.length ? { contextBlocks } : {}),
     });
-    dispatch({ type: 'USER_SEND', text, images: previews, contextBlocks });
+    dispatch({ type: 'USER_SEND', text, clientMsgId, images: previews, contextBlocks });
     forceScrollToBottom();
   }
 

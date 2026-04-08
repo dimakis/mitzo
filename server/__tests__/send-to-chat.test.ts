@@ -48,7 +48,33 @@ describe('sendToChat emits user_message via WebSocket', () => {
       type: 'user_message',
       text: 'Hello from user',
     });
+    // Falls back to server-generated umsg-* when no clientMsgId provided
     expect(userMsgEvents[0].messageId).toMatch(/^umsg-/);
+  });
+
+  it('uses clientMsgId as messageId when provided', () => {
+    const ws = mockWs();
+    const pushSpy = vi.fn();
+
+    registry.register(CLIENT_ID, {
+      ws,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+
+    const session = registry.get(CLIENT_ID)!;
+    session.sessionId = 'sess-client-id';
+    session.inputQueue = { push: pushSpy, close: vi.fn() };
+
+    const result = sendToChat(CLIENT_ID, 'Hello', undefined, undefined, 'user-1234-abc');
+    expect(result).toBe(true);
+
+    const userMsgEvents = ws._sent.filter(
+      (m: Record<string, unknown>) => m.type === 'user_message',
+    );
+    expect(userMsgEvents).toHaveLength(1);
+    expect(userMsgEvents[0].messageId).toBe('user-1234-abc');
   });
 
   it('does not crash when ws is not OPEN', () => {
@@ -127,5 +153,31 @@ describe('interruptChat emits user_message via WebSocket', () => {
       type: 'user_message',
       text: 'Urgent message',
     });
+  });
+
+  it('uses clientMsgId as messageId when provided', async () => {
+    const ws = mockWs();
+    const pushSpy = vi.fn();
+
+    registry.register(CLIENT_ID, {
+      ws,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+
+    const session = registry.get(CLIENT_ID)!;
+    session.sessionId = 'sess-int-2';
+    session.inputQueue = { push: pushSpy, close: vi.fn() };
+    session.queryInstance = { interrupt: vi.fn().mockResolvedValue(undefined), close: vi.fn() };
+
+    const result = await interruptChat(CLIENT_ID, 'Urgent', undefined, undefined, 'user-5678-def');
+    expect(result).toBe(true);
+
+    const userMsgEvents = ws._sent.filter(
+      (m: Record<string, unknown>) => m.type === 'user_message',
+    );
+    expect(userMsgEvents).toHaveLength(1);
+    expect(userMsgEvents[0].messageId).toBe('user-5678-def');
   });
 });
