@@ -6,7 +6,7 @@ function makeItem(type: string, file: File | null): DataTransferItem {
     kind: file ? 'file' : 'string',
     type,
     getAsFile: () => file,
-    getAsString: () => {},
+    getAsString: (_callback: FunctionStringCallback) => {},
     webkitGetAsEntry: () => null,
   } as unknown as DataTransferItem;
 }
@@ -40,6 +40,23 @@ describe('extractImageFiles', () => {
     expect(extractImageFiles(items)).toHaveLength(0);
   });
 
+  it('extracts only images from mixed clipboard payload', () => {
+    const file1 = makeFile('photo.png', 'image/png');
+    const file2 = makeFile('diagram.jpg', 'image/jpeg');
+    const items = [
+      makeItem('text/plain', null),
+      makeItem('image/png', file1),
+      makeItem('text/html', null),
+      makeItem('image/jpeg', file2),
+      makeItem('application/pdf', null),
+    ] as unknown as DataTransferItemList;
+
+    const result = extractImageFiles(items);
+    expect(result).toHaveLength(2);
+    expect(result[0].name).toBe('photo.png');
+    expect(result[1].name).toBe('diagram.jpg');
+  });
+
   it('extracts multiple images', () => {
     const file1 = makeFile('a.png', 'image/png');
     const file2 = makeFile('b.jpg', 'image/jpeg');
@@ -52,7 +69,7 @@ describe('extractImageFiles', () => {
     expect(result).toHaveLength(2);
   });
 
-  it('respects the maxCount parameter', () => {
+  it('respects the maxCount parameter and keeps the first N items', () => {
     const file1 = makeFile('a.png', 'image/png');
     const file2 = makeFile('b.png', 'image/png');
     const file3 = makeFile('c.png', 'image/png');
@@ -64,5 +81,7 @@ describe('extractImageFiles', () => {
 
     const result = extractImageFiles(items, 2);
     expect(result).toHaveLength(2);
+    expect(result[0].name).toBe('a.png');
+    expect(result[1].name).toBe('b.png');
   });
 });

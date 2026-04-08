@@ -4,6 +4,8 @@
  */
 export function extractImageFiles(items: DataTransferItemList, maxCount?: number): File[] {
   const files: File[] = [];
+  // When maxCount is 0, no files are extracted (0 means "none", not "unlimited").
+  // Omit maxCount or pass undefined for no limit.
   const limit = maxCount ?? items.length;
 
   for (let i = 0; i < items.length && files.length < limit; i++) {
