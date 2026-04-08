@@ -464,7 +464,9 @@ export function sendToChat(
       messageId: `umsg-${Date.now()}-send`,
       text: fullPrompt,
     });
-    tryAutoRename(session.sessionId, clientId);
+    tryAutoRename(session.sessionId, clientId).catch(() => {
+      /* errors logged internally */
+    });
   }
   session.inputQueue.push(makeUserMessage(fullPrompt, 'next'));
   return true;

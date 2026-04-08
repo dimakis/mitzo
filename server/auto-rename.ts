@@ -7,6 +7,12 @@ const log = createLogger('auto-rename');
 /** Every Nth user prompt triggers an auto-rename. */
 export const AUTO_RENAME_INTERVAL = 2;
 
+/** Model used for LLM-based session naming. */
+export const AUTO_RENAME_MODEL = 'claude-haiku-4-5-20251001';
+
+/** Max total characters of concatenated prompts sent to the LLM. */
+const MAX_PROMPT_INPUT_CHARS = 2000;
+
 /** Maximum number of recent prompts to consider for name generation. */
 const MAX_RECENT_PROMPTS = 8;
 
@@ -130,12 +136,15 @@ export function resetClientFactory(): void {
 
 /**
  * Check whether an auto-rename should fire for the given prompt count.
+ * Triggers on prompt 1 (immediate naming), then every AUTO_RENAME_INTERVAL
+ * prompts starting from prompt 4 (i.e. 1, 4, 6, 8, ...).
+ * Prompts 2-3 are skipped to avoid back-to-back renames after the initial one.
  */
 export function shouldAutoRename(promptCount: number, manuallyRenamed: boolean): boolean {
   if (manuallyRenamed) return false;
-  if (promptCount === 0) return false;
+  if (promptCount <= 0) return false;
   if (promptCount === 1) return true;
-  if (promptCount <= 2) return false;
+  if (promptCount <= 3) return false;
   return promptCount % AUTO_RENAME_INTERVAL === 0;
 }
 
@@ -210,16 +219,20 @@ export async function generateSessionName(prompts: string[]): Promise<string> {
 
   try {
     const client = clientFactory();
+    let input = prompts.join('\n');
+    if (input.length > MAX_PROMPT_INPUT_CHARS) {
+      input = input.slice(0, MAX_PROMPT_INPUT_CHARS);
+    }
     const response = await client.messages.create(
       {
-        model: 'claude-haiku-4-5-20251001',
+        model: AUTO_RENAME_MODEL,
         max_tokens: 20,
         system:
           'Generate a 3-6 word title for this chat session. Be specific and descriptive. Return only the title, nothing else.',
         messages: [
           {
             role: 'user',
-            content: prompts.join('\n'),
+            content: input,
           },
         ],
       },

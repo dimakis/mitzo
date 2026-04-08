@@ -7,6 +7,7 @@ import {
   setClientFactory,
   resetClientFactory,
   AUTO_RENAME_INTERVAL,
+  AUTO_RENAME_MODEL,
 } from '../auto-rename.js';
 import type { StoredEvent } from '../event-store.js';
 
@@ -15,25 +16,31 @@ describe('shouldAutoRename', () => {
     expect(shouldAutoRename(1, false)).toBe(true);
   });
 
-  it('returns false at prompt count 2 (skip back-to-back with prompt 1)', () => {
+  it('returns false at prompt counts 2 and 3 (skip back-to-back with prompt 1)', () => {
     expect(shouldAutoRename(2, false)).toBe(false);
+    expect(shouldAutoRename(3, false)).toBe(false);
   });
 
-  it('returns true at prompt count 4', () => {
+  it('returns true at prompt count 4 (first interval trigger)', () => {
     expect(shouldAutoRename(4, false)).toBe(true);
   });
 
-  it('returns false at prompt count 3', () => {
-    expect(shouldAutoRename(3, false)).toBe(false);
+  it('follows interval pattern after prompt 3 (4, 6, 8...)', () => {
+    expect(shouldAutoRename(5, false)).toBe(false);
+    expect(shouldAutoRename(6, false)).toBe(true);
+    expect(shouldAutoRename(7, false)).toBe(false);
+    expect(shouldAutoRename(8, false)).toBe(true);
   });
 
   it('returns false when manually renamed', () => {
     expect(shouldAutoRename(2, true)).toBe(false);
     expect(shouldAutoRename(1, true)).toBe(false);
+    expect(shouldAutoRename(4, true)).toBe(false);
   });
 
-  it('returns false at prompt count 0', () => {
+  it('returns false at prompt count 0 or below', () => {
     expect(shouldAutoRename(0, false)).toBe(false);
+    expect(shouldAutoRename(-1, false)).toBe(false);
   });
 });
 
@@ -150,7 +157,7 @@ describe('generateSessionName', () => {
     expect(mockCreate).toHaveBeenCalledOnce();
     expect(mockCreate).toHaveBeenCalledWith(
       {
-        model: 'claude-haiku-4-5-20251001',
+        model: AUTO_RENAME_MODEL,
         max_tokens: 20,
         system:
           'Generate a 3-6 word title for this chat session. Be specific and descriptive. Return only the title, nothing else.',
