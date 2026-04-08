@@ -12,9 +12,9 @@ describe('bundled skills', () => {
   const registry = new SkillRegistry({ bundledDir: SKILLS_DIR });
   const skills = registry.list();
 
-  it('discovers all three bundled skills', () => {
+  it('discovers all four bundled skills', () => {
     const names = skills.map((s) => s.name).sort();
-    expect(names).toEqual(['pr-review', 'risk-scan', 'simplify']);
+    expect(names).toEqual(['pr-review', 'review-response', 'risk-scan', 'simplify']);
   });
 
   it('has unique names', () => {
@@ -82,6 +82,15 @@ describe('bundled skills', () => {
     expect(riskScan!.allowedTools).not.toContain('Edit');
   });
 
+  it('/review-response includes Bash for gh CLI access', () => {
+    const reviewResponse = skills.find((s) => s.name === 'review-response');
+    expect(reviewResponse).toBeDefined();
+    expect(reviewResponse!.allowedTools).toBeDefined();
+    expect(reviewResponse!.allowedTools).toContain('Bash');
+    expect(reviewResponse!.allowedTools).not.toContain('Write');
+    expect(reviewResponse!.allowedTools).not.toContain('Edit');
+  });
+
   it('/pr-review includes Bash for git diff access', () => {
     const prReview = skills.find((s) => s.name === 'pr-review');
     expect(prReview).toBeDefined();
@@ -90,6 +99,15 @@ describe('bundled skills', () => {
     // But not Write/Edit — analysis first
     expect(prReview!.allowedTools).not.toContain('Write');
     expect(prReview!.allowedTools).not.toContain('Edit');
+  });
+
+  it('/review-response includes Bash for gh CLI access', () => {
+    const reviewResponse = skills.find((s) => s.name === 'review-response');
+    expect(reviewResponse).toBeDefined();
+    expect(reviewResponse!.allowedTools).toBeDefined();
+    expect(reviewResponse!.allowedTools).toContain('Bash');
+    expect(reviewResponse!.allowedTools).not.toContain('Write');
+    expect(reviewResponse!.allowedTools).not.toContain('Edit');
   });
 
   it('all bundled skills are scoped as bundled', () => {
