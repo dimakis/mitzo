@@ -5,6 +5,7 @@ import { formatRelativeTime } from '../lib/formatTime';
 import { renameSession } from '../lib/rename-session';
 import { useLongPress } from '../hooks/useLongPress';
 import { computeSwipeState, REVEAL_WIDTH } from '../lib/swipe-reveal';
+import { wsSubscribe } from '../lib/ws-pool';
 
 interface QuickAction {
   label: string;
@@ -245,7 +246,23 @@ export function SessionList() {
       if (document.visibilityState === 'visible') loadAll();
     };
     document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
+
+    // Subscribe to WS for real-time inbox count updates
+    const unsub = wsSubscribe('global:system', (msg) => {
+      if (msg.type === 'inbox_updated') {
+        fetch('/api/inbox')
+          .then((r) => r.json())
+          .then((data) => {
+            if (Array.isArray(data)) setInboxCount(data.length);
+          })
+          .catch(() => {});
+      }
+    });
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      unsub();
+    };
   }, []);
 
   async function checkForUpdates() {

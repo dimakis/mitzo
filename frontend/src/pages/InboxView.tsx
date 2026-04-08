@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { wsSubscribe } from '../lib/ws-pool';
 
 interface InboxItem {
   filename: string;
@@ -178,17 +179,28 @@ export function InboxView() {
       if (document.visibilityState === 'visible') loadItems();
     };
     document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
+
+    // Subscribe to WS for real-time inbox updates
+    const unsub = wsSubscribe('global:system', (msg) => {
+      if (msg.type === 'inbox_updated') loadItems();
+    });
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      unsub();
+    };
   }, [loadItems]);
 
   function handleApprove(filename: string) {
     setItems((prev) => prev.filter((i) => i.filename !== filename));
-    fetch(`/api/inbox/${encodeURIComponent(filename)}/approve`, { method: 'POST' }).catch(() => {});
+    fetch(`/api/inbox/${encodeURIComponent(filename)}/approve`, { method: 'POST' }).catch(
+      loadItems,
+    );
   }
 
   function handleDiscard(filename: string) {
     setItems((prev) => prev.filter((i) => i.filename !== filename));
-    fetch(`/api/inbox/${encodeURIComponent(filename)}`, { method: 'DELETE' }).catch(() => {});
+    fetch(`/api/inbox/${encodeURIComponent(filename)}`, { method: 'DELETE' }).catch(loadItems);
   }
 
   const sources = [...new Set(items.map((i) => i.agent))].sort();
