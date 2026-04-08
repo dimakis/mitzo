@@ -316,10 +316,16 @@ checkPort(PORT).then((inUse) => {
     const protocol = USE_TLS ? 'https' : 'http';
     log.info(`Chat Agent running on ${protocol}://localhost:${PORT}${USE_TLS ? ' (TLS)' : ''}`);
     // Clean up stale worktrees across all repos
-    for (const [label, repoPath] of [
-      ['primary', BASE_REPO],
-      ...Object.entries(getRepoConfig().repos),
-    ]) {
+    let repoEntries: [string, string][] = [['primary', BASE_REPO]];
+    try {
+      const config = getRepoConfig();
+      repoEntries.push(...Object.entries(config.repos));
+    } catch (err: unknown) {
+      log.warn('failed to load repo config for worktree cleanup', {
+        error: err instanceof Error ? err.message : 'unknown',
+      });
+    }
+    for (const [label, repoPath] of repoEntries) {
       try {
         cleanupStaleWorktrees(repoPath);
       } catch (err: unknown) {
