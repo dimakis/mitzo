@@ -407,17 +407,26 @@ export function useVoice(): UseVoiceReturn {
         for (const chunk of chunks) {
           if (controller.signal.aborted) break;
 
-          const blob = await synthesize(chunk, selectedVoice, YAPPER_URL, controller.signal);
-          if (controller.signal.aborted) break;
+          try {
+            const blob = await synthesize(chunk, selectedVoice, YAPPER_URL, controller.signal);
+            if (controller.signal.aborted) break;
 
-          const handle = playAudio(blob);
-          currentPlayRef.current = handle;
-          await handle.play();
+            const handle = playAudio(blob);
+            currentPlayRef.current = handle;
+            await handle.play();
+          } catch (chunkErr: unknown) {
+            // AbortError means user interrupted — stop all playback
+            if (chunkErr instanceof Error && chunkErr.name === 'AbortError') throw chunkErr;
+            // Other errors (synthesis failure, decode failure): skip chunk, continue
+            console.warn(
+              'TTS chunk skipped:',
+              chunkErr instanceof Error ? chunkErr.message : 'unknown',
+            );
+          }
         }
       } catch (err: unknown) {
-        // AbortError is expected on interrupt
+        // AbortError is expected on interrupt — suppress it
         if (err instanceof Error && err.name !== 'AbortError') {
-          // Log but don't surface — TTS errors are non-critical
           console.warn('TTS error:', err.message);
         }
       } finally {
