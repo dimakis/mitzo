@@ -327,6 +327,11 @@ export function chatMessagesReducer(
         }
       }
       if (action.interrupted) {
+        // Preserve optimistic user sends not yet in the restored set
+        const restoredIds = new Set(valid.map((m) => m.messageId));
+        const optimisticUserMsgs = state.messages.filter(
+          (m) => m.role === 'user' && !restoredIds.has(m.messageId),
+        );
         const notice: FinishedMessage = {
           messageId: `notice-${Date.now()}`,
           role: 'assistant',
@@ -339,7 +344,7 @@ export function chatMessagesReducer(
             },
           ],
         };
-        return { ...state, messages: [...valid, notice] };
+        return { ...state, messages: [...valid, ...optimisticUserMsgs, notice] };
       }
       return { ...state, messages: valid };
     }

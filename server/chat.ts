@@ -456,16 +456,19 @@ export function sendToChat(
   const session = registry.get(clientId);
   if (!session?.inputQueue) return false;
   const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
+  const messageId = `umsg-${Date.now()}-send`;
   if (session.sessionId) {
     eventStore.append(session.sessionId, 'user_message', {
       v: 2,
       type: 'user_message',
       ts: Date.now(),
-      messageId: `umsg-${Date.now()}-send`,
+      messageId,
       text: fullPrompt,
     });
     tryAutoRename(session.sessionId, clientId);
   }
+  // Confirm persistence to frontend so the message survives reconnects
+  send(session.ws, { type: 'user_message', messageId, text: fullPrompt });
   session.inputQueue.push(makeUserMessage(fullPrompt, 'next'));
   return true;
 }
@@ -480,15 +483,18 @@ export async function interruptChat(
   const session = registry.get(clientId);
   if (!session?.queryInstance || !session?.inputQueue) return false;
   const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
+  const messageId = `umsg-${Date.now()}-interrupt`;
   if (session.sessionId) {
     eventStore.append(session.sessionId, 'user_message', {
       v: 2,
       type: 'user_message',
       ts: Date.now(),
-      messageId: `umsg-${Date.now()}-interrupt`,
+      messageId,
       text: fullPrompt,
     });
   }
+  // Confirm persistence to frontend so the message survives reconnects
+  send(session.ws, { type: 'user_message', messageId, text: fullPrompt });
   await session.queryInstance.interrupt();
   session.inputQueue.push(makeUserMessage(fullPrompt, 'now'));
   return true;
