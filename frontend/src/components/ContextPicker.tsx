@@ -19,8 +19,8 @@ function formatSize(bytes: number): string {
   if (bytes === 0) return '0 B';
   if (bytes < 1024) return `${bytes} B`;
   const kb = bytes / 1024;
-  if (kb < 1024) return `${kb.toFixed(1)} KB`;
-  return `${(kb / 1024).toFixed(1)} MB`;
+  if (kb < 1024) return `${parseFloat(kb.toFixed(1))} KB`;
+  return `${parseFloat((kb / 1024).toFixed(1))} MB`;
 }
 
 export function ContextPicker({ selected, onToggle, onClose }: Props) {
@@ -31,10 +31,13 @@ export function ContextPicker({ selected, onToggle, onClose }: Props) {
   // Fetch available context blocks from /api/config
   useEffect(() => {
     fetch('/api/config', { credentials: 'include' })
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
       .then((data: { contextBlocks?: Record<string, { path: string; sizeBytes: number }> }) => {
         const entries: ContextBlockEntry[] = [];
-        if (data.contextBlocks) {
+        if (data.contextBlocks && typeof data.contextBlocks === 'object') {
           for (const [name, info] of Object.entries(data.contextBlocks)) {
             entries.push({ name, path: info.path, sizeBytes: info.sizeBytes });
           }

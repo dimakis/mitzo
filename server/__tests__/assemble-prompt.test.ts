@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { join } from 'path';
-import { mkdirSync, writeFileSync, rmSync } from 'fs';
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
 
-const TMP_DIR = join(import.meta.dirname, '..', '..', '.test-assemble-prompt');
+let TMP_DIR: string;
 
 // Mock repo-config to provide contextBlocks
 const mockContextBlocks: Record<string, string> = {};
@@ -26,7 +27,7 @@ vi.mock('../repo-config.js', () => ({
 const { assemblePrompt } = await import('../chat.js');
 
 beforeEach(() => {
-  mkdirSync(TMP_DIR, { recursive: true });
+  TMP_DIR = mkdtempSync(join(tmpdir(), 'assemble-prompt-'));
   // Clear mock context blocks
   for (const key of Object.keys(mockContextBlocks)) delete mockContextBlocks[key];
 });
@@ -125,6 +126,45 @@ describe('assemblePrompt — context blocks', () => {
     expect(result).toContain('safe content');
   });
 
+  it('does not escape XML-unsafe characters in file content', () => {
+    const filePath = join(TMP_DIR, 'html-content.md');
+    const unsafeContent = '<script>alert("xss")</script> & more <div>';
+    writeFileSync(filePath, unsafeContent);
+    mockContextBlocks['HtmlContent'] = filePath;
+
+    const result = assemblePrompt('Q', TMP_DIR, undefined, ['HtmlContent']);
+
+    // Content should be preserved verbatim (not escaped)
+    expect(result).toContain(unsafeContent);
+    expect(result).toContain('<context name="HtmlContent"');
+  });
+
+  it('handles empty context block files', () => {
+    const filePath = join(TMP_DIR, 'empty.md');
+    writeFileSync(filePath, '');
+    mockContextBlocks['Empty'] = filePath;
+
+    const result = assemblePrompt('Q', TMP_DIR, undefined, ['Empty']);
+
+    // Empty file should still produce a context tag (or be skipped)
+    // Verify the prompt still contains the user message
+    expect(result).toContain('Q');
+  });
+
+  it('handles duplicate names in contextBlocks array', () => {
+    const filePath = join(TMP_DIR, 'workflow.md');
+    writeFileSync(filePath, 'Workflow content');
+    mockContextBlocks['Workflow'] = filePath;
+
+    const result = assemblePrompt('Q', TMP_DIR, undefined, ['Workflow', 'Workflow']);
+
+    // Count occurrences of the context block
+    const matches = result.match(/<context name="Workflow"/g);
+    // Should inject the block only once (deduplicated)
+    expect(matches).not.toBeNull();
+    expect(matches!.length).toBe(1);
+  });
+
   it('truncates files larger than 100 KB', () => {
     const filePath = join(TMP_DIR, 'large.md');
     // Create a file just over 100 KB
@@ -159,10 +199,12 @@ describe('assemblePrompt — context blocks', () => {
     writeFileSync(filePath, 'Workflow content');
     mockContextBlocks['Workflow'] = filePath;
 
-    const images = [{ data: 'dGVzdA==', mediaType: 'image/png' }];
+    const images: Array<{ data: string; mediaType: string }> = [
+      { data: 'dGVzdA==', mediaType: 'image/png' },
+    ];
     const result = assemblePrompt('Describe', TMP_DIR, images, ['Workflow']);
 
-    // Should have both context blocks and image references
+    // Shouldhave both context blocks and image references
     expect(result).toContain('<context name="Workflow"');
     expect(result).toContain('---CONTEXT_END---');
     expect(result).toContain("I've attached 1 image(s)");

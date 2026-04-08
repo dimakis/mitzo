@@ -43,12 +43,15 @@ export interface FinishedBlock {
   toolError?: boolean;
 }
 
+/** Serialized context block content (e.g. XML strings injected by the backend). */
+export type ContextBlockContent = string;
+
 export interface FinishedMessage {
   messageId: string;
   role: 'user' | 'assistant';
   blocks: FinishedBlock[];
   images?: string[];
-  contextBlocks?: string[];
+  contextBlocks?: ContextBlockContent[];
 }
 
 // --- Legacy flat Message type (used for restore/session history only) ---

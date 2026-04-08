@@ -5,6 +5,8 @@ const ImageSchema = z.object({
   mediaType: z.string(),
 });
 
+const ContextBlocksSchema = z.array(z.string().max(100_000)).max(20).optional();
+
 export const ReattachMessage = z.object({
   type: z.literal('reattach'),
   clientId: z.string(),
@@ -21,14 +23,14 @@ export const SendMessage = z.object({
   extraTools: z.string().optional(),
   worktree: z.boolean().optional(),
   images: z.array(ImageSchema).optional(),
-  contextBlocks: z.array(z.string()).optional(),
+  contextBlocks: ContextBlocksSchema,
 });
 
 export const InterruptMessage = z.object({
   type: z.literal('interrupt'),
   prompt: z.string().min(1),
   images: z.array(ImageSchema).optional(),
-  contextBlocks: z.array(z.string()).optional(),
+  contextBlocks: ContextBlocksSchema,
 });
 
 export const StopMessage = z.object({

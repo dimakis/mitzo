@@ -167,21 +167,18 @@ export function ChatView() {
     // Stop TTS playback when user sends a new message
     voice.stopSpeaking();
 
-    const payload = buildSendPayload(text, images);
-    if (contextBlocks?.length) payload.contextBlocks = contextBlocks;
+    const payload = {
+      ...buildSendPayload(text, images),
+      ...(contextBlocks?.length ? { contextBlocks } : {}),
+    };
     const previews = images?.map((img) => img.preview);
 
-    if (msgState.running) {
-      // Server queues it natively — no client-side stop+re-send needed.
-      wsSend(poolKey, payload);
-      dispatch({ type: 'USER_SEND', text, images: previews, contextBlocks });
-      forceScrollToBottom();
-    } else {
+    if (!msgState.running) {
       wsSetRunning(poolKey, true);
-      wsSend(poolKey, payload);
-      dispatch({ type: 'USER_SEND', text, images: previews, contextBlocks });
-      forceScrollToBottom();
     }
+    wsSend(poolKey, payload);
+    dispatch({ type: 'USER_SEND', text, images: previews, contextBlocks });
+    forceScrollToBottom();
 
     return true;
   }
@@ -193,15 +190,12 @@ export function ChatView() {
   ): void {
     if (!wsIsOpen(poolKey) || !msgState.running) return;
     const imagePayload = images?.map((img) => ({ data: img.data, mediaType: img.mediaType }));
-    const previews = images?.map((img) => img.preview);
     wsSend(poolKey, {
       type: 'interrupt',
       prompt: text,
       images: imagePayload,
       ...(contextBlocks?.length ? { contextBlocks } : {}),
     });
-    dispatch({ type: 'USER_SEND', text, images: previews, contextBlocks });
-    forceScrollToBottom();
   }
 
   const handleStop = useCallback(() => {

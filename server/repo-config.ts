@@ -1,5 +1,5 @@
 import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { createLogger } from './logger.js';
 
 const log = createLogger('repo-config');
@@ -46,10 +46,16 @@ const EMPTY_CONFIG: RepoConfig = {
   contextBlocks: {},
 };
 
+const SAFE_NAME_RE = /^[a-zA-Z0-9_-]+$/;
+
 function isValidQuickAction(item: unknown): item is QuickAction {
   if (!item || typeof item !== 'object') return false;
   const obj = item as Record<string, unknown>;
   return typeof obj.label === 'string' && typeof obj.desc === 'string';
+}
+
+function isStringRecord(val: unknown): val is Record<string, unknown> {
+  return !!val && typeof val === 'object' && !Array.isArray(val);
 }
 
 export function loadRepoConfig(repoPath: string): RepoConfig {
@@ -99,11 +105,7 @@ export function loadRepoConfig(repoPath: string): RepoConfig {
 
   const validTiers = new Set(['safe', 'standard', 'elevated']);
   const toolTierOverrides: Record<string, ToolTierOverride> = {};
-  if (
-    obj.toolTierOverrides &&
-    typeof obj.toolTierOverrides === 'object' &&
-    !Array.isArray(obj.toolTierOverrides)
-  ) {
+  if (isStringRecord(obj.toolTierOverrides)) {
     for (const [tool, tier] of Object.entries(obj.toolTierOverrides as Record<string, unknown>)) {
       if (typeof tier === 'string' && validTiers.has(tier)) {
         toolTierOverrides[tool] = tier as ToolTierOverride;
@@ -115,7 +117,7 @@ export function loadRepoConfig(repoPath: string): RepoConfig {
   const resolvedInboxPath = inboxPath ? join(repoPath, inboxPath) : '';
 
   const repos: Record<string, string> = {};
-  if (obj.repos && typeof obj.repos === 'object' && !Array.isArray(obj.repos)) {
+  if (isStringRecord(obj.repos)) {
     for (const [name, path] of Object.entries(obj.repos as Record<string, unknown>)) {
       if (typeof path !== 'string') continue;
       if (!existsSync(path)) {
@@ -130,15 +132,21 @@ export function loadRepoConfig(repoPath: string): RepoConfig {
     }
   }
 
+  const resolvedRepoPath = resolve(repoPath);
   const contextBlocks: Record<string, string> = {};
-  if (
-    obj.contextBlocks &&
-    typeof obj.contextBlocks === 'object' &&
-    !Array.isArray(obj.contextBlocks)
-  ) {
+  if (isStringRecord(obj.contextBlocks)) {
     for (const [name, path] of Object.entries(obj.contextBlocks as Record<string, unknown>)) {
       if (typeof path !== 'string') continue;
-      contextBlocks[name] = path.startsWith('/') ? path : join(repoPath, path);
+      if (!SAFE_NAME_RE.test(name)) {
+        log.warn(`contextBlocks: skipping invalid name: ${name}`);
+        continue;
+      }
+      const resolved = path.startsWith('/') ? path : resolve(repoPath, path);
+      if (!resolved.startsWith(resolvedRepoPath + '/') && resolved !== resolvedRepoPath) {
+        log.warn(`contextBlocks.${name}: path escapes repo root: ${path}`);
+        continue;
+      }
+      contextBlocks[name] = resolved;
     }
   }
 
