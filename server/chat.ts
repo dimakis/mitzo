@@ -410,7 +410,7 @@ export async function startChat(
  * Check if an auto-rename should fire for a session and perform it if so.
  * Runs asynchronously — errors are logged but don't affect the session.
  */
-function tryAutoRename(sessionId: string, clientId: string): void {
+async function tryAutoRename(sessionId: string, clientId: string): Promise<void> {
   try {
     const sessionMeta = eventStore.getSession(sessionId);
     if (!sessionMeta) return;
@@ -420,7 +420,7 @@ function tryAutoRename(sessionId: string, clientId: string): void {
 
     const events = eventStore.getSessionEvents(sessionId);
     const prompts = extractRecentPrompts(events);
-    const newName = generateSessionName(prompts);
+    const newName = await generateSessionName(prompts);
     if (!newName) return;
 
     log.info('auto-renaming session', { sessionId, promptCount, newName });
@@ -464,7 +464,9 @@ export function sendToChat(
       messageId: `umsg-${Date.now()}-send`,
       text: fullPrompt,
     });
-    tryAutoRename(session.sessionId, clientId);
+    tryAutoRename(session.sessionId, clientId).catch(() => {
+      /* errors logged internally */
+    });
   }
   session.inputQueue.push(makeUserMessage(fullPrompt, 'next'));
   return true;

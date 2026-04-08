@@ -1,9 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { createElement } from 'react';
+import { createElement, act } from 'react';
 import { createRoot } from 'react-dom/client';
-// React 19 doesn't export act from 'react' in CJS; use react-dom/test-utils
-import { act } from 'react-dom/test-utils';
 import { MemoryRouter } from 'react-router-dom';
 import { SessionList } from '../SessionList';
 

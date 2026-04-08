@@ -1,7 +1,17 @@
+import Anthropic from '@anthropic-ai/sdk';
 import type { StoredEvent } from './event-store.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('auto-rename');
 
 /** Every Nth user prompt triggers an auto-rename. */
-export const AUTO_RENAME_INTERVAL = 4;
+export const AUTO_RENAME_INTERVAL = 2;
+
+/** Model used for LLM-based session naming. */
+export const AUTO_RENAME_MODEL = 'claude-haiku-4-5-20251001';
+
+/** Max total characters of concatenated prompts sent to the LLM. */
+const MAX_PROMPT_INPUT_CHARS = 2000;
 
 /** Maximum number of recent prompts to consider for name generation. */
 const MAX_RECENT_PROMPTS = 8;
@@ -101,11 +111,40 @@ const STOP_WORDS = new Set([
 ]);
 
 /**
+ * Create an Anthropic client instance. Exported so tests can mock it.
+ */
+export function createAnthropicClient(): Anthropic {
+  return new Anthropic();
+}
+
+/** Module-level client factory — reassignable for testing. */
+let clientFactory: () => Anthropic = createAnthropicClient;
+
+/**
+ * Override the client factory (used by tests to inject mocks).
+ */
+export function setClientFactory(factory: () => Anthropic): void {
+  clientFactory = factory;
+}
+
+/**
+ * Reset the client factory to the default (used by tests for cleanup).
+ */
+export function resetClientFactory(): void {
+  clientFactory = createAnthropicClient;
+}
+
+/**
  * Check whether an auto-rename should fire for the given prompt count.
+ * Triggers on prompt 1 (immediate naming), then every AUTO_RENAME_INTERVAL
+ * prompts starting from prompt 4 (i.e. 1, 4, 6, 8, ...).
+ * Prompts 2-3 are skipped to avoid back-to-back renames after the initial one.
  */
 export function shouldAutoRename(promptCount: number, manuallyRenamed: boolean): boolean {
   if (manuallyRenamed) return false;
-  if (promptCount === 0) return false;
+  if (promptCount <= 0) return false;
+  if (promptCount === 1) return true;
+  if (promptCount <= 3) return false;
   return promptCount % AUTO_RENAME_INTERVAL === 0;
 }
 
@@ -129,9 +168,9 @@ export function extractRecentPrompts(events: StoredEvent[]): string[] {
 
 /**
  * Generate a short session name from recent prompts using keyword extraction.
- * This is a lightweight heuristic — no API call needed.
+ * This is the fallback when the LLM call fails.
  */
-export function generateSessionName(prompts: string[]): string {
+export function generateSessionNameFallback(prompts: string[]): string {
   if (prompts.length === 0) return '';
 
   // Collect word frequencies across all prompts
@@ -169,4 +208,51 @@ export function generateSessionName(prompts: string[]): string {
     return name.slice(0, MAX_NAME_LENGTH).trim();
   }
   return name;
+}
+
+/**
+ * Generate a short session name using Claude Haiku.
+ * Falls back to keyword extraction if the API call fails.
+ */
+export async function generateSessionName(prompts: string[]): Promise<string> {
+  if (prompts.length === 0) return '';
+
+  try {
+    const client = clientFactory();
+    let input = prompts.join('\n');
+    if (input.length > MAX_PROMPT_INPUT_CHARS) {
+      input = input.slice(0, MAX_PROMPT_INPUT_CHARS);
+    }
+    const response = await client.messages.create(
+      {
+        model: AUTO_RENAME_MODEL,
+        max_tokens: 20,
+        system:
+          'Generate a 3-6 word title for this chat session. Be specific and descriptive. Return only the title, nothing else.',
+        messages: [
+          {
+            role: 'user',
+            content: input,
+          },
+        ],
+      },
+      { timeout: 5000 },
+    );
+
+    const textBlock = response.content.find((b) => b.type === 'text');
+    const name = textBlock?.text?.trim() ?? '';
+
+    if (name && name.length <= MAX_NAME_LENGTH) {
+      return name;
+    }
+    if (name) {
+      return name.slice(0, MAX_NAME_LENGTH).trim();
+    }
+  } catch (err: unknown) {
+    log.warn('Haiku auto-rename failed, falling back to keyword extraction', {
+      error: err instanceof Error ? err.message : 'unknown',
+    });
+  }
+
+  return generateSessionNameFallback(prompts);
 }
