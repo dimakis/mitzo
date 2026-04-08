@@ -243,7 +243,7 @@ export function SessionList() {
     loadAll().finally(() => setLoading(false));
 
     const onVisible = () => {
-if (document.visibilityState === 'visible') loadAll();
+      if (document.visibilityState === 'visible') loadAll();
     };
     document.addEventListener('visibilitychange', onVisible);
 
