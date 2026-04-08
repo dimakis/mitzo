@@ -466,7 +466,11 @@ describe('MESSAGE_SNAPSHOT', () => {
 
 describe('USER_SEND', () => {
   it('adds user message and sets running=true', () => {
-    const state = chatMessagesReducer(INITIAL, { type: 'USER_SEND', text: 'hello' });
+    const state = chatMessagesReducer(INITIAL, {
+      type: 'USER_SEND',
+      text: 'hello',
+      clientMsgId: 'user-1-abc',
+    });
     expect(state.running).toBe(true);
     expect(state.messages).toHaveLength(1);
     expect(state.messages[0].role).toBe('user');
@@ -475,7 +479,11 @@ describe('USER_SEND', () => {
 
   it('appends user message when already running', () => {
     const running = { ...INITIAL, running: true };
-    const state = chatMessagesReducer(running, { type: 'USER_SEND', text: 'follow-up' });
+    const state = chatMessagesReducer(running, {
+      type: 'USER_SEND',
+      text: 'follow-up',
+      clientMsgId: 'user-2-def',
+    });
     expect(state.messages).toHaveLength(1);
     expect(state.messages[0].role).toBe('user');
     expect(state.messages[0].blocks[0].content).toBe('follow-up');
@@ -486,6 +494,7 @@ describe('USER_SEND', () => {
     const state = chatMessagesReducer(INITIAL, {
       type: 'USER_SEND',
       text: 'look',
+      clientMsgId: 'user-3-ghi',
       images: ['data:image/png;base64,...'],
     });
     expect(state.messages[0].images).toEqual(['data:image/png;base64,...']);
@@ -539,7 +548,11 @@ describe('full turn sequence', () => {
     let state = INITIAL;
 
     // User sends
-    state = chatMessagesReducer(state, { type: 'USER_SEND', text: 'list files' });
+    state = chatMessagesReducer(state, {
+      type: 'USER_SEND',
+      text: 'list files',
+      clientMsgId: 'user-4-jkl',
+    });
 
     // Assistant turn starts
     state = chatMessagesReducer(state, { type: 'MESSAGE_START', messageId: 'msg-a' });

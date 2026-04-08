@@ -61,7 +61,13 @@ export type ChatMessagesAction =
   // Session / UI lifecycle
   | { type: 'ERROR'; error: string }
   | { type: 'SESSION_INFO'; branch: string; isWorktree: boolean }
-  | { type: 'USER_SEND'; text: string; images?: string[]; contextBlocks?: string[] }
+  | {
+      type: 'USER_SEND';
+      text: string;
+      clientMsgId: string;
+      images?: string[];
+      contextBlocks?: string[];
+    }
   | { type: 'SET_RUNNING'; running: boolean }
   | { type: 'CONNECTION_LOST' }
   | { type: 'PERMISSION_REQUEST'; payload: PermissionRequest }
@@ -376,26 +382,13 @@ export function chatMessagesReducer(
     }
 
     case 'USER_MESSAGE_RECEIVED': {
-      // Server-side user_message event (from reattach replay or live emit).
-      // Exact ID match — already have this message (reattach replay).
+      // Server echo of a user message (live confirmation or reattach replay).
+      // The client's USER_SEND uses the same clientMsgId that the server
+      // echoes back, so exact ID match deduplicates correctly.
       if (state.messages.some((m) => m.messageId === action.messageId)) {
         return state;
       }
-      // Content match — optimistic USER_SEND already rendered this message.
-      // Upgrade the ID to the server's canonical one so reconnect/restore
-      // can find it by the persisted ID.
-      const optimisticIdx = state.messages.findIndex(
-        (m) =>
-          m.role === 'user' &&
-          m.messageId.startsWith('user-') &&
-          m.blocks[0]?.content === action.text,
-      );
-      if (optimisticIdx !== -1) {
-        const updated = [...state.messages];
-        updated[optimisticIdx] = { ...updated[optimisticIdx], messageId: action.messageId };
-        return { ...state, messages: updated };
-      }
-      // No match — add as new (reconnect/reattach scenario).
+      // No match — add as new (reconnect where no optimistic message exists).
       return {
         ...state,
         messages: [
@@ -421,7 +414,7 @@ export function chatMessagesReducer(
         messages: [
           ...state.messages,
           {
-            messageId: `user-${Date.now()}`,
+            messageId: action.clientMsgId,
             role: 'user',
             blocks: [],
             images: action.images,
@@ -431,7 +424,7 @@ export function chatMessagesReducer(
               ? {
                   blocks: [
                     {
-                      blockId: `user-text-${Date.now()}`,
+                      blockId: `user-text-${action.clientMsgId}`,
                       blockType: 'text' as BlockType,
                       content: action.text,
                     },

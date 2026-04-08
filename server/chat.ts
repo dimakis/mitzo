@@ -306,6 +306,7 @@ export async function startChat(
     worktree?: boolean;
     images?: Array<{ data: string; mediaType: string }>;
     contextBlocks?: string[];
+    clientMsgId?: string;
   },
 ) {
   const abortController = new AbortController();
@@ -452,11 +453,12 @@ export function sendToChat(
   prompt: string,
   images?: Array<{ data: string; mediaType: string }>,
   contextBlocks?: string[],
+  clientMsgId?: string,
 ): boolean {
   const session = registry.get(clientId);
   if (!session?.inputQueue) return false;
   const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
-  const messageId = `umsg-${Date.now()}-send`;
+  const messageId = clientMsgId ?? `umsg-${Date.now()}-send`;
   if (session.sessionId) {
     eventStore.append(session.sessionId, 'user_message', {
       v: 2,
@@ -481,11 +483,12 @@ export async function interruptChat(
   prompt: string,
   images?: Array<{ data: string; mediaType: string }>,
   contextBlocks?: string[],
+  clientMsgId?: string,
 ): Promise<boolean> {
   const session = registry.get(clientId);
   if (!session?.queryInstance || !session?.inputQueue) return false;
   const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
-  const messageId = `umsg-${Date.now()}-interrupt`;
+  const messageId = clientMsgId ?? `umsg-${Date.now()}-interrupt`;
   if (session.sessionId) {
     eventStore.append(session.sessionId, 'user_message', {
       v: 2,

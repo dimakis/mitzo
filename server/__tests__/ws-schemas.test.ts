@@ -6,11 +6,20 @@ describe('WS message schemas', () => {
     const result = IncomingWsMessage.safeParse({
       type: 'send',
       prompt: 'hello',
+      clientMsgId: 'user-1-abc',
       model: 'claude-sonnet-4-6',
       mode: 'agent',
     });
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.type).toBe('send');
+  });
+
+  it('rejects send without clientMsgId', () => {
+    const result = IncomingWsMessage.safeParse({
+      type: 'send',
+      prompt: 'hello',
+    });
+    expect(result.success).toBe(false);
   });
 
   it('rejects send with empty prompt', () => {
@@ -39,7 +48,11 @@ describe('WS message schemas', () => {
   });
 
   it('accepts interrupt message', () => {
-    const result = IncomingWsMessage.safeParse({ type: 'interrupt', prompt: 'wait' });
+    const result = IncomingWsMessage.safeParse({
+      type: 'interrupt',
+      prompt: 'wait',
+      clientMsgId: 'user-2-def',
+    });
     expect(result.success).toBe(true);
   });
 
@@ -71,6 +84,7 @@ describe('WS message schemas', () => {
     const result = IncomingWsMessage.safeParse({
       type: 'send',
       prompt: 'look at this',
+      clientMsgId: 'user-3-ghi',
       images: [{ data: 'base64data', mediaType: 'image/png' }],
     });
     expect(result.success).toBe(true);
