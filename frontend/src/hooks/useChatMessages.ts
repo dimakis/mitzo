@@ -226,7 +226,7 @@ export function chatMessagesReducer(
       // Reconstruct in-flight state from server snapshot on reattach.
       const snapshotBlocks = action.blocks ?? [];
       if (!Array.isArray(snapshotBlocks) || snapshotBlocks.length === 0) return state;
-      const blocks = new Map<string,StreamingBlock>();
+      const blocks = new Map<string, StreamingBlock>();
       const blockOrder: string[] = [];
       for (const b of snapshotBlocks) {
         blocks.set(b.blockId, {
@@ -334,9 +334,7 @@ export function chatMessagesReducer(
         const restoredIds = new Set(valid.map((m) => m.messageId));
         const optimisticUserMsgs = state.messages.filter(
           (m) =>
-            m.role === 'user' &&
-            m.messageId.startsWith('user-') &&
-            !restoredIds.has(m.messageId),
+            m.role === 'user' && m.messageId.startsWith('user-') && !restoredIds.has(m.messageId),
         );
         const notice: FinishedMessage = {
           messageId: `notice-${Date.now()}`,

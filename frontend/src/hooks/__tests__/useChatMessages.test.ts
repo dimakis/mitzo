@@ -160,7 +160,7 @@ describe('chatMessagesReducer', () => {
     // is opened, subsequent events for the same repo are ignored — the
     // original path is the canonical one for this session.
     const state1 = chatMessagesReducer(INITIAL_STATE, {
-      type: 'WORKTREE_OPENED',,
+      type: 'WORKTREE_OPENED',
       repoName: 'team_home',
       path: '/tmp/team_home-sessions/session-wt-123',
     });
