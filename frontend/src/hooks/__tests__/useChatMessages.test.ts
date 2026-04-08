@@ -376,7 +376,7 @@ describe('USER_MESSAGE_RECEIVED deduplication', () => {
     expect(result).toBe(stateWithAssistant);
   });
 
-  it('adds message with different ID when no optimistic match exists', () => {
+  it('adds server-ID message even when same text exists under a different non-optimistic ID', () => {
     const stateWithMsg: ChatMessagesState = {
       ...INITIAL_STATE,
       messages: [
@@ -387,7 +387,6 @@ describe('USER_MESSAGE_RECEIVED deduplication', () => {
         },
       ],
     };
-    // umsg-100 is a server ID (not optimistic user-*), so same text should still add
     const result = chatMessagesReducer(stateWithMsg, {
       type: 'USER_MESSAGE_RECEIVED',
       messageId: 'umsg-200',
@@ -416,6 +415,57 @@ describe('USER_MESSAGE_RECEIVED deduplication', () => {
     expect(afterEcho.messages).toHaveLength(1);
     expect(afterEcho.messages[0].messageId).toBe('umsg-999-send');
     expect(afterEcho.messages[0].blocks[0].content).toBe("Yep. Let's go");
+  });
+
+  it('upgrades the correct optimistic message when multiple user-* messages exist', () => {
+    // First optimistic send
+    const afterSend1 = chatMessagesReducer(INITIAL_STATE, {
+      type: 'USER_SEND',
+      text: 'first question',
+    });
+    // Second optimistic send
+    const afterSend2 = chatMessagesReducer(afterSend1, {
+      type: 'USER_SEND',
+      text: 'second question',
+    });
+    expect(afterSend2.messages).toHaveLength(2);
+    expect(afterSend2.messages[0].messageId).toMatch(/^user-/);
+    expect(afterSend2.messages[1].messageId).toMatch(/^user-/);
+
+    // Server echoes the second message — should upgrade that one, not the first
+    const afterEcho = chatMessagesReducer(afterSend2, {
+      type: 'USER_MESSAGE_RECEIVED',
+      messageId: 'umsg-server-2',
+      text: 'second question',
+    });
+    expect(afterEcho.messages).toHaveLength(2);
+    // First message should still be optimistic
+    expect(afterEcho.messages[0].messageId).toMatch(/^user-/);
+    expect(afterEcho.messages[0].blocks[0].content).toBe('first question');
+    // Second message should be upgraded to server ID
+    expect(afterEcho.messages[1].messageId).toBe('umsg-server-2');
+    expect(afterEcho.messages[1].blocks[0].content).toBe('second question');
+  });
+
+  it('handles server-normalizedwhitespace by adding as new message rather than upgrading', () => {
+    // Optimistic send with extra whitespace
+    const afterSend = chatMessagesReducer(INITIAL_STATE, {
+      type: 'USER_SEND',
+      text: 'hello  world',
+    });
+    expect(afterSend.messages).toHaveLength(1);
+
+    // Server normalizes whitespace in the echo
+    const afterEcho = chatMessagesReducer(afterSend, {
+      type: 'USER_MESSAGE_RECEIVED',
+      messageId: 'umsg-normalized',
+      text: 'hello world',
+    });
+    // Text doesn't match exactly — dedup won't upgrade, so it adds a new message.
+    // This documents the current behavior: exact-match dedup means normalized
+    // text is treated as a different message.
+    expect(afterEcho.messages).toHaveLength(2);
+    expect(afterEcho.messages[1].messageId).toBe('umsg-normalized');
   });
 
   it('adds server echo when no optimistic message matches the text', () => {
