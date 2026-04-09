@@ -324,11 +324,14 @@ app.get('/api/config', (_req, res) => {
     }
     contextBlocks[name] = { path, sizeBytes };
   }
+  const fileViewerRoots =
+    repoConfig.roots.length > 0 ? repoConfig.roots : [{ label: 'Root', path: BASE_REPO }];
   res.json({
     repoPath: BASE_REPO,
     mcpServers: getMcpServerNames(),
     quickActions: actions,
     contextBlocks,
+    fileViewerRoots,
   });
 });
 
@@ -459,6 +462,43 @@ app.get('/api/git/info', (_req, res) => {
 
 app.get('/api/files/roots', (_req, res) => {
   res.json(getRepoConfig().roots);
+});
+
+app.get('/api/files/list', (req, res) => {
+  const root = resolveRoot(req.query.root as string | undefined);
+  const dir = (req.query.dir as string) || root;
+  if (!dir || !isAllowedPath(dir)) {
+    res.status(403).json({ error: 'Path not allowed' });
+    return;
+  }
+  if (!existsSync(dir)) {
+    res.status(404).json({ error: 'Directory not found' });
+    return;
+  }
+  try {
+    const entries = readdirSync(dir)
+      .filter((name) => !name.startsWith('.'))
+      .map((name) => {
+        const full = join(dir, name);
+        try {
+          const stat = statSync(full);
+          return { name, isDir: stat.isDirectory() };
+        } catch {
+          return { name, isDir: false };
+        }
+      })
+      .sort((a, b) => {
+        if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+    res.json({ currentDir: dir, entries });
+  } catch (err: unknown) {
+    log.error('failed to read directory', {
+      dir,
+      error: err instanceof Error ? err.message : 'unknown',
+    });
+    res.status(500).json({ error: 'Failed to read directory' });
+  }
 });
 
 app.get('/api/files', (req, res) => {
