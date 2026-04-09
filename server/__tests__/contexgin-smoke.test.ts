@@ -2,23 +2,43 @@
  * Smoke test: verify contexgin is importable and exports the expected API.
  * This test exists to catch broken links or missing builds early.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { mkdirSync, writeFileSync, rmSync } from 'fs';
 
 describe('contexgin dependency', () => {
-  it('exports compile and discoverSources', async () => {
-    const contexgin = await import('contexgin');
+  let contexgin: Awaited<typeof import('contexgin')>;
+
+  beforeAll(async () => {
+    contexgin = await import('contexgin');
+  });
+
+  it('exports compile and discoverSources', () => {
     expect(typeof contexgin.compile).toBe('function');
     expect(typeof contexgin.discoverSources).toBe('function');
   });
 
-  it('exports integrity functions', async () => {
-    const contexgin = await import('contexgin');
+  it('compile runs without throwing on a minimal workspace', async () => {
+    const tmp = join(tmpdir(), `contexgin-smoke-${Date.now()}`);
+    mkdirSync(tmp, { recursive: true });
+    writeFileSync(join(tmp, 'CLAUDE.md'), '# Test\nMinimal workspace.');
+    try {
+      const result = await contexgin.compile({ workspaceRoot: tmp, tokenBudget: 1000 });
+      expect(result).toBeDefined();
+      expect(result.bootPayload).toBeDefined();
+      expect(result.bootTokens).toBeLessThanOrEqual(1000);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('exports integrity functions', () => {
     expect(typeof contexgin.extractClaims).toBe('function');
     expect(typeof contexgin.validateAll).toBe('function');
   });
 
-  it('exports navigation functions', async () => {
-    const contexgin = await import('contexgin');
+  it('exports navigation functions', () => {
     expect(typeof contexgin.indexConstitutions).toBe('function');
     expect(typeof contexgin.generateReadingList).toBe('function');
   });
