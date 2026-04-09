@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import './styles/global.css';
+import './styles/desktop.css';
 
 // Unregister any previously installed service workers — the SW was causing
 // WS disconnects (code 1001) via clients.claim() on activate. For a tool
