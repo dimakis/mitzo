@@ -2,34 +2,10 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Session } from '../types/chat';
 import { formatRelativeTime } from '../lib/formatTime';
-import { renameSession } from '../lib/rename-session';
 import { useLongPress } from '../hooks/useLongPress';
 import { computeSwipeState, REVEAL_WIDTH } from '../lib/swipe-reveal';
-import { wsSubscribe } from '../lib/ws-pool';
-
-interface QuickAction {
-  label: string;
-  desc: string;
-  path?: string;
-  prompt?: string;
-  cwd?: string;
-  extraTools?: string;
-}
-
-const DEFAULT_ACTIONS: QuickAction[] = [
-  { label: 'Chat Session', desc: 'Interactive chat', path: '/chat' },
-  { label: 'Files', desc: 'Browse repo files', path: '/files' },
-];
-
-function buildQuickActions(serverActions: QuickAction[] | undefined): QuickAction[] {
-  if (!serverActions || serverActions.length === 0) return DEFAULT_ACTIONS;
-  const actions: QuickAction[] = [
-    { label: 'Chat Session', desc: 'Interactive chat', path: '/chat' },
-    ...serverActions,
-    { label: 'Files', desc: 'Browse repo files', path: '/files' },
-  ];
-  return actions;
-}
+import { useSessionList } from '../hooks/useSessionList';
+import type { QuickAction } from '../hooks/useSessionList';
 
 function SwipeableSession({
   session,
@@ -211,107 +187,22 @@ async function refreshUI() {
 
 export function SessionList() {
   const navigate = useNavigate();
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [quickActions, setQuickActions] = useState<QuickAction[]>(DEFAULT_ACTIONS);
-  const [loading, setLoading] = useState(true);
-  const [inboxCount, setInboxCount] = useState(0);
-  const [updateAvailable, setUpdateAvailable] = useState(false);
-  const [checking, setChecking] = useState(false);
-
-  useEffect(() => {
-    const loadAll = () =>
-      Promise.all([
-        fetch('/api/sessions')
-          .then((r) => r.json())
-          .catch(() => []),
-        fetch('/api/config')
-          .then((r) => r.json())
-          .catch(() => ({})),
-        fetch('/api/version')
-          .then((r) => r.json())
-          .catch(() => ({})),
-        fetch('/api/inbox')
-          .then((r) => r.json())
-          .catch(() => []),
-      ]).then(([sessData, config, version, inboxData]) => {
-        setSessions(sessData);
-        setQuickActions(buildQuickActions(config.quickActions));
-        if (version?.updateAvailable) setUpdateAvailable(true);
-        if (Array.isArray(inboxData)) setInboxCount(inboxData.length);
-      });
-
-    loadAll().finally(() => setLoading(false));
-
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') loadAll();
-    };
-    document.addEventListener('visibilitychange', onVisible);
-
-    // Subscribe to WS for real-time inbox count updates
-    let inboxFetchTimer: ReturnType<typeof setTimeout> | null = null;
-    const unsub = wsSubscribe('global:system', (msg) => {
-      if (msg.type === 'inbox_updated') {
-        if (inboxFetchTimer) clearTimeout(inboxFetchTimer);
-        inboxFetchTimer = setTimeout(() => {
-          fetch('/api/inbox')
-            .then((r) => r.json())
-            .then((data) => {
-              if (Array.isArray(data)) setInboxCount(data.length);
-            })
-            .catch(() => {});
-        }, 300);
-      }
-    });
-
-    return () => {
-      document.removeEventListener('visibilitychange', onVisible);
-      if (inboxFetchTimer) clearTimeout(inboxFetchTimer);
-      unsub();
-    };
-  }, []);
-
-  async function checkForUpdates() {
-    setChecking(true);
-    try {
-      const res = await fetch('/api/version/check', { method: 'POST' });
-      const data = await res.json();
-      setUpdateAvailable(data.updateAvailable);
-    } catch {
-      // Network error — ignore
-    } finally {
-      setChecking(false);
-    }
-  }
+  const {
+    sessions,
+    quickActions,
+    loading,
+    inboxCount,
+    updateAvailable,
+    checking,
+    dismissSession,
+    clearAll,
+    handleRename,
+    checkForUpdates,
+  } = useSessionList();
 
   function handleDeployAction() {
     const deploy = quickActions.find((a) => a.label === 'Deploy Mitzo');
     if (deploy) handleQuickAction(deploy);
-  }
-
-  function dismissSession(id: string) {
-    setSessions((prev) => prev.filter((s) => s.id !== id));
-    fetch(`/api/sessions/${id}`, { method: 'DELETE' }).catch(() => {
-      // Best-effort server-side dismiss — UI already updated
-    });
-  }
-
-  function clearAll() {
-    setSessions([]);
-    fetch('/api/sessions', { method: 'DELETE' }).catch(() => {
-      // Best-effort server-side clear — UI already updated
-    });
-  }
-
-  function handleRename(id: string, title: string) {
-    // Optimistic update
-    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, summary: title } : s)));
-    renameSession(id, title).catch(() => {
-      // Revert on failure — reload from server
-      fetch('/api/sessions')
-        .then((r) => r.json())
-        .then(setSessions)
-        .catch(() => {});
-    });
   }
 
   function handleQuickAction(action: QuickAction) {
