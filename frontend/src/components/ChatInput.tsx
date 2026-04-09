@@ -28,6 +28,8 @@ interface Props {
   sandbox?: boolean;
   onSandboxToggle?: () => void;
   sandboxDisabled?: boolean;
+  /** When provided, uses these context blocks instead of internal state. Hides @ picker. */
+  externalContextBlocks?: string[];
 }
 
 export function ChatInput({
@@ -43,12 +45,15 @@ export function ChatInput({
   sandbox,
   onSandboxToggle,
   sandboxDisabled,
+  externalContextBlocks,
 }: Props) {
   const [text, setText] = useState(initialText || '');
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [showSlashPicker, setShowSlashPicker] = useState(false);
   const [showContextPicker, setShowContextPicker] = useState(false);
   const [contextBlocks, setContextBlocks] = useState<string[]>([]);
+  const useExternal = externalContextBlocks !== undefined;
+  const activeContextBlocks = useExternal ? externalContextBlocks : contextBlocks;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const initialApplied = useRef(false);
@@ -102,12 +107,12 @@ export function ChatInput({
     const sent = onSend(
       trimmed || 'What do you see in this image?',
       images.length > 0 ? images : undefined,
-      contextBlocks.length > 0 ? contextBlocks : undefined,
+      activeContextBlocks.length > 0 ? activeContextBlocks : undefined,
     );
     if (sent) {
       setText('');
       setImages([]);
-      setContextBlocks([]);
+      if (!useExternal) setContextBlocks([]);
       requestAnimationFrame(() => {
         autoResize();
         textareaRef.current?.focus();
@@ -190,11 +195,11 @@ export function ChatInput({
     onInterrupt(
       trimmed || 'What do you see in this image?',
       images.length > 0 ? images : undefined,
-      contextBlocks.length > 0 ? contextBlocks : undefined,
+      activeContextBlocks.length > 0 ? activeContextBlocks : undefined,
     );
     setText('');
     setImages([]);
-    setContextBlocks([]);
+    if (!useExternal) setContextBlocks([]);
     requestAnimationFrame(() => {
       autoResize();
       textareaRef.current?.focus();
@@ -211,7 +216,7 @@ export function ChatInput({
           cwd={cwd}
         />
       )}
-      {showContextPicker && (
+      {!useExternal && showContextPicker && (
         <ContextPicker
           selected={contextBlocks}
           onToggle={(name) =>
@@ -234,7 +239,7 @@ export function ChatInput({
           ))}
         </div>
       )}
-      {contextBlocks.length > 0 && (
+      {!useExternal && contextBlocks.length > 0 && (
         <div className="chat-input-context-pills">
           {contextBlocks.map((name) => (
             <span key={name} className="chat-input-context-pill">
@@ -272,13 +277,15 @@ export function ChatInput({
         >
           +
         </button>
-        <button
-          className={`chat-input-btn chat-input-btn--context${contextBlocks.length > 0 ? ' chat-input-btn--active' : ''}`}
-          onClick={() => setShowContextPicker((v) => !v)}
-          title="Attach context"
-        >
-          @
-        </button>
+        {!useExternal && (
+          <button
+            className={`chat-input-btn chat-input-btn--context${contextBlocks.length > 0 ? ' chat-input-btn--active' : ''}`}
+            onClick={() => setShowContextPicker((v) => !v)}
+            title="Attach context"
+          >
+            @
+          </button>
+        )}
         <input
           ref={fileInputRef}
           type="file"

@@ -3,9 +3,11 @@ import { useState, useEffect } from 'react';
 import { Login } from './pages/Login';
 import { SessionList } from './pages/SessionList';
 import { ChatView } from './pages/ChatView';
+import { DesktopChatView } from './pages/DesktopChatView';
 import { FileViewer } from './pages/FileViewer';
 import { InboxView } from './pages/InboxView';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { useIsDesktop } from './hooks/useMediaQuery';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const [auth, setAuth] = useState<'loading' | 'ok' | 'denied'>('loading');
@@ -21,6 +23,16 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function HomeRoute() {
+  const isDesktop = useIsDesktop();
+  return isDesktop ? <DesktopChatView /> : <SessionList />;
+}
+
+function ChatRoute() {
+  const isDesktop = useIsDesktop();
+  return isDesktop ? <DesktopChatView /> : <ChatView />;
+}
+
 export function App() {
   return (
     <ErrorBoundary>
@@ -31,7 +43,9 @@ export function App() {
             path="/"
             element={
               <ProtectedRoute>
-                <SessionList />
+                <ErrorBoundary>
+                  <HomeRoute />
+                </ErrorBoundary>
               </ProtectedRoute>
             }
           />
@@ -40,7 +54,7 @@ export function App() {
             element={
               <ProtectedRoute>
                 <ErrorBoundary>
-                  <ChatView />
+                  <ChatRoute />
                 </ErrorBoundary>
               </ProtectedRoute>
             }
@@ -50,7 +64,7 @@ export function App() {
             element={
               <ProtectedRoute>
                 <ErrorBoundary>
-                  <ChatView />
+                  <ChatRoute />
                 </ErrorBoundary>
               </ProtectedRoute>
             }

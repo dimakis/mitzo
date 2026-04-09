@@ -58,7 +58,7 @@ describe('ChatArea', () => {
       {
         messageId: 'u1',
         role: 'user',
-        blocks: [{ blockId: 'b1', blockType: 'text', content: 'Hello', done: true }],
+        blocks: [{ blockId: 'b1', blockType: 'text', content: 'Hello' }],
       },
     ];
     render(<ChatArea {...defaultProps} messages={messages} />);
@@ -71,7 +71,7 @@ describe('ChatArea', () => {
       {
         messageId: 'a1',
         role: 'assistant',
-        blocks: [{ blockId: 'b1', blockType: 'text', content: 'Hi there', done: true }],
+        blocks: [{ blockId: 'b1', blockType: 'text', content: 'Hi there' }],
       },
     ];
     render(<ChatArea {...defaultProps} messages={messages} />);
@@ -121,7 +121,7 @@ describe('ChatArea', () => {
       {
         messageId: 'a1',
         role: 'assistant',
-        blocks: [{ blockId: 'tb1', blockType: 'thinking', content: 'thinking...', done: true }],
+        blocks: [{ blockId: 'tb1', blockType: 'thinking', content: 'thinking...' }],
       },
     ];
     render(<ChatArea {...defaultProps} messages={messages} />);
