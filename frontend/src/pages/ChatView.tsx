@@ -1,23 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
-import { UserBubble, TextBubble } from '../components/MessageBubble';
-import { ThinkingBlock } from '../components/ThinkingBlock';
-import { ToolPill } from '../components/ToolPill';
-import { ToolGroup } from '../components/ToolGroup';
-import { PermissionBanner } from '../components/PermissionBanner';
+import { ChatArea } from '../components/ChatArea';
 import { ChatInput } from '../components/ChatInput';
 import { VoiceSettings } from '../components/VoiceSettings';
 import { MitzoLogo } from '../components/MitzoLogo';
-import { groupBlocks } from '../lib/groupMessages';
 import { wsIsOpen, wsSend, wsSetRunning } from '../lib/ws-pool';
-import { SCROLL_NEAR_BOTTOM_PX, SCROLL_RESTORE_DELAY_MS, LAST_SESSION_KEY } from '../lib/constants';
+import { SCROLL_RESTORE_DELAY_MS, LAST_SESSION_KEY } from '../lib/constants';
 import { useChatSession } from '../hooks/useChatSession';
 import { useChatMessages } from '../hooks/useChatMessages';
 import { useChatConnection } from '../hooks/useChatConnection';
 import { usePermission } from '../hooks/usePermission';
 import { useVoice } from '../hooks/useVoice';
 import { useAutoSpeak } from '../hooks/useAutoSpeak';
-import type { FinishedBlock, ImageAttachment } from '../types/chat';
+import type { ImageAttachment } from '../types/chat';
 
 function generateClientMsgId(): string {
   return `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -87,16 +82,6 @@ export function ChatView() {
     forceScrollToBottom,
     handleSessionRenamed,
   );
-
-  // Auto-scroll during streaming: follow new content if user is near the bottom
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    if (distFromBottom <= SCROLL_NEAR_BOTTOM_PX) {
-      el.scrollTop = el.scrollHeight;
-    }
-  }, [msgState.messages, msgState.current]);
 
   // Restore messages when navigating to an existing session.
   // Fetch from the API (single source of truth — no localStorage cache).
@@ -230,16 +215,6 @@ export function ChatView() {
     }
   }
 
-  // Group blocks per finished assistant turn for tool collapsing.
-  const groupedMessages = useMemo(
-    () =>
-      msgState.messages.map((msg) => ({
-        msg,
-        grouped: msg.role === 'assistant' ? groupBlocks(msg.blocks) : null,
-      })),
-    [msgState.messages],
-  );
-
   const initialPrompt = searchParams.get('prompt') || undefined;
 
   return (
@@ -286,76 +261,14 @@ export function ChatView() {
         />
       </header>
 
-      <div className="chat-messages" ref={scrollRef}>
-        {msgState.messages.length === 0 && !msgState.current && !msgState.running && (
-          <p className="chat-empty">Send a message to start</p>
-        )}
-
-        {/* Finished turns */}
-        {groupedMessages.map(({ msg, grouped }) => {
-          if (msg.role === 'user') {
-            const textBlock = msg.blocks.find((b) => b.blockType === 'text');
-            return (
-              <UserBubble
-                key={msg.messageId}
-                text={textBlock?.content}
-                images={msg.images}
-                contextBlocks={msg.contextBlocks}
-              />
-            );
-          }
-
-          // Assistant turn — render grouped blocks
-          return (
-            <div key={msg.messageId} className="msg-turn">
-              {(grouped ?? []).map((item, i) => {
-                if (item.type === 'tool-group') {
-                  return <ToolGroup key={item.key} tools={item.tools} />;
-                }
-                const block: FinishedBlock = item.block;
-                if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
-                  return <ThinkingBlock key={block.blockId} block={block} />;
-                }
-                if (block.blockType === 'tool_use') {
-                  return <ToolPill key={block.blockId} block={block} />;
-                }
-                return (
-                  <TextBubble key={block.blockId || `text-${i}`} content={block.content ?? ''} />
-                );
-              })}
-            </div>
-          );
-        })}
-
-        {/* In-flight streaming turn — rendered inline, no grouping */}
-        {msgState.current && (
-          <div className="msg-turn msg-turn--streaming">
-            {msgState.current.blockOrder.map((blockId) => {
-              const block = msgState.current!.blocks.get(blockId)!;
-              if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
-                return <ThinkingBlock key={block.blockId} block={block} streaming />;
-              }
-              if (block.blockType === 'tool_use') {
-                return <ToolPill key={block.blockId} block={block} />;
-              }
-              return <TextBubble key={block.blockId} content={block.content ?? ''} streaming />;
-            })}
-          </div>
-        )}
-      </div>
-
-      {msgState.permission && (
-        <PermissionBanner
-          permId={msgState.permission.permId}
-          toolName={msgState.permission.toolName}
-          toolInput={msgState.permission.toolInput}
-          title={msgState.permission.title}
-          description={msgState.permission.description}
-          displayName={msgState.permission.displayName}
-          tier={msgState.permission.tier}
-          onRespond={handlePermission}
-        />
-      )}
+      <ChatArea
+        messages={msgState.messages}
+        current={msgState.current}
+        running={msgState.running}
+        permission={msgState.permission}
+        onPermissionRespond={handlePermission}
+        scrollRef={scrollRef}
+      />
 
       <ChatInput
         onSend={sendMessage}
