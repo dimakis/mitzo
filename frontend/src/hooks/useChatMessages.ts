@@ -75,7 +75,8 @@ export type ChatMessagesAction =
   | { type: 'RESTORE'; messages: FinishedMessage[]; interrupted?: boolean }
   | { type: 'USER_MESSAGE_RECEIVED'; messageId: string; text: string }
   | { type: 'WORKTREE_OPENED'; repoName: string; path: string }
-  | { type: 'NATIVE_COMMAND_RESULT'; command: string; content: string };
+  | { type: 'NATIVE_COMMAND_RESULT'; command: string; content: string }
+  | { type: 'CLEAR' };
 
 const INITIAL_STATE: ChatMessagesState = {
   messages: [],
@@ -315,6 +316,9 @@ export function chatMessagesReducer(
         messages: [...state.messages, cmdMsg],
       };
     }
+
+    case 'CLEAR':
+      return { ...INITIAL_STATE };
 
     case 'RESTORE': {
       const valid = action.messages.filter(

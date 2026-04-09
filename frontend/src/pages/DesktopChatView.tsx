@@ -80,6 +80,10 @@ export function DesktopChatView() {
   );
 
   useEffect(() => {
+    dispatch({ type: 'CLEAR' });
+  }, [sessionId, dispatch]);
+
+  useEffect(() => {
     if (!sessionId) return;
     const controller = new AbortController();
     fetch(`/api/sessions/${sessionId}/messages`, {
