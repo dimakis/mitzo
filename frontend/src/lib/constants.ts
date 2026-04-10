@@ -28,3 +28,4 @@ export const TTS_MAX_SPEAK_CHARS = 2000;
 export const TTS_ENABLED_KEY = 'mitzo-tts-enabled';
 export const TTS_VOICE_KEY = 'mitzo-tts-voice';
 export const DEFAULT_TTS_VOICE = 'af_heart';
+export const DOCUMENT_READ_MAX_CHARS = 50_000;

@@ -2528,6 +2528,11 @@ textarea:focus {
   border: 1px solid var(--border);
 }
 
+.viewer-header-action--active {
+  background: var(--accent-hover);
+  box-shadow: 0 0 0 2px rgba(108, 99, 255, 0.35);
+}
+
 .viewer-root-bar {
   display: flex;
   gap: 0.35rem;

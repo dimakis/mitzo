@@ -4,6 +4,7 @@ import {
   stripCodeForTts,
   truncateForTts,
   synthesize,
+  synthesizeDocument,
   getOrCreateAudioContext,
   closeAudioContext,
   playAudio,
@@ -197,6 +198,56 @@ describe('synthesize', () => {
 
     await expect(synthesize('hello', 'af_heart', 'http://localhost:8700')).rejects.toThrow(
       'Synthesis failed (500)',
+    );
+  });
+});
+
+// --- synthesizeDocument ---
+
+describe('synthesizeDocument', () => {
+  it('returns a Blob on successful fetch', async () => {
+    const blob = new Blob(['audio'], { type: 'audio/wav' });
+    mockFetch.mockResolvedValueOnce({ ok: true, blob: () => Promise.resolve(blob) });
+
+    const result = await synthesizeDocument('# Hello', 'af_heart', 'http://localhost:8700');
+
+    expect(result).toBe(blob);
+  });
+
+  it('throws on non-OK response', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 503 });
+
+    await expect(
+      synthesizeDocument('# Hello', 'af_heart', 'http://localhost:8700'),
+    ).rejects.toThrow('Document synthesis failed (503)');
+  });
+
+  it('sends correct URL, method, headers, and body', async () => {
+    const blob = new Blob(['audio'], { type: 'audio/wav' });
+    mockFetch.mockResolvedValueOnce({ ok: true, blob: () => Promise.resolve(blob) });
+
+    await synthesizeDocument('some content', 'af_heart', 'http://localhost:8700');
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://localhost:8700/v1/synthesize/document',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: 'some content', voice: 'af_heart' }),
+      }),
+    );
+  });
+
+  it('passes AbortSignal when provided', async () => {
+    const blob = new Blob(['audio'], { type: 'audio/wav' });
+    mockFetch.mockResolvedValueOnce({ ok: true, blob: () => Promise.resolve(blob) });
+    const controller = new AbortController();
+
+    await synthesizeDocument('doc', 'af_heart', 'http://localhost:8700', controller.signal);
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://localhost:8700/v1/synthesize/document',
+      expect.objectContaining({ signal: controller.signal }),
     );
   });
 });
