@@ -108,7 +108,7 @@ describe('ws-pool subscribe for session keys', () => {
     ws.simulateOpen();
     ws.simulateMessage({ type: 'client_id', clientId: 'c1' });
 
-    const calls = ws.send.mock.calls.map((c: [string]) => JSON.parse(c[0]));
+    const calls = ws.send.mock.calls.map((c: any[]) => JSON.parse(c[0]));
     expect(calls.some((c: Record<string, unknown>) => c.type === 'subscribe')).toBe(false);
   });
 
@@ -142,7 +142,7 @@ describe('ws-pool subscribe for session keys', () => {
     ws2.simulateOpen();
     ws2.simulateMessage({ type: 'client_id', clientId: 'c4' });
 
-    const calls = ws2.send.mock.calls.map((c: [string]) => JSON.parse(c[0]));
+    const calls = ws2.send.mock.calls.map((c: any[]) => JSON.parse(c[0]));
     expect(calls.some((c: Record<string, unknown>) => c.type === 'reattach')).toBe(true);
   });
 });
