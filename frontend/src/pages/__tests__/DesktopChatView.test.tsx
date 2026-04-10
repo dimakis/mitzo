@@ -33,6 +33,10 @@ vi.mock('../../components/ChatArea', () => ({
   ChatArea: () => <div data-testid="chat-area">ChatArea</div>,
 }));
 
+vi.mock('../../components/VoiceSettings', () => ({
+  VoiceSettings: () => <div data-testid="voice-settings">Voice</div>,
+}));
+
 vi.mock('../../components/ChatInput', () => ({
   ChatInput: ({ externalContextBlocks }: { externalContextBlocks?: string[] }) => (
     <div data-testid="chat-input">
@@ -189,5 +193,17 @@ describe('DesktopChatView', () => {
     renderWithRouter();
     // Initial state: 0 external blocks
     expect(screen.getByTestId('chat-input').textContent).toContain('external: 0');
+  });
+
+  it('renders model selector and mode pills in center header', () => {
+    renderWithRouter();
+    const center = screen.getByTestId('center');
+    expect(center.querySelector('.chat-model-select')).toBeTruthy();
+    expect(center.querySelector('.mode-pills')).toBeTruthy();
+  });
+
+  it('renders voice settings in center header', () => {
+    renderWithRouter();
+    expect(screen.getByTestId('voice-settings')).toBeTruthy();
   });
 });

@@ -81,6 +81,25 @@
     height: 100%;
   }
 
+  /* === Desktop Chat Header (model/mode/voice) === */
+  .desktop-chat-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.375rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+
+  .desktop-chat-header .chat-model-select {
+    font-size: 0.8125rem;
+  }
+
+  .desktop-chat-header .mode-pills {
+    margin-left: 0;
+  }
+
   .desktop-chat-center .chat-messages {
     flex: 1;
     min-height: 0;

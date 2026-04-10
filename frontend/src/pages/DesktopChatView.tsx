@@ -7,6 +7,8 @@ import { FileBrowserPanel } from '../components/FileBrowserPanel';
 import { ChatArea } from '../components/ChatArea';
 import { ChatInput } from '../components/ChatInput';
 import { StatusBar } from '../components/StatusBar';
+import { VoiceSettings } from '../components/VoiceSettings';
+import { wsSend } from '../lib/ws-pool';
 import { SCROLL_RESTORE_DELAY_MS, LAST_SESSION_KEY } from '../lib/constants';
 import { useChatSession } from '../hooks/useChatSession';
 import { useChatMessages } from '../hooks/useChatMessages';
@@ -149,6 +151,13 @@ export function DesktopChatView() {
     running: msgState.running,
   });
 
+  function handleModeChange(newMode: 'ask' | 'agent' | 'auto') {
+    sessionActions.setMode(newMode);
+    if (msgState.running) {
+      wsSend(poolKey, { type: 'set_mode', mode: newMode });
+    }
+  }
+
   const handleToggleContext = useCallback((name: string) => {
     setContextBlocks((prev) =>
       prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
@@ -170,6 +179,46 @@ export function DesktopChatView() {
       }
       center={
         <div className="desktop-chat-center">
+          <header className="desktop-chat-header">
+            {!connected && (
+              <span
+                className="chat-header-offline"
+                title={msgState.running ? 'Reconnecting — session still active' : 'Reconnecting...'}
+              >
+                !
+              </span>
+            )}
+            <select
+              className="chat-model-select"
+              value={sessionState.model}
+              onChange={(e) => sessionActions.setModel(e.target.value)}
+              disabled={msgState.running}
+            >
+              <option value="claude-sonnet-4-6">Sonnet</option>
+              <option value="claude-opus-4-6">Opus</option>
+              <option value="claude-haiku-4-5">Haiku</option>
+            </select>
+            <div className="mode-pills">
+              {(['ask', 'agent', 'auto'] as const).map((m) => (
+                <button
+                  key={m}
+                  className={`mode-pill${sessionState.mode === m ? ' mode-pill--active' : ''}`}
+                  onClick={() => handleModeChange(m)}
+                >
+                  {m.charAt(0).toUpperCase() + m.slice(1)}
+                </button>
+              ))}
+            </div>
+            <VoiceSettings
+              ttsAvailable={voice.ttsAvailable}
+              ttsEnabled={voice.ttsEnabled}
+              speaking={voice.speaking}
+              voices={voice.voices}
+              selectedVoice={voice.selectedVoice}
+              onToggle={() => voice.setTtsEnabled(!voice.ttsEnabled)}
+              onVoiceChange={voice.setVoice}
+            />
+          </header>
           <ChatArea
             messages={msgState.messages}
             current={msgState.current}
