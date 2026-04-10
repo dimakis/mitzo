@@ -58,7 +58,10 @@ export function useCalendarData(date: string, days: number = 7): UseCalendarData
     setLoading(true);
 
     fetch(`/api/calendar?date=${date}&days=${days}`)
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`Calendar API returned ${r.status}`);
+        return r.json();
+      })
       .then((result: CalendarData) => {
         if (!cancelled) {
           setData(result);

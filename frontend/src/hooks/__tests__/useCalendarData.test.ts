@@ -106,6 +106,27 @@ describe('useCalendarData', () => {
     expect(fetch).toHaveBeenLastCalledWith('/api/calendar?date=2026-04-11&days=7');
   });
 
+  it('handles non-ok HTTP responses as errors', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: () => Promise.resolve({ error: 'Unauthorized' }),
+      }),
+    );
+
+    const { result } = renderHook(() => useCalendarData('2026-04-10'));
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.events).toEqual([]);
+    expect(result.current.sprints).toEqual([]);
+  });
+
   it('handles fetch errors gracefully', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network error')));
 

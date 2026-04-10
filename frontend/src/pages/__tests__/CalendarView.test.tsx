@@ -172,4 +172,119 @@ describe('CalendarView', () => {
     const back = container.querySelector('.cal-back');
     expect(back).not.toBeNull();
   });
+
+  it('switches to day view on Day toggle click', async () => {
+    renderCalendar();
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    // Week button should be active initially
+    const weekBtn = container.querySelector('.cal-view-btn--active');
+    expect(weekBtn).not.toBeNull();
+    expect(weekBtn!.textContent).toBe('Week');
+
+    // Click Day button
+    const dayBtn = Array.from(container.querySelectorAll('.cal-view-btn')).find(
+      (b) => b.textContent === 'Day',
+    ) as HTMLButtonElement;
+    expect(dayBtn).not.toBeNull();
+
+    act(() => {
+      dayBtn.click();
+    });
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    // Day button should now be active
+    const activeBtn = container.querySelector('.cal-view-btn--active');
+    expect(activeBtn!.textContent).toBe('Day');
+
+    // Should refetch with days=1
+    const calls = vi.mocked(fetch).mock.calls.map((c) => c[0]);
+    expect(calls.some((url) => (url as string).includes('days=1'))).toBe(true);
+  });
+
+  it('navigates to today on title click', async () => {
+    renderCalendar();
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    // Navigate forward first
+    const nextBtn = container.querySelector('.cal-nav-next') as HTMLButtonElement;
+    act(() => {
+      nextBtn.click();
+    });
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    // Click the title (today button)
+    const titleBtn = container.querySelector('.cal-header-title') as HTMLButtonElement;
+    act(() => {
+      titleBtn.click();
+    });
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    // Should have fetched 3 times: initial, next, today
+    expect(fetch).toHaveBeenCalledTimes(3);
+    // The last call should include today's date
+    const today = new Date().toISOString().slice(0, 10);
+    const lastCall = vi.mocked(fetch).mock.calls[2][0] as string;
+    expect(lastCall).toContain(`date=${today}`);
+  });
+
+  it('expands meeting card on click to show detail', async () => {
+    renderCalendar();
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    // No detail shown initially
+    expect(container.querySelector('.cal-event-detail')).toBeNull();
+
+    // Click the meeting card
+    const meetingCard = container.querySelector('.cal-event-meeting') as HTMLDivElement;
+    act(() => {
+      meetingCard.click();
+    });
+
+    // Detail section should now be visible
+    const detail = container.querySelector('.cal-event-detail');
+    expect(detail).not.toBeNull();
+    // Should show attendee name
+    const attendee = container.querySelector('.cal-attendee');
+    expect(attendee).not.toBeNull();
+    expect(attendee!.textContent).toBe('alice');
+  });
+
+  it('expands milestone card on click to show features', async () => {
+    renderCalendar();
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    // Click the milestone card
+    const milestoneCard = container.querySelector('.cal-event-milestone') as HTMLDivElement;
+    act(() => {
+      milestoneCard.click();
+    });
+
+    // Detail section should show feature counts
+    const detail = milestoneCard.querySelector('.cal-event-detail');
+    expect(detail).not.toBeNull();
+    expect(detail!.textContent).toContain('24 of our features');
+    expect(detail!.textContent).toContain('66 total');
+  });
 });

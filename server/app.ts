@@ -29,7 +29,7 @@ import { INTERNAL_TOKEN } from './internal-token.js';
 import { getLocalCommit, isUpdateAvailable } from './git-version.js';
 import { resolvePending } from './permissions.js';
 import { createLogger } from './logger.js';
-import { LoginBody, FileWriteBody, PermissionDecision } from './api-schemas.js';
+import { LoginBody, FileWriteBody, PermissionDecision, CalendarResponse } from './api-schemas.js';
 import {
   listInboxItems,
   readInboxItem,
@@ -685,27 +685,42 @@ app.get('/api/calendar', async (req, res) => {
     return;
   }
 
+  const emptyResponse = (error: string) => {
+    const endDate = new Date(dateParam);
+    endDate.setDate(endDate.getDate() + daysParam - 1);
+    return {
+      startDate: dateParam,
+      endDate: endDate.toISOString().slice(0, 10),
+      events: [],
+      sprints: [],
+      error,
+    };
+  };
+
+  // calendar_api.py lives in the mgmt repo (REPO_PATH), not in Mitzo
+  if (!existsSync(CALENDAR_SCRIPT)) {
+    log.warn('calendar script not found', { path: CALENDAR_SCRIPT });
+    res.json(emptyResponse(`Calendar script not found at ${CALENDAR_SCRIPT}`));
+    return;
+  }
+
   try {
     const { stdout } = await execFileAsync(
       'python3',
       [CALENDAR_SCRIPT, '--date', dateParam, '--days', String(daysParam)],
       { timeout: CALENDAR_TIMEOUT_MS },
     );
-    const data = JSON.parse(stdout);
-    res.json(data);
+    const parsed = CalendarResponse.safeParse(JSON.parse(stdout));
+    if (!parsed.success) {
+      log.warn('calendar API returned unexpected shape', { error: parsed.error.message });
+      res.json(emptyResponse('Calendar data failed validation'));
+      return;
+    }
+    res.json(parsed.data);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     log.warn('calendar API failed', { error: message });
-    // Return empty structure so the frontend still renders
-    const endDate = new Date(dateParam);
-    endDate.setDate(endDate.getDate() + daysParam - 1);
-    res.json({
-      startDate: dateParam,
-      endDate: endDate.toISOString().slice(0, 10),
-      events: [],
-      sprints: [],
-      error: message,
-    });
+    res.json(emptyResponse(message));
   }
 });
 
