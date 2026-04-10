@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 
 export interface CalendarEvent {
   id: string;
-  type: 'meeting' | 'milestone' | 'sprint';
+  type: 'meeting' | 'milestone';
   title: string;
   start: string;
   end: string;

@@ -6,7 +6,11 @@ import { SprintBar } from '../components/SprintBar';
 
 function toLocalDate(isoStr: string): string {
   if (isoStr.includes('T')) {
-    return new Date(isoStr).toISOString().slice(0, 10);
+    const d = new Date(isoStr);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
   }
   return isoStr.slice(0, 10);
 }

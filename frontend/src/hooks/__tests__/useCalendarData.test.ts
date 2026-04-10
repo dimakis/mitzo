@@ -86,7 +86,7 @@ describe('useCalendarData', () => {
   });
 
   it('refetches when date changes', async () => {
-    const { result, rerender } = renderHook(({ date }) => useCalendarData(date), {
+    const { rerender } = renderHook(({ date }) => useCalendarData(date), {
       initialProps: { date: '2026-04-10' },
     });
 
