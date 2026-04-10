@@ -88,7 +88,7 @@ export function useDocumentReader(): DocumentReader {
             setState('idle');
             playRef.current = null;
           }
-        } catch (err) {
+        } catch {
           if (!abort.signal.aborted) {
             setState('idle');
           }
