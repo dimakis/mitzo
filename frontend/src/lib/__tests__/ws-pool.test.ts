@@ -87,6 +87,66 @@ describe('ws-pool message delivery', () => {
   });
 });
 
+describe('ws-pool subscribe for session keys', () => {
+  it('sends subscribe message for session: keys after client_id', () => {
+    const received: Array<WsMsg> = [];
+    wsSubscribe('session:sdk-test-123', (msg) => received.push(msg));
+    const ws = lastCreatedWs!;
+    ws.simulateOpen();
+
+    // Server sends client_id — pool should respond with subscribe
+    ws.simulateMessage({ type: 'client_id', clientId: 'new-client' });
+
+    expect(ws.send).toHaveBeenCalledWith(
+      JSON.stringify({ type: 'subscribe', sessionId: 'sdk-test-123' }),
+    );
+  });
+
+  it('does NOT send subscribe for non-session keys', () => {
+    wsSubscribe('new:abc123', (msg) => msg);
+    const ws = lastCreatedWs!;
+    ws.simulateOpen();
+    ws.simulateMessage({ type: 'client_id', clientId: 'c1' });
+
+    const calls = ws.send.mock.calls.map((c: any[]) => JSON.parse(c[0]));
+    expect(calls.some((c: Record<string, unknown>) => c.type === 'subscribe')).toBe(false);
+  });
+
+  it('broadcasts _open after subscribed response', () => {
+    const received: Array<WsMsg> = [];
+    wsSubscribe('session:sdk-sub-test', (msg) => received.push(msg));
+    const ws = lastCreatedWs!;
+    ws.simulateOpen();
+    ws.simulateMessage({ type: 'client_id', clientId: 'c2' });
+
+    // Before subscribed, _open from onopen is there but not from client_id handler
+    const opensBefore = received.filter((m) => m.type === '_open').length;
+
+    ws.simulateMessage({ type: 'subscribed', sessionId: 'sdk-sub-test', running: true });
+
+    const opensAfter = received.filter((m) => m.type === '_open').length;
+    expect(opensAfter).toBeGreaterThan(opensBefore);
+  });
+
+  it('sets wasRunning when subscribed with running: true', () => {
+    const received: Array<WsMsg> = [];
+    wsSubscribe('session:sdk-running-test', (msg) => received.push(msg));
+    const ws = lastCreatedWs!;
+    ws.simulateOpen();
+    ws.simulateMessage({ type: 'client_id', clientId: 'c3' });
+    ws.simulateMessage({ type: 'subscribed', sessionId: 'sdk-running-test', running: true });
+
+    // Simulate disconnect + reconnect — should attempt reattach since wasRunning=true
+    ws.simulateClose();
+    const ws2 = lastCreatedWs!;
+    ws2.simulateOpen();
+    ws2.simulateMessage({ type: 'client_id', clientId: 'c4' });
+
+    const calls = ws2.send.mock.calls.map((c: any[]) => JSON.parse(c[0]));
+    expect(calls.some((c: Record<string, unknown>) => c.type === 'reattach')).toBe(true);
+  });
+});
+
 describe('ws-pool reattach_failed handling', () => {
   it('broadcasts _open after reattach_failed so component knows connection is live', () => {
     const received: Array<WsMsg> = [];

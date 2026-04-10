@@ -48,6 +48,11 @@ export const SetModeMessage = z.object({
   mode: z.enum(['ask', 'agent', 'auto']),
 });
 
+export const SubscribeMessage = z.object({
+  type: z.literal('subscribe'),
+  sessionId: z.string().min(1),
+});
+
 export const IncomingWsMessage = z.discriminatedUnion('type', [
   ReattachMessage,
   SendMessage,
@@ -55,6 +60,7 @@ export const IncomingWsMessage = z.discriminatedUnion('type', [
   StopMessage,
   PermissionResponseMessage,
   SetModeMessage,
+  SubscribeMessage,
 ]);
 
 export type IncomingWsMessage = z.infer<typeof IncomingWsMessage>;

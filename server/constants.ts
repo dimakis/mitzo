@@ -29,6 +29,9 @@ export const GIT_BRANCH_TIMEOUT_MS = 5_000;
 export const SESSION_LIST_LIMIT = 20;
 export const SESSION_MESSAGES_LIMIT = 100;
 
+// --- Observers ---
+export const MAX_OBSERVERS_PER_SESSION = 10;
+
 // --- Server ---
 export const HEARTBEAT_INTERVAL_MS = 15_000;
 export const PORT_DEFAULT = 3100;

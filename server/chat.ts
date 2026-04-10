@@ -19,7 +19,7 @@ import { getAllowedToolsForMode, applyTierOverrides } from './tool-tiers.js';
 import { loadRepoConfig } from './repo-config.js';
 import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
-import { runQueryLoop, createWsMessageHandler } from './query-loop.js';
+import { runQueryLoop, createWsMessageHandler, broadcastToObservers } from './query-loop.js';
 import { AsyncQueue } from './async-queue.js';
 import { GIT_BRANCH_TIMEOUT_MS, SESSION_LIST_LIMIT, SESSION_MESSAGES_LIMIT } from './constants.js';
 import { INTERNAL_TOKEN } from './internal-token.js';
@@ -479,8 +479,9 @@ export function sendToChat(
       /* errors logged internally */
     });
   }
-  // Confirm persistence to frontend so the message survives reconnects
-  send(session.ws, { type: 'user_message', messageId, text: fullPrompt });
+  const echo = { type: 'user_message', messageId, text: fullPrompt };
+  send(session.ws, echo);
+  broadcastToObservers(session.observers, echo);
   session.inputQueue.push(makeUserMessage(fullPrompt, 'next'));
   return true;
 }
@@ -506,8 +507,9 @@ export async function interruptChat(
       text: fullPrompt,
     });
   }
-  // Confirm persistence to frontend so the message survives reconnects
-  send(session.ws, { type: 'user_message', messageId, text: fullPrompt });
+  const echo = { type: 'user_message', messageId, text: fullPrompt };
+  send(session.ws, echo);
+  broadcastToObservers(session.observers, echo);
   await session.queryInstance.interrupt();
   session.inputQueue.push(makeUserMessage(fullPrompt, 'now'));
   return true;

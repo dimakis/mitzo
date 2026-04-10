@@ -115,6 +115,9 @@ export function createCommandCallback(
         ? String((input as Record<string, unknown>).hook_event_name)
         : 'unknown';
 
+    // Fast-path: already aborted before we even spawn
+    if (options.signal.aborted) return {};
+
     return new Promise<HookJSONOutput>((resolve) => {
       const child = execFile(
         '/bin/sh',

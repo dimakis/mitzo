@@ -88,6 +88,25 @@ describe('WS message schemas', () => {
     expect(result.success).toBe(false);
   });
 
+  it('accepts subscribe message', () => {
+    const result = IncomingWsMessage.safeParse({
+      type: 'subscribe',
+      sessionId: 'session-abc-123',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.type).toBe('subscribe');
+  });
+
+  it('rejects subscribe without sessionId', () => {
+    const result = IncomingWsMessage.safeParse({ type: 'subscribe' });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects subscribe with empty sessionId', () => {
+    const result = IncomingWsMessage.safeParse({ type: 'subscribe', sessionId: '' });
+    expect(result.success).toBe(false);
+  });
+
   it('accepts send with images array', () => {
     const result = IncomingWsMessage.safeParse({
       type: 'send',

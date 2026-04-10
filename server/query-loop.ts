@@ -21,6 +21,27 @@ function send(ws: WebSocket, data: unknown) {
 }
 
 /**
+ * Broadcast a message to all observers of a session.
+ * Each send is wrapped in try/catch to prevent a single failing socket
+ * (e.g. transitioning to CLOSING between readyState check and send)
+ * from aborting the broadcast loop.
+ */
+export function broadcastToObservers(
+  observers: Set<WebSocket>,
+  data: string | Record<string, unknown>,
+): void {
+  if (observers.size === 0) return;
+  const msg = typeof data === 'string' ? data : JSON.stringify(data);
+  for (const obs of observers) {
+    try {
+      if (obs.readyState === obs.OPEN) obs.send(msg);
+    } catch {
+      // Socket transitioned between check and send — safe to ignore
+    }
+  }
+}
+
+/**
  * Persist a v2 event to the durable store (if available), then send or buffer.
  * The store.append() is synchronous and happens before WS delivery,
  * so events survive even if the connection drops mid-send.
@@ -41,7 +62,11 @@ function sendOrBuffer(
   if (registry.isAttached(clientId)) {
     send(ws, enriched);
   }
-  // When detached, messages are dropped — recovery via event store replay on reattach.
+  // Broadcast to observers watching this session
+  const session = registry.get(clientId);
+  if (session) {
+    broadcastToObservers(session.observers, enriched);
+  }
 }
 
 function v2(type: string, rest: Record<string, unknown> = {}): Record<string, unknown> {
@@ -444,10 +469,14 @@ export async function runQueryLoop(
     if (finalSession) {
       finalSession.currentSnapshot = null;
       const finalWs = finalSession.ws;
-      registry.remove(clientId);
-      if (!doneSent && finalWs.readyState === finalWs.OPEN) {
-        send(finalWs, v2('session_end', { sessionId: finalSession.sessionId }));
+      if (!doneSent) {
+        const endMsg = v2('session_end', { sessionId: finalSession.sessionId });
+        if (finalWs.readyState === finalWs.OPEN) {
+          send(finalWs, endMsg);
+        }
+        broadcastToObservers(finalSession.observers, endMsg);
       }
+      registry.remove(clientId);
     }
     // Mark session as inactive in durable store
     if (store && resolvedSessionId) {

@@ -65,8 +65,6 @@ function connectEntry(key: string, entry: PoolEntry) {
     }
 
     if (msg.type === 'client_id') {
-      // Save current as prev BEFORE overwriting — prev is what the server
-      // knows us by and what we need to send in the reattach request.
       entry.prevClientId = entry.clientId;
       entry.clientId = msg.clientId as string;
       if (entry.wasRunning && entry.prevClientId) {
@@ -79,19 +77,30 @@ function connectEntry(key: string, entry: PoolEntry) {
         );
         return; // wait for reattach/reattach_failed before broadcasting _open
       }
+      // For existing session keys, subscribe as observer so the server
+      // broadcasts live events if the session is active on another client.
+      const sessionPrefix = 'session:';
+      if (key.startsWith(sessionPrefix)) {
+        const sessionId = key.slice(sessionPrefix.length);
+        ws.send(JSON.stringify({ type: 'subscribe', sessionId }));
+        return; // wait for subscribed response before broadcasting _open
+      }
       broadcast(entry, { type: '_open' });
       return;
     }
 
     if (msg.type === 'reattached') {
       entry.wasRunning = true;
-      broadcast(entry, { type: '_open' }); // signal connected to component
+      broadcast(entry, { type: '_open' });
     }
 
     if (msg.type === 'reattach_failed') {
       entry.wasRunning = false;
-      // Signal that the connection is live even though reattach failed —
-      // without this, the component never learns the WS is open.
+      broadcast(entry, { type: '_open' });
+    }
+
+    if (msg.type === 'subscribed') {
+      if (msg.running) entry.wasRunning = true;
       broadcast(entry, { type: '_open' });
     }
 
