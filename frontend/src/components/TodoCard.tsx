@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useEffect } from 'react';
 import type { TodoItem } from '../types/todo';
 
 interface TodoCardProps {
@@ -36,6 +36,13 @@ export function TodoCard({ item, onAck, onDone, onTap }: TodoCardProps) {
   const currentX = useRef(0);
   const swiping = useRef(false);
   const tapped = useRef(false);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  useEffect(() => {
+    return () => {
+      timers.current.forEach(clearTimeout);
+    };
+  }, []);
 
   function handleTouchStart(e: React.TouchEvent) {
     startX.current = e.touches[0].clientX;
@@ -69,19 +76,21 @@ export function TodoCard({ item, onAck, onDone, onTap }: TodoCardProps) {
       ref.current.style.transition = 'transform 0.2s, opacity 0.2s';
       ref.current.style.transform = 'translateX(100%)';
       ref.current.style.opacity = '0';
-      setTimeout(() => onAck(item.id), 200);
+      timers.current.push(setTimeout(() => onAck(item.id), 200));
     } else if (dx < -100) {
       ref.current.style.transition = 'transform 0.2s, opacity 0.2s';
       ref.current.style.transform = 'translateX(-100%)';
       ref.current.style.opacity = '0';
-      setTimeout(() => onDone(item.id), 200);
+      timers.current.push(setTimeout(() => onDone(item.id), 200));
     } else {
       ref.current.style.transition = 'transform 0.2s, opacity 0.2s';
       ref.current.style.transform = 'translateX(0)';
       ref.current.style.opacity = '1';
-      setTimeout(() => {
-        if (ref.current) ref.current.style.transition = '';
-      }, 200);
+      timers.current.push(
+        setTimeout(() => {
+          if (ref.current) ref.current.style.transition = '';
+        }, 200),
+      );
     }
   }
 
@@ -98,7 +107,6 @@ export function TodoCard({ item, onAck, onDone, onTap }: TodoCardProps) {
       <div
         ref={ref}
         className="todo-card"
-        onClick={() => onTap(item)}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
