@@ -26,6 +26,7 @@
     "@anthropic-ai/vertex-sdk": "^0.15.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.8.0",
+    "contexgin": "github:dimakis/contexgin#52fe1c7",
     "cookie-parser": "^1.4.7",
     "dotenv": "^17.2.4",
     "express": "^4.21.0",
