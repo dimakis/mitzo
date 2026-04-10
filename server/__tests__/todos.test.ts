@@ -100,9 +100,7 @@ describe('todo routes', () => {
   });
 
   it('POST /api/todos/:id/action — unauthenticated returns 401', async () => {
-    const res = await request(app)
-      .post('/api/todos/abc123/action')
-      .send({ action: 'ack' });
+    const res = await request(app).post('/api/todos/abc123/action').send({ action: 'ack' });
     expect(res.status).toBe(401);
   });
 

@@ -11,8 +11,25 @@ const mockItems = [
     urgency: 0.5,
     status: 'active' as const,
     ageDays: 3,
-    sources: [{ type: 'github', url: 'https://github.com/dimakis/mitzo/issues/1', title: 'Fix bug', author: 'dimakis', snippet: '' }],
-    contextHints: { repos: ['dimakis/mitzo'], paths: [], issues: ['dimakis/mitzo#1'], docIds: [], people: [], jiraKeys: [], keywords: [], taskHint: 'Fix bug' },
+    sources: [
+      {
+        type: 'github',
+        url: 'https://github.com/dimakis/mitzo/issues/1',
+        title: 'Fix bug',
+        author: 'dimakis',
+        snippet: '',
+      },
+    ],
+    contextHints: {
+      repos: ['dimakis/mitzo'],
+      paths: [],
+      issues: ['dimakis/mitzo#1'],
+      docIds: [],
+      people: [],
+      jiraKeys: [],
+      keywords: [],
+      taskHint: 'Fix bug',
+    },
   },
 ];
 

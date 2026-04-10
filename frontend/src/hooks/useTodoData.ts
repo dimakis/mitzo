@@ -20,9 +20,7 @@ export function useTodoData(profile?: string): UseTodoDataResult {
     let cancelled = false;
     setLoading(true);
 
-    const url = profile
-      ? `/api/todos?${new URLSearchParams({ profile })}`
-      : '/api/todos';
+    const url = profile ? `/api/todos?${new URLSearchParams({ profile })}` : '/api/todos';
 
     fetch(url)
       .then((r) => {
@@ -47,30 +45,27 @@ export function useTodoData(profile?: string): UseTodoDataResult {
     };
   }, [profile, refreshKey]);
 
-  const performAction = useCallback(
-    async (id: string, action: string, days?: number) => {
-      const body: Record<string, unknown> = { action };
-      if (days !== undefined) body.days = days;
+  const performAction = useCallback(async (id: string, action: string, days?: number) => {
+    const body: Record<string, unknown> = { action };
+    if (days !== undefined) body.days = days;
 
-      try {
-        const res = await fetch(`/api/todos/${id}/action`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
+    try {
+      const res = await fetch(`/api/todos/${id}/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
 
-        if (res.ok) {
-          // Optimistically remove from list
-          setData((prev) =>
-            prev ? { ...prev, items: prev.items.filter((item) => item.id !== id) } : prev,
-          );
-        }
-      } catch {
-        // Network error — leave item in list
+      if (res.ok) {
+        // Optimistically remove from list
+        setData((prev) =>
+          prev ? { ...prev, items: prev.items.filter((item) => item.id !== id) } : prev,
+        );
       }
-    },
-    [],
-  );
+    } catch {
+      // Network error — leave item in list
+    }
+  }, []);
 
   const ack = useCallback((id: string) => performAction(id, 'ack'), [performAction]);
   const snooze = useCallback(

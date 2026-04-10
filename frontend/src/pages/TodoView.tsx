@@ -6,12 +6,7 @@ import type { TodoItem } from '../types/todo';
 
 function buildPrompt(item: TodoItem): string {
   const hints = item.contextHints;
-  const lines: string[] = [
-    `I want to work on this:`,
-    '',
-    `**${item.summary}**`,
-    '',
-  ];
+  const lines: string[] = [`I want to work on this:`, '', `**${item.summary}**`, ''];
 
   if (item.sources[0]?.url) {
     lines.push(`Source: ${item.sources[0].url}`);
