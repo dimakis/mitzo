@@ -15,7 +15,10 @@ export interface FileBrowserPanelProps {
   loaded?: boolean;
 }
 
-export function FileBrowserPanel({ roots: externalRoots, loaded: externalLoaded }: FileBrowserPanelProps) {
+export function FileBrowserPanel({
+  roots: externalRoots,
+  loaded: externalLoaded,
+}: FileBrowserPanelProps) {
   const [selfRoots, setSelfRoots] = useState<FileRoot[]>([]);
   const [selfLoaded, setSelfLoaded] = useState(false);
 
