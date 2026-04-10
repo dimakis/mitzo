@@ -7,6 +7,7 @@ import { DesktopChatView } from './pages/DesktopChatView';
 import { FileViewer } from './pages/FileViewer';
 import { InboxView } from './pages/InboxView';
 import { CalendarView } from './pages/CalendarView';
+import { TodoView } from './pages/TodoView';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useIsDesktop } from './hooks/useMediaQuery';
 
@@ -83,6 +84,14 @@ export function App() {
             element={
               <ProtectedRoute>
                 <CalendarView />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/todos"
+            element={
+              <ProtectedRoute>
+                <TodoView />
               </ProtectedRoute>
             }
           />

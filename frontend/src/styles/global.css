@@ -2707,3 +2707,193 @@ textarea:focus {
     opacity: 1;
   }
 }
+
+/* ── Todo View ─────────────────────────────────────────── */
+
+.todo-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 0 16px 32px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.todo-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 0 8px;
+}
+
+.todo-header h1 {
+  flex: 1;
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.todo-back,
+.todo-refresh {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.todo-count {
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: 10px;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+
+.todo-filters {
+  display: flex;
+  gap: 6px;
+  padding: 8px 0;
+  overflow-x: auto;
+}
+
+.todo-filter-pill {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 16px;
+  padding: 4px 14px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.todo-filter-pill--active {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+
+.todo-hint {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  padding: 4px 0 8px;
+}
+
+.todo-empty {
+  text-align: center;
+  padding: 48px 16px;
+  color: var(--text-dim);
+}
+
+.todo-empty-icon {
+  font-size: 2rem;
+  margin-bottom: 8px;
+}
+
+.todo-empty-hint {
+  font-size: 0.8rem;
+  margin-top: 8px;
+}
+
+.todo-empty-hint code {
+  background: var(--surface);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+
+.todo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.todo-card-wrapper {
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+}
+
+.todo-card-actions-bg {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+}
+
+.todo-action-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.todo-action-ack {
+  color: var(--accent);
+}
+
+.todo-action-done {
+  color: #4caf50;
+}
+
+.todo-card {
+  position: relative;
+  background: var(--surface);
+  padding: 12px 14px;
+  cursor: pointer;
+  touch-action: pan-y;
+}
+
+.todo-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 0.75rem;
+}
+
+.todo-card-status {
+  color: var(--accent);
+}
+
+.todo-card-urgency {
+  font-family: monospace;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+
+.todo-card-source {
+  background: var(--bg);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.todo-card-age {
+  color: var(--text-dim);
+  margin-left: auto;
+}
+
+.todo-card-summary {
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+
+.todo-card-meta {
+  margin-top: 4px;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+
+.todo-card-author {
+  color: var(--text-dim);
+}

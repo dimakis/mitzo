@@ -31,6 +31,7 @@ export interface UseSessionListReturn {
   quickActions: QuickAction[];
   loading: boolean;
   inboxCount: number;
+  todoCount: number;
   updateAvailable: boolean;
   checking: boolean;
   dismissSession: (id: string) => void;
@@ -44,6 +45,7 @@ export function useSessionList(): UseSessionListReturn {
   const [quickActions, setQuickActions] = useState<QuickAction[]>(DEFAULT_ACTIONS);
   const [loading, setLoading] = useState(true);
   const [inboxCount, setInboxCount] = useState(0);
+  const [todoCount, setTodoCount] = useState(0);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [checking, setChecking] = useState(false);
 
@@ -62,11 +64,15 @@ export function useSessionList(): UseSessionListReturn {
         fetch('/api/inbox')
           .then((r) => r.json())
           .catch(() => []),
-      ]).then(([sessData, config, version, inboxData]) => {
+        fetch('/api/todos')
+          .then((r) => r.json())
+          .catch(() => ({ items: [] })),
+      ]).then(([sessData, config, version, inboxData, todoData]) => {
         setSessions(sessData);
         setQuickActions(buildQuickActions(config.quickActions));
         if (version?.updateAvailable) setUpdateAvailable(true);
         if (Array.isArray(inboxData)) setInboxCount(inboxData.length);
+        if (todoData?.items) setTodoCount(todoData.items.length);
       });
 
     loadAll().finally(() => setLoading(false));
@@ -136,6 +142,7 @@ export function useSessionList(): UseSessionListReturn {
     quickActions,
     loading,
     inboxCount,
+    todoCount,
     updateAvailable,
     checking,
     dismissSession,
