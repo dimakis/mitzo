@@ -29,7 +29,15 @@ import { INTERNAL_TOKEN } from './internal-token.js';
 import { getLocalCommit, isUpdateAvailable } from './git-version.js';
 import { resolvePending } from './permissions.js';
 import { createLogger } from './logger.js';
-import { LoginBody, FileWriteBody, PermissionDecision, CalendarResponse } from './api-schemas.js';
+import {
+  LoginBody,
+  FileWriteBody,
+  PermissionDecision,
+  CalendarResponse,
+  TodoListResponse,
+  TodoActionBody,
+  TodoActionResponse,
+} from './api-schemas.js';
 import {
   listInboxItems,
   readInboxItem,
@@ -721,6 +729,87 @@ app.get('/api/calendar', async (req, res) => {
     const message = err instanceof Error ? err.message : 'Unknown error';
     log.warn('calendar API failed', { error: message });
     res.json(emptyResponse(message));
+  }
+});
+
+// --- Todo API ---
+
+const TODO_SCRIPT = join(BASE_REPO, 'command_center', 'todo_api.py');
+const TODO_TIMEOUT_MS = 30_000;
+
+app.get('/api/todos', async (req, res) => {
+  const profile = req.query.profile as string | undefined;
+  const refresh = req.query.refresh === 'true';
+
+  if (!existsSync(TODO_SCRIPT)) {
+    log.warn('todo script not found', { path: TODO_SCRIPT });
+    res.json({ profiles: [], items: [] });
+    return;
+  }
+
+  try {
+    const args = [TODO_SCRIPT];
+    if (refresh && profile) {
+      args.push('--refresh', '--profile', profile);
+    } else {
+      args.push('--list');
+      if (profile) args.push('--profile', profile);
+    }
+
+    const { stdout } = await execFileAsync('python3', args, {
+      timeout: TODO_TIMEOUT_MS,
+    });
+    const parsed = TodoListResponse.safeParse(JSON.parse(stdout));
+    if (!parsed.success) {
+      log.warn('todo API returned unexpected shape', { error: parsed.error.message });
+      res.json({ profiles: [], items: [] });
+      return;
+    }
+    res.json(parsed.data);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    log.warn('todo API failed', { error: message });
+    res.json({ profiles: [], items: [] });
+  }
+});
+
+app.post('/api/todos/:id/action', async (req, res) => {
+  const { id } = req.params;
+
+  const body = TodoActionBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ ok: false, error: 'Invalid action body' });
+    return;
+  }
+
+  if (!existsSync(TODO_SCRIPT)) {
+    res.status(500).json({ ok: false, error: 'Todo script not found' });
+    return;
+  }
+
+  try {
+    const args = [TODO_SCRIPT, '--action', body.data.action, id];
+    if (body.data.action === 'snooze' && body.data.days) {
+      args.push(String(body.data.days));
+    }
+
+    const { stdout } = await execFileAsync('python3', args, {
+      timeout: TODO_TIMEOUT_MS,
+    });
+    const parsed = TodoActionResponse.safeParse(JSON.parse(stdout));
+    if (!parsed.success) {
+      res.status(500).json({ ok: false, error: 'Unexpected response' });
+      return;
+    }
+    if (!parsed.data.ok) {
+      res.status(404).json(parsed.data);
+      return;
+    }
+    res.json(parsed.data);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    log.warn('todo action failed', { error: message });
+    res.status(500).json({ ok: false, error: message });
   }
 });
 
