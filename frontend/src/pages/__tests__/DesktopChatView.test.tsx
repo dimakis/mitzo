@@ -106,6 +106,14 @@ vi.mock('../../hooks/useVoice', () => ({
   }),
 }));
 
+vi.mock('../../hooks/useChatActions', () => ({
+  useChatActions: () => ({
+    sendMessage: vi.fn(),
+    interruptMessage: vi.fn(),
+    handleStop: vi.fn(),
+  }),
+}));
+
 vi.mock('../../hooks/useAutoSpeak', () => ({
   useAutoSpeak: vi.fn(),
 }));
@@ -120,6 +128,13 @@ import { DesktopChatView } from '../DesktopChatView';
 
 beforeEach(() => {
   localStorage.clear();
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ contextBlocks: {}, fileViewerRoots: [] }),
+    }),
+  );
 });
 
 afterEach(() => {

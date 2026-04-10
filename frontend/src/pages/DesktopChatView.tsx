@@ -7,19 +7,16 @@ import { FileBrowserPanel } from '../components/FileBrowserPanel';
 import { ChatArea } from '../components/ChatArea';
 import { ChatInput } from '../components/ChatInput';
 import { StatusBar } from '../components/StatusBar';
-import { wsIsOpen, wsSend, wsSetRunning } from '../lib/ws-pool';
 import { SCROLL_RESTORE_DELAY_MS, LAST_SESSION_KEY } from '../lib/constants';
 import { useChatSession } from '../hooks/useChatSession';
 import { useChatMessages } from '../hooks/useChatMessages';
 import { useChatConnection } from '../hooks/useChatConnection';
+import { useChatActions } from '../hooks/useChatActions';
 import { usePermission } from '../hooks/usePermission';
 import { useVoice } from '../hooks/useVoice';
 import { useAutoSpeak } from '../hooks/useAutoSpeak';
-import type { ImageAttachment } from '../types/chat';
-
-function generateClientMsgId(): string {
-  return `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
+import type { FileRoot } from '../components/FileBrowserPanel';
+import type { ContextBlockEntry } from '../components/ContextPicker';
 
 export function DesktopChatView() {
   const { sessionId } = useParams<{ sessionId?: string }>();
@@ -27,6 +24,32 @@ export function DesktopChatView() {
   const navigate = useNavigate();
 
   const [contextBlocks, setContextBlocks] = useState<string[]>([]);
+
+  // Shared config fetch for right-panel children
+  const [configBlocks, setConfigBlocks] = useState<ContextBlockEntry[]>([]);
+  const [fileRoots, setFileRoots] = useState<FileRoot[]>([]);
+  const [configLoaded, setConfigLoaded] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/config', { credentials: 'include' })
+      .then((r) => r.json())
+      .then((data) => {
+        // Context blocks
+        const entries: ContextBlockEntry[] = [];
+        if (data.contextBlocks) {
+          for (const [name, info] of Object.entries(
+            data.contextBlocks as Record<string, { path: string; sizeBytes: number }>,
+          )) {
+            entries.push({ name, path: info.path, sizeBytes: info.sizeBytes });
+          }
+        }
+        setConfigBlocks(entries);
+        // File roots
+        setFileRoots(data.fileViewerRoots ?? []);
+        setConfigLoaded(true);
+      })
+      .catch(() => setConfigLoaded(true));
+  }, []);
 
   const [sessionState, sessionActions, poolKey] = useChatSession(
     sessionId,
@@ -79,11 +102,9 @@ export function DesktopChatView() {
     handleSessionRenamed,
   );
 
+  // Clear + restore on session switch — abort previous fetch to prevent race condition
   useEffect(() => {
     dispatch({ type: 'CLEAR' });
-  }, [sessionId, dispatch]);
-
-  useEffect(() => {
     if (!sessionId) return;
     const controller = new AbortController();
     fetch(`/api/sessions/${sessionId}/messages`, {
@@ -117,86 +138,16 @@ export function DesktopChatView() {
     speak: voice.speak,
   });
 
-  function buildSendPayload(
-    text: string,
-    clientMsgId: string,
-    images?: ImageAttachment[],
-  ): Record<string, unknown> {
-    const payload: Record<string, unknown> = {
-      type: 'send',
-      prompt: text,
-      clientMsgId,
-      model: sessionState.model,
-      mode: sessionState.mode,
-    };
-    if (sessionState.currentSessionId) payload.resume = sessionState.currentSessionId;
-    if (images?.length) {
-      payload.images = images.map((img) => ({ data: img.data, mediaType: img.mediaType }));
-    }
-    if (sessionState.sandbox && !sessionState.currentSessionId) payload.worktree = true;
-    const cwd = searchParams.get('cwd');
-    if (cwd) payload.cwd = cwd;
-    const extraTools = searchParams.get('extraTools');
-    if (extraTools) payload.extraTools = extraTools;
-    return payload;
-  }
-
-  function sendMessage(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): boolean {
-    if (!wsIsOpen(poolKey)) {
-      dispatch({ type: 'CONNECTION_LOST' });
-      return false;
-    }
-    voice.stopSpeaking();
-    const clientMsgId = generateClientMsgId();
-    const payload = buildSendPayload(text, clientMsgId, images);
-    if (ctxBlocks?.length) payload.contextBlocks = ctxBlocks;
-    const previews = images?.map((img) => img.preview);
-    if (msgState.running) {
-      wsSend(poolKey, payload);
-      dispatch({
-        type: 'USER_SEND',
-        text,
-        clientMsgId,
-        images: previews,
-        contextBlocks: ctxBlocks,
-      });
-    } else {
-      wsSetRunning(poolKey, true);
-      wsSend(poolKey, payload);
-      dispatch({
-        type: 'USER_SEND',
-        text,
-        clientMsgId,
-        images: previews,
-        contextBlocks: ctxBlocks,
-      });
-    }
-    forceScrollToBottom();
-    return true;
-  }
-
-  function interruptMessage(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): void {
-    if (!wsIsOpen(poolKey) || !msgState.running) return;
-    const clientMsgId = generateClientMsgId();
-    const imagePayload = images?.map((img) => ({ data: img.data, mediaType: img.mediaType }));
-    const previews = images?.map((img) => img.preview);
-    wsSend(poolKey, {
-      type: 'interrupt',
-      prompt: text,
-      clientMsgId,
-      images: imagePayload,
-      ...(ctxBlocks?.length ? { contextBlocks: ctxBlocks } : {}),
-    });
-    dispatch({ type: 'USER_SEND', text, clientMsgId, images: previews, contextBlocks: ctxBlocks });
-    forceScrollToBottom();
-  }
-
-  const handleStop = useCallback(() => {
-    pendingSend.current = null;
-    wsSend(poolKey, { type: 'stop' });
-    wsSetRunning(poolKey, false);
-    dispatch({ type: 'SET_RUNNING', running: false });
-  }, [poolKey, dispatch, pendingSend]);
+  const { sendMessage, interruptMessage, handleStop } = useChatActions({
+    poolKey,
+    sessionState,
+    searchParams,
+    dispatch,
+    pendingSend,
+    forceScrollToBottom,
+    voice,
+    running: msgState.running,
+  });
 
   const handleToggleContext = useCallback((name: string) => {
     setContextBlocks((prev) =>
@@ -245,8 +196,13 @@ export function DesktopChatView() {
       }
       right={
         <div className="desktop-right-panels">
-          <ContextPanel selected={contextBlocks} onToggle={handleToggleContext} />
-          <FileBrowserPanel />
+          <ContextPanel
+            selected={contextBlocks}
+            onToggle={handleToggleContext}
+            blocks={configBlocks}
+            loaded={configLoaded}
+          />
+          <FileBrowserPanel roots={fileRoots} loaded={configLoaded} />
         </div>
       }
       statusBar={

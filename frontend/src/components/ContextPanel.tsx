@@ -4,6 +4,8 @@ import type { ContextBlockEntry } from './ContextPicker';
 export interface ContextPanelProps {
   selected: string[];
   onToggle: (name: string) => void;
+  blocks?: ContextBlockEntry[];
+  loaded?: boolean;
 }
 
 function formatSize(bytes: number): string {
@@ -14,11 +16,18 @@ function formatSize(bytes: number): string {
   return `${(kb / 1024).toFixed(1)} MB`;
 }
 
-export function ContextPanel({ selected, onToggle }: ContextPanelProps) {
-  const [blocks, setBlocks] = useState<ContextBlockEntry[]>([]);
-  const [loaded, setLoaded] = useState(false);
+export function ContextPanel({
+  selected,
+  onToggle,
+  blocks: externalBlocks,
+  loaded: externalLoaded,
+}: ContextPanelProps) {
+  const [selfBlocks, setSelfBlocks] = useState<ContextBlockEntry[]>([]);
+  const [selfLoaded, setSelfLoaded] = useState(false);
 
+  // Self-fetch config only when not provided via props (standalone usage)
   useEffect(() => {
+    if (externalBlocks !== undefined) return;
     fetch('/api/config', { credentials: 'include' })
       .then((r) => r.json())
       .then((data: { contextBlocks?: Record<string, { path: string; sizeBytes: number }> }) => {
@@ -28,13 +37,14 @@ export function ContextPanel({ selected, onToggle }: ContextPanelProps) {
             entries.push({ name, path: info.path, sizeBytes: info.sizeBytes });
           }
         }
-        setBlocks(entries);
-        setLoaded(true);
+        setSelfBlocks(entries);
+        setSelfLoaded(true);
       })
-      .catch(() => {
-        setLoaded(true);
-      });
-  }, []);
+      .catch(() => setSelfLoaded(true));
+  }, [externalBlocks]);
+
+  const blocks = externalBlocks ?? selfBlocks;
+  const loaded = externalLoaded ?? selfLoaded;
 
   if (!loaded) return null;
 

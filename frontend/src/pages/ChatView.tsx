@@ -4,19 +4,15 @@ import { ChatArea } from '../components/ChatArea';
 import { ChatInput } from '../components/ChatInput';
 import { VoiceSettings } from '../components/VoiceSettings';
 import { MitzoLogo } from '../components/MitzoLogo';
-import { wsIsOpen, wsSend, wsSetRunning } from '../lib/ws-pool';
+import { wsSend } from '../lib/ws-pool';
 import { SCROLL_RESTORE_DELAY_MS, LAST_SESSION_KEY } from '../lib/constants';
 import { useChatSession } from '../hooks/useChatSession';
 import { useChatMessages } from '../hooks/useChatMessages';
 import { useChatConnection } from '../hooks/useChatConnection';
+import { useChatActions } from '../hooks/useChatActions';
 import { usePermission } from '../hooks/usePermission';
 import { useVoice } from '../hooks/useVoice';
 import { useAutoSpeak } from '../hooks/useAutoSpeak';
-import type { ImageAttachment } from '../types/chat';
-
-function generateClientMsgId(): string {
-  return `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
 
 export function ChatView() {
   const { sessionId } = useParams<{ sessionId?: string }>();
@@ -124,89 +120,16 @@ export function ChatView() {
 
   const hasStarted = msgState.messages.some((m) => m.role === 'user');
 
-  function buildSendPayload(
-    text: string,
-    clientMsgId: string,
-    images?: ImageAttachment[],
-  ): Record<string, unknown> {
-    const payload: Record<string, unknown> = {
-      type: 'send',
-      prompt: text,
-      clientMsgId,
-      model: sessionState.model,
-      mode: sessionState.mode,
-    };
-    if (sessionState.currentSessionId) payload.resume = sessionState.currentSessionId;
-    if (images?.length) {
-      payload.images = images.map((img) => ({ data: img.data, mediaType: img.mediaType }));
-    }
-    if (sessionState.sandbox && !sessionState.currentSessionId) payload.worktree = true;
-    const cwd = searchParams.get('cwd');
-    if (cwd) payload.cwd = cwd;
-    const extraTools = searchParams.get('extraTools');
-    if (extraTools) payload.extraTools = extraTools;
-    return payload;
-  }
-
-  function sendMessage(
-    text: string,
-    images?: ImageAttachment[],
-    contextBlocks?: string[],
-  ): boolean {
-    if (!wsIsOpen(poolKey)) {
-      dispatch({ type: 'CONNECTION_LOST' });
-      return false;
-    }
-
-    // Stop TTS playback when user sends a new message
-    voice.stopSpeaking();
-
-    const clientMsgId = generateClientMsgId();
-    const payload = buildSendPayload(text, clientMsgId, images);
-    if (contextBlocks?.length) payload.contextBlocks = contextBlocks;
-    const previews = images?.map((img) => img.preview);
-
-    if (msgState.running) {
-      // Server queues it natively — no client-side stop+re-send needed.
-      wsSend(poolKey, payload);
-      dispatch({ type: 'USER_SEND', text, clientMsgId, images: previews, contextBlocks });
-      forceScrollToBottom();
-    } else {
-      wsSetRunning(poolKey, true);
-      wsSend(poolKey, payload);
-      dispatch({ type: 'USER_SEND', text, clientMsgId, images: previews, contextBlocks });
-      forceScrollToBottom();
-    }
-
-    return true;
-  }
-
-  function interruptMessage(
-    text: string,
-    images?: ImageAttachment[],
-    contextBlocks?: string[],
-  ): void {
-    if (!wsIsOpen(poolKey) || !msgState.running) return;
-    const clientMsgId = generateClientMsgId();
-    const imagePayload = images?.map((img) => ({ data: img.data, mediaType: img.mediaType }));
-    const previews = images?.map((img) => img.preview);
-    wsSend(poolKey, {
-      type: 'interrupt',
-      prompt: text,
-      clientMsgId,
-      images: imagePayload,
-      ...(contextBlocks?.length ? { contextBlocks } : {}),
-    });
-    dispatch({ type: 'USER_SEND', text, clientMsgId, images: previews, contextBlocks });
-    forceScrollToBottom();
-  }
-
-  const handleStop = useCallback(() => {
-    pendingSend.current = null;
-    wsSend(poolKey, { type: 'stop' });
-    wsSetRunning(poolKey, false);
-    dispatch({ type: 'SET_RUNNING', running: false });
-  }, [poolKey, dispatch, pendingSend]);
+  const { sendMessage, interruptMessage, handleStop } = useChatActions({
+    poolKey,
+    sessionState,
+    searchParams,
+    dispatch,
+    pendingSend,
+    forceScrollToBottom,
+    voice,
+    running: msgState.running,
+  });
 
   function handleModeChange(newMode: 'ask' | 'agent' | 'auto') {
     sessionActions.setMode(newMode);

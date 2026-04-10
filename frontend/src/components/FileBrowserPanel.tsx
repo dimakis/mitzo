@@ -5,59 +5,77 @@ interface DirEntry {
   isDir: boolean;
 }
 
-interface FileRoot {
+export interface FileRoot {
   label: string;
   path: string;
 }
 
-export function FileBrowserPanel() {
-  const [roots, setRoots] = useState<FileRoot[]>([]);
+export interface FileBrowserPanelProps {
+  roots?: FileRoot[];
+  loaded?: boolean;
+}
+
+export function FileBrowserPanel({ roots: externalRoots, loaded: externalLoaded }: FileBrowserPanelProps) {
+  const [selfRoots, setSelfRoots] = useState<FileRoot[]>([]);
+  const [selfLoaded, setSelfLoaded] = useState(false);
+
+  // Self-fetch config only when not provided via props (standalone usage)
+  useEffect(() => {
+    if (externalRoots !== undefined) return;
+    fetch('/api/config', { credentials: 'include' })
+      .then((r) => r.json())
+      .then((data: { fileViewerRoots?: FileRoot[] }) => {
+        setSelfRoots(data.fileViewerRoots ?? []);
+        setSelfLoaded(true);
+      })
+      .catch(() => setSelfLoaded(true));
+  }, [externalRoots]);
+
+  const roots = externalRoots ?? selfRoots;
+  const loaded = externalLoaded ?? selfLoaded;
+
   const [activeRoot, setActiveRoot] = useState('');
   const [currentDir, setCurrentDir] = useState('');
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [preview, setPreview] = useState<{ name: string; content: string } | null>(null);
-  const [loaded, setLoaded] = useState(false);
 
-  // Fetch roots from config
+  // Set initial root when roots become available
   useEffect(() => {
-    fetch('/api/config', { credentials: 'include' })
-      .then((r) => r.json())
-      .then((data: { fileViewerRoots?: FileRoot[] }) => {
-        const r = data.fileViewerRoots ?? [];
-        setRoots(r);
-        if (r.length > 0) {
-          setActiveRoot(r[0].path);
-        }
-        setLoaded(true);
-      })
-      .catch(() => setLoaded(true));
-  }, []);
+    if (roots.length > 0 && !activeRoot) {
+      setActiveRoot(roots[0].path);
+      setCurrentDir(roots[0].path);
+    }
+  }, [roots, activeRoot]);
 
-  // Fetch directory listing when root or dir changes
+  // Fetch directory listing when root changes or navigating
+  const [fetchDir, setFetchDir] = useState('');
+
   useEffect(() => {
     if (!activeRoot) return;
-    const params = new URLSearchParams();
-    if (currentDir) params.set('dir', currentDir);
-    else params.set('dir', activeRoot);
-
+    const dir = fetchDir || activeRoot;
+    const params = new URLSearchParams({ dir });
     fetch(`/api/files/list?${params}`, { credentials: 'include' })
       .then((r) => r.json())
       .then((data: { entries: DirEntry[]; currentDir: string }) => {
         setEntries(data.entries ?? []);
+        // Don't feed server response back into dependencies — trust client state
         setCurrentDir(data.currentDir);
       })
       .catch(() => setEntries([]));
-  }, [activeRoot, currentDir]);
+  }, [activeRoot, fetchDir]);
 
   const navigateToDir = useCallback(
     (dirName: string) => {
       setPreview(null);
+      let target: string;
       if (dirName === '..') {
         const parent = currentDir.split('/').slice(0, -1).join('/');
-        setCurrentDir(parent || activeRoot);
+        target = parent || activeRoot;
       } else {
-        setCurrentDir(`${currentDir}/${dirName}`);
+        target = `${currentDir}/${dirName}`;
       }
+      setCurrentDir(target);
+      setFetchDir(target);
     },
     [currentDir, activeRoot],
   );
@@ -78,6 +96,7 @@ export function FileBrowserPanel() {
   const handleRootChange = useCallback((rootPath: string) => {
     setActiveRoot(rootPath);
     setCurrentDir(rootPath);
+    setFetchDir(rootPath);
     setPreview(null);
   }, []);
 
