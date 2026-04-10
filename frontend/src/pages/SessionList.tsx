@@ -192,6 +192,7 @@ export function SessionList() {
     quickActions,
     loading,
     inboxCount,
+    todoCount,
     updateAvailable,
     checking,
     dismissSession,
@@ -247,6 +248,12 @@ export function SessionList() {
       <button className="inbox-nav-btn" onClick={() => navigate('/inbox')}>
         <span className="inbox-nav-label">Inbox</span>
         {inboxCount > 0 && <span className="inbox-nav-badge">{inboxCount}</span>}
+        <span className="quick-row-chevron">&rsaquo;</span>
+      </button>
+
+      <button className="inbox-nav-btn" onClick={() => navigate('/todos')}>
+        <span className="inbox-nav-label">Todos</span>
+        {todoCount > 0 && <span className="inbox-nav-badge">{todoCount}</span>}
         <span className="quick-row-chevron">&rsaquo;</span>
       </button>
 
