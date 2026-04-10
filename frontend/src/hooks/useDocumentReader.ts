@@ -76,7 +76,12 @@ export function useDocumentReader(): DocumentReader {
             content.length > DOCUMENT_READ_MAX_CHARS
               ? content.slice(0, DOCUMENT_READ_MAX_CHARS)
               : content;
-          const blob = await synthesizeDocument(trimmed, DEFAULT_TTS_VOICE, YAPPER_URL, abort.signal);
+          const blob = await synthesizeDocument(
+            trimmed,
+            DEFAULT_TTS_VOICE,
+            YAPPER_URL,
+            abort.signal,
+          );
           if (abort.signal.aborted) return;
 
           const handle = playAudio(blob);

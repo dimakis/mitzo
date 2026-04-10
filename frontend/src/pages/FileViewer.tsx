@@ -53,7 +53,11 @@ export function FileViewer() {
             }}
             disabled={reader.state === 'loading'}
           >
-            {reader.state === 'loading' ? 'Loading...' : reader.state === 'playing' ? 'Stop' : 'Read'}
+            {reader.state === 'loading'
+              ? 'Loading...'
+              : reader.state === 'playing'
+                ? 'Stop'
+                : 'Read'}
           </button>
         )}
         {state.isViewing && isMarkdown && !editor.editing && (
