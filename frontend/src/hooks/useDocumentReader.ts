@@ -93,7 +93,8 @@ export function useDocumentReader(): DocumentReader {
             setState('idle');
             playRef.current = null;
           }
-        } catch {
+        } catch (err) {
+          console.warn('Document read-aloud failed:', err);
           if (!abort.signal.aborted) {
             setState('idle');
           }
