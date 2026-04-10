@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { mkdirSync, writeFileSync, rmSync } from 'fs';
+import { mkdtempSync, writeFileSync, rmSync } from 'fs';
 
 describe('contexgin dependency', () => {
   let contexgin: Awaited<typeof import('contexgin')>;
@@ -20,8 +20,7 @@ describe('contexgin dependency', () => {
   });
 
   it('compile runs without throwing on a minimal workspace', async () => {
-    const tmp = join(tmpdir(), `contexgin-smoke-${Date.now()}`);
-    mkdirSync(tmp, { recursive: true });
+    const tmp = mkdtempSync(join(tmpdir(), 'contexgin-smoke-'));
     writeFileSync(join(tmp, 'CLAUDE.md'), '# Test\nMinimal workspace.');
     try {
       const result = await contexgin.compile({ workspaceRoot: tmp, tokenBudget: 1000 });
