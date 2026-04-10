@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import { MitzoLogo } from '../components/MitzoLogo';
 import { useFileNavigation } from '../hooks/useFileNavigation';
 import { useFileEditor } from '../hooks/useFileEditor';
+import { useDocumentReader } from '../hooks/useDocumentReader';
 
 export function FileViewer() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -11,6 +12,7 @@ export function FileViewer() {
   const { state } = nav;
 
   const editor = useFileEditor(state.content, state.filePath, nav.setError);
+  const reader = useDocumentReader();
 
   const isMarkdown = ['.md', '.mdx'].includes(state.ext);
   const fileName = state.filePath.split('/').pop() || '';
@@ -39,6 +41,21 @@ export function FileViewer() {
 
         {displayBranch && <span className="viewer-header-branch">{displayBranch}</span>}
 
+        {state.isViewing && isMarkdown && !editor.editing && reader.available && (
+          <button
+            className={`viewer-header-action${reader.state !== 'idle' ? ' viewer-header-action--active' : ''}`}
+            onClick={() => {
+              if (reader.state !== 'idle') {
+                reader.stop();
+              } else {
+                reader.read(state.content);
+              }
+            }}
+            disabled={reader.state === 'loading'}
+          >
+            {reader.state === 'loading' ? 'Loading...' : reader.state === 'playing' ? 'Stop' : 'Read'}
+          </button>
+        )}
         {state.isViewing && isMarkdown && !editor.editing && (
           <button className="viewer-header-action" onClick={editor.startEditing}>
             Edit

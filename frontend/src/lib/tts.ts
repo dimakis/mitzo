@@ -91,6 +91,27 @@ export async function synthesize(
   return res.blob();
 }
 
+/** Synthesize a markdown/text document via Yapper's document endpoint. */
+export async function synthesizeDocument(
+  content: string,
+  voice: string,
+  url: string,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  const res = await fetch(`${url}/v1/synthesize/document`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content, voice }),
+    signal,
+  });
+
+  if (!res.ok) {
+    throw new Error(`Document synthesis failed (${res.status})`);
+  }
+
+  return res.blob();
+}
+
 // --- AudioContext singleton ---
 
 let audioCtx: AudioContext | null = null;
