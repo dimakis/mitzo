@@ -325,7 +325,7 @@ app.get('/api/config', (_req, res) => {
     contextBlocks[name] = { path, sizeBytes };
   }
   const fileViewerRoots =
-    repoConfig.roots.length > 0 ? repoConfig.roots : [{ label: 'Root', path: BASE_REPO }];
+    config.roots.length > 0 ? config.roots : [{ label: 'Root', path: BASE_REPO }];
   res.json({
     repoPath: BASE_REPO,
     mcpServers: getMcpServerNames(),
