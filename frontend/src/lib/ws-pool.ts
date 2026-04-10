@@ -100,8 +100,7 @@ function connectEntry(key: string, entry: PoolEntry) {
     }
 
     if (msg.type === 'subscribed') {
-      const subscribed = msg as unknown as { running?: boolean };
-      if (subscribed.running) entry.wasRunning = true;
+      if (msg.running) entry.wasRunning = true;
       broadcast(entry, { type: '_open' });
     }
 

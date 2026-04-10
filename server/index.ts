@@ -115,8 +115,23 @@ function tryRouteToActiveSession(
   if (!resume) return null;
   const found = registry.findBySessionId(resume);
   if (!found) return null;
+  // Only route to the session if the driver is still attached
+  if (!registry.isAttached(found.clientId)) return null;
   // Session is active — subscribe as observer instead of starting a duplicate query
-  registry.addObserver(resume, ws);
+  const driverId = registry.addObserver(resume, ws);
+  if (!driverId) return null; // observer cap reached
+  // Send snapshot so observer sees the current streaming state
+  if (found.session.currentSnapshot) {
+    ws.send(
+      JSON.stringify({
+        v: 2,
+        type: 'message_snapshot',
+        ts: Date.now(),
+        messageId: found.session.currentSnapshot.messageId,
+        blocks: found.session.currentSnapshot.blocks,
+      }),
+    );
+  }
   sendToChat(found.clientId, prompt, images, contextBlocks, clientMsgId);
   log.info('routed observer message to active session', {
     sessionId: resume,
@@ -151,7 +166,15 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
         const found = registry.findBySessionId(msg.sessionId);
         if (found) {
           registry.addObserver(msg.sessionId, ws);
-          // Send in-flight snapshot so observer sees the current streaming message
+          // Send subscribed first so the client knows it's connected,
+          // then send snapshot so it can render the current streaming state.
+          ws.send(
+            JSON.stringify({
+              type: 'subscribed',
+              sessionId: msg.sessionId,
+              running: true,
+            }),
+          );
           if (found.session.currentSnapshot) {
             ws.send(
               JSON.stringify({
@@ -163,13 +186,6 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
               }),
             );
           }
-          ws.send(
-            JSON.stringify({
-              type: 'subscribed',
-              sessionId: msg.sessionId,
-              running: true,
-            }),
-          );
           log.info('client subscribed to active session', {
             clientId,
             sessionId: msg.sessionId,

@@ -21,6 +21,27 @@ function send(ws: WebSocket, data: unknown) {
 }
 
 /**
+ * Broadcast a message to all observers of a session.
+ * Each send is wrapped in try/catch to prevent a single failing socket
+ * (e.g. transitioning to CLOSING between readyState check and send)
+ * from aborting the broadcast loop.
+ */
+export function broadcastToObservers(
+  observers: Set<WebSocket>,
+  data: string | Record<string, unknown>,
+): void {
+  if (observers.size === 0) return;
+  const msg = typeof data === 'string' ? data : JSON.stringify(data);
+  for (const obs of observers) {
+    try {
+      if (obs.readyState === obs.OPEN) obs.send(msg);
+    } catch {
+      // Socket transitioned between check and send — safe to ignore
+    }
+  }
+}
+
+/**
  * Persist a v2 event to the durable store (if available), then send or buffer.
  * The store.append() is synchronous and happens before WS delivery,
  * so events survive even if the connection drops mid-send.
@@ -43,11 +64,8 @@ function sendOrBuffer(
   }
   // Broadcast to observers watching this session
   const session = registry.get(clientId);
-  if (session && session.observers.size > 0) {
-    const msg = JSON.stringify(enriched);
-    for (const obs of session.observers) {
-      if (obs.readyState === obs.OPEN) obs.send(msg);
-    }
+  if (session) {
+    broadcastToObservers(session.observers, enriched);
   }
 }
 
@@ -456,10 +474,7 @@ export async function runQueryLoop(
         if (finalWs.readyState === finalWs.OPEN) {
           send(finalWs, endMsg);
         }
-        const endJson = JSON.stringify(endMsg);
-        for (const obs of finalSession.observers) {
-          if (obs.readyState === obs.OPEN) obs.send(endJson);
-        }
+        broadcastToObservers(finalSession.observers, endMsg);
       }
       registry.remove(clientId);
     }

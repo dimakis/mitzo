@@ -1,5 +1,5 @@
 import type { WebSocket } from 'ws';
-import { DETACHED_TTL_MS } from './constants.js';
+import { DETACHED_TTL_MS, MAX_OBSERVERS_PER_SESSION } from './constants.js';
 import { createLogger } from './logger.js';
 import type { RawToolInput } from './tool-summary.js';
 
@@ -159,10 +159,17 @@ export class SessionRegistry {
   /**
    * Add an observer WebSocket to the session identified by sessionId.
    * Returns the clientId of the driver if successful, null otherwise.
+   * Deduplicates (same ws is a no-op) and caps at MAX_OBSERVERS_PER_SESSION.
    */
   addObserver(sessionId: string, ws: WebSocket): string | null {
     const found = this.findBySessionId(sessionId);
     if (!found) return null;
+    // Already observing — idempotent no-op
+    if (found.session.observers.has(ws)) return found.clientId;
+    if (found.session.observers.size >= MAX_OBSERVERS_PER_SESSION) {
+      log.warn('observer cap reached', { sessionId, max: MAX_OBSERVERS_PER_SESSION });
+      return null;
+    }
     found.session.observers.add(ws);
     log.info('observer added', { sessionId, observers: found.session.observers.size });
     return found.clientId;
