@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { wsIsOpen, wsSend, wsSetRunning } from '../lib/ws-pool';
 import type { ImageAttachment } from '../types/chat';
+import type { ChatMessagesAction } from './useChatMessages';
 
 function generateClientMsgId(): string {
   return `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -15,7 +16,7 @@ interface ChatActionsDeps {
     sandbox: boolean;
   };
   searchParams: URLSearchParams;
-  dispatch: (action: { type: string; [key: string]: unknown }) => void;
+  dispatch: (action: ChatMessagesAction) => void;
   pendingSend: React.RefObject<unknown | null>;
   forceScrollToBottom: () => void;
   voice: { stopSpeaking: () => void };
