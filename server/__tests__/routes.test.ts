@@ -302,6 +302,16 @@ describe('config routes', () => {
     expect(typeof res.body.contextBlocks).toBe('object');
   });
 
+  it('GET /api/config — includes fileViewerRoots from repoConfig.roots', async () => {
+    const res = await request(app).get('/api/config').set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('fileViewerRoots');
+    expect(res.body.fileViewerRoots).toEqual([
+      { label: 'Main', path: TEST_REPO },
+      { label: 'Tools', path: '/some/tools' },
+    ]);
+  });
+
   it('GET /api/worktrees — returns worktree list', async () => {
     const res = await request(app).get('/api/worktrees').set('Cookie', authCookie);
     expect(res.status).toBe(200);
@@ -380,6 +390,26 @@ describe('file routes', () => {
   it('PUT /api/files/write — missing body fields returns 400', async () => {
     const res = await request(app).put('/api/files/write').set('Cookie', authCookie).send({});
     expect(res.status).toBe(400);
+  });
+
+  it('GET /api/files/list — returns entries and currentDir', async () => {
+    const res = await request(app)
+      .get('/api/files/list')
+      .query({ dir: TEST_REPO })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('currentDir', TEST_REPO);
+    expect(res.body).toHaveProperty('entries');
+    const names = res.body.entries.map((e: { name: string }) => e.name);
+    expect(names).toContain('test.txt');
+  });
+
+  it('GET /api/files/list — path traversal returns 403', async () => {
+    const res = await request(app)
+      .get('/api/files/list')
+      .query({ dir: '/etc' })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(403);
   });
 
   it('GET /api/files/roots — returns configured roots', async () => {

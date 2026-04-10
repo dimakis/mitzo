@@ -59,6 +59,26 @@ describe('chatMessagesReducer', () => {
     expect(result.messages).toHaveLength(1);
   });
 
+  it('CLEAR resets state to initial', () => {
+    const populated: ChatMessagesState = {
+      ...INITIAL_STATE,
+      messages: [
+        {
+          messageId: 'm1',
+          role: 'assistant',
+          blocks: [{ blockId: 'b1', blockType: 'text', content: 'hello' }],
+        },
+      ],
+      running: true,
+      branch: 'main',
+    };
+    const result = chatMessagesReducer(populated, { type: 'CLEAR' });
+    expect(result.messages).toHaveLength(0);
+    expect(result.current).toBeNull();
+    expect(result.running).toBe(false);
+    expect(result.branch).toBeNull();
+  });
+
   it('RESTORE does not replace when state has more messages than incoming', () => {
     const existing: ChatMessagesState = {
       ...INITIAL_STATE,
