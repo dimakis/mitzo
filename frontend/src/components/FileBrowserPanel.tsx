@@ -100,7 +100,10 @@ export function FileBrowserPanel({ roots: externalRoots, loaded: externalLoaded 
     setPreview(null);
   }, []);
 
-  const isSubdir = currentDir !== activeRoot && currentDir !== '';
+  // Normalize trailing slashes for comparison to avoid false isSubdir
+  const normDir = currentDir.replace(/\/+$/, '');
+  const normRoot = activeRoot.replace(/\/+$/, '');
+  const isSubdir = normDir !== normRoot && normDir !== '';
 
   if (!loaded) return null;
 

@@ -9,12 +9,10 @@ function generateClientMsgId(): string {
 
 interface ChatActionsDeps {
   poolKey: string;
-  sessionState: {
-    model: string;
-    mode: string;
-    currentSessionId: string | undefined;
-    sandbox: boolean;
-  };
+  sessionState: Pick<
+    import('./useChatSession').ChatSessionState,
+    'model' | 'mode' | 'currentSessionId' | 'sandbox'
+  >;
   searchParams: URLSearchParams;
   dispatch: (action: ChatMessagesAction) => void;
   pendingSend: React.RefObject<unknown | null>;

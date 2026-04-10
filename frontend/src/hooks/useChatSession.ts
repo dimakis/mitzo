@@ -30,6 +30,12 @@ export function useChatSession(
     setPreferredModel(id);
   }, []);
 
+  // Sync currentSessionId when route param changes (critical for DesktopChatView
+  // which stays mounted across session switches, unlike ChatView which remounts).
+  useEffect(() => {
+    setCurrentSessionId(sessionId);
+  }, [sessionId]);
+
   const newSessionUid = useRef(`new:${Math.random().toString(36).slice(2)}`);
   const poolKey = sessionId ? `session:${sessionId}` : newSessionUid.current;
 
