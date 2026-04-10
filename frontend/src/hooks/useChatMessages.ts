@@ -654,7 +654,13 @@ export function useChatMessages(
           break;
 
         case 'skill_invoked':
-          // TODO: Implement skill badge rendering on the last user message
+          break;
+
+        case 'subscribed':
+          if (msg.running) {
+            dispatch({ type: 'SET_RUNNING', running: true });
+            wsSetRunning(poolKey, true);
+          }
           break;
 
         case 'user_message':

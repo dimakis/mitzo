@@ -41,7 +41,14 @@ function sendOrBuffer(
   if (registry.isAttached(clientId)) {
     send(ws, enriched);
   }
-  // When detached, messages are dropped — recovery via event store replay on reattach.
+  // Broadcast to observers watching this session
+  const session = registry.get(clientId);
+  if (session && session.observers.size > 0) {
+    const msg = JSON.stringify(enriched);
+    for (const obs of session.observers) {
+      if (obs.readyState === obs.OPEN) obs.send(msg);
+    }
+  }
 }
 
 function v2(type: string, rest: Record<string, unknown> = {}): Record<string, unknown> {
@@ -444,10 +451,17 @@ export async function runQueryLoop(
     if (finalSession) {
       finalSession.currentSnapshot = null;
       const finalWs = finalSession.ws;
-      registry.remove(clientId);
-      if (!doneSent && finalWs.readyState === finalWs.OPEN) {
-        send(finalWs, v2('session_end', { sessionId: finalSession.sessionId }));
+      if (!doneSent) {
+        const endMsg = v2('session_end', { sessionId: finalSession.sessionId });
+        if (finalWs.readyState === finalWs.OPEN) {
+          send(finalWs, endMsg);
+        }
+        const endJson = JSON.stringify(endMsg);
+        for (const obs of finalSession.observers) {
+          if (obs.readyState === obs.OPEN) obs.send(endJson);
+        }
       }
+      registry.remove(clientId);
     }
     // Mark session as inactive in durable store
     if (store && resolvedSessionId) {

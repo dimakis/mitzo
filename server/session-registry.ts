@@ -36,6 +36,7 @@ export interface ManagedSession {
   inputQueue?: { push: (msg: unknown) => void; close: () => void };
   currentSnapshot: MessageSnapshot | null;
   activeSkillPolicy: Set<string> | null;
+  observers: Set<WebSocket>;
 }
 
 export class SessionRegistry {
@@ -47,7 +48,12 @@ export class SessionRegistry {
     clientId: string,
     init: Omit<
       ManagedSession,
-      'queryInstance' | 'inputQueue' | 'currentSnapshot' | 'worktreePaths' | 'activeSkillPolicy'
+      | 'queryInstance'
+      | 'inputQueue'
+      | 'currentSnapshot'
+      | 'worktreePaths'
+      | 'activeSkillPolicy'
+      | 'observers'
     > & {
       sessionId?: string;
     },
@@ -57,6 +63,7 @@ export class SessionRegistry {
       worktreePaths: new Map(),
       currentSnapshot: null,
       activeSkillPolicy: null,
+      observers: new Set(),
     });
     this.attached.add(clientId);
   }
@@ -149,6 +156,27 @@ export class SessionRegistry {
     return null;
   }
 
+  /**
+   * Add an observer WebSocket to the session identified by sessionId.
+   * Returns the clientId of the driver if successful, null otherwise.
+   */
+  addObserver(sessionId: string, ws: WebSocket): string | null {
+    const found = this.findBySessionId(sessionId);
+    if (!found) return null;
+    found.session.observers.add(ws);
+    log.info('observer added', { sessionId, observers: found.session.observers.size });
+    return found.clientId;
+  }
+
+  /**
+   * Remove a WebSocket from all observer sets (cleanup on disconnect).
+   */
+  removeObserver(ws: WebSocket): void {
+    for (const session of this.sessions.values()) {
+      session.observers.delete(ws);
+    }
+  }
+
   setSessionId(clientId: string, sessionId: string): void {
     const session = this.sessions.get(clientId);
     if (session) session.sessionId = sessionId;
@@ -168,6 +196,7 @@ export class SessionRegistry {
 
     this.clearDetachTimer(clientId);
     session.abortController.abort();
+    session.observers.clear();
     this.sessions.delete(clientId);
     this.attached.delete(clientId);
   }
@@ -177,6 +206,8 @@ export class SessionRegistry {
    * Used when the SDK query finishes naturally.
    */
   remove(clientId: string): void {
+    const session = this.sessions.get(clientId);
+    if (session) session.observers.clear();
     this.clearDetachTimer(clientId);
     this.sessions.delete(clientId);
     this.attached.delete(clientId);

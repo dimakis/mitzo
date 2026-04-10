@@ -479,8 +479,11 @@ export function sendToChat(
       /* errors logged internally */
     });
   }
-  // Confirm persistence to frontend so the message survives reconnects
-  send(session.ws, { type: 'user_message', messageId, text: fullPrompt });
+  const echo = { type: 'user_message', messageId, text: fullPrompt };
+  send(session.ws, echo);
+  for (const obs of session.observers) {
+    send(obs, echo);
+  }
   session.inputQueue.push(makeUserMessage(fullPrompt, 'next'));
   return true;
 }
@@ -506,8 +509,11 @@ export async function interruptChat(
       text: fullPrompt,
     });
   }
-  // Confirm persistence to frontend so the message survives reconnects
-  send(session.ws, { type: 'user_message', messageId, text: fullPrompt });
+  const echo = { type: 'user_message', messageId, text: fullPrompt };
+  send(session.ws, echo);
+  for (const obs of session.observers) {
+    send(obs, echo);
+  }
   await session.queryInstance.interrupt();
   session.inputQueue.push(makeUserMessage(fullPrompt, 'now'));
   return true;

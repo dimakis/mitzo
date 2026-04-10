@@ -159,6 +159,12 @@ interface SessionRenamedMsg {
   name: string;
 }
 
+interface SubscribedMsg {
+  type: 'subscribed';
+  sessionId: string;
+  running: boolean;
+}
+
 export type ServerMessage =
   | ClientIdMsg
   | ReattachedMsg
@@ -183,6 +189,7 @@ export type ServerMessage =
   | SkillInvokedMsg
   | UserMessageMsg
   | SessionRenamedMsg
+  | SubscribedMsg
   | InboxUpdatedMsg;
 
 export interface InboxUpdatedMsg {

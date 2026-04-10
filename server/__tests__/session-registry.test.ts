@@ -328,6 +328,90 @@ describe('SessionRegistry', () => {
     });
   });
 
+  describe('observers', () => {
+    it('initializes observers as empty Set', () => {
+      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      registry.register('client-1', {
+        ws: fakeWs,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      expect(registry.get('client-1')!.observers).toBeInstanceOf(Set);
+      expect(registry.get('client-1')!.observers.size).toBe(0);
+    });
+
+    it('addObserver adds ws to session found by sessionId', () => {
+      const driverWs = { readyState: 1, OPEN: 1 } as any;
+      const observerWs = { readyState: 1, OPEN: 1 } as any;
+      registry.register('client-1', {
+        ws: driverWs,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+        sessionId: 'sdk-abc',
+      });
+
+      const result = registry.addObserver('sdk-abc', observerWs);
+      expect(result).toBe('client-1');
+      expect(registry.get('client-1')!.observers.has(observerWs)).toBe(true);
+    });
+
+    it('addObserver returns null for unknown sessionId', () => {
+      expect(registry.addObserver('nonexistent', {} as any)).toBeNull();
+    });
+
+    it('removeObserver removes ws from all sessions', () => {
+      const driverWs = { readyState: 1, OPEN: 1 } as any;
+      const observerWs = { readyState: 1, OPEN: 1 } as any;
+      registry.register('client-1', {
+        ws: driverWs,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+        sessionId: 'sdk-abc',
+      });
+      registry.addObserver('sdk-abc', observerWs);
+
+      registry.removeObserver(observerWs);
+      expect(registry.get('client-1')!.observers.has(observerWs)).toBe(false);
+    });
+
+    it('abort clears observers', () => {
+      const driverWs = { readyState: 1, OPEN: 1 } as any;
+      const observerWs = { readyState: 1, OPEN: 1 } as any;
+      registry.register('client-1', {
+        ws: driverWs,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+        sessionId: 'sdk-abc',
+      });
+      registry.addObserver('sdk-abc', observerWs);
+
+      registry.abort('client-1');
+      // Session is gone, observers were cleared before deletion
+      expect(registry.get('client-1')).toBeUndefined();
+    });
+
+    it('remove clears observers', () => {
+      const driverWs = { readyState: 1, OPEN: 1 } as any;
+      const observerWs = { readyState: 1, OPEN: 1 } as any;
+      registry.register('client-1', {
+        ws: driverWs,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+        sessionId: 'sdk-abc',
+      });
+      registry.addObserver('sdk-abc', observerWs);
+
+      registry.remove('client-1');
+      expect(registry.get('client-1')).toBeUndefined();
+    });
+  });
+
   describe('dispose', () => {
     it('clears all detach timers and aborts all sessions', () => {
       const abort1 = new AbortController();

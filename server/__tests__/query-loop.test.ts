@@ -16,13 +16,17 @@ function fakeWs(): WebSocket & { sent: Record<string, unknown>[] } {
 }
 
 /** Create a minimal SessionRegistry stub with currentSnapshot support */
-function fakeRegistry(ws: WebSocket, opts?: { attached?: boolean }): SessionRegistry {
+function fakeRegistry(
+  ws: WebSocket,
+  opts?: { attached?: boolean; observers?: Set<WebSocket> },
+): SessionRegistry {
   let removed = false;
   let attached = opts?.attached ?? true;
   const session = {
     ws,
     sessionId: undefined as string | undefined,
     currentSnapshot: null as null | { messageId: string; blocks: unknown[] },
+    observers: opts?.observers ?? new Set<WebSocket>(),
   };
   return {
     get: vi.fn(() => (removed ? null : session)),
@@ -34,7 +38,6 @@ function fakeRegistry(ws: WebSocket, opts?: { attached?: boolean }): SessionRegi
     }),
     setMode: vi.fn(),
     isAttached: vi.fn(() => attached),
-    // Allow tests to toggle attached state mid-stream
     _setAttached: (v: boolean) => {
       attached = v;
     },
@@ -876,6 +879,60 @@ describe('runQueryLoop', () => {
       for (const msg of v2Messages) {
         expect(msg.seq).toBeUndefined();
       }
+    });
+  });
+
+  describe('observer broadcast', () => {
+    it('sends events to observer WebSockets alongside the driver', async () => {
+      const observerWs = fakeWs();
+      const observers = new Set<WebSocket>([observerWs]);
+      registry = fakeRegistry(ws, { observers });
+
+      const events: Record<string, unknown>[] = [
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-obs' } } },
+        {
+          type: 'stream_event',
+          event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+        },
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'Hello observer' },
+          },
+        },
+        { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-obs' },
+        { type: 'result', session_id: 'sess-obs' },
+      ];
+
+      await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+
+      // Observer should receive the same v2 events as the driver
+      expect(observerWs.sent.some((m) => m.type === 'message_start')).toBe(true);
+      expect(observerWs.sent.some((m) => m.type === 'block_delta')).toBe(true);
+      expect(observerWs.sent.some((m) => m.type === 'session_end')).toBe(true);
+    });
+
+    it('does not fail when observer ws is closed', async () => {
+      const closedWs = fakeWs();
+      (closedWs as any).readyState = 3; // CLOSED
+      const observers = new Set<WebSocket>([closedWs]);
+      registry = fakeRegistry(ws, { observers });
+
+      const events: Record<string, unknown>[] = [
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-cobs' } } },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-cobs' },
+        { type: 'result', session_id: 'sess-cobs' },
+      ];
+
+      await expect(
+        runQueryLoop(eventStream(events), clientId, registry, abortController, ws),
+      ).resolves.toBeUndefined();
+
+      // Closed observer should not receive any messages
+      expect(closedWs.sent).toHaveLength(0);
     });
   });
 });

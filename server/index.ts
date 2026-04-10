@@ -99,6 +99,32 @@ server.on('upgrade', async (req, socket, head) => {
   });
 });
 
+/**
+ * If `resume` targets a session that's already active, subscribe the caller
+ * as an observer and inject the message into the running session.
+ * Returns the driver's clientId if handled, null to fall through to startChat.
+ */
+function tryRouteToActiveSession(
+  ws: WebSocket,
+  resume: string | undefined,
+  prompt: string,
+  images?: Array<{ data: string; mediaType: string }>,
+  contextBlocks?: string[],
+  clientMsgId?: string,
+): string | null {
+  if (!resume) return null;
+  const found = registry.findBySessionId(resume);
+  if (!found) return null;
+  // Session is active — subscribe as observer instead of starting a duplicate query
+  registry.addObserver(resume, ws);
+  sendToChat(found.clientId, prompt, images, contextBlocks, clientMsgId);
+  log.info('routed observer message to active session', {
+    sessionId: resume,
+    driverClientId: found.clientId,
+  });
+  return found.clientId;
+}
+
 function handleChatWs(ws: WebSocket, initialClientId: string) {
   let clientId = initialClientId;
   ws.send(JSON.stringify({ type: 'client_id', clientId }));
@@ -121,7 +147,43 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
 
       const msg = result.data;
 
-      if (msg.type === 'reattach') {
+      if (msg.type === 'subscribe') {
+        const found = registry.findBySessionId(msg.sessionId);
+        if (found) {
+          registry.addObserver(msg.sessionId, ws);
+          // Send in-flight snapshot so observer sees the current streaming message
+          if (found.session.currentSnapshot) {
+            ws.send(
+              JSON.stringify({
+                v: 2,
+                type: 'message_snapshot',
+                ts: Date.now(),
+                messageId: found.session.currentSnapshot.messageId,
+                blocks: found.session.currentSnapshot.blocks,
+              }),
+            );
+          }
+          ws.send(
+            JSON.stringify({
+              type: 'subscribed',
+              sessionId: msg.sessionId,
+              running: true,
+            }),
+          );
+          log.info('client subscribed to active session', {
+            clientId,
+            sessionId: msg.sessionId,
+          });
+        } else {
+          ws.send(
+            JSON.stringify({
+              type: 'subscribed',
+              sessionId: msg.sessionId,
+              running: false,
+            }),
+          );
+        }
+      } else if (msg.type === 'reattach') {
         const ok = reattachChat(msg.clientId, ws);
         if (ok) {
           clientId = msg.clientId;
@@ -232,7 +294,16 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
               msg.contextBlocks,
               msg.clientMsgId,
             );
-          } else {
+          } else if (
+            !tryRouteToActiveSession(
+              ws,
+              msg.resume,
+              resolution.renderedPrompt,
+              msg.images,
+              msg.contextBlocks,
+              msg.clientMsgId,
+            )
+          ) {
             startChat(ws, clientId, resolution.renderedPrompt, {
               resume: msg.resume,
               cwd: msg.cwd,
@@ -250,7 +321,16 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
           clearSkillPolicy(registry, clientId);
           if (isActive(clientId)) {
             sendToChat(clientId, msg.prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
-          } else {
+          } else if (
+            !tryRouteToActiveSession(
+              ws,
+              msg.resume,
+              msg.prompt,
+              msg.images,
+              msg.contextBlocks,
+              msg.clientMsgId,
+            )
+          ) {
             startChat(ws, clientId, msg.prompt, {
               resume: msg.resume,
               cwd: msg.cwd,
@@ -278,6 +358,7 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
 
   ws.on('close', (code, reason) => {
     clearInterval(heartbeat);
+    registry.removeObserver(ws);
     log.info('chat disconnected', { clientId, code, reason: reason?.toString() });
     if (isActive(clientId)) {
       detachChat(clientId);
