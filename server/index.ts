@@ -316,7 +316,7 @@ checkPort(PORT).then((inUse) => {
     const protocol = USE_TLS ? 'https' : 'http';
     log.info(`Chat Agent running on ${protocol}://localhost:${PORT}${USE_TLS ? ' (TLS)' : ''}`);
     // Clean up stale worktrees across all repos
-    let repoEntries: [string, string][] = [['primary', BASE_REPO]];
+    const repoEntries: [string, string][] = [['primary', BASE_REPO]];
     try {
       const config = getRepoConfig();
       repoEntries.push(...Object.entries(config.repos));

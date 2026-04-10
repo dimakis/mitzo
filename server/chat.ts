@@ -65,9 +65,17 @@ const MODE_TO_SDK: Record<MitzoMode, string> = {
 
 export const registry = new SessionRegistry();
 
-/** Load repo config fresh on each call so edits to .mitzo.json take effect without restart. */
+/** Load repo config with short TTL cache — fresh enough for hot-reload, avoids redundant disk I/O. */
+let _cachedConfig: ReturnType<typeof loadRepoConfig> | null = null;
+let _cachedAt = 0;
+const CONFIG_TTL_MS = 5_000;
+
 export function getRepoConfig() {
-  return loadRepoConfig(BASE_REPO);
+  const now = Date.now();
+  if (_cachedConfig && now - _cachedAt < CONFIG_TTL_MS) return _cachedConfig;
+  _cachedConfig = loadRepoConfig(BASE_REPO);
+  _cachedAt = now;
+  return _cachedConfig;
 }
 
 export const AVAILABLE_MODELS = [
@@ -311,11 +319,10 @@ export async function startChat(
   const { cwd, worktreePath } = resolveWorktree(ws, baseCwd, options);
   const fullPrompt = assemblePrompt(prompt, cwd, options.images, options.contextBlocks);
 
-  // Apply tier overrides from current .mitzo.json (re-read each session start)
+  // Apply tier overrides from current .mitzo.json (re-read each session start).
+  // Always call applyTierOverrides so removed overrides reset to defaults.
   const currentConfig = getRepoConfig();
-  if (Object.keys(currentConfig.toolTierOverrides).length > 0) {
-    applyTierOverrides(currentConfig.toolTierOverrides);
-  }
+  applyTierOverrides(currentConfig.toolTierOverrides);
 
   const modeAllowed = getAllowedToolsForMode(mode);
   const mcpAllowed = buildMcpAllowedTools();
