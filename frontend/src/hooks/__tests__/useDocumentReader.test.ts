@@ -18,39 +18,42 @@ vi.mock('../../lib/constants', () => ({
   DEFAULT_TTS_VOICE: 'af_heart',
 }));
 
+const mockFetch = vi.fn();
+
 describe('useDocumentReader', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    vi.stubGlobal('fetch', mockFetch);
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it('starts unavailable before health check', () => {
     // Make fetch hang forever
-    global.fetch = vi.fn(() => new Promise(() => {}));
+    mockFetch.mockReturnValue(new Promise(() => {}));
     const { result } = renderHook(() => useDocumentReader());
     expect(result.current.available).toBe(false);
     expect(result.current.state).toBe('idle');
   });
 
   it('becomes available after successful health check', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
+    mockFetch.mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ status: 'ready', models: { stt: true, tts: true } }),
     });
 
     const { result } = renderHook(() => useDocumentReader());
-    // Flush the health check promise
     await act(async () => {});
 
     expect(result.current.available).toBe(true);
   });
 
   it('stays unavailable when TTS model is not ready', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
+    mockFetch.mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ status: 'ready', models: { stt: true, tts: false } }),
     });
@@ -62,7 +65,7 @@ describe('useDocumentReader', () => {
   });
 
   it('stays unavailable when health check fails', async () => {
-    global.fetch = vi.fn().mockRejectedValue(new Error('network'));
+    mockFetch.mockRejectedValue(new Error('network'));
 
     const { result } = renderHook(() => useDocumentReader());
     await act(async () => {});
@@ -72,7 +75,7 @@ describe('useDocumentReader', () => {
 
   it('calls synthesizeDocument and playAudio on read()', async () => {
     const { synthesizeDocument, playAudio } = await import('../../lib/tts');
-    global.fetch = vi.fn().mockResolvedValue({
+    mockFetch.mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ status: 'ready' }),
     });
@@ -95,7 +98,7 @@ describe('useDocumentReader', () => {
   });
 
   it('stops playback on stop()', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
+    mockFetch.mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ status: 'ready' }),
     });

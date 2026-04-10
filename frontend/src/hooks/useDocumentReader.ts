@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { YAPPER_URL, YAPPER_HEALTH_POLL_MS, DEFAULT_TTS_VOICE } from '../lib/constants';
+import {
+  YAPPER_URL,
+  YAPPER_HEALTH_POLL_MS,
+  DEFAULT_TTS_VOICE,
+  DOCUMENT_READ_MAX_CHARS,
+} from '../lib/constants';
 import { synthesizeDocument, playAudio, unlockAudioContext } from '../lib/tts';
 
 export type ReaderState = 'idle' | 'loading' | 'playing';
@@ -67,7 +72,11 @@ export function useDocumentReader(): DocumentReader {
       (async () => {
         try {
           await unlockAudioContext();
-          const blob = await synthesizeDocument(content, DEFAULT_TTS_VOICE, YAPPER_URL, abort.signal);
+          const trimmed =
+            content.length > DOCUMENT_READ_MAX_CHARS
+              ? content.slice(0, DOCUMENT_READ_MAX_CHARS)
+              : content;
+          const blob = await synthesizeDocument(trimmed, DEFAULT_TTS_VOICE, YAPPER_URL, abort.signal);
           if (abort.signal.aborted) return;
 
           const handle = playAudio(blob);
