@@ -102,4 +102,55 @@ describe('useTodoData', () => {
 
     expect(result.current.items).toHaveLength(0);
   });
+
+  it('performs snooze action with days parameter', async () => {
+    const { result } = renderHook(() => useTodoData());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ ok: true }),
+    } as Response);
+
+    await act(async () => {
+      await result.current.snooze('abc123', 5);
+    });
+
+    expect(result.current.items).toHaveLength(0);
+    expect(fetch).toHaveBeenCalledWith('/api/todos/abc123/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'snooze', days: 5 }),
+    });
+  });
+
+  it('refresh triggers a re-fetch', async () => {
+    const { result } = renderHook(() => useTodoData());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.refresh();
+    });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('handles network error in performAction gracefully', async () => {
+    const { result } = renderHook(() => useTodoData());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    vi.spyOn(global, 'fetch').mockRejectedValueOnce(new Error('Network error'));
+
+    await act(async () => {
+      await result.current.ack('abc123');
+    });
+
+    // Item should still be in the list since action failed
+    expect(result.current.items).toHaveLength(1);
+  });
 });
