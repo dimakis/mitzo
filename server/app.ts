@@ -4,7 +4,8 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'fs';
 import { join, dirname, resolve, extname } from 'path';
-import { execFileSync } from 'child_process';
+import { execFileSync, execFile } from 'child_process';
+import { promisify } from 'util';
 import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 import { createProxyMiddleware } from 'http-proxy-middleware';
@@ -28,7 +29,7 @@ import { INTERNAL_TOKEN } from './internal-token.js';
 import { getLocalCommit, isUpdateAvailable } from './git-version.js';
 import { resolvePending } from './permissions.js';
 import { createLogger } from './logger.js';
-import { LoginBody, FileWriteBody, PermissionDecision } from './api-schemas.js';
+import { LoginBody, FileWriteBody, PermissionDecision, CalendarResponse } from './api-schemas.js';
 import {
   listInboxItems,
   readInboxItem,
@@ -666,6 +667,61 @@ app.delete('/api/inbox/:filename', (req, res) => {
   }
   res.json({ ok: true });
   broadcastInboxUpdate();
+});
+
+// --- Calendar API ---
+
+const execFileAsync = promisify(execFile);
+const CALENDAR_SCRIPT = join(BASE_REPO, 'command_center', 'calendar_api.py');
+const CALENDAR_TIMEOUT_MS = 20_000;
+
+app.get('/api/calendar', async (req, res) => {
+  const dateParam = (req.query.date as string) || new Date().toISOString().slice(0, 10);
+  const daysParam = Math.max(1, Math.min(31, parseInt(req.query.days as string) || 7));
+
+  // Validate date format
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateParam) || isNaN(Date.parse(dateParam))) {
+    res.status(400).json({ error: 'Invalid date format — use YYYY-MM-DD' });
+    return;
+  }
+
+  const emptyResponse = (error: string) => {
+    const endDate = new Date(dateParam);
+    endDate.setDate(endDate.getDate() + daysParam - 1);
+    return {
+      startDate: dateParam,
+      endDate: endDate.toISOString().slice(0, 10),
+      events: [],
+      sprints: [],
+      error,
+    };
+  };
+
+  // calendar_api.py lives in the mgmt repo (REPO_PATH), not in Mitzo
+  if (!existsSync(CALENDAR_SCRIPT)) {
+    log.warn('calendar script not found', { path: CALENDAR_SCRIPT });
+    res.json(emptyResponse(`Calendar script not found at ${CALENDAR_SCRIPT}`));
+    return;
+  }
+
+  try {
+    const { stdout } = await execFileAsync(
+      'python3',
+      [CALENDAR_SCRIPT, '--date', dateParam, '--days', String(daysParam)],
+      { timeout: CALENDAR_TIMEOUT_MS },
+    );
+    const parsed = CalendarResponse.safeParse(JSON.parse(stdout));
+    if (!parsed.success) {
+      log.warn('calendar API returned unexpected shape', { error: parsed.error.message });
+      res.json(emptyResponse('Calendar data failed validation'));
+      return;
+    }
+    res.json(parsed.data);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    log.warn('calendar API failed', { error: message });
+    res.json(emptyResponse(message));
+  }
 });
 
 // --- Static files ---
