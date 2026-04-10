@@ -4,7 +4,8 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'fs';
 import { join, dirname, resolve, extname } from 'path';
-import { execFileSync } from 'child_process';
+import { execFileSync, execFile } from 'child_process';
+import { promisify } from 'util';
 import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 import { createProxyMiddleware } from 'http-proxy-middleware';
@@ -666,6 +667,46 @@ app.delete('/api/inbox/:filename', (req, res) => {
   }
   res.json({ ok: true });
   broadcastInboxUpdate();
+});
+
+// --- Calendar API ---
+
+const execFileAsync = promisify(execFile);
+const CALENDAR_SCRIPT = join(BASE_REPO, 'command_center', 'calendar_api.py');
+const CALENDAR_TIMEOUT_MS = 20_000;
+
+app.get('/api/calendar', async (req, res) => {
+  const dateParam = (req.query.date as string) || new Date().toISOString().slice(0, 10);
+  const daysParam = Math.max(1, Math.min(31, parseInt(req.query.days as string) || 7));
+
+  // Validate date format
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateParam) || isNaN(Date.parse(dateParam))) {
+    res.status(400).json({ error: 'Invalid date format — use YYYY-MM-DD' });
+    return;
+  }
+
+  try {
+    const { stdout } = await execFileAsync(
+      'python3',
+      [CALENDAR_SCRIPT, '--date', dateParam, '--days', String(daysParam)],
+      { timeout: CALENDAR_TIMEOUT_MS },
+    );
+    const data = JSON.parse(stdout);
+    res.json(data);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    log.warn('calendar API failed', { error: message });
+    // Return empty structure so the frontend still renders
+    const endDate = new Date(dateParam);
+    endDate.setDate(endDate.getDate() + daysParam - 1);
+    res.json({
+      startDate: dateParam,
+      endDate: endDate.toISOString().slice(0, 10),
+      events: [],
+      sprints: [],
+      error: message,
+    });
+  }
 });
 
 // --- Static files ---

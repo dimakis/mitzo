@@ -6,6 +6,7 @@ import { ChatView } from './pages/ChatView';
 import { DesktopChatView } from './pages/DesktopChatView';
 import { FileViewer } from './pages/FileViewer';
 import { InboxView } from './pages/InboxView';
+import { CalendarView } from './pages/CalendarView';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useIsDesktop } from './hooks/useMediaQuery';
 
@@ -74,6 +75,14 @@ export function App() {
             element={
               <ProtectedRoute>
                 <InboxView />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/calendar"
+            element={
+              <ProtectedRoute>
+                <CalendarView />
               </ProtectedRoute>
             }
           />
