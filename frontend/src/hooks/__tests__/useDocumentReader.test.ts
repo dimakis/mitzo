@@ -16,6 +16,7 @@ vi.mock('../../lib/constants', () => ({
   YAPPER_URL: 'http://test-yapper',
   YAPPER_HEALTH_POLL_MS: 30000,
   DEFAULT_TTS_VOICE: 'af_heart',
+  DOCUMENT_READ_MAX_CHARS: 50_000,
 }));
 
 const mockFetch = vi.fn();
@@ -98,6 +99,9 @@ describe('useDocumentReader', () => {
   });
 
   it('stops playback on stop()', async () => {
+    // Make play() hang so state stays 'playing' until stop() is called
+    mockPlayHandle.play.mockReturnValue(new Promise(() => {}));
+
     mockFetch.mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ status: 'ready' }),
@@ -106,9 +110,14 @@ describe('useDocumentReader', () => {
     const { result } = renderHook(() => useDocumentReader());
     await act(async () => {});
 
-    await act(async () => {
+    act(() => {
       result.current.read('Hello');
     });
+
+    // Flush async pipeline up to playAudio()
+    await act(async () => {});
+
+    expect(result.current.state).toBe('playing');
 
     act(() => {
       result.current.stop();
@@ -116,5 +125,8 @@ describe('useDocumentReader', () => {
 
     expect(mockPlayHandle.stop).toHaveBeenCalled();
     expect(result.current.state).toBe('idle');
+
+    // Restore default mock for other tests
+    mockPlayHandle.play.mockResolvedValue(undefined);
   });
 });
