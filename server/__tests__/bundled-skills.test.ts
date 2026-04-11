@@ -12,9 +12,9 @@ describe('bundled skills', () => {
   const registry = new SkillRegistry({ bundledDir: SKILLS_DIR });
   const skills = registry.list();
 
-  it('discovers all four bundled skills', () => {
+  it('discovers all five bundled skills', () => {
     const names = skills.map((s) => s.name).sort();
-    expect(names).toEqual(['pr-review', 'review-response', 'risk-scan', 'simplify']);
+    expect(names).toEqual(['person', 'pr-review', 'review-response', 'risk-scan', 'simplify']);
   });
 
   it('has unique names', () => {
@@ -35,8 +35,10 @@ describe('bundled skills', () => {
     }
   });
 
-  it('no bundled skill includes Write or Edit in allowed-tools', () => {
-    for (const skill of skills) {
+  it('non-mutating bundled skills do not include Write or Edit in allowed-tools', () => {
+    const nonMutating = skills.filter((s) => !s.mutating);
+    expect(nonMutating.length).toBeGreaterThan(0);
+    for (const skill of nonMutating) {
       if (skill.allowedTools) {
         expect(skill.allowedTools).not.toContain('Write');
         expect(skill.allowedTools).not.toContain('Edit');
@@ -44,10 +46,24 @@ describe('bundled skills', () => {
     }
   });
 
-  it('each bundled skill body contains an approval gate instruction', () => {
-    // All bundled skills must include BOTH "present" AND "before making changes"
+  it('mutating skills declare the flag in frontmatter and have write access', () => {
+    const mutating = skills.filter((s) => s.mutating);
+    expect(mutating.length).toBeGreaterThan(0);
+    for (const skill of mutating) {
+      const hasWriteAccess =
+        skill.allowedTools?.includes('Edit') || skill.allowedTools?.includes('Write');
+      expect(
+        hasWriteAccess,
+        `Mutating skill "${skill.name}" should have Edit or Write in allowed-tools`,
+      ).toBe(true);
+    }
+  });
+
+  it('non-mutating bundled skills contain an approval gate instruction', () => {
+    // Non-mutating skills must include BOTH "present" AND "before making changes"
     // so users always see findings before any modifications happen.
-    for (const skill of skills) {
+    const nonMutating = skills.filter((s) => !s.mutating);
+    for (const skill of nonMutating) {
       const body = registry.getBody(skill.name)!;
       expect(body).toBeDefined();
       const lower = body.toLowerCase();
@@ -99,6 +115,25 @@ describe('bundled skills', () => {
     // But not Write/Edit — analysis first
     expect(prReview!.allowedTools).not.toContain('Write');
     expect(prReview!.allowedTools).not.toContain('Edit');
+  });
+
+  it('/person includes Read, Edit, Glob, and Grep in allowed-tools', () => {
+    const person = skills.find((s) => s.name === 'person');
+    expect(person).toBeDefined();
+    expect(person!.allowedTools).toBeDefined();
+    expect(person!.allowedTools).toContain('Read');
+    expect(person!.allowedTools).toContain('Edit');
+    expect(person!.allowedTools).toContain('Glob');
+    expect(person!.allowedTools).toContain('Grep');
+    expect(person!.allowedTools).not.toContain('Bash');
+    expect(person!.allowedTools).not.toContain('Write');
+  });
+
+  it('/person body references people profile path and $ARGUMENTS', () => {
+    const body = registry.getBody('person')!;
+    expect(body).toBeDefined();
+    expect(body).toContain('$ARGUMENTS');
+    expect(body).toContain('command_center/context/people');
   });
 
   it('all bundled skills are scoped as bundled', () => {
