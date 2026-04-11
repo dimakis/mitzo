@@ -40,12 +40,14 @@ function getToday(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+const DEFAULT_VIEW_DAYS = 7;
+
 export function CalendarView() {
   const navigate = useNavigate();
   const [baseDate, setBaseDate] = useState(getToday);
-  const [viewDays, setViewDays] = useState(7);
+  const [viewDays, setViewDays] = useState(DEFAULT_VIEW_DAYS);
   const [filterMode, setFilterMode] = useState<'all' | 'releases'>('all');
-  const [savedViewDays, setSavedViewDays] = useState(7);
+  const [savedViewDays, setSavedViewDays] = useState(DEFAULT_VIEW_DAYS);
 
   const { loading, events, sprints } = useCalendarData(baseDate, viewDays);
 
@@ -78,12 +80,14 @@ export function CalendarView() {
 
   const dates = useMemo(() => Array.from(eventsByDate.keys()).sort(), [eventsByDate]);
 
+  const navStep = filterMode === 'releases' ? 30 : viewDays;
+
   function handlePrev() {
-    setBaseDate(addDays(baseDate, -viewDays));
+    setBaseDate(addDays(baseDate, -navStep));
   }
 
   function handleNext() {
-    setBaseDate(addDays(baseDate, viewDays));
+    setBaseDate(addDays(baseDate, navStep));
   }
 
   function handleToday() {
@@ -132,12 +136,14 @@ export function CalendarView() {
         <div className="cal-view-toggle">
           <button
             className={`cal-view-btn${viewDays === 1 ? ' cal-view-btn--active' : ''}`}
+            disabled={filterMode === 'releases'}
             onClick={() => setViewDays(1)}
           >
             Day
           </button>
           <button
             className={`cal-view-btn${viewDays === 7 ? ' cal-view-btn--active' : ''}`}
+            disabled={filterMode === 'releases'}
             onClick={() => setViewDays(7)}
           >
             Week

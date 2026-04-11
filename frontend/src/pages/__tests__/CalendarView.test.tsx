@@ -449,7 +449,30 @@ describe('CalendarView', () => {
       await new Promise((r) => setTimeout(r, 10));
     });
 
-    // Releases button should be active
-    expect(releasesBtn.classList.contains('cal-view-btn--active')).toBe(true);
+    // Day and Week buttons should be disabled
+    const dayBtn = Array.from(container.querySelectorAll('.cal-view-btn')).find(
+      (b) => b.textContent === 'Day',
+    ) as HTMLButtonElement;
+    const weekBtn = Array.from(container.querySelectorAll('.cal-view-btn')).find(
+      (b) => b.textContent === 'Week',
+    ) as HTMLButtonElement;
+
+    expect(dayBtn.disabled).toBe(true);
+    expect(weekBtn.disabled).toBe(true);
+
+    // Record fetch count before clicking disabled buttons
+    const fetchCountBefore = vi.mocked(fetch).mock.calls.length;
+
+    // Clicking them should not change viewDays (no new fetch with different days)
+    act(() => {
+      dayBtn.click();
+    });
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    // Fetch count should not increase (disabled buttons don't fire onClick)
+    expect(vi.mocked(fetch).mock.calls.length).toBe(fetchCountBefore);
   });
 });

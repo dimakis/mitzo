@@ -98,6 +98,11 @@
   color: #fff;
 }
 
+.cal-view-btn:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
 /* Sprint bar */
 
 .cal-sprints {
