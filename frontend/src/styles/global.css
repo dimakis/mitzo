@@ -2897,3 +2897,142 @@ textarea:focus {
 .todo-card-author {
   color: var(--text-dim);
 }
+
+/* --- Hierarchical todo tree --- */
+
+.todo-card-tree-node--child {
+  margin-left: 20px;
+  border-left: 2px solid var(--border);
+  padding-left: 8px;
+}
+
+.todo-card-expand {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 0.65rem;
+  padding: 2px 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.todo-card-progress {
+  font-size: 0.65rem;
+  color: var(--accent);
+  margin-left: auto;
+  font-weight: 600;
+}
+
+.todo-card-source--manual {
+  background: var(--accent);
+  color: var(--bg);
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: bold;
+}
+
+.todo-card-add-child {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 0.65rem;
+  padding: 2px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  margin-top: 4px;
+  opacity: 0.4;
+  transition: opacity 0.15s;
+}
+
+.todo-card:hover .todo-card-add-child,
+.todo-card:active .todo-card-add-child,
+.todo-card-add-child:active {
+  opacity: 1;
+}
+
+.todo-card-children {
+  margin-top: 4px;
+}
+
+/* --- Add button in header --- */
+
+.todo-add-btn {
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  font-size: 1.2rem;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+/* --- Create form --- */
+
+.todo-create-form {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.todo-create-input {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: var(--text);
+  font-size: 0.85rem;
+  width: 100%;
+}
+
+.todo-create-profile {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.todo-create-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.todo-create-submit {
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  border-radius: 8px;
+  padding: 6px 16px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.todo-create-submit:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.todo-create-cancel {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 8px;
+  padding: 6px 16px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}

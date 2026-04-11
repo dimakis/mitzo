@@ -1,11 +1,13 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import type { TodoItem } from '../types/todo';
 
 interface TodoCardProps {
   item: TodoItem;
+  depth?: number;
   onAck: (id: string) => void;
   onDone: (id: string) => void;
   onTap: (item: TodoItem) => void;
+  onAddChild: (parentId: string) => void;
 }
 
 function urgencyBar(urgency: number): string {
@@ -30,13 +32,14 @@ function sourceIcon(type: string): string {
   }
 }
 
-export function TodoCard({ item, onAck, onDone, onTap }: TodoCardProps) {
+export function TodoCard({ item, depth = 0, onAck, onDone, onTap, onAddChild }: TodoCardProps) {
   const ref = useRef<HTMLDivElement>(null);
   const startX = useRef(0);
   const currentX = useRef(0);
   const swiping = useRef(false);
   const tapped = useRef(false);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -97,33 +100,82 @@ export function TodoCard({ item, onAck, onDone, onTap }: TodoCardProps) {
   const source = item.sources[0];
   const ageLabel = item.ageDays === 0 ? 'new' : `${item.ageDays}d`;
   const statusIcon = item.status === 'active' ? '\u25CF' : '\u25D0';
+  const children = item.children ?? [];
+  const hasChildren = children.length > 0;
 
   return (
-    <div className="todo-card-wrapper">
-      <div className="todo-card-actions-bg">
-        <span className="todo-action-label todo-action-ack">Seen</span>
-        <span className="todo-action-label todo-action-done">Done</span>
-      </div>
-      <div
-        ref={ref}
-        className="todo-card"
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-      >
-        <div className="todo-card-header">
-          <span className="todo-card-status">{statusIcon}</span>
-          <span className="todo-card-urgency">{urgencyBar(item.urgency)}</span>
-          {source && <span className="todo-card-source">{sourceIcon(source.type)}</span>}
-          <span className="todo-card-age">{ageLabel}</span>
+    <div className={`todo-card-tree-node ${depth > 0 ? 'todo-card-tree-node--child' : ''}`}>
+      <div className="todo-card-wrapper">
+        <div className="todo-card-actions-bg">
+          <span className="todo-action-label todo-action-ack">Seen</span>
+          <span className="todo-action-label todo-action-done">Done</span>
         </div>
-        <div className="todo-card-summary">{item.summary}</div>
-        {source && (
-          <div className="todo-card-meta">
-            <span className="todo-card-author">{source.author}</span>
+        <div
+          ref={ref}
+          className="todo-card"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+        >
+          <div className="todo-card-header">
+            {hasChildren && (
+              <button
+                className="todo-card-expand"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setExpanded(!expanded);
+                }}
+              >
+                {expanded ? '\u25BC' : '\u25B6'}
+              </button>
+            )}
+            <span className="todo-card-status">{statusIcon}</span>
+            <span className="todo-card-urgency">{urgencyBar(item.urgency)}</span>
+            {source ? (
+              <span className="todo-card-source">{sourceIcon(source.type)}</span>
+            ) : (
+              <span className="todo-card-source todo-card-source--manual">+</span>
+            )}
+            <span className="todo-card-age">{ageLabel}</span>
+            {hasChildren && (
+              <span className="todo-card-progress">
+                {item.completedChildCount ?? 0}/{item.childCount ?? children.length}
+              </span>
+            )}
           </div>
-        )}
+          <div className="todo-card-summary">{item.summary}</div>
+          {source && (
+            <div className="todo-card-meta">
+              <span className="todo-card-author">{source.author}</span>
+            </div>
+          )}
+          <button
+            className="todo-card-add-child"
+            onClick={(e) => {
+              e.stopPropagation();
+              onAddChild(item.id);
+            }}
+          >
+            + sub-task
+          </button>
+        </div>
       </div>
+
+      {hasChildren && expanded && (
+        <div className="todo-card-children">
+          {children.map((child) => (
+            <TodoCard
+              key={child.id}
+              item={child}
+              depth={depth + 1}
+              onAck={onAck}
+              onDone={onDone}
+              onTap={onTap}
+              onAddChild={onAddChild}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -8,7 +8,22 @@ export interface UseTodoDataResult {
   ack: (id: string) => Promise<void>;
   snooze: (id: string, days?: number) => Promise<void>;
   done: (id: string) => Promise<void>;
+  create: (summary: string, profile: string, parentId?: string) => Promise<void>;
   refresh: () => void;
+}
+
+function removeFromTree(items: TodoItem[], id: string): TodoItem[] {
+  return items
+    .filter((item) => item.id !== id)
+    .map((item) => {
+      const updatedChildren = removeFromTree(item.children, id);
+      return {
+        ...item,
+        children: updatedChildren,
+        childCount: updatedChildren.length,
+        completedChildCount: updatedChildren.filter((c) => c.status === 'completed').length,
+      };
+    });
 }
 
 export function useTodoData(profile?: string): UseTodoDataResult {
@@ -57,10 +72,7 @@ export function useTodoData(profile?: string): UseTodoDataResult {
       });
 
       if (res.ok) {
-        // Optimistically remove from list
-        setData((prev) =>
-          prev ? { ...prev, items: prev.items.filter((item) => item.id !== id) } : prev,
-        );
+        setData((prev) => (prev ? { ...prev, items: removeFromTree(prev.items, id) } : prev));
       }
     } catch {
       // Network error — leave item in list
@@ -75,6 +87,27 @@ export function useTodoData(profile?: string): UseTodoDataResult {
   const done = useCallback((id: string) => performAction(id, 'done'), [performAction]);
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 
+  const create = useCallback(
+    async (summary: string, profileName: string, parentId?: string) => {
+      const body: Record<string, string> = { summary, profile: profileName };
+      if (parentId) body.parentId = parentId;
+
+      try {
+        const res = await fetch('/api/todos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (res.ok) {
+          refresh();
+        }
+      } catch {
+        // Network error
+      }
+    },
+    [refresh],
+  );
+
   return {
     loading,
     items: data?.items ?? [],
@@ -82,6 +115,7 @@ export function useTodoData(profile?: string): UseTodoDataResult {
     ack,
     snooze,
     done,
+    create,
     refresh,
   };
 }

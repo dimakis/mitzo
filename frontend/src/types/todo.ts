@@ -24,6 +24,10 @@ export interface TodoItem {
   urgency: number;
   status: 'active' | 'acknowledged' | 'snoozed' | 'completed';
   ageDays: number;
+  parentId: string | null;
+  children: TodoItem[];
+  childCount: number;
+  completedChildCount: number;
   sources: TodoSource[];
   contextHints: TodoContextHints;
 }
