@@ -38,13 +38,27 @@ const mockItem: TodoItem = {
 
 describe('TodoCard', () => {
   it('renders item summary', () => {
-    render(<TodoCard item={mockItem} onAck={vi.fn()} onDone={vi.fn()} onTap={vi.fn()} onAddChild={vi.fn()} />);
+    render(
+      <TodoCard
+        item={mockItem}
+        onAck={vi.fn()}
+        onDone={vi.fn()}
+        onTap={vi.fn()}
+        onAddChild={vi.fn()}
+      />,
+    );
     expect(screen.getByText('[dimakis/mitzo#1] Fix bug')).toBeTruthy();
   });
 
   it('renders source badge and age', () => {
     const { container } = render(
-      <TodoCard item={mockItem} onAck={vi.fn()} onDone={vi.fn()} onTap={vi.fn()} onAddChild={vi.fn()} />,
+      <TodoCard
+        item={mockItem}
+        onAck={vi.fn()}
+        onDone={vi.fn()}
+        onTap={vi.fn()}
+        onAddChild={vi.fn()}
+      />,
     );
     expect(container.querySelector('.todo-card-source')?.textContent).toBe('GH');
     expect(container.querySelector('.todo-card-age')?.textContent).toBe('3d');
@@ -52,7 +66,13 @@ describe('TodoCard', () => {
 
   it('renders author', () => {
     const { container } = render(
-      <TodoCard item={mockItem} onAck={vi.fn()} onDone={vi.fn()} onTap={vi.fn()} onAddChild={vi.fn()} />,
+      <TodoCard
+        item={mockItem}
+        onAck={vi.fn()}
+        onDone={vi.fn()}
+        onTap={vi.fn()}
+        onAddChild={vi.fn()}
+      />,
     );
     expect(container.querySelector('.todo-card-author')?.textContent).toBe('dimakis');
   });
@@ -60,7 +80,13 @@ describe('TodoCard', () => {
   it('calls onTap on tap (touchstart + touchend without move)', () => {
     const onTap = vi.fn();
     const { container } = render(
-      <TodoCard item={mockItem} onAck={vi.fn()} onDone={vi.fn()} onTap={onTap} onAddChild={vi.fn()} />,
+      <TodoCard
+        item={mockItem}
+        onAck={vi.fn()}
+        onDone={vi.fn()}
+        onTap={onTap}
+        onAddChild={vi.fn()}
+      />,
     );
     const card = container.querySelector('.todo-card')!;
     fireEvent.touchStart(card, { touches: [{ clientX: 100 }] });
@@ -70,13 +96,29 @@ describe('TodoCard', () => {
 
   it('shows new label for 0 day age', () => {
     const newItem = { ...mockItem, ageDays: 0 };
-    render(<TodoCard item={newItem} onAck={vi.fn()} onDone={vi.fn()} onTap={vi.fn()} onAddChild={vi.fn()} />);
+    render(
+      <TodoCard
+        item={newItem}
+        onAck={vi.fn()}
+        onDone={vi.fn()}
+        onTap={vi.fn()}
+        onAddChild={vi.fn()}
+      />,
+    );
     expect(screen.getByText('new')).toBeTruthy();
   });
 
   it('shows acknowledged icon for acknowledged status', () => {
     const ackItem = { ...mockItem, status: 'acknowledged' as const };
-    render(<TodoCard item={ackItem} onAck={vi.fn()} onDone={vi.fn()} onTap={vi.fn()} onAddChild={vi.fn()} />);
+    render(
+      <TodoCard
+        item={ackItem}
+        onAck={vi.fn()}
+        onDone={vi.fn()}
+        onTap={vi.fn()}
+        onAddChild={vi.fn()}
+      />,
+    );
     // ◐ character for acknowledged
     expect(screen.getByText('\u25D0')).toBeTruthy();
   });
@@ -85,7 +127,13 @@ describe('TodoCard', () => {
     vi.useFakeTimers();
     const onAck = vi.fn();
     const { container } = render(
-      <TodoCard item={mockItem} onAck={onAck} onDone={vi.fn()} onTap={vi.fn()} onAddChild={vi.fn()} />,
+      <TodoCard
+        item={mockItem}
+        onAck={onAck}
+        onDone={vi.fn()}
+        onTap={vi.fn()}
+        onAddChild={vi.fn()}
+      />,
     );
     const card = container.querySelector('.todo-card')!;
 
@@ -102,7 +150,13 @@ describe('TodoCard', () => {
     vi.useFakeTimers();
     const onDone = vi.fn();
     const { container } = render(
-      <TodoCard item={mockItem} onAck={vi.fn()} onDone={onDone} onTap={vi.fn()} onAddChild={vi.fn()} />,
+      <TodoCard
+        item={mockItem}
+        onAck={vi.fn()}
+        onDone={onDone}
+        onTap={vi.fn()}
+        onAddChild={vi.fn()}
+      />,
     );
     const card = container.querySelector('.todo-card')!;
 
@@ -119,7 +173,13 @@ describe('TodoCard', () => {
     const onAck = vi.fn();
     const onDone = vi.fn();
     const { container } = render(
-      <TodoCard item={mockItem} onAck={onAck} onDone={onDone} onTap={vi.fn()} onAddChild={vi.fn()} />,
+      <TodoCard
+        item={mockItem}
+        onAck={onAck}
+        onDone={onDone}
+        onTap={vi.fn()}
+        onAddChild={vi.fn()}
+      />,
     );
     const card = container.querySelector('.todo-card')!;
 
@@ -134,7 +194,13 @@ describe('TodoCard', () => {
 
   it('does not show expand button when no children', () => {
     const { container } = render(
-      <TodoCard item={mockItem} onAck={vi.fn()} onDone={vi.fn()} onTap={vi.fn()} onAddChild={vi.fn()} />,
+      <TodoCard
+        item={mockItem}
+        onAck={vi.fn()}
+        onDone={vi.fn()}
+        onTap={vi.fn()}
+        onAddChild={vi.fn()}
+      />,
     );
     expect(container.querySelector('.todo-card-expand')).toBeNull();
   });
@@ -157,7 +223,13 @@ describe('TodoCard', () => {
     };
 
     const { container } = render(
-      <TodoCard item={parentItem} onAck={vi.fn()} onDone={vi.fn()} onTap={vi.fn()} onAddChild={vi.fn()} />,
+      <TodoCard
+        item={parentItem}
+        onAck={vi.fn()}
+        onDone={vi.fn()}
+        onTap={vi.fn()}
+        onAddChild={vi.fn()}
+      />,
     );
 
     const expandBtn = container.querySelector('.todo-card-expand')!;
@@ -187,7 +259,13 @@ describe('TodoCard', () => {
     };
 
     const { container } = render(
-      <TodoCard item={parentItem} onAck={vi.fn()} onDone={vi.fn()} onTap={vi.fn()} onAddChild={vi.fn()} />,
+      <TodoCard
+        item={parentItem}
+        onAck={vi.fn()}
+        onDone={vi.fn()}
+        onTap={vi.fn()}
+        onAddChild={vi.fn()}
+      />,
     );
 
     const progress = container.querySelector('.todo-card-progress');
@@ -197,7 +275,13 @@ describe('TodoCard', () => {
   it('calls onAddChild when sub-task button is clicked', () => {
     const onAddChild = vi.fn();
     const { container } = render(
-      <TodoCard item={mockItem} onAck={vi.fn()} onDone={vi.fn()} onTap={vi.fn()} onAddChild={onAddChild} />,
+      <TodoCard
+        item={mockItem}
+        onAck={vi.fn()}
+        onDone={vi.fn()}
+        onTap={vi.fn()}
+        onAddChild={onAddChild}
+      />,
     );
 
     const addBtn = container.querySelector('.todo-card-add-child')!;
@@ -207,7 +291,14 @@ describe('TodoCard', () => {
 
   it('applies depth indentation via tree node class', () => {
     const { container } = render(
-      <TodoCard item={mockItem} depth={1} onAck={vi.fn()} onDone={vi.fn()} onTap={vi.fn()} onAddChild={vi.fn()} />,
+      <TodoCard
+        item={mockItem}
+        depth={1}
+        onAck={vi.fn()}
+        onDone={vi.fn()}
+        onTap={vi.fn()}
+        onAddChild={vi.fn()}
+      />,
     );
 
     const treeNode = container.querySelector('.todo-card-tree-node');
@@ -216,7 +307,13 @@ describe('TodoCard', () => {
 
   it('does not apply child class at depth 0', () => {
     const { container } = render(
-      <TodoCard item={mockItem} onAck={vi.fn()} onDone={vi.fn()} onTap={vi.fn()} onAddChild={vi.fn()} />,
+      <TodoCard
+        item={mockItem}
+        onAck={vi.fn()}
+        onDone={vi.fn()}
+        onTap={vi.fn()}
+        onAddChild={vi.fn()}
+      />,
     );
 
     const treeNode = container.querySelector('.todo-card-tree-node');
