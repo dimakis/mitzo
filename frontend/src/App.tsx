@@ -8,6 +8,7 @@ import { FileViewer } from './pages/FileViewer';
 import { InboxView } from './pages/InboxView';
 import { CalendarView } from './pages/CalendarView';
 import { TodoView } from './pages/TodoView';
+import { TodoDetailView } from './pages/TodoDetailView';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useIsDesktop } from './hooks/useMediaQuery';
 
@@ -92,6 +93,14 @@ export function App() {
             element={
               <ProtectedRoute>
                 <TodoView />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/todos/:id"
+            element={
+              <ProtectedRoute>
+                <TodoDetailView />
               </ProtectedRoute>
             }
           />
