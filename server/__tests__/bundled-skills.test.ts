@@ -35,9 +35,10 @@ describe('bundled skills', () => {
     }
   });
 
-  it('analysis-only bundled skills do not include Write or Edit in allowed-tools', () => {
-    const analysisOnly = skills.filter((s) => s.name !== 'person');
-    for (const skill of analysisOnly) {
+  it('non-mutating bundled skills do not include Write or Edit in allowed-tools', () => {
+    const nonMutating = skills.filter((s) => !s.mutating);
+    expect(nonMutating.length).toBeGreaterThan(0);
+    for (const skill of nonMutating) {
       if (skill.allowedTools) {
         expect(skill.allowedTools).not.toContain('Write');
         expect(skill.allowedTools).not.toContain('Edit');
@@ -45,11 +46,24 @@ describe('bundled skills', () => {
     }
   });
 
-  it('analysis bundled skills contain an approval gate instruction', () => {
-    // Analysis skills must include BOTH "present" AND "before making changes"
+  it('mutating skills declare the flag in frontmatter and have write access', () => {
+    const mutating = skills.filter((s) => s.mutating);
+    expect(mutating.length).toBeGreaterThan(0);
+    for (const skill of mutating) {
+      const hasWriteAccess =
+        skill.allowedTools?.includes('Edit') || skill.allowedTools?.includes('Write');
+      expect(
+        hasWriteAccess,
+        `Mutating skill "${skill.name}" should have Edit or Write in allowed-tools`,
+      ).toBe(true);
+    }
+  });
+
+  it('non-mutating bundled skills contain an approval gate instruction', () => {
+    // Non-mutating skills must include BOTH "present" AND "before making changes"
     // so users always see findings before any modifications happen.
-    const analysisSkills = skills.filter((s) => s.name !== 'person');
-    for (const skill of analysisSkills) {
+    const nonMutating = skills.filter((s) => !s.mutating);
+    for (const skill of nonMutating) {
       const body = registry.getBody(skill.name)!;
       expect(body).toBeDefined();
       const lower = body.toLowerCase();

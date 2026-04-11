@@ -1,5 +1,6 @@
 ---
 description: View and update people profiles
+mutating: true
 allowed-tools:
   - Read
   - Edit

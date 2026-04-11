@@ -13,6 +13,8 @@ export interface SkillMetadata {
   description: string;
   scope: SkillScope;
   allowedTools?: string[];
+  /** Skill intentionally needs write access (Edit/Write in allowed-tools). */
+  mutating?: boolean;
   collisions?: Array<{ scope: SkillScope; description: string }>;
   /** Absolute path to the SKILL.md file — internal use only */
   filePath: string;
@@ -31,6 +33,7 @@ interface SkillRegistryOptions {
 interface ParsedSkill {
   description: string;
   allowedTools?: string[];
+  mutating?: boolean;
   body: string;
   filePath: string;
 }
@@ -92,7 +95,7 @@ function parseFrontmatter(raw: string): { meta: Record<string, unknown>; body: s
     meta[currentKey] = currentList;
   }
 
-  const KNOWN_KEYS = new Set(['description', 'allowed-tools']);
+  const KNOWN_KEYS = new Set(['description', 'allowed-tools', 'mutating']);
   for (const key of Object.keys(meta)) {
     if (!KNOWN_KEYS.has(key)) {
       log.warn(`Unknown frontmatter key "${key}" — check for typos`);
@@ -168,9 +171,12 @@ function discoverScope(dir: string): Map<string, ParsedSkill> {
       ? (meta['allowed-tools'] as unknown[]).filter((t): t is string => typeof t === 'string')
       : undefined;
 
+    const mutating = meta['mutating'] === 'true' ? true : undefined;
+
     skills.set(entry, {
       description: meta.description,
       allowedTools,
+      mutating,
       body,
       filePath,
     });
@@ -228,6 +234,7 @@ export class SkillRegistry {
             description: parsed.description,
             scope,
             allowedTools: parsed.allowedTools,
+            mutating: parsed.mutating,
             filePath: parsed.filePath,
           });
           // Store body for lazy loading
