@@ -59,7 +59,9 @@ export function TodoDetailView() {
     return <div className="todo-detail-page">Loading...</div>;
   }
 
-  const hints = item.contextHints;
+  // Capture narrowed item for use in nested functions (TS doesn't narrow across closures)
+  const currentItem: TodoItem = item;
+  const hints = currentItem.contextHints;
   const ageLabel = item.ageDays === 0 ? 'new' : `${item.ageDays}d`;
   const hasContext =
     hints.repos.length > 0 ||
@@ -69,7 +71,7 @@ export function TodoDetailView() {
     hints.keywords.length > 0;
 
   function handleOpenChat() {
-    const prompt = buildPrompt(item);
+    const prompt = buildPrompt(currentItem);
     const params = new URLSearchParams();
     params.set('prompt', prompt);
     params.set('extraTools', 'Bash');
