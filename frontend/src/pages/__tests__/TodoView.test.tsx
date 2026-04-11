@@ -133,6 +133,57 @@ describe('TodoView', () => {
     expect(mockUseTodoData).toHaveBeenLastCalledWith('centaur');
   });
 
+  it('navigates to detail view on item tap', () => {
+    const item = {
+      id: 'abc',
+      summary: 'Fix bug',
+      profile: 'centaur',
+      urgency: 0.5,
+      status: 'active',
+      ageDays: 2,
+      parentId: null,
+      children: [],
+      childCount: 0,
+      completedChildCount: 0,
+      sources: [
+        { type: 'github', url: 'https://example.com', title: 'Fix', author: 'me', snippet: '' },
+      ],
+      contextHints: {
+        repos: [],
+        paths: [],
+        issues: [],
+        docIds: [],
+        people: [],
+        jiraKeys: [],
+        keywords: [],
+        taskHint: '',
+      },
+    };
+
+    mockUseTodoData.mockReturnValue({
+      loading: false,
+      items: [item],
+      profiles: ['centaur'],
+      ack: vi.fn(),
+      done: vi.fn(),
+      create: vi.fn(),
+      refresh: vi.fn(),
+    });
+
+    const { container } = render(
+      <MemoryRouter>
+        <TodoView />
+      </MemoryRouter>,
+    );
+
+    // Simulate tap on the todo card
+    const card = container.querySelector('.todo-card')!;
+    fireEvent.touchStart(card, { touches: [{ clientX: 100, clientY: 200 }] });
+    fireEvent.touchEnd(card);
+
+    expect(mockNavigate).toHaveBeenCalledWith('/todos/abc', { state: { item } });
+  });
+
   it('navigates back on back button', () => {
     mockUseTodoData.mockReturnValue({
       loading: false,

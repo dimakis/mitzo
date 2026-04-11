@@ -89,9 +89,49 @@ describe('TodoCard', () => {
       />,
     );
     const card = container.querySelector('.todo-card')!;
-    fireEvent.touchStart(card, { touches: [{ clientX: 100 }] });
+    fireEvent.touchStart(card, { touches: [{ clientX: 100, clientY: 200 }] });
     fireEvent.touchEnd(card);
     expect(onTap).toHaveBeenCalledWith(mockItem);
+  });
+
+  it('does not fire onTap when scrolling vertically', () => {
+    const onTap = vi.fn();
+    const { container } = render(
+      <TodoCard
+        item={mockItem}
+        onAck={vi.fn()}
+        onDone={vi.fn()}
+        onTap={onTap}
+        onAddChild={vi.fn()}
+      />,
+    );
+    const card = container.querySelector('.todo-card')!;
+
+    fireEvent.touchStart(card, { touches: [{ clientX: 100, clientY: 200 }] });
+    fireEvent.touchMove(card, { touches: [{ clientX: 100, clientY: 230 }] }); // 30px vertical
+    fireEvent.touchEnd(card);
+
+    expect(onTap).not.toHaveBeenCalled();
+  });
+
+  it('does not fire onTap when scrolling vertically even with small X movement', () => {
+    const onTap = vi.fn();
+    const { container } = render(
+      <TodoCard
+        item={mockItem}
+        onAck={vi.fn()}
+        onDone={vi.fn()}
+        onTap={onTap}
+        onAddChild={vi.fn()}
+      />,
+    );
+    const card = container.querySelector('.todo-card')!;
+
+    fireEvent.touchStart(card, { touches: [{ clientX: 100, clientY: 200 }] });
+    fireEvent.touchMove(card, { touches: [{ clientX: 105, clientY: 215 }] }); // 5px X, 15px Y
+    fireEvent.touchEnd(card);
+
+    expect(onTap).not.toHaveBeenCalled();
   });
 
   it('shows new label for 0 day age', () => {

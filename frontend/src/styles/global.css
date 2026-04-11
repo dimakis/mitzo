@@ -3036,3 +3036,249 @@ textarea:focus {
   font-size: 0.8rem;
   cursor: pointer;
 }
+
+/* ── Todo Detail View ─────────────────────────────────── */
+
+.todo-detail-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 0 16px 32px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.todo-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 0 8px;
+}
+
+.todo-detail-header h1 {
+  flex: 1;
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.todo-detail-back {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.todo-detail-chat-btn {
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.todo-detail-summary {
+  font-size: 1.1rem;
+  font-weight: 600;
+  line-height: 1.4;
+  padding: 8px 0 12px;
+}
+
+.todo-detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 16px;
+  flex-wrap: wrap;
+}
+
+.todo-detail-status {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  background: var(--surface);
+  color: var(--text-dim);
+}
+
+.todo-detail-status--active {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.todo-detail-status--acknowledged {
+  background: var(--surface);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+.todo-detail-urgency {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  background: var(--surface);
+  padding: 2px 10px;
+  border-radius: 10px;
+}
+
+.todo-detail-age {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+.todo-detail-profile {
+  font-size: 0.75rem;
+  color: var(--accent);
+  margin-left: auto;
+}
+
+/* --- Sources --- */
+
+.todo-detail-sources {
+  padding: 8px 0;
+}
+
+.todo-detail-sources h2,
+.todo-detail-task-hint h2,
+.todo-detail-context h2 {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0 0 8px;
+}
+
+.todo-detail-source-row {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.todo-detail-source-row:active {
+  background: var(--border);
+}
+
+.todo-detail-source-row--no-link {
+  cursor: default;
+}
+
+.todo-detail-source-row--no-link:active {
+  background: var(--surface);
+}
+
+.todo-detail-source-badge {
+  background: var(--bg);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  align-self: flex-start;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.todo-detail-source-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.todo-detail-source-title {
+  font-size: 0.85rem;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.todo-detail-source-author {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.todo-detail-source-snippet {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin-top: 4px;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* --- Task Hint --- */
+
+.todo-detail-task-hint {
+  padding: 12px 0;
+}
+
+.todo-detail-task-hint p {
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--text);
+  background: var(--surface);
+  padding: 10px 12px;
+  border-radius: 8px;
+  border-left: 3px solid var(--accent);
+  margin: 0;
+}
+
+/* --- Context --- */
+
+.todo-detail-context {
+  padding: 8px 0;
+}
+
+.todo-detail-context-group {
+  margin-bottom: 12px;
+}
+
+.todo-detail-context-group h3 {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin: 0 0 6px;
+  text-transform: uppercase;
+}
+
+.todo-detail-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.todo-detail-chip {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-family: inherit;
+}
+
+.todo-detail-chip--path {
+  cursor: pointer;
+  color: var(--accent);
+  border-color: var(--accent);
+  background: none;
+}
+
+.todo-detail-chip--path:active {
+  background: var(--accent);
+  color: var(--bg);
+}
