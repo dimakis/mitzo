@@ -35,6 +35,7 @@ function sourceIcon(type: string): string {
 export function TodoCard({ item, depth = 0, onAck, onDone, onTap, onAddChild }: TodoCardProps) {
   const ref = useRef<HTMLDivElement>(null);
   const startX = useRef(0);
+  const startY = useRef(0);
   const currentX = useRef(0);
   const swiping = useRef(false);
   const tapped = useRef(false);
@@ -49,6 +50,7 @@ export function TodoCard({ item, depth = 0, onAck, onDone, onTap, onAddChild }: 
 
   function handleTouchStart(e: React.TouchEvent) {
     startX.current = e.touches[0].clientX;
+    startY.current = e.touches[0].clientY;
     currentX.current = startX.current;
     swiping.current = true;
     tapped.current = true;
@@ -59,7 +61,8 @@ export function TodoCard({ item, depth = 0, onAck, onDone, onTap, onAddChild }: 
     currentX.current = e.touches[0].clientX;
     const dx = currentX.current - startX.current;
 
-    if (Math.abs(dx) > 10) tapped.current = false;
+    const dy = e.touches[0].clientY - startY.current;
+    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) tapped.current = false;
 
     ref.current.style.transform = `translateX(${dx}px)`;
     ref.current.style.opacity = `${Math.max(0, 1 - Math.abs(dx) / 200)}`;
