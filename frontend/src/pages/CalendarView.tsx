@@ -44,8 +44,18 @@ export function CalendarView() {
   const navigate = useNavigate();
   const [baseDate, setBaseDate] = useState(getToday);
   const [viewDays, setViewDays] = useState(7);
+  const [filterMode, setFilterMode] = useState<'all' | 'releases'>('all');
+  const [savedViewDays, setSavedViewDays] = useState(7);
 
   const { loading, events, sprints } = useCalendarData(baseDate, viewDays);
+
+  // Filter events based on filter mode
+  const filteredEvents = useMemo(() => {
+    if (filterMode === 'releases') {
+      return events.filter((e) => e.type === 'milestone');
+    }
+    return events;
+  }, [events, filterMode]);
 
   // Group events by date
   const eventsByDate = useMemo(() => {
@@ -54,7 +64,7 @@ export function CalendarView() {
       const d = addDays(baseDate, i);
       map.set(d, []);
     }
-    for (const evt of events) {
+    for (const evt of filteredEvents) {
       const d = toLocalDate(evt.start);
       const existing = map.get(d);
       if (existing) {
@@ -64,7 +74,7 @@ export function CalendarView() {
       }
     }
     return map;
-  }, [events, baseDate, viewDays]);
+  }, [filteredEvents, baseDate, viewDays]);
 
   const dates = useMemo(() => Array.from(eventsByDate.keys()).sort(), [eventsByDate]);
 
@@ -78,6 +88,19 @@ export function CalendarView() {
 
   function handleToday() {
     setBaseDate(getToday());
+  }
+
+  function handleFilterAll() {
+    setFilterMode('all');
+    setViewDays(savedViewDays);
+  }
+
+  function handleFilterReleases() {
+    if (filterMode !== 'releases') {
+      setSavedViewDays(viewDays);
+    }
+    setFilterMode('releases');
+    setViewDays(90);
   }
 
   const startLabel = new Date(baseDate + 'T12:00:00').toLocaleDateString([], {
@@ -118,6 +141,20 @@ export function CalendarView() {
             onClick={() => setViewDays(7)}
           >
             Week
+          </button>
+        </div>
+        <div className="cal-filter-toggle cal-view-toggle">
+          <button
+            className={`cal-view-btn${filterMode === 'all' ? ' cal-view-btn--active' : ''}`}
+            onClick={handleFilterAll}
+          >
+            All
+          </button>
+          <button
+            className={`cal-view-btn${filterMode === 'releases' ? ' cal-view-btn--active' : ''}`}
+            onClick={handleFilterReleases}
+          >
+            Releases
           </button>
         </div>
       </header>

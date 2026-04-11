@@ -79,6 +79,10 @@
   padding: 2px;
 }
 
+.cal-filter-toggle {
+  margin-left: 4px;
+}
+
 .cal-view-btn {
   background: none;
   border: none;
