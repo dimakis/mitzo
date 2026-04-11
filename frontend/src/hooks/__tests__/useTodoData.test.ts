@@ -170,4 +170,62 @@ describe('useTodoData', () => {
     // Item should still be in the list since action failed
     expect(result.current.items).toHaveLength(1);
   });
+
+  it('create posts to /api/todos and triggers refresh', async () => {
+    const { result } = renderHook(() => useTodoData());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ ok: true }),
+    } as Response);
+
+    await act(async () => {
+      await result.current.create('New task', 'work');
+    });
+
+    expect(fetch).toHaveBeenCalledWith('/api/todos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ summary: 'New task', profile: 'work' }),
+    });
+  });
+
+  it('create passes parentId when provided', async () => {
+    const { result } = renderHook(() => useTodoData());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ ok: true }),
+    } as Response);
+
+    await act(async () => {
+      await result.current.create('Sub task', 'work', 'parent-123');
+    });
+
+    expect(fetch).toHaveBeenCalledWith('/api/todos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ summary: 'Sub task', profile: 'work', parentId: 'parent-123' }),
+    });
+  });
+
+  it('create handles network error gracefully', async () => {
+    const { result } = renderHook(() => useTodoData());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    vi.spyOn(global, 'fetch').mockRejectedValueOnce(new Error('Network error'));
+
+    await act(async () => {
+      await result.current.create('New task', 'work');
+    });
+
+    // Should not throw — items unchanged
+    expect(result.current.items).toHaveLength(1);
+  });
 });

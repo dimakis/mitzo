@@ -15,11 +15,15 @@ export interface UseTodoDataResult {
 function removeFromTree(items: TodoItem[], id: string): TodoItem[] {
   return items
     .filter((item) => item.id !== id)
-    .map((item) => ({
-      ...item,
-      children: removeFromTree(item.children, id),
-      childCount: item.children.filter((c) => c.id !== id).length,
-    }));
+    .map((item) => {
+      const updatedChildren = removeFromTree(item.children, id);
+      return {
+        ...item,
+        children: updatedChildren,
+        childCount: updatedChildren.length,
+        completedChildCount: updatedChildren.filter((c) => c.status === 'completed').length,
+      };
+    });
 }
 
 export function useTodoData(profile?: string): UseTodoDataResult {

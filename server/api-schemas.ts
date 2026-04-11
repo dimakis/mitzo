@@ -67,20 +67,32 @@ const TodoContextHintsSchema = z.object({
   taskHint: z.string().optional().default(''),
 });
 
-const TodoItemSchema = z.object({
-  id: z.string(),
-  summary: z.string(),
-  profile: z.string(),
-  urgency: z.number(),
-  status: z.enum(['active', 'acknowledged', 'snoozed', 'completed']),
-  ageDays: z.number(),
-  sources: z.array(TodoSourceSchema),
-  contextHints: TodoContextHintsSchema,
-});
+const TodoItemSchema: z.ZodType<unknown> = z.lazy(() =>
+  z.object({
+    id: z.string(),
+    summary: z.string(),
+    profile: z.string(),
+    urgency: z.number(),
+    status: z.enum(['active', 'acknowledged', 'snoozed', 'completed']),
+    ageDays: z.number(),
+    parentId: z.string().nullable().optional().default(null),
+    children: z.array(TodoItemSchema).optional().default([]),
+    childCount: z.number().optional().default(0),
+    completedChildCount: z.number().optional().default(0),
+    sources: z.array(TodoSourceSchema),
+    contextHints: TodoContextHintsSchema,
+  }),
+);
 
 export const TodoListResponse = z.object({
   profiles: z.array(z.string()),
   items: z.array(TodoItemSchema),
+});
+
+export const TodoCreateBody = z.object({
+  summary: z.string().min(1).max(500),
+  profile: z.string().min(1).max(100),
+  parentId: z.string().optional(),
 });
 
 export const TodoActionBody = z.object({

@@ -121,4 +121,57 @@ describe('todo routes', () => {
     expect(res.status).toBe(500);
     expect(res.body.ok).toBe(false);
   });
+
+  it('POST /api/todos — unauthenticated returns 401', async () => {
+    const res = await request(app)
+      .post('/api/todos')
+      .send({ summary: 'Test task', profile: 'work' });
+    expect(res.status).toBe(401);
+  });
+
+  it('POST /api/todos — missing summary returns 400', async () => {
+    const res = await request(app)
+      .post('/api/todos')
+      .send({ profile: 'work' })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(400);
+    expect(res.body.ok).toBe(false);
+  });
+
+  it('POST /api/todos — missing profile returns 400', async () => {
+    const res = await request(app)
+      .post('/api/todos')
+      .send({ summary: 'Test task' })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(400);
+    expect(res.body.ok).toBe(false);
+  });
+
+  it('POST /api/todos — empty summary returns 400', async () => {
+    const res = await request(app)
+      .post('/api/todos')
+      .send({ summary: '', profile: 'work' })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(400);
+    expect(res.body.ok).toBe(false);
+  });
+
+  it('POST /api/todos — valid body returns error when script not found', async () => {
+    const res = await request(app)
+      .post('/api/todos')
+      .send({ summary: 'New task', profile: 'work' })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(500);
+    expect(res.body.ok).toBe(false);
+  });
+
+  it('POST /api/todos — accepts optional parentId', async () => {
+    const res = await request(app)
+      .post('/api/todos')
+      .send({ summary: 'Sub task', profile: 'work', parentId: 'parent-123' })
+      .set('Cookie', authCookie);
+    // Script won't exist in test env, but validates input is accepted
+    expect(res.status).toBe(500);
+    expect(res.body.ok).toBe(false);
+  });
 });

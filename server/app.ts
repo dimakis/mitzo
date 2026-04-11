@@ -35,6 +35,7 @@ import {
   PermissionDecision,
   CalendarResponse,
   TodoListResponse,
+  TodoCreateBody,
   TodoActionBody,
   TodoActionResponse,
 } from './api-schemas.js';
@@ -774,16 +775,12 @@ app.get('/api/todos', async (req, res) => {
 });
 
 app.post('/api/todos', async (req, res) => {
-  const { summary, profile, parentId } = req.body as {
-    summary?: string;
-    profile?: string;
-    parentId?: string;
-  };
-
-  if (!summary || !profile) {
-    res.status(400).json({ ok: false, error: 'summary and profile are required' });
+  const body = TodoCreateBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ ok: false, error: body.error.issues[0]?.message ?? 'Invalid input' });
     return;
   }
+  const { summary, profile, parentId } = body.data;
 
   if (!existsSync(TODO_SCRIPT)) {
     res.status(500).json({ ok: false, error: 'Todo script not found' });

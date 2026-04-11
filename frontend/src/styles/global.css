@@ -2945,12 +2945,13 @@ textarea:focus {
   border-radius: 10px;
   cursor: pointer;
   margin-top: 4px;
-  opacity: 0;
+  opacity: 0.4;
   transition: opacity 0.15s;
 }
 
 .todo-card:hover .todo-card-add-child,
-.todo-card:active .todo-card-add-child {
+.todo-card:active .todo-card-add-child,
+.todo-card-add-child:active {
   opacity: 1;
 }
 
