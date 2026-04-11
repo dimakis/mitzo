@@ -33,9 +33,11 @@ Read and display the matching profile file. Show the full content (frontmatter a
 Check `$ARGUMENTS` for update instructions:
 
 - **If `--note <text>` is present:** Append a new line to the "Notes" section of the profile:
+
   ```
   - [YYYY-MM-DD] <text>
   ```
+
   Use today's date. If no "Notes" section exists, create one at the end of the file with a `## Notes` header.
 
 - **If additional text is provided after the person's name (without `--note`):** Append the text as a new bullet point under the "Open Threads" section. If no "Open Threads" section exists, create one before "Notes" (or at the end if no Notes section).
