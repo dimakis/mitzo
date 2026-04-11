@@ -287,4 +287,192 @@ describe('CalendarView', () => {
     expect(detail!.textContent).toContain('24 of our features');
     expect(detail!.textContent).toContain('66 total');
   });
+
+  it('renders filter toggle with All and Releases buttons', async () => {
+    renderCalendar();
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    const filterToggle = container.querySelector('.cal-filter-toggle');
+    expect(filterToggle).not.toBeNull();
+
+    const buttons = filterToggle!.querySelectorAll('.cal-view-btn');
+    expect(buttons.length).toBe(2);
+    expect(buttons[0].textContent).toBe('All');
+    expect(buttons[1].textContent).toBe('Releases');
+
+    // All should be active by default
+    expect(buttons[0].classList.contains('cal-view-btn--active')).toBe(true);
+    expect(buttons[1].classList.contains('cal-view-btn--active')).toBe(false);
+  });
+
+  it('hides meeting events when Releases filter is active', async () => {
+    renderCalendar();
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    // Both meeting and milestone should be visible initially
+    expect(container.querySelectorAll('.cal-event-meeting').length).toBeGreaterThanOrEqual(1);
+    expect(container.querySelectorAll('.cal-event-milestone').length).toBeGreaterThanOrEqual(1);
+
+    // Click Releases button
+    const releasesBtn = Array.from(container.querySelectorAll('.cal-view-btn')).find(
+      (b) => b.textContent === 'Releases',
+    ) as HTMLButtonElement;
+    expect(releasesBtn).not.toBeNull();
+
+    act(() => {
+      releasesBtn.click();
+    });
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    // Meeting events should be hidden
+    expect(container.querySelectorAll('.cal-event-meeting').length).toBe(0);
+    // Milestone events should still be visible
+    expect(container.querySelectorAll('.cal-event-milestone').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('switches to 90-day view when Releases filter is selected', async () => {
+    renderCalendar();
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    // Click Releases button
+    const releasesBtn = Array.from(container.querySelectorAll('.cal-view-btn')).find(
+      (b) => b.textContent === 'Releases',
+    ) as HTMLButtonElement;
+
+    act(() => {
+      releasesBtn.click();
+    });
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    // Should have fetched with days=90
+    const calls = vi.mocked(fetch).mock.calls.map((c) => c[0]);
+    expect(calls.some((url) => (url as string).includes('days=90'))).toBe(true);
+  });
+
+  it('restores previous view days when switching back to All', async () => {
+    renderCalendar();
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    // Switch to Releases
+    const releasesBtn = Array.from(container.querySelectorAll('.cal-view-btn')).find(
+      (b) => b.textContent === 'Releases',
+    ) as HTMLButtonElement;
+
+    act(() => {
+      releasesBtn.click();
+    });
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    // Switch back to All
+    const allBtn = Array.from(container.querySelectorAll('.cal-view-btn')).find(
+      (b) => b.textContent === 'All',
+    ) as HTMLButtonElement;
+
+    act(() => {
+      allBtn.click();
+    });
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    // Should restore to 7 days (the last fetch should have days=7)
+    const calls = vi.mocked(fetch).mock.calls.map((c) => c[0] as string);
+    const lastCall = calls[calls.length - 1];
+    expect(lastCall).toContain('days=7');
+  });
+
+  it('still shows sprint bars when Releases filter is active', async () => {
+    renderCalendar();
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    // Click Releases button
+    const releasesBtn = Array.from(container.querySelectorAll('.cal-view-btn')).find(
+      (b) => b.textContent === 'Releases',
+    ) as HTMLButtonElement;
+
+    act(() => {
+      releasesBtn.click();
+    });
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    // Sprint bar should still be visible
+    const sprint = container.querySelector('.cal-sprint');
+    expect(sprint).not.toBeNull();
+    expect(sprint!.textContent).toContain('Sprint 2026-08');
+  });
+
+  it('disables Day/Week toggle when in Releases mode', async () => {
+    renderCalendar();
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    // Click Releases button
+    const releasesBtn = Array.from(container.querySelectorAll('.cal-view-btn')).find(
+      (b) => b.textContent === 'Releases',
+    ) as HTMLButtonElement;
+
+    act(() => {
+      releasesBtn.click();
+    });
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    // Day and Week buttons should be disabled
+    const dayBtn = Array.from(container.querySelectorAll('.cal-view-btn')).find(
+      (b) => b.textContent === 'Day',
+    ) as HTMLButtonElement;
+    const weekBtn = Array.from(container.querySelectorAll('.cal-view-btn')).find(
+      (b) => b.textContent === 'Week',
+    ) as HTMLButtonElement;
+
+    expect(dayBtn.disabled).toBe(true);
+    expect(weekBtn.disabled).toBe(true);
+
+    // Record fetch count before clicking disabled buttons
+    const fetchCountBefore = vi.mocked(fetch).mock.calls.length;
+
+    // Clicking them should not change viewDays (no new fetch with different days)
+    act(() => {
+      dayBtn.click();
+    });
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    // Fetch count should not increase (disabled buttons don't fire onClick)
+    expect(vi.mocked(fetch).mock.calls.length).toBe(fetchCountBefore);
+  });
 });
