@@ -3172,6 +3172,14 @@ textarea:focus {
   background: var(--border);
 }
 
+.todo-detail-source-row--no-link {
+  cursor: default;
+}
+
+.todo-detail-source-row--no-link:active {
+  background: var(--surface);
+}
+
 .todo-detail-source-badge {
   background: var(--bg);
   padding: 2px 8px;

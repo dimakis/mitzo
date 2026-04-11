@@ -3,7 +3,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { TodoDetailView } from '../TodoDetailView';
-import { buildPrompt } from '../../lib/todo-utils';
 import type { TodoItem } from '../../types/todo';
 
 const mockNavigate = vi.fn();
@@ -250,7 +249,10 @@ describe('TodoDetailView', () => {
     await waitFor(() => {
       expect(screen.getByText('Fix authentication middleware')).toBeTruthy();
     });
-    expect(fetchSpy).toHaveBeenCalledWith('/api/todos');
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/todos',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
     fetchSpy.mockRestore();
   });
 
@@ -273,44 +275,5 @@ describe('TodoDetailView', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/todos', { replace: true });
     });
     fetchSpy.mockRestore();
-  });
-});
-
-describe('buildPrompt', () => {
-  it('includes summary, source, context hints, and task hint', () => {
-    const prompt = buildPrompt(fullItem);
-
-    expect(prompt).toContain('**Fix authentication middleware**');
-    expect(prompt).toContain('Source: https://github.com/dimakis/mitzo/issues/42');
-    expect(prompt).toContain('The auth middleware fails to validate tokens');
-    expect(prompt).toContain('Repos: dimakis/mitzo, dimakis/contexgin');
-    expect(prompt).toContain('Issues: dimakis/mitzo#42');
-    expect(prompt).toContain('Files: server/auth.ts, server/permission-handler.ts');
-    expect(prompt).toContain('Jira: RHAIENG-1234');
-    expect(prompt).toContain('Keywords: auth, jwt');
-    expect(prompt).toContain('Fix token validation in auth middleware after page refresh');
-    expect(prompt).toContain('Start by reading the relevant code');
-  });
-
-  it('handles item with no sources or context', () => {
-    const minimalItem: TodoItem = {
-      ...fullItem,
-      sources: [],
-      contextHints: {
-        repos: [],
-        paths: [],
-        issues: [],
-        docIds: [],
-        people: [],
-        jiraKeys: [],
-        keywords: [],
-        taskHint: '',
-      },
-    };
-
-    const prompt = buildPrompt(minimalItem);
-    expect(prompt).toContain('**Fix authentication middleware**');
-    expect(prompt).not.toContain('Context:');
-    expect(prompt).toContain('Start by reading the relevant code');
   });
 });

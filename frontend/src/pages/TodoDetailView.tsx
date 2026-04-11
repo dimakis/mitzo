@@ -30,7 +30,9 @@ export function TodoDetailView() {
   useEffect(() => {
     if (stateItem || !id) return;
 
-    fetch('/api/todos')
+    const controller = new AbortController();
+
+    fetch('/api/todos', { signal: controller.signal })
       .then((r) => {
         if (!r.ok) throw new Error(`${r.status}`);
         return r.json();
@@ -43,7 +45,12 @@ export function TodoDetailView() {
           setFetchFailed(true);
         }
       })
-      .catch(() => setFetchFailed(true));
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        setFetchFailed(true);
+      });
+
+    return () => controller.abort();
   }, [stateItem, id]);
 
   const item = stateItem ?? fetchedItem;
@@ -119,7 +126,7 @@ export function TodoDetailView() {
           {item.sources.map((source, i) => (
             <div
               key={i}
-              className="todo-detail-source-row"
+              className={`todo-detail-source-row${source.url ? '' : ' todo-detail-source-row--no-link'}`}
               onClick={() => source.url && handleSourceClick(source.url)}
             >
               <span className="todo-detail-source-badge">{sourceIcon(source.type)}</span>
