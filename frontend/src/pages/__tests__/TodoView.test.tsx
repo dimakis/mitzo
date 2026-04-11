@@ -27,6 +27,7 @@ describe('TodoView', () => {
       profiles: [],
       ack: vi.fn(),
       done: vi.fn(),
+      create: vi.fn(),
       refresh: vi.fn(),
     });
 
@@ -46,6 +47,7 @@ describe('TodoView', () => {
       profiles: ['work'],
       ack: vi.fn(),
       done: vi.fn(),
+      create: vi.fn(),
       refresh: vi.fn(),
     });
 
@@ -69,6 +71,10 @@ describe('TodoView', () => {
           urgency: 0.5,
           status: 'active',
           ageDays: 2,
+          parentId: null,
+          children: [],
+          childCount: 0,
+          completedChildCount: 0,
           sources: [
             { type: 'github', url: 'https://example.com', title: 'Fix', author: 'me', snippet: '' },
           ],
@@ -87,6 +93,7 @@ describe('TodoView', () => {
       profiles: ['centaur', 'work'],
       ack: vi.fn(),
       done: vi.fn(),
+      create: vi.fn(),
       refresh: vi.fn(),
     });
 
@@ -109,6 +116,7 @@ describe('TodoView', () => {
       profiles: ['centaur', 'work'],
       ack: vi.fn(),
       done: vi.fn(),
+      create: vi.fn(),
       refresh: vi.fn(),
     });
 
@@ -132,6 +140,7 @@ describe('TodoView', () => {
       profiles: [],
       ack: vi.fn(),
       done: vi.fn(),
+      create: vi.fn(),
       refresh: vi.fn(),
     });
 

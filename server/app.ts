@@ -773,6 +773,45 @@ app.get('/api/todos', async (req, res) => {
   }
 });
 
+app.post('/api/todos', async (req, res) => {
+  const { summary, profile, parentId } = req.body as {
+    summary?: string;
+    profile?: string;
+    parentId?: string;
+  };
+
+  if (!summary || !profile) {
+    res.status(400).json({ ok: false, error: 'summary and profile are required' });
+    return;
+  }
+
+  if (!existsSync(TODO_SCRIPT)) {
+    res.status(500).json({ ok: false, error: 'Todo script not found' });
+    return;
+  }
+
+  try {
+    const args = [TODO_SCRIPT, '--create', summary, '--profile', profile];
+    if (parentId) {
+      args.push('--parent', parentId);
+    }
+
+    const { stdout } = await execFileAsync('python3', args, {
+      timeout: TODO_TIMEOUT_MS,
+    });
+    const parsed = JSON.parse(stdout);
+    if (!parsed.ok) {
+      res.status(400).json(parsed);
+      return;
+    }
+    res.status(201).json(parsed);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    log.warn('todo create failed', { error: message });
+    res.status(500).json({ ok: false, error: message });
+  }
+});
+
 app.post('/api/todos/:id/action', async (req, res) => {
   const { id } = req.params;
 
