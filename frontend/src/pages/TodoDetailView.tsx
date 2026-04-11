@@ -1,21 +1,7 @@
-import { useNavigate, useLocation } from 'react-router-dom';
-import { useEffect } from 'react';
-import type { TodoItem } from '../types/todo';
-
-function sourceIcon(type: string): string {
-  switch (type) {
-    case 'github':
-      return 'GH';
-    case 'jira':
-      return 'JR';
-    case 'gmail':
-      return 'GM';
-    case 'gdocs':
-      return 'GD';
-    default:
-      return type.slice(0, 2).toUpperCase();
-  }
-}
+import { useNavigate, useLocation, useParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import type { TodoItem, TodoData } from '../types/todo';
+import { sourceIcon, buildPrompt } from '../lib/todo-utils';
 
 function urgencyLabel(urgency: number): string {
   if (urgency >= 0.8) return 'high';
@@ -24,49 +10,54 @@ function urgencyLabel(urgency: number): string {
   return 'minimal';
 }
 
-function buildPrompt(item: TodoItem): string {
-  const hints = item.contextHints;
-  const lines: string[] = [`I want to work on this:`, '', `**${item.summary}**`, ''];
-
-  if (item.sources[0]?.url) {
-    lines.push(`Source: ${item.sources[0].url}`);
+function findInTree(items: TodoItem[], id: string): TodoItem | undefined {
+  for (const item of items) {
+    if (item.id === id) return item;
+    const found = findInTree(item.children, id);
+    if (found) return found;
   }
-  if (item.sources[0]?.snippet) {
-    lines.push('', item.sources[0].snippet);
-  }
-
-  const context: string[] = [];
-  if (hints.repos.length) context.push(`Repos: ${hints.repos.join(', ')}`);
-  if (hints.issues.length) context.push(`Issues: ${hints.issues.join(', ')}`);
-  if (hints.paths.length) context.push(`Files: ${hints.paths.join(', ')}`);
-  if (hints.jiraKeys.length) context.push(`Jira: ${hints.jiraKeys.join(', ')}`);
-  if (hints.keywords.length) context.push(`Keywords: ${hints.keywords.join(', ')}`);
-
-  if (context.length) {
-    lines.push('', 'Context:', ...context.map((c) => `- ${c}`));
-  }
-
-  if (hints.taskHint) {
-    lines.push('', hints.taskHint);
-  }
-
-  lines.push('', 'Start by reading the relevant code and giving me a brief assessment.');
-
-  return lines.join('\n');
+  return undefined;
 }
 
 export function TodoDetailView() {
   const navigate = useNavigate();
   const location = useLocation();
-  const item = (location.state as { item?: TodoItem } | null)?.item;
+  const { id } = useParams<{ id: string }>();
+  const stateItem = (location.state as { item?: TodoItem } | null)?.item;
+  const [fetchedItem, setFetchedItem] = useState<TodoItem | null>(null);
+  const [fetchFailed, setFetchFailed] = useState(false);
 
   useEffect(() => {
-    if (!item) {
+    if (stateItem || !id) return;
+
+    fetch('/api/todos')
+      .then((r) => {
+        if (!r.ok) throw new Error(`${r.status}`);
+        return r.json();
+      })
+      .then((data: TodoData) => {
+        const found = findInTree(data.items, id);
+        if (found) {
+          setFetchedItem(found);
+        } else {
+          setFetchFailed(true);
+        }
+      })
+      .catch(() => setFetchFailed(true));
+  }, [stateItem, id]);
+
+  const item = stateItem ?? fetchedItem;
+
+  useEffect(() => {
+    if (fetchFailed) {
       navigate('/todos', { replace: true });
     }
-  }, [item, navigate]);
+  }, [fetchFailed, navigate]);
 
-  if (!item) return null;
+  if (!item) {
+    if (fetchFailed) return null;
+    return <div className="todo-detail-page">Loading...</div>;
+  }
 
   const hints = item.contextHints;
   const ageLabel = item.ageDays === 0 ? 'new' : `${item.ageDays}d`;
@@ -78,7 +69,7 @@ export function TodoDetailView() {
     hints.keywords.length > 0;
 
   function handleOpenChat() {
-    const prompt = buildPrompt(item!);
+    const prompt = buildPrompt(item);
     const params = new URLSearchParams();
     params.set('prompt', prompt);
     params.set('extraTools', 'Bash');
@@ -90,7 +81,9 @@ export function TodoDetailView() {
   }
 
   function handlePathClick(path: string) {
-    navigate(`/files?path=${path}`);
+    const params = new URLSearchParams();
+    params.set('path', path);
+    navigate(`/files?${params.toString()}`);
   }
 
   return (

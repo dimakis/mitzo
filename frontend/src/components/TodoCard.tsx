@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState } from 'react';
 import type { TodoItem } from '../types/todo';
+import { sourceIcon } from '../lib/todo-utils';
 
 interface TodoCardProps {
   item: TodoItem;
@@ -15,21 +16,6 @@ function urgencyBar(urgency: number): string {
   if (urgency >= 0.5) return '\u2593\u2593\u2591';
   if (urgency >= 0.2) return '\u2593\u2591\u2591';
   return '\u2591\u2591\u2591';
-}
-
-function sourceIcon(type: string): string {
-  switch (type) {
-    case 'github':
-      return 'GH';
-    case 'jira':
-      return 'JR';
-    case 'gmail':
-      return 'GM';
-    case 'gdocs':
-      return 'GD';
-    default:
-      return type.slice(0, 2).toUpperCase();
-  }
 }
 
 export function TodoCard({ item, depth = 0, onAck, onDone, onTap, onAddChild }: TodoCardProps) {

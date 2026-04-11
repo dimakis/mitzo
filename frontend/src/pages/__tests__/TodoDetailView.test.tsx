@@ -1,18 +1,21 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { TodoDetailView } from '../TodoDetailView';
+import { buildPrompt } from '../../lib/todo-utils';
 import type { TodoItem } from '../../types/todo';
 
 const mockNavigate = vi.fn();
 const mockLocation = vi.fn();
+const mockParams = vi.fn();
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
   return {
     ...actual,
     useNavigate: () => mockNavigate,
     useLocation: () => mockLocation(),
+    useParams: () => mockParams(),
   };
 });
 
@@ -59,6 +62,7 @@ beforeEach(() => {
   cleanup();
   vi.clearAllMocks();
   mockLocation.mockReturnValue({ state: { item: fullItem } });
+  mockParams.mockReturnValue({ id: 'abc123' });
 });
 
 describe('TodoDetailView', () => {
@@ -169,14 +173,16 @@ describe('TodoDetailView', () => {
     expect(call).toContain('extraTools=Bash');
   });
 
-  it('navigates to file viewer when a path chip is clicked', () => {
+  it('navigates to file viewer with encoded path when a path chip is clicked', () => {
     render(
       <MemoryRouter>
         <TodoDetailView />
       </MemoryRouter>,
     );
     fireEvent.click(screen.getByText('server/auth.ts'));
-    expect(mockNavigate).toHaveBeenCalledWith('/files?path=server/auth.ts');
+    const call = mockNavigate.mock.calls[0][0] as string;
+    expect(call).toContain('/files?');
+    expect(call).toContain('path=server%2Fauth.ts');
   });
 
   it('opens source URL externally when source row is tapped', () => {
@@ -226,8 +232,14 @@ describe('TodoDetailView', () => {
     expect(container.querySelector('.todo-detail-task-hint')).toBeNull();
   });
 
-  it('navigates to /todos when no item in location state', () => {
+  it('fetches item by id when location state is missing (refresh/bookmark)', async () => {
     mockLocation.mockReturnValue({ state: null });
+    mockParams.mockReturnValue({ id: 'abc123' });
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ profiles: ['centaur'], items: [fullItem] }),
+    } as Response);
 
     render(
       <MemoryRouter>
@@ -235,6 +247,70 @@ describe('TodoDetailView', () => {
       </MemoryRouter>,
     );
 
-    expect(mockNavigate).toHaveBeenCalledWith('/todos', { replace: true });
+    await waitFor(() => {
+      expect(screen.getByText('Fix authentication middleware')).toBeTruthy();
+    });
+    expect(fetchSpy).toHaveBeenCalledWith('/api/todos');
+    fetchSpy.mockRestore();
+  });
+
+  it('navigates to /todos when fetch fallback finds no matching item', async () => {
+    mockLocation.mockReturnValue({ state: null });
+    mockParams.mockReturnValue({ id: 'nonexistent' });
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ profiles: [], items: [] }),
+    } as Response);
+
+    render(
+      <MemoryRouter>
+        <TodoDetailView />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith('/todos', { replace: true });
+    });
+    fetchSpy.mockRestore();
+  });
+});
+
+describe('buildPrompt', () => {
+  it('includes summary, source, context hints, and task hint', () => {
+    const prompt = buildPrompt(fullItem);
+
+    expect(prompt).toContain('**Fix authentication middleware**');
+    expect(prompt).toContain('Source: https://github.com/dimakis/mitzo/issues/42');
+    expect(prompt).toContain('The auth middleware fails to validate tokens');
+    expect(prompt).toContain('Repos: dimakis/mitzo, dimakis/contexgin');
+    expect(prompt).toContain('Issues: dimakis/mitzo#42');
+    expect(prompt).toContain('Files: server/auth.ts, server/permission-handler.ts');
+    expect(prompt).toContain('Jira: RHAIENG-1234');
+    expect(prompt).toContain('Keywords: auth, jwt');
+    expect(prompt).toContain('Fix token validation in auth middleware after page refresh');
+    expect(prompt).toContain('Start by reading the relevant code');
+  });
+
+  it('handles item with no sources or context', () => {
+    const minimalItem: TodoItem = {
+      ...fullItem,
+      sources: [],
+      contextHints: {
+        repos: [],
+        paths: [],
+        issues: [],
+        docIds: [],
+        people: [],
+        jiraKeys: [],
+        keywords: [],
+        taskHint: '',
+      },
+    };
+
+    const prompt = buildPrompt(minimalItem);
+    expect(prompt).toContain('**Fix authentication middleware**');
+    expect(prompt).not.toContain('Context:');
+    expect(prompt).toContain('Start by reading the relevant code');
   });
 });
