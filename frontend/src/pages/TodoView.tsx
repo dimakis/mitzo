@@ -4,7 +4,6 @@ import { TodoCard } from '../components/TodoCard';
 import { useTodoData } from '../hooks/useTodoData';
 import type { TodoItem } from '../types/todo';
 
-
 function TodoCreateForm({
   parentId,
   profile,
