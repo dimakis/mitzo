@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { TodoItem, TodoData } from '../types/todo';
 
 export interface UseTodoDataResult {
@@ -27,7 +27,7 @@ function removeFromTree(items: TodoItem[], id: string): TodoItem[] {
     });
 }
 
-function toggleStarInTree(items: TodoItem[], id: string): TodoItem[] {
+export function toggleStarInTree(items: TodoItem[], id: string): TodoItem[] {
   return items.map((item) => {
     if (item.id === id) return { ...item, starred: !item.starred };
     if (item.children.length > 0) {
@@ -37,7 +37,7 @@ function toggleStarInTree(items: TodoItem[], id: string): TodoItem[] {
   });
 }
 
-function findInTree(items: TodoItem[], id: string): TodoItem | undefined {
+export function findInTree(items: TodoItem[], id: string): TodoItem | undefined {
   for (const item of items) {
     if (item.id === id) return item;
     const found = findInTree(item.children, id);
@@ -50,6 +50,8 @@ export function useTodoData(profile?: string): UseTodoDataResult {
   const [data, setData] = useState<TodoData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
+  const dataRef = useRef<TodoData | null>(null);
+  dataRef.current = data;
 
   useEffect(() => {
     let cancelled = false;
@@ -107,30 +109,28 @@ export function useTodoData(profile?: string): UseTodoDataResult {
   const done = useCallback((id: string) => performAction(id, 'done'), [performAction]);
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 
-  const star = useCallback(
-    async (id: string) => {
-      // Determine current state, then optimistically toggle
-      setData((prev) => {
-        if (!prev) return prev;
-        return { ...prev, items: toggleStarInTree(prev.items, id) };
+  const star = useCallback(async (id: string) => {
+    // Read current starred state from the ref before toggling,
+    // so rapid clicks always see the latest state (avoids stale closure).
+    const currentItem = dataRef.current ? findInTree(dataRef.current.items, id) : undefined;
+    const action = currentItem?.starred ? 'unstar' : 'star';
+
+    // Optimistically toggle
+    setData((prev) => {
+      if (!prev) return prev;
+      return { ...prev, items: toggleStarInTree(prev.items, id) };
+    });
+
+    try {
+      await fetch(`/api/todos/${id}/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
       });
-
-      // Read current starred state to decide action (before toggle)
-      const currentItem = data ? findInTree(data.items, id) : undefined;
-      const action = currentItem?.starred ? 'unstar' : 'star';
-
-      try {
-        await fetch(`/api/todos/${id}/action`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action }),
-        });
-      } catch {
-        // Optimistic update stays; next refresh will reconcile
-      }
-    },
-    [data],
-  );
+    } catch {
+      // Optimistic update stays; next refresh will reconcile
+    }
+  }, []);
 
   const create = useCallback(
     async (summary: string, profileName: string, parentId?: string) => {

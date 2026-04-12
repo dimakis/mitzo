@@ -1,11 +1,12 @@
-import { describe, it, expect, vi, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import type { Express } from 'express';
 import request from 'supertest';
-import { mkdirSync } from 'fs';
+import { mkdirSync, writeFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
 const TEST_REPO = join(tmpdir(), `mitzo-test-repo-${process.pid}`);
+const TODO_SCRIPT = join(TEST_REPO, 'command_center', 'todo_api.py');
 
 vi.mock('../chat.js', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -66,6 +67,7 @@ async function getAuthCookie(agent: request.Agent): Promise<string> {
 beforeAll(async () => {
   mkdirSync(TEST_REPO, { recursive: true });
   mkdirSync(join(TEST_REPO, 'mgmt_lib', 'inbox', 'archive'), { recursive: true });
+  mkdirSync(join(TEST_REPO, 'command_center'), { recursive: true });
 
   const mod = await import('../app.js');
   app = mod.app;
@@ -174,22 +176,86 @@ describe('todo routes', () => {
     expect(res.status).toBe(500);
     expect(res.body.ok).toBe(false);
   });
+
+  it('POST /api/todos/:id/action — star action returns 500 when script not found', async () => {
+    const res = await request(app)
+      .post('/api/todos/abc123/action')
+      .send({ action: 'star' })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(500);
+    expect(res.body.ok).toBe(false);
+  });
+
+  it('POST /api/todos/:id/action — unstar action returns 500 when script not found', async () => {
+    const res = await request(app)
+      .post('/api/todos/abc123/action')
+      .send({ action: 'unstar' })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(500);
+    expect(res.body.ok).toBe(false);
+  });
 });
 
-it('POST /api/todos/:id/action — star action returns 500 when script not found', async () => {
-  const res = await request(app)
-    .post('/api/todos/abc123/action')
-    .send({ action: 'star' })
-    .set('Cookie', authCookie);
-  expect(res.status).toBe(500);
-  expect(res.body.ok).toBe(false);
-});
+describe('todo action success paths', () => {
+  const successScript = `
+import sys, json
+action = sys.argv[sys.argv.index('--action') + 1]
+item_id = sys.argv[sys.argv.index('--action') + 2]
+print(json.dumps({"ok": True}))
+`;
 
-it('POST /api/todos/:id/action — unstar action returns 500 when script not found', async () => {
-  const res = await request(app)
-    .post('/api/todos/abc123/action')
-    .send({ action: 'unstar' })
-    .set('Cookie', authCookie);
-  expect(res.status).toBe(500);
-  expect(res.body.ok).toBe(false);
+  beforeEach(() => {
+    writeFileSync(TODO_SCRIPT, successScript);
+  });
+
+  afterEach(() => {
+    try {
+      unlinkSync(TODO_SCRIPT);
+    } catch {
+      // ignore
+    }
+  });
+
+  it('POST /api/todos/:id/action — star returns success', async () => {
+    const res = await request(app)
+      .post('/api/todos/item-1/action')
+      .send({ action: 'star' })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+  });
+
+  it('POST /api/todos/:id/action — unstar returns success', async () => {
+    const res = await request(app)
+      .post('/api/todos/item-1/action')
+      .send({ action: 'unstar' })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+  });
+
+  it('POST /api/todos/:id/action — ack returns success', async () => {
+    const res = await request(app)
+      .post('/api/todos/item-1/action')
+      .send({ action: 'ack' })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+  });
+
+  it('POST /api/todos/:id/action — script returning ok:false yields 404', async () => {
+    const failScript = `
+import json
+print(json.dumps({"ok": False, "error": "Item not found"}))
+`;
+    writeFileSync(TODO_SCRIPT, failScript);
+
+    const res = await request(app)
+      .post('/api/todos/missing-id/action')
+      .send({ action: 'star' })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(404);
+    expect(res.body.ok).toBe(false);
+    expect(res.body.error).toBe('Item not found');
+  });
 });

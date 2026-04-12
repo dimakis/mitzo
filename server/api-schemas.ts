@@ -73,6 +73,9 @@ const TodoItemSchema: z.ZodType<unknown> = z.lazy(() =>
     summary: z.string(),
     profile: z.string(),
     urgency: z.number(),
+    // optional+default(false) so the API accepts items without `starred`.
+    // The frontend TodoItem declares starred as required (boolean) — Zod's
+    // default coercion guarantees it's always present after parsing.
     starred: z.boolean().optional().default(false),
     status: z.enum(['active', 'acknowledged', 'snoozed', 'completed']),
     ageDays: z.number(),

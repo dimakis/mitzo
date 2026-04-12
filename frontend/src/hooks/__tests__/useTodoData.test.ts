@@ -9,8 +9,13 @@ const mockItems = [
     summary: '[dimakis/mitzo#1] Fix bug',
     profile: 'centaur',
     urgency: 0.5,
+    starred: false,
     status: 'active' as const,
     ageDays: 3,
+    parentId: null,
+    children: [],
+    childCount: 0,
+    completedChildCount: 0,
     sources: [
       {
         type: 'github',
@@ -227,5 +232,78 @@ describe('useTodoData', () => {
 
     // Should not throw — items unchanged
     expect(result.current.items).toHaveLength(1);
+  });
+
+  it('star optimistically toggles starred state', async () => {
+    const { result } = renderHook(() => useTodoData());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.items[0].starred).toBe(false);
+
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ ok: true }),
+    } as Response);
+
+    await act(async () => {
+      await result.current.star('abc123');
+    });
+
+    // Optimistic toggle: starred should now be true
+    expect(result.current.items[0].starred).toBe(true);
+  });
+
+  it('star sends correct action based on current state', async () => {
+    const { result } = renderHook(() => useTodoData());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // First star: item is unstarred, so action should be 'star'
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ ok: true }),
+    } as Response);
+
+    await act(async () => {
+      await result.current.star('abc123');
+    });
+
+    expect(fetch).toHaveBeenCalledWith('/api/todos/abc123/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'star' }),
+    });
+
+    // Second star: item is now starred, so action should be 'unstar'
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ ok: true }),
+    } as Response);
+
+    await act(async () => {
+      await result.current.star('abc123');
+    });
+
+    expect(fetch).toHaveBeenCalledWith('/api/todos/abc123/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'unstar' }),
+    });
+  });
+
+  it('star handles network error gracefully — optimistic update persists', async () => {
+    const { result } = renderHook(() => useTodoData());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.items[0].starred).toBe(false);
+
+    vi.spyOn(global, 'fetch').mockRejectedValueOnce(new Error('Network error'));
+
+    await act(async () => {
+      await result.current.star('abc123');
+    });
+
+    // Optimistic toggle persists despite network error
+    expect(result.current.items[0].starred).toBe(true);
   });
 });
