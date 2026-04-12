@@ -98,6 +98,7 @@ describe('token_update emission', () => {
     const first = tokenUpdates[0];
     expect(first).toMatchObject({
       agentContext: 87204,
+      contextCeiling: 200_000,
     });
   });
 
@@ -135,6 +136,7 @@ describe('token_update emission', () => {
     expect(last).toMatchObject({
       sessionTotal: 7000, // input + output
       costUsd: 0.03,
+      contextCeiling: 200_000,
     });
   });
 

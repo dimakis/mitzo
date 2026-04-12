@@ -229,6 +229,7 @@ export interface InboxUpdatedMsg {
 export interface TokenUpdateMsg {
   type: 'token_update';
   agentContext: number;
+  contextCeiling?: number;
   sessionTotal?: number;
   costUsd?: number;
   numTurns?: number;

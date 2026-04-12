@@ -3,6 +3,7 @@ import { tokenStateReducer, type TokenState } from '../useTokenState';
 
 const INITIAL: TokenState = {
   agentContext: 0,
+  contextCeiling: 200_000,
   sessionTotal: 0,
   costUsd: 0,
   numTurns: 0,
@@ -37,6 +38,7 @@ describe('tokenStateReducer', () => {
   it('preserves previous session totals when not provided in update', () => {
     const prev: TokenState = {
       agentContext: 5000,
+      contextCeiling: 200_000,
       sessionTotal: 7000,
       costUsd: 0.03,
       numTurns: 2,
@@ -55,6 +57,7 @@ describe('tokenStateReducer', () => {
   it('resets on RESET', () => {
     const prev: TokenState = {
       agentContext: 87000,
+      contextCeiling: 128_000,
       sessionTotal: 142000,
       costUsd: 1.82,
       numTurns: 5,

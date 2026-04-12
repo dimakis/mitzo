@@ -4,7 +4,7 @@ import type { WsMsg } from '../lib/ws-pool';
 
 export function useChatConnection(
   poolKey: string,
-  onMessage: (msg: WsMsg) => void,
+  ...handlers: ((msg: WsMsg) => void)[]
 ): { connected: boolean } {
   const [connected, setConnected] = useState(false);
 
@@ -15,7 +15,7 @@ export function useChatConnection(
       } else if (msg.type === '_close') {
         setConnected(false);
       }
-      onMessage(msg);
+      for (const h of handlers) h(msg);
     };
 
     const unsubscribe = wsSubscribe(poolKey, wrappedHandler);

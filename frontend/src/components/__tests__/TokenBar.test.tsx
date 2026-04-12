@@ -7,6 +7,7 @@ import type { TokenState } from '../../hooks/useTokenState';
 function makeState(overrides: Partial<TokenState> = {}): TokenState {
   return {
     agentContext: 0,
+    contextCeiling: 200_000,
     sessionTotal: 0,
     costUsd: 0,
     numTurns: 0,

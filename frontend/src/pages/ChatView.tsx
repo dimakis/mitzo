@@ -26,7 +26,7 @@ export function ChatView() {
   );
 
   const voice = useVoice();
-  const { tokenState, handleTokenMessage } = useTokenState();
+  const { tokenState, handleTokenMessage } = useTokenState(sessionState.currentSessionId);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const forceScrollToBottom = useCallback(() => {
@@ -106,15 +106,7 @@ export function ChatView() {
     return () => controller.abort();
   }, [sessionId, dispatch, forceScrollToBottom]);
 
-  const composedWsHandler = useCallback(
-    (msg: import('../lib/ws-pool').WsMsg) => {
-      handleWsMessage(msg);
-      handleTokenMessage(msg);
-    },
-    [handleWsMessage, handleTokenMessage],
-  );
-
-  const { connected } = useChatConnection(poolKey, composedWsHandler);
+  const { connected } = useChatConnection(poolKey, handleWsMessage, handleTokenMessage);
 
   const { handlePermission } = usePermission(poolKey, () => {
     dispatch({ type: 'PERMISSION_TIMEOUT', permId: msgState.permission?.permId ?? '' });
