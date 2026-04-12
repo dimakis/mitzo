@@ -73,6 +73,7 @@ const TodoItemSchema: z.ZodType<unknown> = z.lazy(() =>
     summary: z.string(),
     profile: z.string(),
     urgency: z.number(),
+    starred: z.boolean().optional().default(false),
     status: z.enum(['active', 'acknowledged', 'snoozed', 'completed']),
     ageDays: z.number(),
     parentId: z.string().nullable().optional().default(null),
@@ -96,7 +97,7 @@ export const TodoCreateBody = z.object({
 });
 
 export const TodoActionBody = z.object({
-  action: z.enum(['ack', 'snooze', 'done']),
+  action: z.enum(['ack', 'snooze', 'done', 'star', 'unstar']),
   days: z.number().optional(),
 });
 

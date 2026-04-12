@@ -8,6 +8,7 @@ export interface UseTodoDataResult {
   ack: (id: string) => Promise<void>;
   snooze: (id: string, days?: number) => Promise<void>;
   done: (id: string) => Promise<void>;
+  star: (id: string) => Promise<void>;
   create: (summary: string, profile: string, parentId?: string) => Promise<void>;
   refresh: () => void;
 }
@@ -24,6 +25,25 @@ function removeFromTree(items: TodoItem[], id: string): TodoItem[] {
         completedChildCount: updatedChildren.filter((c) => c.status === 'completed').length,
       };
     });
+}
+
+function toggleStarInTree(items: TodoItem[], id: string): TodoItem[] {
+  return items.map((item) => {
+    if (item.id === id) return { ...item, starred: !item.starred };
+    if (item.children.length > 0) {
+      return { ...item, children: toggleStarInTree(item.children, id) };
+    }
+    return item;
+  });
+}
+
+function findInTree(items: TodoItem[], id: string): TodoItem | undefined {
+  for (const item of items) {
+    if (item.id === id) return item;
+    const found = findInTree(item.children, id);
+    if (found) return found;
+  }
+  return undefined;
 }
 
 export function useTodoData(profile?: string): UseTodoDataResult {
@@ -87,6 +107,31 @@ export function useTodoData(profile?: string): UseTodoDataResult {
   const done = useCallback((id: string) => performAction(id, 'done'), [performAction]);
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 
+  const star = useCallback(
+    async (id: string) => {
+      // Determine current state, then optimistically toggle
+      setData((prev) => {
+        if (!prev) return prev;
+        return { ...prev, items: toggleStarInTree(prev.items, id) };
+      });
+
+      // Read current starred state to decide action (before toggle)
+      const currentItem = data ? findInTree(data.items, id) : undefined;
+      const action = currentItem?.starred ? 'unstar' : 'star';
+
+      try {
+        await fetch(`/api/todos/${id}/action`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action }),
+        });
+      } catch {
+        // Optimistic update stays; next refresh will reconcile
+      }
+    },
+    [data],
+  );
+
   const create = useCallback(
     async (summary: string, profileName: string, parentId?: string) => {
       const body: Record<string, string> = { summary, profile: profileName };
@@ -115,6 +160,7 @@ export function useTodoData(profile?: string): UseTodoDataResult {
     ack,
     snooze,
     done,
+    star,
     create,
     refresh,
   };

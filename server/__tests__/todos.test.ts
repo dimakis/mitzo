@@ -175,3 +175,21 @@ describe('todo routes', () => {
     expect(res.body.ok).toBe(false);
   });
 });
+
+it('POST /api/todos/:id/action — star action returns 500 when script not found', async () => {
+  const res = await request(app)
+    .post('/api/todos/abc123/action')
+    .send({ action: 'star' })
+    .set('Cookie', authCookie);
+  expect(res.status).toBe(500);
+  expect(res.body.ok).toBe(false);
+});
+
+it('POST /api/todos/:id/action — unstar action returns 500 when script not found', async () => {
+  const res = await request(app)
+    .post('/api/todos/abc123/action')
+    .send({ action: 'unstar' })
+    .set('Cookie', authCookie);
+  expect(res.status).toBe(500);
+  expect(res.body.ok).toBe(false);
+});
