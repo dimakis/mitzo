@@ -1632,6 +1632,7 @@ textarea:focus {
   align-items: center;
   gap: 0.25rem;
   padding: 0.25rem 0.25rem;
+  position: relative;
 }
 
 .chat-input-branch {
@@ -1653,6 +1654,111 @@ textarea:focus {
   color: var(--accent);
   border-color: var(--accent);
   background: rgba(108, 99, 255, 0.1);
+}
+
+/* ── Token Bar ──────────────────────────────────────────── */
+
+.token-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+  padding: 0.15rem 0.5rem;
+  font-family: var(--code-font);
+  font-size: 0.65rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-dim);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    border-color 0.2s,
+    color 0.2s;
+}
+
+.token-bar:hover {
+  border-color: var(--text-dim);
+}
+
+.token-bar--green {
+  color: #4ade80;
+  border-color: rgba(74, 222, 128, 0.3);
+}
+
+.token-bar--yellow {
+  color: #facc15;
+  border-color: rgba(250, 204, 21, 0.3);
+}
+
+.token-bar--red {
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.3);
+}
+
+.token-bar--flashing {
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.5);
+  animation: token-flash 0.8s ease-in-out infinite alternate;
+}
+
+@keyframes token-flash {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.4;
+  }
+}
+
+.token-bar-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.token-bar-icon {
+  opacity: 0.7;
+}
+
+.token-bar-session {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  color: var(--text-dim);
+}
+
+.token-bar-sigma {
+  font-weight: 600;
+  font-size: 0.7rem;
+}
+
+.token-bar-detail {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  margin-bottom: 0.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  font-family: var(--code-font);
+  font-size: 0.7rem;
+  color: var(--text);
+  min-width: 14rem;
+  z-index: 10;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.token-bar-detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.2rem 0;
+  gap: 1rem;
+}
+
+.token-bar-detail-row span:first-child {
+  color: var(--text-dim);
 }
 
 .chat-input-row {

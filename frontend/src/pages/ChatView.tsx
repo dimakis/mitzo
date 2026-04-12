@@ -13,6 +13,7 @@ import { useChatActions } from '../hooks/useChatActions';
 import { usePermission } from '../hooks/usePermission';
 import { useVoice } from '../hooks/useVoice';
 import { useAutoSpeak } from '../hooks/useAutoSpeak';
+import { useTokenState } from '../hooks/useTokenState';
 
 export function ChatView() {
   const { sessionId } = useParams<{ sessionId?: string }>();
@@ -25,6 +26,7 @@ export function ChatView() {
   );
 
   const voice = useVoice();
+  const { tokenState, handleTokenMessage } = useTokenState();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const forceScrollToBottom = useCallback(() => {
@@ -104,7 +106,15 @@ export function ChatView() {
     return () => controller.abort();
   }, [sessionId, dispatch, forceScrollToBottom]);
 
-  const { connected } = useChatConnection(poolKey, handleWsMessage);
+  const composedWsHandler = useCallback(
+    (msg: import('../lib/ws-pool').WsMsg) => {
+      handleWsMessage(msg);
+      handleTokenMessage(msg);
+    },
+    [handleWsMessage, handleTokenMessage],
+  );
+
+  const { connected } = useChatConnection(poolKey, composedWsHandler);
 
   const { handlePermission } = usePermission(poolKey, () => {
     dispatch({ type: 'PERMISSION_TIMEOUT', permId: msgState.permission?.permId ?? '' });
@@ -205,6 +215,7 @@ export function ChatView() {
         sandbox={sessionState.sandbox}
         onSandboxToggle={() => sessionActions.setSandbox(!sessionState.sandbox)}
         sandboxDisabled={hasStarted}
+        tokenState={tokenState}
       />
     </div>
   );
