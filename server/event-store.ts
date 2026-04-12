@@ -105,6 +105,7 @@ export class EventStore {
     listSessionsLimited: Database.Statement;
     markInactive: Database.Statement;
     hide: Database.Statement;
+    recordUsage: Database.Statement;
   };
 
   constructor(dbPath: string) {
@@ -142,6 +143,19 @@ export class EventStore {
       ),
       hide: db.prepare(
         "UPDATE sessions SET is_hidden = 1, updated_at = unixepoch('now', 'subsec') * 1000 WHERE session_id = ?",
+      ),
+      recordUsage: db.prepare(
+        `UPDATE sessions SET
+          input_tokens = ?,
+          output_tokens = ?,
+          cache_read_tokens = ?,
+          cache_creation_tokens = ?,
+          total_cost_usd = ?,
+          num_turns = ?,
+          duration_ms = ?,
+          duration_api_ms = ?,
+          updated_at = unixepoch('now', 'subsec') * 1000
+        WHERE session_id = ?`,
       ),
     };
 
@@ -337,19 +351,7 @@ export class EventStore {
       durationApiMs: number;
     },
   ): void {
-    this.db!.prepare(
-      `UPDATE sessions SET
-        input_tokens = ?,
-        output_tokens = ?,
-        cache_read_tokens = ?,
-        cache_creation_tokens = ?,
-        total_cost_usd = ?,
-        num_turns = ?,
-        duration_ms = ?,
-        duration_api_ms = ?,
-        updated_at = unixepoch('now', 'subsec') * 1000
-      WHERE session_id = ?`,
-    ).run(
+    this.stmts.recordUsage.run(
       usage.inputTokens,
       usage.outputTokens,
       usage.cacheReadTokens,

@@ -93,6 +93,16 @@ interface SessionEndMsg {
   type: 'session_end';
   v: 2;
   sessionId?: string;
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheCreationTokens: number;
+    totalCostUsd: number;
+    numTurns: number;
+    durationMs: number;
+    durationApiMs: number;
+  };
 }
 
 interface PermissionRequestMsg {

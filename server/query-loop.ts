@@ -239,23 +239,22 @@ export async function runQueryLoop(
         doneSent = true;
 
         // Extract usage data from SDK result event
+        const result = msg as {
+          usage?: Record<string, number>;
+          total_cost_usd?: number;
+          num_turns?: number;
+          duration_ms?: number;
+          duration_api_ms?: number;
+        };
         const usageData = {
-          inputTokens: (msg as Record<string, unknown> & { usage?: Record<string, number> }).usage
-            ?.input_tokens ?? 0,
-          outputTokens: (msg as Record<string, unknown> & { usage?: Record<string, number> }).usage
-            ?.output_tokens ?? 0,
-          cacheReadTokens:
-            (msg as Record<string, unknown> & { usage?: Record<string, number> }).usage
-              ?.cache_read_input_tokens ?? 0,
-          cacheCreationTokens:
-            (msg as Record<string, unknown> & { usage?: Record<string, number> }).usage
-              ?.cache_creation_input_tokens ?? 0,
-          totalCostUsd:
-            (msg as Record<string, unknown> & { total_cost_usd?: number }).total_cost_usd ?? 0,
-          numTurns: (msg as Record<string, unknown> & { num_turns?: number }).num_turns ?? 0,
-          durationMs: (msg as Record<string, unknown> & { duration_ms?: number }).duration_ms ?? 0,
-          durationApiMs:
-            (msg as Record<string, unknown> & { duration_api_ms?: number }).duration_api_ms ?? 0,
+          inputTokens: result.usage?.input_tokens ?? 0,
+          outputTokens: result.usage?.output_tokens ?? 0,
+          cacheReadTokens: result.usage?.cache_read_input_tokens ?? 0,
+          cacheCreationTokens: result.usage?.cache_creation_input_tokens ?? 0,
+          totalCostUsd: result.total_cost_usd ?? 0,
+          numTurns: result.num_turns ?? 0,
+          durationMs: result.duration_ms ?? 0,
+          durationApiMs: result.duration_api_ms ?? 0,
         };
 
         // Persist usage to durable store

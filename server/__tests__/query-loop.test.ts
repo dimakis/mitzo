@@ -882,6 +882,146 @@ describe('runQueryLoop', () => {
     });
   });
 
+  describe('usage data extraction', () => {
+    let store: EventStore;
+
+    beforeEach(() => {
+      store = new EventStore(':memory:');
+    });
+
+    afterEach(() => {
+      store.close();
+    });
+
+    it('extracts usage data from SDK result event and persists to store', async () => {
+      const events: Record<string, unknown>[] = [
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-usage' },
+        {
+          type: 'result',
+          session_id: 'sess-usage',
+          usage: {
+            input_tokens: 1500,
+            output_tokens: 800,
+            cache_read_input_tokens: 200,
+            cache_creation_input_tokens: 50,
+          },
+          total_cost_usd: 0.0042,
+          num_turns: 3,
+          duration_ms: 12000,
+          duration_api_ms: 8000,
+        },
+      ];
+
+      await runQueryLoop(eventStream(events), clientId, registry, abortController, ws, store);
+
+      const session = store.getSession('sess-usage');
+      expect(session).not.toBeNull();
+      expect(session!.inputTokens).toBe(1500);
+      expect(session!.outputTokens).toBe(800);
+      expect(session!.cacheReadTokens).toBe(200);
+      expect(session!.cacheCreationTokens).toBe(50);
+      expect(session!.totalCostUsd).toBeCloseTo(0.0042);
+      expect(session!.numTurns).toBe(3);
+      expect(session!.durationMs).toBe(12000);
+      expect(session!.durationApiMs).toBe(8000);
+    });
+
+    it('includes usage data in session_end message', async () => {
+      const events: Record<string, unknown>[] = [
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-usage-msg' },
+        {
+          type: 'result',
+          session_id: 'sess-usage-msg',
+          usage: {
+            input_tokens: 2000,
+            output_tokens: 1000,
+            cache_read_input_tokens: 100,
+            cache_creation_input_tokens: 25,
+          },
+          total_cost_usd: 0.005,
+          num_turns: 2,
+          duration_ms: 8000,
+          duration_api_ms: 5000,
+        },
+      ];
+
+      await runQueryLoop(eventStream(events), clientId, registry, abortController, ws, store);
+
+      const sessionEnd = ws.sent.find((m) => m.type === 'session_end');
+      expect(sessionEnd).toBeDefined();
+      expect(sessionEnd!.usage).toBeDefined();
+      expect(sessionEnd!.usage).toMatchObject({
+        inputTokens: 2000,
+        outputTokens: 1000,
+        cacheReadTokens: 100,
+        cacheCreationTokens: 25,
+        totalCostUsd: 0.005,
+        numTurns: 2,
+        durationMs: 8000,
+        durationApiMs: 5000,
+      });
+    });
+
+    it('handles missing usage fields gracefully (defaults to 0)', async () => {
+      const events: Record<string, unknown>[] = [
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-no-usage' },
+        {
+          type: 'result',
+          session_id: 'sess-no-usage',
+          // No usage data provided
+        },
+      ];
+
+      await runQueryLoop(eventStream(events), clientId, registry, abortController, ws, store);
+
+      const sessionEnd = ws.sent.find((m) => m.type === 'session_end');
+      expect(sessionEnd).toBeDefined();
+      expect(sessionEnd!.usage).toMatchObject({
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        totalCostUsd: 0,
+        numTurns: 0,
+        durationMs: 0,
+        durationApiMs: 0,
+      });
+
+      const session = store.getSession('sess-no-usage');
+      expect(session!.inputTokens).toBe(0);
+      expect(session!.outputTokens).toBe(0);
+    });
+
+    it('handles partial usage data (some fields present)', async () => {
+      const events: Record<string, unknown>[] = [
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-partial' },
+        {
+          type: 'result',
+          session_id: 'sess-partial',
+          usage: {
+            input_tokens: 500,
+            output_tokens: 300,
+            // cache fields missing
+          },
+          total_cost_usd: 0.002,
+          // num_turns, duration_ms, duration_api_ms missing
+        },
+      ];
+
+      await runQueryLoop(eventStream(events), clientId, registry, abortController, ws, store);
+
+      const session = store.getSession('sess-partial');
+      expect(session!.inputTokens).toBe(500);
+      expect(session!.outputTokens).toBe(300);
+      expect(session!.cacheReadTokens).toBe(0);
+      expect(session!.cacheCreationTokens).toBe(0);
+      expect(session!.totalCostUsd).toBeCloseTo(0.002);
+      expect(session!.numTurns).toBe(0);
+      expect(session!.durationMs).toBe(0);
+      expect(session!.durationApiMs).toBe(0);
+    });
+  });
+
   describe('observer broadcast', () => {
     it('sends events to observer WebSockets alongside the driver', async () => {
       const observerWs = fakeWs();
