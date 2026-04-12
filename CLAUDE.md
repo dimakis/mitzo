@@ -199,7 +199,7 @@ Step N: Build <component> (test-first)
 
 ## Git Workflow
 
-**Never push to main.** All work — features, fixes, docs, CI config, rule changes, typo corrections — goes through a branch and PR. No exceptions.
+**Never push to main.** All work — features, fixes, docs, CI config, rule changes, typo corrections — goes through a branch and PR. No exceptions. This is enforced by a pre-commit hook (`.husky/pre-commit`) that rejects commits on `main`.
 
 1. `git checkout -b <type>/<name>` from main
 2. Develop and commit on the branch
