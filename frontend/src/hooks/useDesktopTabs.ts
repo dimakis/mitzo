@@ -1,57 +1,100 @@
-import { useState, useCallback } from 'react';
+import { useReducer, useCallback } from 'react';
 
 export type TabType = 'chat' | 'file';
 
-export interface Tab {
+/** Discriminated union: chat tabs have no filePath, file tabs require one. */
+export type Tab = ChatTab | FileTab;
+
+export interface ChatTab {
   id: string;
-  type: TabType;
+  type: 'chat';
   label: string;
-  /** Session ID for chat tabs */
-  sessionId?: string;
-  /** Absolute file path for file tabs */
-  filePath?: string;
+}
+
+export interface FileTab {
+  id: string;
+  type: 'file';
+  label: string;
+  filePath: string;
 }
 
 const CHAT_TAB_ID = 'chat'; // singleton chat tab
 
+interface TabState {
+  tabs: Tab[];
+  activeTabId: string;
+}
+
+type TabAction =
+  | { type: 'OPEN_FILE'; filePath: string; label: string }
+  | { type: 'CLOSE'; tabId: string }
+  | { type: 'ACTIVATE'; tabId: string }
+  | { type: 'ACTIVATE_CHAT' };
+
+function tabReducer(state: TabState, action: TabAction): TabState {
+  switch (action.type) {
+    case 'OPEN_FILE': {
+      const tabId = `file:${action.filePath}`;
+      const alreadyOpen = state.tabs.some((t) => t.id === tabId);
+      return {
+        tabs: alreadyOpen
+          ? state.tabs
+          : [
+              ...state.tabs,
+              { id: tabId, type: 'file', label: action.label, filePath: action.filePath },
+            ],
+        activeTabId: tabId,
+      };
+    }
+    case 'CLOSE': {
+      if (action.tabId === CHAT_TAB_ID) return state;
+      const idx = state.tabs.findIndex((t) => t.id === action.tabId);
+      const next = state.tabs.filter((t) => t.id !== action.tabId);
+      let { activeTabId } = state;
+      if (action.tabId === activeTabId && next.length > 0) {
+        const newIdx = Math.min(idx, next.length - 1);
+        activeTabId = next[newIdx].id;
+      }
+      return { tabs: next, activeTabId };
+    }
+    case 'ACTIVATE':
+      return { ...state, activeTabId: action.tabId };
+    case 'ACTIVATE_CHAT':
+      return { ...state, activeTabId: CHAT_TAB_ID };
+  }
+}
+
+const initialState: TabState = {
+  tabs: [{ id: CHAT_TAB_ID, type: 'chat', label: 'Chat' }],
+  activeTabId: CHAT_TAB_ID,
+};
+
 export function useDesktopTabs() {
-  const [tabs, setTabs] = useState<Tab[]>([{ id: CHAT_TAB_ID, type: 'chat', label: 'Chat' }]);
-  const [activeTabId, setActiveTabId] = useState(CHAT_TAB_ID);
+  const [state, dispatch] = useReducer(tabReducer, initialState);
 
   const openFileTab = useCallback((filePath: string, label: string) => {
-    const tabId = `file:${filePath}`;
-    setTabs((prev) => {
-      if (prev.some((t) => t.id === tabId)) return prev;
-      return [...prev, { id: tabId, type: 'file', label, filePath }];
-    });
-    setActiveTabId(tabId);
+    dispatch({ type: 'OPEN_FILE', filePath, label });
   }, []);
 
-  const closeTab = useCallback(
-    (tabId: string) => {
-      // Can't close the chat tab
-      if (tabId === CHAT_TAB_ID) return;
-      setTabs((prev) => {
-        const idx = prev.findIndex((t) => t.id === tabId);
-        const next = prev.filter((t) => t.id !== tabId);
-        // If closing the active tab, activate the neighbor
-        if (tabId === activeTabId && next.length > 0) {
-          const newIdx = Math.min(idx, next.length - 1);
-          setActiveTabId(next[newIdx].id);
-        }
-        return next;
-      });
-    },
-    [activeTabId],
-  );
+  const closeTab = useCallback((tabId: string) => {
+    dispatch({ type: 'CLOSE', tabId });
+  }, []);
 
   const activateTab = useCallback((tabId: string) => {
-    setActiveTabId(tabId);
+    dispatch({ type: 'ACTIVATE', tabId });
   }, []);
 
   const activateChatTab = useCallback(() => {
-    setActiveTabId(CHAT_TAB_ID);
+    dispatch({ type: 'ACTIVATE_CHAT' });
   }, []);
 
-  return { tabs, activeTabId, openFileTab, closeTab, activateTab, activateChatTab, CHAT_TAB_ID };
+  return {
+    tabs: state.tabs,
+    activeTabId: state.activeTabId,
+    openFileTab,
+    closeTab,
+    activateTab,
+    activateChatTab,
+    CHAT_TAB_ID,
+  };
 }
