@@ -11,7 +11,10 @@ export function FileViewer() {
   const routerNavigate = useNavigate();
   const nav = useFileNavigation(searchParams, setSearchParams);
   const { state } = nav;
-  const fromRoute = searchParams.get('from');
+  const rawFrom = searchParams.get('from');
+  // Validate fromRoute: must be a relative path, no protocol-relative URLs
+  const fromRoute =
+    rawFrom && rawFrom.startsWith('/') && !rawFrom.startsWith('//') ? rawFrom : null;
 
   const editor = useFileEditor(state.content, state.filePath, nav.setError);
   const reader = useDocumentReader();
@@ -32,11 +35,12 @@ export function FileViewer() {
           <button
             className="viewer-header-back"
             onClick={() => {
+              if (editor.dirty && !confirm('Discard unsaved changes?')) return;
               editor.resetEditor();
               if (fromRoute) {
                 routerNavigate(fromRoute);
               } else {
-                nav.handleBack(editor.dirty);
+                nav.handleBack(false); // dirty already checked above
               }
             }}
           >

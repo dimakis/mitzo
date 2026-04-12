@@ -44,6 +44,16 @@ describe('isFilePath', () => {
   it('recognises extensionless paths with multiple segments', () => {
     expect(isFilePath('/Users/dsaridak/redhat/mgmt/scripts/build')).toBe(true);
   });
+
+  it('recognises paths with @ (scoped packages)', () => {
+    expect(isFilePath('./node_modules/@anthropic-ai/sdk/index.ts')).toBe(true);
+    expect(isFilePath('/Users/me/node_modules/@scope/pkg/lib.js')).toBe(true);
+  });
+
+  it('recognises double parent traversal', () => {
+    expect(isFilePath('../../foo.ts')).toBe(true);
+    expect(isFilePath('../../configs/base.json')).toBe(true);
+  });
 });
 
 describe('detectFilePaths', () => {
@@ -88,6 +98,25 @@ describe('detectFilePaths', () => {
     const result = detectFilePaths(text);
     expect(result).toHaveLength(1);
     expect(result[0].path).toBe('/tmp/result.json');
+  });
+
+  it('finds paths with @ in scoped package names', () => {
+    const text = 'Check ./node_modules/@anthropic-ai/sdk/index.ts for the type.';
+    const result = detectFilePaths(text);
+    expect(result).toHaveLength(1);
+    expect(result[0].path).toBe('./node_modules/@anthropic-ai/sdk/index.ts');
+  });
+
+  it('finds double parent traversal paths', () => {
+    const text = 'Config is at ../../configs/base.json relative to here.';
+    const result = detectFilePaths(text);
+    expect(result).toHaveLength(1);
+    expect(result[0].path).toBe('../../configs/base.json');
+  });
+
+  it('does not match ..foo/bar (dots without slash)', () => {
+    const text = 'Something like ..foo/bar should not match.';
+    expect(detectFilePaths(text)).toEqual([]);
   });
 
   it('handles relative paths starting with dot-slash', () => {
@@ -135,6 +164,13 @@ describe('linkifyFilePaths', () => {
     const result = linkifyFilePaths(input);
     // Should not wrap the already-linked path again
     expect(result).not.toContain(`${FILE_SCHEME}`);
+  });
+
+  it('linkifies paths outside existing markdown links on the same line', () => {
+    const input = 'See [docs](/docs) and also /tmp/output.md for details.';
+    const result = linkifyFilePaths(input);
+    expect(result).toContain(`[/tmp/output.md](${FILE_SCHEME}`);
+    expect(result).toContain('[docs](/docs)');
   });
 
   it('leaves text without paths unchanged', () => {

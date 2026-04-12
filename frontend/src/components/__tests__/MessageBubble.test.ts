@@ -100,6 +100,17 @@ describe('MessageBubble', () => {
     const html = renderToStaticMarkup(el);
 
     expect(html).toContain('file-path-link');
+
+    // Simulate click to verify navigate is called with the correct route
+    const clickEvent = { preventDefault: vi.fn() };
+    // Extract onClick from rendered component — render via createElement to get props
+    const rendered = anchor({ href: fileHref, children: '/tmp/output.md' });
+    rendered.props.onClick(clickEvent);
+
+    expect(clickEvent.preventDefault).toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith(
+      `/files?path=${encodeURIComponent('/tmp/output.md')}&from=${encodeURIComponent('/chat/test-session')}`,
+    );
   });
 
   it('custom anchor renders normal links for non-file URLs', () => {

@@ -38,7 +38,7 @@ export interface FilePathMatch {
 export function detectFilePaths(text: string): FilePathMatch[] {
   // Match paths: absolute (/...) or relative (./... or ../...)
   // Path chars: word chars, hyphens, dots, @, slashes — no spaces (too greedy)
-  const pathPattern = /(?<!\w)(?:\.{0,2}\/[\w./@-]+(?:\/[\w./@-]+)*)/g;
+  const pathPattern = /(?<!\w)(?:(?:\.\.?)?\/[\w./@-]+(?:\/[\w./@-]+)*)/g;
 
   const matches: FilePathMatch[] = [];
 
@@ -93,22 +93,25 @@ function linkifyLine(line: string): string {
   const matches = detectFilePaths(line);
   if (matches.length === 0) return line;
 
-  // Check if the line already contains markdown links with paths — skip entirely
-  if (/\[[^\]]*\]\([^)]*\)/.test(line)) return line;
+  // Build exclusion ranges for inline backticks and existing markdown links
+  const excludedRanges: Array<[number, number]> = [];
 
-  // Check if there are inline backticks — find backtick ranges and skip paths inside them
-  const backtickRanges: Array<[number, number]> = [];
   const backtickPattern = /`[^`]+`/g;
   for (const bm of line.matchAll(backtickPattern)) {
-    backtickRanges.push([bm.index, bm.index + bm[0].length]);
+    excludedRanges.push([bm.index, bm.index + bm[0].length]);
+  }
+
+  const linkPattern = /\[[^\]]*\]\([^)]*\)/g;
+  for (const lm of line.matchAll(linkPattern)) {
+    excludedRanges.push([lm.index, lm.index + lm[0].length]);
   }
 
   let out = '';
   let cursor = 0;
 
   for (const m of matches) {
-    // Skip if inside backticks
-    const inBackticks = backtickRanges.some(([s, e]) => m.start >= s && m.end <= e);
+    // Skip if inside backticks or existing markdown links
+    const inBackticks = excludedRanges.some(([s, e]) => m.start >= s && m.end <= e);
     if (inBackticks) {
       continue;
     }
