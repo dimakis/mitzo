@@ -9,6 +9,7 @@ interface TodoCardProps {
   onDone: (id: string) => void;
   onTap: (item: TodoItem) => void;
   onAddChild: (parentId: string) => void;
+  onStar: (id: string) => void;
 }
 
 function urgencyBar(urgency: number): string {
@@ -18,7 +19,15 @@ function urgencyBar(urgency: number): string {
   return '\u2591\u2591\u2591';
 }
 
-export function TodoCard({ item, depth = 0, onAck, onDone, onTap, onAddChild }: TodoCardProps) {
+export function TodoCard({
+  item,
+  depth = 0,
+  onAck,
+  onDone,
+  onTap,
+  onAddChild,
+  onStar,
+}: TodoCardProps) {
   const ref = useRef<HTMLDivElement>(null);
   const startX = useRef(0);
   const startY = useRef(0);
@@ -131,6 +140,15 @@ export function TodoCard({ item, depth = 0, onAck, onDone, onTap, onAddChild }: 
                 {item.completedChildCount ?? 0}/{item.childCount ?? children.length}
               </span>
             )}
+            <button
+              className="todo-card-star"
+              onClick={(e) => {
+                e.stopPropagation();
+                onStar(item.id);
+              }}
+            >
+              {item.starred ? '⭐' : '☆'}
+            </button>
           </div>
           <div className="todo-card-summary">{item.summary}</div>
           {source && (
@@ -161,6 +179,7 @@ export function TodoCard({ item, depth = 0, onAck, onDone, onTap, onAddChild }: 
               onDone={onDone}
               onTap={onTap}
               onAddChild={onAddChild}
+              onStar={onStar}
             />
           ))}
         </div>

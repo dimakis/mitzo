@@ -74,7 +74,7 @@ function TodoCreateForm({
 export function TodoView() {
   const navigate = useNavigate();
   const [activeProfile, setActiveProfile] = useState<string | undefined>(undefined);
-  const { loading, items, profiles, ack, done, create, refresh } = useTodoData(activeProfile);
+  const { loading, items, profiles, ack, done, star, create, refresh } = useTodoData(activeProfile);
   const [creating, setCreating] = useState<{ parentId?: string } | null>(null);
 
   function handleTap(item: TodoItem) {
@@ -157,6 +157,7 @@ export function TodoView() {
             item={item}
             onAck={ack}
             onDone={done}
+            onStar={star}
             onTap={handleTap}
             onAddChild={handleAddChild}
           />

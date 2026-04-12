@@ -22,6 +22,7 @@ export interface TodoItem {
   summary: string;
   profile: string;
   urgency: number;
+  starred: boolean;
   status: 'active' | 'acknowledged' | 'snoozed' | 'completed';
   ageDays: number;
   parentId: string | null;

@@ -9,6 +9,7 @@ const mockItem: TodoItem = {
   summary: '[dimakis/mitzo#1] Fix bug',
   profile: 'centaur',
   urgency: 0.5,
+  starred: false,
   status: 'active',
   ageDays: 3,
   parentId: null,
@@ -45,6 +46,7 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
+        onStar={vi.fn()}
       />,
     );
     expect(screen.getByText('[dimakis/mitzo#1] Fix bug')).toBeTruthy();
@@ -58,6 +60,7 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
+        onStar={vi.fn()}
       />,
     );
     expect(container.querySelector('.todo-card-source')?.textContent).toBe('GH');
@@ -72,9 +75,77 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
+        onStar={vi.fn()}
       />,
     );
     expect(container.querySelector('.todo-card-author')?.textContent).toBe('dimakis');
+  });
+
+  it('shows ☆ star button for unstarred item', () => {
+    const { container } = render(
+      <TodoCard
+        item={mockItem}
+        onAck={vi.fn()}
+        onDone={vi.fn()}
+        onTap={vi.fn()}
+        onAddChild={vi.fn()}
+        onStar={vi.fn()}
+      />,
+    );
+    const starBtn = container.querySelector('.todo-card-star');
+    expect(starBtn).toBeTruthy();
+    expect(starBtn?.textContent).toBe('☆');
+  });
+
+  it('shows ⭐ star button for starred item', () => {
+    const starredItem = { ...mockItem, starred: true };
+    const { container } = render(
+      <TodoCard
+        item={starredItem}
+        onAck={vi.fn()}
+        onDone={vi.fn()}
+        onTap={vi.fn()}
+        onAddChild={vi.fn()}
+        onStar={vi.fn()}
+      />,
+    );
+    const starBtn = container.querySelector('.todo-card-star');
+    expect(starBtn?.textContent).toBe('⭐');
+  });
+
+  it('calls onStar with item id when star button is clicked', () => {
+    const onStar = vi.fn();
+    const { container } = render(
+      <TodoCard
+        item={mockItem}
+        onAck={vi.fn()}
+        onDone={vi.fn()}
+        onTap={vi.fn()}
+        onAddChild={vi.fn()}
+        onStar={onStar}
+      />,
+    );
+    const starBtn = container.querySelector('.todo-card-star')!;
+    fireEvent.click(starBtn);
+    expect(onStar).toHaveBeenCalledWith('abc123');
+  });
+
+  it('calls onStar when already starred (to toggle off)', () => {
+    const onStar = vi.fn();
+    const starredItem = { ...mockItem, starred: true };
+    const { container } = render(
+      <TodoCard
+        item={starredItem}
+        onAck={vi.fn()}
+        onDone={vi.fn()}
+        onTap={vi.fn()}
+        onAddChild={vi.fn()}
+        onStar={onStar}
+      />,
+    );
+    const starBtn = container.querySelector('.todo-card-star')!;
+    fireEvent.click(starBtn);
+    expect(onStar).toHaveBeenCalledWith('abc123');
   });
 
   it('calls onTap on tap (touchstart + touchend without move)', () => {
@@ -86,6 +157,7 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={onTap}
         onAddChild={vi.fn()}
+        onStar={vi.fn()}
       />,
     );
     const card = container.querySelector('.todo-card')!;
@@ -103,14 +175,13 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={onTap}
         onAddChild={vi.fn()}
+        onStar={vi.fn()}
       />,
     );
     const card = container.querySelector('.todo-card')!;
-
     fireEvent.touchStart(card, { touches: [{ clientX: 100, clientY: 200 }] });
-    fireEvent.touchMove(card, { touches: [{ clientX: 100, clientY: 230 }] }); // 30px vertical
+    fireEvent.touchMove(card, { touches: [{ clientX: 100, clientY: 230 }] });
     fireEvent.touchEnd(card);
-
     expect(onTap).not.toHaveBeenCalled();
   });
 
@@ -123,14 +194,13 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={onTap}
         onAddChild={vi.fn()}
+        onStar={vi.fn()}
       />,
     );
     const card = container.querySelector('.todo-card')!;
-
     fireEvent.touchStart(card, { touches: [{ clientX: 100, clientY: 200 }] });
-    fireEvent.touchMove(card, { touches: [{ clientX: 105, clientY: 215 }] }); // 5px X, 15px Y
+    fireEvent.touchMove(card, { touches: [{ clientX: 105, clientY: 215 }] });
     fireEvent.touchEnd(card);
-
     expect(onTap).not.toHaveBeenCalled();
   });
 
@@ -143,6 +213,7 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
+        onStar={vi.fn()}
       />,
     );
     expect(screen.getByText('new')).toBeTruthy();
@@ -157,9 +228,9 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
+        onStar={vi.fn()}
       />,
     );
-    // ◐ character for acknowledged
     expect(screen.getByText('\u25D0')).toBeTruthy();
   });
 
@@ -173,14 +244,13 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
+        onStar={vi.fn()}
       />,
     );
     const card = container.querySelector('.todo-card')!;
-
     fireEvent.touchStart(card, { touches: [{ clientX: 0 }] });
     fireEvent.touchMove(card, { touches: [{ clientX: 150 }] });
     fireEvent.touchEnd(card);
-
     vi.advanceTimersByTime(200);
     expect(onAck).toHaveBeenCalledWith('abc123');
     vi.useRealTimers();
@@ -196,14 +266,13 @@ describe('TodoCard', () => {
         onDone={onDone}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
+        onStar={vi.fn()}
       />,
     );
     const card = container.querySelector('.todo-card')!;
-
     fireEvent.touchStart(card, { touches: [{ clientX: 200 }] });
     fireEvent.touchMove(card, { touches: [{ clientX: 50 }] });
     fireEvent.touchEnd(card);
-
     vi.advanceTimersByTime(200);
     expect(onDone).toHaveBeenCalledWith('abc123');
     vi.useRealTimers();
@@ -219,14 +288,13 @@ describe('TodoCard', () => {
         onDone={onDone}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
+        onStar={vi.fn()}
       />,
     );
     const card = container.querySelector('.todo-card')!;
-
     fireEvent.touchStart(card, { touches: [{ clientX: 100 }] });
-    fireEvent.touchMove(card, { touches: [{ clientX: 140 }] }); // only 40px
+    fireEvent.touchMove(card, { touches: [{ clientX: 140 }] });
     fireEvent.touchEnd(card);
-
     expect(onAck).not.toHaveBeenCalled();
     expect(onDone).not.toHaveBeenCalled();
     expect((card as HTMLElement).style.transform).toBe('translateX(0)');
@@ -240,6 +308,7 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
+        onStar={vi.fn()}
       />,
     );
     expect(container.querySelector('.todo-card-expand')).toBeNull();
@@ -261,7 +330,6 @@ describe('TodoCard', () => {
       childCount: 1,
       completedChildCount: 0,
     };
-
     const { container } = render(
       <TodoCard
         item={parentItem}
@@ -269,23 +337,17 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
+        onStar={vi.fn()}
       />,
     );
-
     const expandBtn = container.querySelector('.todo-card-expand')!;
     expect(expandBtn).toBeTruthy();
-    expect(expandBtn.textContent).toBe('\u25B6'); // collapsed
-
-    // Children not visible yet
+    expect(expandBtn.textContent).toBe('\u25B6');
     expect(container.querySelector('.todo-card-children')).toBeNull();
-
-    // Expand
     fireEvent.click(expandBtn);
-    expect(expandBtn.textContent).toBe('\u25BC'); // expanded
+    expect(expandBtn.textContent).toBe('\u25BC');
     expect(container.querySelector('.todo-card-children')).toBeTruthy();
     expect(screen.getByText('Child task')).toBeTruthy();
-
-    // Collapse
     fireEvent.click(expandBtn);
     expect(container.querySelector('.todo-card-children')).toBeNull();
   });
@@ -297,7 +359,6 @@ describe('TodoCard', () => {
       childCount: 3,
       completedChildCount: 1,
     };
-
     const { container } = render(
       <TodoCard
         item={parentItem}
@@ -305,9 +366,9 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
+        onStar={vi.fn()}
       />,
     );
-
     const progress = container.querySelector('.todo-card-progress');
     expect(progress?.textContent).toBe('1/3');
   });
@@ -321,9 +382,9 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={onAddChild}
+        onStar={vi.fn()}
       />,
     );
-
     const addBtn = container.querySelector('.todo-card-add-child')!;
     fireEvent.click(addBtn);
     expect(onAddChild).toHaveBeenCalledWith('abc123');
@@ -338,9 +399,9 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
+        onStar={vi.fn()}
       />,
     );
-
     const treeNode = container.querySelector('.todo-card-tree-node');
     expect(treeNode?.classList.contains('todo-card-tree-node--child')).toBe(true);
   });
@@ -353,9 +414,9 @@ describe('TodoCard', () => {
         onDone={vi.fn()}
         onTap={vi.fn()}
         onAddChild={vi.fn()}
+        onStar={vi.fn()}
       />,
     );
-
     const treeNode = container.querySelector('.todo-card-tree-node');
     expect(treeNode?.classList.contains('todo-card-tree-node--child')).toBe(false);
   });
