@@ -38,6 +38,8 @@ import {
   TodoCreateBody,
   TodoActionBody,
   TodoActionResponse,
+  TaskCreateBody,
+  TaskUpdateBody,
 } from './api-schemas.js';
 import {
   listInboxItems,
@@ -48,7 +50,9 @@ import {
 } from './inbox.js';
 import { SkillRegistry } from './skills.js';
 
+import { mkdirSync } from 'fs';
 import { homedir } from 'os';
+import { TaskStore } from './task-store.js';
 
 const log = createLogger('server');
 
@@ -150,6 +154,17 @@ let updateAvailable = false;
 
 let onUpdateAvailable: (() => void) | null = null;
 let onInboxUpdated: (() => void) | null = null;
+let onTaskBroadcast: ((event: Record<string, unknown>) => void) | null = null;
+
+// --- Task store ---
+
+const mitzoDir = join(BASE_REPO, '.mitzo');
+try {
+  mkdirSync(mitzoDir, { recursive: true });
+} catch {
+  // may already exist
+}
+export const taskStore = new TaskStore(join(mitzoDir, 'tasks.db'));
 
 export function setUpdateBroadcast(fn: () => void) {
   onUpdateAvailable = fn;
@@ -157,6 +172,10 @@ export function setUpdateBroadcast(fn: () => void) {
 
 export function setInboxBroadcast(fn: () => void) {
   onInboxUpdated = fn;
+}
+
+export function setTaskBroadcast(fn: (event: Record<string, unknown>) => void) {
+  onTaskBroadcast = fn;
 }
 
 /** Broadcast inbox_updated to all connected WS clients. */
@@ -289,6 +308,62 @@ app.post('/api/repos/open', (req, res) => {
 });
 
 app.use('/api', authMiddleware);
+
+// --- Task Board API ---
+
+app.get('/api/tasks', (_req, res) => {
+  res.json({ tasks: taskStore.getTree() });
+});
+
+app.post('/api/tasks', (req, res) => {
+  const body = TaskCreateBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.issues[0]?.message ?? 'Invalid input' });
+    return;
+  }
+  try {
+    const task = taskStore.create(body.data);
+    res.status(201).json({ task });
+    onTaskBroadcast?.({ type: 'task_updated', task });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(400).json({ error: message });
+  }
+});
+
+app.get('/api/tasks/:id', (req, res) => {
+  const task = taskStore.get(req.params.id);
+  if (!task) {
+    res.status(404).json({ error: 'Task not found' });
+    return;
+  }
+  res.json({ task });
+});
+
+app.patch('/api/tasks/:id', (req, res) => {
+  const body = TaskUpdateBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.issues[0]?.message ?? 'Invalid input' });
+    return;
+  }
+  const task = taskStore.update(req.params.id, body.data);
+  if (!task) {
+    res.status(404).json({ error: 'Task not found' });
+    return;
+  }
+  res.json({ task });
+  onTaskBroadcast?.({ type: 'task_updated', task });
+});
+
+app.delete('/api/tasks/:id', (req, res) => {
+  const ok = taskStore.delete(req.params.id);
+  if (!ok) {
+    res.status(404).json({ error: 'Task not found' });
+    return;
+  }
+  res.json({ ok: true });
+  onTaskBroadcast?.({ type: 'task_deleted', taskId: req.params.id });
+});
 
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
   const body = LoginBody.safeParse(req.body);
