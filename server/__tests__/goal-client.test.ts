@@ -25,6 +25,15 @@ describe('deriveGoalTitle', () => {
     );
   });
 
+  it('truncates at trailing punctuation without space after', () => {
+    expect(deriveGoalTitle('Fix the login bug.')).toBe('Fix the login bug.');
+  });
+
+  it('handles exclamation and question marks at end', () => {
+    expect(deriveGoalTitle('Is this a bug?')).toBe('Is this a bug?');
+    expect(deriveGoalTitle('Fix this now!')).toBe('Fix this now!');
+  });
+
   it('truncates long single sentences to 80 chars', () => {
     const long = 'A'.repeat(100);
     const result = deriveGoalTitle(long);
@@ -108,5 +117,63 @@ describe('reportUsage', () => {
       source: 'mitzo_session',
       sourceId: 'session-456',
     });
+  });
+});
+
+describe('health-check caching', () => {
+  it('caches availability within the TTL window', async () => {
+    // First call: health check succeeds
+    mockFetch.mockResolvedValueOnce({ ok: true }); // health
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ id: 'goal-1', title: 'A', status: 'active' }),
+    });
+    await createGoal('First');
+    expect(mockFetch).toHaveBeenCalledTimes(2); // health + create
+
+    // Second call within TTL: should skip health check
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ id: 'goal-2', title: 'B', status: 'active' }),
+    });
+    await createGoal('Second');
+    // Only 3 total: original health + first create + second create (no second health)
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('re-checks availability after TTL expires', async () => {
+    // First call: health check succeeds
+    mockFetch.mockResolvedValueOnce({ ok: true }); // health
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ id: 'goal-1', title: 'A', status: 'active' }),
+    });
+    await createGoal('First');
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+
+    // Expire the cache by resetting
+    resetAvailability();
+
+    // Next call should re-check health
+    mockFetch.mockResolvedValueOnce({ ok: true }); // health again
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ id: 'goal-2', title: 'B', status: 'active' }),
+    });
+    await createGoal('Third');
+    expect(mockFetch).toHaveBeenCalledTimes(4); // 2 original + health + create
+  });
+
+  it('caches unavailability within the TTL window', async () => {
+    // Health check fails
+    mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    const result1 = await createGoal('First');
+    expect(result1).toBeNull();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    // Second call within TTL: cached as unavailable, no fetch at all
+    const result2 = await createGoal('Second');
+    expect(result2).toBeNull();
+    expect(mockFetch).toHaveBeenCalledTimes(1); // still just the original failed health check
   });
 });

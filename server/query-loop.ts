@@ -137,6 +137,7 @@ export async function runQueryLoop(
   let pendingMessageEnd: Record<string, unknown> | null = null;
   let resolvedSessionId: string | undefined;
   let resolvedGoalId: string | undefined;
+  let goalCreationPromise: Promise<string | null> | undefined;
 
   /** Wrapper that auto-injects store + sessionId into sendOrBuffer */
   function emit(ws: WebSocket, data: Record<string, unknown>) {
@@ -246,25 +247,12 @@ export async function runQueryLoop(
             }
           }
 
-          // Auto-create goal in ContexGin Goal Registry
+          // Auto-create goal in ContexGin Goal Registry (awaited at session end)
           if (initialPrompt && resolvedSessionId) {
             const goalTitle = deriveGoalTitle(initialPrompt);
-            createGoal(goalTitle, {
+            goalCreationPromise = createGoal(goalTitle, {
               description: initialPrompt.length > 80 ? initialPrompt.slice(0, 500) : undefined,
-            })
-              .then((goalId) => {
-                if (goalId) {
-                  resolvedGoalId = goalId;
-                  if (store) {
-                    store.upsertSession({ sessionId: resolvedSessionId!, goalId });
-                  }
-                  log.info('session linked to goal', {
-                    sessionId: resolvedSessionId,
-                    goalId,
-                  });
-                }
-              })
-              .catch(() => {});
+            });
           }
         }
       } else if (msg.type === 'result') {
@@ -293,7 +281,17 @@ export async function runQueryLoop(
           store.recordUsage(resolvedSessionId, usageData);
         }
 
-        // Report usage to ContexGin Goal Registry
+        // Resolve goal creation (if pending) and report usage
+        if (goalCreationPromise && resolvedSessionId) {
+          const goalId = await goalCreationPromise;
+          if (goalId) {
+            resolvedGoalId = goalId;
+            store?.upsertSession({ sessionId: resolvedSessionId, goalId });
+            log.info('session linked to goal', { sessionId: resolvedSessionId, goalId });
+          }
+          goalCreationPromise = undefined;
+        }
+
         if (resolvedGoalId && resolvedSessionId) {
           reportUsage(resolvedGoalId, {
             source: 'mitzo_session',

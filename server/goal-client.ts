@@ -140,29 +140,6 @@ export async function reportUsage(
   }
 }
 
-// ── Artifact linking ───────────────────────────────────────────
-
-/**
- * Link an artifact (PR, commit, branch) to a goal.
- */
-export async function linkArtifact(
-  goalId: string,
-  artifact: { type: string; ref: string; repo?: string },
-): Promise<void> {
-  if (!(await isAvailable())) return;
-
-  try {
-    await fetch(`${CONTEXGIN_URL}/api/goals/${goalId}/artifacts`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(artifact),
-      signal: AbortSignal.timeout(5000),
-    });
-  } catch {
-    // Best-effort
-  }
-}
-
 // ── Goal title derivation ──────────────────────────────────────
 
 /**
@@ -171,8 +148,8 @@ export async function linkArtifact(
  */
 export function deriveGoalTitle(prompt: string): string {
   const cleaned = prompt.replace(/\s+/g, ' ').trim();
-  // First sentence
-  const sentenceEnd = cleaned.search(/[.!?]\s/);
+  // First sentence (match punctuation followed by space or end of string)
+  const sentenceEnd = cleaned.search(/[.!?](\s|$)/);
   const firstSentence = sentenceEnd > 0 ? cleaned.slice(0, sentenceEnd + 1) : cleaned;
   // Cap at 80 chars
   if (firstSentence.length <= 80) return firstSentence;
