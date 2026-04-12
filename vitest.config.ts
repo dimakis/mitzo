@@ -1,6 +1,24 @@
 import { defineConfig } from 'vitest/config';
+import { resolve } from 'path';
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      // Allow frontend tests to resolve deps from frontend/node_modules
+      react: resolve(__dirname, 'frontend/node_modules/react'),
+      'react-dom': resolve(__dirname, 'frontend/node_modules/react-dom'),
+      'react-router-dom': resolve(__dirname, 'frontend/node_modules/react-router-dom'),
+      '@testing-library/react': resolve(__dirname, 'frontend/node_modules/@testing-library/react'),
+      '@testing-library/jest-dom': resolve(
+        __dirname,
+        'frontend/node_modules/@testing-library/jest-dom',
+      ),
+      '@testing-library/user-event': resolve(
+        __dirname,
+        'frontend/node_modules/@testing-library/user-event',
+      ),
+    },
+  },
   test: {
     env: {
       NODE_ENV: 'test',
