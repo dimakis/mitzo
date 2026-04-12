@@ -1,6 +1,8 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useNavigate, useLocation } from 'react-router-dom';
 import type { FinishedMessage } from '../types/chat';
+import { linkifyFilePaths, FILE_SCHEME } from '../lib/file-paths';
 
 interface UserBubbleProps {
   text?: string;
@@ -32,6 +34,11 @@ interface TextBubbleProps {
 }
 
 export function TextBubble({ content, streaming = false }: TextBubbleProps) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const processed = streaming ? content : linkifyFilePaths(content);
+  const currentPath = location.pathname + location.search;
+
   return (
     <div className={`msg-bubble msg-bubble--assistant${streaming ? ' msg-bubble--streaming' : ''}`}>
       <div className="msg-bubble-markdown">
@@ -43,9 +50,33 @@ export function TextBubble({ content, streaming = false }: TextBubbleProps) {
                 <table {...props}>{children}</table>
               </div>
             ),
+            a: ({ href, children }) => {
+              if (href?.startsWith(FILE_SCHEME)) {
+                const filePath = decodeURIComponent(href.slice(FILE_SCHEME.length));
+                return (
+                  <a
+                    href="#"
+                    className="file-path-link"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      navigate(
+                        `/files?path=${encodeURIComponent(filePath)}&from=${encodeURIComponent(currentPath)}`,
+                      );
+                    }}
+                  >
+                    {children}
+                  </a>
+                );
+              }
+              return (
+                <a href={href} target="_blank" rel="noopener noreferrer">
+                  {children}
+                </a>
+              );
+            },
           }}
         >
-          {content}
+          {processed}
         </ReactMarkdown>
       </div>
     </div>
