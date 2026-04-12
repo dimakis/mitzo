@@ -80,12 +80,12 @@ The server translates raw SDK stream events into a v2 block lifecycle protocol (
 | `mcp-config.ts`                                                                | Loads Cursor MCP config                           |
 | `worktree.ts`                                                                  | Git worktree lifecycle                            |
 | `repo-config.ts`                                                               | `.mitzo.json` reader                              |
-| `app.ts`                                                                        | Express app factory (testability via supertest)    |
-| `inbox.ts`                                                                      | Inbox integration endpoint                        |
-| `internal-token.ts`                                                             | Internal token generation for inter-process auth  |
+| `app.ts`                                                                       | Express app factory (testability via supertest)   |
+| `inbox.ts`                                                                     | Inbox integration endpoint                        |
+| `internal-token.ts`                                                            | Internal token generation for inter-process auth  |
 | `repo-mcp-server.ts`                                                           | Repo-scoped MCP server configuration              |
 | `auth.ts`                                                                      | Passphrase + JWT                                  |
-| `notification-helpers.ts`                                                       | Shared notification formatting utilities          |
+| `notification-helpers.ts`                                                      | Shared notification formatting utilities          |
 | `notify.ts` / `pushover.ts`                                                    | Push notifications                                |
 | `logger.ts` / `constants.ts` / `git-version.ts` / `port-check.ts` / `index.ts` | Infrastructure                                    |
 
@@ -95,30 +95,29 @@ Nine pages (`Login`, `SessionList`, `ChatView`, `DesktopChatView`, `FileViewer`,
 
 ## Environment
 
-| Variable                      | Description                                              | Required |
-| ----------------------------- | -------------------------------------------------------- | -------- |
-| `AUTH_PASSPHRASE`             | Login passphrase                                         | Yes      |
-| `AUTH_SECRET`                 | JWT signing key (min 32 chars)                           | Yes      |
-| `REPO_PATH`                  | Default repo for sessions                                | Yes      |
-| `PORT`                       | Server port (default: `3100`)                            | No       |
-| `WORKTREE_ENABLED`           | Allow worktrees (default: `true`)                        | No       |
-| `MCP_CONFIG_PATH`            | MCP config path (default: `~/.cursor/mcp.json`)         | No       |
-| `LOG_LEVEL`                  | Log verbosity: `debug`, `info`, `warn`, `error`         | No       |
-| `COOKIE_MAX_AGE_HOURS`       | JWT cookie lifetime in hours (default: `24`)             | No       |
-| `BASE_URL`                   | Public URL for notification deep links                   | No       |
-| `YAPPER_PROXY_TARGET`        | Yapper backend URL (default: `http://localhost:8700`)    | No       |
-| `CLAUDE_CODE_USE_VERTEX`     | Set to `1` to use Vertex AI for auto-rename              | No       |
-| `ANTHROPIC_VERTEX_PROJECT_ID`| GCP project ID (required when using Vertex)              | No       |
-| `CLOUD_ML_REGION`            | GCP region for Vertex (default: `us-east5`)              | No       |
-| `NTFY_ENABLED`               | Enable ntfy push notifications                           | No       |
-| `NTFY_URL`                   | ntfy server URL (default: `https://ntfy.sh`)             | No       |
-| `NTFY_TOPIC`                 | ntfy topic for notifications                             | No       |
-| `NTFY_AUTH_TOKEN`            | ntfy auth token                                          | No       |
-| `PUSHOVER_API_TOKEN`         | Pushover API token (for Apple Watch notifications)       | No       |
-| `PUSHOVER_USER_KEY`          | Pushover user key                                        | No       |
-| `MITZO_INTERNAL_TOKEN`       | Auto-generated token for inter-process auth              | No       |
+| Variable                      | Description                                           | Required |
+| ----------------------------- | ----------------------------------------------------- | -------- |
+| `AUTH_PASSPHRASE`             | Login passphrase                                      | Yes      |
+| `AUTH_SECRET`                 | JWT signing key (min 32 chars)                        | Yes      |
+| `REPO_PATH`                   | Default repo for sessions                             | Yes      |
+| `PORT`                        | Server port (default: `3100`)                         | No       |
+| `WORKTREE_ENABLED`            | Allow worktrees (default: `true`)                     | No       |
+| `MCP_CONFIG_PATH`             | MCP config path (default: `~/.cursor/mcp.json`)       | No       |
+| `LOG_LEVEL`                   | Log verbosity: `debug`, `info`, `warn`, `error`       | No       |
+| `COOKIE_MAX_AGE_HOURS`        | JWT cookie lifetime in hours (default: `24`)          | No       |
+| `BASE_URL`                    | Public URL for notification deep links                | No       |
+| `YAPPER_PROXY_TARGET`         | Yapper backend URL (default: `http://localhost:8700`) | No       |
+| `CLAUDE_CODE_USE_VERTEX`      | Set to `1` to use Vertex AI for auto-rename           | No       |
+| `ANTHROPIC_VERTEX_PROJECT_ID` | GCP project ID (required when using Vertex)           | No       |
+| `CLOUD_ML_REGION`             | GCP region for Vertex (default: `us-east5`)           | No       |
+| `NTFY_URL`                    | ntfy server URL (default: `https://ntfy.sh`)          | No       |
+| `NTFY_TOPIC`                  | ntfy topic for notifications                          | No       |
+| `NTFY_AUTH_TOKEN`             | ntfy auth token                                       | No       |
+| `PUSHOVER_API_TOKEN`          | Pushover API token (for Apple Watch notifications)    | No       |
+| `PUSHOVER_USER_KEY`           | Pushover user key                                     | No       |
+| `MITZO_INTERNAL_TOKEN`        | Auto-generated token for inter-process auth           | No       |
 
-See `.env.example` for the full list.
+See `.env.example` for a starter template.
 
 ## `.mitzo.json`
 
@@ -142,7 +141,7 @@ Drop this in your repo root for quick actions and Python venv support:
 
 ```bash
 npm run dev          # backend + frontend concurrently
-npm test             # vitest (1584 tests, 164 files)
+npm test             # vitest (946 tests, 85 files)
 npm run lint         # eslint
 npm run format:check # prettier
 ```
