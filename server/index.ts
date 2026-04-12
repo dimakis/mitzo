@@ -27,11 +27,13 @@ import {
   app,
   setUpdateBroadcast,
   setInboxBroadcast,
+  setTaskBroadcast,
   runUpdateCheck,
   buildSkillRegistry,
   NATIVE_COMMAND_NAMES,
   isAllowedPath,
   yapperWsProxy,
+  taskStore,
 } from './app.js';
 import { IncomingWsMessage } from './ws-schemas.js';
 import { resolveSlashCommand } from './slash-commands.js';
@@ -66,6 +68,13 @@ setUpdateBroadcast(() => {
 
 setInboxBroadcast(() => {
   const msg = JSON.stringify({ type: 'inbox_updated' });
+  wss.clients.forEach((client) => {
+    if (client.readyState === client.OPEN) client.send(msg);
+  });
+});
+
+setTaskBroadcast((event) => {
+  const msg = JSON.stringify(event);
   wss.clients.forEach((client) => {
     if (client.readyState === client.OPEN) client.send(msg);
   });
@@ -143,6 +152,10 @@ function tryRouteToActiveSession(
 function handleChatWs(ws: WebSocket, initialClientId: string) {
   let clientId = initialClientId;
   ws.send(JSON.stringify({ type: 'client_id', clientId }));
+
+  // Hydrate task board state
+  const taskTree = taskStore.getTree();
+  ws.send(JSON.stringify({ type: 'task_state', tasks: taskTree }));
 
   const heartbeat = setInterval(() => {
     if (ws.readyState === ws.OPEN) {
