@@ -23,6 +23,7 @@ const fullItem: TodoItem = {
   summary: 'Fix authentication middleware',
   profile: 'centaur',
   urgency: 0.75,
+  starred: false,
   status: 'active',
   ageDays: 5,
   parentId: null,
