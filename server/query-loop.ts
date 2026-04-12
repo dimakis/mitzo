@@ -10,6 +10,7 @@ import { sendTurnCompleteNotification as ntfyTurnComplete } from './notify.js';
 import { sendTurnCompleteNotification as pushoverTurnComplete } from './pushover.js';
 import { extractSnippet } from './notification-helpers.js';
 import { NOTIFY_SNIPPET_MAX_CHARS } from './constants.js';
+import { createGoal, reportUsage, deriveGoalTitle } from './goal-client.js';
 import { PermissionResponseMessage, SetModeMessage } from './ws-schemas.js';
 
 const log = createLogger('query-loop');
@@ -135,6 +136,21 @@ export async function runQueryLoop(
   let openBlockCount = 0;
   let pendingMessageEnd: Record<string, unknown> | null = null;
   let resolvedSessionId: string | undefined;
+  let resolvedGoalId: string | undefined;
+  let goalCreationPromise: Promise<string | null> | undefined;
+  let goalTitle: string | undefined;
+
+  // Track last-reported cumulative usage to compute deltas (SDK reports cumulative totals).
+  let lastReportedUsage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    totalCostUsd: 0,
+    numTurns: 0,
+    durationMs: 0,
+    durationApiMs: 0,
+  };
 
   /** Wrapper that auto-injects store + sessionId into sendOrBuffer */
   function emit(ws: WebSocket, data: Record<string, unknown>) {
@@ -212,6 +228,17 @@ export async function runQueryLoop(
       const currentWs = currentSession.ws;
       if (!resolvedSessionId && currentSession.sessionId) {
         resolvedSessionId = currentSession.sessionId;
+        // Resumed sessions: load goalId from store so usage reporting works
+        if (store && !resolvedGoalId) {
+          const existingSession = store.getSession(resolvedSessionId);
+          if (existingSession?.goalId) {
+            resolvedGoalId = existingSession.goalId;
+            log.info('resumed session goal', {
+              sessionId: resolvedSessionId,
+              goalId: resolvedGoalId,
+            });
+          }
+        }
       }
 
       log.debug('sdk event', { clientId, type: msg.type });
@@ -243,6 +270,19 @@ export async function runQueryLoop(
               store.incrementPromptCount(resolvedSessionId);
             }
           }
+
+          // Auto-create goal in ContexGin Goal Registry (awaited at session end)
+          if (initialPrompt && resolvedSessionId) {
+            goalTitle = deriveGoalTitle(initialPrompt);
+            goalCreationPromise = createGoal(goalTitle, {
+              description: initialPrompt.length > 80 ? initialPrompt.slice(0, 500) : undefined,
+            }).catch((err: unknown) => {
+              log.warn('goal creation promise rejected', {
+                error: err instanceof Error ? err.message : String(err),
+              });
+              return null;
+            });
+          }
         }
       } else if (msg.type === 'result') {
         log.info('result received', { clientId, sessionId: msg.session_id });
@@ -268,6 +308,46 @@ export async function runQueryLoop(
         // Persist usage to durable store
         if (store && resolvedSessionId) {
           store.recordUsage(resolvedSessionId, usageData);
+        }
+
+        // Resolve goal creation (if pending) and report usage
+        if (goalCreationPromise && resolvedSessionId) {
+          const goalId = await goalCreationPromise;
+          if (goalId) {
+            resolvedGoalId = goalId;
+            store?.upsertSession({ sessionId: resolvedSessionId, goalId });
+            log.info('session linked to goal', { sessionId: resolvedSessionId, goalId });
+          }
+          goalCreationPromise = undefined;
+        }
+
+        if (resolvedGoalId && resolvedSessionId) {
+          // Compute deltas to avoid double-counting in multi-turn sessions
+          const deltaUsage = {
+            inputTokens: usageData.inputTokens - lastReportedUsage.inputTokens,
+            outputTokens: usageData.outputTokens - lastReportedUsage.outputTokens,
+            cacheReadTokens: usageData.cacheReadTokens - lastReportedUsage.cacheReadTokens,
+            cacheCreationTokens:
+              usageData.cacheCreationTokens - lastReportedUsage.cacheCreationTokens,
+            costUsd: usageData.totalCostUsd - lastReportedUsage.totalCostUsd,
+            turns: usageData.numTurns - lastReportedUsage.numTurns,
+            durationMs: usageData.durationMs - lastReportedUsage.durationMs,
+            durationApiMs: usageData.durationApiMs - lastReportedUsage.durationApiMs,
+          };
+          lastReportedUsage = { ...usageData };
+
+          reportUsage(resolvedGoalId, {
+            source: 'mitzo_session',
+            sourceId: resolvedSessionId,
+            sourceLabel: initialPrompt
+              ? `Mitzo: ${goalTitle ?? deriveGoalTitle(initialPrompt)}`
+              : `Mitzo session ${resolvedSessionId}`,
+            ...deltaUsage,
+            metadata: {
+              cwd: currentSession.cwd,
+              mode: currentSession.mode,
+            },
+          });
         }
 
         emit(currentWs, v2('session_end', { sessionId: msg.session_id, usage: usageData }));

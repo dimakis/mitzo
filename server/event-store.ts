@@ -266,6 +266,10 @@ export class EventStore {
         fields.push('initial_prompt = ?');
         values.push(meta.initialPrompt);
       }
+      if (meta.goalId !== undefined) {
+        fields.push('goal_id = ?');
+        values.push(meta.goalId);
+      }
       fields.push("updated_at = unixepoch('now', 'subsec') * 1000");
       values.push(meta.sessionId);
       this.db!.prepare(`UPDATE sessions SET ${fields.join(', ')} WHERE session_id = ?`).run(
