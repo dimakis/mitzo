@@ -120,6 +120,25 @@ describe('reportUsage', () => {
   });
 });
 
+describe('network error sets available=false', () => {
+  it('POST network error causes next call to skip health check and return null', async () => {
+    // Health check succeeds
+    mockFetch.mockResolvedValueOnce({ ok: true });
+    // POST throws network error
+    mockFetch.mockRejectedValueOnce(new Error('ECONNRESET'));
+
+    const goalId = await createGoal('Test goal');
+    expect(goalId).toBeNull();
+    expect(mockFetch).toHaveBeenCalledTimes(2); // health + failed POST
+
+    // Next call should skip health check entirely (cached as unavailable) and return null
+    const goalId2 = await createGoal('Another goal');
+    expect(goalId2).toBeNull();
+    // No additional fetch calls — cached unavailability
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('health-check caching', () => {
   it('caches availability within the TTL window', async () => {
     // First call: health check succeeds

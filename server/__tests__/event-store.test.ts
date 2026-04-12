@@ -142,6 +142,15 @@ describe('EventStore', () => {
       expect(session!.summary).toBe('Updated');
     });
 
+    it('persists and retrieves goalId', () => {
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Test' });
+      store.upsertSession({ sessionId: 'sess-1', goalId: 'goal-abc-123' });
+
+      const session = store.getSession('sess-1');
+      expect(session).not.toBeNull();
+      expect(session!.goalId).toBe('goal-abc-123');
+    });
+
     it('preserves fields not included in partial update', () => {
       store.upsertSession({
         sessionId: 'sess-1',

@@ -138,6 +138,19 @@ export async function runQueryLoop(
   let resolvedSessionId: string | undefined;
   let resolvedGoalId: string | undefined;
   let goalCreationPromise: Promise<string | null> | undefined;
+  let goalTitle: string | undefined;
+
+  // Track last-reported cumulative usage to compute deltas (SDK reports cumulative totals).
+  let lastReportedUsage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    totalCostUsd: 0,
+    numTurns: 0,
+    durationMs: 0,
+    durationApiMs: 0,
+  };
 
   /** Wrapper that auto-injects store + sessionId into sendOrBuffer */
   function emit(ws: WebSocket, data: Record<string, unknown>) {
@@ -215,6 +228,17 @@ export async function runQueryLoop(
       const currentWs = currentSession.ws;
       if (!resolvedSessionId && currentSession.sessionId) {
         resolvedSessionId = currentSession.sessionId;
+        // Resumed sessions: load goalId from store so usage reporting works
+        if (store && !resolvedGoalId) {
+          const existingSession = store.getSession(resolvedSessionId);
+          if (existingSession?.goalId) {
+            resolvedGoalId = existingSession.goalId;
+            log.info('resumed session goal', {
+              sessionId: resolvedSessionId,
+              goalId: resolvedGoalId,
+            });
+          }
+        }
       }
 
       log.debug('sdk event', { clientId, type: msg.type });
@@ -249,9 +273,14 @@ export async function runQueryLoop(
 
           // Auto-create goal in ContexGin Goal Registry (awaited at session end)
           if (initialPrompt && resolvedSessionId) {
-            const goalTitle = deriveGoalTitle(initialPrompt);
+            goalTitle = deriveGoalTitle(initialPrompt);
             goalCreationPromise = createGoal(goalTitle, {
               description: initialPrompt.length > 80 ? initialPrompt.slice(0, 500) : undefined,
+            }).catch((err: unknown) => {
+              log.warn('goal creation promise rejected', {
+                error: err instanceof Error ? err.message : String(err),
+              });
+              return null;
             });
           }
         }
@@ -293,25 +322,32 @@ export async function runQueryLoop(
         }
 
         if (resolvedGoalId && resolvedSessionId) {
+          // Compute deltas to avoid double-counting in multi-turn sessions
+          const deltaUsage = {
+            inputTokens: usageData.inputTokens - lastReportedUsage.inputTokens,
+            outputTokens: usageData.outputTokens - lastReportedUsage.outputTokens,
+            cacheReadTokens: usageData.cacheReadTokens - lastReportedUsage.cacheReadTokens,
+            cacheCreationTokens:
+              usageData.cacheCreationTokens - lastReportedUsage.cacheCreationTokens,
+            costUsd: usageData.totalCostUsd - lastReportedUsage.totalCostUsd,
+            turns: usageData.numTurns - lastReportedUsage.numTurns,
+            durationMs: usageData.durationMs - lastReportedUsage.durationMs,
+            durationApiMs: usageData.durationApiMs - lastReportedUsage.durationApiMs,
+          };
+          lastReportedUsage = { ...usageData };
+
           reportUsage(resolvedGoalId, {
             source: 'mitzo_session',
             sourceId: resolvedSessionId,
             sourceLabel: initialPrompt
-              ? `Mitzo: ${deriveGoalTitle(initialPrompt)}`
+              ? `Mitzo: ${goalTitle ?? deriveGoalTitle(initialPrompt)}`
               : `Mitzo session ${resolvedSessionId}`,
-            inputTokens: usageData.inputTokens,
-            outputTokens: usageData.outputTokens,
-            cacheReadTokens: usageData.cacheReadTokens,
-            cacheCreationTokens: usageData.cacheCreationTokens,
-            costUsd: usageData.totalCostUsd,
-            turns: usageData.numTurns,
-            durationMs: usageData.durationMs,
-            durationApiMs: usageData.durationApiMs,
+            ...deltaUsage,
             metadata: {
               cwd: currentSession.cwd,
               mode: currentSession.mode,
             },
-          }).catch(() => {});
+          });
         }
 
         emit(currentWs, v2('session_end', { sessionId: msg.session_id, usage: usageData }));

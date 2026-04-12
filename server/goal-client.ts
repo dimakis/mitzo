@@ -98,8 +98,8 @@ export async function createGoal(
     const goal = (await res.json()) as GoalResponse;
     log.info('goal created', { goalId: goal.id, title: goal.title });
     return goal.id;
-  } catch (err) {
-    log.warn('goal creation error', { error: (err as Error).message });
+  } catch (err: unknown) {
+    log.warn('goal creation error', { error: err instanceof Error ? err.message : String(err) });
     available = false;
     return null;
   }
@@ -121,12 +121,15 @@ export async function reportUsage(
   }
 
   try {
-    const res = await fetch(`${CONTEXGIN_URL}/api/goals/${goalId}/contributions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(contribution),
-      signal: AbortSignal.timeout(5000),
-    });
+    const res = await fetch(
+      `${CONTEXGIN_URL}/api/goals/${encodeURIComponent(goalId)}/contributions`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(contribution),
+        signal: AbortSignal.timeout(5000),
+      },
+    );
 
     if (!res.ok) {
       log.warn('usage report failed', { goalId, status: res.status });
@@ -134,8 +137,11 @@ export async function reportUsage(
     }
 
     log.info('usage reported', { goalId, source: contribution.source });
-  } catch (err) {
-    log.warn('usage report error', { goalId, error: (err as Error).message });
+  } catch (err: unknown) {
+    log.warn('usage report error', {
+      goalId,
+      error: err instanceof Error ? err.message : String(err),
+    });
     available = false;
   }
 }
