@@ -10,6 +10,7 @@ import { sendTurnCompleteNotification as ntfyTurnComplete } from './notify.js';
 import { sendTurnCompleteNotification as pushoverTurnComplete } from './pushover.js';
 import { extractSnippet } from './notification-helpers.js';
 import { NOTIFY_SNIPPET_MAX_CHARS } from './constants.js';
+import { createGoal, reportUsage, deriveGoalTitle } from './goal-client.js';
 import { PermissionResponseMessage, SetModeMessage } from './ws-schemas.js';
 
 const log = createLogger('query-loop');
@@ -135,6 +136,7 @@ export async function runQueryLoop(
   let openBlockCount = 0;
   let pendingMessageEnd: Record<string, unknown> | null = null;
   let resolvedSessionId: string | undefined;
+  let resolvedGoalId: string | undefined;
 
   /** Wrapper that auto-injects store + sessionId into sendOrBuffer */
   function emit(ws: WebSocket, data: Record<string, unknown>) {
@@ -243,6 +245,27 @@ export async function runQueryLoop(
               store.incrementPromptCount(resolvedSessionId);
             }
           }
+
+          // Auto-create goal in ContexGin Goal Registry
+          if (initialPrompt && resolvedSessionId) {
+            const goalTitle = deriveGoalTitle(initialPrompt);
+            createGoal(goalTitle, {
+              description: initialPrompt.length > 80 ? initialPrompt.slice(0, 500) : undefined,
+            })
+              .then((goalId) => {
+                if (goalId) {
+                  resolvedGoalId = goalId;
+                  if (store) {
+                    store.upsertSession({ sessionId: resolvedSessionId!, goalId });
+                  }
+                  log.info('session linked to goal', {
+                    sessionId: resolvedSessionId,
+                    goalId,
+                  });
+                }
+              })
+              .catch(() => {});
+          }
         }
       } else if (msg.type === 'result') {
         log.info('result received', { clientId, sessionId: msg.session_id });
@@ -268,6 +291,29 @@ export async function runQueryLoop(
         // Persist usage to durable store
         if (store && resolvedSessionId) {
           store.recordUsage(resolvedSessionId, usageData);
+        }
+
+        // Report usage to ContexGin Goal Registry
+        if (resolvedGoalId && resolvedSessionId) {
+          reportUsage(resolvedGoalId, {
+            source: 'mitzo_session',
+            sourceId: resolvedSessionId,
+            sourceLabel: initialPrompt
+              ? `Mitzo: ${deriveGoalTitle(initialPrompt)}`
+              : `Mitzo session ${resolvedSessionId}`,
+            inputTokens: usageData.inputTokens,
+            outputTokens: usageData.outputTokens,
+            cacheReadTokens: usageData.cacheReadTokens,
+            cacheCreationTokens: usageData.cacheCreationTokens,
+            costUsd: usageData.totalCostUsd,
+            turns: usageData.numTurns,
+            durationMs: usageData.durationMs,
+            durationApiMs: usageData.durationApiMs,
+            metadata: {
+              cwd: currentSession.cwd,
+              mode: currentSession.mode,
+            },
+          }).catch(() => {});
         }
 
         emit(currentWs, v2('session_end', { sessionId: msg.session_id, usage: usageData }));
