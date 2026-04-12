@@ -9,6 +9,7 @@ import { InboxView } from './pages/InboxView';
 import { CalendarView } from './pages/CalendarView';
 import { TodoView } from './pages/TodoView';
 import { TodoDetailView } from './pages/TodoDetailView';
+import { TaskBoard } from './pages/TaskBoard';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useIsDesktop } from './hooks/useMediaQuery';
 
@@ -101,6 +102,14 @@ export function App() {
             element={
               <ProtectedRoute>
                 <TodoDetailView />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/tasks"
+            element={
+              <ProtectedRoute>
+                <TaskBoard />
               </ProtectedRoute>
             }
           />

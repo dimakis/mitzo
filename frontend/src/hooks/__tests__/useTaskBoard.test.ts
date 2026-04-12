@@ -49,7 +49,7 @@ beforeEach(() => {
     ok: true,
     json: () => Promise.resolve({ tasks: [] }),
   });
-  globalThis.fetch = fetchMock;
+  globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
 });
 
 afterEach(() => {
