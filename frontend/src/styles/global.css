@@ -1145,6 +1145,16 @@ textarea:focus {
   text-underline-offset: 2px;
 }
 
+.msg-bubble--assistant a.file-path-link {
+  color: #7dd3fc;
+  text-decoration: none;
+  background: rgba(125, 211, 252, 0.1);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.9em;
+}
+
 .msg-bubble--assistant img {
   max-width: 100%;
   border-radius: 6px;

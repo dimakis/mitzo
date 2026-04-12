@@ -1,4 +1,4 @@
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { MitzoLogo } from '../components/MitzoLogo';
@@ -8,8 +8,10 @@ import { useDocumentReader } from '../hooks/useDocumentReader';
 
 export function FileViewer() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const routerNavigate = useNavigate();
   const nav = useFileNavigation(searchParams, setSearchParams);
   const { state } = nav;
+  const fromRoute = searchParams.get('from');
 
   const editor = useFileEditor(state.content, state.filePath, nav.setError);
   const reader = useDocumentReader();
@@ -26,12 +28,16 @@ export function FileViewer() {
     <div className="viewer-page">
       <header className="viewer-header">
         <MitzoLogo />
-        {(state.isViewing || state.currentDir) && (
+        {(state.isViewing || state.currentDir || fromRoute) && (
           <button
             className="viewer-header-back"
             onClick={() => {
               editor.resetEditor();
-              nav.handleBack(editor.dirty);
+              if (fromRoute) {
+                routerNavigate(fromRoute);
+              } else {
+                nav.handleBack(editor.dirty);
+              }
             }}
           >
             &larr;
