@@ -195,10 +195,7 @@ export class EventStore {
         'cache_creation_tokens',
         'ALTER TABLE sessions ADD COLUMN cache_creation_tokens INTEGER NOT NULL DEFAULT 0',
       ],
-      [
-        'total_cost_usd',
-        'ALTER TABLE sessions ADD COLUMN total_cost_usd REAL NOT NULL DEFAULT 0',
-      ],
+      ['total_cost_usd', 'ALTER TABLE sessions ADD COLUMN total_cost_usd REAL NOT NULL DEFAULT 0'],
       ['num_turns', 'ALTER TABLE sessions ADD COLUMN num_turns INTEGER NOT NULL DEFAULT 0'],
       ['duration_ms', 'ALTER TABLE sessions ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0'],
       [
