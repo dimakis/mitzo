@@ -237,7 +237,33 @@ export async function runQueryLoop(
         if (msg.session_id) emit(currentWs, { type: 'session_id', sessionId: msg.session_id });
         forceFlushPendingMessage(currentWs, currentSession);
         doneSent = true;
-        emit(currentWs, v2('session_end', { sessionId: msg.session_id }));
+
+        // Extract usage data from SDK result event
+        const usageData = {
+          inputTokens: (msg as Record<string, unknown> & { usage?: Record<string, number> }).usage
+            ?.input_tokens ?? 0,
+          outputTokens: (msg as Record<string, unknown> & { usage?: Record<string, number> }).usage
+            ?.output_tokens ?? 0,
+          cacheReadTokens:
+            (msg as Record<string, unknown> & { usage?: Record<string, number> }).usage
+              ?.cache_read_input_tokens ?? 0,
+          cacheCreationTokens:
+            (msg as Record<string, unknown> & { usage?: Record<string, number> }).usage
+              ?.cache_creation_input_tokens ?? 0,
+          totalCostUsd:
+            (msg as Record<string, unknown> & { total_cost_usd?: number }).total_cost_usd ?? 0,
+          numTurns: (msg as Record<string, unknown> & { num_turns?: number }).num_turns ?? 0,
+          durationMs: (msg as Record<string, unknown> & { duration_ms?: number }).duration_ms ?? 0,
+          durationApiMs:
+            (msg as Record<string, unknown> & { duration_api_ms?: number }).duration_api_ms ?? 0,
+        };
+
+        // Persist usage to durable store
+        if (store && resolvedSessionId) {
+          store.recordUsage(resolvedSessionId, usageData);
+        }
+
+        emit(currentWs, v2('session_end', { sessionId: msg.session_id, usage: usageData }));
         if (!registry.isAttached(clientId)) {
           const snippet = extractSnippet(snapshotBlocks, NOTIFY_SNIPPET_MAX_CHARS);
           const sid = (msg.session_id as string) || currentSession.sessionId;

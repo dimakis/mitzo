@@ -22,6 +22,15 @@ export interface SessionMeta {
   promptCount: number;
   manuallyRenamed: boolean;
   initialPrompt: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  totalCostUsd: number;
+  numTurns: number;
+  durationMs: number;
+  durationApiMs: number;
+  goalId: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -45,6 +54,15 @@ interface SessionRow {
   prompt_count: number;
   manually_renamed: number;
   initial_prompt: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  total_cost_usd: number;
+  num_turns: number;
+  duration_ms: number;
+  duration_api_ms: number;
+  goal_id: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -99,6 +117,7 @@ export class EventStore {
 
     // Migrate existing databases that lack the new columns
     this.migratePromptTracking(db);
+    this.migrateUsageTracking(db);
 
     this.stmts = {
       append: db.prepare('INSERT INTO events (session_id, type, payload) VALUES (?, ?, ?)'),
@@ -144,6 +163,41 @@ export class EventStore {
     if (!columnNames.has('initial_prompt')) {
       db.exec('ALTER TABLE sessions ADD COLUMN initial_prompt TEXT');
       log.info('migrated sessions table: added initial_prompt');
+    }
+  }
+
+  /** Add usage tracking columns if they don't exist yet. */
+  private migrateUsageTracking(db: Database.Database): void {
+    const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
+    const columnNames = new Set(columns.map((c) => c.name));
+    const migrations: Array<[string, string]> = [
+      ['input_tokens', 'ALTER TABLE sessions ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0'],
+      ['output_tokens', 'ALTER TABLE sessions ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0'],
+      [
+        'cache_read_tokens',
+        'ALTER TABLE sessions ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0',
+      ],
+      [
+        'cache_creation_tokens',
+        'ALTER TABLE sessions ADD COLUMN cache_creation_tokens INTEGER NOT NULL DEFAULT 0',
+      ],
+      [
+        'total_cost_usd',
+        'ALTER TABLE sessions ADD COLUMN total_cost_usd REAL NOT NULL DEFAULT 0',
+      ],
+      ['num_turns', 'ALTER TABLE sessions ADD COLUMN num_turns INTEGER NOT NULL DEFAULT 0'],
+      ['duration_ms', 'ALTER TABLE sessions ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0'],
+      [
+        'duration_api_ms',
+        'ALTER TABLE sessions ADD COLUMN duration_api_ms INTEGER NOT NULL DEFAULT 0',
+      ],
+      ['goal_id', 'ALTER TABLE sessions ADD COLUMN goal_id TEXT'],
+    ];
+    for (const [col, sql] of migrations) {
+      if (!columnNames.has(col)) {
+        db.exec(sql);
+        log.info(`migrated sessions table: added ${col}`);
+      }
     }
   }
 
@@ -265,6 +319,48 @@ export class EventStore {
       "UPDATE sessions SET manually_renamed = 1, updated_at = unixepoch('now', 'subsec') * 1000 WHERE session_id = ?",
     ).run(sessionId);
   }
+
+  /**
+   * Record token usage and timing data for a session.
+   * Overwrites any previous usage data (final totals from SDK result event).
+   */
+  recordUsage(
+    sessionId: string,
+    usage: {
+      inputTokens: number;
+      outputTokens: number;
+      cacheReadTokens: number;
+      cacheCreationTokens: number;
+      totalCostUsd: number;
+      numTurns: number;
+      durationMs: number;
+      durationApiMs: number;
+    },
+  ): void {
+    this.db!.prepare(
+      `UPDATE sessions SET
+        input_tokens = ?,
+        output_tokens = ?,
+        cache_read_tokens = ?,
+        cache_creation_tokens = ?,
+        total_cost_usd = ?,
+        num_turns = ?,
+        duration_ms = ?,
+        duration_api_ms = ?,
+        updated_at = unixepoch('now', 'subsec') * 1000
+      WHERE session_id = ?`,
+    ).run(
+      usage.inputTokens,
+      usage.outputTokens,
+      usage.cacheReadTokens,
+      usage.cacheCreationTokens,
+      usage.totalCostUsd,
+      usage.numTurns,
+      usage.durationMs,
+      usage.durationApiMs,
+      sessionId,
+    );
+  }
 }
 
 function rowToEvent(row: EventRow): StoredEvent {
@@ -289,6 +385,15 @@ function rowToSession(row: SessionRow): SessionMeta {
     promptCount: row.prompt_count ?? 0,
     manuallyRenamed: (row.manually_renamed ?? 0) === 1,
     initialPrompt: row.initial_prompt ?? null,
+    inputTokens: row.input_tokens ?? 0,
+    outputTokens: row.output_tokens ?? 0,
+    cacheReadTokens: row.cache_read_tokens ?? 0,
+    cacheCreationTokens: row.cache_creation_tokens ?? 0,
+    totalCostUsd: row.total_cost_usd ?? 0,
+    numTurns: row.num_turns ?? 0,
+    durationMs: row.duration_ms ?? 0,
+    durationApiMs: row.duration_api_ms ?? 0,
+    goalId: row.goal_id ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
