@@ -20,6 +20,20 @@ function send(ws: WebSocket, data: unknown) {
   }
 }
 
+/** Shape of the SDK result event — fields we extract for usage tracking. */
+interface SdkResultEvent {
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  };
+  total_cost_usd?: number;
+  num_turns?: number;
+  duration_ms?: number;
+  duration_api_ms?: number;
+}
+
 /**
  * Broadcast a message to all observers of a session.
  * Each send is wrapped in try/catch to prevent a single failing socket
@@ -239,13 +253,7 @@ export async function runQueryLoop(
         doneSent = true;
 
         // Extract usage data from SDK result event
-        const result = msg as {
-          usage?: Record<string, number>;
-          total_cost_usd?: number;
-          num_turns?: number;
-          duration_ms?: number;
-          duration_api_ms?: number;
-        };
+        const result = msg as SdkResultEvent;
         const usageData = {
           inputTokens: result.usage?.input_tokens ?? 0,
           outputTokens: result.usage?.output_tokens ?? 0,
