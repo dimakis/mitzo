@@ -14,7 +14,7 @@ npm run lint         # ESLint (server + frontend)
 npm run lint:fix     # ESLint with auto-fix
 npm run format       # Prettier (write)
 npm run format:check # Prettier (check only)
-npm test             # Vitest (525 tests, 48 files)
+npm test             # Vitest (1584 tests, 164 files)
 ```
 
 Pre-commit hooks (husky + lint-staged) run lint and format on staged files. Conventional commit messages enforced via commitlint. **Pre-commit hooks are not a substitute for CI** — they only check staged files of specific types. Always verify CI passes after pushing (see `.cursor/rules/ci-discipline.mdc`).
@@ -65,7 +65,7 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 - `types/ws-messages.ts` — Typed WebSocket message unions (client → server, server → client).
 - `hooks/` — `useChatMessages` (useReducer for v2 protocol: MESSAGE_START/BLOCK_START/BLOCK_DELTA/BLOCK_END/TOOL_RESULT/MESSAGE_END/SESSION_END/MESSAGE_SNAPSHOT/RESTORE), `useChatSession`, `useChatConnection`, `usePermission`, `useFileNavigation`, `useFileEditor`, `useLongPress`.
 - `lib/` — `ws-pool` (module-level WebSocket pool with 500-message buffer and auto-reconnect), `groupMessages` (tool block grouping with configurable threshold), `constants`, `formatTime`, `paste-images`, `model-preference`, `rename-session`, `resizeImage`, `swipe-reveal`, `truncate`.
-- Pages: `Login`, `SessionList`, `ChatView` (renders `current` inline + `messages[]` grouped), `FileViewer`, `InboxView`.
+- Pages: `Login`, `SessionList`, `ChatView` (renders `current` inline + `messages[]` grouped), `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`.
 - Components: `MessageBubble` (UserBubble/TextBubble), `ThinkingBlock`, `ToolPill`, `ToolGroup`, `PermissionBanner`, `ChatInput`, `SlashPicker`, `ErrorBoundary`, `MitzoLogo`.
 - Auth via `ProtectedRoute` wrapper. Vite dev server proxies `/api` and `/ws` to backend.
 
@@ -131,7 +131,7 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 - Resolution order: Native → Repo → User → Bundled. Deterministic precedence with collision metadata.
 - `SlashPicker` component shows available skills when user types `/` in chat input, with type badges and collision notes.
 - Skills can declare `allowed-tools` in frontmatter — enforced as a ceiling (never expands permissions) via `skill-policy.ts`.
-- Bundled skills: `/simplify` (code review), `/risk-scan` (security audit), `/pr-review` (PR review).
+- Bundled skills: `/simplify` (complexity, duplication, cleanup), `/risk-scan` (failure modes, missing tests, unsafe assumptions), `/pr-review` (diff/branch code review), `/person` (people profile lookup and update), `/review-response` (triage and fix PR review comments).
 - `GET /api/skills` returns merged registry with collision info, scoped by `cwd` query param.
 
 **Voice integration (landing with PR #108):**
