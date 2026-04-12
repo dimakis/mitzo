@@ -306,7 +306,6 @@ Get notified on your phone when Claude needs permission approval:
 3. Add to `.env`:
 
 ```
-NTFY_ENABLED=true
 NTFY_TOPIC=mitzo-cat
 ```
 
