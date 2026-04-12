@@ -20,6 +20,20 @@ function send(ws: WebSocket, data: unknown) {
   }
 }
 
+/** Shape of the SDK result event — fields we extract for usage tracking. */
+interface SdkResultEvent {
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  };
+  total_cost_usd?: number;
+  num_turns?: number;
+  duration_ms?: number;
+  duration_api_ms?: number;
+}
+
 /**
  * Broadcast a message to all observers of a session.
  * Each send is wrapped in try/catch to prevent a single failing socket
@@ -237,7 +251,26 @@ export async function runQueryLoop(
         if (msg.session_id) emit(currentWs, { type: 'session_id', sessionId: msg.session_id });
         forceFlushPendingMessage(currentWs, currentSession);
         doneSent = true;
-        emit(currentWs, v2('session_end', { sessionId: msg.session_id }));
+
+        // Extract usage data from SDK result event
+        const result = msg as SdkResultEvent;
+        const usageData = {
+          inputTokens: result.usage?.input_tokens ?? 0,
+          outputTokens: result.usage?.output_tokens ?? 0,
+          cacheReadTokens: result.usage?.cache_read_input_tokens ?? 0,
+          cacheCreationTokens: result.usage?.cache_creation_input_tokens ?? 0,
+          totalCostUsd: result.total_cost_usd ?? 0,
+          numTurns: result.num_turns ?? 0,
+          durationMs: result.duration_ms ?? 0,
+          durationApiMs: result.duration_api_ms ?? 0,
+        };
+
+        // Persist usage to durable store
+        if (store && resolvedSessionId) {
+          store.recordUsage(resolvedSessionId, usageData);
+        }
+
+        emit(currentWs, v2('session_end', { sessionId: msg.session_id, usage: usageData }));
         if (!registry.isAttached(clientId)) {
           const snippet = extractSnippet(snapshotBlocks, NOTIFY_SNIPPET_MAX_CHARS);
           const sid = (msg.session_id as string) || currentSession.sessionId;
