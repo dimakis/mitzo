@@ -14,7 +14,6 @@ describe('Token capture — usage tracking', () => {
 
   describe('migrateUsageTracking', () => {
     it('adds usage columns to sessions table', () => {
-      const session = store.getSession('test-session');
       // Session doesn't exist yet, but creating one should include the new fields
       store.upsertSession({ sessionId: 'test-session', summary: 'Test' });
       const result = store.getSession('test-session');
