@@ -41,15 +41,55 @@ function makeTask(overrides: Partial<Task> = {}): Task {
   };
 }
 
+const defaultLoopStatus = {
+  state: 'idle',
+  goalId: null,
+  activeTaskId: null,
+  progress: null,
+  specMode: false,
+  awaitingApproval: false,
+};
+
 let fetchMock: ReturnType<typeof vi.fn>;
+let taskResponse: { tasks: Task[] };
+let mutationResponses: Array<{ ok: boolean; status?: number; json?: () => Promise<unknown> }>;
+
+function setupFetch(tasks: Task[] = []) {
+  taskResponse = { tasks };
+  mutationResponses = [];
+  fetchMock = vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
+    if (url === '/api/loop/status') {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(defaultLoopStatus),
+      });
+    }
+    if (url === '/api/tasks' && (!opts || opts.method === undefined || opts.method === 'GET')) {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(taskResponse),
+      });
+    }
+    // Mutation calls — pop from queue or default to ok
+    const resp = mutationResponses.shift();
+    if (resp) {
+      return Promise.resolve({
+        ok: resp.ok,
+        status: resp.status ?? (resp.ok ? 200 : 500),
+        json: resp.json ?? (() => Promise.resolve({})),
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({}),
+    });
+  });
+  globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+}
 
 beforeEach(() => {
   listeners.length = 0;
-  fetchMock = vi.fn().mockResolvedValue({
-    ok: true,
-    json: () => Promise.resolve({ tasks: [] }),
-  });
-  globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+  setupFetch();
 });
 
 afterEach(() => {
@@ -59,30 +99,16 @@ afterEach(() => {
 describe('useTaskBoard', () => {
   it('fetches tasks on mount', async () => {
     const tasks = [makeTask()];
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ tasks }),
-    });
+    setupFetch(tasks);
 
     const { result } = renderHook(() => useTaskBoard());
 
     expect(result.current.loading).toBe(true);
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.tasks).toEqual(tasks);
-    expect(fetchMock).toHaveBeenCalledWith('/api/tasks');
   });
 
   it('createTask calls POST and relies on WS for state', async () => {
-    fetchMock
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ tasks: [] }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ task: makeTask() }),
-      });
-
     const { result } = renderHook(() => useTaskBoard());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -97,16 +123,7 @@ describe('useTaskBoard', () => {
   });
 
   it('updateTask calls PATCH', async () => {
-    fetchMock
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ tasks: [makeTask()] }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ task: makeTask({ title: 'Updated' }) }),
-      });
-
+    setupFetch([makeTask()]);
     const { result } = renderHook(() => useTaskBoard());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -121,16 +138,7 @@ describe('useTaskBoard', () => {
   });
 
   it('deleteTask calls DELETE', async () => {
-    fetchMock
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ tasks: [makeTask()] }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ ok: true }),
-      });
-
+    setupFetch([makeTask()]);
     const { result } = renderHook(() => useTaskBoard());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -170,12 +178,7 @@ describe('useTaskBoard', () => {
   });
 
   it('WS task_updated updates existing task', async () => {
-    const original = makeTask({ id: 'u-1', title: 'Original' });
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ tasks: [original] }),
-    });
-
+    setupFetch([makeTask({ id: 'u-1', title: 'Original' })]);
     const { result } = renderHook(() => useTaskBoard());
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.tasks[0].title).toBe('Original');
@@ -190,12 +193,7 @@ describe('useTaskBoard', () => {
   });
 
   it('WS task_updated inserts child under existing parent', async () => {
-    const parent = makeTask({ id: 'parent-1', title: 'Parent' });
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ tasks: [parent] }),
-    });
-
+    setupFetch([makeTask({ id: 'parent-1', title: 'Parent' })]);
     const { result } = renderHook(() => useTaskBoard());
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.tasks).toHaveLength(1);
@@ -216,12 +214,7 @@ describe('useTaskBoard', () => {
   });
 
   it('WS task_deleted removes task', async () => {
-    const tasks = [makeTask({ id: 'del-1' }), makeTask({ id: 'del-2' })];
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ tasks }),
-    });
-
+    setupFetch([makeTask({ id: 'del-1' }), makeTask({ id: 'del-2' })]);
     const { result } = renderHook(() => useTaskBoard());
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.tasks).toHaveLength(2);
@@ -238,10 +231,7 @@ describe('useTaskBoard', () => {
     const { result } = renderHook(() => useTaskBoard());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ tasks: [makeTask({ id: 'refreshed' })] }),
-    });
+    taskResponse = { tasks: [makeTask({ id: 'refreshed' })] };
 
     await act(async () => {
       result.current.refresh();
@@ -251,7 +241,16 @@ describe('useTaskBoard', () => {
   });
 
   it('handles fetch error gracefully', async () => {
-    fetchMock.mockRejectedValueOnce(new Error('Network error'));
+    fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/loop/status') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(defaultLoopStatus),
+        });
+      }
+      return Promise.reject(new Error('Network error'));
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
 
     const { result } = renderHook(() => useTaskBoard());
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -259,12 +258,10 @@ describe('useTaskBoard', () => {
   });
 
   it('createTask throws on non-ok response', async () => {
-    fetchMock
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ tasks: [] }) })
-      .mockResolvedValueOnce({ ok: false, status: 500 });
-
     const { result } = renderHook(() => useTaskBoard());
     await waitFor(() => expect(result.current.loading).toBe(false));
+
+    mutationResponses.push({ ok: false, status: 500 });
 
     await expect(act(() => result.current.createTask({ title: 'Fail' }))).rejects.toThrow(
       'Create task failed: 500',
@@ -272,12 +269,11 @@ describe('useTaskBoard', () => {
   });
 
   it('updateTask throws on non-ok response', async () => {
-    fetchMock
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ tasks: [makeTask()] }) })
-      .mockResolvedValueOnce({ ok: false, status: 404 });
-
+    setupFetch([makeTask()]);
     const { result } = renderHook(() => useTaskBoard());
     await waitFor(() => expect(result.current.loading).toBe(false));
+
+    mutationResponses.push({ ok: false, status: 404 });
 
     await expect(act(() => result.current.updateTask('task-1', { title: 'Nope' }))).rejects.toThrow(
       'Update task failed: 404',
@@ -285,15 +281,39 @@ describe('useTaskBoard', () => {
   });
 
   it('deleteTask throws on non-ok response', async () => {
-    fetchMock
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ tasks: [makeTask()] }) })
-      .mockResolvedValueOnce({ ok: false, status: 403 });
-
+    setupFetch([makeTask()]);
     const { result } = renderHook(() => useTaskBoard());
     await waitFor(() => expect(result.current.loading).toBe(false));
+
+    mutationResponses.push({ ok: false, status: 403 });
 
     await expect(act(() => result.current.deleteTask('task-1'))).rejects.toThrow(
       'Delete task failed: 403',
     );
+  });
+
+  it('WS loop_status updates loop state', async () => {
+    const { result } = renderHook(() => useTaskBoard());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.loopStatus.state).toBe('idle');
+
+    act(() => {
+      listeners.forEach((l) =>
+        l({
+          type: 'loop_status',
+          state: 'running',
+          goalId: 'g-1',
+          activeTaskId: 't-1',
+          progress: { done: 1, total: 3 },
+          specMode: false,
+          awaitingApproval: false,
+        }),
+      );
+    });
+
+    expect(result.current.loopStatus.state).toBe('running');
+    expect(result.current.loopStatus.goalId).toBe('g-1');
+    expect(result.current.loopStatus.progress).toEqual({ done: 1, total: 3 });
   });
 });

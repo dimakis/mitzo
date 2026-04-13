@@ -28,6 +28,7 @@ import {
   setUpdateBroadcast,
   setInboxBroadcast,
   setTaskBroadcast,
+  setOrchestrator,
   runUpdateCheck,
   buildSkillRegistry,
   NATIVE_COMMAND_NAMES,
@@ -35,6 +36,7 @@ import {
   yapperWsProxy,
   taskStore,
 } from './app.js';
+import { TaskOrchestrator } from './task-orchestrator.js';
 import { IncomingWsMessage } from './ws-schemas.js';
 import { resolveSlashCommand } from './slash-commands.js';
 import { NativeCommandRegistry } from './native-commands.js';
@@ -79,6 +81,56 @@ setTaskBroadcast((event) => {
     if (client.readyState === client.OPEN) client.send(msg);
   });
 });
+
+// --- Task Orchestrator ---
+const orchestrator = new TaskOrchestrator({
+  store: taskStore,
+  getClientId: () => {
+    // Find the first registered client (reuse-only for Phase 2)
+    for (const [clientId] of registry.entries()) {
+      if (registry.isAttached(clientId)) return clientId;
+    }
+    return null;
+  },
+  setTaskContext: (taskId, goalId) => {
+    // Set task context on the pinned client's session
+    const clientId = orchestrator.getPinnedClientId();
+    if (clientId) {
+      const session = registry.get(clientId);
+      if (session) {
+        session.taskContext = { currentTaskId: taskId, goalId };
+      }
+    }
+  },
+  clearTaskContext: () => {
+    for (const [clientId] of registry.entries()) {
+      const session = registry.get(clientId);
+      if (session) session.taskContext = null;
+    }
+  },
+  broadcastStatus: (status) => {
+    const msg = JSON.stringify({ type: 'loop_status', ...status });
+    wss.clients.forEach((client) => {
+      if (client.readyState === client.OPEN) client.send(msg);
+    });
+  },
+  broadcastTasks: () => {
+    const tree = taskStore.getTree();
+    const msg = JSON.stringify({ type: 'task_state', tasks: tree });
+    wss.clients.forEach((client) => {
+      if (client.readyState === client.OPEN) client.send(msg);
+    });
+  },
+  getActiveSessionIds: () => {
+    const ids = new Set<string>();
+    for (const [clientId] of registry.entries()) {
+      const session = registry.get(clientId);
+      if (session?.sessionId) ids.add(session.sessionId);
+    }
+    return ids;
+  },
+});
+setOrchestrator(orchestrator);
 
 server.on('upgrade', async (req, socket, head) => {
   const url = new URL(req.url || '', `http://${req.headers.host}`);

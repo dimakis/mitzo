@@ -9,6 +9,15 @@ export type TaskStatus =
 
 export type SessionPolicy = 'reuse' | 'spawn' | 'auto';
 
+export interface LoopStatus {
+  state: 'idle' | 'running' | 'paused';
+  goalId: string | null;
+  activeTaskId: string | null;
+  progress: { done: number; total: number } | null;
+  specMode: boolean;
+  awaitingApproval: boolean;
+}
+
 export interface Task {
   id: string;
   parentId: string | null;

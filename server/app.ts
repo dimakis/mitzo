@@ -30,6 +30,13 @@ import { getLocalCommit, isUpdateAvailable } from './git-version.js';
 import { resolvePending } from './permissions.js';
 import { createLogger } from './logger.js';
 import {
+  handleTaskSet,
+  handleTaskComplete,
+  handleTaskStatus,
+  handleTaskBlock,
+} from './task-tools.js';
+import { setTaskStore } from './chat.js';
+import {
   LoginBody,
   FileWriteBody,
   PermissionDecision,
@@ -40,7 +47,9 @@ import {
   TodoActionResponse,
   TaskCreateBody,
   TaskUpdateBody,
+  LoopStartBody,
 } from './api-schemas.js';
+import type { TaskOrchestrator } from './task-orchestrator.js';
 import {
   listInboxItems,
   readInboxItem,
@@ -155,6 +164,11 @@ let updateAvailable = false;
 let onUpdateAvailable: (() => void) | null = null;
 let onInboxUpdated: (() => void) | null = null;
 let onTaskBroadcast: ((event: Record<string, unknown>) => void) | null = null;
+let orchestrator: TaskOrchestrator | null = null;
+
+export function setOrchestrator(o: TaskOrchestrator): void {
+  orchestrator = o;
+}
 
 // --- Task store ---
 
@@ -165,6 +179,7 @@ try {
   // may already exist
 }
 export const taskStore = new TaskStore(join(mitzoDir, 'tasks.db'));
+setTaskStore(taskStore);
 
 export function setUpdateBroadcast(fn: () => void) {
   onUpdateAvailable = fn;
@@ -364,6 +379,187 @@ app.delete('/api/tasks/:id', (req, res) => {
   }
   res.json({ ok: true });
   onTaskBroadcast?.({ type: 'task_deleted', taskId: req.params.id });
+});
+
+// --- Internal task-tool endpoints (MCP server callback) ---
+
+function resolveTaskContext(req: express.Request): string | null {
+  const clientId = req.headers['x-client-id'] as string | undefined;
+  if (!clientId) return null;
+  const session = registry.get(clientId);
+  return session?.taskContext?.currentTaskId ?? null;
+}
+
+app.post('/api/internal/task-tools/set', (req, res) => {
+  if (!verifyInternalToken(req)) {
+    res.status(401).json({ error: 'Internal token required' });
+    return;
+  }
+  const taskId = resolveTaskContext(req);
+  if (!taskId) {
+    res.status(400).json({ error: 'No active task context' });
+    return;
+  }
+  const result = handleTaskSet(taskStore, taskId, req.body.tasks ?? []);
+  res.json({ result });
+  onTaskBroadcast?.({
+    type: 'task_state',
+    tasks: taskStore.getTree(),
+  });
+});
+
+app.post('/api/internal/task-tools/complete', (req, res) => {
+  if (!verifyInternalToken(req)) {
+    res.status(401).json({ error: 'Internal token required' });
+    return;
+  }
+  const taskId = resolveTaskContext(req);
+  if (!taskId) {
+    res.status(400).json({ error: 'No active task context' });
+    return;
+  }
+  const result = handleTaskComplete(taskStore, taskId, req.body.summary ?? '');
+  res.json({ result });
+  onTaskBroadcast?.({
+    type: 'task_state',
+    tasks: taskStore.getTree(),
+  });
+});
+
+app.get('/api/internal/task-tools/status', (req, res) => {
+  if (!verifyInternalToken(req)) {
+    res.status(401).json({ error: 'Internal token required' });
+    return;
+  }
+  const taskId = resolveTaskContext(req);
+  if (!taskId) {
+    res.status(400).json({ error: 'No active task context' });
+    return;
+  }
+  const result = handleTaskStatus(taskStore, taskId);
+  res.json({ result });
+});
+
+app.post('/api/internal/task-tools/block', (req, res) => {
+  if (!verifyInternalToken(req)) {
+    res.status(401).json({ error: 'Internal token required' });
+    return;
+  }
+  const taskId = resolveTaskContext(req);
+  if (!taskId) {
+    res.status(400).json({ error: 'No active task context' });
+    return;
+  }
+  const result = handleTaskBlock(taskStore, taskId, req.body.reason ?? '');
+  res.json({ result });
+  onTaskBroadcast?.({
+    type: 'task_state',
+    tasks: taskStore.getTree(),
+  });
+});
+
+// --- Loop orchestrator API ---
+
+app.get('/api/loop/status', (req, res) => {
+  if (!orchestrator) {
+    res.json({
+      state: 'idle',
+      goalId: null,
+      activeTaskId: null,
+      progress: null,
+      specMode: false,
+      awaitingApproval: false,
+    });
+    return;
+  }
+  res.json(orchestrator.getStatus());
+});
+
+app.post('/api/loop/start', (req, res) => {
+  const body = LoopStartBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: 'goalId is required' });
+    return;
+  }
+  if (!orchestrator) {
+    res.status(503).json({ error: 'Orchestrator not initialized' });
+    return;
+  }
+  const status = orchestrator.getStatus();
+  if (status.state === 'running') {
+    res.status(409).json({ error: 'Loop already running' });
+    return;
+  }
+  const result = orchestrator.start(body.data.goalId, {
+    specMode: body.data.specMode,
+  });
+  res.json(result);
+});
+
+app.post('/api/loop/pause', (_req, res) => {
+  if (!orchestrator) {
+    res.status(503).json({ error: 'Orchestrator not initialized' });
+    return;
+  }
+  res.json(orchestrator.pause());
+});
+
+app.post('/api/loop/resume', (_req, res) => {
+  if (!orchestrator) {
+    res.status(503).json({ error: 'Orchestrator not initialized' });
+    return;
+  }
+  res.json(orchestrator.resume());
+});
+
+app.post('/api/loop/stop', (_req, res) => {
+  if (!orchestrator) {
+    res.status(503).json({ error: 'Orchestrator not initialized' });
+    return;
+  }
+  res.json(orchestrator.stop());
+});
+
+app.post('/api/tasks/:id/approve', (req, res) => {
+  if (!orchestrator) {
+    res.status(503).json({ error: 'Orchestrator not initialized' });
+    return;
+  }
+  const ok = orchestrator.approveTask(req.params.id);
+  if (!ok) {
+    res.status(400).json({ error: 'Task not in pending_review state' });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+app.post('/api/tasks/:id/reject', (req, res) => {
+  if (!orchestrator) {
+    res.status(503).json({ error: 'Orchestrator not initialized' });
+    return;
+  }
+  const ok = orchestrator.rejectTask(req.params.id, req.body.feedback ?? '');
+  if (!ok) {
+    res.status(400).json({ error: 'Task not in pending_review state' });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+app.post('/api/loop/spec/approve', (_req, res) => {
+  if (!orchestrator) {
+    res.status(503).json({ error: 'Orchestrator not initialized' });
+    return;
+  }
+  res.json(orchestrator.approveSpec());
+});
+
+app.post('/api/loop/spec/reject', (_req, res) => {
+  if (!orchestrator) {
+    res.status(503).json({ error: 'Orchestrator not initialized' });
+    return;
+  }
+  res.json(orchestrator.rejectSpec());
 });
 
 app.post('/api/auth/login', loginLimiter, async (req, res) => {

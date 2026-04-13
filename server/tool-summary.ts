@@ -58,6 +58,14 @@ export function summarizeToolInput(toolName: string, input: Record<string, unkno
       return `${input.search_term || ''}`;
     case 'WebFetch':
       return `${input.url || ''}`;
+    case 'mcp__task-board__TaskSet':
+      return `${(input.tasks as unknown[])?.length ?? 0} subtasks`;
+    case 'mcp__task-board__TaskComplete':
+      return `${String(input.summary || '').slice(0, 60)}`;
+    case 'mcp__task-board__TaskStatus':
+      return 'get status';
+    case 'mcp__task-board__TaskBlock':
+      return `${String(input.reason || '').slice(0, 60)}`;
     default:
       return JSON.stringify(input).slice(0, TOOL_SUMMARY_MAX_CHARS);
   }

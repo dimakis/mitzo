@@ -24,17 +24,29 @@ const NEXT_STATUS: Record<TaskStatus, TaskStatus> = {
 interface TaskNodeProps {
   task: Task;
   depth: number;
+  activeTaskId?: string | null;
   onStatusChange: (id: string, status: TaskStatus) => void;
   onDelete: (id: string) => void;
   onAddChild: (parentId: string) => void;
+  onApprove?: (id: string) => void;
+  onReject?: (id: string, feedback: string) => void;
 }
 
-export function TaskNode({ task, depth, onStatusChange, onDelete, onAddChild }: TaskNodeProps) {
+export function TaskNode({
+  task,
+  depth,
+  activeTaskId,
+  onStatusChange,
+  onDelete,
+  onAddChild,
+  onApprove,
+  onReject,
+}: TaskNodeProps) {
   const [expanded, setExpanded] = useState(true);
   const hasChildren = task.children.length > 0;
 
   return (
-    <div className="task-node">
+    <div className={`task-node${activeTaskId === task.id ? ' task-node--active' : ''}`}>
       <div className="task-node-row">
         {hasChildren && (
           <button
@@ -58,6 +70,24 @@ export function TaskNode({ task, depth, onStatusChange, onDelete, onAddChild }: 
           {task.title}
         </span>
         <div className="task-node-actions">
+          {task.status === 'pending_review' && onApprove && (
+            <button
+              className="task-node-action task-node-action--approve"
+              onClick={() => onApprove(task.id)}
+              title="Approve"
+            >
+              &#x2713;
+            </button>
+          )}
+          {task.status === 'pending_review' && onReject && (
+            <button
+              className="task-node-action task-node-action--danger"
+              onClick={() => onReject(task.id, '')}
+              title="Reject"
+            >
+              &#x2717;
+            </button>
+          )}
           <button
             className="task-node-action"
             onClick={() => onAddChild(task.id)}
@@ -81,9 +111,12 @@ export function TaskNode({ task, depth, onStatusChange, onDelete, onAddChild }: 
               key={child.id}
               task={child}
               depth={depth + 1}
+              activeTaskId={activeTaskId}
               onStatusChange={onStatusChange}
               onDelete={onDelete}
               onAddChild={onAddChild}
+              onApprove={onApprove}
+              onReject={onReject}
             />
           ))}
         </div>

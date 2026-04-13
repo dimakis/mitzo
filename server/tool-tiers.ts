@@ -28,6 +28,8 @@ export function applyTierOverrides(overrides: Record<string, ToolTier>): void {
 
 export function getToolTier(toolName: string): ToolTier {
   if (activeTiers[toolName]) return activeTiers[toolName];
+  // Task board tools are always safe
+  if (toolName.startsWith('mcp__task-board__')) return 'safe';
   if (toolName.startsWith('mcp__')) return 'unknown';
   return 'unknown';
 }

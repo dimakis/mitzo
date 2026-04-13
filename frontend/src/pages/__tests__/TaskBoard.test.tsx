@@ -39,6 +39,14 @@ const mockRefresh = vi.fn();
 const mockCreateTask = vi.fn();
 const mockUpdateTask = vi.fn();
 const mockDeleteTask = vi.fn();
+const mockStartLoop = vi.fn();
+const mockPauseLoop = vi.fn();
+const mockResumeLoop = vi.fn();
+const mockStopLoop = vi.fn();
+const mockApproveTask = vi.fn();
+const mockRejectTask = vi.fn();
+const mockApproveSpec = vi.fn();
+const mockRejectSpec = vi.fn();
 let mockLoading = false;
 let mockTasks: Task[] = [];
 
@@ -46,9 +54,25 @@ vi.mock('../../hooks/useTaskBoard', () => ({
   useTaskBoard: () => ({
     loading: mockLoading,
     tasks: mockTasks,
+    loopStatus: {
+      state: 'idle',
+      goalId: null,
+      activeTaskId: null,
+      progress: null,
+      specMode: false,
+      awaitingApproval: false,
+    },
     createTask: mockCreateTask,
     updateTask: mockUpdateTask,
     deleteTask: mockDeleteTask,
+    startLoop: mockStartLoop,
+    pauseLoop: mockPauseLoop,
+    resumeLoop: mockResumeLoop,
+    stopLoop: mockStopLoop,
+    approveTask: mockApproveTask,
+    rejectTask: mockRejectTask,
+    approveSpec: mockApproveSpec,
+    rejectSpec: mockRejectSpec,
     refresh: mockRefresh,
   }),
 }));
@@ -81,8 +105,8 @@ describe('TaskBoard', () => {
     mockLoading = false;
     mockTasks = [makeTask({ title: 'Task A' }), makeTask({ id: 'task-2', title: 'Task B' })];
     renderBoard();
-    expect(screen.getByText('Task A')).toBeTruthy();
-    expect(screen.getByText('Task B')).toBeTruthy();
+    expect(screen.getAllByText('Task A').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Task B').length).toBeGreaterThan(0);
   });
 
   it('add button toggles create form', () => {

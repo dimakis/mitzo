@@ -219,6 +219,205 @@ describe('TaskStore', () => {
     expect(store.getSubtree('nonexistent')).toEqual([]);
   });
 
+  // --- deriveParentStatus ---
+
+  it('derives failed when any child is failed', () => {
+    const parent = store.create({ title: 'Parent' });
+    store.create({ title: 'C1', parentId: parent.id });
+    const c2 = store.create({ title: 'C2', parentId: parent.id });
+    store.update(c2.id, { status: 'failed' });
+
+    expect(store.deriveParentStatus(parent.id)).toBe('failed');
+  });
+
+  it('derives blocked when any child is blocked (no failed)', () => {
+    const parent = store.create({ title: 'Parent' });
+    store.create({ title: 'C1', parentId: parent.id });
+    const c2 = store.create({ title: 'C2', parentId: parent.id });
+    store.update(c2.id, { status: 'blocked' });
+
+    expect(store.deriveParentStatus(parent.id)).toBe('blocked');
+  });
+
+  it('derives active when any child is active', () => {
+    const parent = store.create({ title: 'Parent' });
+    const c1 = store.create({ title: 'C1', parentId: parent.id });
+    store.create({ title: 'C2', parentId: parent.id });
+    store.update(c1.id, { status: 'active' });
+
+    expect(store.deriveParentStatus(parent.id)).toBe('active');
+  });
+
+  it('derives pending_review when any child is pending_review', () => {
+    const parent = store.create({ title: 'Parent' });
+    const c1 = store.create({ title: 'C1', parentId: parent.id });
+    const c2 = store.create({ title: 'C2', parentId: parent.id });
+    store.update(c1.id, { status: 'done' });
+    store.update(c2.id, { status: 'pending_review' });
+
+    expect(store.deriveParentStatus(parent.id)).toBe('pending_review');
+  });
+
+  it('derives done when all children are done or skipped', () => {
+    const parent = store.create({ title: 'Parent' });
+    const c1 = store.create({ title: 'C1', parentId: parent.id });
+    const c2 = store.create({ title: 'C2', parentId: parent.id });
+    store.update(c1.id, { status: 'done' });
+    store.update(c2.id, { status: 'skipped' });
+
+    expect(store.deriveParentStatus(parent.id)).toBe('done');
+  });
+
+  it('derives pending when children are mixed pending', () => {
+    const parent = store.create({ title: 'Parent' });
+    const c1 = store.create({ title: 'C1', parentId: parent.id });
+    store.create({ title: 'C2', parentId: parent.id });
+    store.update(c1.id, { status: 'done' });
+
+    expect(store.deriveParentStatus(parent.id)).toBe('pending');
+  });
+
+  it('returns own status when task has no children', () => {
+    const leaf = store.create({ title: 'Leaf' });
+    store.update(leaf.id, { status: 'active' });
+
+    expect(store.deriveParentStatus(leaf.id)).toBe('active');
+  });
+
+  // --- cascadeStatus ---
+
+  it('cascades status up the parent chain', () => {
+    const root = store.create({ title: 'Root' });
+    const mid = store.create({ title: 'Mid', parentId: root.id });
+    const leaf = store.create({ title: 'Leaf', parentId: mid.id });
+    store.update(leaf.id, { status: 'done' });
+
+    store.cascadeStatus(leaf.id);
+
+    expect(store.get(mid.id)!.status).toBe('done');
+    expect(store.get(root.id)!.status).toBe('done');
+  });
+
+  it('cascade stops when status unchanged', () => {
+    const root = store.create({ title: 'Root' });
+    const mid = store.create({ title: 'Mid', parentId: root.id });
+    store.create({ title: 'Sibling', parentId: root.id }); // pending sibling keeps root pending
+    const leaf = store.create({ title: 'Leaf', parentId: mid.id });
+    store.update(leaf.id, { status: 'done' });
+
+    store.cascadeStatus(leaf.id);
+
+    expect(store.get(mid.id)!.status).toBe('done');
+    // Root stays pending because of the pending sibling
+    expect(store.get(root.id)!.status).toBe('pending');
+  });
+
+  // --- getBySession ---
+
+  it('returns tasks assigned to a session', () => {
+    const t1 = store.create({ title: 'T1' });
+    store.create({ title: 'T2' });
+    store.setSessionId(t1.id, 'session-abc');
+
+    const result = store.getBySession('session-abc');
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe(t1.id);
+  });
+
+  it('returns empty array for unknown session', () => {
+    expect(store.getBySession('nonexistent')).toEqual([]);
+  });
+
+  // --- setSessionId ---
+
+  it('assigns a session to a task', () => {
+    const task = store.create({ title: 'Assignable' });
+    const updated = store.setSessionId(task.id, 'session-xyz');
+    expect(updated!.sessionId).toBe('session-xyz');
+    expect(updated!.claimedBy).toBe('session-xyz');
+    expect(updated!.claimedAt).toBeGreaterThan(0);
+  });
+
+  it('unassigns a session from a task', () => {
+    const task = store.create({ title: 'Unassignable' });
+    store.setSessionId(task.id, 'session-xyz');
+    const cleared = store.setSessionId(task.id, null);
+    expect(cleared!.sessionId).toBeNull();
+    expect(cleared!.claimedAt).toBeNull();
+  });
+
+  // --- getNextExecutable ---
+
+  it('returns the deepest-left pending leaf (DFS)', () => {
+    const root = store.create({ title: 'Goal' });
+    const c1 = store.create({ title: 'C1', parentId: root.id });
+    const c1a = store.create({ title: 'C1a', parentId: c1.id });
+    store.create({ title: 'C2', parentId: root.id });
+
+    const next = store.getNextExecutable();
+    expect(next!.id).toBe(c1a.id);
+  });
+
+  it('skips done subtrees and finds next pending', () => {
+    const root = store.create({ title: 'Goal' });
+    const c1 = store.create({ title: 'C1', parentId: root.id });
+    const c2 = store.create({ title: 'C2', parentId: root.id });
+    store.update(c1.id, { status: 'done' });
+
+    const next = store.getNextExecutable();
+    expect(next!.id).toBe(c2.id);
+  });
+
+  it('skips blocked subtrees', () => {
+    const root = store.create({ title: 'Goal' });
+    const c1 = store.create({ title: 'C1', parentId: root.id });
+    const c2 = store.create({ title: 'C2', parentId: root.id });
+    store.update(c1.id, { status: 'blocked' });
+
+    const next = store.getNextExecutable();
+    expect(next!.id).toBe(c2.id);
+  });
+
+  it('returns null when all tasks are done', () => {
+    const root = store.create({ title: 'Goal' });
+    const c1 = store.create({ title: 'C1', parentId: root.id });
+    store.update(c1.id, { status: 'done' });
+    store.update(root.id, { status: 'done' });
+
+    expect(store.getNextExecutable()).toBeNull();
+  });
+
+  it('searches within a specific parent subtree', () => {
+    const g1 = store.create({ title: 'Goal 1' });
+    const g2 = store.create({ title: 'Goal 2' });
+    store.create({ title: 'G1-child', parentId: g1.id });
+    const g2child = store.create({ title: 'G2-child', parentId: g2.id });
+
+    const next = store.getNextExecutable(g2.id);
+    expect(next!.id).toBe(g2child.id);
+  });
+
+  // --- getOrphaned ---
+
+  it('finds active tasks with dead sessions', () => {
+    const t1 = store.create({ title: 'Active' });
+    store.update(t1.id, { status: 'active' });
+    store.setSessionId(t1.id, 'dead-session');
+
+    const orphans = store.getOrphaned(new Set(['alive-session']));
+    expect(orphans).toHaveLength(1);
+    expect(orphans[0].id).toBe(t1.id);
+  });
+
+  it('does not include tasks with alive sessions', () => {
+    const t1 = store.create({ title: 'Active' });
+    store.update(t1.id, { status: 'active' });
+    store.setSessionId(t1.id, 'alive-session');
+
+    const orphans = store.getOrphaned(new Set(['alive-session']));
+    expect(orphans).toHaveLength(0);
+  });
+
   // --- close ---
 
   it('can close and reopen', () => {

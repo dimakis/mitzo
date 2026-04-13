@@ -132,3 +132,8 @@ export const TaskUpdateBody = z.object({
   summary: z.string().optional(),
   requiresApproval: z.boolean().optional(),
 });
+
+export const LoopStartBody = z.object({
+  goalId: z.string().min(1),
+  specMode: z.boolean().optional(),
+});

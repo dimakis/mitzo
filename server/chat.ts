@@ -23,6 +23,13 @@ import { runQueryLoop, createWsMessageHandler, broadcastToObservers } from './qu
 import { AsyncQueue } from './async-queue.js';
 import { GIT_BRANCH_TIMEOUT_MS, SESSION_LIST_LIMIT, SESSION_MESSAGES_LIMIT } from './constants.js';
 import { INTERNAL_TOKEN } from './internal-token.js';
+import { buildTaskSystemPrompt } from './task-context.js';
+import type { TaskStore } from './task-store.js';
+
+let _taskStore: TaskStore | null = null;
+export function setTaskStore(store: TaskStore): void {
+  _taskStore = store;
+}
 import { EventStore } from './event-store.js';
 import { shouldAutoRename, extractRecentPrompts, generateSessionName } from './auto-rename.js';
 import { createLogger } from './logger.js';
@@ -130,10 +137,16 @@ function getBranch(cwd: string): string {
   }
 }
 
-function buildMcpAllowedTools(): string[] {
+function buildMcpAllowedTools(clientId?: string): string[] {
   const patterns = Object.keys(mcpServers).map((name) => `mcp__${name}__*`);
   if (Object.keys(getRepoConfig().repos).length > 0) {
     patterns.push('mcp__mitzo_repos__*');
+  }
+  if (clientId) {
+    const session = registry.get(clientId);
+    if (session?.taskContext) {
+      patterns.push('mcp__task-board__*');
+    }
   }
   return patterns;
 }
@@ -158,6 +171,36 @@ function buildRepoMcpServer(clientId: string): Record<string, McpServerConfig> |
       env: { MITZO_INTERNAL_TOKEN: INTERNAL_TOKEN },
     },
   };
+}
+
+const TASK_MCP_SERVER_NAME = 'task-board';
+
+function buildTaskMcpServer(clientId: string): Record<string, McpServerConfig> | null {
+  const session = registry.get(clientId);
+  if (!session?.taskContext) return null;
+  const port = process.env.PORT || '3100';
+  return {
+    [TASK_MCP_SERVER_NAME]: {
+      command: 'node',
+      args: [
+        '--import',
+        'tsx',
+        join(__dirname, 'task-mcp-server.ts'),
+        '--base-url',
+        `http://localhost:${port}`,
+        '--client-id',
+        clientId,
+      ],
+      env: { MITZO_INTERNAL_TOKEN: INTERNAL_TOKEN },
+    },
+  };
+}
+
+function buildTaskPromptForSession(clientId: string): string {
+  if (!_taskStore) return '';
+  const session = registry.get(clientId);
+  if (!session?.taskContext) return '';
+  return buildTaskSystemPrompt(_taskStore, session.taskContext.currentTaskId);
 }
 
 function buildRepoSystemPrompt(): string {
@@ -325,7 +368,7 @@ export async function startChat(
   applyTierOverrides(currentConfig.toolTierOverrides);
 
   const modeAllowed = getAllowedToolsForMode(mode);
-  const mcpAllowed = buildMcpAllowedTools();
+  const mcpAllowed = buildMcpAllowedTools(clientId);
   const extraTools = options.extraTools ? options.extraTools.split(',').map((t) => t.trim()) : [];
 
   // Streaming-input queue — kept open for the session lifetime.
@@ -347,9 +390,10 @@ export async function startChat(
   const branch = getBranch(cwd);
   send(ws, { type: 'session_info', branch, cwd, worktree: !!worktreePath });
 
-  // Merge repo MCP server if repos are configured (works with or without sandbox mode)
+  // Merge dynamic MCP servers (repo + task board if active)
   const repoMcp = buildRepoMcpServer(clientId);
-  const allMcpServers = { ...mcpServers, ...repoMcp };
+  const taskMcp = buildTaskMcpServer(clientId);
+  const allMcpServers = { ...mcpServers, ...repoMcp, ...taskMcp };
 
   // Load project hooks from .claude/settings.json (e.g. SessionStart boot context)
   const hooks = loadProjectHooks(cwd);
@@ -373,7 +417,8 @@ export async function startChat(
             '- Read operations are fine without asking.\n' +
             '- Keep responses concise — small screen.\n' +
             '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.' +
-            buildRepoSystemPrompt(),
+            buildRepoSystemPrompt() +
+            buildTaskPromptForSession(clientId),
         },
         permissionMode: MODE_TO_SDK[mode] as 'plan' | 'default' | 'bypassPermissions',
         allowedTools: [...modeAllowed, ...mcpAllowed, ...extraTools],
