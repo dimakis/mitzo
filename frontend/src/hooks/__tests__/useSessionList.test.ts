@@ -26,7 +26,6 @@ beforeEach(() => {
     if (url === '/api/sessions') return Promise.resolve({ json: () => Promise.resolve([]) });
     if (url === '/api/config') return Promise.resolve({ json: () => Promise.resolve({}) });
     if (url === '/api/version') return Promise.resolve({ json: () => Promise.resolve({}) });
-    if (url === '/api/inbox') return Promise.resolve({ json: () => Promise.resolve([]) });
     return Promise.resolve({ json: () => Promise.resolve({}) });
   });
 });
@@ -48,7 +47,6 @@ describe('useSessionList', () => {
         return Promise.resolve({ json: () => Promise.resolve(sessions) });
       if (url === '/api/config') return Promise.resolve({ json: () => Promise.resolve({}) });
       if (url === '/api/version') return Promise.resolve({ json: () => Promise.resolve({}) });
-      if (url === '/api/inbox') return Promise.resolve({ json: () => Promise.resolve([]) });
       return Promise.resolve({ json: () => Promise.resolve({}) });
     });
 
@@ -71,7 +69,6 @@ describe('useSessionList', () => {
         return Promise.resolve({ json: () => Promise.resolve(sessions) });
       if (url === '/api/config') return Promise.resolve({ json: () => Promise.resolve({}) });
       if (url === '/api/version') return Promise.resolve({ json: () => Promise.resolve({}) });
-      if (url === '/api/inbox') return Promise.resolve({ json: () => Promise.resolve([]) });
       return Promise.resolve({ json: () => Promise.resolve({}) });
     });
 
@@ -94,7 +91,6 @@ describe('useSessionList', () => {
         return Promise.resolve({ json: () => Promise.resolve(sessions) });
       if (url === '/api/config') return Promise.resolve({ json: () => Promise.resolve({}) });
       if (url === '/api/version') return Promise.resolve({ json: () => Promise.resolve({}) });
-      if (url === '/api/inbox') return Promise.resolve({ json: () => Promise.resolve([]) });
       return Promise.resolve({ json: () => Promise.resolve({}) });
     });
 
@@ -116,7 +112,6 @@ describe('useSessionList', () => {
         return Promise.resolve({ json: () => Promise.resolve(sessions) });
       if (url === '/api/config') return Promise.resolve({ json: () => Promise.resolve({}) });
       if (url === '/api/version') return Promise.resolve({ json: () => Promise.resolve({}) });
-      if (url === '/api/inbox') return Promise.resolve({ json: () => Promise.resolve([]) });
       return Promise.resolve({ json: () => Promise.resolve({}) });
     });
 
@@ -130,11 +125,6 @@ describe('useSessionList', () => {
     expect(result.current.sessions[0].summary).toBe('New Name');
   });
 
-  it('subscribes to WS for inbox updates', () => {
-    renderHook(() => useSessionList());
-    expect(mockWsSubscribe).toHaveBeenCalledWith('global:system', expect.any(Function));
-  });
-
   it('builds quick actions from config', async () => {
     mockFetch.mockImplementation((url: string) => {
       if (url === '/api/sessions') return Promise.resolve({ json: () => Promise.resolve([]) });
@@ -143,7 +133,6 @@ describe('useSessionList', () => {
           json: () => Promise.resolve({ quickActions: [{ label: 'Test', desc: 'Test action' }] }),
         });
       if (url === '/api/version') return Promise.resolve({ json: () => Promise.resolve({}) });
-      if (url === '/api/inbox') return Promise.resolve({ json: () => Promise.resolve([]) });
       return Promise.resolve({ json: () => Promise.resolve({}) });
     });
 

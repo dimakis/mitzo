@@ -16,6 +16,28 @@
   --success: #4caf50;
   --code-bg: #141425;
   --code-font: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+
+  /* Previously undefined — now explicit */
+  --bg-secondary: #161628;
+  --text-secondary: #8888aa;
+  --hover: rgba(108, 99, 255, 0.1);
+  --active: rgba(108, 99, 255, 0.2);
+  --warning: #ff9800;
+
+  /* Type scale */
+  --text-xs: 0.75rem;
+  --text-sm: 0.85rem;
+  --text-base: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.5rem;
+
+  /* Spacing scale */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
 }
 
 html {
@@ -127,6 +149,191 @@ textarea:focus {
 
 .mitzo-logo:active {
   transform: scale(0.95);
+}
+
+/* ── PageHeader ─────────────────────────────────────────── */
+
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) 0 var(--space-2);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 10;
+}
+
+.page-header-back {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: var(--text-xl);
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.page-header h1 {
+  flex: 1;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  margin: 0;
+}
+
+.page-header-center {
+  flex: 1;
+}
+
+.page-header-badge {
+  background: var(--accent);
+  color: var(--bg);
+  font-size: var(--text-xs);
+  padding: 2px 8px;
+  border-radius: 10px;
+  vertical-align: middle;
+  margin-left: var(--space-1);
+}
+
+.page-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* ── TabBar ─────────────────────────────────────────────── */
+
+.tab-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom);
+  z-index: 100;
+}
+
+.tab-bar-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  padding: var(--space-2) 0;
+  color: var(--text-dim);
+  font-size: var(--text-xs);
+  background: none;
+  border: none;
+  border-radius: 0;
+  gap: 2px;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.tab-bar-item--active {
+  color: var(--accent);
+}
+
+.tab-bar-label {
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.tab-bar-badge {
+  position: absolute;
+  top: 4px;
+  right: calc(50% - 20px);
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.65rem;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+}
+
+.tab-bar-more-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 99;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.tab-bar-more-menu {
+  background: var(--surface);
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+  padding: var(--space-4) var(--space-4) calc(var(--space-6) + env(safe-area-inset-bottom));
+  width: 100%;
+  max-width: 600px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.tab-bar-more-item {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: var(--text-sm);
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.tab-bar-more-item:active {
+  background: var(--hover);
+}
+
+/* ── EmptyState ─────────────────────────────────────────── */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6) var(--space-4);
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.empty-state-icon {
+  font-size: 2.5rem;
+  margin-bottom: var(--space-2);
+  opacity: 0.6;
+}
+
+.empty-state-title {
+  font-size: var(--text-base);
+  margin-bottom: var(--space-1);
+}
+
+.empty-state-subtitle {
+  font-size: var(--text-sm);
+  opacity: 0.7;
+}
+
+/* Pages with tab bar need bottom padding to clear fixed nav */
+.session-list-page,
+.inbox-page,
+.todo-page,
+.task-board-page,
+.cal-page,
+.viewer-page {
+  padding-bottom: 72px;
 }
 
 /* ===== Login ===== */
@@ -369,7 +576,7 @@ textarea:focus {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #e53935;
+  background: var(--danger);
   color: #fff;
   font-size: 0.8rem;
   font-weight: 600;
@@ -1597,7 +1804,7 @@ textarea:focus {
 }
 
 .perm-banner--elevated {
-  border-top-color: #ff9800;
+  border-top-color: var(--warning);
 }
 
 .perm-banner--unknown {
@@ -1619,7 +1826,7 @@ textarea:focus {
 
 .perm-banner-tier--elevated {
   background: rgba(255, 152, 0, 0.15);
-  color: #ff9800;
+  color: var(--warning);
 }
 
 .perm-banner-tier--unknown {
@@ -1984,7 +2191,7 @@ textarea:focus {
 }
 
 .mic-btn--recording {
-  background: #e53935;
+  background: var(--danger);
   color: #fff;
   animation: mic-pulse 1s ease-in-out infinite;
 }
@@ -3558,7 +3765,7 @@ textarea:focus {
 }
 
 .task-node-status--blocked {
-  color: #ff9800;
+  color: var(--warning);
 }
 
 .task-node-status--skipped {
@@ -3716,7 +3923,7 @@ textarea:focus {
 }
 
 .loop-controls-pill--paused {
-  background: #ff9800;
+  background: var(--warning);
   color: var(--bg);
 }
 
@@ -3727,9 +3934,14 @@ textarea:focus {
 
 .loop-controls-start {
   display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.loop-controls-start-row {
+  display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 
 .loop-controls-select {

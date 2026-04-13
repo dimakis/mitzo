@@ -4,6 +4,7 @@ import type { Session } from '../types/chat';
 import { formatRelativeTime } from '../lib/formatTime';
 import { useLongPress } from '../hooks/useLongPress';
 import { computeSwipeState, REVEAL_WIDTH } from '../lib/swipe-reveal';
+import { EmptyState } from '../components/EmptyState';
 import { useSessionList } from '../hooks/useSessionList';
 import type { QuickAction } from '../hooks/useSessionList';
 
@@ -198,8 +199,6 @@ export function SessionList() {
     sessions,
     quickActions,
     loading,
-    inboxCount,
-    todoCount,
     updateAvailable,
     checking,
     dismissSession,
@@ -252,18 +251,6 @@ export function SessionList() {
         New Chat
       </button>
 
-      <button className="inbox-nav-btn" onClick={() => navigate('/inbox')}>
-        <span className="inbox-nav-label">Inbox</span>
-        {inboxCount > 0 && <span className="inbox-nav-badge">{inboxCount}</span>}
-        <span className="quick-row-chevron">&rsaquo;</span>
-      </button>
-
-      <button className="inbox-nav-btn" onClick={() => navigate('/todos')}>
-        <span className="inbox-nav-label">Todos</span>
-        {todoCount > 0 && <span className="inbox-nav-badge">{todoCount}</span>}
-        <span className="quick-row-chevron">&rsaquo;</span>
-      </button>
-
       {quickActions.length > 0 && (
         <div className="quick-list">
           {quickActions.map((action) => (
@@ -283,7 +270,9 @@ export function SessionList() {
 
       {loading && <p className="session-list-empty">Loading...</p>}
 
-      {!loading && sessions.length === 0 && <p className="session-list-empty">No past sessions</p>}
+      {!loading && sessions.length === 0 && (
+        <EmptyState icon={'\uD83D\uDCAC'} title="No past sessions" />
+      )}
 
       {!loading && sessions.length > 0 && (
         <div className="session-list">

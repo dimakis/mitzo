@@ -61,21 +61,23 @@ export function LoopControls({
               </option>
             ))}
           </select>
-          <label className="loop-controls-spec-toggle">
-            <input
-              type="checkbox"
-              checked={specMode}
-              onChange={(e) => setSpecMode(e.target.checked)}
-            />
-            Spec mode
-          </label>
-          <button
-            className="loop-controls-btn loop-controls-btn--start"
-            disabled={!selectedGoalId}
-            onClick={() => onStart(selectedGoalId, specMode || undefined)}
-          >
-            Start
-          </button>
+          <div className="loop-controls-start-row">
+            <label className="loop-controls-spec-toggle">
+              <input
+                type="checkbox"
+                checked={specMode}
+                onChange={(e) => setSpecMode(e.target.checked)}
+              />
+              Spec mode
+            </label>
+            <button
+              className="loop-controls-btn loop-controls-btn--start"
+              disabled={!selectedGoalId}
+              onClick={() => onStart(selectedGoalId, specMode || undefined)}
+            >
+              Start
+            </button>
+          </div>
         </div>
       )}
 
