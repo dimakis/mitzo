@@ -207,7 +207,7 @@ export class TaskOrchestrator {
     return true;
   }
 
-  /** Reject a pending_review task → active + feedback + tick. */
+  /** Reject a pending_review task → active + feedback + re-assign to agent. */
   rejectTask(taskId: string, feedback: string): boolean {
     const task = this.deps.store.get(taskId);
     if (!task || task.status !== 'pending_review') return false;
@@ -218,20 +218,26 @@ export class TaskOrchestrator {
       annotations,
     });
     this.deps.store.cascadeStatus(taskId);
+
+    // Re-assign as the active task so UI and session context stay in sync
+    this.activeTaskId = taskId;
+    if (this.goalId) {
+      this.deps.setTaskContext(taskId, this.goalId);
+    }
+
     this.deps.broadcastTasks();
+    this.deps.broadcastStatus(this.getStatus());
 
     log.info('task rejected', { taskId, feedback });
 
     // Notify agent session so it retries with feedback
-    if (this.state === 'running') {
-      if (this.pinnedClientId) {
-        sendToChat(
-          this.pinnedClientId,
-          `Your previous work on "${task.title}" was rejected.\n` +
-            (feedback ? `Feedback: ${feedback}\n` : '') +
-            '\nPlease re-attempt this task addressing the feedback.',
-        );
-      }
+    if (this.state === 'running' && this.pinnedClientId) {
+      sendToChat(
+        this.pinnedClientId,
+        `Your previous work on "${task.title}" was rejected.\n` +
+          (feedback ? `Feedback: ${feedback}\n` : '') +
+          '\nPlease re-attempt this task addressing the feedback.',
+      );
     }
     return true;
   }

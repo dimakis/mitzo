@@ -86,14 +86,17 @@ setTaskBroadcast((event) => {
 const orchestrator = new TaskOrchestrator({
   store: taskStore,
   getClientId: () => {
-    // Find the first registered client (reuse-only for Phase 2)
+    // Prefer the already-pinned client if it's still attached
+    const pinned = orchestrator.getPinnedClientId();
+    if (pinned && registry.isAttached(pinned)) return pinned;
+    // Fallback: first attached client (Phase 2 single-session simplification)
     for (const [clientId] of registry.entries()) {
       if (registry.isAttached(clientId)) return clientId;
     }
     return null;
   },
   setTaskContext: (taskId, goalId) => {
-    // Set task context on the pinned client's session
+    // Set task context only on the pinned client's session
     const clientId = orchestrator.getPinnedClientId();
     if (clientId) {
       const session = registry.get(clientId);
@@ -103,7 +106,9 @@ const orchestrator = new TaskOrchestrator({
     }
   },
   clearTaskContext: () => {
-    for (const [clientId] of registry.entries()) {
+    // Only clear the pinned client's context, not all sessions
+    const clientId = orchestrator.getPinnedClientId();
+    if (clientId) {
       const session = registry.get(clientId);
       if (session) session.taskContext = null;
     }

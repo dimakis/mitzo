@@ -406,6 +406,26 @@ describe('TaskOrchestrator', () => {
       expect(task.annotations).toContain('review_feedback: needs more tests');
     });
 
+    it('rejectTask re-assigns activeTaskId and updates task context', () => {
+      const goal = store.create({ title: 'Goal' });
+      const c1 = store.create({ title: 'Task 1', parentId: goal.id });
+      store.create({ title: 'Task 2', parentId: goal.id });
+
+      orchestrator.start(goal.id);
+      // c1 is active, simulate it going to pending_review
+      store.update(c1.id, { status: 'pending_review' });
+
+      orchestrator.rejectTask(c1.id, 'redo');
+
+      // activeTaskId should be re-set to the rejected task
+      expect(orchestrator.getStatus().activeTaskId).toBe(c1.id);
+      // setTaskContext should be called with the rejected task
+      expect(mockDeps.setTaskContext).toHaveBeenCalledWith(c1.id, goal.id);
+      // Status broadcast should include the update
+      const lastStatus = broadcastedStatuses[broadcastedStatuses.length - 1];
+      expect(lastStatus.activeTaskId).toBe(c1.id);
+    });
+
     it('rejectTask returns false for non-pending_review', () => {
       const goal = store.create({ title: 'Goal' });
       const c1 = store.create({ title: 'Task', parentId: goal.id });
