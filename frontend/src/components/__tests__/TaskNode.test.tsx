@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import type { Task } from '../../types/task';
 import { TaskNode } from '../TaskNode';
 
 afterEach(() => {
   cleanup();
 });
-import type { Task } from '../../types/task';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -51,6 +51,7 @@ describe('TaskNode', () => {
     ['pending', '\u25CB'],
     ['active', '\u25C9'],
     ['done', '\u2713'],
+    ['pending_review', '\u25D4'],
     ['blocked', '\u2298'],
     ['skipped', '\u2014'],
     ['failed', '\u2717'],

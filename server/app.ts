@@ -324,7 +324,8 @@ app.post('/api/tasks', (req, res) => {
   try {
     const task = taskStore.create(body.data);
     res.status(201).json({ task });
-    onTaskBroadcast?.({ type: 'task_updated', task });
+    // Broadcast full tree so child tasks appear correctly in all clients
+    onTaskBroadcast?.({ type: 'task_state', tasks: taskStore.getTree() });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     res.status(400).json({ error: message });

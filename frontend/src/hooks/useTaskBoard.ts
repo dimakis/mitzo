@@ -41,37 +41,47 @@ function removeFromTree(tasks: Task[], id: string): Task[] {
     }));
 }
 
-function upsertInTree(tasks: Task[], task: Task): Task[] {
-  // If the task exists at root level, replace it
+function upsertInTree(tasks: Task[], task: Task): [Task[], boolean] {
   let found = false;
   const updated = tasks.map((t) => {
     if (t.id === task.id) {
       found = true;
       return { ...task, children: t.children };
     }
-    // Check children recursively
-    const updatedChildren = upsertInTree(t.children, task);
-    if (updatedChildren !== t.children) {
-      found = true;
-      return { ...t, children: updatedChildren };
+    if (t.children.length > 0) {
+      const [updatedChildren, childFound] = upsertInTree(t.children, task);
+      if (childFound) {
+        found = true;
+        return { ...t, children: updatedChildren };
+      }
     }
     return t;
   });
 
-  if (found) return updated;
+  if (found) return [updated, true];
 
   // New root task — append
   if (!task.parentId) {
-    return [...tasks, task];
+    return [[...tasks, task], true];
   }
 
   // New child task — find parent and append
-  return tasks.map((t) => {
+  let inserted = false;
+  const withChild = tasks.map((t) => {
     if (t.id === task.parentId) {
+      inserted = true;
       return { ...t, children: [...t.children, task] };
     }
-    return { ...t, children: upsertInTree(t.children, task) };
+    if (t.children.length > 0) {
+      const [updatedChildren, childInserted] = upsertInTree(t.children, task);
+      if (childInserted) {
+        inserted = true;
+        return { ...t, children: updatedChildren };
+      }
+    }
+    return t;
   });
+  return [inserted ? withChild : tasks, inserted];
 }
 
 export function useTaskBoard(): UseTaskBoardResult {
@@ -111,39 +121,39 @@ export function useTaskBoard(): UseTaskBoardResult {
   useEffect(() => {
     const unsub = wsSubscribe('global', (msg: WsMsg) => {
       if (msg.type === 'task_state') {
-        const m = msg as unknown as { tasks: Task[] };
-        setTasks(m.tasks);
+        setTasks(msg.tasks);
       } else if (msg.type === 'task_updated') {
-        const m = msg as unknown as { task: Task };
-        setTasks((prev) => upsertInTree(prev, m.task));
+        setTasks((prev) => upsertInTree(prev, msg.task)[0]);
       } else if (msg.type === 'task_deleted') {
-        const m = msg as unknown as { taskId: string };
-        setTasks((prev) => removeFromTree(prev, m.taskId));
+        setTasks((prev) => removeFromTree(prev, msg.taskId));
       }
     });
     return unsub;
   }, []);
 
   const createTask = useCallback(async (input: TaskCreateInput) => {
-    await fetch('/api/tasks', {
+    const r = await fetch('/api/tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
     });
+    if (!r.ok) throw new Error(`Create task failed: ${r.status}`);
   }, []);
 
   const updateTask = useCallback(async (id: string, input: TaskUpdateInput) => {
-    await fetch(`/api/tasks/${id}`, {
+    const r = await fetch(`/api/tasks/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
     });
+    if (!r.ok) throw new Error(`Update task failed: ${r.status}`);
   }, []);
 
   const deleteTask = useCallback(async (id: string) => {
-    await fetch(`/api/tasks/${id}`, {
+    const r = await fetch(`/api/tasks/${id}`, {
       method: 'DELETE',
     });
+    if (!r.ok) throw new Error(`Delete task failed: ${r.status}`);
   }, []);
 
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);

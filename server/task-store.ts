@@ -288,14 +288,14 @@ export class TaskStore {
   }
 
   getSubtree(rootId: string): Task[] {
-    const root = this.get(rootId);
-    if (!root) return [];
-
     // Fetch all tasks and filter to subtree
     const allRows = this.db!.prepare(
       'SELECT * FROM tasks ORDER BY priority DESC, created_at ASC',
     ).all() as TaskRow[];
     const allTasks = allRows.map(rowToTask);
+
+    const rootTask = allTasks.find((t) => t.id === rootId);
+    if (!rootTask) return [];
 
     // Build parent->children map
     const childMap = new Map<string, Task[]>();
@@ -312,9 +312,6 @@ export class TaskStore {
       const children = childMap.get(task.id) ?? [];
       return { ...task, children: children.map(buildSubtree) };
     }
-
-    const rootTask = allTasks.find((t) => t.id === rootId);
-    if (!rootTask) return [];
 
     return [buildSubtree(rootTask)];
   }

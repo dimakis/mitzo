@@ -231,4 +231,43 @@ describe('useTaskBoard', () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.tasks).toEqual([]);
   });
+
+  it('createTask throws on non-ok response', async () => {
+    fetchMock
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ tasks: [] }) })
+      .mockResolvedValueOnce({ ok: false, status: 500 });
+
+    const { result } = renderHook(() => useTaskBoard());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await expect(act(() => result.current.createTask({ title: 'Fail' }))).rejects.toThrow(
+      'Create task failed: 500',
+    );
+  });
+
+  it('updateTask throws on non-ok response', async () => {
+    fetchMock
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ tasks: [makeTask()] }) })
+      .mockResolvedValueOnce({ ok: false, status: 404 });
+
+    const { result } = renderHook(() => useTaskBoard());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await expect(act(() => result.current.updateTask('task-1', { title: 'Nope' }))).rejects.toThrow(
+      'Update task failed: 404',
+    );
+  });
+
+  it('deleteTask throws on non-ok response', async () => {
+    fetchMock
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ tasks: [makeTask()] }) })
+      .mockResolvedValueOnce({ ok: false, status: 403 });
+
+    const { result } = renderHook(() => useTaskBoard());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await expect(act(() => result.current.deleteTask('task-1'))).rejects.toThrow(
+      'Delete task failed: 403',
+    );
+  });
 });
