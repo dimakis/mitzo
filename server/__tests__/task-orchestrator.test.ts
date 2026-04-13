@@ -222,4 +222,197 @@ describe('TaskOrchestrator', () => {
 
     expect(orchestrator.getStatus().state).toBe('paused');
   });
+
+  describe('spec mode', () => {
+    it('start with specMode assigns goal directly', () => {
+      const goal = store.create({ title: 'Goal' });
+      const status = orchestrator.start(goal.id, { specMode: true });
+
+      expect(status.state).toBe('running');
+      expect(status.specMode).toBe(true);
+      expect(status.activeTaskId).toBe(goal.id);
+      expect(store.get(goal.id)!.status).toBe('active');
+    });
+
+    it('onSpecDecomposed pauses and sets awaitingApproval', () => {
+      const goal = store.create({ title: 'Goal' });
+      orchestrator.start(goal.id, { specMode: true });
+
+      orchestrator.onSpecDecomposed();
+
+      const status = orchestrator.getStatus();
+      expect(status.state).toBe('paused');
+      expect(status.awaitingApproval).toBe(true);
+    });
+
+    it('onSpecDecomposed is no-op when not in spec mode', () => {
+      const goal = store.create({ title: 'Goal' });
+      store.create({ title: 'Task', parentId: goal.id });
+      orchestrator.start(goal.id);
+
+      orchestrator.onSpecDecomposed();
+
+      expect(orchestrator.getStatus().state).toBe('running');
+      expect(orchestrator.getStatus().awaitingApproval).toBe(false);
+    });
+
+    it('approveSpec transitions to execution mode', () => {
+      const goal = store.create({ title: 'Goal' });
+      orchestrator.start(goal.id, { specMode: true });
+      // Simulate agent creating children
+      store.create({ title: 'Sub 1', parentId: goal.id });
+      store.create({ title: 'Sub 2', parentId: goal.id });
+      orchestrator.onSpecDecomposed();
+
+      const status = orchestrator.approveSpec();
+
+      expect(status.state).toBe('running');
+      expect(status.specMode).toBe(false);
+      expect(status.awaitingApproval).toBe(false);
+    });
+
+    it('rejectSpec deletes children and stops', () => {
+      const goal = store.create({ title: 'Goal' });
+      orchestrator.start(goal.id, { specMode: true });
+      const c1 = store.create({ title: 'Sub 1', parentId: goal.id });
+      const c2 = store.create({ title: 'Sub 2', parentId: goal.id });
+      orchestrator.onSpecDecomposed();
+
+      const status = orchestrator.rejectSpec();
+
+      expect(status.state).toBe('idle');
+      expect(store.get(c1.id)).toBeNull();
+      expect(store.get(c2.id)).toBeNull();
+      expect(store.get(goal.id)!.status).toBe('pending');
+    });
+
+    it('approveSpec is no-op when not awaiting approval', () => {
+      const goal = store.create({ title: 'Goal' });
+      store.create({ title: 'Task', parentId: goal.id });
+      orchestrator.start(goal.id);
+
+      const before = orchestrator.getStatus();
+      orchestrator.approveSpec();
+      const after = orchestrator.getStatus();
+
+      expect(after.state).toBe(before.state);
+    });
+
+    it('rejectSpec is no-op when not awaiting approval', () => {
+      const goal = store.create({ title: 'Goal' });
+      store.create({ title: 'Task', parentId: goal.id });
+      orchestrator.start(goal.id);
+
+      const before = orchestrator.getStatus();
+      orchestrator.rejectSpec();
+
+      expect(orchestrator.getStatus().state).toBe(before.state);
+    });
+  });
+
+  describe('orphan detection', () => {
+    it('reclaims orphaned tasks during tick', () => {
+      // Create deps with getActiveSessionIds
+      const depsWithOrphan = createTestDeps(store);
+      depsWithOrphan.getActiveSessionIds = () => new Set(['alive-session']);
+      const orch = new TaskOrchestrator(depsWithOrphan);
+
+      const goal = store.create({ title: 'Goal' });
+      const c1 = store.create({ title: 'Orphan', parentId: goal.id });
+      store.create({ title: 'Next', parentId: goal.id });
+
+      // Simulate c1 assigned to dead session
+      store.update(c1.id, { status: 'active' });
+      store.setSessionId(c1.id, 'dead-session');
+
+      orch.start(goal.id);
+
+      // c1 should have been reclaimed to pending, then re-assigned
+      // The tick should have picked c1 (first pending) since it was reclaimed
+      expect(store.get(c1.id)!.status).toBe('active');
+      expect(orch.getStatus().activeTaskId).toBe(c1.id);
+    });
+
+    it('does not reclaim tasks with alive sessions', () => {
+      const depsWithOrphan = createTestDeps(store);
+      depsWithOrphan.getActiveSessionIds = () => new Set(['alive-session']);
+      const orch = new TaskOrchestrator(depsWithOrphan);
+
+      const goal = store.create({ title: 'Goal' });
+      const c1 = store.create({ title: 'Active', parentId: goal.id });
+      store.create({ title: 'Next', parentId: goal.id });
+
+      store.update(c1.id, { status: 'active' });
+      store.setSessionId(c1.id, 'alive-session');
+
+      orch.start(goal.id);
+
+      // c1 is alive, so tick should skip it and pick c2
+      expect(orch.getStatus().activeTaskId).toBe(c2.id);
+    });
+  });
+
+  describe('task approval', () => {
+    it('approveTask moves pending_review to done', () => {
+      const goal = store.create({ title: 'Goal' });
+      const c1 = store.create({ title: 'Task 1', parentId: goal.id });
+      store.create({ title: 'Task 2', parentId: goal.id });
+
+      orchestrator.start(goal.id);
+      store.update(c1.id, { status: 'pending_review' });
+
+      const ok = orchestrator.approveTask(c1.id);
+
+      expect(ok).toBe(true);
+      expect(store.get(c1.id)!.status).toBe('done');
+    });
+
+    it('approveTask returns false for non-pending_review', () => {
+      const goal = store.create({ title: 'Goal' });
+      const c1 = store.create({ title: 'Task', parentId: goal.id });
+
+      orchestrator.start(goal.id);
+
+      expect(orchestrator.approveTask(c1.id)).toBe(false);
+    });
+
+    it('approveTask triggers tick when running', () => {
+      const goal = store.create({ title: 'Goal' });
+      const c1 = store.create({ title: 'Task 1', parentId: goal.id });
+      const c2 = store.create({ title: 'Task 2', parentId: goal.id });
+
+      orchestrator.start(goal.id);
+      store.update(c1.id, { status: 'pending_review' });
+
+      orchestrator.approveTask(c1.id);
+
+      // After approval + tick, c2 should be active
+      expect(orchestrator.getStatus().activeTaskId).toBe(c2.id);
+    });
+
+    it('rejectTask moves pending_review to active with feedback', () => {
+      const goal = store.create({ title: 'Goal' });
+      const c1 = store.create({ title: 'Task', parentId: goal.id });
+      store.create({ title: 'Task 2', parentId: goal.id });
+
+      orchestrator.start(goal.id);
+      store.update(c1.id, { status: 'pending_review' });
+
+      const ok = orchestrator.rejectTask(c1.id, 'needs more tests');
+
+      expect(ok).toBe(true);
+      const task = store.get(c1.id)!;
+      expect(task.status).toBe('active');
+      expect(task.annotations).toContain('review_feedback: needs more tests');
+    });
+
+    it('rejectTask returns false for non-pending_review', () => {
+      const goal = store.create({ title: 'Goal' });
+      const c1 = store.create({ title: 'Task', parentId: goal.id });
+
+      orchestrator.start(goal.id);
+
+      expect(orchestrator.rejectTask(c1.id, 'nope')).toBe(false);
+    });
+  });
 });

@@ -511,6 +511,48 @@ app.post('/api/loop/stop', (_req, res) => {
   res.json(orchestrator.stop());
 });
 
+app.post('/api/tasks/:id/approve', (req, res) => {
+  if (!orchestrator) {
+    res.status(503).json({ error: 'Orchestrator not initialized' });
+    return;
+  }
+  const ok = orchestrator.approveTask(req.params.id);
+  if (!ok) {
+    res.status(400).json({ error: 'Task not in pending_review state' });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+app.post('/api/tasks/:id/reject', (req, res) => {
+  if (!orchestrator) {
+    res.status(503).json({ error: 'Orchestrator not initialized' });
+    return;
+  }
+  const ok = orchestrator.rejectTask(req.params.id, req.body.feedback ?? '');
+  if (!ok) {
+    res.status(400).json({ error: 'Task not in pending_review state' });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+app.post('/api/loop/spec/approve', (_req, res) => {
+  if (!orchestrator) {
+    res.status(503).json({ error: 'Orchestrator not initialized' });
+    return;
+  }
+  res.json(orchestrator.approveSpec());
+});
+
+app.post('/api/loop/spec/reject', (_req, res) => {
+  if (!orchestrator) {
+    res.status(503).json({ error: 'Orchestrator not initialized' });
+    return;
+  }
+  res.json(orchestrator.rejectSpec());
+});
+
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
   const body = LoginBody.safeParse(req.body);
   if (!body.success) {

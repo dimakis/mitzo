@@ -11,6 +11,12 @@ export interface LoopStatus {
   goalId: string | null;
   activeTaskId: string | null;
   progress: { done: number; total: number } | null;
+  specMode: boolean;
+  awaitingApproval: boolean;
+}
+
+export interface StartOptions {
+  specMode?: boolean;
 }
 
 export interface OrchestratorDeps {
@@ -25,12 +31,16 @@ export interface OrchestratorDeps {
   broadcastStatus: (status: LoopStatus) => void;
   /** Broadcast task tree change */
   broadcastTasks: () => void;
+  /** Get active session IDs for orphan detection */
+  getActiveSessionIds?: () => Set<string>;
 }
 
 export class TaskOrchestrator {
   private state: LoopState = 'idle';
   private goalId: string | null = null;
   private activeTaskId: string | null = null;
+  private specMode = false;
+  private awaitingApproval = false;
   private deps: OrchestratorDeps;
 
   constructor(deps: OrchestratorDeps) {
@@ -44,10 +54,12 @@ export class TaskOrchestrator {
       goalId: this.goalId,
       activeTaskId: this.activeTaskId,
       progress,
+      specMode: this.specMode,
+      awaitingApproval: this.awaitingApproval,
     };
   }
 
-  start(goalId: string): LoopStatus {
+  start(goalId: string, opts?: StartOptions): LoopStatus {
     if (this.state === 'running') {
       log.warn('start() called while already running');
       return this.getStatus();
@@ -62,9 +74,36 @@ export class TaskOrchestrator {
     this.state = 'running';
     this.goalId = goalId;
     this.activeTaskId = null;
+    this.specMode = opts?.specMode ?? false;
+    this.awaitingApproval = false;
 
-    log.info('orchestrator started', { goalId, title: goal.title });
-    this.broadcastAndTick();
+    log.info('orchestrator started', {
+      goalId,
+      title: goal.title,
+      specMode: this.specMode,
+    });
+
+    if (this.specMode) {
+      // In spec mode, assign goal directly for decomposition
+      this.activeTaskId = goalId;
+      this.deps.store.update(goalId, { status: 'active' });
+      this.deps.setTaskContext(goalId, goalId);
+      this.deps.broadcastTasks();
+      this.deps.broadcastStatus(this.getStatus());
+
+      const clientId = this.deps.getClientId();
+      if (clientId) {
+        sendToChat(
+          clientId,
+          `Decompose this goal into subtasks: "${goal.title}"\n` +
+            (goal.description ? `\nDetails: ${goal.description}\n` : '') +
+            '\nUse TaskSet to create a task breakdown. ' +
+            'Do NOT start working yet — just plan.',
+        );
+      }
+    } else {
+      this.broadcastAndTick();
+    }
 
     return this.getStatus();
   }
@@ -90,10 +129,48 @@ export class TaskOrchestrator {
     this.state = 'idle';
     this.goalId = null;
     this.activeTaskId = null;
+    this.specMode = false;
+    this.awaitingApproval = false;
     this.deps.clearTaskContext();
     log.info('orchestrator stopped');
     this.deps.broadcastStatus(this.getStatus());
     return this.getStatus();
+  }
+
+  /** Called when TaskSet is used in spec mode — pause for approval. */
+  onSpecDecomposed(): void {
+    if (!this.specMode || this.state !== 'running') return;
+    this.awaitingApproval = true;
+    this.state = 'paused';
+    log.info('spec mode: awaiting approval');
+    this.deps.broadcastStatus(this.getStatus());
+  }
+
+  /** Approve the spec mode decomposition — begin execution. */
+  approveSpec(): LoopStatus {
+    if (!this.awaitingApproval) return this.getStatus();
+    this.awaitingApproval = false;
+    this.specMode = false;
+    this.state = 'running';
+    log.info('spec mode: approved, beginning execution');
+    this.broadcastAndTick();
+    return this.getStatus();
+  }
+
+  /** Reject the spec mode decomposition — delete children and stop. */
+  rejectSpec(): LoopStatus {
+    if (!this.awaitingApproval || !this.goalId) return this.getStatus();
+    // Delete proposed children
+    const children = this.deps.store.getChildren(this.goalId);
+    for (const child of children) {
+      this.deps.store.delete(child.id);
+    }
+    this.deps.store.update(this.goalId, { status: 'pending' });
+    this.awaitingApproval = false;
+    this.specMode = false;
+    log.info('spec mode: rejected, children deleted');
+    this.deps.broadcastTasks();
+    return this.stop();
   }
 
   /** Called when a task completes (from tool interception). */
@@ -110,6 +187,37 @@ export class TaskOrchestrator {
     this.tick();
   }
 
+  /** Approve a pending_review task → done + cascade + tick. */
+  approveTask(taskId: string): boolean {
+    const task = this.deps.store.get(taskId);
+    if (!task || task.status !== 'pending_review') return false;
+
+    this.deps.store.update(taskId, { status: 'done' });
+    this.deps.store.cascadeStatus(taskId);
+    this.deps.broadcastTasks();
+
+    log.info('task approved', { taskId });
+    if (this.state === 'running') this.tick();
+    return true;
+  }
+
+  /** Reject a pending_review task → active + feedback + tick. */
+  rejectTask(taskId: string, feedback: string): boolean {
+    const task = this.deps.store.get(taskId);
+    if (!task || task.status !== 'pending_review') return false;
+
+    const annotations = [...task.annotations, `review_feedback: ${feedback}`];
+    this.deps.store.update(taskId, {
+      status: 'active',
+      annotations,
+    });
+    this.deps.store.cascadeStatus(taskId);
+    this.deps.broadcastTasks();
+
+    log.info('task rejected', { taskId, feedback });
+    return true;
+  }
+
   /**
    * Core loop iteration. Stateless — re-reads state from SQLite.
    * 1. Find next executable task (DFS)
@@ -119,6 +227,17 @@ export class TaskOrchestrator {
    */
   tick(): void {
     if (this.state !== 'running' || !this.goalId) return;
+
+    // Reclaim orphaned tasks
+    if (this.deps.getActiveSessionIds) {
+      const activeIds = this.deps.getActiveSessionIds();
+      const orphans = this.deps.store.getOrphaned(activeIds);
+      for (const orphan of orphans) {
+        log.info('reclaiming orphaned task', { taskId: orphan.id });
+        this.deps.store.update(orphan.id, { status: 'pending' });
+        this.deps.store.setSessionId(orphan.id, null);
+      }
+    }
 
     // Re-read goal state (statelessness invariant)
     const goal = this.deps.store.get(this.goalId);

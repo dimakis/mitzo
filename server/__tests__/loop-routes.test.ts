@@ -98,4 +98,42 @@ describe('loop orchestrator API (unit)', () => {
     const status = orchestrator.start(goal.id);
     expect(status.state).toBe('running');
   });
+
+  it('spec mode start + approve flow', () => {
+    const goal = store.create({ title: 'Goal' });
+    const status = orchestrator.start(goal.id, { specMode: true });
+    expect(status.specMode).toBe(true);
+
+    store.create({ title: 'Sub', parentId: goal.id });
+    orchestrator.onSpecDecomposed();
+    expect(orchestrator.getStatus().awaitingApproval).toBe(true);
+
+    const approved = orchestrator.approveSpec();
+    expect(approved.state).toBe('running');
+    expect(approved.specMode).toBe(false);
+  });
+
+  it('spec mode start + reject flow', () => {
+    const goal = store.create({ title: 'Goal' });
+    orchestrator.start(goal.id, { specMode: true });
+
+    const child = store.create({ title: 'Sub', parentId: goal.id });
+    orchestrator.onSpecDecomposed();
+
+    const rejected = orchestrator.rejectSpec();
+    expect(rejected.state).toBe('idle');
+    expect(store.get(child.id)).toBeNull();
+  });
+
+  it('approveTask + rejectTask', () => {
+    const goal = store.create({ title: 'Goal' });
+    const c1 = store.create({ title: 'T1', parentId: goal.id });
+    store.create({ title: 'T2', parentId: goal.id });
+
+    orchestrator.start(goal.id);
+    store.update(c1.id, { status: 'pending_review' });
+
+    expect(orchestrator.approveTask(c1.id)).toBe(true);
+    expect(store.get(c1.id)!.status).toBe('done');
+  });
 });
