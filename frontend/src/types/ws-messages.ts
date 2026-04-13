@@ -232,7 +232,6 @@ export interface TokenUpdateMsg {
   agentContext: number;
   contextCeiling?: number;
   sessionTotal?: number;
-  costUsd?: number;
   numTurns?: number;
   turnIndex: number;
 }

@@ -141,8 +141,8 @@ export async function runQueryLoop(
   let goalTitle: string | undefined;
 
   // Token tracking state for live token_update events
-  let agentContextTokens = 0; // input_tokens from latest message_start (context window size)
-  let turnIndex = 0; // increments on each message_start
+  let agentContextTokens = 0; // full context window size (input + cached) from parent message_start
+  let turnIndex = 0; // increments on each parent message_start (excludes sub-agents)
 
   // Track last-reported cumulative usage to compute deltas (SDK reports cumulative totals).
   let lastReportedUsage = {
@@ -314,8 +314,12 @@ export async function runQueryLoop(
           store.recordUsage(resolvedSessionId, usageData);
         }
 
-        // Accumulate session-lifetime totals on the registry entry
-        const callTokens = usageData.inputTokens + usageData.outputTokens;
+        // Accumulate session-lifetime totals on the registry entry (all token types)
+        const callTokens =
+          usageData.inputTokens +
+          usageData.outputTokens +
+          usageData.cacheReadTokens +
+          usageData.cacheCreationTokens;
         currentSession.cumulativeSessionTokens += callTokens;
         currentSession.cumulativeCostUsd += usageData.totalCostUsd;
 
@@ -325,7 +329,6 @@ export async function runQueryLoop(
           agentContext: agentContextTokens,
           contextCeiling: CONTEXT_CEILING_TOKENS,
           sessionTotal: currentSession.cumulativeSessionTokens,
-          costUsd: currentSession.cumulativeCostUsd,
           numTurns: usageData.numTurns,
           turnIndex,
         });
@@ -394,19 +397,30 @@ export async function runQueryLoop(
           currentSession.currentSnapshot = { messageId: currentMessageId, blocks: [] };
           emit(currentWs, v2('message_start', { messageId: currentMessageId }));
 
-          // Extract agent context (input_tokens) from message_start usage
+          // Extract agent context from message_start usage.
+          // Only track parent agent (parent_tool_use_id === null) — sub-agent
+          // context windows are independent and shouldn't overwrite the parent gauge.
+          // Sum input + cache_read + cache_creation for the true context window size
+          // (with prompt caching, input_tokens alone can be as low as 1).
+          const isParent = msg.parent_tool_use_id === null || msg.parent_tool_use_id === undefined;
           const msgUsage = (apiMsg as Record<string, unknown> | undefined)?.usage as
             | Record<string, number>
             | undefined;
-          if (msgUsage?.input_tokens) {
-            agentContextTokens = msgUsage.input_tokens;
-            turnIndex++;
-            emit(currentWs, {
-              type: 'token_update',
-              agentContext: agentContextTokens,
-              contextCeiling: CONTEXT_CEILING_TOKENS,
-              turnIndex,
-            });
+          if (isParent && msgUsage) {
+            const input = msgUsage.input_tokens ?? 0;
+            const cacheRead = msgUsage.cache_read_input_tokens ?? 0;
+            const cacheCreation = msgUsage.cache_creation_input_tokens ?? 0;
+            const totalContext = input + cacheRead + cacheCreation;
+            if (totalContext > 0) {
+              agentContextTokens = totalContext;
+              turnIndex++;
+              emit(currentWs, {
+                type: 'token_update',
+                agentContext: agentContextTokens,
+                contextCeiling: CONTEXT_CEILING_TOKENS,
+                turnIndex,
+              });
+            }
           }
         } else if (evt?.type === 'content_block_start') {
           // Auto-init message context if SDK delivers blocks before message_start.
