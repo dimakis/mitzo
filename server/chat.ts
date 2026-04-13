@@ -23,6 +23,13 @@ import { runQueryLoop, createWsMessageHandler, broadcastToObservers } from './qu
 import { AsyncQueue } from './async-queue.js';
 import { GIT_BRANCH_TIMEOUT_MS, SESSION_LIST_LIMIT, SESSION_MESSAGES_LIMIT } from './constants.js';
 import { INTERNAL_TOKEN } from './internal-token.js';
+import { buildTaskSystemPrompt } from './task-context.js';
+import type { TaskStore } from './task-store.js';
+
+let _taskStore: TaskStore | null = null;
+export function setTaskStore(store: TaskStore): void {
+  _taskStore = store;
+}
 import { EventStore } from './event-store.js';
 import { shouldAutoRename, extractRecentPrompts, generateSessionName } from './auto-rename.js';
 import { createLogger } from './logger.js';
@@ -187,6 +194,13 @@ function buildTaskMcpServer(clientId: string): Record<string, McpServerConfig> |
       env: { MITZO_INTERNAL_TOKEN: INTERNAL_TOKEN },
     },
   };
+}
+
+function buildTaskPromptForSession(clientId: string): string {
+  if (!_taskStore) return '';
+  const session = registry.get(clientId);
+  if (!session?.taskContext) return '';
+  return buildTaskSystemPrompt(_taskStore, session.taskContext.currentTaskId);
 }
 
 function buildRepoSystemPrompt(): string {
@@ -403,7 +417,8 @@ export async function startChat(
             '- Read operations are fine without asking.\n' +
             '- Keep responses concise — small screen.\n' +
             '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.' +
-            buildRepoSystemPrompt(),
+            buildRepoSystemPrompt() +
+            buildTaskPromptForSession(clientId),
         },
         permissionMode: MODE_TO_SDK[mode] as 'plan' | 'default' | 'bypassPermissions',
         allowedTools: [...modeAllowed, ...mcpAllowed, ...extraTools],

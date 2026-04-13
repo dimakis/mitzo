@@ -35,6 +35,7 @@ import {
   handleTaskStatus,
   handleTaskBlock,
 } from './task-tools.js';
+import { setTaskStore } from './chat.js';
 import {
   LoginBody,
   FileWriteBody,
@@ -171,6 +172,7 @@ try {
   // may already exist
 }
 export const taskStore = new TaskStore(join(mitzoDir, 'tasks.db'));
+setTaskStore(taskStore);
 
 export function setUpdateBroadcast(fn: () => void) {
   onUpdateAvailable = fn;
