@@ -243,4 +243,6 @@ export interface LoopStatusMsg {
   goalId: string | null;
   activeTaskId: string | null;
   progress: { done: number; total: number } | null;
+  specMode: boolean;
+  awaitingApproval: boolean;
 }

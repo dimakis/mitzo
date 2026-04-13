@@ -2,12 +2,29 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TaskNode } from '../components/TaskNode';
 import { TaskCreateForm } from '../components/TaskCreateForm';
+import { LoopControls } from '../components/LoopControls';
 import { useTaskBoard } from '../hooks/useTaskBoard';
 import type { TaskStatus } from '../types/task';
 
 export function TaskBoard() {
   const navigate = useNavigate();
-  const { loading, tasks, createTask, updateTask, deleteTask, refresh } = useTaskBoard();
+  const {
+    loading,
+    tasks,
+    loopStatus,
+    createTask,
+    updateTask,
+    deleteTask,
+    startLoop,
+    pauseLoop,
+    resumeLoop,
+    stopLoop,
+    approveTask,
+    rejectTask,
+    approveSpec,
+    rejectSpec,
+    refresh,
+  } = useTaskBoard();
   const [creating, setCreating] = useState<{ parentId?: string } | null>(null);
 
   function handleStatusChange(id: string, status: TaskStatus) {
@@ -26,6 +43,9 @@ export function TaskBoard() {
     createTask({ title, parentId });
     setCreating(null);
   }
+
+  // Root tasks with no parent serve as potential goals
+  const goals = tasks.filter((t) => !t.parentId);
 
   return (
     <div className="task-board-page">
@@ -47,6 +67,17 @@ export function TaskBoard() {
           &#x21bb;
         </button>
       </header>
+
+      <LoopControls
+        loopStatus={loopStatus}
+        goals={goals}
+        onStart={startLoop}
+        onPause={pauseLoop}
+        onResume={resumeLoop}
+        onStop={stopLoop}
+        onApproveSpec={approveSpec}
+        onRejectSpec={rejectSpec}
+      />
 
       {creating && (
         <TaskCreateForm
@@ -72,9 +103,12 @@ export function TaskBoard() {
             key={task.id}
             task={task}
             depth={0}
+            active={loopStatus.activeTaskId === task.id}
             onStatusChange={handleStatusChange}
             onDelete={handleDelete}
             onAddChild={handleAddChild}
+            onApprove={approveTask}
+            onReject={rejectTask}
           />
         ))}
       </div>

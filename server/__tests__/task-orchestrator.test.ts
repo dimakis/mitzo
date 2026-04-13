@@ -340,7 +340,7 @@ describe('TaskOrchestrator', () => {
 
       const goal = store.create({ title: 'Goal' });
       const c1 = store.create({ title: 'Active', parentId: goal.id });
-      store.create({ title: 'Next', parentId: goal.id });
+      const c2 = store.create({ title: 'Next', parentId: goal.id });
 
       store.update(c1.id, { status: 'active' });
       store.setSessionId(c1.id, 'alive-session');

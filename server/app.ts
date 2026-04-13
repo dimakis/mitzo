@@ -483,7 +483,9 @@ app.post('/api/loop/start', (req, res) => {
     res.status(409).json({ error: 'Loop already running' });
     return;
   }
-  const result = orchestrator.start(body.data.goalId);
+  const result = orchestrator.start(body.data.goalId, {
+    specMode: body.data.specMode,
+  });
   res.json(result);
 });
 
