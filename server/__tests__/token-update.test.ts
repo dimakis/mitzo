@@ -302,6 +302,75 @@ describe('token_update emission', () => {
     expect(messageStartUpdates[1]).toMatchObject({ turnIndex: 2 });
   });
 
+  it('does not double-count session total across multiple result events', async () => {
+    // SDK reports cumulative totals — each result includes ALL prior usage.
+    // The session total should reflect the SDK's cumulative value, not sum them.
+    const events: Record<string, unknown>[] = [
+      // Turn 1
+      {
+        type: 'stream_event',
+        parent_tool_use_id: null,
+        event: {
+          type: 'message_start',
+          message: { id: 'msg-t1', usage: { input_tokens: 5000 } },
+        },
+      },
+      {
+        type: 'stream_event',
+        event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+      },
+      { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+      { type: 'assistant', message: { content: [] }, session_id: 'sess-multi' },
+      {
+        type: 'result',
+        session_id: 'sess-multi',
+        usage: { input_tokens: 5000, output_tokens: 1000 },
+        total_cost_usd: 0.02,
+        num_turns: 1,
+        duration_ms: 3000,
+        duration_api_ms: 2000,
+      },
+      // Turn 2 — SDK reports cumulative: 12000 input (not 7000 delta)
+      {
+        type: 'stream_event',
+        parent_tool_use_id: null,
+        event: {
+          type: 'message_start',
+          message: { id: 'msg-t2', usage: { input_tokens: 12000 } },
+        },
+      },
+      {
+        type: 'stream_event',
+        event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+      },
+      { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+      { type: 'assistant', message: { content: [] }, session_id: 'sess-multi' },
+      {
+        type: 'result',
+        session_id: 'sess-multi',
+        usage: { input_tokens: 12000, output_tokens: 3000 },
+        total_cost_usd: 0.05,
+        num_turns: 2,
+        duration_ms: 8000,
+        duration_api_ms: 6000,
+      },
+    ];
+
+    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+
+    const tokenUpdates = ws.sent.filter((m) => m.type === 'token_update');
+    const resultUpdates = tokenUpdates.filter(
+      (m) => (m as Record<string, unknown>).sessionTotal !== undefined,
+    );
+
+    // Should have two result-based token_updates
+    expect(resultUpdates).toHaveLength(2);
+    // Turn 1: 5000 + 1000 = 6000
+    expect(resultUpdates[0]).toMatchObject({ sessionTotal: 6000 });
+    // Turn 2: 12000 + 3000 = 15000 (NOT 6000 + 15000 = 21000)
+    expect(resultUpdates[1]).toMatchObject({ sessionTotal: 15000 });
+  });
+
   it('handles missing usage on message_start gracefully', async () => {
     const events: Record<string, unknown>[] = [
       {
