@@ -391,7 +391,6 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
               model: msg.model,
               extraTools: msg.extraTools,
               mode: msg.mode,
-              worktree: msg.worktree,
               images: msg.images,
               contextBlocks: msg.contextBlocks,
               clientMsgId: msg.clientMsgId,
@@ -418,7 +417,6 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
               model: msg.model,
               extraTools: msg.extraTools,
               mode: msg.mode,
-              worktree: msg.worktree,
               images: msg.images,
               contextBlocks: msg.contextBlocks,
               clientMsgId: msg.clientMsgId,
@@ -477,7 +475,9 @@ checkPort(PORT).then((inUse) => {
   server.listen(PORT, () => {
     const protocol = USE_TLS ? 'https' : 'http';
     log.info(`Chat Agent running on ${protocol}://localhost:${PORT}${USE_TLS ? ' (TLS)' : ''}`);
-    // Clean up stale worktrees across all repos
+    // Clean up stale worktrees across all repos.
+    // Dirty worktrees (uncommitted work) are flagged in the mgmt inbox.
+    const inboxDir = join(BASE_REPO, 'mgmt_lib', 'inbox');
     const repoEntries: [string, string][] = [['primary', BASE_REPO]];
     try {
       const config = getRepoConfig();
@@ -489,7 +489,7 @@ checkPort(PORT).then((inUse) => {
     }
     for (const [label, repoPath] of repoEntries) {
       try {
-        cleanupStaleWorktrees(repoPath);
+        cleanupStaleWorktrees(repoPath, inboxDir);
       } catch (err: unknown) {
         log.warn(`stale worktree cleanup failed for ${label}`, {
           error: err instanceof Error ? err.message : 'unknown',

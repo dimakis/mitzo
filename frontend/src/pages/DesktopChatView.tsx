@@ -238,9 +238,7 @@ export function DesktopChatView() {
             voice={voice}
             branch={msgState.branch || undefined}
             isWorktree={msgState.isWorktree}
-            sandbox={sessionState.sandbox}
-            onSandboxToggle={() => sessionActions.setSandbox(!sessionState.sandbox)}
-            sandboxDisabled={msgState.messages.some((m) => m.role === 'user')}
+            wtId={msgState.wtId || undefined}
             externalContextBlocks={contextBlocks}
             tokenState={tokenState}
           />
@@ -263,6 +261,7 @@ export function DesktopChatView() {
           sessionId={sessionState.currentSessionId}
           branch={msgState.branch || undefined}
           isWorktree={msgState.isWorktree}
+          wtId={msgState.wtId || undefined}
         />
       }
     />
