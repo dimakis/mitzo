@@ -82,6 +82,10 @@ export class SessionRegistry {
     return this.sessions.get(clientId);
   }
 
+  entries(): IterableIterator<[string, ManagedSession]> {
+    return this.sessions.entries();
+  }
+
   isActive(clientId: string): boolean {
     return this.sessions.has(clientId);
   }
