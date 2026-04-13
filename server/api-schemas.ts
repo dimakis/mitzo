@@ -108,3 +108,27 @@ export const TodoActionResponse = z.object({
   ok: z.boolean(),
   error: z.string().optional(),
 });
+
+// -- Task schemas --
+
+export const TaskCreateBody = z.object({
+  title: z.string().min(1),
+  parentId: z.string().optional(),
+  description: z.string().optional(),
+  priority: z.number().optional(),
+  sessionPolicy: z.enum(['reuse', 'spawn', 'auto']).optional(),
+  annotations: z.array(z.string()).optional(),
+});
+
+export const TaskUpdateBody = z.object({
+  title: z.string().optional(),
+  description: z.string().optional(),
+  status: z
+    .enum(['pending', 'active', 'done', 'pending_review', 'blocked', 'skipped', 'failed'])
+    .optional(),
+  priority: z.number().optional(),
+  sessionPolicy: z.enum(['reuse', 'spawn', 'auto']).optional(),
+  annotations: z.array(z.string()).optional(),
+  summary: z.string().optional(),
+  requiresApproval: z.boolean().optional(),
+});

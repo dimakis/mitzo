@@ -1,4 +1,5 @@
 import type { BlockType, FinishedBlock, ToolTier, RawToolInput } from './chat';
+import type { Task } from './task';
 
 interface ClientIdMsg {
   type: 'client_id';
@@ -175,6 +176,21 @@ interface SubscribedMsg {
   running: boolean;
 }
 
+interface TaskStateMsg {
+  type: 'task_state';
+  tasks: Task[];
+}
+
+interface TaskUpdatedMsg {
+  type: 'task_updated';
+  task: Task;
+}
+
+interface TaskDeletedMsg {
+  type: 'task_deleted';
+  taskId: string;
+}
+
 export type ServerMessage =
   | ClientIdMsg
   | ReattachedMsg
@@ -200,7 +216,10 @@ export type ServerMessage =
   | UserMessageMsg
   | SessionRenamedMsg
   | SubscribedMsg
-  | InboxUpdatedMsg;
+  | InboxUpdatedMsg
+  | TaskStateMsg
+  | TaskUpdatedMsg
+  | TaskDeletedMsg;
 
 export interface InboxUpdatedMsg {
   type: 'inbox_updated';
