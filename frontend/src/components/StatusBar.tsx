@@ -3,9 +3,10 @@ export interface StatusBarProps {
   sessionId?: string;
   branch?: string;
   isWorktree?: boolean;
+  wtId?: string;
 }
 
-export function StatusBar({ connected, sessionId, branch, isWorktree }: StatusBarProps) {
+export function StatusBar({ connected, sessionId, branch, isWorktree, wtId }: StatusBarProps) {
   return (
     <div className="desktop-status-bar">
       <span className={`status-dot ${connected ? 'status-dot--on' : 'status-dot--off'}`} />
@@ -15,12 +16,12 @@ export function StatusBar({ connected, sessionId, branch, isWorktree }: StatusBa
           {sessionId.slice(0, 12)}
         </span>
       )}
-      {branch && (
-        <span className="status-branch">
-          {isWorktree && <span className="status-wt-badge">WT</span>}
-          {branch}
+      {isWorktree && wtId && (
+        <span className="status-wt-badge" title={`session: ${wtId}\nbranch: ${branch}`}>
+          {wtId.slice(-6)}
         </span>
       )}
+      {branch && <span className="status-branch">{branch}</span>}
     </div>
   );
 }

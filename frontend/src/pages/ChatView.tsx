@@ -202,6 +202,7 @@ export function ChatView() {
         voice={voice}
         branch={msgState.branch || undefined}
         isWorktree={msgState.isWorktree}
+        wtId={msgState.wtId || undefined}
         tokenState={tokenState}
       />
     </div>

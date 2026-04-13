@@ -24,6 +24,7 @@ export interface ChatMessagesState {
   permission: PermissionRequest | null;
   branch: string | null;
   isWorktree: boolean;
+  wtId: string | null;
   activeWorktrees: ActiveWorktree[];
 }
 
@@ -60,7 +61,7 @@ export type ChatMessagesAction =
   | { type: 'MESSAGE_SNAPSHOT'; messageId: string; blocks: FinishedBlock[] }
   // Session / UI lifecycle
   | { type: 'ERROR'; error: string }
-  | { type: 'SESSION_INFO'; branch: string; isWorktree: boolean }
+  | { type: 'SESSION_INFO'; branch: string; isWorktree: boolean; wtId?: string }
   | {
       type: 'USER_SEND';
       text: string;
@@ -85,6 +86,7 @@ const INITIAL_STATE: ChatMessagesState = {
   permission: null,
   branch: null,
   isWorktree: false,
+  wtId: null,
   activeWorktrees: [],
 };
 
@@ -284,7 +286,12 @@ export function chatMessagesReducer(
       };
 
     case 'SESSION_INFO':
-      return { ...state, branch: action.branch, isWorktree: action.isWorktree };
+      return {
+        ...state,
+        branch: action.branch,
+        isWorktree: action.isWorktree,
+        wtId: action.wtId ?? state.wtId,
+      };
 
     case 'WORKTREE_OPENED': {
       const already = state.activeWorktrees.some((w) => w.repoName === action.repoName);
@@ -523,6 +530,7 @@ export function useChatMessages(
             type: 'SESSION_INFO',
             branch: msg.branch as string,
             isWorktree: msg.worktree as boolean,
+            wtId: msg.wtId as string | undefined,
           });
           break;
 
