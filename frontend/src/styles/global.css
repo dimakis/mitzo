@@ -16,6 +16,28 @@
   --success: #4caf50;
   --code-bg: #141425;
   --code-font: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+
+  /* Previously undefined — now explicit */
+  --bg-secondary: #161628;
+  --text-secondary: #8888aa;
+  --hover: rgba(108, 99, 255, 0.1);
+  --active: rgba(108, 99, 255, 0.2);
+  --warning: #ff9800;
+
+  /* Type scale */
+  --text-xs: 0.75rem;
+  --text-sm: 0.85rem;
+  --text-base: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.5rem;
+
+  /* Spacing scale */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
 }
 
 html {
@@ -369,7 +391,7 @@ textarea:focus {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #e53935;
+  background: var(--danger);
   color: #fff;
   font-size: 0.8rem;
   font-weight: 600;
@@ -1597,7 +1619,7 @@ textarea:focus {
 }
 
 .perm-banner--elevated {
-  border-top-color: #ff9800;
+  border-top-color: var(--warning);
 }
 
 .perm-banner--unknown {
@@ -1619,7 +1641,7 @@ textarea:focus {
 
 .perm-banner-tier--elevated {
   background: rgba(255, 152, 0, 0.15);
-  color: #ff9800;
+  color: var(--warning);
 }
 
 .perm-banner-tier--unknown {
@@ -1984,7 +2006,7 @@ textarea:focus {
 }
 
 .mic-btn--recording {
-  background: #e53935;
+  background: var(--danger);
   color: #fff;
   animation: mic-pulse 1s ease-in-out infinite;
 }
@@ -3558,7 +3580,7 @@ textarea:focus {
 }
 
 .task-node-status--blocked {
-  color: #ff9800;
+  color: var(--warning);
 }
 
 .task-node-status--skipped {
@@ -3716,7 +3738,7 @@ textarea:focus {
 }
 
 .loop-controls-pill--paused {
-  background: #ff9800;
+  background: var(--warning);
   color: var(--bg);
 }
 
