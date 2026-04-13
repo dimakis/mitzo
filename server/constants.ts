@@ -32,6 +32,11 @@ export const SESSION_MESSAGES_LIMIT = 100;
 // --- Observers ---
 export const MAX_OBSERVERS_PER_SESSION = 10;
 
+// --- Token tracking ---
+// All current Claude models share a 200k context window.
+// If a model with a different ceiling is added, update this constant.
+export const CONTEXT_CEILING_TOKENS = 200_000;
+
 // --- Server ---
 export const HEARTBEAT_INTERVAL_MS = 15_000;
 export const PORT_DEFAULT = 3100;

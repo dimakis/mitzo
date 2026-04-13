@@ -2,7 +2,7 @@ import type { WebSocket } from 'ws';
 import { resolvePending } from './permissions.js';
 import { summarizeToolInput, getRawInput } from './tool-summary.js';
 import { extractToolResultText } from './content-blocks.js';
-import { TOOL_RESULT_MAX_CHARS } from './constants.js';
+import { TOOL_RESULT_MAX_CHARS, CONTEXT_CEILING_TOKENS } from './constants.js';
 import { createLogger } from './logger.js';
 import type { SessionRegistry, SnapshotBlock } from './session-registry.js';
 import type { EventStore } from './event-store.js';
@@ -139,6 +139,10 @@ export async function runQueryLoop(
   let resolvedGoalId: string | undefined;
   let goalCreationPromise: Promise<string | null> | undefined;
   let goalTitle: string | undefined;
+
+  // Token tracking state for live token_update events
+  let agentContextTokens = 0; // input_tokens from latest message_start (context window size)
+  let turnIndex = 0; // increments on each message_start
 
   // Track last-reported cumulative usage to compute deltas (SDK reports cumulative totals).
   let lastReportedUsage = {
@@ -310,6 +314,22 @@ export async function runQueryLoop(
           store.recordUsage(resolvedSessionId, usageData);
         }
 
+        // Accumulate session-lifetime totals on the registry entry
+        const callTokens = usageData.inputTokens + usageData.outputTokens;
+        currentSession.cumulativeSessionTokens += callTokens;
+        currentSession.cumulativeCostUsd += usageData.totalCostUsd;
+
+        // Emit final token_update with accumulated session totals
+        emit(currentWs, {
+          type: 'token_update',
+          agentContext: agentContextTokens,
+          contextCeiling: CONTEXT_CEILING_TOKENS,
+          sessionTotal: currentSession.cumulativeSessionTokens,
+          costUsd: currentSession.cumulativeCostUsd,
+          numTurns: usageData.numTurns,
+          turnIndex,
+        });
+
         // Resolve goal creation (if pending) and report usage
         if (goalCreationPromise && resolvedSessionId) {
           const goalId = await goalCreationPromise;
@@ -373,6 +393,21 @@ export async function runQueryLoop(
           // Init snapshot on the session.
           currentSession.currentSnapshot = { messageId: currentMessageId, blocks: [] };
           emit(currentWs, v2('message_start', { messageId: currentMessageId }));
+
+          // Extract agent context (input_tokens) from message_start usage
+          const msgUsage = (apiMsg as Record<string, unknown> | undefined)?.usage as
+            | Record<string, number>
+            | undefined;
+          if (msgUsage?.input_tokens) {
+            agentContextTokens = msgUsage.input_tokens;
+            turnIndex++;
+            emit(currentWs, {
+              type: 'token_update',
+              agentContext: agentContextTokens,
+              contextCeiling: CONTEXT_CEILING_TOKENS,
+              turnIndex,
+            });
+          }
         } else if (evt?.type === 'content_block_start') {
           // Auto-init message context if SDK delivers blocks before message_start.
           // On the first turn, AssistantMessage can win the async iterator race

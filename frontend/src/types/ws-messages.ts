@@ -219,8 +219,19 @@ export type ServerMessage =
   | InboxUpdatedMsg
   | TaskStateMsg
   | TaskUpdatedMsg
-  | TaskDeletedMsg;
+  | TaskDeletedMsg
+  | TokenUpdateMsg;
 
 export interface InboxUpdatedMsg {
   type: 'inbox_updated';
+}
+
+export interface TokenUpdateMsg {
+  type: 'token_update';
+  agentContext: number;
+  contextCeiling?: number;
+  sessionTotal?: number;
+  costUsd?: number;
+  numTurns?: number;
+  turnIndex: number;
 }

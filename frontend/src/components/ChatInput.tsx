@@ -13,7 +13,9 @@ import { MAX_IMAGE_ATTACHMENTS } from '../lib/constants';
 import { SlashPicker } from './SlashPicker';
 import { ContextPicker } from './ContextPicker';
 import { MicButton } from './MicButton';
+import { TokenBar } from './TokenBar';
 import type { UseVoiceReturn } from '../hooks/useVoice';
+import type { TokenState } from '../hooks/useTokenState';
 
 interface Props {
   onSend: (text: string, images?: ImageAttachment[], contextBlocks?: string[]) => boolean;
@@ -30,6 +32,7 @@ interface Props {
   sandboxDisabled?: boolean;
   /** When provided, uses these context blocks instead of internal state. Hides @ picker. */
   externalContextBlocks?: string[];
+  tokenState?: TokenState;
 }
 
 export function ChatInput({
@@ -46,6 +49,7 @@ export function ChatInput({
   onSandboxToggle,
   sandboxDisabled,
   externalContextBlocks,
+  tokenState,
 }: Props) {
   const [text, setText] = useState(initialText || '');
   const [images, setImages] = useState<ImageAttachment[]>([]);
@@ -321,6 +325,7 @@ export function ChatInput({
             {branch}
           </span>
         )}
+        {tokenState && <TokenBar tokenState={tokenState} />}
       </div>
       <div className="chat-input-row">
         <textarea

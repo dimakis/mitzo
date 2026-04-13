@@ -37,6 +37,9 @@ export interface ManagedSession {
   currentSnapshot: MessageSnapshot | null;
   activeSkillPolicy: Set<string> | null;
   observers: Set<WebSocket>;
+  /** Accumulates token totals across multiple query() calls in a session */
+  cumulativeSessionTokens: number;
+  cumulativeCostUsd: number;
 }
 
 export class SessionRegistry {
@@ -54,6 +57,8 @@ export class SessionRegistry {
       | 'worktreePaths'
       | 'activeSkillPolicy'
       | 'observers'
+      | 'cumulativeSessionTokens'
+      | 'cumulativeCostUsd'
     > & {
       sessionId?: string;
     },
@@ -64,6 +69,8 @@ export class SessionRegistry {
       currentSnapshot: null,
       activeSkillPolicy: null,
       observers: new Set(),
+      cumulativeSessionTokens: 0,
+      cumulativeCostUsd: 0,
     });
     this.attached.add(clientId);
   }

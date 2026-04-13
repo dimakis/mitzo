@@ -17,6 +17,7 @@ import { useChatActions } from '../hooks/useChatActions';
 import { usePermission } from '../hooks/usePermission';
 import { useVoice } from '../hooks/useVoice';
 import { useAutoSpeak } from '../hooks/useAutoSpeak';
+import { useTokenState } from '../hooks/useTokenState';
 import type { FileRoot } from '../components/FileBrowserPanel';
 import type { ContextBlockEntry } from '../components/ContextPicker';
 
@@ -59,6 +60,7 @@ export function DesktopChatView() {
   );
 
   const voice = useVoice();
+  const { tokenState, handleTokenMessage } = useTokenState(sessionState.currentSessionId);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const forceScrollToBottom = useCallback(() => {
@@ -126,7 +128,7 @@ export function DesktopChatView() {
     return () => controller.abort();
   }, [sessionId, dispatch, forceScrollToBottom]);
 
-  const { connected } = useChatConnection(poolKey, handleWsMessage);
+  const { connected } = useChatConnection(poolKey, handleWsMessage, handleTokenMessage);
 
   const { handlePermission } = usePermission(poolKey, () => {
     dispatch({ type: 'PERMISSION_TIMEOUT', permId: msgState.permission?.permId ?? '' });
@@ -240,6 +242,7 @@ export function DesktopChatView() {
             onSandboxToggle={() => sessionActions.setSandbox(!sessionState.sandbox)}
             sandboxDisabled={msgState.messages.some((m) => m.role === 'user')}
             externalContextBlocks={contextBlocks}
+            tokenState={tokenState}
           />
         </div>
       }
