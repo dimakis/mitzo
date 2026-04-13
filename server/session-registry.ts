@@ -46,6 +46,19 @@ export interface ManagedSession {
   taskContext: { currentTaskId: string; goalId: string } | null;
 }
 
+export interface ActiveSessionInfo {
+  clientId: string;
+  sessionId: string | undefined;
+  mode: MitzoMode;
+  cwd: string | undefined;
+  attached: boolean;
+  cumulativeSessionTokens: number;
+  cumulativeCostUsd: number;
+  hasSnapshot: boolean;
+  taskContext: { currentTaskId: string; goalId: string } | null;
+  observerCount: number;
+}
+
 export class SessionRegistry {
   private sessions = new Map<string, ManagedSession>();
   private attached = new Set<string>();
@@ -254,19 +267,8 @@ export class SessionRegistry {
   /**
    * Return a serializable snapshot of all active sessions.
    */
-  getActiveSessions(): Array<{
-    clientId: string;
-    sessionId: string | undefined;
-    mode: MitzoMode;
-    cwd: string | undefined;
-    attached: boolean;
-    cumulativeSessionTokens: number;
-    cumulativeCostUsd: number;
-    hasSnapshot: boolean;
-    taskContext: { currentTaskId: string; goalId: string } | null;
-    observerCount: number;
-  }> {
-    const result: ReturnType<SessionRegistry['getActiveSessions']> = [];
+  getActiveSessions(): ActiveSessionInfo[] {
+    const result: ActiveSessionInfo[] = [];
     for (const [clientId, session] of this.sessions) {
       result.push({
         clientId,

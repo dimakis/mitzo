@@ -51,6 +51,63 @@ function renderSessionList() {
   return root;
 }
 
+describe('SessionList status dot', () => {
+  it('renders green dot for active+attached session', async () => {
+    mockFetchResponses({
+      '/api/sessions': [
+        { id: 's1', summary: 'Test', lastModified: 1, isActive: true, isAttached: true },
+      ],
+    });
+
+    renderSessionList();
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    const dot = container.querySelector('.session-status-dot');
+    expect(dot).not.toBeNull();
+    expect(dot!.classList.contains('attached')).toBe(true);
+    expect(dot!.getAttribute('aria-label')).toBe('Session active');
+  });
+
+  it('renders orange dot for active+detached session', async () => {
+    mockFetchResponses({
+      '/api/sessions': [
+        { id: 's1', summary: 'Test', lastModified: 1, isActive: true, isAttached: false },
+      ],
+    });
+
+    renderSessionList();
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    const dot = container.querySelector('.session-status-dot');
+    expect(dot).not.toBeNull();
+    expect(dot!.classList.contains('detached')).toBe(true);
+    expect(dot!.getAttribute('aria-label')).toBe('Session detached');
+  });
+
+  it('does not render dot for inactive session', async () => {
+    mockFetchResponses({
+      '/api/sessions': [
+        { id: 's1', summary: 'Test', lastModified: 1, isActive: false, isAttached: false },
+      ],
+    });
+
+    renderSessionList();
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    const dot = container.querySelector('.session-status-dot');
+    expect(dot).toBeNull();
+  });
+});
+
 describe('SessionList inbox badge', () => {
   it('renders badge with correct count when inbox has items', async () => {
     mockFetchResponses({
