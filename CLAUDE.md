@@ -14,7 +14,7 @@ npm run lint         # ESLint (server + frontend)
 npm run lint:fix     # ESLint with auto-fix
 npm run format       # Prettier (write)
 npm run format:check # Prettier (check only)
-npm test             # Vitest (946 tests, 85 files)
+npm test             # Vitest (2200+ tests, 187 files)
 ```
 
 Pre-commit hooks (husky + lint-staged) run lint and format on staged files. Conventional commit messages enforced via commitlint. **Pre-commit hooks are not a substitute for CI** — they only check staged files of specific types. Always verify CI passes after pushing (see `.cursor/rules/ci-discipline.mdc`).
@@ -49,6 +49,11 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 - `repo-mcp-server.ts` — Repo-scoped MCP server configuration.
 - `notification-helpers.ts` — Shared notification formatting utilities.
 - `inbox.ts` — Inbox integration endpoint.
+- `task-store.ts` — `TaskStore` class: SQLite persistence for tasks with tree queries, cascade status, DFS ordering, orphan detection. WAL mode + foreign keys.
+- `task-tools.ts` — Pure handler functions for agent task tools (TaskSet, TaskComplete, TaskStatus, TaskBlock). Never throw — return error strings.
+- `task-mcp-server.ts` — Stdio MCP server exposing task tools as `mcp__task-board__*`. Calls back to internal HTTP endpoints.
+- `task-context.ts` — XML task context builder for system prompt injection. Includes current task, siblings, parent tree, and summaries (capped at 2000 chars).
+- `task-orchestrator.ts` — `TaskOrchestrator`: event-driven state machine (idle/running/paused) with DFS sequential task assignment. Spec mode for human review of decompositions. Orphan detection reclaims tasks from dead sessions.
 - `mcp-config.ts` — Loads MCP server configs from Cursor mcp.json.
 - `worktree.ts` — Git worktree lifecycle.
 - `repo-config.ts` — `.mitzo.json` reader for quick actions, venv paths, tier overrides.
@@ -63,10 +68,11 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 
 - `types/chat.ts` — v2 types: `StreamingBlock`, `StreamingMessage`, `FinishedBlock`, `FinishedMessage`, `BlockType`, `RawToolInput`, `PermissionRequest`, `ToolTier`, `Session`, `ImageAttachment`.
 - `types/ws-messages.ts` — Typed WebSocket message unions (client → server, server → client).
-- `hooks/` — `useChatMessages` (useReducer for v2 protocol: MESSAGE_START/BLOCK_START/BLOCK_DELTA/BLOCK_END/TOOL_RESULT/MESSAGE_END/SESSION_END/MESSAGE_SNAPSHOT/RESTORE), `useChatSession`, `useChatConnection`, `usePermission`, `useFileNavigation`, `useFileEditor`, `useLongPress`.
+- `types/task.ts` — Task model types (`Task`, `TaskStatus`, `LoopStatus`, `SessionPolicy`).
+- `hooks/` — `useChatMessages` (useReducer for v2 protocol: MESSAGE_START/BLOCK_START/BLOCK_DELTA/BLOCK_END/TOOL_RESULT/MESSAGE_END/SESSION_END/MESSAGE_SNAPSHOT/RESTORE), `useChatSession`, `useChatConnection`, `usePermission`, `useTaskBoard` (task CRUD + loop control + WS subscriptions), `useFileNavigation`, `useFileEditor`, `useLongPress`.
 - `lib/` — `ws-pool` (module-level WebSocket pool with 500-message buffer and auto-reconnect), `groupMessages` (tool block grouping with configurable threshold), `constants`, `formatTime`, `paste-images`, `model-preference`, `rename-session`, `resizeImage`, `swipe-reveal`, `truncate`.
-- Pages: `Login`, `SessionList`, `ChatView` (renders `current` inline + `messages[]` grouped), `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`.
-- Components: `MessageBubble` (UserBubble/TextBubble), `ThinkingBlock`, `ToolPill`, `ToolGroup`, `PermissionBanner`, `ChatInput`, `SlashPicker`, `ErrorBoundary`, `MitzoLogo`.
+- Pages: `Login`, `SessionList`, `ChatView` (renders `current` inline + `messages[]` grouped), `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`, `TaskBoard`.
+- Components: `MessageBubble` (UserBubble/TextBubble), `ThinkingBlock`, `ToolPill`, `ToolGroup`, `PermissionBanner`, `ChatInput`, `SlashPicker`, `ErrorBoundary`, `MitzoLogo`, `TaskNode`, `TaskCreateForm`, `LoopControls`, `TaskSidebar`.
 - Auth via `ProtectedRoute` wrapper. Vite dev server proxies `/api` and `/ws` to backend.
 
 **v2 protocol — key reducer behaviors:**
@@ -123,6 +129,19 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 - Claude sessions get all configured MCP tools (Jira, GitLab, etc.) automatically.
 - `GET /api/config` exposes server names (not credentials) to the frontend.
 
+**Task board and orchestration:**
+
+- `TaskStore` uses SQLite (`.mitzo/tasks.db`) with WAL mode and foreign keys. Tasks form a tree (parentId), with status cascade rules: failed > blocked > active > pending_review > all done/skipped = done > pending.
+- `TaskOrchestrator` is a singleton event-driven state machine. `tick()` is stateless — always re-reads from SQLite. No polling; tool completions and REST mutations trigger tick.
+- Agent tools (`TaskSet`, `TaskComplete`, `TaskStatus`, `TaskBlock`) are delivered as `mcp__task-board__*` via a child-process MCP server. Classified as `safe` tier.
+- Spec mode: `start(goalId, { specMode: true })` lets the agent decompose a goal into subtasks, then pauses for human approval before execution begins.
+- Orphan detection: during `tick()`, active tasks whose `session_id` doesn't match any alive session get reclaimed to `pending`.
+- Task context is injected into the system prompt as XML blocks per design doc §8.1.
+- Loop status is broadcast to all clients via WS (`loop_status` event type).
+- REST API: `/api/tasks` CRUD, `/api/loop/{status,start,pause,resume,stop}`, `/api/tasks/:id/{approve,reject}`, `/api/loop/spec/{approve,reject}`.
+- Phase 2 is `reuse` session policy only — `spawn`/`auto` are Phase 3.
+- Design doc: `docs/design/global-task-board.md`.
+
 **Skills system:**
 
 - Skills are reusable prompt packages invoked via `/slash-command` in chat input.
@@ -153,7 +172,7 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 
 ## What is Mitzo?
 
-Mitzo is a web-based command center for Claude Code sessions, built on the Anthropic Agent SDK. It provides a mobile-first interface for managing AI-assisted workflows — chat sessions with slash-command skills, file browsing/editing, worktree isolation, MCP tool integration, voice input/output via Yapper, and quick actions.
+Mitzo is a web-based command center for Claude Code sessions, built on the Anthropic Agent SDK. It provides a mobile-first interface for managing AI-assisted workflows — chat sessions with slash-command skills, file browsing/editing, worktree isolation, MCP tool integration, voice input/output via Yapper, quick actions, and a task board with autonomous orchestration.
 
 Mitzo lives at `~/tools/mitzo/` and is pointed at the `mgmt` workspace via the `REPO_PATH` env var. It is open source and designed to be portable — no hardcoded paths or machine-specific configuration.
 
