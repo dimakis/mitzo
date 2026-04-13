@@ -20,7 +20,14 @@ beforeEach(() => {
       if (url === '/api/todos') {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ items: [{ id: 'a' }, { id: 'b' }] }),
+          json: () =>
+            Promise.resolve({
+              items: [
+                { id: 'a', status: 'active' },
+                { id: 'b', status: 'completed' },
+                { id: 'c', status: 'acknowledged' },
+              ],
+            }),
         });
       }
       return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
@@ -42,6 +49,7 @@ describe('useTabBadges', () => {
     });
 
     expect(result.current.inboxCount).toBe(1);
+    // Only non-completed items (active + acknowledged) should be counted
     expect(result.current.todoCount).toBe(2);
   });
 

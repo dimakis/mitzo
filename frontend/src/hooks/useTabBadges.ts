@@ -21,7 +21,12 @@ export function useTabBadges(): TabBadges {
           .catch(() => ({ items: [] })),
       ]).then(([inboxData, todoData]) => {
         if (Array.isArray(inboxData)) setInboxCount(inboxData.length);
-        if (todoData?.items) setTodoCount(todoData.items.length);
+        if (todoData?.items) {
+          const pending = todoData.items.filter(
+            (item: { status?: string }) => item.status !== 'completed',
+          );
+          setTodoCount(pending.length);
+        }
       });
 
     fetchCounts();
