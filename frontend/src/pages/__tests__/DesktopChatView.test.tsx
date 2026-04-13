@@ -53,12 +53,11 @@ vi.mock('../../components/StatusBar', () => ({
 
 vi.mock('../../hooks/useChatSession', () => ({
   useChatSession: () => [
-    { currentSessionId: undefined, model: 'claude-sonnet-4-6', mode: 'agent', sandbox: false },
+    { currentSessionId: undefined, model: 'claude-sonnet-4-6', mode: 'agent' },
     {
       setCurrentSessionId: vi.fn(),
       setModel: vi.fn(),
       setMode: vi.fn(),
-      setSandbox: vi.fn(),
     },
     'pool-key',
   ],

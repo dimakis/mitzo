@@ -18,7 +18,6 @@ function makeDeps(overrides: Partial<Parameters<typeof useChatActions>[0]> = {})
       model: 'claude-sonnet-4-6',
       mode: 'agent' as const,
       currentSessionId: 'test-123',
-      sandbox: false,
     },
     searchParams: new URLSearchParams(),
     dispatch: vi.fn(),
@@ -140,25 +139,6 @@ describe('useChatActions', () => {
     expect(wsSend).toHaveBeenCalledWith('session:test-123', { type: 'stop' });
     expect(wsSetRunning).toHaveBeenCalledWith('session:test-123', false);
     expect(deps.dispatch).toHaveBeenCalledWith({ type: 'SET_RUNNING', running: false });
-  });
-
-  it('includes worktree flag for sandbox new sessions', () => {
-    const deps = makeDeps({
-      sessionState: {
-        model: 'claude-sonnet-4-6',
-        mode: 'agent',
-        currentSessionId: undefined,
-        sandbox: true,
-      },
-    });
-    const { result } = renderHook(() => useChatActions(deps));
-
-    result.current.sendMessage('hello');
-
-    expect(wsSend).toHaveBeenCalledWith(
-      'session:test-123',
-      expect.objectContaining({ worktree: true }),
-    );
   });
 
   it('forwards cwd and extraTools from searchParams', () => {

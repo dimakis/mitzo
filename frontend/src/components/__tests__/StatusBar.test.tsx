@@ -33,13 +33,20 @@ describe('StatusBar', () => {
     expect(screen.getByText('feat/desktop-ui')).toBeTruthy();
   });
 
-  it('renders worktree badge when isWorktree', () => {
-    render(<StatusBar connected={true} branch="wt-branch" isWorktree={true} />);
-    expect(screen.getByText('WT')).toBeTruthy();
+  it('renders session hash badge when in worktree with wtId', () => {
+    render(
+      <StatusBar
+        connected={true}
+        branch="session/2026-04-13-a3f2b1"
+        isWorktree={true}
+        wtId="2026-04-13-a3f2b1"
+      />,
+    );
+    expect(screen.getByText('a3f2b1')).toBeTruthy();
   });
 
-  it('does not render worktree badge when not worktree', () => {
-    render(<StatusBar connected={true} branch="main" isWorktree={false} />);
-    expect(screen.queryByText('WT')).toBeNull();
+  it('does not render session hash badge when not worktree', () => {
+    const { container } = render(<StatusBar connected={true} branch="main" isWorktree={false} />);
+    expect(container.querySelector('.status-wt-badge')).toBeNull();
   });
 });
