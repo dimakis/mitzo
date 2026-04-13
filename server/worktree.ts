@@ -8,35 +8,51 @@ import {
   WORKTREE_GIT_TIMEOUT_MS,
   WORKTREE_REMOVE_TIMEOUT_MS,
   WORKTREE_PRUNE_TIMEOUT_MS,
-  WORKTREE_BRANCH_DELETE_TIMEOUT_MS,
 } from './constants.js';
 import { createLogger } from './logger.js';
 
 const log = createLogger('worktree');
 
-function sessionsDir(baseRepo: string): string {
-  return `${baseRepo}-sessions`;
+/** Worktrees live inside each repo at .claude/worktrees/<sessionId>. */
+function worktreesDir(baseRepo: string): string {
+  return join(baseRepo, '.claude', 'worktrees');
 }
 
 export function createWorktree(sessionId: string, baseRepo: string): string {
-  const dir = sessionsDir(baseRepo);
+  const dir = worktreesDir(baseRepo);
   mkdirSync(dir, { recursive: true });
 
-  const worktreePath = join(dir, `session-${sessionId}`);
+  const worktreePath = join(dir, sessionId);
   const branch = `${WORKTREE_BRANCH_PREFIX}${sessionId}`;
 
-  execFileSync('git', ['-C', baseRepo, 'worktree', 'add', '-b', branch, worktreePath], {
-    stdio: 'pipe',
-    timeout: WORKTREE_GIT_TIMEOUT_MS,
-  });
+  try {
+    execFileSync('git', ['-C', baseRepo, 'worktree', 'add', '-b', branch, worktreePath], {
+      stdio: 'pipe',
+      timeout: WORKTREE_GIT_TIMEOUT_MS,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    // Branch may already exist from a previous session with the same slug
+    if (message.includes('already exists')) {
+      execFileSync('git', ['-C', baseRepo, 'worktree', 'add', worktreePath, branch], {
+        stdio: 'pipe',
+        timeout: WORKTREE_GIT_TIMEOUT_MS,
+      });
+    } else {
+      throw err;
+    }
+  }
 
   log.info(`created: ${worktreePath} (${branch})`);
   return worktreePath;
 }
 
+/**
+ * Remove a worktree directory. Branches are preserved — they persist for PRs
+ * and are cleaned up separately by pruning logic.
+ */
 export function removeWorktree(sessionId: string, baseRepo: string): void {
-  const worktreePath = join(sessionsDir(baseRepo), `session-${sessionId}`);
-  const branch = `${WORKTREE_BRANCH_PREFIX}${sessionId}`;
+  const worktreePath = join(worktreesDir(baseRepo), sessionId);
 
   try {
     execFileSync('git', ['-C', baseRepo, 'worktree', 'remove', '--force', worktreePath], {
@@ -57,15 +73,6 @@ export function removeWorktree(sessionId: string, baseRepo: string): void {
   }
 
   try {
-    execFileSync('git', ['-C', baseRepo, 'branch', '-D', branch], {
-      stdio: 'pipe',
-      timeout: WORKTREE_BRANCH_DELETE_TIMEOUT_MS,
-    });
-  } catch {
-    // Branch may already be deleted or never created
-  }
-
-  try {
     execFileSync('git', ['-C', baseRepo, 'worktree', 'prune'], {
       stdio: 'pipe',
       timeout: WORKTREE_PRUNE_TIMEOUT_MS,
@@ -78,12 +85,16 @@ export function removeWorktree(sessionId: string, baseRepo: string): void {
 }
 
 export function getWorktreePath(sessionId: string, baseRepo: string): string | null {
-  const worktreePath = join(sessionsDir(baseRepo), `session-${sessionId}`);
+  const worktreePath = join(worktreesDir(baseRepo), sessionId);
   return existsSync(worktreePath) ? worktreePath : null;
 }
 
+/**
+ * Clean up stale worktrees in the given repo's .claude/worktrees/ directory.
+ * Callers iterate repos individually — no multi-repo parameter needed.
+ */
 export function cleanupStaleWorktrees(baseRepo: string): void {
-  const dir = sessionsDir(baseRepo);
+  const dir = worktreesDir(baseRepo);
   if (!existsSync(dir)) return;
 
   const now = Date.now();
@@ -91,18 +102,16 @@ export function cleanupStaleWorktrees(baseRepo: string): void {
   let cleaned = 0;
 
   for (const entry of readdirSync(dir)) {
-    if (!entry.startsWith('session-')) continue;
-
     const fullPath = join(dir, entry);
     try {
       const stat = statSync(fullPath);
       if (now - stat.mtimeMs > cutoff) {
-        const sessionId = entry.replace('session-', '');
-        removeWorktree(sessionId, baseRepo);
+        removeWorktree(entry, baseRepo);
         cleaned++;
       }
     } catch (err: unknown) {
       log.warn('failed to stat worktree entry during cleanup', {
+        repo: baseRepo,
         entry,
         error: err instanceof Error ? err.message : 'unknown',
       });
@@ -115,31 +124,59 @@ export function cleanupStaleWorktrees(baseRepo: string): void {
       timeout: WORKTREE_PRUNE_TIMEOUT_MS,
     });
   } catch {
-    // Non-fatal — prune is best-effort cleanup
+    // Non-fatal
   }
 
   if (cleaned > 0) {
-    log.info(`cleaned up ${cleaned} stale worktree(s)`);
+    log.info(`cleaned up ${cleaned} stale worktree(s) in ${baseRepo}`);
   }
+}
+
+/** Also check legacy -sessions/ sibling dir for backward compat. */
+function legacySessionsDir(baseRepo: string): string {
+  return `${baseRepo}-sessions`;
 }
 
 export function listWorktrees(
   baseRepo: string,
 ): Array<{ name: string; path: string; age: string }> {
-  const dir = sessionsDir(baseRepo);
-  if (!existsSync(dir)) return [];
-
+  const results: Array<{ name: string; path: string; age: string }> = [];
   const now = Date.now();
-  return readdirSync(dir)
-    .filter((e) => e.startsWith('session-'))
-    .map((entry) => {
+
+  // Check new location (.claude/worktrees/)
+  const dir = worktreesDir(baseRepo);
+  if (existsSync(dir)) {
+    for (const entry of readdirSync(dir)) {
       const fullPath = join(dir, entry);
       try {
         const stat = statSync(fullPath);
         const hours = Math.floor((now - stat.mtimeMs) / 3_600_000);
-        return { name: entry, path: fullPath, age: hours < 1 ? '<1h' : `${hours}h` };
+        results.push({ name: entry, path: fullPath, age: hours < 1 ? '<1h' : `${hours}h` });
       } catch {
-        return { name: entry, path: fullPath, age: 'unknown' }; // Stat failed — show with unknown age
+        results.push({ name: entry, path: fullPath, age: 'unknown' });
       }
-    });
+    }
+  }
+
+  // Check legacy location (<repo>-sessions/)
+  const legacyDir = legacySessionsDir(baseRepo);
+  if (existsSync(legacyDir)) {
+    for (const entry of readdirSync(legacyDir)) {
+      if (!entry.startsWith('session-')) continue;
+      const fullPath = join(legacyDir, entry);
+      try {
+        const stat = statSync(fullPath);
+        const hours = Math.floor((now - stat.mtimeMs) / 3_600_000);
+        results.push({
+          name: `${entry} (legacy)`,
+          path: fullPath,
+          age: hours < 1 ? '<1h' : `${hours}h`,
+        });
+      } catch {
+        results.push({ name: `${entry} (legacy)`, path: fullPath, age: 'unknown' });
+      }
+    }
+  }
+
+  return results;
 }

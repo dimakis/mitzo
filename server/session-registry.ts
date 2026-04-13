@@ -30,7 +30,10 @@ export interface ManagedSession {
   sessionAllowList: Set<string>;
   mode: MitzoMode;
   cwd?: string;
+  /** Session-scoped worktree identifier, shared across all repos. */
+  wtId?: string;
   worktreePath?: string;
+  /** All worktrees created for this session, keyed by repo name. */
   worktreePaths: Map<string, { path: string; wtId: string }>;
   queryInstance?: { interrupt: () => Promise<void>; close: () => void };
   inputQueue?: { push: (msg: unknown) => void; close: () => void };

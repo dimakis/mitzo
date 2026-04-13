@@ -24,6 +24,8 @@ interface SessionInfoMsg {
   branch: string;
   cwd: string;
   worktree: boolean;
+  /** Session-scoped worktree ID, shared across all repos. */
+  wtId?: string;
 }
 
 interface SessionIdMsg {

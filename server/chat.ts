@@ -8,9 +8,9 @@ import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { WebSocket } from 'ws';
 import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'fs';
-import { join, dirname } from 'path';
+import { join } from 'path';
 import { homedir } from 'os';
-import { fileURLToPath } from 'url';
+import { randomBytes } from 'crypto';
 import { createWorktree, removeWorktree } from './worktree.js';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
 import { parseContentBlocks } from './content-blocks.js';
@@ -35,7 +35,6 @@ import { shouldAutoRename, extractRecentPrompts, generateSessionName } from './a
 import { createLogger } from './logger.js';
 
 const log = createLogger('chat');
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // --- Event store (durable session persistence) ---
 function initEventStore(): EventStore {
@@ -63,6 +62,13 @@ export function getMcpServerNames(): string[] {
 
 export const BASE_REPO = process.env.REPO_PATH || '';
 const WORKTREE_ENABLED = process.env.WORKTREE_ENABLED !== 'false';
+
+/** Generate a session-scoped worktree ID: YYYY-MM-DD-<random-hex>. */
+export function generateWtId(): string {
+  const date = new Date().toISOString().slice(0, 10);
+  const rand = randomBytes(3).toString('hex'); // 16M unique values, collision-safe
+  return `${date}-${rand}`;
+}
 
 const MODE_TO_SDK: Record<MitzoMode, string> = {
   ask: 'plan',
@@ -139,9 +145,6 @@ function getBranch(cwd: string): string {
 
 function buildMcpAllowedTools(clientId?: string): string[] {
   const patterns = Object.keys(mcpServers).map((name) => `mcp__${name}__*`);
-  if (Object.keys(getRepoConfig().repos).length > 0) {
-    patterns.push('mcp__mitzo_repos__*');
-  }
   if (clientId) {
     const session = registry.get(clientId);
     if (session?.taskContext) {
@@ -151,25 +154,71 @@ function buildMcpAllowedTools(clientId?: string): string[] {
   return patterns;
 }
 
-const REPO_MCP_SERVER_NAME = 'mitzo_repos';
+/**
+ * Create worktrees for the primary repo and all configured secondary repos.
+ * All worktrees share the same session-scoped wtId. Returns the primary
+ * worktree path as cwd, plus a map of all repo worktrees.
+ */
+function createSessionWorktrees(
+  ws: WebSocket,
+  baseCwd: string,
+  wtId: string,
+  options: { resume?: string; cwd?: string; worktree?: boolean },
+): {
+  cwd: string;
+  wtId: string;
+  worktreePath?: string;
+  repoWorktrees: Map<string, { path: string; wtId: string }>;
+} {
+  const repoWorktrees = new Map<string, { path: string; wtId: string }>();
 
-function buildRepoMcpServer(clientId: string): Record<string, McpServerConfig> | null {
-  if (Object.keys(getRepoConfig().repos).length === 0) return null;
-  const port = process.env.PORT || '3100';
+  // Skip worktree creation unless the frontend's sandbox toggle is on
+  if (
+    !WORKTREE_ENABLED ||
+    options.worktree !== true ||
+    options.resume ||
+    options.cwd ||
+    !BASE_REPO
+  ) {
+    return { cwd: baseCwd, wtId, repoWorktrees };
+  }
+
+  // Create primary worktree
+  let primaryPath: string | undefined;
+  try {
+    primaryPath = createWorktree(wtId, BASE_REPO);
+    repoWorktrees.set('primary', { path: primaryPath, wtId });
+    send(ws, { type: 'worktree', path: primaryPath });
+    log.info('primary worktree created', { wtId, path: primaryPath });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error('primary worktree creation failed, using base repo', { error: message });
+    send(ws, { type: 'error', error: `Worktree creation failed (using base repo): ${message}` });
+    return { cwd: baseCwd, wtId, repoWorktrees };
+  }
+
+  // Create worktrees for all configured secondary repos
+  const config = getRepoConfig();
+  for (const [repoName, repoPath] of Object.entries(config.repos)) {
+    try {
+      const worktreePath = createWorktree(wtId, repoPath);
+      repoWorktrees.set(repoName, { path: worktreePath, wtId });
+      log.info('secondary worktree created', { repo: repoName, wtId, path: worktreePath });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.warn('secondary worktree creation failed', { repo: repoName, error: message });
+      send(ws, {
+        type: 'error',
+        error: `Worktree for ${repoName} failed: ${message}`,
+      });
+    }
+  }
+
   return {
-    [REPO_MCP_SERVER_NAME]: {
-      command: 'node',
-      args: [
-        '--import',
-        'tsx',
-        join(__dirname, 'repo-mcp-server.ts'),
-        '--base-url',
-        `http://localhost:${port}`,
-        '--client-id',
-        clientId,
-      ],
-      env: { MITZO_INTERNAL_TOKEN: INTERNAL_TOKEN },
-    },
+    cwd: primaryPath,
+    wtId,
+    worktreePath: primaryPath,
+    repoWorktrees,
   };
 }
 
@@ -203,38 +252,29 @@ function buildTaskPromptForSession(clientId: string): string {
   return buildTaskSystemPrompt(_taskStore, session.taskContext.currentTaskId);
 }
 
-function buildRepoSystemPrompt(): string {
-  const repoNames = Object.keys(getRepoConfig().repos);
-  if (repoNames.length === 0) return '';
-  return (
-    '\n\nYou have access to multiple repositories via the open_repo MCP tool. ' +
-    `Available repos: ${repoNames.join(', ')}. ` +
-    'Call open_repo with a repo name to get an isolated worktree. ' +
-    'Use the returned absolute path for all file operations in that repo.'
-  );
-}
+/**
+ * Build system prompt section listing all session worktrees.
+ * Tells the agent exactly where each repo's worktree lives.
+ */
+export function buildWorktreeSystemPrompt(
+  repoWorktrees: Map<string, { path: string; wtId: string }>,
+): string {
+  if (repoWorktrees.size <= 1) return ''; // Only primary or none
 
-function resolveWorktree(
-  ws: WebSocket,
-  baseCwd: string,
-  options: { resume?: string; cwd?: string; worktree?: boolean },
-): { cwd: string; worktreePath?: string } {
-  if (
-    !(WORKTREE_ENABLED && options.worktree === true && !options.cwd && !options.resume && BASE_REPO)
-  ) {
-    return { cwd: baseCwd };
+  const lines = ['\n\n## Session Worktrees'];
+  lines.push(`Session ID: ${repoWorktrees.values().next().value?.wtId ?? 'unknown'}`);
+  lines.push(
+    'This session has isolated worktrees for multiple repos. ' +
+      'All work in each repo MUST happen in its worktree path — never in the main working tree.',
+  );
+  lines.push('');
+  for (const [name, { path }] of repoWorktrees) {
+    if (name === 'primary') continue;
+    lines.push(`- **${name}**: \`${path}\``);
   }
-  const wtId = `wt-${Date.now().toString(36)}`;
-  try {
-    const worktreePath = createWorktree(wtId, BASE_REPO);
-    send(ws, { type: 'worktree', path: worktreePath });
-    return { cwd: worktreePath, worktreePath };
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error('worktree creation failed, using base repo', { error: message });
-    send(ws, { type: 'error', error: `Worktree creation failed (using base repo): ${message}` });
-    return { cwd: baseCwd };
-  }
+  lines.push('');
+  lines.push('To work in a secondary repo, `cd` to its worktree path above.');
+  return lines.join('\n');
 }
 
 const CONTEXT_BLOCK_MAX_BYTES = 100 * 1024; // 100 KB
@@ -359,7 +399,10 @@ export async function startChat(
   const mode = options.mode || 'agent';
   const baseCwd = options.cwd || BASE_REPO;
 
-  const { cwd, worktreePath } = resolveWorktree(ws, baseCwd, options);
+  // Generate session-scoped worktree ID and create worktrees in all repos
+  const wtId = generateWtId();
+  const { cwd, worktreePath, repoWorktrees } = createSessionWorktrees(ws, baseCwd, wtId, options);
+
   const fullPrompt = assemblePrompt(prompt, cwd, options.images, options.contextBlocks);
 
   // Apply tier overrides from current .mitzo.json (re-read each session start).
@@ -380,6 +423,7 @@ export async function startChat(
     abortController,
     mode,
     cwd,
+    wtId,
     sessionAllowList: new Set<string>(),
     worktreePath,
   });
@@ -387,13 +431,26 @@ export async function startChat(
   const session = registry.get(clientId)!;
   session.inputQueue = inputQueue as { push: (msg: unknown) => void; close: () => void };
 
-  const branch = getBranch(cwd);
-  send(ws, { type: 'session_info', branch, cwd, worktree: !!worktreePath });
+  // Copy all repo worktrees into the session for cleanup tracking
+  for (const [name, info] of repoWorktrees) {
+    session.worktreePaths.set(name, info);
+  }
 
-  // Merge dynamic MCP servers (repo + task board if active)
-  const repoMcp = buildRepoMcpServer(clientId);
+  const branch = getBranch(cwd);
+  send(ws, { type: 'session_info', branch, cwd, worktree: !!worktreePath, wtId });
+
+  // Build session env with worktree paths for the agent
+  const sessionEnv = sdkEnv();
+  sessionEnv.MITZO_SESSION_ID = wtId;
+  for (const [name, { path }] of repoWorktrees) {
+    if (name !== 'primary') {
+      sessionEnv[`MITZO_REPO_${name.toUpperCase()}`] = path;
+    }
+  }
+
+  // Merge dynamic MCP servers (task board if active)
   const taskMcp = buildTaskMcpServer(clientId);
-  const allMcpServers = { ...mcpServers, ...repoMcp, ...taskMcp };
+  const allMcpServers = { ...mcpServers, ...taskMcp };
 
   // Load project hooks from .claude/settings.json (e.g. SessionStart boot context)
   const hooks = loadProjectHooks(cwd);
@@ -404,7 +461,7 @@ export async function startChat(
       prompt: inputQueue as AsyncIterable<SDKUserMessage>,
       options: {
         cwd,
-        env: sdkEnv(),
+        env: sessionEnv,
         abortController,
         includePartialMessages: true,
         settingSources: ['project'],
@@ -417,7 +474,7 @@ export async function startChat(
             '- Read operations are fine without asking.\n' +
             '- Keep responses concise — small screen.\n' +
             '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.' +
-            buildRepoSystemPrompt() +
+            buildWorktreeSystemPrompt(repoWorktrees) +
             buildTaskPromptForSession(clientId),
         },
         permissionMode: MODE_TO_SDK[mode] as 'plan' | 'default' | 'bypassPermissions',
@@ -562,11 +619,15 @@ export async function interruptChat(
 
 // --- Session management ---
 
-/** Best-effort cleanup of all secondary worktrees for a session. */
+/**
+ * Best-effort cleanup of all worktrees for a session (primary + secondary).
+ * Worktree directories are removed but branches are preserved for PRs.
+ */
 function cleanupSessionWorktrees(session: import('./session-registry.js').ManagedSession): void {
   const config = getRepoConfig();
   for (const [repoName, { wtId }] of session.worktreePaths) {
-    const repoPath = config.repos[repoName];
+    // For 'primary', use BASE_REPO; for secondary repos, look up in config
+    const repoPath = repoName === 'primary' ? BASE_REPO : config.repos[repoName];
     if (!repoPath) continue;
     try {
       removeWorktree(wtId, repoPath);
@@ -603,6 +664,19 @@ export function isActive(clientId: string): boolean {
 
 function getSessionDirs(): string[] {
   const dirs = [BASE_REPO];
+
+  // New location: .claude/worktrees/ inside the repo
+  const worktreeDir = join(BASE_REPO, '.claude', 'worktrees');
+  try {
+    const entries = readdirSync(worktreeDir);
+    for (const e of entries) {
+      dirs.push(join(worktreeDir, e));
+    }
+  } catch {
+    // Expected when worktrees dir doesn't exist yet
+  }
+
+  // Legacy location: <repo>-sessions/ sibling directory
   const sessionsDir = `${BASE_REPO}-sessions`;
   try {
     const entries = readdirSync(sessionsDir);

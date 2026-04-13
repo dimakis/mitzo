@@ -20,7 +20,6 @@ export const WORKTREE_STALE_HOURS = 168; // 7 days
 export const WORKTREE_GIT_TIMEOUT_MS = 30_000;
 export const WORKTREE_REMOVE_TIMEOUT_MS = 15_000;
 export const WORKTREE_PRUNE_TIMEOUT_MS = 5_000;
-export const WORKTREE_BRANCH_DELETE_TIMEOUT_MS = 5_000;
 
 // --- Git ---
 export const GIT_BRANCH_TIMEOUT_MS = 5_000;
