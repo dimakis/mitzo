@@ -27,9 +27,6 @@ interface Props {
   voice?: UseVoiceReturn;
   branch?: string;
   isWorktree?: boolean;
-  sandbox?: boolean;
-  onSandboxToggle?: () => void;
-  sandboxDisabled?: boolean;
   /** When provided, uses these context blocks instead of internal state. Hides @ picker. */
   externalContextBlocks?: string[];
   tokenState?: TokenState;
@@ -45,9 +42,6 @@ export function ChatInput({
   voice,
   branch,
   isWorktree,
-  sandbox,
-  onSandboxToggle,
-  sandboxDisabled,
   externalContextBlocks,
   tokenState,
 }: Props) {
@@ -299,24 +293,6 @@ export function ChatInput({
           onChange={handleFileChange}
           className="sr-only"
         />
-        {onSandboxToggle && (
-          <button
-            className={`chat-input-btn chat-input-btn--worktree${sandbox || isWorktree ? ' chat-input-btn--worktree-active' : ''}`}
-            onClick={onSandboxToggle}
-            disabled={sandboxDisabled}
-            title={
-              isWorktree
-                ? 'Running in sandbox worktree'
-                : sandbox
-                  ? 'Sandbox on — will create worktree'
-                  : 'Sandbox off — using base repo'
-            }
-          >
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-              <path d="M12 2L7 10H10L6 16H9V22H15V16H18L14 10H17L12 2Z" />
-            </svg>
-          </button>
-        )}
         {branch && (
           <span
             className={`chat-input-branch${isWorktree ? ' chat-input-branch--wt' : ''}`}

@@ -120,8 +120,6 @@ export function ChatView() {
     speak: voice.speak,
   });
 
-  const hasStarted = msgState.messages.some((m) => m.role === 'user');
-
   const { sendMessage, interruptMessage, handleStop } = useChatActions({
     poolKey,
     sessionState,
@@ -204,9 +202,6 @@ export function ChatView() {
         voice={voice}
         branch={msgState.branch || undefined}
         isWorktree={msgState.isWorktree}
-        sandbox={sessionState.sandbox}
-        onSandboxToggle={() => sessionActions.setSandbox(!sessionState.sandbox)}
-        sandboxDisabled={hasStarted}
         tokenState={tokenState}
       />
     </div>

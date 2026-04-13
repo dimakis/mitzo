@@ -11,7 +11,7 @@ interface ChatActionsDeps {
   poolKey: string;
   sessionState: Pick<
     import('./useChatSession').ChatSessionState,
-    'model' | 'mode' | 'currentSessionId' | 'sandbox'
+    'model' | 'mode' | 'currentSessionId'
   >;
   searchParams: URLSearchParams;
   dispatch: (action: ChatMessagesAction) => void;
@@ -47,7 +47,6 @@ export function useChatActions({
     if (images?.length) {
       payload.images = images.map((img) => ({ data: img.data, mediaType: img.mediaType }));
     }
-    if (sessionState.sandbox && !sessionState.currentSessionId) payload.worktree = true;
     const cwd = searchParams.get('cwd');
     if (cwd) payload.cwd = cwd;
     const extraTools = searchParams.get('extraTools');

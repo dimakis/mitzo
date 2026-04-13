@@ -238,9 +238,6 @@ export function DesktopChatView() {
             voice={voice}
             branch={msgState.branch || undefined}
             isWorktree={msgState.isWorktree}
-            sandbox={sessionState.sandbox}
-            onSandboxToggle={() => sessionActions.setSandbox(!sessionState.sandbox)}
-            sandboxDisabled={msgState.messages.some((m) => m.role === 'user')}
             externalContextBlocks={contextBlocks}
             tokenState={tokenState}
           />

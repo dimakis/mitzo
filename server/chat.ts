@@ -163,7 +163,7 @@ function createSessionWorktrees(
   ws: WebSocket,
   baseCwd: string,
   wtId: string,
-  options: { resume?: string; cwd?: string; worktree?: boolean },
+  options: { resume?: string; cwd?: string },
 ): {
   cwd: string;
   wtId: string;
@@ -172,14 +172,8 @@ function createSessionWorktrees(
 } {
   const repoWorktrees = new Map<string, { path: string; wtId: string }>();
 
-  // Skip worktree creation unless the frontend's sandbox toggle is on
-  if (
-    !WORKTREE_ENABLED ||
-    options.worktree !== true ||
-    options.resume ||
-    options.cwd ||
-    !BASE_REPO
-  ) {
+  // Skip worktree creation when resuming, using custom cwd, or disabled
+  if (!WORKTREE_ENABLED || options.resume || options.cwd || !BASE_REPO) {
     return { cwd: baseCwd, wtId, repoWorktrees };
   }
 
@@ -389,7 +383,6 @@ export async function startChat(
     model?: string;
     extraTools?: string;
     mode?: MitzoMode;
-    worktree?: boolean;
     images?: Array<{ data: string; mediaType: string }>;
     contextBlocks?: string[];
     clientMsgId?: string;
