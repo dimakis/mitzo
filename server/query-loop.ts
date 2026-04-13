@@ -314,14 +314,14 @@ export async function runQueryLoop(
           store.recordUsage(resolvedSessionId, usageData);
         }
 
-        // Accumulate session-lifetime totals on the registry entry (all token types)
+        // SDK reports cumulative totals — assign directly (not +=) to avoid double-counting
         const callTokens =
           usageData.inputTokens +
           usageData.outputTokens +
           usageData.cacheReadTokens +
           usageData.cacheCreationTokens;
-        currentSession.cumulativeSessionTokens += callTokens;
-        currentSession.cumulativeCostUsd += usageData.totalCostUsd;
+        currentSession.cumulativeSessionTokens = callTokens;
+        currentSession.cumulativeCostUsd = usageData.totalCostUsd;
 
         // Emit final token_update with accumulated session totals
         emit(currentWs, {
