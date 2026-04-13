@@ -46,7 +46,7 @@ function upsertInTree(tasks: Task[], task: Task): [Task[], boolean] {
   const updated = tasks.map((t) => {
     if (t.id === task.id) {
       found = true;
-      return { ...task, children: t.children };
+      return { ...task, children: task.children.length > 0 ? task.children : t.children };
     }
     if (t.children.length > 0) {
       const [updatedChildren, childFound] = upsertInTree(t.children, task);

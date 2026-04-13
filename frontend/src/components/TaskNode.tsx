@@ -34,7 +34,7 @@ export function TaskNode({ task, depth, onStatusChange, onDelete, onAddChild }: 
   const hasChildren = task.children.length > 0;
 
   return (
-    <div className="task-node" style={{ paddingLeft: `${depth * 16}px` }}>
+    <div className="task-node">
       <div className="task-node-row">
         {hasChildren && (
           <button

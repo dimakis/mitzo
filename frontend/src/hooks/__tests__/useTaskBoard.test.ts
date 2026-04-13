@@ -189,6 +189,32 @@ describe('useTaskBoard', () => {
     expect(result.current.tasks[0].title).toBe('Updated via WS');
   });
 
+  it('WS task_updated inserts child under existing parent', async () => {
+    const parent = makeTask({ id: 'parent-1', title: 'Parent' });
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ tasks: [parent] }),
+    });
+
+    const { result } = renderHook(() => useTaskBoard());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.tasks).toHaveLength(1);
+
+    const child = makeTask({
+      id: 'child-1',
+      parentId: 'parent-1',
+      title: 'Child via WS',
+      depth: 1,
+    });
+    act(() => {
+      listeners.forEach((l) => l({ type: 'task_updated', task: child }));
+    });
+
+    expect(result.current.tasks).toHaveLength(1);
+    expect(result.current.tasks[0].children).toHaveLength(1);
+    expect(result.current.tasks[0].children[0].title).toBe('Child via WS');
+  });
+
   it('WS task_deleted removes task', async () => {
     const tasks = [makeTask({ id: 'del-1' }), makeTask({ id: 'del-2' })];
     fetchMock.mockResolvedValueOnce({

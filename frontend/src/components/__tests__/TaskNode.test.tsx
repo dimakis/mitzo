@@ -94,7 +94,7 @@ describe('TaskNode', () => {
     expect(screen.queryByText('Child task')).toBeNull();
   });
 
-  it('applies depth indentation', () => {
+  it('does not apply inline depth indentation (handled by CSS nesting)', () => {
     const { container } = render(
       <TaskNode
         task={makeTask()}
@@ -105,7 +105,7 @@ describe('TaskNode', () => {
       />,
     );
     const node = container.firstElementChild as HTMLElement;
-    expect(node.style.paddingLeft).toBe('32px');
+    expect(node.style.paddingLeft).toBe('');
   });
 
   it('renders children recursively', () => {

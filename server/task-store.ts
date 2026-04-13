@@ -160,8 +160,13 @@ export class TaskStore {
     }
   }
 
+  private getDb(): Database.Database {
+    if (!this.db) throw new Error('TaskStore is closed');
+    return this.db;
+  }
+
   create(input: TaskCreateInput): Task {
-    const db = this.db!;
+    const db = this.getDb();
     const id = randomUUID();
     const now = Date.now();
 
@@ -198,7 +203,9 @@ export class TaskStore {
   }
 
   get(id: string): Task | null {
-    const row = this.db!.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as TaskRow | undefined;
+    const row = this.getDb().prepare('SELECT * FROM tasks WHERE id = ?').get(id) as
+      | TaskRow
+      | undefined;
     return row ? rowToTask(row) : null;
   }
 
@@ -256,42 +263,44 @@ export class TaskStore {
     values.push(Date.now());
     values.push(id);
 
-    this.db!.prepare(`UPDATE tasks SET ${sets.join(', ')} WHERE id = ?`).run(...values);
+    this.getDb()
+      .prepare(`UPDATE tasks SET ${sets.join(', ')} WHERE id = ?`)
+      .run(...values);
 
     return this.get(id);
   }
 
   delete(id: string): boolean {
-    const result = this.db!.prepare('DELETE FROM tasks WHERE id = ?').run(id);
+    const result = this.getDb().prepare('DELETE FROM tasks WHERE id = ?').run(id);
     return result.changes > 0;
   }
 
   listRoots(): Task[] {
-    const rows = this.db!.prepare(
-      'SELECT * FROM tasks WHERE parent_id IS NULL ORDER BY priority DESC, created_at ASC',
-    ).all() as TaskRow[];
+    const rows = this.getDb()
+      .prepare('SELECT * FROM tasks WHERE parent_id IS NULL ORDER BY priority DESC, created_at ASC')
+      .all() as TaskRow[];
     return rows.map(rowToTask);
   }
 
   getChildren(parentId: string): Task[] {
-    const rows = this.db!.prepare(
-      'SELECT * FROM tasks WHERE parent_id = ? ORDER BY priority DESC, created_at ASC',
-    ).all(parentId) as TaskRow[];
+    const rows = this.getDb()
+      .prepare('SELECT * FROM tasks WHERE parent_id = ? ORDER BY priority DESC, created_at ASC')
+      .all(parentId) as TaskRow[];
     return rows.map(rowToTask);
   }
 
   getTree(): Task[] {
-    const rows = this.db!.prepare(
-      'SELECT * FROM tasks ORDER BY priority DESC, created_at ASC',
-    ).all() as TaskRow[];
+    const rows = this.getDb()
+      .prepare('SELECT * FROM tasks ORDER BY priority DESC, created_at ASC')
+      .all() as TaskRow[];
     return this.assembleTree(rows);
   }
 
   getSubtree(rootId: string): Task[] {
     // Fetch all tasks and filter to subtree
-    const allRows = this.db!.prepare(
-      'SELECT * FROM tasks ORDER BY priority DESC, created_at ASC',
-    ).all() as TaskRow[];
+    const allRows = this.getDb()
+      .prepare('SELECT * FROM tasks ORDER BY priority DESC, created_at ASC')
+      .all() as TaskRow[];
     const allTasks = allRows.map(rowToTask);
 
     const rootTask = allTasks.find((t) => t.id === rootId);
