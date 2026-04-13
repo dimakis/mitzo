@@ -67,12 +67,6 @@ export function TokenBar({ tokenState }: Props) {
             <span>Session tokens</span>
             <span>{tokenState.sessionTotal.toLocaleString()}</span>
           </div>
-          {tokenState.costUsd > 0 && (
-            <div className="token-bar-detail-row">
-              <span>Cost</span>
-              <span>~${tokenState.costUsd.toFixed(2)}</span>
-            </div>
-          )}
           {tokenState.numTurns > 0 && (
             <div className="token-bar-detail-row">
               <span>Turns</span>

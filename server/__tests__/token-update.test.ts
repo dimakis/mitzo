@@ -54,15 +54,20 @@ describe('token_update emission', () => {
     abortController = new AbortController();
   });
 
-  it('emits token_update with agent context from message_start usage', async () => {
+  it('sums input + cached tokens for agent context from message_start', async () => {
     const events: Record<string, unknown>[] = [
       {
         type: 'stream_event',
+        parent_tool_use_id: null,
         event: {
           type: 'message_start',
           message: {
             id: 'msg-tok',
-            usage: { input_tokens: 87204, output_tokens: 0 },
+            usage: {
+              input_tokens: 1,
+              cache_read_input_tokens: 80000,
+              cache_creation_input_tokens: 7203,
+            },
           },
         },
       },
@@ -83,7 +88,12 @@ describe('token_update emission', () => {
       {
         type: 'result',
         session_id: 'sess-tok',
-        usage: { input_tokens: 87204, output_tokens: 500 },
+        usage: {
+          input_tokens: 1,
+          output_tokens: 500,
+          cache_read_input_tokens: 80000,
+          cache_creation_input_tokens: 7203,
+        },
         total_cost_usd: 0.05,
         num_turns: 1,
         duration_ms: 5000,
@@ -96,18 +106,19 @@ describe('token_update emission', () => {
     const tokenUpdates = ws.sent.filter((m) => m.type === 'token_update');
     expect(tokenUpdates.length).toBeGreaterThanOrEqual(1);
 
-    // The first token_update should have agent context from message_start
+    // Agent context should be sum of input + cache_read + cache_creation
     const first = tokenUpdates[0];
     expect(first).toMatchObject({
-      agentContext: 87204,
+      agentContext: 87204, // 1 + 80000 + 7203
       contextCeiling: 200_000,
     });
   });
 
-  it('emits token_update with session totals on result', async () => {
+  it('includes all token types in session total', async () => {
     const events: Record<string, unknown>[] = [
       {
         type: 'stream_event',
+        parent_tool_use_id: null,
         event: {
           type: 'message_start',
           message: { id: 'msg-st', usage: { input_tokens: 5000 } },
@@ -122,7 +133,12 @@ describe('token_update emission', () => {
       {
         type: 'result',
         session_id: 'sess-st',
-        usage: { input_tokens: 5000, output_tokens: 2000 },
+        usage: {
+          input_tokens: 5000,
+          output_tokens: 2000,
+          cache_read_input_tokens: 10000,
+          cache_creation_input_tokens: 3000,
+        },
         total_cost_usd: 0.03,
         num_turns: 1,
         duration_ms: 8000,
@@ -133,20 +149,95 @@ describe('token_update emission', () => {
     await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
 
     const tokenUpdates = ws.sent.filter((m) => m.type === 'token_update');
-    // Should have at least a final token_update with session totals
     const last = tokenUpdates[tokenUpdates.length - 1];
     expect(last).toMatchObject({
-      sessionTotal: 7000, // input + output
-      costUsd: 0.03,
+      sessionTotal: 20000, // 5000 + 2000 + 10000 + 3000
       contextCeiling: 200_000,
+    });
+    // costUsd should not be present
+    expect(last).not.toHaveProperty('costUsd');
+  });
+
+  it('ignores sub-agent message_start for agent context', async () => {
+    const events: Record<string, unknown>[] = [
+      // Parent message_start
+      {
+        type: 'stream_event',
+        parent_tool_use_id: null,
+        event: {
+          type: 'message_start',
+          message: {
+            id: 'msg-parent',
+            usage: {
+              input_tokens: 100,
+              cache_read_input_tokens: 50000,
+              cache_creation_input_tokens: 0,
+            },
+          },
+        },
+      },
+      {
+        type: 'stream_event',
+        event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+      },
+      { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+      { type: 'assistant', message: { content: [] }, session_id: 'sess-sub' },
+      // Sub-agent message_start (should NOT overwrite parent context)
+      {
+        type: 'stream_event',
+        parent_tool_use_id: 'tool-123',
+        event: {
+          type: 'message_start',
+          message: {
+            id: 'msg-sub',
+            usage: { input_tokens: 1, cache_read_input_tokens: 2000 },
+          },
+        },
+      },
+      {
+        type: 'stream_event',
+        event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+      },
+      { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+      { type: 'assistant', message: { content: [] }, session_id: 'sess-sub' },
+      {
+        type: 'result',
+        session_id: 'sess-sub',
+        usage: { input_tokens: 5000, output_tokens: 1000 },
+        total_cost_usd: 0.02,
+        num_turns: 2,
+        duration_ms: 6000,
+        duration_api_ms: 4000,
+      },
+    ];
+
+    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+
+    const tokenUpdates = ws.sent.filter((m) => m.type === 'token_update');
+
+    // Only one token_update from message_start (the parent one)
+    const messageStartUpdates = tokenUpdates.filter(
+      (m) => (m as Record<string, unknown>).sessionTotal === undefined,
+    );
+    expect(messageStartUpdates).toHaveLength(1);
+    expect(messageStartUpdates[0]).toMatchObject({
+      agentContext: 50100, // 100 + 50000 + 0
+      turnIndex: 1,
+    });
+
+    // Final token_update should preserve the parent agentContext
+    const last = tokenUpdates[tokenUpdates.length - 1];
+    expect(last).toMatchObject({
+      agentContext: 50100, // NOT overwritten by sub-agent
     });
   });
 
-  it('includes agentIndex tracking across turns', async () => {
+  it('tracks turnIndex only for parent message_starts', async () => {
     const events: Record<string, unknown>[] = [
-      // Turn 1
+      // Parent turn 1
       {
         type: 'stream_event',
+        parent_tool_use_id: null,
         event: {
           type: 'message_start',
           message: { id: 'msg-t1', usage: { input_tokens: 3000 } },
@@ -158,9 +249,25 @@ describe('token_update emission', () => {
       },
       { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
       { type: 'assistant', message: { content: [] }, session_id: 'sess-ai' },
-      // Turn 2 (tool result triggers another turn)
+      // Sub-agent turn (should NOT increment turnIndex)
       {
         type: 'stream_event',
+        parent_tool_use_id: 'tool-456',
+        event: {
+          type: 'message_start',
+          message: { id: 'msg-sub', usage: { input_tokens: 500 } },
+        },
+      },
+      {
+        type: 'stream_event',
+        event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+      },
+      { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+      { type: 'assistant', message: { content: [] }, session_id: 'sess-ai' },
+      // Parent turn 2
+      {
+        type: 'stream_event',
+        parent_tool_use_id: null,
         event: {
           type: 'message_start',
           message: { id: 'msg-t2', usage: { input_tokens: 8000 } },
@@ -186,17 +293,20 @@ describe('token_update emission', () => {
     await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
 
     const tokenUpdates = ws.sent.filter((m) => m.type === 'token_update');
-    expect(tokenUpdates.length).toBeGreaterThanOrEqual(2);
-
-    // Second message_start should show updated agent context
-    const second = tokenUpdates.find((m) => m.agentContext === 8000);
-    expect(second).toBeDefined();
+    // Only parent message_starts should emit token_update with turnIndex
+    const messageStartUpdates = tokenUpdates.filter(
+      (m) => (m as Record<string, unknown>).sessionTotal === undefined,
+    );
+    expect(messageStartUpdates).toHaveLength(2);
+    expect(messageStartUpdates[0]).toMatchObject({ turnIndex: 1 });
+    expect(messageStartUpdates[1]).toMatchObject({ turnIndex: 2 });
   });
 
   it('handles missing usage on message_start gracefully', async () => {
     const events: Record<string, unknown>[] = [
       {
         type: 'stream_event',
+        parent_tool_use_id: null,
         event: {
           type: 'message_start',
           message: { id: 'msg-no-usage' },

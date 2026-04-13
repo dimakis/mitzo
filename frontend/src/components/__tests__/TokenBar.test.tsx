@@ -9,7 +9,6 @@ function makeState(overrides: Partial<TokenState> = {}): TokenState {
     agentContext: 0,
     contextCeiling: 200_000,
     sessionTotal: 0,
-    costUsd: 0,
     numTurns: 0,
     turnIndex: 0,
     ...overrides,
@@ -76,7 +75,6 @@ describe('TokenBar', () => {
         tokenState={makeState({
           agentContext: 87204,
           sessionTotal: 142580,
-          costUsd: 1.82,
           numTurns: 5,
           turnIndex: 3,
         })}
@@ -86,7 +84,7 @@ describe('TokenBar', () => {
     const bar = screen.getByRole('button', { name: /token/i });
     fireEvent.click(bar);
 
-    expect(screen.getByText(/\$1\.82/)).toBeTruthy();
     expect(screen.getByText(/5 turns/)).toBeTruthy();
+    expect(screen.getByText(/142,580/)).toBeTruthy();
   });
 });
