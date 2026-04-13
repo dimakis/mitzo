@@ -47,7 +47,9 @@ import {
   TodoActionResponse,
   TaskCreateBody,
   TaskUpdateBody,
+  LoopStartBody,
 } from './api-schemas.js';
+import type { TaskOrchestrator } from './task-orchestrator.js';
 import {
   listInboxItems,
   readInboxItem,
@@ -162,6 +164,11 @@ let updateAvailable = false;
 let onUpdateAvailable: (() => void) | null = null;
 let onInboxUpdated: (() => void) | null = null;
 let onTaskBroadcast: ((event: Record<string, unknown>) => void) | null = null;
+let orchestrator: TaskOrchestrator | null = null;
+
+export function setOrchestrator(o: TaskOrchestrator): void {
+  orchestrator = o;
+}
 
 // --- Task store ---
 
@@ -449,6 +456,59 @@ app.post('/api/internal/task-tools/block', (req, res) => {
     type: 'task_state',
     tasks: taskStore.getTree(),
   });
+});
+
+// --- Loop orchestrator API ---
+
+app.get('/api/loop/status', (req, res) => {
+  if (!orchestrator) {
+    res.json({ state: 'idle', goalId: null, activeTaskId: null, progress: null });
+    return;
+  }
+  res.json(orchestrator.getStatus());
+});
+
+app.post('/api/loop/start', (req, res) => {
+  const body = LoopStartBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: 'goalId is required' });
+    return;
+  }
+  if (!orchestrator) {
+    res.status(503).json({ error: 'Orchestrator not initialized' });
+    return;
+  }
+  const status = orchestrator.getStatus();
+  if (status.state === 'running') {
+    res.status(409).json({ error: 'Loop already running' });
+    return;
+  }
+  const result = orchestrator.start(body.data.goalId);
+  res.json(result);
+});
+
+app.post('/api/loop/pause', (_req, res) => {
+  if (!orchestrator) {
+    res.status(503).json({ error: 'Orchestrator not initialized' });
+    return;
+  }
+  res.json(orchestrator.pause());
+});
+
+app.post('/api/loop/resume', (_req, res) => {
+  if (!orchestrator) {
+    res.status(503).json({ error: 'Orchestrator not initialized' });
+    return;
+  }
+  res.json(orchestrator.resume());
+});
+
+app.post('/api/loop/stop', (_req, res) => {
+  if (!orchestrator) {
+    res.status(503).json({ error: 'Orchestrator not initialized' });
+    return;
+  }
+  res.json(orchestrator.stop());
 });
 
 app.post('/api/auth/login', loginLimiter, async (req, res) => {

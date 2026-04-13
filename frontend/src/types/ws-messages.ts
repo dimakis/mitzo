@@ -220,7 +220,8 @@ export type ServerMessage =
   | TaskStateMsg
   | TaskUpdatedMsg
   | TaskDeletedMsg
-  | TokenUpdateMsg;
+  | TokenUpdateMsg
+  | LoopStatusMsg;
 
 export interface InboxUpdatedMsg {
   type: 'inbox_updated';
@@ -234,4 +235,12 @@ export interface TokenUpdateMsg {
   costUsd?: number;
   numTurns?: number;
   turnIndex: number;
+}
+
+export interface LoopStatusMsg {
+  type: 'loop_status';
+  state: 'idle' | 'running' | 'paused';
+  goalId: string | null;
+  activeTaskId: string | null;
+  progress: { done: number; total: number } | null;
 }
