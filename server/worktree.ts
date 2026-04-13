@@ -92,6 +92,11 @@ export function getWorktreePath(sessionId: string, baseRepo: string): string | n
 /**
  * Check if a worktree has uncommitted changes (modified, staged, or untracked files).
  */
+/**
+ * Check if a worktree has uncommitted changes (modified, staged, or untracked files).
+ * Returns the porcelain output if dirty, empty string if clean, or a sentinel
+ * error message if git status itself fails (so we don't delete potentially dirty worktrees).
+ */
 function hasUncommittedWork(worktreePath: string): string | null {
   try {
     const output = execFileSync('git', ['-C', worktreePath, 'status', '--porcelain'], {
@@ -100,8 +105,14 @@ function hasUncommittedWork(worktreePath: string): string | null {
       timeout: WORKTREE_GIT_TIMEOUT_MS,
     }).trim();
     return output || null;
-  } catch {
-    return null;
+  } catch (err: unknown) {
+    // Treat git failure as dirty — better to skip than to delete potentially dirty work
+    const message = err instanceof Error ? err.message : 'unknown';
+    log.warn('git status failed on worktree, treating as dirty', {
+      path: worktreePath,
+      error: message,
+    });
+    return `[git status failed: ${message}]`;
   }
 }
 
@@ -117,9 +128,10 @@ function postDirtyWorktreeToInbox(
   inboxDir: string,
 ): void {
   const ts = new Date().toISOString().replace(/[-:]/g, '').replace('T', '_').slice(0, 15);
-  const filename = `${ts}_worktree_gc.md`;
+  const filename = `${ts}_worktree_gc_${sessionId}.md`;
   const lines = dirtyFiles.split('\n');
-  const modified = lines.filter((l) => l.startsWith(' M') || l.startsWith('M')).length;
+  // git status --porcelain: XY format where X=staged, Y=unstaged
+  const modified = lines.filter((l) => l.startsWith(' M')).length;
   const untracked = lines.filter((l) => l.startsWith('??')).length;
   const staged = lines.filter((l) => /^[ADMR]/.test(l)).length;
 

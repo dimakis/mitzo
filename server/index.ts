@@ -477,7 +477,7 @@ checkPort(PORT).then((inUse) => {
     log.info(`Chat Agent running on ${protocol}://localhost:${PORT}${USE_TLS ? ' (TLS)' : ''}`);
     // Clean up stale worktrees across all repos.
     // Dirty worktrees (uncommitted work) are flagged in the mgmt inbox.
-    const inboxDir = join(BASE_REPO, 'mgmt_lib', 'inbox');
+    const inboxDir = BASE_REPO ? join(BASE_REPO, 'mgmt_lib', 'inbox') : undefined;
     const repoEntries: [string, string][] = [['primary', BASE_REPO]];
     try {
       const config = getRepoConfig();
