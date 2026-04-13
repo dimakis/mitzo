@@ -4,6 +4,7 @@ import type { Session } from '../types/chat';
 import { formatRelativeTime } from '../lib/formatTime';
 import { useLongPress } from '../hooks/useLongPress';
 import { computeSwipeState, REVEAL_WIDTH } from '../lib/swipe-reveal';
+import { EmptyState } from '../components/EmptyState';
 import { useSessionList } from '../hooks/useSessionList';
 import type { QuickAction } from '../hooks/useSessionList';
 
@@ -269,7 +270,9 @@ export function SessionList() {
 
       {loading && <p className="session-list-empty">Loading...</p>}
 
-      {!loading && sessions.length === 0 && <p className="session-list-empty">No past sessions</p>}
+      {!loading && sessions.length === 0 && (
+        <EmptyState icon={'\uD83D\uDCAC'} title="No past sessions" />
+      )}
 
       {!loading && sessions.length > 0 && (
         <div className="session-list">

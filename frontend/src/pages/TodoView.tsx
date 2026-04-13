@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TodoCard } from '../components/TodoCard';
+import { EmptyState } from '../components/EmptyState';
 import { useTodoData } from '../hooks/useTodoData';
 import type { TodoItem } from '../types/todo';
 
@@ -137,13 +138,15 @@ export function TodoView() {
       {loading && <p className="todo-empty">Loading...</p>}
 
       {!loading && items.length === 0 && (
-        <div className="todo-empty">
-          <div className="todo-empty-icon">&#10003;</div>
-          <p>No active items</p>
-          <p className="todo-empty-hint">
-            Run <code>./mgmt todo --refresh</code> to fetch from sources
-          </p>
-        </div>
+        <EmptyState
+          icon={'\u2713'}
+          title="No active items"
+          subtitle={
+            <>
+              Run <code>./mgmt todo --refresh</code> to fetch from sources
+            </>
+          }
+        />
       )}
 
       <div className="todo-hint">

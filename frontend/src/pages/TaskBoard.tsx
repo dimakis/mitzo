@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { TaskNode } from '../components/TaskNode';
 import { TaskCreateForm } from '../components/TaskCreateForm';
 import { LoopControls } from '../components/LoopControls';
+import { EmptyState } from '../components/EmptyState';
 import { useTaskBoard } from '../hooks/useTaskBoard';
 import type { TaskStatus } from '../types/task';
 
@@ -90,11 +91,7 @@ export function TaskBoard() {
       {loading && <p className="task-board-empty">Loading...</p>}
 
       {!loading && tasks.length === 0 && (
-        <div className="task-board-empty">
-          <div className="task-board-empty-icon">&#x2610;</div>
-          <p>No tasks yet</p>
-          <p className="task-board-empty-hint">Add a task to get started</p>
-        </div>
+        <EmptyState icon={'\u2610'} title="No tasks yet" subtitle="Add a task to get started" />
       )}
 
       <div className="task-board-list">

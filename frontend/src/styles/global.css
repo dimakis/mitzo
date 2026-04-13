@@ -298,6 +298,34 @@ textarea:focus {
   background: var(--hover);
 }
 
+/* ── EmptyState ─────────────────────────────────────────── */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6) var(--space-4);
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.empty-state-icon {
+  font-size: 2.5rem;
+  margin-bottom: var(--space-2);
+  opacity: 0.6;
+}
+
+.empty-state-title {
+  font-size: var(--text-base);
+  margin-bottom: var(--space-1);
+}
+
+.empty-state-subtitle {
+  font-size: var(--text-sm);
+  opacity: 0.7;
+}
+
 /* Pages with tab bar need bottom padding to clear fixed nav */
 .session-list-page,
 .inbox-page,
@@ -3906,9 +3934,14 @@ textarea:focus {
 
 .loop-controls-start {
   display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.loop-controls-start-row {
+  display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 
 .loop-controls-select {

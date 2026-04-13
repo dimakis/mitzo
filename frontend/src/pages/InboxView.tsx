@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { wsSubscribe } from '../lib/ws-pool';
+import { EmptyState } from '../components/EmptyState';
 
 interface InboxItem {
   filename: string;
@@ -228,12 +229,7 @@ export function InboxView() {
 
       {loading && <p className="inbox-empty">Loading...</p>}
 
-      {!loading && items.length === 0 && (
-        <div className="inbox-empty">
-          <div className="inbox-empty-icon">&#10003;</div>
-          <p>No pending items</p>
-        </div>
-      )}
+      {!loading && items.length === 0 && <EmptyState icon={'\u2713'} title="No pending items" />}
 
       {sources.length > 1 && (
         <div className="inbox-filters">
