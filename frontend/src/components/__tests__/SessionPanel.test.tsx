@@ -17,8 +17,6 @@ function makeDefaultReturn(overrides = {}) {
     sessions: [],
     quickActions: [],
     loading: false,
-    inboxCount: 0,
-    todoCount: 0,
     updateAvailable: false,
     checking: false,
     dismissSession: vi.fn(),

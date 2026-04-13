@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { Session } from '../types/chat';
 import { renameSession as renameSessionApi } from '../lib/rename-session';
-import { wsSubscribe } from '../lib/ws-pool';
 
 export interface QuickAction {
   label: string;
@@ -30,8 +29,6 @@ export interface UseSessionListReturn {
   sessions: Session[];
   quickActions: QuickAction[];
   loading: boolean;
-  inboxCount: number;
-  todoCount: number;
   updateAvailable: boolean;
   checking: boolean;
   dismissSession: (id: string) => void;
@@ -44,8 +41,6 @@ export function useSessionList(): UseSessionListReturn {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [quickActions, setQuickActions] = useState<QuickAction[]>(DEFAULT_ACTIONS);
   const [loading, setLoading] = useState(true);
-  const [inboxCount, setInboxCount] = useState(0);
-  const [todoCount, setTodoCount] = useState(0);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [checking, setChecking] = useState(false);
 
@@ -61,18 +56,10 @@ export function useSessionList(): UseSessionListReturn {
         fetch('/api/version')
           .then((r) => r.json())
           .catch(() => ({})),
-        fetch('/api/inbox')
-          .then((r) => r.json())
-          .catch(() => []),
-        fetch('/api/todos')
-          .then((r) => r.json())
-          .catch(() => ({ items: [] })),
-      ]).then(([sessData, config, version, inboxData, todoData]) => {
+      ]).then(([sessData, config, version]) => {
         setSessions(sessData);
         setQuickActions(buildQuickActions(config.quickActions));
         if (version?.updateAvailable) setUpdateAvailable(true);
-        if (Array.isArray(inboxData)) setInboxCount(inboxData.length);
-        if (todoData?.items) setTodoCount(todoData.items.length);
       });
 
     loadAll().finally(() => setLoading(false));
@@ -82,25 +69,8 @@ export function useSessionList(): UseSessionListReturn {
     };
     document.addEventListener('visibilitychange', onVisible);
 
-    let inboxFetchTimer: ReturnType<typeof setTimeout> | null = null;
-    const unsub = wsSubscribe('global:system', (msg) => {
-      if (msg.type === 'inbox_updated') {
-        if (inboxFetchTimer) clearTimeout(inboxFetchTimer);
-        inboxFetchTimer = setTimeout(() => {
-          fetch('/api/inbox')
-            .then((r) => r.json())
-            .then((data) => {
-              if (Array.isArray(data)) setInboxCount(data.length);
-            })
-            .catch(() => {});
-        }, 300);
-      }
-    });
-
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
-      if (inboxFetchTimer) clearTimeout(inboxFetchTimer);
-      unsub();
     };
   }, []);
 
@@ -141,8 +111,6 @@ export function useSessionList(): UseSessionListReturn {
     sessions,
     quickActions,
     loading,
-    inboxCount,
-    todoCount,
     updateAvailable,
     checking,
     dismissSession,
