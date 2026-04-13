@@ -20,7 +20,6 @@ export const SendMessage = z.object({
   resume: z.string().optional(),
   cwd: z.string().optional(),
   extraTools: z.string().optional(),
-  worktree: z.boolean().optional(),
   images: z.array(ImageSchema).optional(),
   contextBlocks: z.array(z.string()).optional(),
 });

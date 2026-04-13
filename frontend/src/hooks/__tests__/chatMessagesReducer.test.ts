@@ -10,8 +10,8 @@ const INITIAL: ChatMessagesState = {
   permission: null,
   branch: null,
   isWorktree: false,
-  activeWorktrees: [],
   wtId: null,
+  activeWorktrees: [],
 };
 
 // ─── MESSAGE_START ────────────────────────────────────────────────────────────
@@ -593,5 +593,47 @@ describe('full turn sequence', () => {
     // Tool result preserved in finished message
     const assistantMsg = state.messages[1];
     expect(assistantMsg.blocks[0].toolResult).toBe('file1\nfile2');
+  });
+});
+
+// ─── SESSION_INFO ────────────────────────────────────────────────────────────
+
+describe('SESSION_INFO', () => {
+  it('sets branch, isWorktree, and wtId', () => {
+    const state = chatMessagesReducer(INITIAL, {
+      type: 'SESSION_INFO',
+      branch: 'session/2026-04-13-a3f2b1',
+      isWorktree: true,
+      wtId: '2026-04-13-a3f2b1',
+    });
+    expect(state.branch).toBe('session/2026-04-13-a3f2b1');
+    expect(state.isWorktree).toBe(true);
+    expect(state.wtId).toBe('2026-04-13-a3f2b1');
+  });
+
+  it('preserves existing wtId when new action omits it', () => {
+    let state = chatMessagesReducer(INITIAL, {
+      type: 'SESSION_INFO',
+      branch: 'session/2026-04-13-a3f2b1',
+      isWorktree: true,
+      wtId: '2026-04-13-a3f2b1',
+    });
+    state = chatMessagesReducer(state, {
+      type: 'SESSION_INFO',
+      branch: 'session/2026-04-13-a3f2b1',
+      isWorktree: true,
+    });
+    expect(state.wtId).toBe('2026-04-13-a3f2b1');
+  });
+
+  it('sets branch without wtId for non-worktree sessions', () => {
+    const state = chatMessagesReducer(INITIAL, {
+      type: 'SESSION_INFO',
+      branch: 'main',
+      isWorktree: false,
+    });
+    expect(state.branch).toBe('main');
+    expect(state.isWorktree).toBe(false);
+    expect(state.wtId).toBeNull();
   });
 });
