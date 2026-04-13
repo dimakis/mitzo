@@ -251,6 +251,39 @@ export class SessionRegistry {
     }
   }
 
+  /**
+   * Return a serializable snapshot of all active sessions.
+   */
+  getActiveSessions(): Array<{
+    clientId: string;
+    sessionId: string | undefined;
+    mode: MitzoMode;
+    cwd: string | undefined;
+    attached: boolean;
+    cumulativeSessionTokens: number;
+    cumulativeCostUsd: number;
+    hasSnapshot: boolean;
+    taskContext: { currentTaskId: string; goalId: string } | null;
+    observerCount: number;
+  }> {
+    const result: ReturnType<SessionRegistry['getActiveSessions']> = [];
+    for (const [clientId, session] of this.sessions) {
+      result.push({
+        clientId,
+        sessionId: session.sessionId,
+        mode: session.mode,
+        cwd: session.cwd,
+        attached: this.attached.has(clientId),
+        cumulativeSessionTokens: session.cumulativeSessionTokens,
+        cumulativeCostUsd: session.cumulativeCostUsd,
+        hasSnapshot: session.currentSnapshot !== null,
+        taskContext: session.taskContext,
+        observerCount: session.observers.size,
+      });
+    }
+    return result;
+  }
+
   private clearDetachTimer(clientId: string): void {
     const existing = this.detachTimers.get(clientId);
     if (existing) {

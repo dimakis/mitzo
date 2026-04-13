@@ -90,4 +90,6 @@ export interface Session {
   summary: string;
   lastModified: number;
   branch?: string;
+  isActive?: boolean;
+  isAttached?: boolean;
 }

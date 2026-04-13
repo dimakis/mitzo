@@ -412,6 +412,126 @@ describe('SessionRegistry', () => {
     });
   });
 
+  describe('getActiveSessions', () => {
+    it('returns empty array when no sessions exist', () => {
+      expect(registry.getActiveSessions()).toEqual([]);
+    });
+
+    it('returns serializable snapshot of all active sessions', () => {
+      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      registry.register('client-1', {
+        ws: fakeWs,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+        sessionId: 'sdk-abc',
+        cwd: '/tmp/repo',
+      });
+
+      const active = registry.getActiveSessions();
+      expect(active).toHaveLength(1);
+      expect(active[0]).toEqual({
+        clientId: 'client-1',
+        sessionId: 'sdk-abc',
+        mode: 'agent',
+        cwd: '/tmp/repo',
+        attached: true,
+        cumulativeSessionTokens: 0,
+        cumulativeCostUsd: 0,
+        hasSnapshot: false,
+        taskContext: null,
+        observerCount: 0,
+      });
+    });
+
+    it('reflects detached state', () => {
+      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      registry.register('client-1', {
+        ws: fakeWs,
+        abortController: new AbortController(),
+        mode: 'auto',
+        sessionAllowList: new Set(),
+        sessionId: 'sdk-xyz',
+      });
+
+      registry.detach('client-1');
+      const active = registry.getActiveSessions();
+      expect(active[0].attached).toBe(false);
+    });
+
+    it('includes token and cost data', () => {
+      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      registry.register('client-1', {
+        ws: fakeWs,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      const session = registry.get('client-1')!;
+      session.cumulativeSessionTokens = 5000;
+      session.cumulativeCostUsd = 0.15;
+
+      const active = registry.getActiveSessions();
+      expect(active[0].cumulativeSessionTokens).toBe(5000);
+      expect(active[0].cumulativeCostUsd).toBe(0.15);
+    });
+
+    it('includes observer count', () => {
+      const driverWs = { readyState: 1, OPEN: 1 } as any;
+      const observerWs = { readyState: 1, OPEN: 1 } as any;
+      registry.register('client-1', {
+        ws: driverWs,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+        sessionId: 'sdk-obs',
+      });
+
+      registry.addObserver('sdk-obs', observerWs);
+      const active = registry.getActiveSessions();
+      expect(active[0].observerCount).toBe(1);
+    });
+
+    it('reports hasSnapshot when snapshot exists', () => {
+      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      registry.register('client-1', {
+        ws: fakeWs,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      const session = registry.get('client-1')!;
+      session.currentSnapshot = { messageId: 'msg-1', blocks: [] };
+
+      const active = registry.getActiveSessions();
+      expect(active[0].hasSnapshot).toBe(true);
+    });
+
+    it('returns multiple sessions', () => {
+      registry.register('client-1', {
+        ws: { readyState: 1, OPEN: 1 } as any,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+        sessionId: 'sdk-1',
+      });
+      registry.register('client-2', {
+        ws: { readyState: 1, OPEN: 1 } as any,
+        abortController: new AbortController(),
+        mode: 'ask',
+        sessionAllowList: new Set(),
+        sessionId: 'sdk-2',
+      });
+
+      const active = registry.getActiveSessions();
+      expect(active).toHaveLength(2);
+      expect(active.map((s) => s.sessionId)).toContain('sdk-1');
+      expect(active.map((s) => s.sessionId)).toContain('sdk-2');
+    });
+  });
+
   describe('dispose', () => {
     it('clears all detach timers and aborts all sessions', () => {
       const abort1 = new AbortController();

@@ -151,6 +151,13 @@ function SwipeableSession({
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
+        {session.isActive && (
+          <span
+            className={`session-status-dot ${session.isAttached ? 'attached' : 'detached'}`}
+            role="status"
+            aria-label={session.isAttached ? 'Session active' : 'Session detached'}
+          />
+        )}
         <div className="session-item-content">
           {editing ? (
             <input

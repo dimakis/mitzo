@@ -36,7 +36,25 @@ vi.mock('../chat.js', () => {
     })),
     getMcpServerNames: vi.fn().mockReturnValue(['test-mcp']),
     AVAILABLE_MODELS: [{ id: 'test-model', label: 'Test', desc: 'Test model' }],
-    registry: { get: vi.fn() },
+    registry: {
+      get: vi.fn(),
+      getActiveSessions: vi.fn().mockReturnValue([
+        {
+          clientId: 'client-1',
+          sessionId: 's1',
+          mode: 'agent',
+          cwd: '/tmp/repo',
+          attached: true,
+          cumulativeSessionTokens: 1000,
+          cumulativeCostUsd: 0.05,
+          hasSnapshot: false,
+          taskContext: null,
+          observerCount: 0,
+        },
+      ]),
+    },
+    setTaskStore: vi.fn(),
+    eventStore: { append: vi.fn(), getEventsAfter: vi.fn().mockReturnValue([]) },
   };
 });
 
@@ -212,6 +230,33 @@ describe('permission route', () => {
 // --- Session Routes ---
 
 describe('session routes', () => {
+  it('GET /api/sessions/active — returns active sessions from registry', async () => {
+    const res = await request(app).get('/api/sessions/active').set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0]).toMatchObject({
+      clientId: 'client-1',
+      sessionId: 's1',
+      mode: 'agent',
+      attached: true,
+    });
+  });
+
+  it('GET /api/sessions/active — unauthenticated returns 401', async () => {
+    const res = await request(app).get('/api/sessions/active');
+    expect(res.status).toBe(401);
+  });
+
+  it('GET /api/sessions — annotates sessions with active status', async () => {
+    const res = await request(app).get('/api/sessions').set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    const s1 = res.body.find((s: any) => s.id === 's1');
+    expect(s1).toBeDefined();
+    expect(s1.isActive).toBe(true);
+    expect(s1.isAttached).toBe(true);
+  });
+
   it('GET /api/sessions — authenticated returns array', async () => {
     const res = await request(app).get('/api/sessions').set('Cookie', authCookie);
     expect(res.status).toBe(200);

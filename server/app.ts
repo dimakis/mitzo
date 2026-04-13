@@ -627,8 +627,21 @@ app.get('/api/skills', (req, res) => {
   res.json(skillRegistry.listPublic());
 });
 
+app.get('/api/sessions/active', (_req, res) => {
+  res.json(registry.getActiveSessions());
+});
+
 app.get('/api/sessions', async (_req, res) => {
-  res.json(await getSessions());
+  const sessions = await getSessions();
+  const activeMap = new Map<string, { attached: boolean }>();
+  for (const s of registry.getActiveSessions()) {
+    if (s.sessionId) activeMap.set(s.sessionId, { attached: s.attached });
+  }
+  const annotated = sessions.map((s) => {
+    const live = activeMap.get(s.id);
+    return { ...s, isActive: !!live, isAttached: live?.attached ?? false };
+  });
+  res.json(annotated);
 });
 
 app.get('/api/sessions/:id/messages', async (req, res) => {
