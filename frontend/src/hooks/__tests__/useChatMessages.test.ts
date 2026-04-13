@@ -17,6 +17,7 @@ const INITIAL_STATE: ChatMessagesState = {
   permission: null,
   branch: null,
   isWorktree: false,
+  wtId: null,
   activeWorktrees: [],
   wtId: null,
 };
