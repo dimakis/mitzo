@@ -103,7 +103,7 @@ export function TaskBoard() {
             key={task.id}
             task={task}
             depth={0}
-            active={loopStatus.activeTaskId === task.id}
+            activeTaskId={loopStatus.activeTaskId}
             onStatusChange={handleStatusChange}
             onDelete={handleDelete}
             onAddChild={handleAddChild}

@@ -41,10 +41,15 @@ export class TaskOrchestrator {
   private activeTaskId: string | null = null;
   private specMode = false;
   private awaitingApproval = false;
+  private pinnedClientId: string | null = null;
   private deps: OrchestratorDeps;
 
   constructor(deps: OrchestratorDeps) {
     this.deps = deps;
+  }
+
+  getPinnedClientId(): string | null {
+    return this.pinnedClientId;
   }
 
   getStatus(): LoopStatus {
@@ -76,6 +81,7 @@ export class TaskOrchestrator {
     this.activeTaskId = null;
     this.specMode = opts?.specMode ?? false;
     this.awaitingApproval = false;
+    this.pinnedClientId = this.deps.getClientId();
 
     log.info('orchestrator started', {
       goalId,
@@ -91,10 +97,9 @@ export class TaskOrchestrator {
       this.deps.broadcastTasks();
       this.deps.broadcastStatus(this.getStatus());
 
-      const clientId = this.deps.getClientId();
-      if (clientId) {
+      if (this.pinnedClientId) {
         sendToChat(
-          clientId,
+          this.pinnedClientId,
           `Decompose this goal into subtasks: "${goal.title}"\n` +
             (goal.description ? `\nDetails: ${goal.description}\n` : '') +
             '\nUse TaskSet to create a task breakdown. ' +
@@ -131,6 +136,7 @@ export class TaskOrchestrator {
     this.activeTaskId = null;
     this.specMode = false;
     this.awaitingApproval = false;
+    this.pinnedClientId = null;
     this.deps.clearTaskContext();
     log.info('orchestrator stopped');
     this.deps.broadcastStatus(this.getStatus());
@@ -215,6 +221,18 @@ export class TaskOrchestrator {
     this.deps.broadcastTasks();
 
     log.info('task rejected', { taskId, feedback });
+
+    // Notify agent session so it retries with feedback
+    if (this.state === 'running') {
+      if (this.pinnedClientId) {
+        sendToChat(
+          this.pinnedClientId,
+          `Your previous work on "${task.title}" was rejected.\n` +
+            (feedback ? `Feedback: ${feedback}\n` : '') +
+            '\nPlease re-attempt this task addressing the feedback.',
+        );
+      }
+    }
     return true;
   }
 
@@ -280,11 +298,10 @@ export class TaskOrchestrator {
     this.deps.broadcastTasks();
     this.deps.broadcastStatus(this.getStatus());
 
-    // Send prompt to agent session
-    const clientId = this.deps.getClientId();
-    if (clientId) {
+    // Send prompt to pinned agent session
+    if (this.pinnedClientId) {
       const prompt = this.buildTaskPrompt(next);
-      sendToChat(clientId, prompt);
+      sendToChat(this.pinnedClientId, prompt);
     }
   }
 

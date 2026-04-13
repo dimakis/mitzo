@@ -462,7 +462,14 @@ app.post('/api/internal/task-tools/block', (req, res) => {
 
 app.get('/api/loop/status', (req, res) => {
   if (!orchestrator) {
-    res.json({ state: 'idle', goalId: null, activeTaskId: null, progress: null });
+    res.json({
+      state: 'idle',
+      goalId: null,
+      activeTaskId: null,
+      progress: null,
+      specMode: false,
+      awaitingApproval: false,
+    });
     return;
   }
   res.json(orchestrator.getStatus());

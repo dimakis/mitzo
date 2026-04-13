@@ -93,14 +93,12 @@ const orchestrator = new TaskOrchestrator({
     return null;
   },
   setTaskContext: (taskId, goalId) => {
-    // Find attached client and set task context on its session
-    for (const [clientId] of registry.entries()) {
-      if (registry.isAttached(clientId)) {
-        const session = registry.get(clientId);
-        if (session) {
-          session.taskContext = { currentTaskId: taskId, goalId };
-        }
-        break;
+    // Set task context on the pinned client's session
+    const clientId = orchestrator.getPinnedClientId();
+    if (clientId) {
+      const session = registry.get(clientId);
+      if (session) {
+        session.taskContext = { currentTaskId: taskId, goalId };
       }
     }
   },

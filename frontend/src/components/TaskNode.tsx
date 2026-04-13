@@ -24,7 +24,7 @@ const NEXT_STATUS: Record<TaskStatus, TaskStatus> = {
 interface TaskNodeProps {
   task: Task;
   depth: number;
-  active?: boolean;
+  activeTaskId?: string | null;
   onStatusChange: (id: string, status: TaskStatus) => void;
   onDelete: (id: string) => void;
   onAddChild: (parentId: string) => void;
@@ -35,7 +35,7 @@ interface TaskNodeProps {
 export function TaskNode({
   task,
   depth,
-  active,
+  activeTaskId,
   onStatusChange,
   onDelete,
   onAddChild,
@@ -46,7 +46,7 @@ export function TaskNode({
   const hasChildren = task.children.length > 0;
 
   return (
-    <div className={`task-node${active ? ' task-node--active' : ''}`}>
+    <div className={`task-node${activeTaskId === task.id ? ' task-node--active' : ''}`}>
       <div className="task-node-row">
         {hasChildren && (
           <button
@@ -111,7 +111,7 @@ export function TaskNode({
               key={child.id}
               task={child}
               depth={depth + 1}
-              active={active}
+              activeTaskId={activeTaskId}
               onStatusChange={onStatusChange}
               onDelete={onDelete}
               onAddChild={onAddChild}
