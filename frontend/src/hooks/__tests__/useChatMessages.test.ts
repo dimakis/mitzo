@@ -19,7 +19,6 @@ const INITIAL_STATE: ChatMessagesState = {
   isWorktree: false,
   wtId: null,
   activeWorktrees: [],
-  wtId: null,
 };
 
 beforeEach(() => {
