@@ -325,6 +325,93 @@ export class TaskStore {
     return [buildSubtree(rootTask)];
   }
 
+  /** Derive a parent's status from its children per §2.3 cascade rules. */
+  deriveParentStatus(parentId: string): TaskStatus {
+    const children = this.getChildren(parentId);
+    if (children.length === 0) return this.get(parentId)?.status ?? 'pending';
+
+    if (children.some((c) => c.status === 'failed')) return 'failed';
+    if (children.some((c) => c.status === 'blocked')) return 'blocked';
+    if (children.some((c) => c.status === 'active')) return 'active';
+    if (children.some((c) => c.status === 'pending_review')) return 'pending_review';
+    if (children.every((c) => c.status === 'done' || c.status === 'skipped')) return 'done';
+    return 'pending';
+  }
+
+  /** Walk up the parent chain applying deriveParentStatus. Stops when status unchanged. */
+  cascadeStatus(taskId: string): void {
+    const task = this.get(taskId);
+    if (!task?.parentId) return;
+
+    let currentId: string | null = task.parentId;
+    while (currentId) {
+      const derived = this.deriveParentStatus(currentId);
+      const parent = this.get(currentId);
+      if (!parent) break;
+      if (parent.status === derived) break;
+      this.update(currentId, { status: derived });
+      currentId = parent.parentId;
+    }
+  }
+
+  /** All tasks assigned to a given session. */
+  getBySession(sessionId: string): Task[] {
+    const rows = this.getDb()
+      .prepare('SELECT * FROM tasks WHERE session_id = ? ORDER BY priority DESC, created_at ASC')
+      .all(sessionId) as TaskRow[];
+    return rows.map(rowToTask);
+  }
+
+  /** Assign or unassign a session to a task. */
+  setSessionId(taskId: string, sessionId: string | null): Task | null {
+    const existing = this.get(taskId);
+    if (!existing) return null;
+
+    const now = Date.now();
+    this.getDb()
+      .prepare(
+        'UPDATE tasks SET session_id = ?, claimed_by = ?, claimed_at = ?, updated_at = ? WHERE id = ?',
+      )
+      .run(sessionId, sessionId, sessionId ? now : null, now, taskId);
+
+    return this.get(taskId);
+  }
+
+  /**
+   * DFS: find the deepest-left pending leaf task.
+   * Skips subtrees rooted at blocked/failed ancestors.
+   * If parentId given, searches within that subtree; otherwise searches all roots.
+   */
+  getNextExecutable(parentId?: string): Task | null {
+    const candidates = parentId ? this.getChildren(parentId) : this.listRoots();
+
+    for (const task of candidates) {
+      // Skip terminal or blocked subtrees
+      if (TERMINAL_STATUSES.has(task.status) || task.status === 'blocked') continue;
+
+      // Check children first (DFS — go deeper before returning this node)
+      const children = this.getChildren(task.id);
+      if (children.length > 0) {
+        const deeperResult = this.getNextExecutable(task.id);
+        if (deeperResult) return deeperResult;
+        continue; // Parent with children is not itself executable
+      }
+
+      // Leaf node — only pending leaves are executable
+      if (task.status === 'pending') return task;
+    }
+
+    return null;
+  }
+
+  /** Find active tasks whose session_id is not in the set of active sessions. */
+  getOrphaned(activeSessionIds: Set<string>): Task[] {
+    const rows = this.getDb()
+      .prepare("SELECT * FROM tasks WHERE status = 'active' AND session_id IS NOT NULL")
+      .all() as TaskRow[];
+    return rows.map(rowToTask).filter((t) => !activeSessionIds.has(t.sessionId!));
+  }
+
   private assembleTree(rows: TaskRow[]): Task[] {
     const tasks = rows.map(rowToTask);
     const taskMap = new Map<string, Task>();
