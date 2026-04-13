@@ -108,15 +108,15 @@ export function cleanupStaleWorktrees(baseRepo: string): void {
       if (now - stat.mtimeMs > cutoff) {
         removeWorktree(entry, baseRepo);
         cleaned++;
-        }
-      } catch (err: unknown) {
-        log.warn('failed to stat worktree entry during cleanup', {
-          repo: baseRepo,
-          entry,
-          error: err instanceof Error ? err.message : 'unknown',
-        });
       }
+    } catch (err: unknown) {
+      log.warn('failed to stat worktree entry during cleanup', {
+        repo: baseRepo,
+        entry,
+        error: err instanceof Error ? err.message : 'unknown',
+      });
     }
+  }
 
   try {
     execFileSync('git', ['-C', baseRepo, 'worktree', 'prune'], {

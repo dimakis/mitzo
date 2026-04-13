@@ -173,7 +173,13 @@ function createSessionWorktrees(
   const repoWorktrees = new Map<string, { path: string; wtId: string }>();
 
   // Skip worktree creation unless the frontend's sandbox toggle is on
-  if (!WORKTREE_ENABLED || options.worktree !== true || options.resume || options.cwd || !BASE_REPO) {
+  if (
+    !WORKTREE_ENABLED ||
+    options.worktree !== true ||
+    options.resume ||
+    options.cwd ||
+    !BASE_REPO
+  ) {
     return { cwd: baseCwd, wtId, repoWorktrees };
   }
 
