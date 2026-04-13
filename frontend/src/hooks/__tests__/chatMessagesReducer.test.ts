@@ -11,6 +11,7 @@ const INITIAL: ChatMessagesState = {
   branch: null,
   isWorktree: false,
   activeWorktrees: [],
+  wtId: null,
 };
 
 // ─── MESSAGE_START ────────────────────────────────────────────────────────────
