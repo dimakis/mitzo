@@ -11,6 +11,7 @@ import { TodoView } from './pages/TodoView';
 import { TodoDetailView } from './pages/TodoDetailView';
 import { TaskBoard } from './pages/TaskBoard';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { MobileShell } from './components/MobileShell';
 import { useIsDesktop } from './hooks/useMediaQuery';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -41,89 +42,91 @@ export function App() {
   return (
     <ErrorBoundary>
       <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route
-            path="/"
-            element={
-              <ProtectedRoute>
-                <ErrorBoundary>
-                  <HomeRoute />
-                </ErrorBoundary>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/chat"
-            element={
-              <ProtectedRoute>
-                <ErrorBoundary>
-                  <ChatRoute />
-                </ErrorBoundary>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/chat/:sessionId"
-            element={
-              <ProtectedRoute>
-                <ErrorBoundary>
-                  <ChatRoute />
-                </ErrorBoundary>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/inbox"
-            element={
-              <ProtectedRoute>
-                <InboxView />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/calendar"
-            element={
-              <ProtectedRoute>
-                <CalendarView />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/todos"
-            element={
-              <ProtectedRoute>
-                <TodoView />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/todos/:id"
-            element={
-              <ProtectedRoute>
-                <TodoDetailView />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/tasks"
-            element={
-              <ProtectedRoute>
-                <TaskBoard />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/files"
-            element={
-              <ProtectedRoute>
-                <ErrorBoundary>
-                  <FileViewer />
-                </ErrorBoundary>
-              </ProtectedRoute>
-            }
-          />
-        </Routes>
+        <MobileShell>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route
+              path="/"
+              element={
+                <ProtectedRoute>
+                  <ErrorBoundary>
+                    <HomeRoute />
+                  </ErrorBoundary>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/chat"
+              element={
+                <ProtectedRoute>
+                  <ErrorBoundary>
+                    <ChatRoute />
+                  </ErrorBoundary>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/chat/:sessionId"
+              element={
+                <ProtectedRoute>
+                  <ErrorBoundary>
+                    <ChatRoute />
+                  </ErrorBoundary>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/inbox"
+              element={
+                <ProtectedRoute>
+                  <InboxView />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/calendar"
+              element={
+                <ProtectedRoute>
+                  <CalendarView />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/todos"
+              element={
+                <ProtectedRoute>
+                  <TodoView />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/todos/:id"
+              element={
+                <ProtectedRoute>
+                  <TodoDetailView />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/tasks"
+              element={
+                <ProtectedRoute>
+                  <TaskBoard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/files"
+              element={
+                <ProtectedRoute>
+                  <ErrorBoundary>
+                    <FileViewer />
+                  </ErrorBoundary>
+                </ProtectedRoute>
+              }
+            />
+          </Routes>
+        </MobileShell>
       </BrowserRouter>
     </ErrorBoundary>
   );

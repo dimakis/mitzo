@@ -11,6 +11,7 @@ function mockFetchResponses(overrides: Record<string, unknown> = {}) {
     '/api/config': { quickActions: [] },
     '/api/inbox': [],
     '/api/version': {},
+    '/api/todos': { items: [] },
     ...overrides,
   };
 
@@ -108,26 +109,11 @@ describe('SessionList status dot', () => {
   });
 });
 
-describe('SessionList inbox badge', () => {
-  it('renders badge with correct count when inbox has items', async () => {
+describe('SessionList', () => {
+  it('does not render inline inbox/todo nav buttons (tab bar handles navigation)', async () => {
     mockFetchResponses({
-      '/api/inbox': [{ id: '1' }, { id: '2' }, { id: '3' }],
+      '/api/inbox': [{ id: '1' }, { id: '2' }],
     });
-
-    renderSessionList();
-
-    // Wait for async fetch + state update
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 10));
-    });
-
-    const badge = container.querySelector('.inbox-nav-badge');
-    expect(badge).not.toBeNull();
-    expect(badge!.textContent).toBe('3');
-  });
-
-  it('does not render badge when inbox is empty', async () => {
-    mockFetchResponses({ '/api/inbox': [] });
 
     renderSessionList();
 
@@ -135,8 +121,9 @@ describe('SessionList inbox badge', () => {
       await new Promise((r) => setTimeout(r, 10));
     });
 
-    const badge = container.querySelector('.inbox-nav-badge');
-    expect(badge).toBeNull();
+    // Old inbox-nav-btn should be gone — tab bar handles navigation now
+    const inboxBtn = container.querySelector('.inbox-nav-btn');
+    expect(inboxBtn).toBeNull();
   });
 
   it('renders update banner when version endpoint reports update', async () => {
@@ -153,5 +140,18 @@ describe('SessionList inbox badge', () => {
     const banner = container.querySelector('.update-banner');
     expect(banner).not.toBeNull();
     expect(banner!.textContent).toMatch(/Update available/);
+  });
+
+  it('renders the hero New Chat button', async () => {
+    mockFetchResponses();
+
+    renderSessionList();
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    const heroBtn = container.querySelector('.hero-chat-btn');
+    expect(heroBtn).not.toBeNull();
   });
 });
