@@ -30,6 +30,12 @@ import { getLocalCommit, isUpdateAvailable } from './git-version.js';
 import { resolvePending } from './permissions.js';
 import { createLogger } from './logger.js';
 import {
+  handleTaskSet,
+  handleTaskComplete,
+  handleTaskStatus,
+  handleTaskBlock,
+} from './task-tools.js';
+import {
   LoginBody,
   FileWriteBody,
   PermissionDecision,
@@ -364,6 +370,83 @@ app.delete('/api/tasks/:id', (req, res) => {
   }
   res.json({ ok: true });
   onTaskBroadcast?.({ type: 'task_deleted', taskId: req.params.id });
+});
+
+// --- Internal task-tool endpoints (MCP server callback) ---
+
+function resolveTaskContext(req: express.Request): string | null {
+  const clientId = req.headers['x-client-id'] as string | undefined;
+  if (!clientId) return null;
+  const session = registry.get(clientId);
+  return session?.taskContext?.currentTaskId ?? null;
+}
+
+app.post('/api/internal/task-tools/set', (req, res) => {
+  if (!verifyInternalToken(req)) {
+    res.status(401).json({ error: 'Internal token required' });
+    return;
+  }
+  const taskId = resolveTaskContext(req);
+  if (!taskId) {
+    res.status(400).json({ error: 'No active task context' });
+    return;
+  }
+  const result = handleTaskSet(taskStore, taskId, req.body.tasks ?? []);
+  res.json({ result });
+  onTaskBroadcast?.({
+    type: 'task_state',
+    tasks: taskStore.getTree(),
+  });
+});
+
+app.post('/api/internal/task-tools/complete', (req, res) => {
+  if (!verifyInternalToken(req)) {
+    res.status(401).json({ error: 'Internal token required' });
+    return;
+  }
+  const taskId = resolveTaskContext(req);
+  if (!taskId) {
+    res.status(400).json({ error: 'No active task context' });
+    return;
+  }
+  const result = handleTaskComplete(taskStore, taskId, req.body.summary ?? '');
+  res.json({ result });
+  onTaskBroadcast?.({
+    type: 'task_state',
+    tasks: taskStore.getTree(),
+  });
+});
+
+app.get('/api/internal/task-tools/status', (req, res) => {
+  if (!verifyInternalToken(req)) {
+    res.status(401).json({ error: 'Internal token required' });
+    return;
+  }
+  const taskId = resolveTaskContext(req);
+  if (!taskId) {
+    res.status(400).json({ error: 'No active task context' });
+    return;
+  }
+  const result = handleTaskStatus(taskStore, taskId);
+  res.json({ result });
+});
+
+app.post('/api/internal/task-tools/block', (req, res) => {
+  if (!verifyInternalToken(req)) {
+    res.status(401).json({ error: 'Internal token required' });
+    return;
+  }
+  const taskId = resolveTaskContext(req);
+  if (!taskId) {
+    res.status(400).json({ error: 'No active task context' });
+    return;
+  }
+  const result = handleTaskBlock(taskStore, taskId, req.body.reason ?? '');
+  res.json({ result });
+  onTaskBroadcast?.({
+    type: 'task_state',
+    tasks: taskStore.getTree(),
+  });
 });
 
 app.post('/api/auth/login', loginLimiter, async (req, res) => {

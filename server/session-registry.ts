@@ -40,6 +40,7 @@ export interface ManagedSession {
   /** Accumulates token totals across multiple query() calls in a session */
   cumulativeSessionTokens: number;
   cumulativeCostUsd: number;
+  taskContext: { currentTaskId: string; goalId: string } | null;
 }
 
 export class SessionRegistry {
@@ -59,6 +60,7 @@ export class SessionRegistry {
       | 'observers'
       | 'cumulativeSessionTokens'
       | 'cumulativeCostUsd'
+      | 'taskContext'
     > & {
       sessionId?: string;
     },
@@ -71,6 +73,7 @@ export class SessionRegistry {
       observers: new Set(),
       cumulativeSessionTokens: 0,
       cumulativeCostUsd: 0,
+      taskContext: null,
     });
     this.attached.add(clientId);
   }
