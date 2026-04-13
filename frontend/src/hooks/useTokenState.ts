@@ -38,10 +38,11 @@ export function tokenStateReducer(state: TokenState, action: TokenAction): Token
     case 'TOKEN_UPDATE':
       return {
         agentContext: action.agentContext,
-        contextCeiling: action.contextCeiling ?? state.contextCeiling,
-        sessionTotal: action.sessionTotal ?? state.sessionTotal,
-        costUsd: action.costUsd ?? state.costUsd,
-        numTurns: action.numTurns ?? state.numTurns,
+        contextCeiling:
+          action.contextCeiling !== undefined ? action.contextCeiling : state.contextCeiling,
+        sessionTotal: action.sessionTotal !== undefined ? action.sessionTotal : state.sessionTotal,
+        costUsd: action.costUsd !== undefined ? action.costUsd : state.costUsd,
+        numTurns: action.numTurns !== undefined ? action.numTurns : state.numTurns,
         turnIndex: action.turnIndex,
       };
     case 'RESET':

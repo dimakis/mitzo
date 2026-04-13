@@ -27,6 +27,8 @@ function fakeRegistry(
     sessionId: undefined as string | undefined,
     currentSnapshot: null as null | { messageId: string; blocks: unknown[] },
     observers: opts?.observers ?? new Set<WebSocket>(),
+    cumulativeSessionTokens: 0,
+    cumulativeCostUsd: 0,
   };
   return {
     get: vi.fn(() => (removed ? null : session)),

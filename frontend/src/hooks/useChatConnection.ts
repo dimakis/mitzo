@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { wsSubscribe, wsIsOpen, wsRemoveIfIdle } from '../lib/ws-pool';
 import type { WsMsg } from '../lib/ws-pool';
 
@@ -7,6 +7,8 @@ export function useChatConnection(
   ...handlers: ((msg: WsMsg) => void)[]
 ): { connected: boolean } {
   const [connected, setConnected] = useState(false);
+  const handlersRef = useRef(handlers);
+  handlersRef.current = handlers;
 
   useEffect(() => {
     const wrappedHandler = (msg: WsMsg) => {
@@ -15,7 +17,7 @@ export function useChatConnection(
       } else if (msg.type === '_close') {
         setConnected(false);
       }
-      for (const h of handlers) h(msg);
+      for (const h of handlersRef.current) h(msg);
     };
 
     const unsubscribe = wsSubscribe(poolKey, wrappedHandler);
@@ -26,7 +28,7 @@ export function useChatConnection(
       unsubscribe();
       wsRemoveIfIdle(poolKey);
     };
-  }, [poolKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [poolKey]);
 
   return { connected };
 }

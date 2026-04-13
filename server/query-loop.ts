@@ -2,7 +2,7 @@ import type { WebSocket } from 'ws';
 import { resolvePending } from './permissions.js';
 import { summarizeToolInput, getRawInput } from './tool-summary.js';
 import { extractToolResultText } from './content-blocks.js';
-import { TOOL_RESULT_MAX_CHARS } from './constants.js';
+import { TOOL_RESULT_MAX_CHARS, CONTEXT_CEILING_TOKENS } from './constants.js';
 import { createLogger } from './logger.js';
 import type { SessionRegistry, SnapshotBlock } from './session-registry.js';
 import type { EventStore } from './event-store.js';
@@ -143,8 +143,6 @@ export async function runQueryLoop(
   // Token tracking state for live token_update events
   let agentContextTokens = 0; // input_tokens from latest message_start (context window size)
   let turnIndex = 0; // increments on each message_start
-  // All current Claude models share 200k context; sent to frontend so it doesn't hardcode.
-  const contextCeiling = 200_000;
 
   // Track last-reported cumulative usage to compute deltas (SDK reports cumulative totals).
   let lastReportedUsage = {
@@ -316,13 +314,18 @@ export async function runQueryLoop(
           store.recordUsage(resolvedSessionId, usageData);
         }
 
-        // Emit final token_update with session totals
+        // Accumulate session-lifetime totals on the registry entry
+        const callTokens = usageData.inputTokens + usageData.outputTokens;
+        currentSession.cumulativeSessionTokens += callTokens;
+        currentSession.cumulativeCostUsd += usageData.totalCostUsd;
+
+        // Emit final token_update with accumulated session totals
         emit(currentWs, {
           type: 'token_update',
           agentContext: agentContextTokens,
-          contextCeiling,
-          sessionTotal: usageData.inputTokens + usageData.outputTokens,
-          costUsd: usageData.totalCostUsd,
+          contextCeiling: CONTEXT_CEILING_TOKENS,
+          sessionTotal: currentSession.cumulativeSessionTokens,
+          costUsd: currentSession.cumulativeCostUsd,
           numTurns: usageData.numTurns,
           turnIndex,
         });
@@ -401,7 +404,7 @@ export async function runQueryLoop(
             emit(currentWs, {
               type: 'token_update',
               agentContext: agentContextTokens,
-              contextCeiling,
+              contextCeiling: CONTEXT_CEILING_TOKENS,
               turnIndex,
             });
           }
