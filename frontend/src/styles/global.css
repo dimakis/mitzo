@@ -151,6 +151,57 @@ textarea:focus {
   transform: scale(0.95);
 }
 
+/* ── PageHeader ─────────────────────────────────────────── */
+
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) 0 var(--space-2);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 10;
+}
+
+.page-header-back {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: var(--text-xl);
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.page-header h1 {
+  flex: 1;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  margin: 0;
+}
+
+.page-header-center {
+  flex: 1;
+}
+
+.page-header-badge {
+  background: var(--accent);
+  color: var(--bg);
+  font-size: var(--text-xs);
+  padding: 2px 8px;
+  border-radius: 10px;
+  vertical-align: middle;
+  margin-left: var(--space-1);
+}
+
+.page-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
 /* ===== Login ===== */
 
 .login-page {
