@@ -478,7 +478,7 @@ export function useChatMessages(
   poolKey: string,
   currentSessionId: string | undefined,
   onSessionAssigned: (id: string) => void,
-  onSessionExpired: (sessionId: string | undefined) => void,
+  onSessionExpired: (sessionId: string) => void,
   onMessagesRestored?: () => void,
   onSessionRenamed?: (name: string) => void,
 ) {
@@ -684,7 +684,7 @@ export function useChatMessages(
           wsSetRunning(poolKey, false);
           pendingSend.current = null;
           if (errorMsg?.includes('No conversation found')) {
-            onSessionExpired(currentSessionIdRef.current);
+            if (currentSessionIdRef.current) onSessionExpired(currentSessionIdRef.current);
             dispatch({
               type: 'ERROR',
               error: 'Session expired. Send your message again to start fresh.',

@@ -203,6 +203,9 @@ export class SessionRegistry {
       return null;
     }
     found.session.observers.add(ws);
+    // An active observer means someone is listening — don't let the detach
+    // TTL kill the session out from under them.
+    this.clearDetachTimer(found.clientId);
     log.info('observer added', { sessionId, observers: found.session.observers.size });
     return found.clientId;
   }
