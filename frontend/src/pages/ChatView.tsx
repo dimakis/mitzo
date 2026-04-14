@@ -210,6 +210,7 @@ export function ChatView() {
         branch={msgState.branch || undefined}
         isWorktree={msgState.isWorktree}
         wtId={msgState.wtId || undefined}
+        sessionId={sessionState.currentSessionId}
         tokenState={tokenState}
       />
     </div>

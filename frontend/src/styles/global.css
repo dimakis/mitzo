@@ -1872,6 +1872,14 @@ textarea:focus {
   position: relative;
 }
 
+.chat-input-session-hash {
+  font-family: var(--code-font);
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  opacity: 0.5;
+  margin-left: 0.5rem;
+}
+
 .chat-input-branch {
   font-family: var(--code-font);
   font-size: 0.65rem;

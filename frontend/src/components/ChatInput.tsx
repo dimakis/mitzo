@@ -28,6 +28,7 @@ interface Props {
   branch?: string;
   isWorktree?: boolean;
   wtId?: string;
+  sessionId?: string;
   /** When provided, uses these context blocks instead of internal state. Hides @ picker. */
   externalContextBlocks?: string[];
   tokenState?: TokenState;
@@ -44,6 +45,7 @@ export function ChatInput({
   branch,
   isWorktree,
   wtId,
+  sessionId,
   externalContextBlocks,
   tokenState,
 }: Props) {
@@ -295,6 +297,11 @@ export function ChatInput({
           onChange={handleFileChange}
           className="sr-only"
         />
+        {sessionId && (
+          <span className="chat-input-session-hash" title={`session: ${sessionId}`}>
+            {sessionId.slice(-5)}
+          </span>
+        )}
         {(branch || wtId) && (
           <span
             className={`chat-input-branch${isWorktree ? ' chat-input-branch--wt' : ''}`}

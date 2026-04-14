@@ -101,6 +101,20 @@ describe('ChatInput command strip', () => {
     expect(container.querySelectorAll('.mic-btn')).toHaveLength(1);
   });
 
+  it('renders session hash badge when sessionId is provided', () => {
+    const { container } = render(
+      <ChatInput onSend={noop} onStop={noopVoid} running={false} sessionId="abc123def456ghi789" />,
+    );
+    const badge = container.querySelector('.chat-input-session-hash');
+    expect(badge).toBeTruthy();
+    expect(badge?.textContent).toBe('hi789');
+  });
+
+  it('does not render session hash badge when sessionId is undefined', () => {
+    const { container } = render(<ChatInput onSend={noop} onStop={noopVoid} running={false} />);
+    expect(container.querySelector('.chat-input-session-hash')).toBeNull();
+  });
+
   it('opens slash picker when / button is clicked', () => {
     const { container } = render(<ChatInput onSend={noop} onStop={noopVoid} running={false} />);
     fireEvent.click(screen.getByTitle('Skills'));

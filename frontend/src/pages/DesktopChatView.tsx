@@ -244,6 +244,7 @@ export function DesktopChatView() {
             branch={msgState.branch || undefined}
             isWorktree={msgState.isWorktree}
             wtId={msgState.wtId || undefined}
+            sessionId={sessionState.currentSessionId}
             externalContextBlocks={contextBlocks}
             tokenState={tokenState}
           />
