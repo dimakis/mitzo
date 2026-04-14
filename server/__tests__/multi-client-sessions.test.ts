@@ -129,6 +129,58 @@ describe('SessionRegistry.removeObserver', () => {
     registry.removeObserver(mockWs());
     expect(registry.get('c1')!.observers.size).toBe(0);
   });
+
+  it('restarts detach timer when last observer leaves a detached session', () => {
+    vi.useFakeTimers();
+    const ws = mockWs();
+    const obsWs = mockWs();
+    registry.register('c1', {
+      ws,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+      sessionId: 'sess-1',
+    });
+
+    // Detach driver, then add observer (cancels timer)
+    registry.detach('c1');
+    registry.addObserver('sess-1', obsWs);
+    expect(registry.isActive('c1')).toBe(true);
+
+    // Observer leaves — should restart detach timer
+    registry.removeObserver(obsWs);
+    expect(registry.get('c1')!.observers.size).toBe(0);
+    expect(registry.isActive('c1')).toBe(true); // still alive
+
+    // Fast-forward past TTL — session should be aborted
+    vi.advanceTimersByTime(3_600_001);
+    expect(registry.isActive('c1')).toBe(false);
+
+    vi.useRealTimers();
+  });
+
+  it('does NOT start detach timer when observer leaves an attached session', () => {
+    vi.useFakeTimers();
+    const ws = mockWs();
+    const obsWs = mockWs();
+    registry.register('c1', {
+      ws,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+      sessionId: 'sess-1',
+    });
+
+    // Driver is attached, add and remove observer
+    registry.addObserver('sess-1', obsWs);
+    registry.removeObserver(obsWs);
+
+    // Fast-forward past TTL — session should still be alive (driver attached)
+    vi.advanceTimersByTime(3_600_001);
+    expect(registry.isActive('c1')).toBe(true);
+
+    vi.useRealTimers();
+  });
 });
 
 describe('broadcastToObservers', () => {

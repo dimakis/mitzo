@@ -36,12 +36,16 @@ export function ChatView() {
     });
   }, []);
 
-  const handleSessionExpired = useCallback((_staleId: string) => {
-    // Clear from localStorage so fresh page loads don't auto-resume an expired session.
-    // Keep currentSessionId so the next send includes `resume` and the SDK can
-    // attempt to pick up the conversation.
-    localStorage.removeItem(LAST_SESSION_KEY);
-  }, []);
+  const handleSessionExpired = useCallback(
+    (staleId: string) => {
+      // Clear both state and storage so the next send starts a fresh conversation
+      // instead of retrying `resume` with a stale ID in a loop.
+      sessionActions.setCurrentSessionId(undefined);
+      localStorage.removeItem(LAST_SESSION_KEY);
+      if (sessionId) navigate('/chat', { replace: true });
+    },
+    [sessionId, navigate, sessionActions],
+  );
 
   // When a session ID is assigned mid-conversation (started from /chat),
   // update the URL so refreshes and back-navigation land on /chat/:id
