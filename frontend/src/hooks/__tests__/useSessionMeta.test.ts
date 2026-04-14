@@ -96,7 +96,7 @@ describe('useSessionMeta', () => {
 
     await waitFor(() => {
       expect(dispatch).toHaveBeenCalledWith(
-        expect.objectContaining({ isWorktree: false, wtId: null }),
+        expect.objectContaining({ isWorktree: false, wtId: undefined }),
       );
     });
   });

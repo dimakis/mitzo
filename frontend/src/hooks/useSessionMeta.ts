@@ -20,7 +20,7 @@ type MessageDispatch = (action: {
   type: 'SESSION_INFO';
   branch: string;
   isWorktree: boolean;
-  wtId: string | null | undefined;
+  wtId?: string;
 }) => void;
 
 /**
@@ -51,7 +51,7 @@ export function useSessionMeta(
             type: 'SESSION_INFO',
             branch: meta.branch,
             isWorktree: !!meta.wtId,
-            wtId: meta.wtId,
+            wtId: meta.wtId ?? undefined,
           });
         }
 
