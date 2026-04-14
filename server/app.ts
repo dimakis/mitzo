@@ -653,6 +653,28 @@ app.delete('/api/sessions/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+app.get('/api/sessions/:id/meta', (req, res) => {
+  const meta = eventStore.getSession(req.params.id);
+  if (!meta) {
+    res.status(404).json({ error: 'Session not found' });
+    return;
+  }
+  res.json({
+    sessionId: meta.sessionId,
+    branch: meta.branch,
+    wtId: meta.wtId,
+    cwd: meta.cwd,
+    mode: meta.mode,
+    isActive: meta.isActive,
+    inputTokens: meta.inputTokens,
+    outputTokens: meta.outputTokens,
+    cacheReadTokens: meta.cacheReadTokens,
+    cacheCreationTokens: meta.cacheCreationTokens,
+    totalCostUsd: meta.totalCostUsd,
+    numTurns: meta.numTurns,
+  });
+});
+
 app.get('/api/sessions/:id/events', (req, res) => {
   const afterSeq = parseInt(req.query.after as string, 10);
   if (isNaN(afterSeq)) {

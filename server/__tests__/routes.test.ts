@@ -54,7 +54,39 @@ vi.mock('../chat.js', () => {
       ]),
     },
     setTaskStore: vi.fn(),
-    eventStore: { append: vi.fn(), getEventsAfter: vi.fn().mockReturnValue([]) },
+    eventStore: {
+      append: vi.fn(),
+      getEventsAfter: vi.fn().mockReturnValue([]),
+      getSession: vi.fn().mockImplementation((id: string) => {
+        if (id === 's1') {
+          return {
+            sessionId: 's1',
+            summary: 'Test',
+            branch: 'main',
+            cwd: '/tmp/repo',
+            mode: 'agent',
+            wtId: null,
+            isActive: true,
+            isHidden: false,
+            promptCount: 0,
+            manuallyRenamed: false,
+            initialPrompt: null,
+            inputTokens: 5000,
+            outputTokens: 3000,
+            cacheReadTokens: 1000,
+            cacheCreationTokens: 500,
+            totalCostUsd: 0.05,
+            numTurns: 3,
+            durationMs: 10000,
+            durationApiMs: 8000,
+            goalId: null,
+            createdAt: 1000,
+            updatedAt: 2000,
+          };
+        }
+        return null;
+      }),
+    },
   };
 });
 
@@ -316,6 +348,35 @@ describe('session routes', () => {
 
   it('PUT /api/sessions/:id/rename — unauthenticated returns 401', async () => {
     const res = await request(app).put('/api/sessions/s1/rename').send({ title: 'Name' });
+    expect(res.status).toBe(401);
+  });
+
+  it('GET /api/sessions/:id/meta — returns session metadata', async () => {
+    const res = await request(app).get('/api/sessions/s1/meta').set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      sessionId: 's1',
+      branch: 'main',
+      wtId: null,
+      cwd: '/tmp/repo',
+      mode: 'agent',
+      isActive: true,
+      inputTokens: 5000,
+      outputTokens: 3000,
+      cacheReadTokens: 1000,
+      cacheCreationTokens: 500,
+      totalCostUsd: 0.05,
+      numTurns: 3,
+    });
+  });
+
+  it('GET /api/sessions/:id/meta — unknown session returns 404', async () => {
+    const res = await request(app).get('/api/sessions/unknown/meta').set('Cookie', authCookie);
+    expect(res.status).toBe(404);
+  });
+
+  it('GET /api/sessions/:id/meta — unauthenticated returns 401', async () => {
+    const res = await request(app).get('/api/sessions/s1/meta');
     expect(res.status).toBe(401);
   });
 });
