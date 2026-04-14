@@ -20,7 +20,6 @@ export function ChatView() {
   const { sessionId } = useParams<{ sessionId?: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-
   const [sessionState, sessionActions, poolKey] = useChatSession(
     sessionId,
     searchParams.get('extraTools') ? 'auto' : 'agent',
@@ -39,14 +38,12 @@ export function ChatView() {
   }, []);
 
   const handleSessionExpired = useCallback(
-    (staleId: string | undefined) => {
+    (_staleId: string) => {
+      // Clear both state and storage so the next send starts a fresh conversation
+      // instead of retrying `resume` with a stale ID in a loop.
       sessionActions.setCurrentSessionId(undefined);
-      if (staleId) {
-        localStorage.removeItem(LAST_SESSION_KEY);
-      }
-      if (sessionId) {
-        navigate('/chat', { replace: true });
-      }
+      localStorage.removeItem(LAST_SESSION_KEY);
+      if (sessionId) navigate('/chat', { replace: true });
     },
     [sessionId, navigate, sessionActions],
   );

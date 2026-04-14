@@ -506,6 +506,42 @@ describe('USER_MESSAGE_RECEIVED deduplication', () => {
   });
 });
 
+describe('useChatMessages — session expiry error', () => {
+  it('calls onSessionExpired with current session ID on "No conversation found"', () => {
+    const onSessionExpired = vi.fn();
+
+    const { result } = renderHook(() =>
+      useChatMessages('session:test', 'test-session-id', vi.fn(), onSessionExpired),
+    );
+
+    act(() => {
+      result.current.handleWsMessage({ type: 'error', error: 'No conversation found' });
+    });
+
+    expect(onSessionExpired).toHaveBeenCalledWith('test-session-id');
+    // Error is rendered as a message, not a state field
+    const lastMsg = result.current.state.messages.at(-1);
+    expect(lastMsg?.blocks[0].content).toContain('Session expired');
+    expect(result.current.state.running).toBe(false);
+  });
+
+  it('does not call onSessionExpired for other errors', () => {
+    const onSessionExpired = vi.fn();
+
+    const { result } = renderHook(() =>
+      useChatMessages('session:test', 'test-session-id', vi.fn(), onSessionExpired),
+    );
+
+    act(() => {
+      result.current.handleWsMessage({ type: 'error', error: 'Something else went wrong' });
+    });
+
+    expect(onSessionExpired).not.toHaveBeenCalled();
+    const lastMsg = result.current.state.messages.at(-1);
+    expect(lastMsg?.blocks[0].content).toContain('Something else went wrong');
+  });
+});
+
 describe('useChatMessages — reattach_failed handler', () => {
   it('restores messages from API array response on reattach_failed', async () => {
     const apiMessages = [

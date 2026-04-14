@@ -203,16 +203,25 @@ export class SessionRegistry {
       return null;
     }
     found.session.observers.add(ws);
+    // An active observer means someone is listening — don't let the detach
+    // TTL kill the session out from under them.
+    this.clearDetachTimer(found.clientId);
     log.info('observer added', { sessionId, observers: found.session.observers.size });
     return found.clientId;
   }
 
   /**
    * Remove a WebSocket from all observer sets (cleanup on disconnect).
+   * If the last observer leaves a detached session, restart the detach timer
+   * so the session doesn't leak indefinitely.
    */
   removeObserver(ws: WebSocket): void {
-    for (const session of this.sessions.values()) {
-      session.observers.delete(ws);
+    for (const [clientId, session] of this.sessions) {
+      if (!session.observers.delete(ws)) continue;
+      if (session.observers.size === 0 && !this.attached.has(clientId)) {
+        log.info('last observer left detached session, restarting detach timer', { clientId });
+        this.detach(clientId);
+      }
     }
   }
 
