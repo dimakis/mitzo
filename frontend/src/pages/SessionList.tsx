@@ -7,6 +7,7 @@ import { computeSwipeState, REVEAL_WIDTH } from '../lib/swipe-reveal';
 import { EmptyState } from '../components/EmptyState';
 import { useSessionList } from '../hooks/useSessionList';
 import type { QuickAction } from '../hooks/useSessionList';
+import { formatTokens } from '../lib/formatTokens';
 
 function SwipeableSession({
   session,
@@ -175,8 +176,12 @@ function SwipeableSession({
             <div className="session-item-summary">{session.summary || 'Untitled session'}</div>
           )}
           <div className="session-item-meta">
+            <span className="session-item-hash">{session.id.slice(-6)}</span>
             <span className="session-item-time">{formatRelativeTime(session.lastModified)}</span>
             {session.branch && <span className="session-item-branch">{session.branch}</span>}
+            {session.totalTokens != null && session.totalTokens > 0 && (
+              <span className="session-item-tokens">{formatTokens(session.totalTokens)}</span>
+            )}
           </div>
         </div>
         {!editing && <span className="session-item-chevron">&rsaquo;</span>}

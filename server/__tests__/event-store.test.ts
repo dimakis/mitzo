@@ -165,6 +165,36 @@ describe('EventStore', () => {
       expect(session!.branch).toBe('main');
       expect(session!.mode).toBe('agent');
     });
+
+    it('persists and retrieves wtId', () => {
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Test', wtId: 'wt-abc123' });
+
+      const session = store.getSession('sess-1');
+      expect(session).not.toBeNull();
+      expect(session!.wtId).toBe('wt-abc123');
+    });
+
+    it('updates wtId on existing session', () => {
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Test' });
+      expect(store.getSession('sess-1')!.wtId).toBeNull();
+
+      store.upsertSession({ sessionId: 'sess-1', wtId: 'wt-xyz789' });
+      expect(store.getSession('sess-1')!.wtId).toBe('wt-xyz789');
+    });
+
+    it('persists branch and wtId together on insert', () => {
+      store.upsertSession({
+        sessionId: 'sess-1',
+        branch: 'feat/my-feature',
+        wtId: 'wt-session-123',
+        mode: 'agent',
+      });
+
+      const session = store.getSession('sess-1');
+      expect(session!.branch).toBe('feat/my-feature');
+      expect(session!.wtId).toBe('wt-session-123');
+      expect(session!.mode).toBe('agent');
+    });
   });
 
   describe('getSession', () => {

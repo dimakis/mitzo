@@ -639,7 +639,16 @@ app.get('/api/sessions', async (_req, res) => {
   }
   const annotated = sessions.map((s) => {
     const live = activeMap.get(s.id);
-    return { ...s, isActive: !!live, isAttached: live?.attached ?? false };
+    const meta = eventStore.getSession(s.id);
+    return {
+      ...s,
+      isActive: !!live,
+      isAttached: live?.attached ?? false,
+      totalTokens: meta
+        ? meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens
+        : undefined,
+      numTurns: meta?.numTurns,
+    };
   });
   res.json(annotated);
 });
@@ -651,6 +660,27 @@ app.get('/api/sessions/:id/messages', async (req, res) => {
 app.delete('/api/sessions/:id', (req, res) => {
   hideSession(req.params.id as string);
   res.json({ ok: true });
+});
+
+app.get('/api/sessions/:id/meta', (req, res) => {
+  const meta = eventStore.getSession(req.params.id);
+  if (!meta) {
+    res.status(404).json({ error: 'Session not found' });
+    return;
+  }
+  const totalTokens =
+    meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens;
+  res.json({
+    sessionId: meta.sessionId,
+    branch: meta.branch,
+    wtId: meta.wtId,
+    cwd: meta.cwd,
+    mode: meta.mode,
+    isActive: meta.isActive,
+    totalTokens,
+    totalCostUsd: meta.totalCostUsd,
+    numTurns: meta.numTurns,
+  });
 });
 
 app.get('/api/sessions/:id/events', (req, res) => {

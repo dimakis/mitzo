@@ -1,11 +1,6 @@
 import { useState } from 'react';
 import type { TokenState } from '../hooks/useTokenState';
-
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
-  return String(n);
-}
+import { formatTokens } from '../lib/formatTokens';
 
 function getContextColor(ratio: number): string {
   if (ratio >= 0.95) return 'flashing';
@@ -27,27 +22,32 @@ export function TokenBar({ tokenState }: Props) {
   const ceiling = tokenState.contextCeiling;
   const ratio = ceiling > 0 ? tokenState.agentContext / ceiling : 0;
   const color = getContextColor(ratio);
+  // Completed sessions have agentContext=0 but sessionTotal>0 (hydrated from event store).
+  // Show only session total in that case — the agent context bar is meaningless.
+  const isCompleted = tokenState.agentContext === 0 && tokenState.sessionTotal > 0;
 
   return (
     <>
       <button
-        className={`token-bar token-bar--${color}`}
+        className={`token-bar token-bar--${isCompleted ? 'green' : color}`}
         onClick={() => setExpanded((v) => !v)}
         aria-label="Token usage"
         title="Token usage — tap for details"
       >
-        <span className="token-bar-agent">
-          <svg
-            className="token-bar-icon"
-            viewBox="0 0 24 24"
-            width="12"
-            height="12"
-            fill="currentColor"
-          >
-            <path d="M12 2a9 9 0 0 0-9 9c0 3.1 1.6 5.8 4 7.4V21h2v-2h6v2h2v-2.6c2.4-1.6 4-4.3 4-7.4a9 9 0 0 0-9-9zm-1 14h-1v-4h1v4zm1-6H9.5V8.5a2.5 2.5 0 0 1 5 0V10H12zm3 6h-1v-4h1v4z" />
-          </svg>
-          {formatTokens(tokenState.agentContext)}/{formatTokens(ceiling)}
-        </span>
+        {!isCompleted && (
+          <span className="token-bar-agent">
+            <svg
+              className="token-bar-icon"
+              viewBox="0 0 24 24"
+              width="12"
+              height="12"
+              fill="currentColor"
+            >
+              <path d="M12 2a9 9 0 0 0-9 9c0 3.1 1.6 5.8 4 7.4V21h2v-2h6v2h2v-2.6c2.4-1.6 4-4.3 4-7.4a9 9 0 0 0-9-9zm-1 14h-1v-4h1v4zm1-6H9.5V8.5a2.5 2.5 0 0 1 5 0V10H12zm3 6h-1v-4h1v4z" />
+            </svg>
+            {formatTokens(tokenState.agentContext)}/{formatTokens(ceiling)}
+          </span>
+        )}
         {tokenState.sessionTotal > 0 && (
           <span className="token-bar-session">
             <span className="token-bar-sigma">Σ</span>

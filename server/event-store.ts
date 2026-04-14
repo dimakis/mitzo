@@ -22,6 +22,7 @@ export interface SessionMeta {
   promptCount: number;
   manuallyRenamed: boolean;
   initialPrompt: string | null;
+  wtId: string | null;
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
@@ -54,6 +55,7 @@ interface SessionRow {
   prompt_count: number;
   manually_renamed: number;
   initial_prompt: string | null;
+  wt_id: string | null;
   input_tokens: number;
   output_tokens: number;
   cache_read_tokens: number;
@@ -119,6 +121,7 @@ export class EventStore {
     // Migrate existing databases that lack the new columns
     this.migratePromptTracking(db);
     this.migrateUsageTracking(db);
+    this.migrateWorktreeTracking(db);
 
     this.stmts = {
       append: db.prepare('INSERT INTO events (session_id, type, payload) VALUES (?, ?, ?)'),
@@ -212,6 +215,16 @@ export class EventStore {
     }
   }
 
+  /** Add worktree tracking column if it doesn't exist yet. */
+  private migrateWorktreeTracking(db: Database.Database): void {
+    const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
+    const columnNames = new Set(columns.map((c) => c.name));
+    if (!columnNames.has('wt_id')) {
+      db.exec('ALTER TABLE sessions ADD COLUMN wt_id TEXT');
+      log.info('migrated sessions table: added wt_id');
+    }
+  }
+
   close(): void {
     if (this.db) {
       this.db.close();
@@ -270,6 +283,10 @@ export class EventStore {
         fields.push('goal_id = ?');
         values.push(meta.goalId);
       }
+      if (meta.wtId !== undefined) {
+        fields.push('wt_id = ?');
+        values.push(meta.wtId);
+      }
       fields.push("updated_at = unixepoch('now', 'subsec') * 1000");
       values.push(meta.sessionId);
       this.db!.prepare(`UPDATE sessions SET ${fields.join(', ')} WHERE session_id = ?`).run(
@@ -277,7 +294,7 @@ export class EventStore {
       );
     } else {
       this.db!.prepare(
-        'INSERT INTO sessions (session_id, summary, branch, cwd, mode, initial_prompt) VALUES (?, ?, ?, ?, ?, ?)',
+        'INSERT INTO sessions (session_id, summary, branch, cwd, mode, initial_prompt, wt_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ).run(
         meta.sessionId,
         meta.summary ?? null,
@@ -285,6 +302,7 @@ export class EventStore {
         meta.cwd ?? null,
         meta.mode ?? 'agent',
         meta.initialPrompt ?? null,
+        meta.wtId ?? null,
       );
     }
   }
@@ -388,6 +406,7 @@ function rowToSession(row: SessionRow): SessionMeta {
     promptCount: row.prompt_count ?? 0,
     manuallyRenamed: (row.manually_renamed ?? 0) === 1,
     initialPrompt: row.initial_prompt ?? null,
+    wtId: row.wt_id ?? null,
     inputTokens: row.input_tokens ?? 0,
     outputTokens: row.output_tokens ?? 0,
     cacheReadTokens: row.cache_read_tokens ?? 0,

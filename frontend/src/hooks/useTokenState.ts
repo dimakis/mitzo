@@ -77,5 +77,5 @@ export function useTokenState(sessionId?: string) {
     }
   }, []);
 
-  return { tokenState, tokenDispatch, handleTokenMessage };
+  return { tokenState, tokenDispatch, handleTokenMessage } as const;
 }

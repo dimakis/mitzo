@@ -430,6 +430,7 @@ export async function startChat(
   }
 
   const branch = getBranch(cwd);
+  session.branch = branch;
   send(ws, { type: 'session_info', branch, cwd, worktree: !!worktreePath, wtId });
 
   // Build session env with worktree paths for the agent

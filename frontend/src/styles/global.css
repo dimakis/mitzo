@@ -656,6 +656,19 @@ textarea:focus {
   white-space: nowrap;
 }
 
+.session-item-hash {
+  font-size: 0.65rem;
+  font-family: var(--code-font);
+  color: var(--text-dim);
+  opacity: 0.6;
+}
+
+.session-item-tokens {
+  font-size: 0.65rem;
+  font-family: var(--code-font);
+  color: var(--text-dim);
+}
+
 .session-status-dot {
   width: 8px;
   height: 8px;
@@ -1857,6 +1870,14 @@ textarea:focus {
   gap: 0.25rem;
   padding: 0.25rem 0.25rem;
   position: relative;
+}
+
+.chat-input-session-hash {
+  font-family: var(--code-font);
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  opacity: 0.5;
+  margin-left: 0.5rem;
 }
 
 .chat-input-branch {

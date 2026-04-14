@@ -267,6 +267,8 @@ export async function runQueryLoop(
               sessionId: resolvedSessionId,
               cwd: currentSession.cwd,
               mode: currentSession.mode,
+              branch: currentSession.branch,
+              ...(currentSession.worktreePath ? { wtId: currentSession.wtId } : {}),
               ...(initialPrompt ? { initialPrompt } : {}),
             });
             if (initialPrompt) {

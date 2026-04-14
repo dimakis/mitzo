@@ -30,6 +30,8 @@ export interface ManagedSession {
   sessionAllowList: Set<string>;
   mode: MitzoMode;
   cwd?: string;
+  /** Git branch at session start. */
+  branch?: string;
   /** Session-scoped worktree identifier, shared across all repos. */
   wtId?: string;
   worktreePath?: string;

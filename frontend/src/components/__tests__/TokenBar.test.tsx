@@ -69,6 +69,25 @@ describe('TokenBar', () => {
     expect(container.querySelector('.token-bar--flashing')).toBeTruthy();
   });
 
+  it('renders session total for completed sessions (agentContext=0)', () => {
+    const { container } = render(
+      <TokenBar
+        tokenState={makeState({
+          agentContext: 0,
+          sessionTotal: 50000,
+          numTurns: 5,
+          turnIndex: 5,
+        })}
+      />,
+    );
+    // Should render (not return null)
+    expect(container.querySelector('.token-bar')).toBeTruthy();
+    // Should show session total
+    expect(screen.getByText(/50k/)).toBeTruthy();
+    // Should NOT show agent context bar (0/200k is meaningless for completed sessions)
+    expect(screen.queryByText(/0\/200k/)).toBeNull();
+  });
+
   it('expands detail panel on tap', () => {
     render(
       <TokenBar
