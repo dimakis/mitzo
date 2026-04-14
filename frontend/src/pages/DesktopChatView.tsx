@@ -18,6 +18,7 @@ import { usePermission } from '../hooks/usePermission';
 import { useVoice } from '../hooks/useVoice';
 import { useAutoSpeak } from '../hooks/useAutoSpeak';
 import { useTokenState } from '../hooks/useTokenState';
+import { useSessionMeta } from '../hooks/useSessionMeta';
 import type { FileRoot } from '../components/FileBrowserPanel';
 import type { ContextBlockEntry } from '../components/ContextPicker';
 
@@ -60,7 +61,9 @@ export function DesktopChatView() {
   );
 
   const voice = useVoice();
-  const { tokenState, handleTokenMessage } = useTokenState(sessionState.currentSessionId);
+  const { tokenState, tokenDispatch, handleTokenMessage } = useTokenState(
+    sessionState.currentSessionId,
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const forceScrollToBottom = useCallback(() => {
@@ -127,6 +130,8 @@ export function DesktopChatView() {
       .catch(() => {});
     return () => controller.abort();
   }, [sessionId, dispatch, forceScrollToBottom]);
+
+  useSessionMeta(sessionId, dispatch, tokenDispatch);
 
   const { connected } = useChatConnection(poolKey, handleWsMessage, handleTokenMessage);
 
