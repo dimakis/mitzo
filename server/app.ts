@@ -639,7 +639,16 @@ app.get('/api/sessions', async (_req, res) => {
   }
   const annotated = sessions.map((s) => {
     const live = activeMap.get(s.id);
-    return { ...s, isActive: !!live, isAttached: live?.attached ?? false };
+    const meta = eventStore.getSession(s.id);
+    return {
+      ...s,
+      isActive: !!live,
+      isAttached: live?.attached ?? false,
+      totalTokens: meta
+        ? meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens
+        : undefined,
+      numTurns: meta?.numTurns,
+    };
   });
   res.json(annotated);
 });

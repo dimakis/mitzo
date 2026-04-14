@@ -280,13 +280,15 @@ describe('session routes', () => {
     expect(res.status).toBe(401);
   });
 
-  it('GET /api/sessions — annotates sessions with active status', async () => {
+  it('GET /api/sessions — annotates sessions with active status and token data', async () => {
     const res = await request(app).get('/api/sessions').set('Cookie', authCookie);
     expect(res.status).toBe(200);
     const s1 = res.body.find((s: any) => s.id === 's1');
     expect(s1).toBeDefined();
     expect(s1.isActive).toBe(true);
     expect(s1.isAttached).toBe(true);
+    expect(s1.totalTokens).toBe(9500); // 5000 + 3000 + 1000 + 500
+    expect(s1.numTurns).toBe(3);
   });
 
   it('GET /api/sessions — authenticated returns array', async () => {

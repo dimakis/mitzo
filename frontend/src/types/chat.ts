@@ -92,4 +92,6 @@ export interface Session {
   branch?: string;
   isActive?: boolean;
   isAttached?: boolean;
+  totalTokens?: number;
+  numTurns?: number;
 }
