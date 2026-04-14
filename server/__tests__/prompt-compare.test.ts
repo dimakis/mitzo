@@ -88,9 +88,7 @@ describe('captureMitzoEffective', () => {
 });
 
 describe('capturePromptComparison', () => {
-  function mockCompileResponse(
-    overrides: Partial<Awaited<ReturnType<typeof compile>>> = {},
-  ) {
+  function mockCompileResponse(overrides: Partial<Awaited<ReturnType<typeof compile>>> = {}) {
     mockCompile.mockResolvedValue({
       bootPayload: '## Compiled\nContent here.',
       bootTokens: 150,

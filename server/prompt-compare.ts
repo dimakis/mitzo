@@ -233,7 +233,11 @@ async function compareRepo(repoPath: string, repoName: string): Promise<RepoComp
     repo: repoName,
     path: repoPath,
     mitzo: { totalTokens: mitzoTokens, sections: mitzoSections },
-    contexgin: { totalTokens: cx.totalTokens, sections: cx.sections, trimmedCount: cx.trimmedCount },
+    contexgin: {
+      totalTokens: cx.totalTokens,
+      sections: cx.sections,
+      trimmedCount: cx.trimmedCount,
+    },
     diff,
   };
 }
