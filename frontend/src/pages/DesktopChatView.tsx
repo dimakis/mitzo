@@ -72,14 +72,12 @@ export function DesktopChatView() {
     });
   }, []);
 
-  const handleSessionExpired = useCallback(
-    (staleId: string | undefined) => {
-      sessionActions.setCurrentSessionId(undefined);
-      if (staleId) localStorage.removeItem(LAST_SESSION_KEY);
-      if (sessionId) navigate('/chat', { replace: true });
-    },
-    [sessionId, navigate, sessionActions],
-  );
+  const handleSessionExpired = useCallback((staleId: string | undefined) => {
+    // Clear from localStorage so fresh page loads don't auto-resume an expired session.
+    // Keep currentSessionId so the next send includes `resume` and the SDK can
+    // attempt to pick up the conversation.
+    if (staleId) localStorage.removeItem(LAST_SESSION_KEY);
+  }, []);
 
   const handleSessionAssigned = useCallback(
     (id: string) => {

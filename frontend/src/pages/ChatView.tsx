@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { ChatArea } from '../components/ChatArea';
 import { ChatInput } from '../components/ChatInput';
 import { VoiceSettings } from '../components/VoiceSettings';
@@ -19,8 +19,6 @@ import { useSessionMeta } from '../hooks/useSessionMeta';
 export function ChatView() {
   const { sessionId } = useParams<{ sessionId?: string }>();
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
-
   const [sessionState, sessionActions, poolKey] = useChatSession(
     sessionId,
     searchParams.get('extraTools') ? 'auto' : 'agent',
@@ -38,18 +36,12 @@ export function ChatView() {
     });
   }, []);
 
-  const handleSessionExpired = useCallback(
-    (staleId: string | undefined) => {
-      sessionActions.setCurrentSessionId(undefined);
-      if (staleId) {
-        localStorage.removeItem(LAST_SESSION_KEY);
-      }
-      if (sessionId) {
-        navigate('/chat', { replace: true });
-      }
-    },
-    [sessionId, navigate, sessionActions],
-  );
+  const handleSessionExpired = useCallback((staleId: string | undefined) => {
+    // Clear from localStorage so fresh page loads don't auto-resume an expired session.
+    // Keep currentSessionId so the next send includes `resume` and the SDK can
+    // attempt to pick up the conversation.
+    if (staleId) localStorage.removeItem(LAST_SESSION_KEY);
+  }, []);
 
   // When a session ID is assigned mid-conversation (started from /chat),
   // update the URL so refreshes and back-navigation land on /chat/:id

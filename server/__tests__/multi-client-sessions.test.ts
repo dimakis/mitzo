@@ -200,7 +200,7 @@ describe('tryRouteToActiveSession gating', () => {
     registry.dispose();
   });
 
-  it('findBySessionId returns detached sessions but isAttached filters them', () => {
+  it('findBySessionId returns detached sessions (still routable)', () => {
     const ws = mockWs();
     registry.register('c1', {
       ws,
@@ -217,13 +217,28 @@ describe('tryRouteToActiveSession gating', () => {
     registry.detach('c1');
     expect(registry.isAttached('c1')).toBe(false);
 
-    // findBySessionId still finds it
+    // findBySessionId still finds it — detached sessions remain routable
     const found = registry.findBySessionId('sess-1');
     expect(found).not.toBeNull();
     expect(found!.clientId).toBe('c1');
+  });
 
-    // But isAttached returns false — tryRouteToActiveSession should bail
-    expect(registry.isAttached(found!.clientId)).toBe(false);
+  it('addObserver succeeds when driver is detached', () => {
+    const ws = mockWs();
+    const obsWs = mockWs();
+    registry.register('c1', {
+      ws,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+      sessionId: 'sess-1',
+    });
+
+    registry.detach('c1');
+
+    const result = registry.addObserver('sess-1', obsWs);
+    expect(result).toBe('c1');
+    expect(registry.get('c1')!.observers.size).toBe(1);
   });
 });
 

@@ -176,8 +176,6 @@ function tryRouteToActiveSession(
   if (!resume) return null;
   const found = registry.findBySessionId(resume);
   if (!found) return null;
-  // Only route to the session if the driver is still attached
-  if (!registry.isAttached(found.clientId)) return null;
   // Session is active — subscribe as observer instead of starting a duplicate query
   const driverId = registry.addObserver(resume, ws);
   if (!driverId) return null; // observer cap reached
