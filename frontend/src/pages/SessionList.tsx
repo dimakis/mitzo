@@ -8,6 +8,12 @@ import { EmptyState } from '../components/EmptyState';
 import { useSessionList } from '../hooks/useSessionList';
 import type { QuickAction } from '../hooks/useSessionList';
 
+function formatTokensShort(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
+  return String(n);
+}
+
 function SwipeableSession({
   session,
   onDismiss,
@@ -175,8 +181,12 @@ function SwipeableSession({
             <div className="session-item-summary">{session.summary || 'Untitled session'}</div>
           )}
           <div className="session-item-meta">
+            <span className="session-item-hash">{session.id.slice(-6)}</span>
             <span className="session-item-time">{formatRelativeTime(session.lastModified)}</span>
             {session.branch && <span className="session-item-branch">{session.branch}</span>}
+            {session.totalTokens != null && session.totalTokens > 0 && (
+              <span className="session-item-tokens">{formatTokensShort(session.totalTokens)}</span>
+            )}
           </div>
         </div>
         {!editing && <span className="session-item-chevron">&rsaquo;</span>}

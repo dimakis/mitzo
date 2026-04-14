@@ -109,6 +109,57 @@ describe('SessionList status dot', () => {
   });
 });
 
+describe('SessionList hash and tokens', () => {
+  it('renders session hash (last 6 chars) in session item', async () => {
+    mockFetchResponses({
+      '/api/sessions': [{ id: 'abc123def456', summary: 'Test', lastModified: 1 }],
+    });
+
+    renderSessionList();
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    const hash = container.querySelector('.session-item-hash');
+    expect(hash).not.toBeNull();
+    expect(hash!.textContent).toBe('def456');
+  });
+
+  it('renders token count when totalTokens is present', async () => {
+    mockFetchResponses({
+      '/api/sessions': [
+        { id: 'abc123def456', summary: 'Test', lastModified: 1, totalTokens: 42500 },
+      ],
+    });
+
+    renderSessionList();
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    const tokens = container.querySelector('.session-item-tokens');
+    expect(tokens).not.toBeNull();
+    expect(tokens!.textContent).toMatch(/43k/);
+  });
+
+  it('does not render token count when totalTokens is undefined', async () => {
+    mockFetchResponses({
+      '/api/sessions': [{ id: 'abc123def456', summary: 'Test', lastModified: 1 }],
+    });
+
+    renderSessionList();
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    const tokens = container.querySelector('.session-item-tokens');
+    expect(tokens).toBeNull();
+  });
+});
+
 describe('SessionList', () => {
   it('does not render inline inbox/todo nav buttons (tab bar handles navigation)', async () => {
     mockFetchResponses({

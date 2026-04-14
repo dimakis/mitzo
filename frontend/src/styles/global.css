@@ -656,6 +656,19 @@ textarea:focus {
   white-space: nowrap;
 }
 
+.session-item-hash {
+  font-size: 0.65rem;
+  font-family: var(--code-font);
+  color: var(--text-dim);
+  opacity: 0.6;
+}
+
+.session-item-tokens {
+  font-size: 0.65rem;
+  font-family: var(--code-font);
+  color: var(--text-dim);
+}
+
 .session-status-dot {
   width: 8px;
   height: 8px;
