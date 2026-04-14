@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { ChatArea } from '../components/ChatArea';
 import { ChatInput } from '../components/ChatInput';
 import { VoiceSettings } from '../components/VoiceSettings';
@@ -19,6 +19,7 @@ import { useSessionMeta } from '../hooks/useSessionMeta';
 export function ChatView() {
   const { sessionId } = useParams<{ sessionId?: string }>();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [sessionState, sessionActions, poolKey] = useChatSession(
     sessionId,
     searchParams.get('extraTools') ? 'auto' : 'agent',
@@ -37,7 +38,7 @@ export function ChatView() {
   }, []);
 
   const handleSessionExpired = useCallback(
-    (staleId: string) => {
+    (_staleId: string) => {
       // Clear both state and storage so the next send starts a fresh conversation
       // instead of retrying `resume` with a stale ID in a loop.
       sessionActions.setCurrentSessionId(undefined);

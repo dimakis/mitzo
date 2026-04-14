@@ -73,7 +73,7 @@ export function DesktopChatView() {
   }, []);
 
   const handleSessionExpired = useCallback(
-    (staleId: string) => {
+    (_staleId: string) => {
       // Clear both state and storage so the next send starts a fresh conversation
       // instead of retrying `resume` with a stale ID in a loop.
       sessionActions.setCurrentSessionId(undefined);
