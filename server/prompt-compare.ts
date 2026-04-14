@@ -6,8 +6,8 @@
  * the experiments spoke in mgmt.
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 'fs';
-import { join, relative, basename } from 'path';
-import { compileWithAdapters, discoverSources } from 'contexgin';
+import { join } from 'path';
+import { compile } from 'contexgin';
 import type { CompiledContext } from 'contexgin';
 import { createLogger } from './logger.js';
 
@@ -138,25 +138,39 @@ async function captureContexgin(
   workspaceRoot: string,
   budget: number = 8000,
 ): Promise<{ sections: ProvenanceSection[]; totalTokens: number; trimmedCount: number }> {
-  const compiled: CompiledContext = await compileWithAdapters({
+  const compiled: CompiledContext = await compile({
     workspaceRoot,
     tokenBudget: budget,
   });
 
-  const sections: ProvenanceSection[] = [];
+  // Build sections from the compiled sources and boot payload.
+  // The legacy compile() returns sources + trimmed sections.
+  // We reconstruct provenance from the sources list.
+  const sections: ProvenanceSection[] = compiled.sources.map((src) => ({
+    origin: src.relativePath,
+    label: src.relativePath,
+    content: '', // Full content is in bootPayload; individual source content not exposed
+    tokens: 0,
+  }));
 
-  if (compiled.nodes) {
-    for (const node of compiled.nodes) {
+  // If we have the boot payload, create a single section for it
+  // so comparisons show what ContexGin actually produces
+  if (compiled.bootPayload) {
+    sections.length = 0; // Replace source stubs with the actual payload
+    sections.push({
+      origin: 'contexgin:bootPayload',
+      label: 'ContexGin compiled boot payload',
+      content: compiled.bootPayload,
+      tokens: compiled.bootTokens,
+    });
+
+    // Also list which sources contributed (without content, for diff)
+    for (const src of compiled.sources) {
       sections.push({
-        origin: node.origin.relativePath,
-        label: node.origin.headingPath
-          ? `${node.origin.relativePath}#${node.origin.headingPath.join(' > ')}`
-          : node.origin.relativePath,
-        content: node.content,
-        tokens: node.tokenEstimate,
-        type: node.type,
-        tier: node.tier,
-        headingPath: node.origin.headingPath,
+        origin: src.relativePath,
+        label: `Source: ${src.relativePath} (${src.kind})`,
+        content: '',
+        tokens: 0,
       });
     }
   }
@@ -164,7 +178,7 @@ async function captureContexgin(
   return {
     sections,
     totalTokens: compiled.bootTokens,
-    trimmedCount: compiled.trimmedNodes?.length ?? compiled.trimmed?.length ?? 0,
+    trimmedCount: compiled.trimmed?.length ?? 0,
   };
 }
 

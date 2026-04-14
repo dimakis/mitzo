@@ -1,16 +1,23 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  readFileSync,
+  readdirSync,
+  existsSync,
+} from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
 // Mock contexgin before importing the module under test
 vi.mock('contexgin', () => ({
-  compileWithAdapters: vi.fn(),
-  discoverSources: vi.fn(),
+  compile: vi.fn(),
 }));
 
-const { compileWithAdapters } = await import('contexgin');
-const mockCompile = vi.mocked(compileWithAdapters);
+const { compile } = await import('contexgin');
+const mockCompile = vi.mocked(compile);
 
 const { captureMitzoEffective, capturePromptComparison } = await import('../prompt-compare.js');
 
@@ -81,35 +88,23 @@ describe('captureMitzoEffective', () => {
 });
 
 describe('capturePromptComparison', () => {
-  it('writes comparison file to output directory', async () => {
-    // Set up a minimal workspace
-    writeFileSync(join(tmpDir, 'CLAUDE.md'), '# Instructions\nDo stuff.');
-
-    // Mock ContexGin response
+  function mockCompileResponse(
+    overrides: Partial<Awaited<ReturnType<typeof compile>>> = {},
+  ) {
     mockCompile.mockResolvedValue({
-      bootPayload: '## Governance\nDo stuff.',
+      bootPayload: '## Compiled\nContent here.',
       bootTokens: 150,
-      sources: [{ path: join(tmpDir, 'CLAUDE.md'), kind: 'reference', relativePath: 'CLAUDE.md' }],
+      sources: [{ path: '/tmp/CLAUDE.md', kind: 'reference', relativePath: 'CLAUDE.md' }],
       trimmed: [],
-      trimmedNodes: [],
       contextBlocks: new Map(),
       navigationHints: [],
-      nodes: [
-        {
-          id: 'node-1',
-          type: 'operational',
-          tier: 'navigational',
-          content: 'Do stuff.',
-          origin: {
-            source: join(tmpDir, 'CLAUDE.md'),
-            relativePath: 'CLAUDE.md',
-            format: 'claude_md',
-            headingPath: ['Instructions'],
-          },
-          tokenEstimate: 150,
-        },
-      ],
-    });
+      ...overrides,
+    } as Awaited<ReturnType<typeof compile>>);
+  }
+
+  it('writes comparison file to output directory', async () => {
+    writeFileSync(join(tmpDir, 'CLAUDE.md'), '# Instructions\nDo stuff.');
+    mockCompileResponse();
 
     const outDir = join(tmpDir, 'output');
     const repoWorktrees = new Map<string, { path: string; wtId: string }>();
@@ -122,14 +117,12 @@ describe('capturePromptComparison', () => {
       outDir,
     );
 
-    // Check file was written
     expect(existsSync(outDir)).toBe(true);
-    const files = require('fs').readdirSync(outDir);
+    const files = readdirSync(outDir);
     expect(files).toHaveLength(1);
     expect(files[0]).toMatch(/^test-session-123_/);
     expect(files[0]).toMatch(/\.json$/);
 
-    // Parse and validate content
     const report = JSON.parse(readFileSync(join(outDir, files[0]), 'utf-8'));
     expect(report.sessionId).toBe('test-session-123');
     expect(report.primaryRepo).toBe(tmpDir);
@@ -139,23 +132,11 @@ describe('capturePromptComparison', () => {
   });
 
   it('includes secondary repos in comparison', async () => {
-    // Primary
     writeFileSync(join(tmpDir, 'CLAUDE.md'), 'primary');
-
-    // Secondary
     const secondary = mkdtempSync(join(tmpdir(), 'secondary-'));
     writeFileSync(join(secondary, 'CLAUDE.md'), 'secondary');
 
-    mockCompile.mockResolvedValue({
-      bootPayload: 'compiled',
-      bootTokens: 100,
-      sources: [],
-      trimmed: [],
-      trimmedNodes: [],
-      contextBlocks: new Map(),
-      navigationHints: [],
-      nodes: [],
-    });
+    mockCompileResponse({ sources: [] });
 
     const outDir = join(tmpDir, 'output');
     const repoWorktrees = new Map([
@@ -165,7 +146,7 @@ describe('capturePromptComparison', () => {
 
     await capturePromptComparison('multi-repo', tmpDir, 'append', repoWorktrees, outDir);
 
-    const files = require('fs').readdirSync(outDir);
+    const files = readdirSync(outDir);
     const report = JSON.parse(readFileSync(join(outDir, files[0]), 'utf-8'));
     expect(report.repos).toHaveLength(2);
     expect(report.repos.map((r: { repo: string }) => r.repo)).toEqual(['primary', 'centaur']);
@@ -174,45 +155,28 @@ describe('capturePromptComparison', () => {
   });
 
   it('includes diff showing provenance differences', async () => {
-    // Workspace has CLAUDE.md and memory/Profile/
     writeFileSync(join(tmpDir, 'CLAUDE.md'), 'instructions');
     const profileDir = join(tmpDir, 'memory', 'Profile');
     mkdirSync(profileDir, { recursive: true });
     writeFileSync(join(profileDir, 'Style.md'), 'style');
 
-    // ContexGin finds CLAUDE.md but also CONSTITUTION.md (not in Mitzo's capture)
+    // ContexGin finds CLAUDE.md and CONSTITUTION.md as sources
     mockCompile.mockResolvedValue({
       bootPayload: 'compiled',
       bootTokens: 200,
-      sources: [],
+      sources: [
+        { path: '', kind: 'reference', relativePath: 'CLAUDE.md' },
+        { path: '', kind: 'constitution', relativePath: 'CONSTITUTION.md' },
+      ],
       trimmed: [],
-      trimmedNodes: [],
       contextBlocks: new Map(),
       navigationHints: [],
-      nodes: [
-        {
-          id: 'n1',
-          type: 'operational',
-          tier: 'navigational',
-          content: 'from claude',
-          origin: { source: '', relativePath: 'CLAUDE.md', format: 'claude_md' },
-          tokenEstimate: 100,
-        },
-        {
-          id: 'n2',
-          type: 'governance',
-          tier: 'constitutional',
-          content: 'from constitution',
-          origin: { source: '', relativePath: 'CONSTITUTION.md', format: 'constitution' },
-          tokenEstimate: 100,
-        },
-      ],
-    });
+    } as Awaited<ReturnType<typeof compile>>);
 
     const outDir = join(tmpDir, 'output');
     await capturePromptComparison('diff-test', tmpDir, 'append', new Map(), outDir);
 
-    const files = require('fs').readdirSync(outDir);
+    const files = readdirSync(outDir);
     const report = JSON.parse(readFileSync(join(outDir, files[0]), 'utf-8'));
 
     const diff = report.repos[0].diff;
@@ -228,39 +192,57 @@ describe('capturePromptComparison', () => {
     mockCompile.mockRejectedValue(new Error('ContexGin is down'));
 
     const outDir = join(tmpDir, 'output');
-    // Should not throw
     await capturePromptComparison('fail-test', tmpDir, 'append', new Map(), outDir);
 
-    // File should still be written with Mitzo sections but empty ContexGin
-    const files = require('fs').readdirSync(outDir);
+    const files = readdirSync(outDir);
     expect(files).toHaveLength(1);
 
     const report = JSON.parse(readFileSync(join(outDir, files[0]), 'utf-8'));
-    // Primary repo comparison failed, so repos array is empty or has partial data
-    // The important thing is it didn't throw
     expect(report.sessionId).toBe('fail-test');
   });
 
   it('captures token counts for the system prompt append', async () => {
     writeFileSync(join(tmpDir, 'CLAUDE.md'), 'x');
-    mockCompile.mockResolvedValue({
-      bootPayload: 'x',
-      bootTokens: 10,
-      sources: [],
-      trimmed: [],
-      trimmedNodes: [],
-      contextBlocks: new Map(),
-      navigationHints: [],
-      nodes: [],
-    });
+    mockCompileResponse({ bootPayload: 'x', bootTokens: 10, sources: [] });
 
     const append = 'This is Mitzo.\n- Keep responses concise.';
     const outDir = join(tmpDir, 'output');
     await capturePromptComparison('tokens-test', tmpDir, append, new Map(), outDir);
 
-    const files = require('fs').readdirSync(outDir);
+    const files = readdirSync(outDir);
     const report = JSON.parse(readFileSync(join(outDir, files[0]), 'utf-8'));
     expect(report.systemPromptAppend).toBe(append);
     expect(report.systemPromptAppendTokens).toBe(Math.ceil(append.length / 4));
+  });
+
+  it('contexgin sections include boot payload and source list', async () => {
+    writeFileSync(join(tmpDir, 'CLAUDE.md'), 'instructions');
+
+    mockCompile.mockResolvedValue({
+      bootPayload: '## Governance\nRules here.',
+      bootTokens: 250,
+      sources: [
+        { path: '', kind: 'reference', relativePath: 'CLAUDE.md' },
+        { path: '', kind: 'constitution', relativePath: 'CONSTITUTION.md' },
+      ],
+      trimmed: [],
+      contextBlocks: new Map(),
+      navigationHints: [],
+    } as Awaited<ReturnType<typeof compile>>);
+
+    const outDir = join(tmpDir, 'output');
+    await capturePromptComparison('payload-test', tmpDir, 'append', new Map(), outDir);
+
+    const files = readdirSync(outDir);
+    const report = JSON.parse(readFileSync(join(outDir, files[0]), 'utf-8'));
+
+    const cxSections = report.repos[0].contexgin.sections;
+    // First section is the full boot payload
+    expect(cxSections[0].origin).toBe('contexgin:bootPayload');
+    expect(cxSections[0].content).toBe('## Governance\nRules here.');
+    expect(cxSections[0].tokens).toBe(250);
+    // Remaining sections are source pointers
+    expect(cxSections[1].origin).toBe('CLAUDE.md');
+    expect(cxSections[2].origin).toBe('CONSTITUTION.md');
   });
 });
