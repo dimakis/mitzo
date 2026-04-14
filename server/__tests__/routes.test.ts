@@ -363,10 +363,7 @@ describe('session routes', () => {
       cwd: '/tmp/repo',
       mode: 'agent',
       isActive: true,
-      inputTokens: 5000,
-      outputTokens: 3000,
-      cacheReadTokens: 1000,
-      cacheCreationTokens: 500,
+      totalTokens: 9500,
       totalCostUsd: 0.05,
       numTurns: 3,
     });

@@ -8,10 +8,7 @@ interface SessionMetaResponse {
   cwd: string | null;
   mode: string;
   isActive: boolean;
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens: number;
-  cacheCreationTokens: number;
+  totalTokens: number;
   totalCostUsd: number;
   numTurns: number;
 }
@@ -59,11 +56,7 @@ export function useSessionMeta(
           tokenDispatch({
             type: 'TOKEN_UPDATE',
             agentContext: 0,
-            sessionTotal:
-              meta.inputTokens +
-              meta.outputTokens +
-              meta.cacheReadTokens +
-              meta.cacheCreationTokens,
+            sessionTotal: meta.totalTokens,
             numTurns: meta.numTurns,
             turnIndex: meta.numTurns,
           });

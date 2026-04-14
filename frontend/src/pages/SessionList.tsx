@@ -7,12 +7,7 @@ import { computeSwipeState, REVEAL_WIDTH } from '../lib/swipe-reveal';
 import { EmptyState } from '../components/EmptyState';
 import { useSessionList } from '../hooks/useSessionList';
 import type { QuickAction } from '../hooks/useSessionList';
-
-function formatTokensShort(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
-  return String(n);
-}
+import { formatTokens } from '../lib/formatTokens';
 
 function SwipeableSession({
   session,
@@ -185,7 +180,7 @@ function SwipeableSession({
             <span className="session-item-time">{formatRelativeTime(session.lastModified)}</span>
             {session.branch && <span className="session-item-branch">{session.branch}</span>}
             {session.totalTokens != null && session.totalTokens > 0 && (
-              <span className="session-item-tokens">{formatTokensShort(session.totalTokens)}</span>
+              <span className="session-item-tokens">{formatTokens(session.totalTokens)}</span>
             )}
           </div>
         </div>

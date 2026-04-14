@@ -1,11 +1,6 @@
 import { useState } from 'react';
 import type { TokenState } from '../hooks/useTokenState';
-
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
-  return String(n);
-}
+import { formatTokens } from '../lib/formatTokens';
 
 function getContextColor(ratio: number): string {
   if (ratio >= 0.95) return 'flashing';

@@ -13,10 +13,7 @@ const META_RESPONSE = {
   cwd: '/tmp/repo',
   mode: 'agent',
   isActive: false,
-  inputTokens: 5000,
-  outputTokens: 3000,
-  cacheReadTokens: 1000,
-  cacheCreationTokens: 500,
+  totalTokens: 9500,
   totalCostUsd: 0.05,
   numTurns: 4,
 };
@@ -99,6 +96,22 @@ describe('useSessionMeta', () => {
         expect.objectContaining({ isWorktree: false, wtId: undefined }),
       );
     });
+  });
+
+  it('hydrates tokens but skips SESSION_INFO when branch is null', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ ...META_RESPONSE, branch: null, wtId: null }),
+    });
+
+    renderHook(() => useSessionMeta('sess-abc123', dispatch, tokenDispatch));
+
+    await waitFor(() => {
+      expect(tokenDispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'TOKEN_UPDATE', sessionTotal: 9500 }),
+      );
+    });
+    expect(dispatch).not.toHaveBeenCalled();
   });
 
   it('skips TOKEN_UPDATE when numTurns is 0', async () => {

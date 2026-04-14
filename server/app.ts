@@ -668,6 +668,8 @@ app.get('/api/sessions/:id/meta', (req, res) => {
     res.status(404).json({ error: 'Session not found' });
     return;
   }
+  const totalTokens =
+    meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens;
   res.json({
     sessionId: meta.sessionId,
     branch: meta.branch,
@@ -675,10 +677,7 @@ app.get('/api/sessions/:id/meta', (req, res) => {
     cwd: meta.cwd,
     mode: meta.mode,
     isActive: meta.isActive,
-    inputTokens: meta.inputTokens,
-    outputTokens: meta.outputTokens,
-    cacheReadTokens: meta.cacheReadTokens,
-    cacheCreationTokens: meta.cacheCreationTokens,
+    totalTokens,
     totalCostUsd: meta.totalCostUsd,
     numTurns: meta.numTurns,
   });
