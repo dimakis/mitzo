@@ -5,7 +5,7 @@ import {
   renameSession,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { WebSocket } from 'ws';
+import type { SessionTransport } from '@mitzo/harness';
 import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
 import { join, resolve, dirname } from 'path';
@@ -19,7 +19,7 @@ import { getAllowedToolsForMode, applyTierOverrides } from './tool-tiers.js';
 import { loadRepoConfig } from './repo-config.js';
 import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
-import { runQueryLoop, createWsMessageHandler, broadcastToObservers } from './query-loop.js';
+import { runQueryLoop, broadcastToObservers } from './query-loop.js';
 import { AsyncQueue } from './async-queue.js';
 import { GIT_BRANCH_TIMEOUT_MS, SESSION_PAGE_SIZE, SESSION_MESSAGES_LIMIT } from './constants.js';
 import { INTERNAL_TOKEN } from './internal-token.js';
@@ -99,10 +99,9 @@ export const AVAILABLE_MODELS = [
 
 // --- Pure helper functions ---
 
-function send(ws: WebSocket, data: unknown) {
-  if (ws.readyState === ws.OPEN) {
-    ws.send(JSON.stringify(data));
-  }
+/** Send data via transport (isOpen guard is inside the transport). */
+function send(transport: SessionTransport, data: Record<string, unknown>) {
+  if (transport.isOpen()) transport.send(data);
 }
 
 function sdkEnv(): Record<string, string> {
@@ -160,7 +159,7 @@ function buildMcpAllowedTools(clientId?: string): string[] {
  * worktree path as cwd, plus a map of all repo worktrees.
  */
 function createSessionWorktrees(
-  ws: WebSocket,
+  transport: SessionTransport,
   baseCwd: string,
   wtId: string,
   options: { resume?: string; cwd?: string },
@@ -182,12 +181,12 @@ function createSessionWorktrees(
   try {
     primaryPath = createWorktree(wtId, BASE_REPO);
     repoWorktrees.set('primary', { path: primaryPath, wtId });
-    send(ws, { type: 'worktree', path: primaryPath });
+    send(transport, { type: 'worktree', path: primaryPath });
     log.info('primary worktree created', { wtId, path: primaryPath });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     log.error('primary worktree creation failed, using base repo', { error: message });
-    send(ws, { type: 'error', error: `Worktree creation failed (using base repo): ${message}` });
+    send(transport, { type: 'error', error: `Worktree creation failed (using base repo): ${message}` });
     return { cwd: baseCwd, wtId, repoWorktrees };
   }
 
@@ -201,7 +200,7 @@ function createSessionWorktrees(
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       log.warn('secondary worktree creation failed', { repo: repoName, error: message });
-      send(ws, {
+      send(transport, {
         type: 'error',
         error: `Worktree for ${repoName} failed: ${message}`,
       });
@@ -374,7 +373,7 @@ function makeUserMessage(
 }
 
 export async function startChat(
-  ws: WebSocket,
+  transport: SessionTransport,
   clientId: string,
   prompt: string,
   options: {
@@ -394,7 +393,7 @@ export async function startChat(
 
   // Generate session-scoped worktree ID and create worktrees in all repos
   const wtId = generateWtId();
-  const { cwd, worktreePath, repoWorktrees } = createSessionWorktrees(ws, baseCwd, wtId, options);
+  const { cwd, worktreePath, repoWorktrees } = createSessionWorktrees(transport, baseCwd, wtId, options);
 
   const fullPrompt = assemblePrompt(prompt, cwd, options.images, options.contextBlocks);
 
@@ -412,7 +411,7 @@ export async function startChat(
   inputQueue.push(makeUserMessage(fullPrompt, 'now'));
 
   registry.register(clientId, {
-    ws,
+    transport,
     abortController,
     mode,
     cwd,
@@ -431,7 +430,7 @@ export async function startChat(
 
   const branch = getBranch(cwd);
   session.branch = branch;
-  send(ws, { type: 'session_info', branch, cwd, worktree: !!worktreePath, wtId });
+  send(transport, { type: 'session_info', branch, cwd, worktree: !!worktreePath, wtId });
 
   // Build session env with worktree paths for the agent
   const sessionEnv = sdkEnv();
@@ -449,7 +448,6 @@ export async function startChat(
   // Load project hooks from .claude/settings.json (e.g. SessionStart boot context)
   const hooks = loadProjectHooks(cwd);
 
-  let messageHandler: ((raw: Buffer) => void) | null = null;
   try {
     const q = query({
       prompt: inputQueue as AsyncIterable<SDKUserMessage>,
@@ -484,27 +482,22 @@ export async function startChat(
 
     session.queryInstance = q;
 
-    messageHandler = createWsMessageHandler(clientId, registry);
-    ws.on('message', messageHandler);
-
     await runQueryLoop(
       q as unknown as AsyncIterable<Record<string, unknown>>,
       clientId,
       registry,
       abortController,
-      ws,
       eventStore,
       options.resume ? undefined : fullPrompt,
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     log.error('startChat failed after register, cleaning up', { clientId, error: message });
-    send(ws, { type: 'error', error: message });
+    send(transport, { type: 'error', error: message });
     const failedSession = registry.get(clientId);
     if (failedSession) cleanupSessionWorktrees(failedSession);
     registry.abort(clientId);
   } finally {
-    if (messageHandler) ws.removeListener('message', messageHandler);
     // Clean up secondary worktrees after query loop ends (session may already
     // be removed from registry, so use the captured reference).
     cleanupSessionWorktrees(session);
@@ -540,8 +533,8 @@ async function tryAutoRename(sessionId: string, clientId: string): Promise<void>
 
     // Push the new name to the connected frontend
     const session = registry.get(clientId);
-    if (session && session.ws.readyState === session.ws.OPEN) {
-      send(session.ws, { type: 'session_renamed', sessionId, name: newName });
+    if (session) {
+      send(session.transport, { type: 'session_renamed', sessionId, name: newName });
     }
   } catch (err: unknown) {
     log.warn('auto-rename failed', {
@@ -576,7 +569,7 @@ export function sendToChat(
     });
   }
   const echo = { type: 'user_message', messageId, text: fullPrompt };
-  send(session.ws, echo);
+  send(session.transport, echo);
   broadcastToObservers(session.observers, echo);
   session.inputQueue.push(makeUserMessage(fullPrompt, 'next'));
   return true;
@@ -604,7 +597,7 @@ export async function interruptChat(
     });
   }
   const echo = { type: 'user_message', messageId, text: fullPrompt };
-  send(session.ws, echo);
+  send(session.transport, echo);
   broadcastToObservers(session.observers, echo);
   await session.queryInstance.interrupt();
   session.inputQueue.push(makeUserMessage(fullPrompt, 'now'));
@@ -647,8 +640,8 @@ export function stopChat(clientId: string) {
 export function detachChat(clientId: string) {
   registry.detach(clientId);
 }
-export function reattachChat(clientId: string, ws: WebSocket): boolean {
-  return registry.reattach(clientId, ws);
+export function reattachChat(clientId: string, transport: SessionTransport): boolean {
+  return registry.reattach(clientId, transport);
 }
 export function isActive(clientId: string): boolean {
   return registry.isActive(clientId);

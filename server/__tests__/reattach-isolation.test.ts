@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SessionRegistry } from '../session-registry.js';
+import type { SessionTransport } from '@mitzo/harness';
+
+function mockTransport(open = true): SessionTransport {
+  return {
+    send: () => {},
+    isOpen: () => open,
+  };
+}
 
 describe('SessionRegistry.rekey', () => {
   let registry: SessionRegistry;
@@ -13,10 +21,10 @@ describe('SessionRegistry.rekey', () => {
   });
 
   it('moves a session from oldId to newId', () => {
-    const ws = { readyState: 1, OPEN: 1 } as any;
+    const transport = mockTransport();
     const abort = new AbortController();
     registry.register('old-client', {
-      ws,
+      transport,
       abortController: abort,
       mode: 'agent',
       sessionAllowList: new Set(),
@@ -30,14 +38,14 @@ describe('SessionRegistry.rekey', () => {
     expect(registry.isActive('old-client')).toBe(false);
     expect(registry.get('new-client')).toBeDefined();
     expect(registry.isActive('new-client')).toBe(true);
-    expect(registry.get('new-client')!.ws).toBe(ws);
+    expect(registry.get('new-client')!.transport).toBe(transport);
     expect(registry.get('new-client')!.sessionId).toBe('sdk-123');
   });
 
   it('preserves attached status under the new key', () => {
-    const ws = { readyState: 1, OPEN: 1 } as any;
+    const transport = mockTransport();
     registry.register('old-client', {
-      ws,
+      transport,
       abortController: new AbortController(),
       mode: 'agent',
       sessionAllowList: new Set(),
@@ -55,10 +63,10 @@ describe('SessionRegistry.rekey', () => {
   });
 
   it('abort works on the new key after rekey', () => {
-    const ws = { readyState: 1, OPEN: 1 } as any;
+    const transport = mockTransport();
     const abort = new AbortController();
     registry.register('old-client', {
-      ws,
+      transport,
       abortController: abort,
       mode: 'agent',
       sessionAllowList: new Set(),
@@ -72,9 +80,9 @@ describe('SessionRegistry.rekey', () => {
   });
 
   it('findBySessionId returns the new clientId after rekey', () => {
-    const ws = { readyState: 1, OPEN: 1 } as any;
+    const transport = mockTransport();
     registry.register('old-client', {
-      ws,
+      transport,
       abortController: new AbortController(),
       mode: 'agent',
       sessionAllowList: new Set(),
@@ -89,43 +97,43 @@ describe('SessionRegistry.rekey', () => {
   });
 
   it('transfers detach timer from old key to new key', () => {
-    const ws1 = { readyState: 1, OPEN: 1 } as any;
-    const ws2 = { readyState: 1, OPEN: 1 } as any;
+    const transport1 = mockTransport();
+    const transport2 = mockTransport();
     const abort = new AbortController();
     registry.register('old-client', {
-      ws: ws1,
+      transport: transport1,
       abortController: abort,
       mode: 'agent',
       sessionAllowList: new Set(),
     });
 
     registry.detach('old-client');
-    registry.reattach('old-client', ws2);
+    registry.reattach('old-client', transport2);
     registry.rekey('old-client', 'new-client');
 
     // Session should be alive and operable under new key
     expect(registry.isActive('new-client')).toBe(true);
-    expect(registry.get('new-client')!.ws).toBe(ws2);
+    expect(registry.get('new-client')!.transport).toBe(transport2);
   });
 
   it('rekey + reattach full cycle prevents isActive split brain', () => {
-    const ws1 = { readyState: 1, OPEN: 1 } as any;
-    const ws2 = { readyState: 1, OPEN: 1 } as any;
+    const transport1 = mockTransport();
+    const transport2 = mockTransport();
     const abort = new AbortController();
 
-    // Simulate: session starts on old WS
+    // Simulate: session starts on old transport
     registry.register('old-client', {
-      ws: ws1,
+      transport: transport1,
       abortController: abort,
       mode: 'agent',
       sessionAllowList: new Set(),
     });
 
-    // WS drops, session detaches
+    // Transport drops, session detaches
     registry.detach('old-client');
 
-    // New WS connects, reattaches, then rekeys
-    registry.reattach('old-client', ws2);
+    // New transport connects, reattaches, then rekeys
+    registry.reattach('old-client', transport2);
     registry.rekey('old-client', 'new-client');
 
     // The new clientId is the only active one

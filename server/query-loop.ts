@@ -1,5 +1,4 @@
-import type { WebSocket } from 'ws';
-import { resolvePending } from './permissions.js';
+import type { SessionTransport } from '@mitzo/harness';
 import { summarizeToolInput, getRawInput } from './tool-summary.js';
 import { extractToolResultText } from './content-blocks.js';
 import { TOOL_RESULT_MAX_CHARS, CONTEXT_CEILING_TOKENS } from './constants.js';
@@ -11,14 +10,11 @@ import { sendTurnCompleteNotification as pushoverTurnComplete } from './pushover
 import { extractSnippet } from './notification-helpers.js';
 import { NOTIFY_SNIPPET_MAX_CHARS } from './constants.js';
 import { createGoal, reportUsage, deriveGoalTitle } from './goal-client.js';
-import { PermissionResponseMessage, SetModeMessage } from './ws-schemas.js';
-
 const log = createLogger('query-loop');
 
-function send(ws: WebSocket, data: unknown) {
-  if (ws.readyState === ws.OPEN) {
-    ws.send(JSON.stringify(data));
-  }
+/** Send data via transport, guarding on isOpen(). */
+function send(transport: SessionTransport, data: Record<string, unknown>) {
+  if (transport.isOpen()) transport.send(data);
 }
 
 /** Shape of the SDK result event — fields we extract for usage tracking. */
@@ -42,16 +38,16 @@ interface SdkResultEvent {
  * from aborting the broadcast loop.
  */
 export function broadcastToObservers(
-  observers: Set<WebSocket>,
-  data: string | Record<string, unknown>,
+  observers: Set<SessionTransport>,
+  data: Record<string, unknown>,
 ): void {
   if (observers.size === 0) return;
-  const msg = typeof data === 'string' ? data : JSON.stringify(data);
   for (const obs of observers) {
+    if (!obs.isOpen()) continue;
     try {
-      if (obs.readyState === obs.OPEN) obs.send(msg);
+      obs.send(data);
     } catch {
-      // Socket transitioned between check and send — safe to ignore
+      // Transport may have closed between check and send — safe to ignore
     }
   }
 }
@@ -62,7 +58,6 @@ export function broadcastToObservers(
  * so events survive even if the connection drops mid-send.
  */
 function sendOrBuffer(
-  ws: WebSocket,
   data: Record<string, unknown>,
   clientId: string,
   registry: SessionRegistry,
@@ -74,12 +69,11 @@ function sendOrBuffer(
     const seq = store.append(sessionId, data.type as string, data);
     enriched = { ...data, seq };
   }
-  if (registry.isAttached(clientId)) {
-    send(ws, enriched);
-  }
-  // Broadcast to observers watching this session
   const session = registry.get(clientId);
   if (session) {
+    if (registry.isAttached(clientId)) {
+      send(session.transport, enriched);
+    }
     broadcastToObservers(session.observers, enriched);
   }
 }
@@ -88,36 +82,11 @@ function v2(type: string, rest: Record<string, unknown> = {}): Record<string, un
   return { v: 2, type, ts: Date.now(), ...rest };
 }
 
-export function createWsMessageHandler(clientId: string, registry: SessionRegistry) {
-  return (raw: Buffer) => {
-    try {
-      const parsed = JSON.parse(raw.toString());
-      const permResult = PermissionResponseMessage.safeParse(parsed);
-      if (permResult.success) {
-        resolvePending(permResult.data.permId, permResult.data.decision || 'deny');
-        return;
-      }
-      const modeResult = SetModeMessage.safeParse(parsed);
-      if (modeResult.success) {
-        registry.setMode(clientId, modeResult.data.mode);
-        const session = registry.get(clientId);
-        if (session) send(session.ws, { type: 'mode_changed', mode: modeResult.data.mode });
-      }
-    } catch (err: unknown) {
-      log.warn('malformed WS message from client', {
-        clientId,
-        error: err instanceof Error ? err.message : 'parse failure',
-      });
-    }
-  };
-}
-
 export async function runQueryLoop(
   q: AsyncIterable<Record<string, unknown>>,
   clientId: string,
   registry: SessionRegistry,
   abortController: AbortController,
-  _ws: WebSocket,
   store?: EventStore,
   initialPrompt?: string,
 ) {
@@ -157,17 +126,17 @@ export async function runQueryLoop(
   };
 
   /** Wrapper that auto-injects store + sessionId into sendOrBuffer */
-  function emit(ws: WebSocket, data: Record<string, unknown>) {
-    sendOrBuffer(ws, data, clientId, registry, store, resolvedSessionId);
+  function emit(data: Record<string, unknown>) {
+    sendOrBuffer(data, clientId, registry, store, resolvedSessionId);
   }
 
   function nextBlockId(): string {
     return `b${blockCounter++}`;
   }
 
-  function tryFlushMessageEnd(ws: WebSocket, session: { currentSnapshot: unknown | null }) {
+  function tryFlushMessageEnd(session: { currentSnapshot: unknown | null }) {
     if (pendingMessageEnd && openBlockCount === 0) {
-      emit(ws, pendingMessageEnd);
+      emit(pendingMessageEnd);
       pendingMessageEnd = null;
       currentMessageId = null;
       (session as { currentSnapshot: null }).currentSnapshot = null;
@@ -175,7 +144,6 @@ export async function runQueryLoop(
   }
 
   function forceFlushPendingMessage(
-    ws: WebSocket,
     session: { currentSnapshot: { blocks: SnapshotBlock[] } | null },
   ) {
     if (!pendingMessageEnd) return;
@@ -194,7 +162,6 @@ export async function runQueryLoop(
             /* empty */
           }
           emit(
-            ws,
             v2('block_end', {
               messageId: currentMessageId,
               blockId: bid,
@@ -206,7 +173,6 @@ export async function runQueryLoop(
           );
         } else {
           emit(
-            ws,
             v2('block_end', {
               messageId: currentMessageId,
               blockId: bid,
@@ -217,7 +183,7 @@ export async function runQueryLoop(
         openBlockCount = Math.max(0, openBlockCount - 1);
       }
     }
-    emit(ws, pendingMessageEnd);
+    emit(pendingMessageEnd);
     pendingMessageEnd = null;
     currentMessageId = null;
     session.currentSnapshot = null;
@@ -229,7 +195,6 @@ export async function runQueryLoop(
     for await (const msg of q) {
       const currentSession = registry.get(clientId);
       if (!currentSession) break;
-      const currentWs = currentSession.ws;
       if (!resolvedSessionId && currentSession.sessionId) {
         resolvedSessionId = currentSession.sessionId;
         // Resumed sessions: load goalId from store so usage reporting works
@@ -254,13 +219,13 @@ export async function runQueryLoop(
             messageId: currentMessageId,
             ...(msg.session_id ? { sessionId: msg.session_id } : {}),
           });
-          tryFlushMessageEnd(currentWs, currentSession);
+          tryFlushMessageEnd(currentSession);
         }
         // Capture session ID on first assistant event.
         if (!currentSession.sessionId && msg.session_id) {
           resolvedSessionId = msg.session_id as string;
           registry.setSessionId(clientId, resolvedSessionId);
-          emit(currentWs, { type: 'session_id', sessionId: msg.session_id });
+          emit({ type: 'session_id', sessionId: msg.session_id });
           // Persist session metadata (including initial prompt) to durable store
           if (store) {
             store.upsertSession({
@@ -294,8 +259,8 @@ export async function runQueryLoop(
         log.info('result received', { clientId, sessionId: msg.session_id });
         // Capture snapshot blocks before flush (forceFlush nulls the snapshot).
         const snapshotBlocks = currentSession.currentSnapshot?.blocks ?? [];
-        if (msg.session_id) emit(currentWs, { type: 'session_id', sessionId: msg.session_id });
-        forceFlushPendingMessage(currentWs, currentSession);
+        if (msg.session_id) emit({ type: 'session_id', sessionId: msg.session_id });
+        forceFlushPendingMessage(currentSession);
         doneSent = true;
 
         // Extract usage data from SDK result event
@@ -326,7 +291,7 @@ export async function runQueryLoop(
         currentSession.cumulativeCostUsd = usageData.totalCostUsd;
 
         // Emit final token_update with accumulated session totals
-        emit(currentWs, {
+        emit({
           type: 'token_update',
           agentContext: agentContextTokens,
           contextCeiling: CONTEXT_CEILING_TOKENS,
@@ -375,7 +340,7 @@ export async function runQueryLoop(
           });
         }
 
-        emit(currentWs, v2('session_end', { sessionId: msg.session_id, usage: usageData }));
+        emit( v2('session_end', { sessionId: msg.session_id, usage: usageData }));
         if (!registry.isAttached(clientId)) {
           const snippet = extractSnippet(snapshotBlocks, NOTIFY_SNIPPET_MAX_CHARS);
           const sid = (msg.session_id as string) || currentSession.sessionId;
@@ -387,7 +352,7 @@ export async function runQueryLoop(
         log.debug('stream event', { clientId, evtType: evt?.type });
 
         if (evt?.type === 'message_start') {
-          forceFlushPendingMessage(currentWs, currentSession);
+          forceFlushPendingMessage(currentSession);
           toolInputBuffers.clear();
           blockIdByIndex.clear();
           blockCounter = 0;
@@ -397,7 +362,7 @@ export async function runQueryLoop(
           currentMessageId = (apiMsg?.id as string | undefined) ?? `msg-${Date.now()}`;
           // Init snapshot on the session.
           currentSession.currentSnapshot = { messageId: currentMessageId, blocks: [] };
-          emit(currentWs, v2('message_start', { messageId: currentMessageId }));
+          emit( v2('message_start', { messageId: currentMessageId }));
 
           // Extract agent context from message_start usage.
           // Only track parent agent (parent_tool_use_id === null) — sub-agent
@@ -416,7 +381,7 @@ export async function runQueryLoop(
             if (totalContext > 0) {
               agentContextTokens = totalContext;
               turnIndex++;
-              emit(currentWs, {
+              emit({
                 type: 'token_update',
                 agentContext: agentContextTokens,
                 contextCeiling: CONTEXT_CEILING_TOKENS,
@@ -431,7 +396,7 @@ export async function runQueryLoop(
           if (!currentMessageId) {
             currentMessageId = `msg-${Date.now()}`;
             currentSession.currentSnapshot = { messageId: currentMessageId, blocks: [] };
-            emit(currentWs, v2('message_start', { messageId: currentMessageId }));
+            emit( v2('message_start', { messageId: currentMessageId }));
           }
           const contentBlock = evt.content_block as Record<string, unknown> | undefined;
           const index = evt.index as number;
@@ -452,7 +417,6 @@ export async function runQueryLoop(
             };
             currentSession.currentSnapshot?.blocks.push(snapshotBlock);
             emit(
-              currentWs,
               v2('block_start', {
                 messageId: currentMessageId,
                 blockId,
@@ -476,7 +440,6 @@ export async function runQueryLoop(
             };
             currentSession.currentSnapshot?.blocks.push(snapshotBlock);
             emit(
-              currentWs,
               v2('block_start', {
                 messageId: currentMessageId,
                 blockId,
@@ -493,7 +456,6 @@ export async function runQueryLoop(
             };
             currentSession.currentSnapshot?.blocks.push(snapshotBlock);
             emit(
-              currentWs,
               v2('block_start', {
                 messageId: currentMessageId,
                 blockId,
@@ -512,7 +474,6 @@ export async function runQueryLoop(
             const block = currentSession.currentSnapshot?.blocks.find((b) => b.blockId === blockId);
             if (block) block.content += text;
             emit(
-              currentWs,
               v2('block_delta', {
                 messageId: currentMessageId,
                 blockId,
@@ -526,7 +487,6 @@ export async function runQueryLoop(
             const block = currentSession.currentSnapshot?.blocks.find((b) => b.blockId === blockId);
             if (block) block.content += text;
             emit(
-              currentWs,
               v2('block_delta', {
                 messageId: currentMessageId,
                 blockId,
@@ -565,7 +525,6 @@ export async function runQueryLoop(
             }
 
             emit(
-              currentWs,
               v2('block_end', {
                 messageId: currentMessageId,
                 blockId,
@@ -583,7 +542,6 @@ export async function runQueryLoop(
               const bt = block.blockType;
               block.done = true;
               emit(
-                currentWs,
                 v2('block_end', {
                   messageId: currentMessageId,
                   blockId,
@@ -593,7 +551,7 @@ export async function runQueryLoop(
             }
           }
           openBlockCount = Math.max(0, openBlockCount - 1);
-          tryFlushMessageEnd(currentWs, currentSession);
+          tryFlushMessageEnd(currentSession);
         }
       } else if (msg.type === 'user') {
         // Only extract tool_result events from SDK user turns.
@@ -608,7 +566,6 @@ export async function runQueryLoop(
             if (block.type === 'tool_result') {
               const resultText = extractToolResultText(block.content);
               emit(
-                currentWs,
                 v2('tool_result', {
                   messageId: currentMessageId,
                   toolId: block.tool_use_id || '',
@@ -626,18 +583,15 @@ export async function runQueryLoop(
     if (currentSession && !abortController.signal.aborted) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       log.warn('query loop error', { clientId, error: message });
-      send(currentSession.ws, { type: 'error', error: message });
+      send(currentSession.transport, { type: 'error', error: message });
     }
   } finally {
     const finalSession = registry.get(clientId);
     if (finalSession) {
       finalSession.currentSnapshot = null;
-      const finalWs = finalSession.ws;
       if (!doneSent) {
         const endMsg = v2('session_end', { sessionId: finalSession.sessionId });
-        if (finalWs.readyState === finalWs.OPEN) {
-          send(finalWs, endMsg);
-        }
+        send(finalSession.transport, endMsg);
         broadcastToObservers(finalSession.observers, endMsg);
       }
       registry.remove(clientId);

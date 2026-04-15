@@ -2,6 +2,14 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SessionRegistry } from '../session-registry.js';
 import { checkSkillPolicy, setSkillPolicy, clearSkillPolicy } from '../skill-policy.js';
 import { buildPermissionHandler } from '../permission-handler.js';
+import type { SessionTransport } from '@mitzo/harness';
+
+function mockTransport(open = true): SessionTransport {
+  return {
+    send: () => {},
+    isOpen: () => open,
+  };
+}
 
 describe('skill policy', () => {
   let registry: SessionRegistry;
@@ -10,7 +18,7 @@ describe('skill policy', () => {
   beforeEach(() => {
     registry = new SessionRegistry();
     registry.register(clientId, {
-      ws: { readyState: 1, OPEN: 1 } as never,
+      transport: mockTransport(),
       abortController: new AbortController(),
       mode: 'agent',
       sessionAllowList: new Set(),
@@ -133,7 +141,7 @@ describe('skill policy', () => {
       // Register an ask-mode session
       const askClientId = 'ask-client';
       registry.register(askClientId, {
-        ws: { readyState: 1, OPEN: 1 } as never,
+        transport: mockTransport(),
         abortController: new AbortController(),
         mode: 'ask',
         sessionAllowList: new Set(),

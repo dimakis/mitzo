@@ -1,13 +1,10 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { SessionRegistry } from '../session-registry.js';
-import { DETACHED_TTL_MS } from '../constants.js';
-import type { SessionTransport } from '@mitzo/harness';
+import { SessionRegistry } from '../src/session-registry.js';
+import { DETACHED_TTL_MS } from '../src/constants.js';
+import type { SessionTransport } from '../src/session-transport.js';
 
-function mockTransport(open = true): SessionTransport {
-  return {
-    send: vi.fn(),
-    isOpen: () => open,
-  };
+function fakeTransport(): SessionTransport {
+  return { send: vi.fn(), isOpen: () => true };
 }
 
 describe('SessionRegistry', () => {
@@ -23,23 +20,22 @@ describe('SessionRegistry', () => {
 
   describe('register', () => {
     it('registers a session and makes it retrievable by clientId', () => {
-      const fakeTransport = mockTransport();
-      const fakeAbort = new AbortController();
+      const transport = fakeTransport();
+      const abort = new AbortController();
       registry.register('client-1', {
-        transport: fakeTransport,
-        abortController: fakeAbort,
+        transport,
+        abortController: abort,
         mode: 'agent',
         sessionAllowList: new Set(),
       });
 
       expect(registry.get('client-1')).toBeDefined();
-      expect(registry.get('client-1')!.transport).toBe(fakeTransport);
+      expect(registry.get('client-1')!.transport).toBe(transport);
     });
 
     it('marks session as attached on registration', () => {
-      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        transport: fakeTransport,
+        transport: fakeTransport(),
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -49,9 +45,8 @@ describe('SessionRegistry', () => {
     });
 
     it('isActive returns true for registered session', () => {
-      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        transport: fakeTransport,
+        transport: fakeTransport(),
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -65,9 +60,8 @@ describe('SessionRegistry', () => {
     });
 
     it('initializes worktreePaths as empty Map', () => {
-      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        transport: fakeTransport,
+        transport: fakeTransport(),
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -79,9 +73,8 @@ describe('SessionRegistry', () => {
     });
 
     it('worktreePaths stores path and wtId', () => {
-      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        transport: fakeTransport,
+        transport: fakeTransport(),
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -100,10 +93,9 @@ describe('SessionRegistry', () => {
 
   describe('detach', () => {
     it('detaches a session without aborting it', () => {
-      const fakeTransport = mockTransport();
       const abort = new AbortController();
       registry.register('client-1', {
-        transport: fakeTransport,
+        transport: fakeTransport(),
         abortController: abort,
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -117,9 +109,8 @@ describe('SessionRegistry', () => {
     });
 
     it('stores the SDK sessionId when detaching', () => {
-      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        transport: fakeTransport,
+        transport: fakeTransport(),
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -138,8 +129,8 @@ describe('SessionRegistry', () => {
 
   describe('reattach', () => {
     it('reattaches a new transport to a detached session', () => {
-      const oldTransport = mockTransport();
-      const newTransport = mockTransport();
+      const oldTransport = fakeTransport();
+      const newTransport = fakeTransport();
 
       registry.register('client-1', {
         transport: oldTransport,
@@ -158,35 +149,32 @@ describe('SessionRegistry', () => {
     });
 
     it('returns false for unknown clientId', () => {
-      const transport = mockTransport();
-      expect(registry.reattach('nonexistent', transport)).toBe(false);
+      expect(registry.reattach('nonexistent', fakeTransport())).toBe(false);
     });
 
     it('works on already-attached session (transport swap)', () => {
-      const transport1 = mockTransport();
-      const transport2 = mockTransport();
+      const t1 = fakeTransport();
+      const t2 = fakeTransport();
 
       registry.register('client-1', {
-        transport: transport1,
+        transport: t1,
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
       });
 
-      const reattached = registry.reattach('client-1', transport2);
+      const reattached = registry.reattach('client-1', t2);
       expect(reattached).toBe(true);
-      expect(registry.get('client-1')!.transport).toBe(transport2);
+      expect(registry.get('client-1')!.transport).toBe(t2);
     });
 
     it('cancels the detach timeout when reattaching', () => {
       vi.useFakeTimers();
 
-      const oldTransport = mockTransport();
-      const newTransport = mockTransport();
       const abort = new AbortController();
 
       registry.register('client-1', {
-        transport: oldTransport,
+        transport: fakeTransport(),
         abortController: abort,
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -195,7 +183,7 @@ describe('SessionRegistry', () => {
       registry.detach('client-1');
 
       // Reattach before timeout fires
-      registry.reattach('client-1', newTransport);
+      registry.reattach('client-1', fakeTransport());
 
       // Advance past the TTL — session should still be alive
       vi.advanceTimersByTime(DETACHED_TTL_MS + 1000);
@@ -207,11 +195,44 @@ describe('SessionRegistry', () => {
     });
   });
 
+  describe('rekey', () => {
+    it('moves session from old to new key', () => {
+      const transport = fakeTransport();
+      registry.register('old-id', {
+        transport,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      const result = registry.rekey('old-id', 'new-id');
+      expect(result).toBe(true);
+      expect(registry.get('old-id')).toBeUndefined();
+      expect(registry.get('new-id')!.transport).toBe(transport);
+    });
+
+    it('preserves attached status', () => {
+      registry.register('old-id', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      registry.rekey('old-id', 'new-id');
+      expect(registry.isAttached('new-id')).toBe(true);
+      expect(registry.isAttached('old-id')).toBe(false);
+    });
+
+    it('returns false for unknown old key', () => {
+      expect(registry.rekey('nonexistent', 'new-id')).toBe(false);
+    });
+  });
+
   describe('findBySessionId', () => {
     it('finds a session by its SDK session ID', () => {
-      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        transport: fakeTransport,
+        transport: fakeTransport(),
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -231,11 +252,10 @@ describe('SessionRegistry', () => {
 
   describe('abort', () => {
     it('aborts the session and removes it from the registry', () => {
-      const fakeTransport = mockTransport();
       const abort = new AbortController();
 
       registry.register('client-1', {
-        transport: fakeTransport,
+        transport: fakeTransport(),
         abortController: abort,
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -255,11 +275,10 @@ describe('SessionRegistry', () => {
 
   describe('remove', () => {
     it('removes session without aborting', () => {
-      const fakeTransport = mockTransport();
       const abort = new AbortController();
 
       registry.register('client-1', {
-        transport: fakeTransport,
+        transport: fakeTransport(),
         abortController: abort,
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -276,11 +295,10 @@ describe('SessionRegistry', () => {
     it('aborts the session after DETACHED_TTL_MS if not reattached', () => {
       vi.useFakeTimers();
 
-      const fakeTransport = mockTransport();
       const abort = new AbortController();
 
       registry.register('client-1', {
-        transport: fakeTransport,
+        transport: fakeTransport(),
         abortController: abort,
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -304,9 +322,8 @@ describe('SessionRegistry', () => {
 
   describe('setSessionId', () => {
     it('sets the SDK session ID on a registered session', () => {
-      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        transport: fakeTransport,
+        transport: fakeTransport(),
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -323,9 +340,8 @@ describe('SessionRegistry', () => {
 
   describe('setMode', () => {
     it('updates the mode on a registered session', () => {
-      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        transport: fakeTransport,
+        transport: fakeTransport(),
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -338,9 +354,8 @@ describe('SessionRegistry', () => {
 
   describe('observers', () => {
     it('initializes observers as empty Set', () => {
-      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        transport: fakeTransport,
+        transport: fakeTransport(),
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -351,69 +366,64 @@ describe('SessionRegistry', () => {
     });
 
     it('addObserver adds transport to session found by sessionId', () => {
-      const driverTransport = mockTransport();
-      const observerTransport = mockTransport();
+      const observer = fakeTransport();
       registry.register('client-1', {
-        transport: driverTransport,
+        transport: fakeTransport(),
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
         sessionId: 'sdk-abc',
       });
 
-      const result = registry.addObserver('sdk-abc', observerTransport);
+      const result = registry.addObserver('sdk-abc', observer);
       expect(result).toBe('client-1');
-      expect(registry.get('client-1')!.observers.has(observerTransport)).toBe(true);
+      expect(registry.get('client-1')!.observers.has(observer)).toBe(true);
     });
 
     it('addObserver returns null for unknown sessionId', () => {
-      expect(registry.addObserver('nonexistent', {} as any)).toBeNull();
+      expect(registry.addObserver('nonexistent', fakeTransport())).toBeNull();
     });
 
     it('removeObserver removes transport from all sessions', () => {
-      const driverTransport = mockTransport();
-      const observerTransport = mockTransport();
+      const observer = fakeTransport();
       registry.register('client-1', {
-        transport: driverTransport,
+        transport: fakeTransport(),
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
         sessionId: 'sdk-abc',
       });
-      registry.addObserver('sdk-abc', observerTransport);
+      registry.addObserver('sdk-abc', observer);
 
-      registry.removeObserver(observerTransport);
-      expect(registry.get('client-1')!.observers.has(observerTransport)).toBe(false);
+      registry.removeObserver(observer);
+      expect(registry.get('client-1')!.observers.has(observer)).toBe(false);
     });
 
     it('abort clears observers', () => {
-      const driverTransport = mockTransport();
-      const observerTransport = mockTransport();
+      const observer = fakeTransport();
       registry.register('client-1', {
-        transport: driverTransport,
+        transport: fakeTransport(),
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
         sessionId: 'sdk-abc',
       });
-      registry.addObserver('sdk-abc', observerTransport);
+      registry.addObserver('sdk-abc', observer);
 
       registry.abort('client-1');
-      // Session is gone, observers were cleared before deletion
       expect(registry.get('client-1')).toBeUndefined();
     });
 
     it('remove clears observers', () => {
-      const driverTransport = mockTransport();
-      const observerTransport = mockTransport();
+      const observer = fakeTransport();
       registry.register('client-1', {
-        transport: driverTransport,
+        transport: fakeTransport(),
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
         sessionId: 'sdk-abc',
       });
-      registry.addObserver('sdk-abc', observerTransport);
+      registry.addObserver('sdk-abc', observer);
 
       registry.remove('client-1');
       expect(registry.get('client-1')).toBeUndefined();
@@ -426,9 +436,8 @@ describe('SessionRegistry', () => {
     });
 
     it('returns serializable snapshot of all active sessions', () => {
-      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        transport: fakeTransport,
+        transport: fakeTransport(),
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -453,9 +462,8 @@ describe('SessionRegistry', () => {
     });
 
     it('reflects detached state', () => {
-      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        transport: fakeTransport,
+        transport: fakeTransport(),
         abortController: new AbortController(),
         mode: 'auto',
         sessionAllowList: new Set(),
@@ -468,9 +476,8 @@ describe('SessionRegistry', () => {
     });
 
     it('includes token and cost data', () => {
-      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        transport: fakeTransport,
+        transport: fakeTransport(),
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -486,25 +493,23 @@ describe('SessionRegistry', () => {
     });
 
     it('includes observer count', () => {
-      const driverTransport = mockTransport();
-      const observerTransport = mockTransport();
+      const observer = fakeTransport();
       registry.register('client-1', {
-        transport: driverTransport,
+        transport: fakeTransport(),
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
         sessionId: 'sdk-obs',
       });
 
-      registry.addObserver('sdk-obs', observerTransport);
+      registry.addObserver('sdk-obs', observer);
       const active = registry.getActiveSessions();
       expect(active[0].observerCount).toBe(1);
     });
 
     it('reports hasSnapshot when snapshot exists', () => {
-      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        transport: fakeTransport,
+        transport: fakeTransport(),
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -519,14 +524,14 @@ describe('SessionRegistry', () => {
 
     it('returns multiple sessions', () => {
       registry.register('client-1', {
-        transport: mockTransport(),
+        transport: fakeTransport(),
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
         sessionId: 'sdk-1',
       });
       registry.register('client-2', {
-        transport: mockTransport(),
+        transport: fakeTransport(),
         abortController: new AbortController(),
         mode: 'ask',
         sessionAllowList: new Set(),
@@ -546,13 +551,13 @@ describe('SessionRegistry', () => {
       const abort2 = new AbortController();
 
       registry.register('client-1', {
-        transport: mockTransport(),
+        transport: fakeTransport(),
         abortController: abort1,
         mode: 'agent',
         sessionAllowList: new Set(),
       });
       registry.register('client-2', {
-        transport: mockTransport(),
+        transport: fakeTransport(),
         abortController: abort2,
         mode: 'ask',
         sessionAllowList: new Set(),

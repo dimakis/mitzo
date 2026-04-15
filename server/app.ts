@@ -309,8 +309,8 @@ app.post('/api/repos/open', (req, res) => {
     }
 
     // Notify the frontend
-    if (session.ws.readyState === session.ws.OPEN) {
-      session.ws.send(JSON.stringify({ ...event, ...(seq != null ? { seq } : {}) }));
+    if (session.transport.isOpen()) {
+      session.transport.send({ ...event, ...(seq != null ? { seq } : {}) });
     }
 
     log.info('opened repo worktree', { repoName, worktreePath, clientId });
