@@ -14,12 +14,10 @@ vi.mock('../chat.js', () => {
   const { tmpdir: ptmpdir } = require('os');
   const repo = pjoin(ptmpdir(), `mitzo-test-repo-${process.pid}`);
   return {
-    getSessions: vi
-      .fn()
-      .mockResolvedValue({
-        sessions: [{ id: 's1', summary: 'Test', lastModified: 1 }],
-        hasMore: false,
-      }),
+    getSessions: vi.fn().mockResolvedValue({
+      sessions: [{ id: 's1', summary: 'Test', lastModified: 1 }],
+      hasMore: false,
+    }),
     getMessages: vi.fn().mockResolvedValue([{ messageId: 'm1', role: 'assistant', blocks: [] }]),
     renameSessionById: vi.fn().mockResolvedValue(undefined),
     hideSession: vi.fn(),
