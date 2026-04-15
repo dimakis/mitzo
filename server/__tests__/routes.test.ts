@@ -301,6 +301,24 @@ describe('session routes', () => {
     expect(typeof res.body.hasMore).toBe('boolean');
   });
 
+  it('GET /api/sessions — passes offset and limit query params', async () => {
+    const { getSessions } = await import('../chat.js');
+    await request(app).get('/api/sessions?offset=5&limit=10').set('Cookie', authCookie);
+    expect(getSessions).toHaveBeenCalledWith(5, 10);
+  });
+
+  it('GET /api/sessions — clamps invalid offset and limit', async () => {
+    const { getSessions } = await import('../chat.js');
+    await request(app).get('/api/sessions?offset=-1&limit=999').set('Cookie', authCookie);
+    expect(getSessions).toHaveBeenCalledWith(0, 100);
+  });
+
+  it('GET /api/sessions — uses defaults when no params', async () => {
+    const { getSessions } = await import('../chat.js');
+    await request(app).get('/api/sessions').set('Cookie', authCookie);
+    expect(getSessions).toHaveBeenCalledWith(0, 20);
+  });
+
   it('GET /api/sessions — unauthenticated returns 401', async () => {
     const res = await request(app).get('/api/sessions');
     expect(res.status).toBe(401);

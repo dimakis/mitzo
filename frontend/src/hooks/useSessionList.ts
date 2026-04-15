@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Session } from '../types/chat';
 import { renameSession as renameSessionApi } from '../lib/rename-session';
 
@@ -40,8 +40,6 @@ export interface UseSessionListReturn {
   loadMore: () => void;
 }
 
-const PAGE_SIZE = 20;
-
 function parseSessionsResponse(data: unknown): { sessions: Session[]; hasMore: boolean } {
   // Handle both new paginated shape and legacy array shape
   if (Array.isArray(data)) return { sessions: data, hasMore: false };
@@ -57,11 +55,12 @@ export function useSessionList(): UseSessionListReturn {
   const [hasMore, setHasMore] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [checking, setChecking] = useState(false);
+  const nextOffset = useRef(0);
 
   useEffect(() => {
     const loadAll = () =>
       Promise.all([
-        fetch(`/api/sessions?offset=0&limit=${PAGE_SIZE}`)
+        fetch('/api/sessions')
           .then((r) => r.json())
           .catch(() => ({ sessions: [], hasMore: false })),
         fetch('/api/config')
@@ -74,6 +73,7 @@ export function useSessionList(): UseSessionListReturn {
         const { sessions: page, hasMore: more } = parseSessionsResponse(sessData);
         setSessions(page);
         setHasMore(more);
+        nextOffset.current = page.length;
         setQuickActions(buildQuickActions(config.quickActions));
         if (version?.updateAvailable) setUpdateAvailable(true);
       });
@@ -93,17 +93,17 @@ export function useSessionList(): UseSessionListReturn {
   const loadMore = useCallback(() => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
-    const offset = sessions.length;
-    fetch(`/api/sessions?offset=${offset}&limit=${PAGE_SIZE}`)
+    fetch(`/api/sessions?offset=${nextOffset.current}`)
       .then((r) => r.json())
       .then((data) => {
         const { sessions: page, hasMore: more } = parseSessionsResponse(data);
         setSessions((prev) => [...prev, ...page]);
         setHasMore(more);
+        nextOffset.current += page.length;
       })
       .catch(() => {})
       .finally(() => setLoadingMore(false));
-  }, [loadingMore, hasMore, sessions.length]);
+  }, [loadingMore, hasMore]);
 
   const dismissSession = useCallback((id: string) => {
     setSessions((prev) => prev.filter((s) => s.id !== id));
@@ -113,18 +113,20 @@ export function useSessionList(): UseSessionListReturn {
   const clearAll = useCallback(() => {
     setSessions([]);
     setHasMore(false);
+    nextOffset.current = 0;
     fetch('/api/sessions', { method: 'DELETE' }).catch(() => {});
   }, []);
 
   const handleRename = useCallback((id: string, title: string) => {
     setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, summary: title } : s)));
     renameSessionApi(id, title).catch(() => {
-      fetch(`/api/sessions?offset=0&limit=${PAGE_SIZE}`)
+      fetch('/api/sessions')
         .then((r) => r.json())
         .then((data) => {
           const { sessions: page, hasMore: more } = parseSessionsResponse(data);
           setSessions(page);
           setHasMore(more);
+          nextOffset.current = page.length;
         })
         .catch(() => {});
     });
