@@ -10,6 +10,7 @@ import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
 import { join, resolve, dirname } from 'path';
 import { randomBytes } from 'crypto';
+import { homedir } from 'os';
 import { createWorktree, removeWorktree } from './worktree.js';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
 import { parseContentBlocks } from './content-blocks.js';
@@ -669,6 +670,15 @@ export function isActive(clientId: string): boolean {
  *
  * This keeps all paths configurable (no hardcoded machine-specific paths).
  */
+let _claudeProjectsRoot: string | null = null;
+/** Override ~/.claude/projects root for testing. */
+export function setClaudeProjectsRoot(root: string | null): void {
+  _claudeProjectsRoot = root;
+}
+function getClaudeProjectsRoot(): string {
+  return _claudeProjectsRoot ?? join(homedir(), '.claude', 'projects');
+}
+
 export function getSessionDirs(): string[] {
   const dirs = [BASE_REPO];
   const seen = new Set([BASE_REPO]);
@@ -685,8 +695,6 @@ export function getSessionDirs(): string[] {
     }
 
     // 2. Derive unique parent dirs from roots, then scan for sibling projects.
-    //    Use resolve + dirname to normalize paths and avoid dedup misses from
-    //    symlinks or relative segments.
     const parentDirs = new Set<string>();
     for (const root of config.roots) {
       parentDirs.add(dirname(resolve(root.path)));
@@ -720,6 +728,29 @@ export function getSessionDirs(): string[] {
     }
   } catch {
     // Expected when sessions dir doesn't exist yet
+  }
+
+  // Discover worktree sessions from ~/.claude/projects/.
+  // When a session runs in a worktree CWD, the SDK stores its data under
+  // a project dir derived from that path. Once the worktree is cleaned up,
+  // listSessions({ dir: BASE_REPO }) can no longer find those sessions.
+  // We scan for project dirs matching <encoded-BASE_REPO>--claude-worktrees-<id>
+  // and reconstruct the original worktree path.
+  const encodedBase = BASE_REPO.replace(/\//g, '-');
+  const wtPrefix = `${encodedBase}--claude-worktrees-`;
+  try {
+    for (const entry of readdirSync(getClaudeProjectsRoot())) {
+      if (!entry.startsWith(wtPrefix)) continue;
+      const wtId = entry.slice(wtPrefix.length);
+      if (!wtId) continue;
+      const originalPath = `${BASE_REPO}/.claude/worktrees/${wtId}`;
+      if (!seen.has(originalPath)) {
+        dirs.push(originalPath);
+        seen.add(originalPath);
+      }
+    }
+  } catch {
+    // Expected when ~/.claude/projects doesn't exist
   }
 
   return dirs;
