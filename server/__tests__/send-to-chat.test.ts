@@ -1,32 +1,29 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { registry, sendToChat, interruptChat } from '../chat.js';
+import type { SessionTransport } from '@mitzo/harness';
 
-function mockWs() {
-  const sent: unknown[] = [];
+function mockTransport(open = true): SessionTransport & { _sent: Record<string, unknown>[] } {
+  const sent: Record<string, unknown>[] = [];
   return {
-    readyState: 1,
-    OPEN: 1,
-    send: vi.fn((data: string) => sent.push(JSON.parse(data))),
-    on: vi.fn(),
-    removeListener: vi.fn(),
+    send: vi.fn((data: Record<string, unknown>) => sent.push(data)),
+    isOpen: () => open,
     _sent: sent,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any;
+  };
 }
 
-describe('sendToChat emits user_message via WebSocket', () => {
+describe('sendToChat emits user_message via transport', () => {
   const CLIENT_ID = 'test-client-send';
 
   afterEach(() => {
     registry.abort(CLIENT_ID);
   });
 
-  it('sends a user_message WS event after persisting to event store', () => {
-    const ws = mockWs();
+  it('sends a user_message event after persisting to event store', () => {
+    const transport = mockTransport();
     const pushSpy = vi.fn();
 
     registry.register(CLIENT_ID, {
-      ws,
+      transport,
       abortController: new AbortController(),
       mode: 'agent',
       sessionAllowList: new Set(),
@@ -39,8 +36,8 @@ describe('sendToChat emits user_message via WebSocket', () => {
     const result = sendToChat(CLIENT_ID, 'Hello from user');
     expect(result).toBe(true);
 
-    // Should have sent a user_message via WebSocket
-    const userMsgEvents = ws._sent.filter(
+    // Should have sent a user_message via transport
+    const userMsgEvents = transport._sent.filter(
       (m: Record<string, unknown>) => m.type === 'user_message',
     );
     expect(userMsgEvents).toHaveLength(1);
@@ -49,15 +46,15 @@ describe('sendToChat emits user_message via WebSocket', () => {
       text: 'Hello from user',
     });
     // Falls back to server-generated umsg-* when no clientMsgId provided
-    expect(userMsgEvents[0].messageId).toMatch(/^umsg-/);
+    expect((userMsgEvents[0] as Record<string, unknown>).messageId).toMatch(/^umsg-/);
   });
 
   it('uses clientMsgId as messageId when provided', () => {
-    const ws = mockWs();
+    const transport = mockTransport();
     const pushSpy = vi.fn();
 
     registry.register(CLIENT_ID, {
-      ws,
+      transport,
       abortController: new AbortController(),
       mode: 'agent',
       sessionAllowList: new Set(),
@@ -70,20 +67,19 @@ describe('sendToChat emits user_message via WebSocket', () => {
     const result = sendToChat(CLIENT_ID, 'Hello', undefined, undefined, 'user-1234-abc');
     expect(result).toBe(true);
 
-    const userMsgEvents = ws._sent.filter(
+    const userMsgEvents = transport._sent.filter(
       (m: Record<string, unknown>) => m.type === 'user_message',
     );
     expect(userMsgEvents).toHaveLength(1);
-    expect(userMsgEvents[0].messageId).toBe('user-1234-abc');
+    expect((userMsgEvents[0] as Record<string, unknown>).messageId).toBe('user-1234-abc');
   });
 
-  it('does not crash when ws is not OPEN', () => {
-    const ws = mockWs();
-    ws.readyState = 3; // CLOSED
+  it('does not crash when transport is not open', () => {
+    const transport = mockTransport(false);
     const pushSpy = vi.fn();
 
     registry.register(CLIENT_ID, {
-      ws,
+      transport,
       abortController: new AbortController(),
       mode: 'agent',
       sessionAllowList: new Set(),
@@ -95,16 +91,16 @@ describe('sendToChat emits user_message via WebSocket', () => {
 
     const result = sendToChat(CLIENT_ID, 'Hello');
     expect(result).toBe(true);
-    // send() guards on readyState, so no WS message should be sent
-    expect(ws.send).not.toHaveBeenCalled();
+    // send() guards on isOpen(), so no message should be sent
+    expect(transport.send).not.toHaveBeenCalled();
   });
 
-  it('still pushes to inputQueue even when WS emit happens', () => {
-    const ws = mockWs();
+  it('still pushes to inputQueue even when transport send happens', () => {
+    const transport = mockTransport();
     const pushSpy = vi.fn();
 
     registry.register(CLIENT_ID, {
-      ws,
+      transport,
       abortController: new AbortController(),
       mode: 'agent',
       sessionAllowList: new Set(),
@@ -119,19 +115,19 @@ describe('sendToChat emits user_message via WebSocket', () => {
   });
 });
 
-describe('interruptChat emits user_message via WebSocket', () => {
+describe('interruptChat emits user_message via transport', () => {
   const CLIENT_ID = 'test-client-interrupt';
 
   afterEach(() => {
     registry.abort(CLIENT_ID);
   });
 
-  it('sends a user_message WS event after persisting', async () => {
-    const ws = mockWs();
+  it('sends a user_message event after persisting', async () => {
+    const transport = mockTransport();
     const pushSpy = vi.fn();
 
     registry.register(CLIENT_ID, {
-      ws,
+      transport,
       abortController: new AbortController(),
       mode: 'agent',
       sessionAllowList: new Set(),
@@ -145,7 +141,7 @@ describe('interruptChat emits user_message via WebSocket', () => {
     const result = await interruptChat(CLIENT_ID, 'Urgent message');
     expect(result).toBe(true);
 
-    const userMsgEvents = ws._sent.filter(
+    const userMsgEvents = transport._sent.filter(
       (m: Record<string, unknown>) => m.type === 'user_message',
     );
     expect(userMsgEvents).toHaveLength(1);
@@ -156,11 +152,11 @@ describe('interruptChat emits user_message via WebSocket', () => {
   });
 
   it('uses clientMsgId as messageId when provided', async () => {
-    const ws = mockWs();
+    const transport = mockTransport();
     const pushSpy = vi.fn();
 
     registry.register(CLIENT_ID, {
-      ws,
+      transport,
       abortController: new AbortController(),
       mode: 'agent',
       sessionAllowList: new Set(),
@@ -174,10 +170,10 @@ describe('interruptChat emits user_message via WebSocket', () => {
     const result = await interruptChat(CLIENT_ID, 'Urgent', undefined, undefined, 'user-5678-def');
     expect(result).toBe(true);
 
-    const userMsgEvents = ws._sent.filter(
+    const userMsgEvents = transport._sent.filter(
       (m: Record<string, unknown>) => m.type === 'user_message',
     );
     expect(userMsgEvents).toHaveLength(1);
-    expect(userMsgEvents[0].messageId).toBe('user-5678-def');
+    expect((userMsgEvents[0] as Record<string, unknown>).messageId).toBe('user-5678-def');
   });
 });

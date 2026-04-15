@@ -6,6 +6,7 @@ import type { Socket } from 'net';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
+import { WsTransport } from './ws-transport.js';
 import { verifyWsAuth } from './auth.js';
 import {
   startChat,
@@ -38,6 +39,7 @@ import {
 } from './app.js';
 import { TaskOrchestrator } from './task-orchestrator.js';
 import { IncomingWsMessage } from './ws-schemas.js';
+import { resolvePending } from './permissions.js';
 import { resolveSlashCommand } from './slash-commands.js';
 import { NativeCommandRegistry } from './native-commands.js';
 import { setSkillPolicy, clearSkillPolicy } from './skill-policy.js';
@@ -160,6 +162,22 @@ server.on('upgrade', async (req, socket, head) => {
   });
 });
 
+/** Map raw WebSocket → WsTransport wrapper, so removeObserver can look up the transport. */
+const transportMap = new Map<WebSocket, WsTransport>();
+
+/**
+ * Get or create a WsTransport wrapper for a raw WebSocket.
+ * Ensures each WebSocket maps to exactly one transport instance.
+ */
+function getTransport(ws: WebSocket): WsTransport {
+  let transport = transportMap.get(ws);
+  if (!transport) {
+    transport = new WsTransport(ws);
+    transportMap.set(ws, transport);
+  }
+  return transport;
+}
+
 /**
  * If `resume` targets a session that's already active, subscribe the caller
  * as an observer and inject the message into the running session.
@@ -177,7 +195,8 @@ function tryRouteToActiveSession(
   const found = registry.findBySessionId(resume);
   if (!found) return null;
   // Session is active — subscribe as observer instead of starting a duplicate query
-  const driverId = registry.addObserver(resume, ws);
+  const transport = getTransport(ws);
+  const driverId = registry.addObserver(resume, transport);
   if (!driverId) return null; // observer cap reached
   // Send snapshot so observer sees the current streaming state
   if (found.session.currentSnapshot) {
@@ -201,6 +220,7 @@ function tryRouteToActiveSession(
 
 function handleChatWs(ws: WebSocket, initialClientId: string) {
   let clientId = initialClientId;
+  const transport = getTransport(ws);
   ws.send(JSON.stringify({ type: 'client_id', clientId }));
 
   // Hydrate task board state
@@ -228,7 +248,7 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
       if (msg.type === 'subscribe') {
         const found = registry.findBySessionId(msg.sessionId);
         if (found) {
-          registry.addObserver(msg.sessionId, ws);
+          registry.addObserver(msg.sessionId, transport);
           // Send subscribed first so the client knows it's connected,
           // then send snapshot so it can render the current streaming state.
           ws.send(
@@ -263,7 +283,7 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
           );
         }
       } else if (msg.type === 'reattach') {
-        const ok = reattachChat(msg.clientId, ws);
+        const ok = reattachChat(msg.clientId, transport);
         if (ok) {
           clientId = msg.clientId;
           const session = registry.get(clientId);
@@ -383,7 +403,7 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
               msg.clientMsgId,
             )
           ) {
-            startChat(ws, clientId, resolution.renderedPrompt, {
+            startChat(transport, clientId, resolution.renderedPrompt, {
               resume: msg.resume,
               cwd: msg.cwd,
               model: msg.model,
@@ -409,7 +429,7 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
               msg.clientMsgId,
             )
           ) {
-            startChat(ws, clientId, msg.prompt, {
+            startChat(transport, clientId, msg.prompt, {
               resume: msg.resume,
               cwd: msg.cwd,
               model: msg.model,
@@ -420,6 +440,14 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
               clientMsgId: msg.clientMsgId,
             });
           }
+        }
+      } else if (msg.type === 'permission_response') {
+        resolvePending(msg.permId, msg.decision || 'deny');
+      } else if (msg.type === 'set_mode') {
+        registry.setMode(clientId, msg.mode);
+        const session = registry.get(clientId);
+        if (session) {
+          transport.send({ type: 'mode_changed', mode: msg.mode });
         }
       } else if (msg.type === 'interrupt') {
         interruptChat(clientId, msg.prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
@@ -435,7 +463,8 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
 
   ws.on('close', (code, reason) => {
     clearInterval(heartbeat);
-    registry.removeObserver(ws);
+    registry.removeObserver(transport);
+    transportMap.delete(ws);
     log.info('chat disconnected', { clientId, code, reason: reason?.toString() });
     if (isActive(clientId)) {
       detachChat(clientId);

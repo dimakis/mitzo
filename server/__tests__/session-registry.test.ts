@@ -1,6 +1,14 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { SessionRegistry } from '../session-registry.js';
 import { DETACHED_TTL_MS } from '../constants.js';
+import type { SessionTransport } from '@mitzo/harness';
+
+function mockTransport(open = true): SessionTransport {
+  return {
+    send: vi.fn(),
+    isOpen: () => open,
+  };
+}
 
 describe('SessionRegistry', () => {
   let registry: SessionRegistry;
@@ -15,23 +23,23 @@ describe('SessionRegistry', () => {
 
   describe('register', () => {
     it('registers a session and makes it retrievable by clientId', () => {
-      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      const fakeTransport = mockTransport();
       const fakeAbort = new AbortController();
       registry.register('client-1', {
-        ws: fakeWs,
+        transport: fakeTransport,
         abortController: fakeAbort,
         mode: 'agent',
         sessionAllowList: new Set(),
       });
 
       expect(registry.get('client-1')).toBeDefined();
-      expect(registry.get('client-1')!.ws).toBe(fakeWs);
+      expect(registry.get('client-1')!.transport).toBe(fakeTransport);
     });
 
     it('marks session as attached on registration', () => {
-      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        ws: fakeWs,
+        transport: fakeTransport,
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -41,9 +49,9 @@ describe('SessionRegistry', () => {
     });
 
     it('isActive returns true for registered session', () => {
-      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        ws: fakeWs,
+        transport: fakeTransport,
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -57,9 +65,9 @@ describe('SessionRegistry', () => {
     });
 
     it('initializes worktreePaths as empty Map', () => {
-      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        ws: fakeWs,
+        transport: fakeTransport,
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -71,9 +79,9 @@ describe('SessionRegistry', () => {
     });
 
     it('worktreePaths stores path and wtId', () => {
-      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        ws: fakeWs,
+        transport: fakeTransport,
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -92,10 +100,10 @@ describe('SessionRegistry', () => {
 
   describe('detach', () => {
     it('detaches a session without aborting it', () => {
-      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      const fakeTransport = mockTransport();
       const abort = new AbortController();
       registry.register('client-1', {
-        ws: fakeWs,
+        transport: fakeTransport,
         abortController: abort,
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -109,9 +117,9 @@ describe('SessionRegistry', () => {
     });
 
     it('stores the SDK sessionId when detaching', () => {
-      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        ws: fakeWs,
+        transport: fakeTransport,
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -129,12 +137,12 @@ describe('SessionRegistry', () => {
   });
 
   describe('reattach', () => {
-    it('reattaches a new WebSocket to a detached session', () => {
-      const oldWs = { readyState: 1, OPEN: 1 } as any;
-      const newWs = { readyState: 1, OPEN: 1 } as any;
+    it('reattaches a new transport to a detached session', () => {
+      const oldTransport = mockTransport();
+      const newTransport = mockTransport();
 
       registry.register('client-1', {
-        ws: oldWs,
+        transport: oldTransport,
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -142,43 +150,43 @@ describe('SessionRegistry', () => {
       });
 
       registry.detach('client-1');
-      const reattached = registry.reattach('client-1', newWs);
+      const reattached = registry.reattach('client-1', newTransport);
 
       expect(reattached).toBe(true);
       expect(registry.isAttached('client-1')).toBe(true);
-      expect(registry.get('client-1')!.ws).toBe(newWs);
+      expect(registry.get('client-1')!.transport).toBe(newTransport);
     });
 
     it('returns false for unknown clientId', () => {
-      const ws = { readyState: 1, OPEN: 1 } as any;
-      expect(registry.reattach('nonexistent', ws)).toBe(false);
+      const transport = mockTransport();
+      expect(registry.reattach('nonexistent', transport)).toBe(false);
     });
 
-    it('works on already-attached session (WS swap)', () => {
-      const ws1 = { readyState: 1, OPEN: 1 } as any;
-      const ws2 = { readyState: 1, OPEN: 1 } as any;
+    it('works on already-attached session (transport swap)', () => {
+      const transport1 = mockTransport();
+      const transport2 = mockTransport();
 
       registry.register('client-1', {
-        ws: ws1,
+        transport: transport1,
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
       });
 
-      const reattached = registry.reattach('client-1', ws2);
+      const reattached = registry.reattach('client-1', transport2);
       expect(reattached).toBe(true);
-      expect(registry.get('client-1')!.ws).toBe(ws2);
+      expect(registry.get('client-1')!.transport).toBe(transport2);
     });
 
     it('cancels the detach timeout when reattaching', () => {
       vi.useFakeTimers();
 
-      const oldWs = { readyState: 1, OPEN: 1 } as any;
-      const newWs = { readyState: 1, OPEN: 1 } as any;
+      const oldTransport = mockTransport();
+      const newTransport = mockTransport();
       const abort = new AbortController();
 
       registry.register('client-1', {
-        ws: oldWs,
+        transport: oldTransport,
         abortController: abort,
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -187,7 +195,7 @@ describe('SessionRegistry', () => {
       registry.detach('client-1');
 
       // Reattach before timeout fires
-      registry.reattach('client-1', newWs);
+      registry.reattach('client-1', newTransport);
 
       // Advance past the TTL — session should still be alive
       vi.advanceTimersByTime(DETACHED_TTL_MS + 1000);
@@ -201,9 +209,9 @@ describe('SessionRegistry', () => {
 
   describe('findBySessionId', () => {
     it('finds a session by its SDK session ID', () => {
-      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        ws: fakeWs,
+        transport: fakeTransport,
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -223,11 +231,11 @@ describe('SessionRegistry', () => {
 
   describe('abort', () => {
     it('aborts the session and removes it from the registry', () => {
-      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      const fakeTransport = mockTransport();
       const abort = new AbortController();
 
       registry.register('client-1', {
-        ws: fakeWs,
+        transport: fakeTransport,
         abortController: abort,
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -247,11 +255,11 @@ describe('SessionRegistry', () => {
 
   describe('remove', () => {
     it('removes session without aborting', () => {
-      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      const fakeTransport = mockTransport();
       const abort = new AbortController();
 
       registry.register('client-1', {
-        ws: fakeWs,
+        transport: fakeTransport,
         abortController: abort,
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -268,11 +276,11 @@ describe('SessionRegistry', () => {
     it('aborts the session after DETACHED_TTL_MS if not reattached', () => {
       vi.useFakeTimers();
 
-      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      const fakeTransport = mockTransport();
       const abort = new AbortController();
 
       registry.register('client-1', {
-        ws: fakeWs,
+        transport: fakeTransport,
         abortController: abort,
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -296,9 +304,9 @@ describe('SessionRegistry', () => {
 
   describe('setSessionId', () => {
     it('sets the SDK session ID on a registered session', () => {
-      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        ws: fakeWs,
+        transport: fakeTransport,
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -315,9 +323,9 @@ describe('SessionRegistry', () => {
 
   describe('setMode', () => {
     it('updates the mode on a registered session', () => {
-      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        ws: fakeWs,
+        transport: fakeTransport,
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -330,9 +338,9 @@ describe('SessionRegistry', () => {
 
   describe('observers', () => {
     it('initializes observers as empty Set', () => {
-      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        ws: fakeWs,
+        transport: fakeTransport,
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -342,53 +350,53 @@ describe('SessionRegistry', () => {
       expect(registry.get('client-1')!.observers.size).toBe(0);
     });
 
-    it('addObserver adds ws to session found by sessionId', () => {
-      const driverWs = { readyState: 1, OPEN: 1 } as any;
-      const observerWs = { readyState: 1, OPEN: 1 } as any;
+    it('addObserver adds transport to session found by sessionId', () => {
+      const driverTransport = mockTransport();
+      const observerTransport = mockTransport();
       registry.register('client-1', {
-        ws: driverWs,
+        transport: driverTransport,
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
         sessionId: 'sdk-abc',
       });
 
-      const result = registry.addObserver('sdk-abc', observerWs);
+      const result = registry.addObserver('sdk-abc', observerTransport);
       expect(result).toBe('client-1');
-      expect(registry.get('client-1')!.observers.has(observerWs)).toBe(true);
+      expect(registry.get('client-1')!.observers.has(observerTransport)).toBe(true);
     });
 
     it('addObserver returns null for unknown sessionId', () => {
       expect(registry.addObserver('nonexistent', {} as any)).toBeNull();
     });
 
-    it('removeObserver removes ws from all sessions', () => {
-      const driverWs = { readyState: 1, OPEN: 1 } as any;
-      const observerWs = { readyState: 1, OPEN: 1 } as any;
+    it('removeObserver removes transport from all sessions', () => {
+      const driverTransport = mockTransport();
+      const observerTransport = mockTransport();
       registry.register('client-1', {
-        ws: driverWs,
+        transport: driverTransport,
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
         sessionId: 'sdk-abc',
       });
-      registry.addObserver('sdk-abc', observerWs);
+      registry.addObserver('sdk-abc', observerTransport);
 
-      registry.removeObserver(observerWs);
-      expect(registry.get('client-1')!.observers.has(observerWs)).toBe(false);
+      registry.removeObserver(observerTransport);
+      expect(registry.get('client-1')!.observers.has(observerTransport)).toBe(false);
     });
 
     it('abort clears observers', () => {
-      const driverWs = { readyState: 1, OPEN: 1 } as any;
-      const observerWs = { readyState: 1, OPEN: 1 } as any;
+      const driverTransport = mockTransport();
+      const observerTransport = mockTransport();
       registry.register('client-1', {
-        ws: driverWs,
+        transport: driverTransport,
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
         sessionId: 'sdk-abc',
       });
-      registry.addObserver('sdk-abc', observerWs);
+      registry.addObserver('sdk-abc', observerTransport);
 
       registry.abort('client-1');
       // Session is gone, observers were cleared before deletion
@@ -396,16 +404,16 @@ describe('SessionRegistry', () => {
     });
 
     it('remove clears observers', () => {
-      const driverWs = { readyState: 1, OPEN: 1 } as any;
-      const observerWs = { readyState: 1, OPEN: 1 } as any;
+      const driverTransport = mockTransport();
+      const observerTransport = mockTransport();
       registry.register('client-1', {
-        ws: driverWs,
+        transport: driverTransport,
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
         sessionId: 'sdk-abc',
       });
-      registry.addObserver('sdk-abc', observerWs);
+      registry.addObserver('sdk-abc', observerTransport);
 
       registry.remove('client-1');
       expect(registry.get('client-1')).toBeUndefined();
@@ -418,9 +426,9 @@ describe('SessionRegistry', () => {
     });
 
     it('returns serializable snapshot of all active sessions', () => {
-      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        ws: fakeWs,
+        transport: fakeTransport,
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -445,9 +453,9 @@ describe('SessionRegistry', () => {
     });
 
     it('reflects detached state', () => {
-      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        ws: fakeWs,
+        transport: fakeTransport,
         abortController: new AbortController(),
         mode: 'auto',
         sessionAllowList: new Set(),
@@ -460,9 +468,9 @@ describe('SessionRegistry', () => {
     });
 
     it('includes token and cost data', () => {
-      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        ws: fakeWs,
+        transport: fakeTransport,
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -478,25 +486,25 @@ describe('SessionRegistry', () => {
     });
 
     it('includes observer count', () => {
-      const driverWs = { readyState: 1, OPEN: 1 } as any;
-      const observerWs = { readyState: 1, OPEN: 1 } as any;
+      const driverTransport = mockTransport();
+      const observerTransport = mockTransport();
       registry.register('client-1', {
-        ws: driverWs,
+        transport: driverTransport,
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
         sessionId: 'sdk-obs',
       });
 
-      registry.addObserver('sdk-obs', observerWs);
+      registry.addObserver('sdk-obs', observerTransport);
       const active = registry.getActiveSessions();
       expect(active[0].observerCount).toBe(1);
     });
 
     it('reports hasSnapshot when snapshot exists', () => {
-      const fakeWs = { readyState: 1, OPEN: 1 } as any;
+      const fakeTransport = mockTransport();
       registry.register('client-1', {
-        ws: fakeWs,
+        transport: fakeTransport,
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
@@ -511,14 +519,14 @@ describe('SessionRegistry', () => {
 
     it('returns multiple sessions', () => {
       registry.register('client-1', {
-        ws: { readyState: 1, OPEN: 1 } as any,
+        transport: mockTransport(),
         abortController: new AbortController(),
         mode: 'agent',
         sessionAllowList: new Set(),
         sessionId: 'sdk-1',
       });
       registry.register('client-2', {
-        ws: { readyState: 1, OPEN: 1 } as any,
+        transport: mockTransport(),
         abortController: new AbortController(),
         mode: 'ask',
         sessionAllowList: new Set(),
@@ -538,13 +546,13 @@ describe('SessionRegistry', () => {
       const abort2 = new AbortController();
 
       registry.register('client-1', {
-        ws: { readyState: 1, OPEN: 1 } as any,
+        transport: mockTransport(),
         abortController: abort1,
         mode: 'agent',
         sessionAllowList: new Set(),
       });
       registry.register('client-2', {
-        ws: { readyState: 1, OPEN: 1 } as any,
+        transport: mockTransport(),
         abortController: abort2,
         mode: 'ask',
         sessionAllowList: new Set(),

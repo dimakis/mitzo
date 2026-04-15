@@ -1,27 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { WebSocket } from 'ws';
+import type { SessionTransport } from '@mitzo/harness';
 import { runQueryLoop } from '../query-loop.js';
 import type { SessionRegistry } from '../session-registry.js';
 
-/** Create a fake WebSocket that records sent messages */
-function fakeWs(): WebSocket & { sent: Record<string, unknown>[] } {
+/** Create a fake SessionTransport that records sent messages */
+function fakeWs(): SessionTransport & { sent: Record<string, unknown>[] } {
   const sent: Record<string, unknown>[] = [];
   return {
-    OPEN: 1,
-    readyState: 1,
-    send: vi.fn((data: string) => sent.push(JSON.parse(data))),
+    send: vi.fn((data: Record<string, unknown>) => sent.push(data)),
+    isOpen: () => true,
     sent,
-  } as unknown as WebSocket & { sent: Record<string, unknown>[] };
+  } as unknown as SessionTransport & { sent: Record<string, unknown>[] };
 }
 
 /** Create a minimal SessionRegistry stub */
-function fakeRegistry(ws: WebSocket): SessionRegistry {
+function fakeRegistry(transport: SessionTransport): SessionRegistry {
   let removed = false;
   const session = {
-    ws,
+    transport,
     sessionId: undefined as string | undefined,
     currentSnapshot: null as null | { messageId: string; blocks: unknown[] },
-    observers: new Set<WebSocket>(),
+    observers: new Set<SessionTransport>(),
     cumulativeSessionTokens: 0,
     cumulativeCostUsd: 0,
   };
@@ -43,14 +42,14 @@ async function* eventStream(events: Record<string, unknown>[]) {
 }
 
 describe('token_update emission', () => {
-  let ws: WebSocket & { sent: Record<string, unknown>[] };
+  let transport: SessionTransport & { sent: Record<string, unknown>[] };
   let registry: SessionRegistry;
   const clientId = 'test-client';
   let abortController: AbortController;
 
   beforeEach(() => {
-    ws = fakeWs();
-    registry = fakeRegistry(ws);
+    transport = fakeWs();
+    registry = fakeRegistry(transport);
     abortController = new AbortController();
   });
 
@@ -101,9 +100,9 @@ describe('token_update emission', () => {
       },
     ];
 
-    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-    const tokenUpdates = ws.sent.filter((m) => m.type === 'token_update');
+    const tokenUpdates = transport.sent.filter((m) => m.type === 'token_update');
     expect(tokenUpdates.length).toBeGreaterThanOrEqual(1);
 
     // Agent context should be sum of input + cache_read + cache_creation
@@ -146,9 +145,9 @@ describe('token_update emission', () => {
       },
     ];
 
-    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-    const tokenUpdates = ws.sent.filter((m) => m.type === 'token_update');
+    const tokenUpdates = transport.sent.filter((m) => m.type === 'token_update');
     const last = tokenUpdates[tokenUpdates.length - 1];
     expect(last).toMatchObject({
       sessionTotal: 20000, // 5000 + 2000 + 10000 + 3000
@@ -211,9 +210,9 @@ describe('token_update emission', () => {
       },
     ];
 
-    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-    const tokenUpdates = ws.sent.filter((m) => m.type === 'token_update');
+    const tokenUpdates = transport.sent.filter((m) => m.type === 'token_update');
 
     // Only one token_update from message_start (the parent one)
     const messageStartUpdates = tokenUpdates.filter(
@@ -290,9 +289,9 @@ describe('token_update emission', () => {
       },
     ];
 
-    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-    const tokenUpdates = ws.sent.filter((m) => m.type === 'token_update');
+    const tokenUpdates = transport.sent.filter((m) => m.type === 'token_update');
     // Only parent message_starts should emit token_update with turnIndex
     const messageStartUpdates = tokenUpdates.filter(
       (m) => (m as Record<string, unknown>).sessionTotal === undefined,
@@ -356,9 +355,9 @@ describe('token_update emission', () => {
       },
     ];
 
-    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-    const tokenUpdates = ws.sent.filter((m) => m.type === 'token_update');
+    const tokenUpdates = transport.sent.filter((m) => m.type === 'token_update');
     const resultUpdates = tokenUpdates.filter(
       (m) => (m as Record<string, unknown>).sessionTotal !== undefined,
     );
@@ -392,10 +391,10 @@ describe('token_update emission', () => {
     ];
 
     // Should not throw
-    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
     // token_update may or may not be emitted, but should not crash
-    const errors = ws.sent.filter((m) => m.type === 'error');
+    const errors = transport.sent.filter((m) => m.type === 'error');
     expect(errors).toHaveLength(0);
   });
 });
