@@ -4,7 +4,7 @@ import { runQueryLoop } from '../query-loop.js';
 import type { SessionRegistry } from '../session-registry.js';
 
 /** Create a fake SessionTransport that records sent messages */
-function fakeWs(): SessionTransport & { sent: Record<string, unknown>[] } {
+function fakeTransport(): SessionTransport & { sent: Record<string, unknown>[] } {
   const sent: Record<string, unknown>[] = [];
   return {
     send: vi.fn((data: Record<string, unknown>) => sent.push(data)),
@@ -48,7 +48,7 @@ describe('token_update emission', () => {
   let abortController: AbortController;
 
   beforeEach(() => {
-    transport = fakeWs();
+    transport = fakeTransport();
     registry = fakeRegistry(transport);
     abortController = new AbortController();
   });

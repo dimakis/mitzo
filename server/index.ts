@@ -200,15 +200,13 @@ function tryRouteToActiveSession(
   if (!driverId) return null; // observer cap reached
   // Send snapshot so observer sees the current streaming state
   if (found.session.currentSnapshot) {
-    ws.send(
-      JSON.stringify({
-        v: 2,
-        type: 'message_snapshot',
-        ts: Date.now(),
-        messageId: found.session.currentSnapshot.messageId,
-        blocks: found.session.currentSnapshot.blocks,
-      }),
-    );
+    transport.send({
+      v: 2,
+      type: 'message_snapshot',
+      ts: Date.now(),
+      messageId: found.session.currentSnapshot.messageId,
+      blocks: found.session.currentSnapshot.blocks,
+    });
   }
   sendToChat(found.clientId, prompt, images, contextBlocks, clientMsgId);
   log.info('routed observer message to active session', {
@@ -221,11 +219,11 @@ function tryRouteToActiveSession(
 function handleChatWs(ws: WebSocket, initialClientId: string) {
   let clientId = initialClientId;
   const transport = getTransport(ws);
-  ws.send(JSON.stringify({ type: 'client_id', clientId }));
+  transport.send({ type: 'client_id', clientId });
 
   // Hydrate task board state
   const taskTree = taskStore.getTree();
-  ws.send(JSON.stringify({ type: 'task_state', tasks: taskTree }));
+  transport.send({ type: 'task_state', tasks: taskTree });
 
   const heartbeat = setInterval(() => {
     if (ws.readyState === ws.OPEN) {
@@ -251,50 +249,42 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
           registry.addObserver(msg.sessionId, transport);
           // Send subscribed first so the client knows it's connected,
           // then send snapshot so it can render the current streaming state.
-          ws.send(
-            JSON.stringify({
-              type: 'subscribed',
-              sessionId: msg.sessionId,
-              running: true,
-            }),
-          );
+          transport.send({
+            type: 'subscribed',
+            sessionId: msg.sessionId,
+            running: true,
+          });
           if (found.session.currentSnapshot) {
-            ws.send(
-              JSON.stringify({
-                v: 2,
-                type: 'message_snapshot',
-                ts: Date.now(),
-                messageId: found.session.currentSnapshot.messageId,
-                blocks: found.session.currentSnapshot.blocks,
-              }),
-            );
+            transport.send({
+              v: 2,
+              type: 'message_snapshot',
+              ts: Date.now(),
+              messageId: found.session.currentSnapshot.messageId,
+              blocks: found.session.currentSnapshot.blocks,
+            });
           }
           log.info('client subscribed to active session', {
             clientId,
             sessionId: msg.sessionId,
           });
         } else {
-          ws.send(
-            JSON.stringify({
-              type: 'subscribed',
-              sessionId: msg.sessionId,
-              running: false,
-            }),
-          );
+          transport.send({
+            type: 'subscribed',
+            sessionId: msg.sessionId,
+            running: false,
+          });
         }
       } else if (msg.type === 'reattach') {
         const ok = reattachChat(msg.clientId, transport);
         if (ok) {
           clientId = msg.clientId;
           const session = registry.get(clientId);
-          ws.send(
-            JSON.stringify({
-              type: 'reattached',
-              clientId: msg.clientId,
-              sessionId: session?.sessionId,
-              running: true,
-            }),
-          );
+          transport.send({
+            type: 'reattached',
+            clientId: msg.clientId,
+            sessionId: session?.sessionId,
+            running: true,
+          });
           // Replay missed events from durable event store.
           if (session?.sessionId && msg.lastSeq != null) {
             const missed = eventStore.getEventsAfter(session.sessionId, msg.lastSeq);
@@ -314,29 +304,25 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
                   }
                 }
               }
-              ws.send(JSON.stringify({ ...evt.payload, seq: evt.seq }));
+              transport.send({ ...evt.payload, seq: evt.seq } as Record<string, unknown>);
             }
           }
           if (session?.currentSnapshot) {
-            ws.send(
-              JSON.stringify({
-                v: 2,
-                type: 'message_snapshot',
-                ts: Date.now(),
-                messageId: session.currentSnapshot.messageId,
-                blocks: session.currentSnapshot.blocks,
-              }),
-            );
+            transport.send({
+              v: 2,
+              type: 'message_snapshot',
+              ts: Date.now(),
+              messageId: session.currentSnapshot.messageId,
+              blocks: session.currentSnapshot.blocks,
+            });
           }
           log.info('reattached', { oldClientId: msg.clientId, newClientId: initialClientId });
         } else {
-          ws.send(
-            JSON.stringify({
-              type: 'reattach_failed',
-              clientId: msg.clientId,
-              reason: 'Session not found or already finished',
-            }),
-          );
+          transport.send({
+            type: 'reattach_failed',
+            clientId: msg.clientId,
+            reason: 'Session not found or already finished',
+          });
         }
       } else if (msg.type === 'send') {
         // Resolve slash commands server-side before routing
@@ -353,17 +339,15 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
             skillRegistry,
           );
           if (result) {
-            ws.send(
-              JSON.stringify({
-                type: 'native_command_result',
-                v: 2,
-                command: result.command,
-                content: result.content,
-              }),
-            );
+            transport.send({
+              type: 'native_command_result',
+              v: 2,
+              command: result.command,
+              content: result.content,
+            });
           }
         } else if (resolution.type === 'error') {
-          ws.send(JSON.stringify({ type: 'error', error: resolution.message }));
+          transport.send({ type: 'error', error: resolution.message });
         } else if (resolution.type === 'skill') {
           // Set skill policy for tool restrictions
           if (resolution.allowedTools) {
@@ -373,16 +357,14 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
           }
 
           // Emit skill_invoked event for frontend badging
-          ws.send(
-            JSON.stringify({
-              type: 'skill_invoked',
-              v: 2,
-              name: resolution.name,
-              source: skillRegistry.get(resolution.name)?.scope || 'bundled',
-              arguments: resolution.arguments,
-              ...(resolution.collisions ? { collisions: resolution.collisions } : {}),
-            }),
-          );
+          transport.send({
+            type: 'skill_invoked',
+            v: 2,
+            name: resolution.name,
+            source: skillRegistry.get(resolution.name)?.scope || 'bundled',
+            arguments: resolution.arguments,
+            ...(resolution.collisions ? { collisions: resolution.collisions } : {}),
+          });
 
           // Pass rendered prompt through to normal chat flow
           if (isActive(clientId)) {
@@ -457,7 +439,7 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       log.warn('failed to handle WS message', { clientId, error: message });
-      ws.send(JSON.stringify({ type: 'error', error: message }));
+      transport.send({ type: 'error', error: message });
     }
   });
 

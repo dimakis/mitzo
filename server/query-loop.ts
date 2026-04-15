@@ -225,7 +225,7 @@ export async function runQueryLoop(
         if (!currentSession.sessionId && msg.session_id) {
           resolvedSessionId = msg.session_id as string;
           registry.setSessionId(clientId, resolvedSessionId);
-          emit( { type: 'session_id', sessionId: msg.session_id });
+          emit({ type: 'session_id', sessionId: msg.session_id });
           // Persist session metadata (including initial prompt) to durable store
           if (store) {
             store.upsertSession({
@@ -259,7 +259,7 @@ export async function runQueryLoop(
         log.info('result received', { clientId, sessionId: msg.session_id });
         // Capture snapshot blocks before flush (forceFlush nulls the snapshot).
         const snapshotBlocks = currentSession.currentSnapshot?.blocks ?? [];
-        if (msg.session_id) emit( { type: 'session_id', sessionId: msg.session_id });
+        if (msg.session_id) emit({ type: 'session_id', sessionId: msg.session_id });
         forceFlushPendingMessage(currentSession);
         doneSent = true;
 
@@ -291,7 +291,7 @@ export async function runQueryLoop(
         currentSession.cumulativeCostUsd = usageData.totalCostUsd;
 
         // Emit final token_update with accumulated session totals
-        emit( {
+        emit({
           type: 'token_update',
           agentContext: agentContextTokens,
           contextCeiling: CONTEXT_CEILING_TOKENS,
@@ -381,7 +381,7 @@ export async function runQueryLoop(
             if (totalContext > 0) {
               agentContextTokens = totalContext;
               turnIndex++;
-              emit( {
+              emit({
                 type: 'token_update',
                 agentContext: agentContextTokens,
                 contextCeiling: CONTEXT_CEILING_TOKENS,

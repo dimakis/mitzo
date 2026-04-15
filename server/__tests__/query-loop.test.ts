@@ -5,7 +5,7 @@ import type { SessionRegistry } from '../session-registry.js';
 import { EventStore } from '../event-store.js';
 
 /** Create a fake SessionTransport that records sent messages */
-function fakeWs(): SessionTransport & { sent: Record<string, unknown>[] } {
+function fakeTransport(): SessionTransport & { sent: Record<string, unknown>[] } {
   const sent: Record<string, unknown>[] = [];
   return {
     send: vi.fn((data: Record<string, unknown>) => sent.push(data)),
@@ -62,7 +62,7 @@ describe('runQueryLoop', () => {
   let abortController: AbortController;
 
   beforeEach(() => {
-    transport = fakeWs();
+    transport = fakeTransport();
     registry = fakeRegistry(transport);
     abortController = new AbortController();
   });
@@ -1024,7 +1024,7 @@ describe('runQueryLoop', () => {
 
   describe('observer broadcast', () => {
     it('sends events to observer transports alongside the driver', async () => {
-      const observerTransport = fakeWs();
+      const observerTransport = fakeTransport();
       const observers = new Set<SessionTransport>([observerTransport]);
       registry = fakeRegistry(transport, { observers });
 
@@ -1056,7 +1056,7 @@ describe('runQueryLoop', () => {
     });
 
     it('does not fail when observer transport is closed', async () => {
-      const closedTransport = fakeWs();
+      const closedTransport = fakeTransport();
       (closedTransport as any).isOpen = () => false;
       const observers = new Set<SessionTransport>([closedTransport]);
       registry = fakeRegistry(transport, { observers });

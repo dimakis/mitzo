@@ -309,7 +309,9 @@ app.post('/api/repos/open', (req, res) => {
     }
 
     // Notify the frontend
-    session.transport.send({ ...event, ...(seq != null ? { seq } : {}) });
+    if (session.transport.isOpen()) {
+      session.transport.send({ ...event, ...(seq != null ? { seq } : {}) });
+    }
 
     log.info('opened repo worktree', { repoName, worktreePath, clientId });
     res.json({ path: worktreePath, repoName, created: true });
