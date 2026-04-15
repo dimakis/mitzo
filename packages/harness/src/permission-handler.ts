@@ -10,6 +10,13 @@ import { summarizeToolInput } from '@mitzo/protocol';
 import { checkSkillPolicy } from './skill-policy.js';
 import { PERMISSION_TIMEOUT_MS, NTFY_NOTIFICATION_DELAY_MS } from './constants.js';
 import type { SessionRegistry } from './session-registry.js';
+import type { SessionTransport } from './session-transport.js';
+
+function transportSend(transport: SessionTransport, data: Record<string, unknown>): void {
+  if (transport.isOpen()) {
+    transport.send(data);
+  }
+}
 
 function getMcpPrefix(toolName: string): string | null {
   if (!toolName.startsWith('mcp__')) return null;
@@ -90,14 +97,14 @@ export function buildPermissionHandler(clientId: string, registry: SessionRegist
         if (hasPending(permId)) {
           removePending(permId);
           resolve({ behavior: 'deny', message: 'Aborted' });
-          session.transport.send({ type: 'permission_timeout', permId });
+          transportSend(session.transport,{ type: 'permission_timeout', permId });
         }
       };
       opts.signal.addEventListener('abort', onAbort, { once: true });
 
       registerPending(permId, toolName, wrappedResolve, _toolInput, tier);
 
-      session.transport.send({
+      transportSend(session.transport,{
         type: 'permission_request',
         permId,
         toolName,
@@ -125,7 +132,7 @@ export function buildPermissionHandler(clientId: string, registry: SessionRegist
           removePending(permId);
           opts.signal.removeEventListener('abort', onAbort);
           resolve({ behavior: 'deny', message: 'Permission request timed out' });
-          session.transport.send({ type: 'permission_timeout', permId });
+          transportSend(session.transport,{ type: 'permission_timeout', permId });
         }
       }, PERMISSION_TIMEOUT_MS);
     });

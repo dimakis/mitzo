@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SessionRegistry } from '../src/session-registry.js';
 import { setSkillPolicy, clearSkillPolicy, checkSkillPolicy } from '../src/skill-policy.js';
 import type { SessionTransport } from '../src/session-transport.js';
@@ -18,6 +18,10 @@ describe('skill-policy', () => {
       mode: 'agent',
       sessionAllowList: new Set(),
     });
+  });
+
+  afterEach(() => {
+    registry.dispose();
   });
 
   it('allows any tool when no policy is active', () => {
@@ -52,5 +56,4 @@ describe('skill-policy', () => {
     expect(() => clearSkillPolicy(registry, 'nonexistent')).not.toThrow();
   });
 
-  registry?.dispose?.();
 });

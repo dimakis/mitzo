@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { getToolTier, shouldAutoAllow, getAllowedToolsForMode, applyTierOverrides } from '../src/tool-tiers.js';
 
 describe('tool-tiers', () => {
@@ -73,11 +73,13 @@ describe('tool-tiers', () => {
   });
 
   describe('applyTierOverrides', () => {
+    afterEach(() => {
+      applyTierOverrides({});
+    });
+
     it('overrides default tiers', () => {
       applyTierOverrides({ CustomTool: 'safe' });
       expect(getToolTier('CustomTool')).toBe('safe');
-      // Reset
-      applyTierOverrides({});
     });
   });
 });
