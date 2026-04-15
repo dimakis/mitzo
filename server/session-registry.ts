@@ -2,7 +2,7 @@ import type { WebSocket } from 'ws';
 import { DETACHED_TTL_MS } from './constants.js';
 import { MAX_OBSERVERS_PER_SESSION } from '@mitzo/protocol';
 import { createLogger } from './logger.js';
-import type { RawToolInput, SnapshotBlock as SnapshotBlockType } from '@mitzo/protocol';
+import type { RawToolInput } from '@mitzo/protocol';
 
 const log = createLogger('session-registry');
 

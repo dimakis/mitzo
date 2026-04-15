@@ -12,7 +12,7 @@ export type {
   Session,
 } from '@mitzo/protocol';
 
-import type { FinishedBlock } from '@mitzo/protocol';
+import type { FinishedBlock, RawToolInput } from '@mitzo/protocol';
 
 // --- Legacy flat Message type (used for restore/session history only) ---
 export interface Message {
@@ -23,7 +23,7 @@ export interface Message {
   toolId?: string;
   toolInput?: string;
   toolResult?: string;
-  rawInput?: import('@mitzo/protocol').RawToolInput;
+  rawInput?: RawToolInput;
 }
 
 export type GroupedItem =
