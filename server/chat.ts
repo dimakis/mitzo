@@ -7,8 +7,9 @@ import {
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { WebSocket } from 'ws';
 import { execFileSync } from 'child_process';
-import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
 import { join } from 'path';
+import { homedir } from 'os';
 import { randomBytes } from 'crypto';
 import { createWorktree, removeWorktree } from './worktree.js';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
@@ -657,6 +658,31 @@ export function isActive(clientId: string): boolean {
 
 function getSessionDirs(): string[] {
   const dirs = [BASE_REPO];
+  const seen = new Set([BASE_REPO]);
+
+  // Scan parent directories for any project that has .git/ or .claude/ —
+  // sessions can live in any project Claude has been used in, and worktree
+  // sessions span multiple repos. The SDK's includeWorktrees: true discovers
+  // worktree sessions within each repo but can't cross repo boundaries.
+  const parentDirs = [
+    join(homedir(), 'projects'),
+    join(homedir(), 'redhat'),
+    join(homedir(), 'tools'),
+  ];
+  for (const parent of parentDirs) {
+    try {
+      for (const entry of readdirSync(parent)) {
+        const child = join(parent, entry);
+        if (seen.has(child)) continue;
+        if (existsSync(join(child, '.git')) || existsSync(join(child, '.claude'))) {
+          dirs.push(child);
+          seen.add(child);
+        }
+      }
+    } catch {
+      // Expected when parent dir doesn't exist
+    }
+  }
 
   // Legacy location: <repo>-sessions/ sibling directory
   const sessionsDir = `${BASE_REPO}-sessions`;
@@ -669,8 +695,6 @@ function getSessionDirs(): string[] {
     // Expected when sessions dir doesn't exist yet
   }
 
-  // SDK's listSessions with includeWorktrees: true (the default) handles
-  // worktree-based sessions automatically — no manual scanning needed.
   return dirs;
 }
 
