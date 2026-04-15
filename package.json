@@ -2,6 +2,10 @@
   "name": "mitzo",
   "version": "1.0.0",
   "type": "module",
+  "workspaces": [
+    "packages/*",
+    "frontend"
+  ],
   "scripts": {
     "dev": "bash scripts/dev.sh",
     "dev:server": "tsx watch server/index.ts",
@@ -18,7 +22,7 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepare": "husky"
+    "prepare": "husky || true"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.87",

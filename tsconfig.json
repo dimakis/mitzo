@@ -11,5 +11,8 @@
     "resolveJsonModule": true,
     "noEmit": true
   },
-  "include": ["server/**/*.ts"]
+  "include": ["server/**/*.ts"],
+  "references": [
+    { "path": "packages/protocol" }
+  ]
 }
