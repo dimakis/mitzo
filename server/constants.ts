@@ -25,7 +25,7 @@ export const WORKTREE_PRUNE_TIMEOUT_MS = 5_000;
 export const GIT_BRANCH_TIMEOUT_MS = 5_000;
 
 // --- Session listing ---
-export const SESSION_LIST_LIMIT = 20;
+export const SESSION_PAGE_SIZE = 20;
 export const SESSION_MESSAGES_LIMIT = 100;
 
 // --- Observers ---

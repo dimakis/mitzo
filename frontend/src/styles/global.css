@@ -692,6 +692,24 @@ textarea:focus {
   flex-shrink: 0;
 }
 
+.session-load-more {
+  display: block;
+  width: 100%;
+  padding: 0.75rem;
+  background: transparent;
+  color: var(--accent);
+  border: none;
+  border-top: 1px solid var(--border);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.session-load-more:disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+
 /* ===== Inbox Navigation (Home Screen) ===== */
 
 .inbox-nav-btn {

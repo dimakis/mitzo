@@ -631,8 +631,10 @@ app.get('/api/sessions/active', (_req, res) => {
   res.json(registry.getActiveSessions());
 });
 
-app.get('/api/sessions', async (_req, res) => {
-  const sessions = await getSessions();
+app.get('/api/sessions', async (req, res) => {
+  const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
+  const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 20), 100);
+  const { sessions, hasMore } = await getSessions(offset, limit);
   const activeMap = new Map<string, { attached: boolean }>();
   for (const s of registry.getActiveSessions()) {
     if (s.sessionId) activeMap.set(s.sessionId, { attached: s.attached });
@@ -650,7 +652,7 @@ app.get('/api/sessions', async (_req, res) => {
       numTurns: meta?.numTurns,
     };
   });
-  res.json(annotated);
+  res.json({ sessions: annotated, hasMore });
 });
 
 app.get('/api/sessions/:id/messages', async (req, res) => {

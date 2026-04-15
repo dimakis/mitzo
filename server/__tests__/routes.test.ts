@@ -14,7 +14,12 @@ vi.mock('../chat.js', () => {
   const { tmpdir: ptmpdir } = require('os');
   const repo = pjoin(ptmpdir(), `mitzo-test-repo-${process.pid}`);
   return {
-    getSessions: vi.fn().mockResolvedValue([{ id: 's1', summary: 'Test', lastModified: 1 }]),
+    getSessions: vi
+      .fn()
+      .mockResolvedValue({
+        sessions: [{ id: 's1', summary: 'Test', lastModified: 1 }],
+        hasMore: false,
+      }),
     getMessages: vi.fn().mockResolvedValue([{ messageId: 'm1', role: 'assistant', blocks: [] }]),
     renameSessionById: vi.fn().mockResolvedValue(undefined),
     hideSession: vi.fn(),
@@ -283,7 +288,7 @@ describe('session routes', () => {
   it('GET /api/sessions — annotates sessions with active status and token data', async () => {
     const res = await request(app).get('/api/sessions').set('Cookie', authCookie);
     expect(res.status).toBe(200);
-    const s1 = res.body.find((s: any) => s.id === 's1');
+    const s1 = res.body.sessions.find((s: { id: string }) => s.id === 's1');
     expect(s1).toBeDefined();
     expect(s1.isActive).toBe(true);
     expect(s1.isAttached).toBe(true);
@@ -291,10 +296,11 @@ describe('session routes', () => {
     expect(s1.numTurns).toBe(3);
   });
 
-  it('GET /api/sessions — authenticated returns array', async () => {
+  it('GET /api/sessions — authenticated returns paginated shape', async () => {
     const res = await request(app).get('/api/sessions').set('Cookie', authCookie);
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body)).toBe(true);
+    expect(Array.isArray(res.body.sessions)).toBe(true);
+    expect(typeof res.body.hasMore).toBe('boolean');
   });
 
   it('GET /api/sessions — unauthenticated returns 401', async () => {

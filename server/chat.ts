@@ -9,7 +9,6 @@ import type { WebSocket } from 'ws';
 import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
 import { randomBytes } from 'crypto';
 import { createWorktree, removeWorktree } from './worktree.js';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
@@ -21,7 +20,7 @@ import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
 import { runQueryLoop, createWsMessageHandler, broadcastToObservers } from './query-loop.js';
 import { AsyncQueue } from './async-queue.js';
-import { GIT_BRANCH_TIMEOUT_MS, SESSION_LIST_LIMIT, SESSION_MESSAGES_LIMIT } from './constants.js';
+import { GIT_BRANCH_TIMEOUT_MS, SESSION_PAGE_SIZE, SESSION_MESSAGES_LIMIT } from './constants.js';
 import { INTERNAL_TOKEN } from './internal-token.js';
 import { buildTaskSystemPrompt } from './task-context.js';
 import type { TaskStore } from './task-store.js';
@@ -659,17 +658,6 @@ export function isActive(clientId: string): boolean {
 function getSessionDirs(): string[] {
   const dirs = [BASE_REPO];
 
-  // New location: .claude/worktrees/ inside the repo
-  const worktreeDir = join(BASE_REPO, '.claude', 'worktrees');
-  try {
-    const entries = readdirSync(worktreeDir);
-    for (const e of entries) {
-      dirs.push(join(worktreeDir, e));
-    }
-  } catch {
-    // Expected when worktrees dir doesn't exist yet
-  }
-
   // Legacy location: <repo>-sessions/ sibling directory
   const sessionsDir = `${BASE_REPO}-sessions`;
   try {
@@ -680,19 +668,9 @@ function getSessionDirs(): string[] {
   } catch {
     // Expected when sessions dir doesn't exist yet
   }
-  const claudeProjects = join(homedir(), '.claude', 'projects');
-  const prefix = BASE_REPO.replace(/\//g, '-').replace(/^-/, '-');
-  const sessionsPrefix = `${prefix}-sessions-session-`;
-  try {
-    for (const entry of readdirSync(claudeProjects)) {
-      if (entry.startsWith(sessionsPrefix)) {
-        const originalPath = entry.replace(/^-/, '/').replace(/-/g, '/');
-        if (!dirs.includes(originalPath)) dirs.push(originalPath);
-      }
-    }
-  } catch {
-    // Expected when ~/.claude/projects doesn't exist yet
-  }
+
+  // SDK's listSessions with includeWorktrees: true (the default) handles
+  // worktree-based sessions automatically — no manual scanning needed.
   return dirs;
 }
 
@@ -726,14 +704,17 @@ export async function renameSessionById(
   throw new Error('Session not found');
 }
 
-export async function getSessions() {
+export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
   const seen = new Map<
     string,
     { id: string; summary: string; lastModified: number; branch?: string }
   >();
+  // Fetch enough from each dir to cover the requested window after dedup.
+  // The SDK handles worktree discovery via includeWorktrees (default true).
+  const fetchLimit = offset + limit + 50; // buffer for dedup losses
   for (const dir of getSessionDirs()) {
     try {
-      const sessions = await listSessions({ dir, limit: SESSION_LIST_LIMIT });
+      const sessions = await listSessions({ dir, limit: fetchLimit, includeWorktrees: true });
       for (const s of sessions) {
         if (hiddenSessionIds.has(s.sessionId)) continue;
         const existing = seen.get(s.sessionId);
@@ -752,7 +733,9 @@ export async function getSessions() {
   }
   const deduped = Array.from(seen.values());
   deduped.sort((a, b) => b.lastModified - a.lastModified);
-  return deduped.slice(0, SESSION_LIST_LIMIT);
+  const page = deduped.slice(offset, offset + limit);
+  const hasMore = deduped.length > offset + limit;
+  return { sessions: page, hasMore };
 }
 
 export interface RestoredMessage {
