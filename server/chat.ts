@@ -7,8 +7,8 @@ import {
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { WebSocket } from 'ws';
 import { execFileSync } from 'child_process';
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
-import { join, resolve, dirname } from 'path';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'fs';
+import { join } from 'path';
 import { randomBytes } from 'crypto';
 import { createWorktree, removeWorktree } from './worktree.js';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
@@ -658,58 +658,15 @@ export function isActive(clientId: string): boolean {
 /**
  * Collect directories to scan for Claude Code sessions.
  *
- * The SDK's listSessions({ dir, includeWorktrees: true }) discovers sessions
- * within a single repo and its git worktrees, but it cannot cross repo
- * boundaries. Since worktree sessions span multiple repos, we must call
- * listSessions once per repo. We discover repos two ways:
+ * The SDK's listSessions({ dir, includeWorktrees: true }) handles worktree
+ * and ~/.claude/projects/ discovery automatically for a given repo dir.
+ * We only pass BASE_REPO — scanning additional repos (centaur, contexgin,
+ * etc.) floods the session list with unrelated sessions.
  *
- * 1. Explicit repos from .mitzo.json `repos` config.
- * 2. Sibling discovery: derive unique parent dirs from .mitzo.json `roots`,
- *    then scan each parent for child directories that have .git/ or .claude/.
- *
- * This keeps all paths configurable (no hardcoded machine-specific paths).
+ * Legacy <repo>-sessions/ dirs are still scanned for pre-migration sessions.
  */
 export function getSessionDirs(): string[] {
   const dirs = [BASE_REPO];
-  const seen = new Set([BASE_REPO]);
-
-  try {
-    const config = getRepoConfig();
-
-    // 1. Add all explicitly configured repos
-    for (const repoPath of Object.values(config.repos)) {
-      if (!seen.has(repoPath)) {
-        dirs.push(repoPath);
-        seen.add(repoPath);
-      }
-    }
-
-    // 2. Derive unique parent dirs from roots, then scan for sibling projects.
-    //    Use resolve + dirname to normalize paths and avoid dedup misses from
-    //    symlinks or relative segments.
-    const parentDirs = new Set<string>();
-    for (const root of config.roots) {
-      parentDirs.add(dirname(resolve(root.path)));
-    }
-
-    for (const parent of parentDirs) {
-      try {
-        for (const entry of readdirSync(parent, { withFileTypes: true })) {
-          if (!entry.isDirectory()) continue;
-          const child = join(parent, entry.name);
-          if (seen.has(child)) continue;
-          if (existsSync(join(child, '.git')) || existsSync(join(child, '.claude'))) {
-            dirs.push(child);
-            seen.add(child);
-          }
-        }
-      } catch {
-        // Expected when parent dir doesn't exist
-      }
-    }
-  } catch {
-    // Expected when config hasn't loaded yet
-  }
 
   // Legacy location: <repo>-sessions/ sibling directory
   const sessionsDir = `${BASE_REPO}-sessions`;
