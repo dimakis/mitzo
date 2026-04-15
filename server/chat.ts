@@ -8,7 +8,7 @@ import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { WebSocket } from 'ws';
 import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
-import { join } from 'path';
+import { join, resolve, dirname } from 'path';
 import { randomBytes } from 'crypto';
 import { createWorktree, removeWorktree } from './worktree.js';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
@@ -684,11 +684,12 @@ export function getSessionDirs(): string[] {
       }
     }
 
-    // 2. Derive unique parent dirs from roots, then scan for sibling projects
+    // 2. Derive unique parent dirs from roots, then scan for sibling projects.
+    //    Use resolve + dirname to normalize paths and avoid dedup misses from
+    //    symlinks or relative segments.
     const parentDirs = new Set<string>();
     for (const root of config.roots) {
-      const parent = join(root.path, '..');
-      parentDirs.add(parent);
+      parentDirs.add(dirname(resolve(root.path)));
     }
 
     for (const parent of parentDirs) {

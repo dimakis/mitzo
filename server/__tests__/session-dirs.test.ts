@@ -158,4 +158,46 @@ describe('getSessionDirs', () => {
     expect(dirs[0]).toBe(BASE_REPO);
     expect(dirs.length).toBeGreaterThanOrEqual(1);
   });
+
+  it('includes legacy session dirs (<BASE_REPO>-sessions/session-*)', () => {
+    const legacyDir = `${BASE_REPO}-sessions`;
+    mkdirSync(join(legacyDir, 'session-abc'), { recursive: true });
+    mkdirSync(join(legacyDir, 'session-def'), { recursive: true });
+    // Non-matching entry should be ignored
+    mkdirSync(join(legacyDir, 'other'), { recursive: true });
+
+    const dirs = getSessionDirs();
+    expect(dirs).toContain(join(legacyDir, 'session-abc'));
+    expect(dirs).toContain(join(legacyDir, 'session-def'));
+    expect(dirs).not.toContain(join(legacyDir, 'other'));
+
+    rmSync(legacyDir, { recursive: true, force: true });
+  });
+
+  it('multiple roots sharing the same parent only scan parent once', () => {
+    const projA = join(TEST_PROJECTS, 'proj-a');
+    const projB = join(TEST_PROJECTS, 'proj-b');
+    const projC = join(TEST_PROJECTS, 'proj-c');
+    mkdirSync(join(projA, '.git'), { recursive: true });
+    mkdirSync(join(projB, '.git'), { recursive: true });
+    mkdirSync(join(projC, '.claude'), { recursive: true });
+
+    // Two roots under the same parent — parent should only be scanned once
+    mockLoadRepoConfig.mockReturnValue({
+      ...mockConfig,
+      roots: [
+        { label: 'A', path: projA },
+        { label: 'B', path: projB },
+      ],
+    });
+
+    const dirs = getSessionDirs();
+    // All siblings with markers should appear, each exactly once
+    expect(dirs).toContain(projA);
+    expect(dirs).toContain(projB);
+    expect(dirs).toContain(projC);
+    expect(dirs.filter((d) => d === projA).length).toBe(1);
+    expect(dirs.filter((d) => d === projB).length).toBe(1);
+    expect(dirs.filter((d) => d === projC).length).toBe(1);
+  });
 });
