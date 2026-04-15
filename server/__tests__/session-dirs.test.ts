@@ -212,12 +212,13 @@ describe('getSessionDirs', () => {
 
   it('does not include non-worktree dirs from ~/.claude/projects/', () => {
     const encoded = BASE_REPO.replace(/\//g, '-');
+    // Base repo dir and unrelated repo — neither should add entries
     mkdirSync(join(TEST_CLAUDE_PROJECTS, encoded), { recursive: true });
     mkdirSync(join(TEST_CLAUDE_PROJECTS, '-Users-someone-other-repo'), { recursive: true });
 
     const dirs = getSessionDirs({ claudeProjectsRoot: TEST_CLAUDE_PROJECTS });
-    const worktreeDirs = dirs.filter((d) => d.includes('worktrees'));
-    expect(worktreeDirs).toHaveLength(0);
+    const dirsWithoutBaseAndLegacy = dirs.filter((d) => d !== BASE_REPO);
+    expect(dirsWithoutBaseAndLegacy).toHaveLength(0);
   });
 
   it('deduplicates worktree dirs already found via other methods', () => {
