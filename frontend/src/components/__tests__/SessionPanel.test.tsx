@@ -17,12 +17,15 @@ function makeDefaultReturn(overrides = {}) {
     sessions: [],
     quickActions: [],
     loading: false,
+    loadingMore: false,
+    hasMore: false,
     updateAvailable: false,
     checking: false,
     dismissSession: vi.fn(),
     clearAll: vi.fn(),
     handleRename: vi.fn(),
     checkForUpdates: vi.fn(),
+    loadMore: vi.fn(),
     ...overrides,
   };
 }

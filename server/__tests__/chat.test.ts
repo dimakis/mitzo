@@ -28,13 +28,14 @@ describe('chat module exports', () => {
 describe('getSessions', () => {
   it('returns an array', async () => {
     const { getSessions } = await import('../chat.js');
-    const sessions = await getSessions();
-    expect(Array.isArray(sessions)).toBe(true);
+    const result = await getSessions();
+    expect(Array.isArray(result.sessions)).toBe(true);
+    expect(typeof result.hasMore).toBe('boolean');
   });
 
   it('session objects have expected shape', async () => {
     const { getSessions } = await import('../chat.js');
-    const sessions = await getSessions();
+    const { sessions } = await getSessions();
     for (const s of sessions) {
       expect(s).toHaveProperty('id');
       expect(s).toHaveProperty('summary');

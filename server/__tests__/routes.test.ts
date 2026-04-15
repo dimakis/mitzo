@@ -14,7 +14,10 @@ vi.mock('../chat.js', () => {
   const { tmpdir: ptmpdir } = require('os');
   const repo = pjoin(ptmpdir(), `mitzo-test-repo-${process.pid}`);
   return {
-    getSessions: vi.fn().mockResolvedValue([{ id: 's1', summary: 'Test', lastModified: 1 }]),
+    getSessions: vi.fn().mockResolvedValue({
+      sessions: [{ id: 's1', summary: 'Test', lastModified: 1 }],
+      hasMore: false,
+    }),
     getMessages: vi.fn().mockResolvedValue([{ messageId: 'm1', role: 'assistant', blocks: [] }]),
     renameSessionById: vi.fn().mockResolvedValue(undefined),
     hideSession: vi.fn(),
@@ -283,7 +286,7 @@ describe('session routes', () => {
   it('GET /api/sessions — annotates sessions with active status and token data', async () => {
     const res = await request(app).get('/api/sessions').set('Cookie', authCookie);
     expect(res.status).toBe(200);
-    const s1 = res.body.find((s: any) => s.id === 's1');
+    const s1 = res.body.sessions.find((s: { id: string }) => s.id === 's1');
     expect(s1).toBeDefined();
     expect(s1.isActive).toBe(true);
     expect(s1.isAttached).toBe(true);
@@ -291,10 +294,29 @@ describe('session routes', () => {
     expect(s1.numTurns).toBe(3);
   });
 
-  it('GET /api/sessions — authenticated returns array', async () => {
+  it('GET /api/sessions — authenticated returns paginated shape', async () => {
     const res = await request(app).get('/api/sessions').set('Cookie', authCookie);
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body)).toBe(true);
+    expect(Array.isArray(res.body.sessions)).toBe(true);
+    expect(typeof res.body.hasMore).toBe('boolean');
+  });
+
+  it('GET /api/sessions — passes offset and limit query params', async () => {
+    const { getSessions } = await import('../chat.js');
+    await request(app).get('/api/sessions?offset=5&limit=10').set('Cookie', authCookie);
+    expect(getSessions).toHaveBeenCalledWith(5, 10);
+  });
+
+  it('GET /api/sessions — clamps invalid offset and limit', async () => {
+    const { getSessions } = await import('../chat.js');
+    await request(app).get('/api/sessions?offset=-1&limit=999').set('Cookie', authCookie);
+    expect(getSessions).toHaveBeenCalledWith(0, 100);
+  });
+
+  it('GET /api/sessions — uses defaults when no params', async () => {
+    const { getSessions } = await import('../chat.js');
+    await request(app).get('/api/sessions').set('Cookie', authCookie);
+    expect(getSessions).toHaveBeenCalledWith(0, 20);
   });
 
   it('GET /api/sessions — unauthenticated returns 401', async () => {

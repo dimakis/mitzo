@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Session } from '../types/chat';
 import { renameSession as renameSessionApi } from '../lib/rename-session';
 
@@ -29,27 +29,40 @@ export interface UseSessionListReturn {
   sessions: Session[];
   quickActions: QuickAction[];
   loading: boolean;
+  loadingMore: boolean;
+  hasMore: boolean;
   updateAvailable: boolean;
   checking: boolean;
   dismissSession: (id: string) => void;
   clearAll: () => void;
   handleRename: (id: string, title: string) => void;
   checkForUpdates: () => Promise<void>;
+  loadMore: () => void;
+}
+
+function parseSessionsResponse(data: unknown): { sessions: Session[]; hasMore: boolean } {
+  // Handle both new paginated shape and legacy array shape
+  if (Array.isArray(data)) return { sessions: data, hasMore: false };
+  const obj = data as { sessions?: Session[]; hasMore?: boolean };
+  return { sessions: obj.sessions ?? [], hasMore: obj.hasMore ?? false };
 }
 
 export function useSessionList(): UseSessionListReturn {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [quickActions, setQuickActions] = useState<QuickAction[]>(DEFAULT_ACTIONS);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [checking, setChecking] = useState(false);
+  const nextOffset = useRef(0);
 
   useEffect(() => {
     const loadAll = () =>
       Promise.all([
         fetch('/api/sessions')
           .then((r) => r.json())
-          .catch(() => []),
+          .catch(() => ({ sessions: [], hasMore: false })),
         fetch('/api/config')
           .then((r) => r.json())
           .catch(() => ({})),
@@ -57,7 +70,10 @@ export function useSessionList(): UseSessionListReturn {
           .then((r) => r.json())
           .catch(() => ({})),
       ]).then(([sessData, config, version]) => {
-        setSessions(sessData);
+        const { sessions: page, hasMore: more } = parseSessionsResponse(sessData);
+        setSessions(page);
+        setHasMore(more);
+        nextOffset.current = page.length;
         setQuickActions(buildQuickActions(config.quickActions));
         if (version?.updateAvailable) setUpdateAvailable(true);
       });
@@ -74,6 +90,21 @@ export function useSessionList(): UseSessionListReturn {
     };
   }, []);
 
+  const loadMore = useCallback(() => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    fetch(`/api/sessions?offset=${nextOffset.current}`)
+      .then((r) => r.json())
+      .then((data) => {
+        const { sessions: page, hasMore: more } = parseSessionsResponse(data);
+        setSessions((prev) => [...prev, ...page]);
+        setHasMore(more);
+        nextOffset.current += page.length;
+      })
+      .catch(() => {})
+      .finally(() => setLoadingMore(false));
+  }, [loadingMore, hasMore]);
+
   const dismissSession = useCallback((id: string) => {
     setSessions((prev) => prev.filter((s) => s.id !== id));
     fetch(`/api/sessions/${id}`, { method: 'DELETE' }).catch(() => {});
@@ -81,6 +112,8 @@ export function useSessionList(): UseSessionListReturn {
 
   const clearAll = useCallback(() => {
     setSessions([]);
+    setHasMore(false);
+    nextOffset.current = 0;
     fetch('/api/sessions', { method: 'DELETE' }).catch(() => {});
   }, []);
 
@@ -89,7 +122,12 @@ export function useSessionList(): UseSessionListReturn {
     renameSessionApi(id, title).catch(() => {
       fetch('/api/sessions')
         .then((r) => r.json())
-        .then(setSessions)
+        .then((data) => {
+          const { sessions: page, hasMore: more } = parseSessionsResponse(data);
+          setSessions(page);
+          setHasMore(more);
+          nextOffset.current = page.length;
+        })
         .catch(() => {});
     });
   }, []);
@@ -111,11 +149,14 @@ export function useSessionList(): UseSessionListReturn {
     sessions,
     quickActions,
     loading,
+    loadingMore,
+    hasMore,
     updateAvailable,
     checking,
     dismissSession,
     clearAll,
     handleRename,
     checkForUpdates,
+    loadMore,
   };
 }

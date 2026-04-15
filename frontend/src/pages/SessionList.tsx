@@ -204,12 +204,15 @@ export function SessionList() {
     sessions,
     quickActions,
     loading,
+    loadingMore,
+    hasMore,
     updateAvailable,
     checking,
     dismissSession,
     clearAll,
     handleRename,
     checkForUpdates,
+    loadMore,
   } = useSessionList();
 
   function handleDeployAction() {
@@ -296,6 +299,11 @@ export function SessionList() {
               onRename={handleRename}
             />
           ))}
+          {hasMore && (
+            <button className="session-load-more" onClick={loadMore} disabled={loadingMore}>
+              {loadingMore ? 'Loading...' : 'Load More'}
+            </button>
+          )}
         </div>
       )}
     </div>
