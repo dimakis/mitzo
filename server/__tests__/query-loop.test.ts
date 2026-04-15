@@ -1,32 +1,31 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { WebSocket } from 'ws';
+import type { SessionTransport } from '@mitzo/harness';
 import { runQueryLoop } from '../query-loop.js';
 import type { SessionRegistry } from '../session-registry.js';
 import { EventStore } from '../event-store.js';
 
-/** Create a fake WebSocket that records sent messages */
-function fakeWs(): WebSocket & { sent: Record<string, unknown>[] } {
+/** Create a fake SessionTransport that records sent messages */
+function fakeTransport(): SessionTransport & { sent: Record<string, unknown>[] } {
   const sent: Record<string, unknown>[] = [];
   return {
-    OPEN: 1,
-    readyState: 1,
-    send: vi.fn((data: string) => sent.push(JSON.parse(data))),
+    send: vi.fn((data: Record<string, unknown>) => sent.push(data)),
+    isOpen: () => true,
     sent,
-  } as unknown as WebSocket & { sent: Record<string, unknown>[] };
+  } as unknown as SessionTransport & { sent: Record<string, unknown>[] };
 }
 
 /** Create a minimal SessionRegistry stub with currentSnapshot support */
 function fakeRegistry(
-  ws: WebSocket,
-  opts?: { attached?: boolean; observers?: Set<WebSocket> },
+  transport: SessionTransport,
+  opts?: { attached?: boolean; observers?: Set<SessionTransport> },
 ): SessionRegistry {
   let removed = false;
   let attached = opts?.attached ?? true;
   const session = {
-    ws,
+    transport,
     sessionId: undefined as string | undefined,
     currentSnapshot: null as null | { messageId: string; blocks: unknown[] },
-    observers: opts?.observers ?? new Set<WebSocket>(),
+    observers: opts?.observers ?? new Set<SessionTransport>(),
     cumulativeSessionTokens: 0,
     cumulativeCostUsd: 0,
   };
@@ -57,14 +56,14 @@ function v2msg(type: string, rest: Record<string, unknown> = {}) {
 }
 
 describe('runQueryLoop', () => {
-  let ws: WebSocket & { sent: Record<string, unknown>[] };
+  let transport: SessionTransport & { sent: Record<string, unknown>[] };
   let registry: SessionRegistry;
   const clientId = 'test-client';
   let abortController: AbortController;
 
   beforeEach(() => {
-    ws = fakeWs();
-    registry = fakeRegistry(ws);
+    transport = fakeTransport();
+    registry = fakeRegistry(transport);
     abortController = new AbortController();
   });
 
@@ -88,9 +87,9 @@ describe('runQueryLoop', () => {
       { type: 'result', session_id: 'sess-1' },
     ];
 
-    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-    const sent = ws.sent;
+    const sent = transport.sent;
     expect(sent).toEqual(
       expect.arrayContaining([
         v2msg('message_start', { messageId: 'msg-abc' }),
@@ -136,9 +135,9 @@ describe('runQueryLoop', () => {
       { type: 'result', session_id: 'sess-th' },
     ];
 
-    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-    const sent = ws.sent;
+    const sent = transport.sent;
     expect(sent).toEqual(
       expect.arrayContaining([
         v2msg('block_start', { blockType: 'thinking' }),
@@ -184,9 +183,9 @@ describe('runQueryLoop', () => {
       { type: 'result', session_id: 'sess-tool' },
     ];
 
-    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-    const sent = ws.sent;
+    const sent = transport.sent;
 
     const blockStart = sent.find((m) => m.type === 'block_start' && m.blockType === 'tool_use');
     expect(blockStart).toBeDefined();
@@ -241,9 +240,9 @@ describe('runQueryLoop', () => {
       { type: 'result', session_id: 'sess-err' },
     ];
 
-    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-    const toolResult = ws.sent.find((m) => m.type === 'tool_result');
+    const toolResult = transport.sent.find((m) => m.type === 'tool_result');
     expect(toolResult).toMatchObject({ toolId: 'tool-err', isError: true });
   });
 
@@ -253,10 +252,10 @@ describe('runQueryLoop', () => {
       { type: 'result', session_id: 'sess-new' },
     ];
 
-    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
     expect(registry.setSessionId).toHaveBeenCalledWith(clientId, 'sess-new');
-    const sessionIdMsgs = ws.sent.filter((m) => m.type === 'session_id');
+    const sessionIdMsgs = transport.sent.filter((m) => m.type === 'session_id');
     expect(sessionIdMsgs.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -266,9 +265,9 @@ describe('runQueryLoop', () => {
       { type: 'result', session_id: 'sess-x' },
     ];
 
-    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-    const sessionEnds = ws.sent.filter((m) => m.type === 'session_end');
+    const sessionEnds = transport.sent.filter((m) => m.type === 'session_end');
     expect(sessionEnds).toHaveLength(1);
   });
 
@@ -294,9 +293,9 @@ describe('runQueryLoop', () => {
       { type: 'result', session_id: 'sess-defer' },
     ];
 
-    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-    const sent = ws.sent;
+    const sent = transport.sent;
     const blockEndIdx = sent.findIndex((m) => m.type === 'block_end' && m.blockType === 'text');
     const messageEndIdx = sent.findIndex((m) => m.type === 'message_end');
     expect(blockEndIdx).toBeGreaterThan(-1);
@@ -355,9 +354,9 @@ describe('runQueryLoop', () => {
       { type: 'result', session_id: 'sess-mt' },
     ];
 
-    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-    const sent = ws.sent;
+    const sent = transport.sent;
 
     // Turn 1 message_end must exist and come before Turn 2 message_start
     const t1MsgEnd = sent.findIndex((m) => m.type === 'message_end' && m.messageId === 'msg-t1');
@@ -375,7 +374,7 @@ describe('runQueryLoop', () => {
 
   it('drops messages when session is detached (recovery via event store)', async () => {
     // Start attached, then detach mid-stream
-    registry = fakeRegistry(ws);
+    registry = fakeRegistry(transport);
     const reg = registry as unknown as {
       _setAttached: (v: boolean) => void;
     };
@@ -416,17 +415,17 @@ describe('runQueryLoop', () => {
       for (const e of detachedEvents) yield e;
     }
 
-    await runQueryLoop(detachingStream(), clientId, registry, abortController, ws);
+    await runQueryLoop(detachingStream(), clientId, registry, abortController);
 
-    // Messages sent while attached should be on the WS
-    expect(ws.sent.some((m) => m.type === 'message_start')).toBe(true);
-    const attachedDeltas = ws.sent.filter(
+    // Messages sent while attached should be on the transport
+    expect(transport.sent.some((m) => m.type === 'message_start')).toBe(true);
+    const attachedDeltas = transport.sent.filter(
       (m) => m.type === 'block_delta' && m.delta === 'before detach',
     );
     expect(attachedDeltas).toHaveLength(1);
 
-    // Messages sent while detached should NOT be on the WS
-    const detachedDeltas = ws.sent.filter(
+    // Messages sent while detached should NOT be on the transport
+    const detachedDeltas = transport.sent.filter(
       (m) => m.type === 'block_delta' && m.delta === ' after detach',
     );
     expect(detachedDeltas).toHaveLength(0);
@@ -456,15 +455,15 @@ describe('runQueryLoop', () => {
       { type: 'result', session_id: 'sess-1' },
     ];
 
-    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-    expect(ws.sent.some((m) => m.type === 'text')).toBe(false);
-    expect(ws.sent.some((m) => m.type === 'text_delta')).toBe(false);
-    expect(ws.sent.some((m) => m.type === 'done')).toBe(false);
+    expect(transport.sent.some((m) => m.type === 'text')).toBe(false);
+    expect(transport.sent.some((m) => m.type === 'text_delta')).toBe(false);
+    expect(transport.sent.some((m) => m.type === 'done')).toBe(false);
 
     // v2 equivalents ARE present
-    expect(ws.sent.some((m) => m.type === 'block_delta')).toBe(true);
-    expect(ws.sent.some((m) => m.type === 'session_end')).toBe(true);
+    expect(transport.sent.some((m) => m.type === 'block_delta')).toBe(true);
+    expect(transport.sent.some((m) => m.type === 'session_end')).toBe(true);
   });
 
   it('does not emit user_message for SDK user events with string content', async () => {
@@ -491,9 +490,9 @@ describe('runQueryLoop', () => {
       { type: 'result', session_id: 'sess-um' },
     ];
 
-    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-    const userMsg = ws.sent.find((m) => m.type === 'user_message');
+    const userMsg = transport.sent.find((m) => m.type === 'user_message');
     expect(userMsg).toBeUndefined();
   });
 
@@ -524,9 +523,9 @@ describe('runQueryLoop', () => {
       { type: 'result', session_id: 'sess-um2' },
     ];
 
-    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-    const userMsg = ws.sent.find((m) => m.type === 'user_message');
+    const userMsg = transport.sent.find((m) => m.type === 'user_message');
     expect(userMsg).toBeUndefined();
   });
 
@@ -564,14 +563,14 @@ describe('runQueryLoop', () => {
       { type: 'result', session_id: 'sess-mix' },
     ];
 
-    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
     // Text content from SDK user events must NOT produce user_message
-    const userMsg = ws.sent.find((m) => m.type === 'user_message');
+    const userMsg = transport.sent.find((m) => m.type === 'user_message');
     expect(userMsg).toBeUndefined();
 
     // tool_result extraction should still work
-    const toolResult = ws.sent.find((m) => m.type === 'tool_result');
+    const toolResult = transport.sent.find((m) => m.type === 'tool_result');
     expect(toolResult).toBeDefined();
     expect(toolResult).toMatchObject({ toolId: 'tool-mix' });
   });
@@ -606,9 +605,9 @@ describe('runQueryLoop', () => {
       { type: 'result', session_id: 'sess-cat' },
     ];
 
-    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-    const userMsgs = ws.sent.filter((m) => m.type === 'user_message');
+    const userMsgs = transport.sent.filter((m) => m.type === 'user_message');
     expect(userMsgs).toHaveLength(0);
   });
 
@@ -642,9 +641,9 @@ describe('runQueryLoop', () => {
       { type: 'result', session_id: 'sess-tr' },
     ];
 
-    await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-    const userMsg = ws.sent.find((m) => m.type === 'user_message');
+    const userMsg = transport.sent.find((m) => m.type === 'user_message');
     expect(userMsg).toBeUndefined();
   });
 
@@ -683,7 +682,7 @@ describe('runQueryLoop', () => {
         { type: 'result', session_id: 'sess-store' },
       ];
 
-      await runQueryLoop(eventStream(events), clientId, registry, abortController, ws, store);
+      await runQueryLoop(eventStream(events), clientId, registry, abortController, store);
 
       const stored = store.getSessionEvents('sess-store');
       expect(stored.length).toBeGreaterThan(0);
@@ -693,7 +692,7 @@ describe('runQueryLoop', () => {
       expect(stored.some((e) => e.type === 'session_end')).toBe(true);
     });
 
-    it('injects seq into sent WS messages when store is provided', async () => {
+    it('injects seq into sent transport messages when store is provided', async () => {
       const session = registry.get(clientId)!;
       session.sessionId = 'sess-seq';
 
@@ -716,10 +715,10 @@ describe('runQueryLoop', () => {
         { type: 'result', session_id: 'sess-seq' },
       ];
 
-      await runQueryLoop(eventStream(events), clientId, registry, abortController, ws, store);
+      await runQueryLoop(eventStream(events), clientId, registry, abortController, store);
 
       // All v2 messages should have a seq field
-      const v2Messages = ws.sent.filter((m) => m.v === 2);
+      const v2Messages = transport.sent.filter((m) => m.v === 2);
       expect(v2Messages.length).toBeGreaterThan(0);
       for (const msg of v2Messages) {
         expect(msg.seq).toEqual(expect.any(Number));
@@ -733,7 +732,7 @@ describe('runQueryLoop', () => {
     });
 
     it('persists events even when session is detached', async () => {
-      registry = fakeRegistry(ws);
+      registry = fakeRegistry(transport);
       const reg = registry as unknown as { _setAttached: (v: boolean) => void };
       const session = registry.get(clientId)!;
       session.sessionId = 'sess-detach-store';
@@ -762,7 +761,7 @@ describe('runQueryLoop', () => {
         yield { type: 'result', session_id: 'sess-detach-store' };
       }
 
-      await runQueryLoop(detachingStream(), clientId, registry, abortController, ws, store);
+      await runQueryLoop(detachingStream(), clientId, registry, abortController, store);
 
       // Events should be in the store regardless of attachment state
       const stored = store.getSessionEvents('sess-detach-store');
@@ -796,7 +795,6 @@ describe('runQueryLoop', () => {
         clientId,
         registry,
         abortController,
-        ws,
         store,
         'Hello, this is my first message',
       );
@@ -835,7 +833,7 @@ describe('runQueryLoop', () => {
         { type: 'result', session_id: 'sess-followup' },
       ];
 
-      await runQueryLoop(eventStream(events), clientId, registry, abortController, ws, store);
+      await runQueryLoop(eventStream(events), clientId, registry, abortController, store);
 
       // Simulate what sendToChat would do — persist directly to store
       store.append('sess-followup', 'user_message', {
@@ -873,11 +871,11 @@ describe('runQueryLoop', () => {
       ];
 
       // No store argument — should work exactly as before
-      await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+      await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-      expect(ws.sent.some((m) => m.type === 'message_start')).toBe(true);
+      expect(transport.sent.some((m) => m.type === 'message_start')).toBe(true);
       // v2 messages should NOT have seq when no store
-      const v2Messages = ws.sent.filter((m) => m.v === 2);
+      const v2Messages = transport.sent.filter((m) => m.v === 2);
       for (const msg of v2Messages) {
         expect(msg.seq).toBeUndefined();
       }
@@ -914,7 +912,7 @@ describe('runQueryLoop', () => {
         },
       ];
 
-      await runQueryLoop(eventStream(events), clientId, registry, abortController, ws, store);
+      await runQueryLoop(eventStream(events), clientId, registry, abortController, store);
 
       const session = store.getSession('sess-usage');
       expect(session).not.toBeNull();
@@ -947,9 +945,9 @@ describe('runQueryLoop', () => {
         },
       ];
 
-      await runQueryLoop(eventStream(events), clientId, registry, abortController, ws, store);
+      await runQueryLoop(eventStream(events), clientId, registry, abortController, store);
 
-      const sessionEnd = ws.sent.find((m) => m.type === 'session_end');
+      const sessionEnd = transport.sent.find((m) => m.type === 'session_end');
       expect(sessionEnd).toBeDefined();
       expect(sessionEnd!.usage).toBeDefined();
       expect(sessionEnd!.usage).toMatchObject({
@@ -974,9 +972,9 @@ describe('runQueryLoop', () => {
         },
       ];
 
-      await runQueryLoop(eventStream(events), clientId, registry, abortController, ws, store);
+      await runQueryLoop(eventStream(events), clientId, registry, abortController, store);
 
-      const sessionEnd = ws.sent.find((m) => m.type === 'session_end');
+      const sessionEnd = transport.sent.find((m) => m.type === 'session_end');
       expect(sessionEnd).toBeDefined();
       expect(sessionEnd!.usage).toMatchObject({
         inputTokens: 0,
@@ -1010,7 +1008,7 @@ describe('runQueryLoop', () => {
         },
       ];
 
-      await runQueryLoop(eventStream(events), clientId, registry, abortController, ws, store);
+      await runQueryLoop(eventStream(events), clientId, registry, abortController, store);
 
       const session = store.getSession('sess-partial');
       expect(session!.inputTokens).toBe(500);
@@ -1025,10 +1023,10 @@ describe('runQueryLoop', () => {
   });
 
   describe('observer broadcast', () => {
-    it('sends events to observer WebSockets alongside the driver', async () => {
-      const observerWs = fakeWs();
-      const observers = new Set<WebSocket>([observerWs]);
-      registry = fakeRegistry(ws, { observers });
+    it('sends events to observer transports alongside the driver', async () => {
+      const observerTransport = fakeTransport();
+      const observers = new Set<SessionTransport>([observerTransport]);
+      registry = fakeRegistry(transport, { observers });
 
       const events: Record<string, unknown>[] = [
         { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-obs' } } },
@@ -1049,19 +1047,19 @@ describe('runQueryLoop', () => {
         { type: 'result', session_id: 'sess-obs' },
       ];
 
-      await runQueryLoop(eventStream(events), clientId, registry, abortController, ws);
+      await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
       // Observer should receive the same v2 events as the driver
-      expect(observerWs.sent.some((m) => m.type === 'message_start')).toBe(true);
-      expect(observerWs.sent.some((m) => m.type === 'block_delta')).toBe(true);
-      expect(observerWs.sent.some((m) => m.type === 'session_end')).toBe(true);
+      expect(observerTransport.sent.some((m) => m.type === 'message_start')).toBe(true);
+      expect(observerTransport.sent.some((m) => m.type === 'block_delta')).toBe(true);
+      expect(observerTransport.sent.some((m) => m.type === 'session_end')).toBe(true);
     });
 
-    it('does not fail when observer ws is closed', async () => {
-      const closedWs = fakeWs();
-      (closedWs as any).readyState = 3; // CLOSED
-      const observers = new Set<WebSocket>([closedWs]);
-      registry = fakeRegistry(ws, { observers });
+    it('does not fail when observer transport is closed', async () => {
+      const closedTransport = fakeTransport();
+      (closedTransport as any).isOpen = () => false;
+      const observers = new Set<SessionTransport>([closedTransport]);
+      registry = fakeRegistry(transport, { observers });
 
       const events: Record<string, unknown>[] = [
         { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-cobs' } } },
@@ -1070,11 +1068,11 @@ describe('runQueryLoop', () => {
       ];
 
       await expect(
-        runQueryLoop(eventStream(events), clientId, registry, abortController, ws),
+        runQueryLoop(eventStream(events), clientId, registry, abortController),
       ).resolves.toBeUndefined();
 
       // Closed observer should not receive any messages
-      expect(closedWs.sent).toHaveLength(0);
+      expect(closedTransport.sent).toHaveLength(0);
     });
   });
 });
