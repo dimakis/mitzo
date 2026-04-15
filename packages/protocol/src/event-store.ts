@@ -1,8 +1,10 @@
 import Database from 'better-sqlite3';
-import type { StoredEvent, SessionMeta } from './types.js';
+import type { MitzoMode, StoredEvent, SessionMeta, EventStoreLogger } from './types.js';
 
 // Re-export types for consumer convenience
-export type { StoredEvent, SessionMeta };
+export type { StoredEvent, SessionMeta, EventStoreLogger };
+
+const noopLogger: EventStoreLogger = { info() {} };
 
 interface EventRow {
   seq: number;
@@ -65,6 +67,7 @@ const SCHEMA = `
 
 export class EventStore {
   private db: Database.Database | null;
+  private log: EventStoreLogger;
   private stmts: {
     append: Database.Statement;
     eventsAfter: Database.Statement;
@@ -78,7 +81,8 @@ export class EventStore {
     recordUsage: Database.Statement;
   };
 
-  constructor(dbPath: string) {
+  constructor(dbPath: string, logger?: EventStoreLogger) {
+    this.log = logger ?? noopLogger;
     const db = new Database(dbPath);
     this.db = db;
 
@@ -88,6 +92,8 @@ export class EventStore {
     this.migratePromptTracking(db);
     this.migrateUsageTracking(db);
     this.migrateWorktreeTracking(db);
+
+    this.log.info('EventStore initialized', { dbPath });
 
     this.stmts = {
       append: db.prepare('INSERT INTO events (session_id, type, payload) VALUES (?, ?, ?)'),
@@ -134,12 +140,15 @@ export class EventStore {
     const columnNames = new Set(columns.map((c) => c.name));
     if (!columnNames.has('prompt_count')) {
       db.exec('ALTER TABLE sessions ADD COLUMN prompt_count INTEGER NOT NULL DEFAULT 0');
+      this.log.info('migrated sessions table: added prompt_count');
     }
     if (!columnNames.has('manually_renamed')) {
       db.exec('ALTER TABLE sessions ADD COLUMN manually_renamed INTEGER NOT NULL DEFAULT 0');
+      this.log.info('migrated sessions table: added manually_renamed');
     }
     if (!columnNames.has('initial_prompt')) {
       db.exec('ALTER TABLE sessions ADD COLUMN initial_prompt TEXT');
+      this.log.info('migrated sessions table: added initial_prompt');
     }
   }
 
@@ -160,6 +169,7 @@ export class EventStore {
     for (const [col, sql] of migrations) {
       if (!columnNames.has(col)) {
         db.exec(sql);
+        this.log.info(`migrated sessions table: added ${col}`);
       }
     }
   }
@@ -169,6 +179,7 @@ export class EventStore {
     const columnNames = new Set(columns.map((c) => c.name));
     if (!columnNames.has('wt_id')) {
       db.exec('ALTER TABLE sessions ADD COLUMN wt_id TEXT');
+      this.log.info('migrated sessions table: added wt_id');
     }
   }
 
@@ -217,7 +228,7 @@ export class EventStore {
       );
     } else {
       this.db!.prepare(
-        'INSERT INTO sessions (session_id, summary, branch, cwd, mode, initial_prompt, wt_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO sessions (session_id, summary, branch, cwd, mode, initial_prompt, wt_id, goal_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       ).run(
         meta.sessionId,
         meta.summary ?? null,
@@ -226,6 +237,7 @@ export class EventStore {
         meta.mode ?? 'agent',
         meta.initialPrompt ?? null,
         meta.wtId ?? null,
+        meta.goalId ?? null,
       );
     }
   }
@@ -312,7 +324,7 @@ function rowToSession(row: SessionRow): SessionMeta {
     summary: row.summary,
     branch: row.branch,
     cwd: row.cwd,
-    mode: row.mode,
+    mode: row.mode as MitzoMode,
     isActive: row.is_active === 1,
     isHidden: row.is_hidden === 1,
     promptCount: row.prompt_count ?? 0,

@@ -17,6 +17,14 @@ describe('EventStore', () => {
       const seq = store.append('sess-1', 'message_start', { messageId: 'm1' });
       expect(seq).toBe(1);
     });
+
+    it('calls logger on initialization', () => {
+      const messages: string[] = [];
+      const logger = { info: (msg: string) => messages.push(msg) };
+      const s = new EventStore(':memory:', logger);
+      s.close();
+      expect(messages).toContain('EventStore initialized');
+    });
   });
 
   describe('append', () => {
@@ -140,7 +148,15 @@ describe('EventStore', () => {
       expect(session!.summary).toBe('Updated');
     });
 
-    it('persists and retrieves goalId', () => {
+    it('persists goalId on insert (not just update)', () => {
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Test', goalId: 'goal-on-insert' });
+
+      const session = store.getSession('sess-1');
+      expect(session).not.toBeNull();
+      expect(session!.goalId).toBe('goal-on-insert');
+    });
+
+    it('persists and retrieves goalId via update', () => {
       store.upsertSession({ sessionId: 'sess-1', summary: 'Test' });
       store.upsertSession({ sessionId: 'sess-1', goalId: 'goal-abc-123' });
 

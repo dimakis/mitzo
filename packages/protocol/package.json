@@ -8,6 +8,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./event-store": {
+      "types": "./dist/event-store.d.ts",
+      "import": "./dist/event-store.js"
     }
   },
   "files": ["dist"],

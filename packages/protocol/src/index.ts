@@ -17,6 +17,7 @@ export type {
   Session,
   StoredEvent,
   SessionMeta,
+  EventStoreLogger,
 } from './types.js';
 
 // Constants
@@ -53,5 +54,7 @@ export {
   IncomingWsMessage,
 } from './ws-schemas.js';
 
-// Event store (requires better-sqlite3 — optional peer dep)
-export { EventStore } from './event-store.js';
+// Event store — the EventStore class requires better-sqlite3 and must be
+// imported via '@mitzo/protocol/event-store' to avoid breaking frontend/browser
+// consumers that don't have the native dependency.
+// StoredEvent, SessionMeta, and EventStoreLogger types are in './types.js' above.

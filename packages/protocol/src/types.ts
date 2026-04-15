@@ -115,6 +115,11 @@ export interface Session {
 
 // --- Event store types ---
 
+/** Optional logger interface — keeps the protocol package free of server dependencies. */
+export interface EventStoreLogger {
+  info(msg: string, meta?: Record<string, unknown>): void;
+}
+
 export interface StoredEvent {
   seq: number;
   sessionId: string;
@@ -128,7 +133,7 @@ export interface SessionMeta {
   summary: string | null;
   branch: string | null;
   cwd: string | null;
-  mode: string;
+  mode: MitzoMode;
   isActive: boolean;
   isHidden: boolean;
   promptCount: number;
