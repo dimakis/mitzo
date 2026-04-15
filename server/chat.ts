@@ -670,16 +670,7 @@ export function isActive(clientId: string): boolean {
  *
  * This keeps all paths configurable (no hardcoded machine-specific paths).
  */
-let _claudeProjectsRoot: string | null = null;
-/** Override ~/.claude/projects root for testing. */
-export function setClaudeProjectsRoot(root: string | null): void {
-  _claudeProjectsRoot = root;
-}
-function getClaudeProjectsRoot(): string {
-  return _claudeProjectsRoot ?? join(homedir(), '.claude', 'projects');
-}
-
-export function getSessionDirs(): string[] {
+export function getSessionDirs(options?: { claudeProjectsRoot?: string }): string[] {
   const dirs = [BASE_REPO];
   const seen = new Set([BASE_REPO]);
 
@@ -739,7 +730,8 @@ export function getSessionDirs(): string[] {
   const encodedBase = BASE_REPO.replace(/\//g, '-');
   const wtPrefix = `${encodedBase}--claude-worktrees-`;
   try {
-    for (const entry of readdirSync(getClaudeProjectsRoot())) {
+    const claudeProjects = options?.claudeProjectsRoot ?? join(homedir(), '.claude', 'projects');
+    for (const entry of readdirSync(claudeProjects)) {
       if (!entry.startsWith(wtPrefix)) continue;
       const wtId = entry.slice(wtPrefix.length);
       if (!wtId) continue;
