@@ -20,9 +20,9 @@ const mockConfig: RepoConfig = {
   contextBlocks: {},
 };
 
-const mockLoadRepoConfig = vi.fn(() => ({ ...mockConfig }));
+const mockLoadRepoConfig = vi.fn((_repoPath?: string) => ({ ...mockConfig }));
 vi.mock('../repo-config.js', () => ({
-  loadRepoConfig: (...args: unknown[]) => mockLoadRepoConfig(...args),
+  loadRepoConfig: (repoPath: string) => mockLoadRepoConfig(repoPath),
 }));
 
 import { getSessionDirs, BASE_REPO } from '../chat.js';
