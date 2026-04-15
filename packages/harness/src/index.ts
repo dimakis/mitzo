@@ -35,5 +35,21 @@ export {
   NTFY_NOTIFICATION_DELAY_MS,
 } from './constants.js';
 
+// Permission handler
+export { buildPermissionHandler } from './permission-handler.js';
+
+// Auto-rename
+export {
+  shouldAutoRename,
+  extractRecentPrompts,
+  generateSessionName,
+  generateSessionNameFallback,
+  createAnthropicClient,
+  setClientFactory,
+  resetClientFactory,
+  AUTO_RENAME_INTERVAL,
+  AUTO_RENAME_MODEL,
+} from './auto-rename.js';
+
 // Logger
 export { createLogger } from './logger.js';
