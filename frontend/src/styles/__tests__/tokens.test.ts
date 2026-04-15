@@ -35,7 +35,17 @@ describe('design tokens', () => {
   });
 
   describe('type scale variables', () => {
-    const typeVars = ['--text-xs', '--text-sm', '--text-base', '--text-lg', '--text-xl'];
+    const typeVars = [
+      '--text-2xs',
+      '--text-xxs',
+      '--text-xs',
+      '--text-s',
+      '--text-sm',
+      '--text-md',
+      '--text-base',
+      '--text-lg',
+      '--text-xl',
+    ];
 
     for (const v of typeVars) {
       it(`defines ${v}`, () => {
@@ -47,6 +57,7 @@ describe('design tokens', () => {
   describe('spacing scale variables', () => {
     const spaceVars = [
       '--space-1',
+      '--space-1h',
       '--space-2',
       '--space-3',
       '--space-4',
