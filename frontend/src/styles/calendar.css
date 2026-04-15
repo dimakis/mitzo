@@ -13,8 +13,8 @@
 .cal-header {
   display: flex;
   align-items: center;
-  padding: 12px 16px;
-  gap: 8px;
+  padding: var(--space-3) var(--space-4);
+  gap: var(--space-2);
   border-bottom: 1px solid var(--border);
   background: var(--surface);
   flex-shrink: 0;
@@ -24,8 +24,8 @@
   background: none;
   border: none;
   color: var(--accent);
-  font-size: 24px;
-  padding: 0 8px;
+  font-size: var(--text-xl);
+  padding: 0 var(--space-2);
   cursor: pointer;
   line-height: 1;
 }
@@ -33,7 +33,7 @@
 .cal-header-center {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   flex: 1;
   justify-content: center;
 }
@@ -45,7 +45,7 @@
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
-  padding: 4px 8px;
+  padding: var(--space-1) var(--space-2);
   border-radius: 6px;
 }
 
@@ -60,7 +60,7 @@
   color: var(--text-dim);
   font-size: 20px;
   cursor: pointer;
-  padding: 4px 8px;
+  padding: var(--space-1) var(--space-2);
   border-radius: 6px;
   line-height: 1;
 }
@@ -80,14 +80,14 @@
 }
 
 .cal-filter-toggle {
-  margin-left: 4px;
+  margin-left: var(--space-1);
 }
 
 .cal-view-btn {
   background: none;
   border: none;
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: var(--text-xs);
   padding: 4px 10px;
   border-radius: 4px;
   cursor: pointer;
@@ -106,10 +106,10 @@
 /* Sprint bar */
 
 .cal-sprints {
-  padding: 8px 16px;
+  padding: var(--space-2) var(--space-4);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
   border-bottom: 1px solid var(--border);
 }
 
@@ -119,9 +119,9 @@
   justify-content: space-between;
   background: rgba(108, 99, 255, 0.1);
   border-left: 3px solid var(--accent);
-  padding: 6px 12px;
+  padding: var(--space-1h) var(--space-3);
   border-radius: 0 6px 6px 0;
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .cal-sprint-label {
@@ -167,14 +167,14 @@
 }
 
 .cal-day {
-  padding: 0 16px;
+  padding: 0 var(--space-4);
 }
 
 .cal-day-header {
   position: sticky;
   top: 0;
   background: var(--bg);
-  padding: 12px 0 6px;
+  padding: var(--space-3) 0 var(--space-1h);
   font-size: 13px;
   font-weight: 600;
   color: var(--text-dim);
@@ -183,7 +183,7 @@
 }
 
 .cal-day-empty {
-  padding: 12px 0;
+  padding: var(--space-3) 0;
   font-size: 13px;
   color: var(--text-dim);
   font-style: italic;
@@ -194,7 +194,7 @@
 .cal-event {
   padding: 10px 12px;
   border-radius: 8px;
-  margin: 6px 0;
+  margin: var(--space-1h) 0;
   cursor: pointer;
   transition: background 0.15s;
 }
@@ -224,11 +224,11 @@
 .cal-event-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .cal-event-time {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--text-dim);
   white-space: nowrap;
   min-width: 80px;
@@ -271,8 +271,8 @@
 /* Event detail (expanded) */
 
 .cal-event-detail {
-  margin-top: 8px;
-  padding-top: 8px;
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
   border-top: 1px solid var(--border);
   font-size: 13px;
 }
@@ -285,7 +285,7 @@
 .cal-detail-attendees {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .cal-attendee {
@@ -302,9 +302,9 @@
 
 .cal-detail-link {
   display: inline-block;
-  margin-top: 6px;
+  margin-top: var(--space-1h);
   color: var(--accent);
-  font-size: 12px;
+  font-size: var(--text-xs);
   text-decoration: none;
 }
 
