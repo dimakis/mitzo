@@ -1,27 +1,13 @@
 import type { WebSocket } from 'ws';
 import { DETACHED_TTL_MS, MAX_OBSERVERS_PER_SESSION } from './constants.js';
 import { createLogger } from './logger.js';
-import type { RawToolInput } from './tool-summary.js';
 
 const log = createLogger('session-registry');
 
-export type MitzoMode = 'ask' | 'agent' | 'auto';
-
-export interface SnapshotBlock {
-  blockId: string;
-  blockType: 'text' | 'thinking' | 'redacted_thinking' | 'tool_use';
-  content: string;
-  done: boolean;
-  toolName?: string;
-  toolId?: string;
-  toolInput?: string;
-  rawInput?: RawToolInput;
-}
-
-export interface MessageSnapshot {
-  messageId: string;
-  blocks: SnapshotBlock[];
-}
+// Re-export protocol types that were previously defined here.
+// Consumers importing from './session-registry.js' continue to work unchanged.
+export type { MitzoMode, SnapshotBlock, MessageSnapshot, RawToolInput } from '@mitzo/protocol';
+import type { MitzoMode, SnapshotBlock, MessageSnapshot, RawToolInput } from '@mitzo/protocol';
 
 export interface ManagedSession {
   ws: WebSocket;
