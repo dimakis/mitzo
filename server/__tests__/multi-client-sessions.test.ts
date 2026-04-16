@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SessionRegistry } from '../session-registry.js';
 import { broadcastToObservers } from '../query-loop.js';
 import { MAX_OBSERVERS_PER_SESSION } from '../constants.js';
-import type { SessionTransport } from '@mitzo/harness';
+import type { SessionTransport } from '../../packages/harness/src/session-transport.js';
 
 function mockTransport(open = true): SessionTransport & { _sent: unknown[] } {
   const sent: unknown[] = [];

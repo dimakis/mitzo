@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { SessionTransport } from '@mitzo/harness';
+import type { SessionTransport } from '../../packages/harness/src/session-transport.js';
 import { runQueryLoop } from '../query-loop.js';
 import type { SessionRegistry } from '../session-registry.js';
 import { EventStore } from '../event-store.js';
@@ -150,9 +150,9 @@ describe('runQueryLoop', () => {
     );
 
     // No old-style events
-    expect(sent.some((m) => m.type === 'thinking_start')).toBe(false);
-    expect(sent.some((m) => m.type === 'thinking_delta')).toBe(false);
-    expect(sent.some((m) => m.type === 'text_delta')).toBe(false);
+    expect(sent.some((m: Record<string, unknown>) => m.type === 'thinking_start')).toBe(false);
+    expect(sent.some((m: Record<string, unknown>) => m.type === 'thinking_delta')).toBe(false);
+    expect(sent.some((m: Record<string, unknown>) => m.type === 'text_delta')).toBe(false);
   });
 
   it('emits block_end with toolName/toolId/input for tool_use blocks', async () => {
@@ -187,20 +187,24 @@ describe('runQueryLoop', () => {
 
     const sent = transport.sent;
 
-    const blockStart = sent.find((m) => m.type === 'block_start' && m.blockType === 'tool_use');
+    const blockStart = sent.find(
+      (m: Record<string, unknown>) => m.type === 'block_start' && m.blockType === 'tool_use',
+    );
     expect(blockStart).toBeDefined();
     expect(blockStart).toMatchObject({ toolName: 'Bash' });
 
-    const blockEnd = sent.find((m) => m.type === 'block_end' && m.blockType === 'tool_use');
+    const blockEnd = sent.find(
+      (m: Record<string, unknown>) => m.type === 'block_end' && m.blockType === 'tool_use',
+    );
     expect(blockEnd).toBeDefined();
     expect(blockEnd).toMatchObject({ toolName: 'Bash', toolId: 'tool-1' });
 
-    const toolResult = sent.find((m) => m.type === 'tool_result');
+    const toolResult = sent.find((m: Record<string, unknown>) => m.type === 'tool_result');
     expect(toolResult).toBeDefined();
     expect(toolResult).toMatchObject({ toolId: 'tool-1', result: 'hi\n', isError: false });
 
     // No old-style tool_call event
-    expect(sent.some((m) => m.type === 'tool_call')).toBe(false);
+    expect(sent.some((m: Record<string, unknown>) => m.type === 'tool_call')).toBe(false);
   });
 
   it('emits tool_result with isError=true when is_error flag set', async () => {
@@ -242,7 +246,9 @@ describe('runQueryLoop', () => {
 
     await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-    const toolResult = transport.sent.find((m) => m.type === 'tool_result');
+    const toolResult = transport.sent.find(
+      (m: Record<string, unknown>) => m.type === 'tool_result',
+    );
     expect(toolResult).toMatchObject({ toolId: 'tool-err', isError: true });
   });
 
@@ -255,7 +261,9 @@ describe('runQueryLoop', () => {
     await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
     expect(registry.setSessionId).toHaveBeenCalledWith(clientId, 'sess-new');
-    const sessionIdMsgs = transport.sent.filter((m) => m.type === 'session_id');
+    const sessionIdMsgs = transport.sent.filter(
+      (m: Record<string, unknown>) => m.type === 'session_id',
+    );
     expect(sessionIdMsgs.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -267,7 +275,9 @@ describe('runQueryLoop', () => {
 
     await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-    const sessionEnds = transport.sent.filter((m) => m.type === 'session_end');
+    const sessionEnds = transport.sent.filter(
+      (m: Record<string, unknown>) => m.type === 'session_end',
+    );
     expect(sessionEnds).toHaveLength(1);
   });
 
@@ -296,8 +306,10 @@ describe('runQueryLoop', () => {
     await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
     const sent = transport.sent;
-    const blockEndIdx = sent.findIndex((m) => m.type === 'block_end' && m.blockType === 'text');
-    const messageEndIdx = sent.findIndex((m) => m.type === 'message_end');
+    const blockEndIdx = sent.findIndex(
+      (m: Record<string, unknown>) => m.type === 'block_end' && m.blockType === 'text',
+    );
+    const messageEndIdx = sent.findIndex((m: Record<string, unknown>) => m.type === 'message_end');
     expect(blockEndIdx).toBeGreaterThan(-1);
     expect(messageEndIdx).toBeGreaterThan(-1);
     expect(blockEndIdx).toBeLessThan(messageEndIdx);
@@ -359,16 +371,20 @@ describe('runQueryLoop', () => {
     const sent = transport.sent;
 
     // Turn 1 message_end must exist and come before Turn 2 message_start
-    const t1MsgEnd = sent.findIndex((m) => m.type === 'message_end' && m.messageId === 'msg-t1');
+    const t1MsgEnd = sent.findIndex(
+      (m: Record<string, unknown>) => m.type === 'message_end' && m.messageId === 'msg-t1',
+    );
     const t2MsgStart = sent.findIndex(
-      (m) => m.type === 'message_start' && m.messageId === 'msg-t2',
+      (m: Record<string, unknown>) => m.type === 'message_start' && m.messageId === 'msg-t2',
     );
     expect(t1MsgEnd).toBeGreaterThan(-1);
     expect(t2MsgStart).toBeGreaterThan(-1);
     expect(t1MsgEnd).toBeLessThan(t2MsgStart);
 
     // Turn 2 message_end must also exist
-    const t2MsgEnd = sent.findIndex((m) => m.type === 'message_end' && m.messageId === 'msg-t2');
+    const t2MsgEnd = sent.findIndex(
+      (m: Record<string, unknown>) => m.type === 'message_end' && m.messageId === 'msg-t2',
+    );
     expect(t2MsgEnd).toBeGreaterThan(t2MsgStart);
   });
 
@@ -418,15 +434,17 @@ describe('runQueryLoop', () => {
     await runQueryLoop(detachingStream(), clientId, registry, abortController);
 
     // Messages sent while attached should be on the transport
-    expect(transport.sent.some((m) => m.type === 'message_start')).toBe(true);
+    expect(transport.sent.some((m: Record<string, unknown>) => m.type === 'message_start')).toBe(
+      true,
+    );
     const attachedDeltas = transport.sent.filter(
-      (m) => m.type === 'block_delta' && m.delta === 'before detach',
+      (m: Record<string, unknown>) => m.type === 'block_delta' && m.delta === 'before detach',
     );
     expect(attachedDeltas).toHaveLength(1);
 
     // Messages sent while detached should NOT be on the transport
     const detachedDeltas = transport.sent.filter(
-      (m) => m.type === 'block_delta' && m.delta === ' after detach',
+      (m: Record<string, unknown>) => m.type === 'block_delta' && m.delta === ' after detach',
     );
     expect(detachedDeltas).toHaveLength(0);
   });
@@ -457,13 +475,19 @@ describe('runQueryLoop', () => {
 
     await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-    expect(transport.sent.some((m) => m.type === 'text')).toBe(false);
-    expect(transport.sent.some((m) => m.type === 'text_delta')).toBe(false);
-    expect(transport.sent.some((m) => m.type === 'done')).toBe(false);
+    expect(transport.sent.some((m: Record<string, unknown>) => m.type === 'text')).toBe(false);
+    expect(transport.sent.some((m: Record<string, unknown>) => m.type === 'text_delta')).toBe(
+      false,
+    );
+    expect(transport.sent.some((m: Record<string, unknown>) => m.type === 'done')).toBe(false);
 
     // v2 equivalents ARE present
-    expect(transport.sent.some((m) => m.type === 'block_delta')).toBe(true);
-    expect(transport.sent.some((m) => m.type === 'session_end')).toBe(true);
+    expect(transport.sent.some((m: Record<string, unknown>) => m.type === 'block_delta')).toBe(
+      true,
+    );
+    expect(transport.sent.some((m: Record<string, unknown>) => m.type === 'session_end')).toBe(
+      true,
+    );
   });
 
   it('does not emit user_message for SDK user events with string content', async () => {
@@ -492,7 +516,7 @@ describe('runQueryLoop', () => {
 
     await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-    const userMsg = transport.sent.find((m) => m.type === 'user_message');
+    const userMsg = transport.sent.find((m: Record<string, unknown>) => m.type === 'user_message');
     expect(userMsg).toBeUndefined();
   });
 
@@ -525,7 +549,7 @@ describe('runQueryLoop', () => {
 
     await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-    const userMsg = transport.sent.find((m) => m.type === 'user_message');
+    const userMsg = transport.sent.find((m: Record<string, unknown>) => m.type === 'user_message');
     expect(userMsg).toBeUndefined();
   });
 
@@ -566,11 +590,13 @@ describe('runQueryLoop', () => {
     await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
     // Text content from SDK user events must NOT produce user_message
-    const userMsg = transport.sent.find((m) => m.type === 'user_message');
+    const userMsg = transport.sent.find((m: Record<string, unknown>) => m.type === 'user_message');
     expect(userMsg).toBeUndefined();
 
     // tool_result extraction should still work
-    const toolResult = transport.sent.find((m) => m.type === 'tool_result');
+    const toolResult = transport.sent.find(
+      (m: Record<string, unknown>) => m.type === 'tool_result',
+    );
     expect(toolResult).toBeDefined();
     expect(toolResult).toMatchObject({ toolId: 'tool-mix' });
   });
@@ -607,7 +633,9 @@ describe('runQueryLoop', () => {
 
     await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-    const userMsgs = transport.sent.filter((m) => m.type === 'user_message');
+    const userMsgs = transport.sent.filter(
+      (m: Record<string, unknown>) => m.type === 'user_message',
+    );
     expect(userMsgs).toHaveLength(0);
   });
 
@@ -643,7 +671,7 @@ describe('runQueryLoop', () => {
 
     await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-    const userMsg = transport.sent.find((m) => m.type === 'user_message');
+    const userMsg = transport.sent.find((m: Record<string, unknown>) => m.type === 'user_message');
     expect(userMsg).toBeUndefined();
   });
 
@@ -718,14 +746,14 @@ describe('runQueryLoop', () => {
       await runQueryLoop(eventStream(events), clientId, registry, abortController, store);
 
       // All v2 messages should have a seq field
-      const v2Messages = transport.sent.filter((m) => m.v === 2);
+      const v2Messages = transport.sent.filter((m: Record<string, unknown>) => m.v === 2);
       expect(v2Messages.length).toBeGreaterThan(0);
       for (const msg of v2Messages) {
         expect(msg.seq).toEqual(expect.any(Number));
       }
 
       // Seq numbers should be monotonically increasing
-      const seqs = v2Messages.map((m) => m.seq as number);
+      const seqs = v2Messages.map((m: Record<string, unknown>) => m.seq as number);
       for (let i = 1; i < seqs.length; i++) {
         expect(seqs[i]).toBeGreaterThan(seqs[i - 1]);
       }
@@ -873,9 +901,11 @@ describe('runQueryLoop', () => {
       // No store argument — should work exactly as before
       await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
-      expect(transport.sent.some((m) => m.type === 'message_start')).toBe(true);
+      expect(transport.sent.some((m: Record<string, unknown>) => m.type === 'message_start')).toBe(
+        true,
+      );
       // v2 messages should NOT have seq when no store
-      const v2Messages = transport.sent.filter((m) => m.v === 2);
+      const v2Messages = transport.sent.filter((m: Record<string, unknown>) => m.v === 2);
       for (const msg of v2Messages) {
         expect(msg.seq).toBeUndefined();
       }
@@ -947,7 +977,9 @@ describe('runQueryLoop', () => {
 
       await runQueryLoop(eventStream(events), clientId, registry, abortController, store);
 
-      const sessionEnd = transport.sent.find((m) => m.type === 'session_end');
+      const sessionEnd = transport.sent.find(
+        (m: Record<string, unknown>) => m.type === 'session_end',
+      );
       expect(sessionEnd).toBeDefined();
       expect(sessionEnd!.usage).toBeDefined();
       expect(sessionEnd!.usage).toMatchObject({
@@ -974,7 +1006,9 @@ describe('runQueryLoop', () => {
 
       await runQueryLoop(eventStream(events), clientId, registry, abortController, store);
 
-      const sessionEnd = transport.sent.find((m) => m.type === 'session_end');
+      const sessionEnd = transport.sent.find(
+        (m: Record<string, unknown>) => m.type === 'session_end',
+      );
       expect(sessionEnd).toBeDefined();
       expect(sessionEnd!.usage).toMatchObject({
         inputTokens: 0,
@@ -1050,9 +1084,15 @@ describe('runQueryLoop', () => {
       await runQueryLoop(eventStream(events), clientId, registry, abortController);
 
       // Observer should receive the same v2 events as the driver
-      expect(observerTransport.sent.some((m) => m.type === 'message_start')).toBe(true);
-      expect(observerTransport.sent.some((m) => m.type === 'block_delta')).toBe(true);
-      expect(observerTransport.sent.some((m) => m.type === 'session_end')).toBe(true);
+      expect(
+        observerTransport.sent.some((m: Record<string, unknown>) => m.type === 'message_start'),
+      ).toBe(true);
+      expect(
+        observerTransport.sent.some((m: Record<string, unknown>) => m.type === 'block_delta'),
+      ).toBe(true);
+      expect(
+        observerTransport.sent.some((m: Record<string, unknown>) => m.type === 'session_end'),
+      ).toBe(true);
     });
 
     it('does not fail when observer transport is closed', async () => {

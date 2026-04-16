@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { EventStore } from '../event-store.js';
+import type { StoredEvent } from '../event-store.js';
 
 describe('EventStore', () => {
   let store: EventStore;
@@ -80,7 +81,7 @@ describe('EventStore', () => {
 
       const events = store.getEventsAfter('sess-1', 0);
       expect(events).toHaveLength(2);
-      expect(events.every((e) => e.sessionId === 'sess-1')).toBe(true);
+      expect(events.every((e: StoredEvent) => e.sessionId === 'sess-1')).toBe(true);
     });
 
     it('respects limit parameter', () => {
