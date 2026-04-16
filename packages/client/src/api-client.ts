@@ -72,12 +72,12 @@ export class MitzoApiClient {
   }
 
   async login(passphrase: string): Promise<Response> {
-    return this.fetch('/api/auth/login', {
+    return this.assertOk(await this.fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
       body: JSON.stringify({ passphrase }),
-    });
+    }));
   }
 
   // ── Sessions ─────────────────────────────────────────────────────────────

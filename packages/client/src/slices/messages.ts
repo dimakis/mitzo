@@ -301,7 +301,7 @@ export function messagesReducer(
         ...state,
         branch: action.branch,
         isWorktree: action.isWorktree,
-        wtId: action.wtId ?? state.wtId,
+        wtId: action.isWorktree ? (action.wtId ?? state.wtId) : null,
       };
 
     case 'WORKTREE_OPENED': {

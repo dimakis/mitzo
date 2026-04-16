@@ -70,6 +70,33 @@ export interface MitzoStoreOptions {
   wsConfig: WsPoolConfig;
 }
 
+// ─── Tree helpers ───────────────────────────────────────────────────────────
+
+/** Recursively replace a task by ID anywhere in the tree. */
+function updateTaskInTree(tasks: Task[], updated: Task): Task[] {
+  return tasks.map((t) => {
+    if (t.id === updated.id) return updated;
+    if (t.children.length > 0) {
+      const newChildren = updateTaskInTree(t.children, updated);
+      return newChildren !== t.children ? { ...t, children: newChildren } : t;
+    }
+    return t;
+  });
+}
+
+/** Recursively remove a task by ID anywhere in the tree. */
+function removeTaskFromTree(tasks: Task[], id: string): Task[] {
+  return tasks
+    .filter((t) => t.id !== id)
+    .map((t) => {
+      if (t.children.length > 0) {
+        const newChildren = removeTaskFromTree(t.children, id);
+        return newChildren !== t.children ? { ...t, children: newChildren } : t;
+      }
+      return t;
+    });
+}
+
 // ─── Factory ─────────────────────────────────────────────────────────────────
 
 export function createMitzoStore(
@@ -83,6 +110,9 @@ export function createMitzoStore(
     currentSessionId: undefined,
     pendingSend: null,
   };
+
+  // Track the actual WS pool key so wsListener routes to the correct entry
+  let activePoolKey: string | null = null;
 
   const store = createStore<MitzoStoreState>((set, get) => ({
     // ── Initial state ────────────────────────────────────────────────────
@@ -107,6 +137,7 @@ export function createMitzoStore(
     async switchSession(id: string) {
       parserState.currentSessionId = id;
       const poolKey = `session:${id}`;
+      activePoolKey = poolKey;
 
       // Reset messages state for new session
       set((s) => ({
@@ -149,6 +180,7 @@ export function createMitzoStore(
       // For new sessions, subscribe first so the pool entry exists
       if (!poolKey) {
         const newKey = `new:${Date.now()}`;
+        activePoolKey = newKey;
         wsPool.subscribe(newKey, wsListener);
 
         // Optimistic update
@@ -258,6 +290,7 @@ export function createMitzoStore(
   const callbacks: ProtocolCallbacks = {
     onSessionAssigned(sessionId: string) {
       parserState.currentSessionId = sessionId;
+      activePoolKey = `session:${sessionId}`;
       store.setState((s) => ({
         sessions: { ...s.sessions, active: sessionId },
       }));
@@ -298,9 +331,7 @@ export function createMitzoStore(
   };
 
   function wsListener(wsMsg: WsMsg) {
-    const poolKey = parserState.currentSessionId
-      ? `session:${parserState.currentSessionId}`
-      : 'default';
+    const poolKey = activePoolKey ?? 'default';
 
     const result = parseServerMessage(wsMsg, parserState, callbacks, poolKey);
 
@@ -315,22 +346,19 @@ export function createMitzoStore(
     if (result.tasksUpdate) {
       switch (result.tasksUpdate.type) {
         case 'task_state':
-          store.setState((s) => ({ tasks: { ...s.tasks, tree: result.tasksUpdate!.type === 'task_state' ? (result.tasksUpdate as { tasks: Task[] }).tasks : s.tasks.tree } }));
+          store.setState((s) => ({ tasks: { ...s.tasks, tree: (result.tasksUpdate as { tasks: Task[] }).tasks } }));
           break;
         case 'task_updated': {
           const updated = result.tasksUpdate.task;
           store.setState((s) => ({
-            tasks: {
-              ...s.tasks,
-              tree: s.tasks.tree.map((t) => (t.id === updated.id ? updated : t)),
-            },
+            tasks: { ...s.tasks, tree: updateTaskInTree(s.tasks.tree, updated) },
           }));
           break;
         }
         case 'task_deleted': {
           const deletedId = result.tasksUpdate.taskId;
           store.setState((s) => ({
-            tasks: { ...s.tasks, tree: s.tasks.tree.filter((t) => t.id !== deletedId) },
+            tasks: { ...s.tasks, tree: removeTaskFromTree(s.tasks.tree, deletedId) },
           }));
           break;
         }
