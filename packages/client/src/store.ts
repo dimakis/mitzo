@@ -7,7 +7,7 @@
 
 import { createStore } from 'zustand/vanilla';
 import type { StoreApi } from 'zustand/vanilla';
-import type { MitzoMode, ImageAttachment } from '@mitzo/protocol';
+import type { FinishedMessage, MitzoMode, ImageAttachment } from '@mitzo/protocol';
 
 import type { TransportAdapter } from './types.js';
 import { messagesReducer, INITIAL_MESSAGES_STATE } from './slices/messages.js';
@@ -302,24 +302,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }));
     },
 
-    onMessagesRestored() {
-      // Triggered after reattach_failed recovery — reload messages from API
-      if (parserState.currentSessionId) {
-        api
-          .getSessionMessages(parserState.currentSessionId)
-          .then((msgs) => {
-            if (Array.isArray(msgs) && msgs.length > 0) {
-              store.setState((s) => ({
-                messages: messagesReducer(s.messages, { type: 'RESTORE', messages: msgs }),
-              }));
-            }
-          })
-          .catch(() => {});
-      }
+    onMessagesRestored(messages: FinishedMessage[]) {
+      store.setState((s) => ({
+        messages: messagesReducer(s.messages, { type: 'RESTORE', messages }),
+      }));
     },
 
-    fetchMessages(sessionId: string, signal: AbortSignal) {
-      return api.getSessionMessages(sessionId, signal);
+    fetchMessages(sessionId: string) {
+      return api.getSessionMessages(sessionId);
     },
 
     setWsRunning(poolKey: string, running: boolean) {

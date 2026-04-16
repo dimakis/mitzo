@@ -30,13 +30,13 @@ export interface ProtocolCallbacks {
   onSessionExpired(sessionId: string): void;
 
   /** Called after reattach_failed recovery restores messages from API. */
-  onMessagesRestored?(): void;
+  onMessagesRestored?(messages: FinishedMessage[]): void;
 
   /** Called when the server renames a session. */
   onSessionRenamed?(name: string): void;
 
   /** Called to fetch messages from REST API for reattach recovery. */
-  fetchMessages?(sessionId: string, signal: AbortSignal): Promise<FinishedMessage[]>;
+  fetchMessages?(sessionId: string): Promise<FinishedMessage[]>;
 
   /** Called to mark the WS pool entry as running/not-running. */
   setWsRunning?(poolKey: string, running: boolean): void;
@@ -101,13 +101,11 @@ export function parseServerMessage(
       callbacks.setWsRunning?.(poolKey, false);
       if (state.currentSessionId && callbacks.fetchMessages) {
         const sessionId = state.currentSessionId;
-        const controller = new AbortController();
         callbacks
-          .fetchMessages(sessionId, controller.signal)
+          .fetchMessages(sessionId)
           .then((msgs) => {
-            if (controller.signal.aborted) return;
             if (Array.isArray(msgs) && msgs.length > 0) {
-              callbacks.onMessagesRestored?.();
+              callbacks.onMessagesRestored?.(msgs);
             }
           })
           .catch(() => {});
