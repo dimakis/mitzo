@@ -61,6 +61,8 @@ export interface MitzoStoreState {
   respondToPermission(permId: string, decision: 'once' | 'always' | 'deny'): void;
   setMode(mode: MitzoMode): void;
   setModel(modelId: string): void;
+  loadSessions(offset?: number): Promise<void>;
+  refreshSessions(): Promise<void>;
 }
 
 // ─── Store options ───────────────────────────────────────────────────────────
@@ -281,6 +283,27 @@ export function createMitzoStore(
         config: { ...s.config, modelId },
       }));
     },
+
+    async loadSessions(offset?: number) {
+      set((s) => ({ sessions: { ...s.sessions, loading: true } }));
+      try {
+        const raw = await api.listSessions(offset);
+        const list = Array.isArray(raw) ? raw : (raw as unknown as { sessions: typeof raw }).sessions ?? [];
+        set((s) => ({ sessions: { ...s.sessions, list, loading: false } }));
+      } catch {
+        set((s) => ({ sessions: { ...s.sessions, loading: false } }));
+      }
+    },
+
+    async refreshSessions() {
+      try {
+        const raw = await api.listSessions();
+        const list = Array.isArray(raw) ? raw : (raw as unknown as { sessions: typeof raw }).sessions ?? [];
+        set((s) => ({ sessions: { ...s.sessions, list } }));
+      } catch {
+        // Silent — keep existing list on failure
+      }
+    },
   }));
 
   // ── WS → store wiring ──────────────────────────────────────────────────
@@ -294,6 +317,7 @@ export function createMitzoStore(
       store.setState((s) => ({
         sessions: { ...s.sessions, active: sessionId },
       }));
+      store.getState().refreshSessions();
     },
 
     onSessionExpired(sessionId: string) {
@@ -382,6 +406,7 @@ export function createMitzoStore(
       api.getInbox().then((items) => {
         store.setState({ inbox: { items, count: items.length } });
       }).catch(() => {});
+      store.getState().refreshSessions();
     }
   }
 

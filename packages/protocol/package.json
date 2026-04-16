@@ -7,11 +7,13 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./event-store": {
       "types": "./dist/event-store.d.ts",
-      "import": "./dist/event-store.js"
+      "import": "./dist/event-store.js",
+      "default": "./dist/event-store.js"
     }
   },
   "files": ["dist"],
