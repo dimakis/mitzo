@@ -94,8 +94,10 @@ describe('reattach', () => {
 
     parseServerMessage({ type: 'reattach_failed', clientId: 'old' }, state, cb, POOL_KEY);
 
-    // Give async a chance to resolve
-    await new Promise((r) => setTimeout(r, 10));
+    // Flush the microtask queue so the mockResolvedValue resolves
+    await vi.waitFor(() => {
+      expect(fetchMessages).toHaveBeenCalled();
+    });
     expect(onMessagesRestored).not.toHaveBeenCalled();
   });
 

@@ -308,8 +308,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }));
     },
 
-    fetchMessages(sessionId: string, signal: AbortSignal) {
-      return api.getSessionMessages(sessionId, signal);
+    fetchMessages(sessionId: string) {
+      return api.getSessionMessages(sessionId);
     },
 
     setWsRunning(poolKey: string, running: boolean) {

@@ -323,6 +323,111 @@ describe('WS → store wiring', () => {
   });
 });
 
+describe('reattach_failed → onMessagesRestored', () => {
+  it('restores messages exactly once via passed-through messages (no double-fetch)', async () => {
+    const transport = mockTransport();
+    const restoredMsgs = [
+      {
+        messageId: 'm1',
+        role: 'assistant',
+        blocks: [{ blockId: 'b1', blockType: 'text', content: 'restored' }],
+      },
+    ];
+    // getSessionMessages returns restored messages
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes('/messages')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(restoredMsgs),
+          text: () => Promise.resolve(''),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve([]),
+        text: () => Promise.resolve(''),
+      });
+    });
+
+    const store = createMitzoStore(makeOptions(transport));
+    await store.getState().switchSession('test-session');
+
+    // Simulate WS connection + reattach_failed
+    lastWs.simulateMessage({ type: 'client_id', clientId: 'c1' });
+    lastWs.simulateMessage({ type: 'subscribed', running: false });
+    lastWs.simulateMessage({ type: 'reattach_failed', clientId: 'old' });
+
+    // Wait for the async fetch to resolve and messages to be restored
+    await vi.waitFor(() => {
+      expect(store.getState().messages.messages).toHaveLength(1);
+    });
+
+    expect(store.getState().messages.messages[0].messageId).toBe('m1');
+    expect(store.getState().messages.messages[0].blocks[0].content).toBe('restored');
+  });
+});
+
+describe('stopGeneration', () => {
+  it('sends interrupt message over WS', async () => {
+    const transport = mockTransport();
+    (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve([]),
+      text: () => Promise.resolve(''),
+    });
+    const store = createMitzoStore(makeOptions(transport));
+    await store.getState().switchSession('test-session');
+
+    lastWs.simulateMessage({ type: 'client_id', clientId: 'c1' });
+    lastWs.simulateMessage({ type: 'subscribed', running: true });
+
+    store.getState().stopGeneration();
+
+    const sent = lastWs.sent.map((s) => JSON.parse(s));
+    const interrupt = sent.find((m) => m.type === 'interrupt');
+    expect(interrupt).toBeDefined();
+  });
+});
+
+describe('respondToPermission', () => {
+  it('sends permission_response and clears pending', async () => {
+    const transport = mockTransport();
+    (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve([]),
+      text: () => Promise.resolve(''),
+    });
+    const store = createMitzoStore(makeOptions(transport));
+    await store.getState().switchSession('test-session');
+
+    lastWs.simulateMessage({ type: 'client_id', clientId: 'c1' });
+    lastWs.simulateMessage({ type: 'subscribed', running: true });
+
+    // Simulate a permission request arriving (lands in messages.permission via reducer)
+    lastWs.simulateMessage({
+      type: 'permission_request',
+      permId: 'perm-1',
+      toolName: 'Bash',
+      toolInput: 'rm -rf /',
+      tier: 'elevated',
+    });
+    expect(store.getState().messages.permission).not.toBeNull();
+    expect(store.getState().messages.permission!.permId).toBe('perm-1');
+
+    // Respond to the permission
+    store.getState().respondToPermission('perm-1', 'once');
+
+    // WS should have sent the response
+    const sent = lastWs.sent.map((s) => JSON.parse(s));
+    const response = sent.find((m) => m.type === 'permission_response');
+    expect(response).toEqual({
+      type: 'permission_response',
+      permId: 'perm-1',
+      decision: 'once',
+    });
+  });
+});
+
 describe('setMode', () => {
   it('updates config mode', () => {
     const store = createMitzoStore(makeOptions());
