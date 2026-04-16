@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { TokenState } from '../hooks/useTokenState';
+import type { TokensState as TokenState } from '@mitzo/client';
 import { formatTokens } from '../lib/formatTokens';
 
 function getContextColor(ratio: number): string {

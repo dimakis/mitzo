@@ -1,34 +1,54 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { ChatArea } from '../components/ChatArea';
 import { ChatInput } from '../components/ChatInput';
 import { VoiceSettings } from '../components/VoiceSettings';
 import { MitzoLogo } from '../components/MitzoLogo';
-import { wsSend } from '../lib/ws-pool';
+import { useMessages, useConnection, useTokens, useMitzoStore } from '@mitzo/client/hooks';
 import { SCROLL_RESTORE_DELAY_MS, LAST_SESSION_KEY } from '../lib/constants';
-import { useChatSession } from '../hooks/useChatSession';
-import { useChatMessages } from '../hooks/useChatMessages';
-import { useChatConnection } from '../hooks/useChatConnection';
-import { useChatActions } from '../hooks/useChatActions';
-import { usePermission } from '../hooks/usePermission';
+import { getPreferredModel, setPreferredModel } from '../lib/model-preference';
 import { useVoice } from '../hooks/useVoice';
 import { useAutoSpeak } from '../hooks/useAutoSpeak';
-import { useTokenState } from '../hooks/useTokenState';
-import { useSessionMeta } from '../hooks/useSessionMeta';
+import type { ImageAttachment } from '../types/chat';
 
 export function ChatView() {
   const { sessionId } = useParams<{ sessionId?: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const [sessionState, sessionActions, poolKey] = useChatSession(
-    sessionId,
+
+  // Store state
+  const messages = useMessages();
+  const connection = useConnection();
+  const tokens = useTokens();
+  const activeSessionId = useMitzoStore((s) => s.sessions.active);
+
+  // Select individual action functions — stable references
+  const storeSendMessage = useMitzoStore((s) => s.sendMessage);
+  const storeInterruptMessage = useMitzoStore((s) => s.interruptMessage);
+  const storeStopGeneration = useMitzoStore((s) => s.stopGeneration);
+  const storeRespondToPermission = useMitzoStore((s) => s.respondToPermission);
+  const storeSwitchSession = useMitzoStore((s) => s.switchSession);
+  const storeNewSession = useMitzoStore((s) => s.newSession);
+  const storeSetMode = useMitzoStore((s) => s.setMode);
+  const storeSetModel = useMitzoStore((s) => s.setModel);
+  const storeDispatchMessages = useMitzoStore((s) => s.dispatchMessages);
+  const storeFetchSessionMeta = useMitzoStore((s) => s.fetchSessionMeta);
+
+  const connected = connection.status === 'connected';
+
+  // Local model state — persisted to localStorage, sent in payload
+  const [modelState, setModelState] = useState(getPreferredModel);
+  const setModel = useCallback((id: string) => {
+    setModelState(id);
+    setPreferredModel(id);
+    storeSetModel(id);
+  }, [storeSetModel]);
+
+  const [mode, setMode] = useState<'ask' | 'agent' | 'auto'>(
     searchParams.get('extraTools') ? 'auto' : 'agent',
   );
 
   const voice = useVoice();
-  const { tokenState, tokenDispatch, handleTokenMessage } = useTokenState(
-    sessionState.currentSessionId,
-  );
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const forceScrollToBottom = useCallback(() => {
@@ -37,57 +57,40 @@ export function ChatView() {
     });
   }, []);
 
-  const handleSessionExpired = useCallback(
-    (_staleId: string) => {
-      // Clear both state and storage so the next send starts a fresh conversation
-      // instead of retrying `resume` with a stale ID in a loop.
-      sessionActions.setCurrentSessionId(undefined);
-      localStorage.removeItem(LAST_SESSION_KEY);
-      if (sessionId) navigate('/chat', { replace: true });
-    },
-    [sessionId, navigate, sessionActions],
-  );
+  // Sync route param → store session
+  useEffect(() => {
+    if (sessionId && sessionId !== activeSessionId) {
+      storeSwitchSession(sessionId);
+    } else if (!sessionId && activeSessionId) {
+      storeNewSession();
+    }
+  }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When a session ID is assigned mid-conversation (started from /chat),
-  // update the URL so refreshes and back-navigation land on /chat/:id
-  // and can restore messages from cache or the API.
-  // Uses replaceState to avoid a React Router remount that would kill
-  // the live streaming view.
-  const handleSessionAssigned = useCallback(
-    (id: string) => {
-      sessionActions.setCurrentSessionId(id);
-      if (!sessionId && window.location.pathname === '/chat') {
-        window.history.replaceState(null, '', `/chat/${id}`);
-      }
-    },
-    [sessionId, sessionActions],
-  );
+  // Persist active session to localStorage
+  useEffect(() => {
+    if (activeSessionId) {
+      localStorage.setItem(LAST_SESSION_KEY, activeSessionId);
+    }
+  }, [activeSessionId]);
 
-  const handleSessionRenamed = useCallback((name: string) => {
-    document.title = `${name} — Mitzo`;
-  }, []);
+  // When store assigns a session (new conversation), update URL
+  useEffect(() => {
+    if (activeSessionId && !sessionId && window.location.pathname === '/chat') {
+      window.history.replaceState(null, '', `/chat/${activeSessionId}`);
+    }
+  }, [activeSessionId, sessionId]);
 
-  const {
-    state: msgState,
-    dispatch,
-    pendingSend,
-    handleWsMessage,
-  } = useChatMessages(
-    poolKey,
-    sessionState.currentSessionId,
-    handleSessionAssigned,
-    handleSessionExpired,
-    forceScrollToBottom,
-    handleSessionRenamed,
-  );
+  // Hydrate branch/worktree/token state from persisted metadata
+  useEffect(() => {
+    if (sessionId) {
+      storeFetchSessionMeta(sessionId);
+    }
+  }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Restore messages when navigating to an existing session.
-  // Fetch from the API (single source of truth — no localStorage cache).
+  // Restore messages when navigating to an existing session
   useEffect(() => {
     if (!sessionId) return;
-
     const controller = new AbortController();
-
     fetch(`/api/sessions/${sessionId}/messages`, {
       credentials: 'include',
       signal: controller.signal,
@@ -97,49 +100,60 @@ export function ChatView() {
         if (controller.signal.aborted) return;
         const apiMsgs = msgs as import('../types/chat').FinishedMessage[];
         if (apiMsgs.length > 0) {
-          dispatch({ type: 'RESTORE', messages: apiMsgs });
+          storeDispatchMessages({ type: 'RESTORE', messages: apiMsgs });
           setTimeout(forceScrollToBottom, SCROLL_RESTORE_DELAY_MS);
         }
       })
       .catch(() => {});
-
     return () => controller.abort();
-  }, [sessionId, dispatch, forceScrollToBottom]);
-
-  // Hydrate branch/worktree and token state from persisted metadata.
-  // Runs alongside message restore so the context strip is visible immediately.
-  useSessionMeta(sessionId, dispatch, tokenDispatch);
-
-  const { connected } = useChatConnection(poolKey, handleWsMessage, handleTokenMessage);
-
-  const { handlePermission } = usePermission(poolKey, () => {
-    dispatch({ type: 'PERMISSION_TIMEOUT', permId: msgState.permission?.permId ?? '' });
-  });
+  }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useAutoSpeak({
-    messages: msgState.messages,
-    running: msgState.running,
+    messages: messages.messages,
+    running: messages.running,
     ttsEnabled: voice.ttsEnabled,
     ttsAvailable: voice.ttsAvailable,
     speak: voice.speak,
   });
 
-  const { sendMessage, interruptMessage, handleStop } = useChatActions({
-    poolKey,
-    sessionState,
-    searchParams,
-    dispatch,
-    pendingSend,
-    forceScrollToBottom,
-    voice,
-    running: msgState.running,
-  });
+  // ── Actions ──────────────────────────────────────────────────────────────
+
+  function handleSend(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): boolean {
+    if (connection.status !== 'connected') {
+      storeDispatchMessages({ type: 'CONNECTION_LOST' });
+      return false;
+    }
+    voice.stopSpeaking();
+    storeSendMessage(text, {
+      images,
+      contextBlocks: ctxBlocks,
+      model: modelState,
+      mode,
+      cwd: searchParams.get('cwd') ?? undefined,
+      extraTools: searchParams.get('extraTools') ?? undefined,
+    });
+    forceScrollToBottom();
+    return true;
+  }
+
+  function handleInterrupt(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): void {
+    voice.stopSpeaking();
+    storeInterruptMessage(text, { images, contextBlocks: ctxBlocks });
+    forceScrollToBottom();
+  }
+
+  const handleStop = useCallback(() => {
+    storeStopGeneration();
+    storeDispatchMessages({ type: 'SET_RUNNING', running: false });
+  }, [storeStopGeneration, storeDispatchMessages]);
+
+  function handlePermission(permId: string, decision: 'once' | 'always' | 'deny', _toolName: string) {
+    storeRespondToPermission(permId, decision);
+  }
 
   function handleModeChange(newMode: 'ask' | 'agent' | 'auto') {
-    sessionActions.setMode(newMode);
-    if (msgState.running) {
-      wsSend(poolKey, { type: 'set_mode', mode: newMode });
-    }
+    setMode(newMode);
+    storeSetMode(newMode);
   }
 
   const initialPrompt = searchParams.get('prompt') || undefined;
@@ -151,16 +165,16 @@ export function ChatView() {
         {!connected && (
           <span
             className="chat-header-offline"
-            title={msgState.running ? 'Reconnecting — session still active' : 'Reconnecting...'}
+            title={messages.running ? 'Reconnecting — session still active' : 'Reconnecting...'}
           >
             !
           </span>
         )}
         <select
           className="chat-model-select"
-          value={sessionState.model}
-          onChange={(e) => sessionActions.setModel(e.target.value)}
-          disabled={msgState.running}
+          value={modelState}
+          onChange={(e) => setModel(e.target.value)}
+          disabled={messages.running}
         >
           <option value="claude-sonnet-4-6">Sonnet</option>
           <option value="claude-opus-4-6">Opus</option>
@@ -170,7 +184,7 @@ export function ChatView() {
           {(['ask', 'agent', 'auto'] as const).map((m) => (
             <button
               key={m}
-              className={`mode-pill${sessionState.mode === m ? ' mode-pill--active' : ''}`}
+              className={`mode-pill${mode === m ? ' mode-pill--active' : ''}`}
               onClick={() => handleModeChange(m)}
             >
               {m.charAt(0).toUpperCase() + m.slice(1)}
@@ -189,26 +203,26 @@ export function ChatView() {
       </header>
 
       <ChatArea
-        messages={msgState.messages}
-        current={msgState.current}
-        running={msgState.running}
-        permission={msgState.permission}
+        messages={messages.messages}
+        current={messages.current}
+        running={messages.running}
+        permission={messages.permission}
         onPermissionRespond={handlePermission}
         scrollRef={scrollRef}
       />
 
       <ChatInput
-        onSend={sendMessage}
+        onSend={handleSend}
         onStop={handleStop}
-        onInterrupt={interruptMessage}
-        running={msgState.running}
+        onInterrupt={handleInterrupt}
+        running={messages.running}
         initialText={initialPrompt}
         voice={voice}
-        branch={msgState.branch || undefined}
-        isWorktree={msgState.isWorktree}
-        wtId={msgState.wtId || undefined}
-        sessionId={sessionState.currentSessionId}
-        tokenState={tokenState}
+        branch={messages.branch || undefined}
+        isWorktree={messages.isWorktree}
+        wtId={messages.wtId || undefined}
+        sessionId={activeSessionId ?? undefined}
+        tokenState={tokens}
       />
     </div>
   );
