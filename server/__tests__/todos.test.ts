@@ -36,6 +36,7 @@ vi.mock('../chat.js', () => {
     AVAILABLE_MODELS: [{ id: 'test-model', label: 'Test', desc: 'Test model' }],
     registry: { get: vi.fn() },
     eventStore: { getEventsAfter: vi.fn().mockReturnValue([]) },
+    setTaskStore: vi.fn(),
   };
 });
 
