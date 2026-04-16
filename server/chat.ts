@@ -93,10 +93,20 @@ export function getRepoConfig() {
 }
 
 export const AVAILABLE_MODELS = [
+  { id: 'claude-opus-4-7', label: 'Opus 4.7', desc: 'Adaptive thinking' },
+  { id: 'claude-opus-4-7:max', label: 'Opus 4.7 Max', desc: 'Max thinking (128k)' },
+  { id: 'claude-opus-4-6', label: 'Opus 4.6', desc: 'Previous Opus' },
   { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', desc: 'Balanced' },
-  { id: 'claude-opus-4-6', label: 'Opus 4.6', desc: 'Most capable' },
   { id: 'claude-haiku-4-5', label: 'Haiku 4.5', desc: 'Fastest' },
 ];
+
+/** Split "claude-opus-4-7:max" → { model: "claude-opus-4-7", effort: "max" } */
+export function parseModelSpec(spec?: string): { model: string; effort: string | undefined } {
+  if (!spec) return { model: '', effort: undefined };
+  const idx = spec.indexOf(':');
+  if (idx === -1) return { model: spec, effort: undefined };
+  return { model: spec.slice(0, idx), effort: spec.slice(idx + 1) };
+}
 
 // --- Pure helper functions ---
 
@@ -122,8 +132,10 @@ function sdkEnv(): Record<string, string> {
 }
 
 function resolveThinking(
-  model?: string,
+  spec?: string,
 ): { type: 'adaptive' } | { type: 'enabled'; budgetTokens: number } | undefined {
+  const { model, effort } = parseModelSpec(spec);
+  if (model.includes('opus') && effort === 'max') return { type: 'enabled', budgetTokens: 128_000 };
   if (!model || model.includes('opus')) return { type: 'adaptive' };
   if (model.includes('sonnet')) return { type: 'enabled', budgetTokens: 10_000 };
   return undefined;
@@ -487,7 +499,7 @@ export async function startChat(
         permissionMode: MODE_TO_SDK[mode] as 'plan' | 'default' | 'bypassPermissions',
         allowedTools: [...modeAllowed, ...mcpAllowed, ...extraTools],
         thinking: resolveThinking(options.model),
-        ...(options.model ? { model: options.model } : {}),
+        ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
         ...(options.resume ? { resume: options.resume } : {}),
         ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
         ...(hooks ? { hooks } : {}),
