@@ -222,10 +222,22 @@ export class WsPool {
 
     ws.onopen = () => {
       // Flush any messages queued while the socket was still CONNECTING.
+      // Guard each send: if one throws (browser extension closing the
+      // socket mid-flush, a misbehaving mock, etc.), we requeue the
+      // remaining payloads onto pendingSends so the next reconnect picks
+      // them up, and we still broadcast _open so listeners transition
+      // into the connected state.
       if (entry.pendingSends.length > 0) {
         const toFlush = entry.pendingSends;
         entry.pendingSends = [];
-        for (const payload of toFlush) ws.send(payload);
+        for (let i = 0; i < toFlush.length; i++) {
+          try {
+            ws.send(toFlush[i]);
+          } catch {
+            entry.pendingSends.unshift(...toFlush.slice(i));
+            break;
+          }
+        }
       }
       this.broadcast(entry, { type: '_open' });
     };

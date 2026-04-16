@@ -99,6 +99,66 @@ describe('WsPool message delivery', () => {
     ]);
   });
 
+  it('carries queued sends across a CONNECTING → CLOSED → reconnect cycle', () => {
+    vi.useFakeTimers();
+    pool.subscribe('new:queue-survives', () => {});
+    const ws1 = lastCreatedWs!;
+
+    // Queue a send while still CONNECTING, then close before it ever opens.
+    pool.send('new:queue-survives', { type: 'send', prompt: 'stubborn' });
+    ws1.simulateClose();
+
+    // Advance past the reconnect delay to let WsPool reopen the socket.
+    vi.advanceTimersByTime(200);
+    const ws2 = lastCreatedWs!;
+    expect(ws2).not.toBe(ws1);
+    ws2.simulateOpen();
+
+    const ws2Sends = ws2.send.mock.calls.map((c: string[]) => JSON.parse(c[0]));
+    expect(ws2Sends).toContainEqual({ type: 'send', prompt: 'stubborn' });
+    vi.useRealTimers();
+  });
+
+  it('still broadcasts _open and preserves remaining queued sends when a flush send throws', () => {
+    vi.useFakeTimers();
+    const received: WsMsg[] = [];
+    pool.subscribe('new:flush-throws', (msg) => received.push(msg));
+    const ws1 = lastCreatedWs!;
+
+    pool.send('new:flush-throws', { type: 'send', prompt: 'first' });
+    pool.send('new:flush-throws', { type: 'send', prompt: 'second' });
+    pool.send('new:flush-throws', { type: 'send', prompt: 'third' });
+
+    // Make the second ws.send() throw; the first succeeds, the remaining
+    // payloads must stay queued so the next reconnect can drain them.
+    let callCount = 0;
+    ws1.send = vi.fn(() => {
+      callCount++;
+      if (callCount === 2) throw new Error('simulated send failure');
+    });
+
+    ws1.simulateOpen();
+
+    // _open must still be broadcast to listeners even though a send threw.
+    expect(received.some((m) => m.type === '_open')).toBe(true);
+
+    // Close and reconnect — the surviving payloads should flush onto ws2.
+    ws1.simulateClose();
+    vi.advanceTimersByTime(200);
+    const ws2 = lastCreatedWs!;
+    expect(ws2).not.toBe(ws1);
+    ws2.simulateOpen();
+
+    const ws2Sends = ws2.send.mock.calls.map((c: string[]) => JSON.parse(c[0]));
+    expect(ws2Sends).toEqual(
+      expect.arrayContaining([
+        { type: 'send', prompt: 'second' },
+        { type: 'send', prompt: 'third' },
+      ]),
+    );
+    vi.useRealTimers();
+  });
+
   it('drops messages when no listeners are subscribed', () => {
     const unsub = pool.subscribe('test-deliver-2', () => {});
     const ws = lastCreatedWs!;
