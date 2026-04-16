@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { ChatArea } from '../components/ChatArea';
 import { ChatInput } from '../components/ChatInput';
 import { VoiceSettings } from '../components/VoiceSettings';
@@ -14,8 +14,6 @@ import type { ImageAttachment } from '../types/chat';
 export function ChatView() {
   const { sessionId } = useParams<{ sessionId?: string }>();
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
-
   // Store state
   const messages = useMessages();
   const connection = useConnection();
@@ -38,11 +36,14 @@ export function ChatView() {
 
   // Local model state — persisted to localStorage, sent in payload
   const [modelState, setModelState] = useState(getPreferredModel);
-  const setModel = useCallback((id: string) => {
-    setModelState(id);
-    setPreferredModel(id);
-    storeSetModel(id);
-  }, [storeSetModel]);
+  const setModel = useCallback(
+    (id: string) => {
+      setModelState(id);
+      setPreferredModel(id);
+      storeSetModel(id);
+    },
+    [storeSetModel],
+  );
 
   const [mode, setMode] = useState<'ask' | 'agent' | 'auto'>(
     searchParams.get('extraTools') ? 'auto' : 'agent',
@@ -147,7 +148,11 @@ export function ChatView() {
     storeDispatchMessages({ type: 'SET_RUNNING', running: false });
   }, [storeStopGeneration, storeDispatchMessages]);
 
-  function handlePermission(permId: string, decision: 'once' | 'always' | 'deny', _toolName: string) {
+  function handlePermission(
+    permId: string,
+    decision: 'once' | 'always' | 'deny',
+    _toolName: string,
+  ) {
     storeRespondToPermission(permId, decision);
   }
 
