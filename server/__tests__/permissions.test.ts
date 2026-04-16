@@ -23,7 +23,7 @@ describe('permissions module', () => {
     registerPending(
       permId,
       'Bash',
-      (r) => {
+      (r: Record<string, unknown>) => {
         result = r;
       },
       toolInput,
@@ -41,7 +41,7 @@ describe('permissions module', () => {
     registerPending(
       permId,
       'Edit',
-      (r) => {
+      (r: Record<string, unknown>) => {
         result = r;
       },
       toolInput,
@@ -58,7 +58,7 @@ describe('permissions module', () => {
     registerPending(
       permId,
       'Edit',
-      (r) => {
+      (r: Record<string, unknown>) => {
         result = r;
       },
       {},
@@ -75,7 +75,7 @@ describe('permissions module', () => {
     registerPending(
       permId,
       'Bash',
-      (r) => {
+      (r: Record<string, unknown>) => {
         result = r;
       },
       toolInput,
@@ -111,7 +111,7 @@ describe('permissions module', () => {
     registerPending(
       permId,
       'Bash',
-      (r) => {
+      (r: Record<string, unknown>) => {
         result = r;
       },
       input,

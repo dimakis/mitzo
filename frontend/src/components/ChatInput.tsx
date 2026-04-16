@@ -15,7 +15,7 @@ import { ContextPicker } from './ContextPicker';
 import { MicButton } from './MicButton';
 import { TokenBar } from './TokenBar';
 import type { UseVoiceReturn } from '../hooks/useVoice';
-import type { TokenState } from '../hooks/useTokenState';
+import type { TokensState as TokenState } from '@mitzo/client';
 
 interface Props {
   onSend: (text: string, images?: ImageAttachment[], contextBlocks?: string[]) => boolean;

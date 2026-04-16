@@ -46,6 +46,18 @@ export interface AppConfig {
   quickActions?: Array<{ label: string; prompt: string }>;
 }
 
+export interface SessionMetaResponse {
+  sessionId: string;
+  branch: string | null;
+  wtId: string | null;
+  cwd: string | null;
+  mode: string;
+  isActive: boolean;
+  totalTokens: number;
+  totalCostUsd: number;
+  numTurns: number;
+}
+
 export interface CalendarData {
   events: CalendarEvent[];
   sprints: SprintInfo[];
@@ -99,6 +111,12 @@ export class MitzoApiClient {
         signal,
       }),
     );
+    return res.json();
+  }
+
+  async getSessionMeta(sessionId: string): Promise<SessionMetaResponse | null> {
+    const res = await this.fetch(`/api/sessions/${sessionId}/meta`, { credentials: 'include' });
+    if (!res.ok) return null;
     return res.json();
   }
 

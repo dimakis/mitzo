@@ -19,6 +19,7 @@ import type {
 import type { MessagesAction } from './slices/messages.js';
 import type { WsMsg } from './server-messages.js';
 import type { Task, LoopStatus } from './slices/tasks.js';
+import type { TokensState } from './slices/tokens.js';
 
 // ─── Callback interface ──────────────────────────────────────────────────────
 
@@ -70,6 +71,9 @@ export interface ParseResult {
 
   /** Connection state update, if any. */
   connectionUpdate?: { status: 'connected' | 'disconnected' | 'reconnecting' };
+
+  /** Token usage update, if any. */
+  tokensUpdate?: Partial<TokensState>;
 
   /** Inbox refresh signal. */
   inboxRefresh?: boolean;
@@ -319,6 +323,16 @@ export function parseServerMessage(
           specMode: (msg.specMode as boolean) ?? false,
           awaitingApproval: (msg.awaitingApproval as boolean) ?? false,
         },
+      };
+      break;
+
+    case 'token_update':
+      result.tokensUpdate = {
+        agentContext: msg.agentContext as number,
+        contextCeiling: msg.contextCeiling as number | undefined,
+        sessionTotal: msg.sessionTotal as number | undefined,
+        numTurns: msg.numTurns as number | undefined,
+        turnIndex: msg.turnIndex as number,
       };
       break;
 

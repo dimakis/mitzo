@@ -1,6 +1,8 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { App } from './App';
+import { clientStore } from './client-store';
 import './styles/global.css';
 import './styles/calendar.css';
 import './styles/desktop.css';
@@ -16,6 +18,8 @@ if ('serviceWorker' in navigator) {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <MitzoStoreProvider value={clientStore}>
+      <App />
+    </MitzoStoreProvider>
   </StrictMode>,
 );

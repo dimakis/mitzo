@@ -2,7 +2,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { TokenBar } from '../TokenBar';
-import type { TokenState } from '../../hooks/useTokenState';
+import type { TokensState as TokenState } from '@mitzo/client';
 
 function makeState(overrides: Partial<TokenState> = {}): TokenState {
   return {

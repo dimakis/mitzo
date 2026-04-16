@@ -2,6 +2,10 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { createStore } from 'zustand/vanilla';
+import { MitzoStoreProvider } from '@mitzo/client/hooks';
+import type { MitzoStoreState } from '@mitzo/client';
+import { INITIAL_MESSAGES_STATE } from '@mitzo/client';
 
 // Mock all heavy sub-components to isolate DesktopChatView wiring
 vi.mock('../../components/DesktopShell', () => ({
@@ -51,42 +55,6 @@ vi.mock('../../components/StatusBar', () => ({
   ),
 }));
 
-vi.mock('../../hooks/useChatSession', () => ({
-  useChatSession: () => [
-    { currentSessionId: undefined, model: 'claude-sonnet-4-6', mode: 'agent' },
-    {
-      setCurrentSessionId: vi.fn(),
-      setModel: vi.fn(),
-      setMode: vi.fn(),
-    },
-    'pool-key',
-  ],
-}));
-
-vi.mock('../../hooks/useChatMessages', () => ({
-  useChatMessages: () => ({
-    state: {
-      messages: [],
-      current: null,
-      running: false,
-      permission: null,
-      branch: 'main',
-      isWorktree: false,
-    },
-    dispatch: vi.fn(),
-    pendingSend: { current: null },
-    handleWsMessage: vi.fn(),
-  }),
-}));
-
-vi.mock('../../hooks/useChatConnection', () => ({
-  useChatConnection: () => ({ connected: true }),
-}));
-
-vi.mock('../../hooks/usePermission', () => ({
-  usePermission: () => ({ handlePermission: vi.fn() }),
-}));
-
 vi.mock('../../hooks/useVoice', () => ({
   useVoice: () => ({
     available: false,
@@ -109,25 +77,55 @@ vi.mock('../../hooks/useVoice', () => ({
   }),
 }));
 
-vi.mock('../../hooks/useChatActions', () => ({
-  useChatActions: () => ({
-    sendMessage: vi.fn(),
-    interruptMessage: vi.fn(),
-    handleStop: vi.fn(),
-  }),
-}));
-
 vi.mock('../../hooks/useAutoSpeak', () => ({
   useAutoSpeak: vi.fn(),
 }));
 
-vi.mock('../../lib/ws-pool', () => ({
-  wsIsOpen: () => true,
-  wsSend: vi.fn(),
-  wsSetRunning: vi.fn(),
-}));
-
 import { DesktopChatView } from '../DesktopChatView';
+
+function createMockStore() {
+  return createStore<MitzoStoreState>(() => ({
+    sessions: { list: [], active: null, loading: false },
+    messages: INITIAL_MESSAGES_STATE,
+    connection: { status: 'connected', clientId: null },
+    permissions: { pending: null },
+    tasks: {
+      tree: [],
+      loopStatus: {
+        state: 'idle',
+        goalId: null,
+        activeTaskId: null,
+        progress: null,
+        specMode: false,
+        awaitingApproval: false,
+      },
+    },
+    inbox: { items: [], count: 0 },
+    calendar: { events: [], sprints: [], loading: false },
+    todos: { items: [], profiles: [] },
+    config: { contextBlocks: {}, skills: [], mode: 'agent', modelId: 'claude-sonnet-4-6' },
+    tokens: {
+      agentContext: 0,
+      contextCeiling: 200_000,
+      sessionTotal: 0,
+      numTurns: 0,
+      turnIndex: 0,
+    },
+    sendError: null,
+    dispatchMessages: vi.fn(),
+    switchSession: vi.fn().mockResolvedValue(undefined),
+    newSession: vi.fn(),
+    sendMessage: vi.fn(),
+    interruptMessage: vi.fn(),
+    stopGeneration: vi.fn(),
+    respondToPermission: vi.fn(),
+    setMode: vi.fn(),
+    setModel: vi.fn(),
+    loadSessions: vi.fn().mockResolvedValue(undefined),
+    refreshSessions: vi.fn().mockResolvedValue(undefined),
+    fetchSessionMeta: vi.fn().mockResolvedValue(undefined),
+  }));
+}
 
 beforeEach(() => {
   localStorage.clear();
@@ -147,9 +145,12 @@ afterEach(() => {
 
 function renderWithRouter(sessionId?: string) {
   const path = sessionId ? `/chat/${sessionId}` : '/chat';
+  const store = createMockStore();
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <DesktopChatView />
+      <MitzoStoreProvider value={store}>
+        <DesktopChatView />
+      </MitzoStoreProvider>
     </MemoryRouter>,
   );
 }
@@ -190,7 +191,6 @@ describe('DesktopChatView', () => {
 
   it('passes externalContextBlocks to ChatInput', () => {
     renderWithRouter();
-    // Initial state: 0 external blocks
     expect(screen.getByTestId('chat-input').textContent).toContain('external: 0');
   });
 
