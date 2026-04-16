@@ -370,6 +370,65 @@ describe('token_update emission', () => {
     expect(resultUpdates[1]).toMatchObject({ sessionTotal: 15000 });
   });
 
+  it('counts compaction events from SDK system messages', async () => {
+    const events: Record<string, unknown>[] = [
+      // Parent message_start
+      {
+        type: 'stream_event',
+        parent_tool_use_id: null,
+        event: {
+          type: 'message_start',
+          message: { id: 'msg-c1', usage: { input_tokens: 180000 } },
+        },
+      },
+      {
+        type: 'stream_event',
+        event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+      },
+      { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+      { type: 'assistant', message: { content: [] }, session_id: 'sess-compact' },
+      // SDK system status: compaction completed
+      {
+        type: 'system',
+        subtype: 'status',
+        status: null,
+        compact_result: 'success',
+        session_id: 'sess-compact',
+      },
+      // Next turn after compaction — context dropped
+      {
+        type: 'stream_event',
+        parent_tool_use_id: null,
+        event: {
+          type: 'message_start',
+          message: { id: 'msg-c2', usage: { input_tokens: 40000 } },
+        },
+      },
+      {
+        type: 'stream_event',
+        event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+      },
+      { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+      { type: 'assistant', message: { content: [] }, session_id: 'sess-compact' },
+      {
+        type: 'result',
+        session_id: 'sess-compact',
+        usage: { input_tokens: 40000, output_tokens: 1000 },
+        total_cost_usd: 0.02,
+        num_turns: 2,
+        duration_ms: 5000,
+        duration_api_ms: 3000,
+      },
+    ];
+
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
+
+    const tokenUpdates = transport.sent.filter((m) => m.type === 'token_update');
+    // The final token_update should include numCompactions: 1
+    const last = tokenUpdates[tokenUpdates.length - 1];
+    expect(last).toMatchObject({ numCompactions: 1 });
+  });
+
   it('handles missing usage on message_start gracefully', async () => {
     const events: Record<string, unknown>[] = [
       {
