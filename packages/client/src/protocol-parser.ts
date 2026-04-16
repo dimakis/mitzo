@@ -362,15 +362,20 @@ export function parseServerMessage(
       };
       break;
 
-    case 'token_update':
-      result.tokensUpdate = {
+    case 'token_update': {
+      // Build partial update, omitting undefined fields so the store spread
+      // does not clobber existing values (mid-turn updates lack sessionTotal).
+      const tu: Partial<TokensState> = {
         agentContext: msg.agentContext as number,
-        contextCeiling: msg.contextCeiling as number | undefined,
-        sessionTotal: msg.sessionTotal as number | undefined,
-        numTurns: msg.numTurns as number | undefined,
         turnIndex: msg.turnIndex as number,
       };
+      if (msg.contextCeiling != null) tu.contextCeiling = msg.contextCeiling as number;
+      if (msg.sessionTotal != null) tu.sessionTotal = msg.sessionTotal as number;
+      if (msg.numTurns != null) tu.numTurns = msg.numTurns as number;
+      if (msg.numCompactions != null) tu.numCompactions = msg.numCompactions as number;
+      result.tokensUpdate = tu;
       break;
+    }
 
     case 'inbox_updated':
       result.inboxRefresh = true;

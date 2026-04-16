@@ -475,6 +475,56 @@ describe('task system messages', () => {
   });
 });
 
+// ─── Token updates ───────────────────────────────────────────────────────────
+
+describe('token_update', () => {
+  it('produces tokensUpdate with all fields', () => {
+    const r = parseServerMessage(
+      {
+        type: 'token_update',
+        agentContext: 80000,
+        contextCeiling: 200000,
+        sessionTotal: 150000,
+        numTurns: 3,
+        turnIndex: 2,
+      },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.tokensUpdate).toEqual({
+      agentContext: 80000,
+      contextCeiling: 200000,
+      sessionTotal: 150000,
+      numTurns: 3,
+      turnIndex: 2,
+    });
+  });
+
+  it('omits undefined fields so partial spread does not clobber existing values', () => {
+    const r = parseServerMessage(
+      {
+        type: 'token_update',
+        agentContext: 90000,
+        contextCeiling: 200000,
+        turnIndex: 4,
+        // sessionTotal and numTurns intentionally absent (mid-turn update)
+      },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.tokensUpdate).toEqual({
+      agentContext: 90000,
+      contextCeiling: 200000,
+      turnIndex: 4,
+    });
+    // Must NOT have sessionTotal key at all
+    expect('sessionTotal' in r.tokensUpdate!).toBe(false);
+    expect('numTurns' in r.tokensUpdate!).toBe(false);
+  });
+});
+
 // ─── Inbox ────────────────────────────────────────────────────────────────────
 
 describe('inbox', () => {

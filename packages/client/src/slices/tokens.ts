@@ -4,6 +4,7 @@ export interface TokensState {
   sessionTotal: number;
   numTurns: number;
   turnIndex: number;
+  numCompactions: number;
 }
 
 export const DEFAULT_CONTEXT_CEILING = 200_000;
@@ -14,4 +15,5 @@ export const INITIAL_TOKENS_STATE: TokensState = {
   sessionTotal: 0,
   numTurns: 0,
   turnIndex: 0,
+  numCompactions: 0,
 };
