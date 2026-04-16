@@ -48,6 +48,14 @@ interface PoolEntry {
   lastSeq: number;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
   listeners: Set<MsgListener>;
+  /**
+   * Messages issued via send() while the socket was still CONNECTING.
+   * Flushed in-order once the socket transitions to OPEN. This covers the
+   * new-session flow where the store subscribes and immediately tries to
+   * send the first user prompt — without this queue the first send would
+   * silently drop because readyState !== OPEN.
+   */
+  pendingSends: string[];
 }
 
 // ─── Pool ────────────────────────────────────────────────────────────────────
@@ -101,11 +109,24 @@ export class WsPool {
     return () => entry.listeners.delete(listener);
   }
 
-  /** Send a message on the connection for this key. */
+  /**
+   * Send a message on the connection for this key.
+   * If the socket is still CONNECTING, the payload is queued and flushed
+   * in order once the socket opens. Returns false only when there is no
+   * entry or the socket is already closed/closing with no reconnect
+   * attempt queued.
+   */
   send(key: string, msg: unknown): boolean {
     const entry = this.pool.get(key);
-    if (entry?.ws?.readyState === WS_READY_STATE.OPEN) {
-      entry.ws.send(JSON.stringify(msg));
+    if (!entry) return false;
+    const payload = JSON.stringify(msg);
+    const state = entry.ws?.readyState;
+    if (state === WS_READY_STATE.OPEN && entry.ws) {
+      entry.ws.send(payload);
+      return true;
+    }
+    if (state === WS_READY_STATE.CONNECTING || entry.reconnectTimer) {
+      entry.pendingSends.push(payload);
       return true;
     }
     return false;
@@ -175,6 +196,7 @@ export class WsPool {
         lastSeq: 0,
         reconnectTimer: null,
         listeners: new Set(),
+        pendingSends: [],
       };
       this.pool.set(key, entry);
       this.connectEntry(key, entry);
@@ -198,7 +220,15 @@ export class WsPool {
     const ws = this.config.createWebSocket(url);
     entry.ws = ws;
 
-    ws.onopen = () => this.broadcast(entry, { type: '_open' });
+    ws.onopen = () => {
+      // Flush any messages queued while the socket was still CONNECTING.
+      if (entry.pendingSends.length > 0) {
+        const toFlush = entry.pendingSends;
+        entry.pendingSends = [];
+        for (const payload of toFlush) ws.send(payload);
+      }
+      this.broadcast(entry, { type: '_open' });
+    };
 
     ws.onmessage = (e: { data: string }) => {
       let msg: WsMsg;

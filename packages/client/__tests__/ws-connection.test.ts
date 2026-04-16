@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { WsPool } from '../src/ws-connection.js';
-import type { WebSocketLike, MsgListener } from '../src/ws-connection.js';
+import type { WebSocketLike } from '../src/ws-connection.js';
 import type { WsMsg } from '../src/server-messages.js';
 
 // ─── Mock WebSocket ──────────────────────────────────────────────────────────
@@ -65,6 +65,38 @@ describe('WsPool message delivery', () => {
     ws.simulateMessage({ type: 'block_delta', blockId: 'b1', delta: 'live' });
 
     expect(received.some((m) => m.type === 'block_delta')).toBe(true);
+  });
+
+  it('queues sends issued while the socket is still CONNECTING and flushes on open', () => {
+    pool.subscribe('new:queue-1', () => {});
+    const ws = lastCreatedWs!;
+    // readyState is CONNECTING — nothing has opened yet
+    expect(ws.readyState).toBe(0);
+
+    const sent = pool.send('new:queue-1', { type: 'send', prompt: 'hello' });
+    expect(sent).toBe(true);
+    // Must not have been written to the socket yet — it isn't open
+    expect(ws.send).not.toHaveBeenCalled();
+
+    ws.simulateOpen();
+
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'send', prompt: 'hello' }));
+  });
+
+  it('preserves queued message order when multiple sends happen before open', () => {
+    pool.subscribe('new:queue-2', () => {});
+    const ws = lastCreatedWs!;
+
+    pool.send('new:queue-2', { type: 'send', prompt: 'first' });
+    pool.send('new:queue-2', { type: 'send', prompt: 'second' });
+
+    ws.simulateOpen();
+
+    const sentPayloads = ws.send.mock.calls.map((c: string[]) => JSON.parse(c[0]));
+    expect(sentPayloads).toEqual([
+      { type: 'send', prompt: 'first' },
+      { type: 'send', prompt: 'second' },
+    ]);
   });
 
   it('drops messages when no listeners are subscribed', () => {
