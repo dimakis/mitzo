@@ -30,7 +30,7 @@ export interface ProtocolCallbacks {
   onSessionExpired(sessionId: string): void;
 
   /** Called after reattach_failed recovery restores messages from API. */
-  onMessagesRestored?(): void;
+  onMessagesRestored?(messages: FinishedMessage[]): void;
 
   /** Called when the server renames a session. */
   onSessionRenamed?(name: string): void;
@@ -107,7 +107,7 @@ export function parseServerMessage(
           .then((msgs) => {
             if (controller.signal.aborted) return;
             if (Array.isArray(msgs) && msgs.length > 0) {
-              callbacks.onMessagesRestored?.();
+              callbacks.onMessagesRestored?.(msgs);
             }
           })
           .catch(() => {});

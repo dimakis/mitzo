@@ -64,6 +64,49 @@ describe('reattach', () => {
     expect(r.messagesActions).toEqual([{ type: 'SET_RUNNING', running: false }]);
     expect(cb.setWsRunning).toHaveBeenCalledWith(POOL_KEY, false);
   });
+
+  it('reattach_failed calls onMessagesRestored with fetched messages', async () => {
+    const msgs = [
+      {
+        messageId: 'm1',
+        role: 'assistant' as const,
+        blocks: [{ blockId: 'b1', blockType: 'text' as const, content: 'hello' }],
+      },
+    ];
+    const fetchMessages = vi.fn().mockResolvedValue(msgs);
+    const onMessagesRestored = vi.fn();
+    const cb = makeCallbacks({ fetchMessages, onMessagesRestored });
+    const state = makeState({ currentSessionId: 'sid-1' });
+
+    parseServerMessage({ type: 'reattach_failed', clientId: 'old' }, state, cb, POOL_KEY);
+
+    // Wait for the async fetchMessages to resolve
+    await vi.waitFor(() => {
+      expect(onMessagesRestored).toHaveBeenCalledWith(msgs);
+    });
+  });
+
+  it('reattach_failed does not call onMessagesRestored when fetch returns empty', async () => {
+    const fetchMessages = vi.fn().mockResolvedValue([]);
+    const onMessagesRestored = vi.fn();
+    const cb = makeCallbacks({ fetchMessages, onMessagesRestored });
+    const state = makeState({ currentSessionId: 'sid-1' });
+
+    parseServerMessage({ type: 'reattach_failed', clientId: 'old' }, state, cb, POOL_KEY);
+
+    // Give async a chance to resolve
+    await new Promise((r) => setTimeout(r, 10));
+    expect(onMessagesRestored).not.toHaveBeenCalled();
+  });
+
+  it('reattach_failed skips fetch when no currentSessionId', () => {
+    const fetchMessages = vi.fn();
+    const cb = makeCallbacks({ fetchMessages });
+
+    parseServerMessage({ type: 'reattach_failed', clientId: 'old' }, makeState(), cb, POOL_KEY);
+
+    expect(fetchMessages).not.toHaveBeenCalled();
+  });
 });
 
 // ─── Session lifecycle ────────────────────────────────────────────────────────
