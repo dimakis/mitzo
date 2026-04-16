@@ -31,6 +31,7 @@ export function setTaskStore(store: TaskStore): void {
   _taskStore = store;
 }
 import { EventStore } from './event-store.js';
+import { capturePromptComparison } from './prompt-compare.js';
 import { shouldAutoRename, extractRecentPrompts, generateSessionName } from './auto-rename.js';
 import { createLogger } from './logger.js';
 
@@ -456,6 +457,19 @@ export async function startChat(
   // Load project hooks from .claude/settings.json (e.g. SessionStart boot context)
   const hooks = loadProjectHooks(cwd);
 
+  // Build the system prompt append string (used by both query and comparison)
+  const systemPromptAppend =
+    'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
+    '- Never take mutating actions (writes, comments, transitions, commits) without explicit user approval. Present analysis first, wait for confirmation.\n' +
+    '- Read operations are fine without asking.\n' +
+    '- Keep responses concise — small screen.\n' +
+    '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.' +
+    buildWorktreeSystemPrompt(repoWorktrees) +
+    buildTaskPromptForSession(clientId);
+
+  // Fire-and-forget: capture prompt comparison for the experiments spoke
+  capturePromptComparison(wtId, cwd, systemPromptAppend, repoWorktrees).catch(() => {});
+
   try {
     const q = query({
       prompt: inputQueue as AsyncIterable<SDKUserMessage>,
@@ -468,14 +482,7 @@ export async function startChat(
         systemPrompt: {
           type: 'preset',
           preset: 'claude_code',
-          append:
-            'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
-            '- Never take mutating actions (writes, comments, transitions, commits) without explicit user approval. Present analysis first, wait for confirmation.\n' +
-            '- Read operations are fine without asking.\n' +
-            '- Keep responses concise — small screen.\n' +
-            '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.' +
-            buildWorktreeSystemPrompt(repoWorktrees) +
-            buildTaskPromptForSession(clientId),
+          append: systemPromptAppend,
         },
         permissionMode: MODE_TO_SDK[mode] as 'plan' | 'default' | 'bypassPermissions',
         allowedTools: [...modeAllowed, ...mcpAllowed, ...extraTools],
