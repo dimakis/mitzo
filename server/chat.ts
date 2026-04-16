@@ -131,7 +131,7 @@ function sdkEnv(): Record<string, string> {
   return env;
 }
 
-function resolveThinking(
+export function resolveThinking(
   spec?: string,
 ): { type: 'adaptive' } | { type: 'enabled'; budgetTokens: number } | undefined {
   const { model, effort } = parseModelSpec(spec);
