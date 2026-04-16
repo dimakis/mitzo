@@ -91,18 +91,23 @@ export function parseServerMessage(
 
   switch (msg.type) {
     case '_open':
+      result.connectionUpdate = { status: 'connected' };
+      break;
     case '_close':
+      result.connectionUpdate = { status: 'disconnected' };
       break;
 
     case 'reattached':
       result.messagesActions.push({ type: 'SET_RUNNING', running: true });
       callbacks.setWsRunning?.(poolKey, true);
+      result.connectionUpdate = { status: 'connected' };
       if (msg.sessionId) callbacks.onSessionAssigned(msg.sessionId as string);
       break;
 
     case 'reattach_failed':
       result.messagesActions.push({ type: 'SET_RUNNING', running: false });
       callbacks.setWsRunning?.(poolKey, false);
+      result.connectionUpdate = { status: 'connected' };
       if (state.currentSessionId && callbacks.fetchMessages) {
         const sessionId = state.currentSessionId;
         callbacks

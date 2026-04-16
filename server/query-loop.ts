@@ -1,7 +1,11 @@
 import type { SessionTransport } from '@mitzo/harness';
 import { summarizeToolInput, getRawInput } from './tool-summary.js';
 import { extractToolResultText } from './content-blocks.js';
-import { TOOL_RESULT_MAX_CHARS, CONTEXT_CEILING_TOKENS } from './constants.js';
+import {
+  TOOL_RESULT_MAX_CHARS,
+  CONTEXT_CEILING_TOKENS,
+  QUERY_FIRST_EVENT_TIMEOUT_MS,
+} from './constants.js';
 import { createLogger } from './logger.js';
 import type { SessionRegistry, SnapshotBlock } from './session-registry.js';
 import type { EventStore } from './event-store.js';
@@ -191,8 +195,25 @@ export async function runQueryLoop(
 
   log.info('query loop started', { clientId });
 
+  // If the SDK yields no events within QUERY_FIRST_EVENT_TIMEOUT_MS, abort
+  // the query and surface an error to the client. This unblocks turns where
+  // the configured model is unreachable (e.g. requested via Vertex AI before
+  // that model has landed there) and would otherwise hang indefinitely.
+  let firstEventReceived = false;
+  let timedOut = false;
+  const firstEventTimer = setTimeout(() => {
+    if (!firstEventReceived) {
+      timedOut = true;
+      abortController.abort();
+    }
+  }, QUERY_FIRST_EVENT_TIMEOUT_MS);
+
   try {
     for await (const msg of q) {
+      if (!firstEventReceived) {
+        firstEventReceived = true;
+        clearTimeout(firstEventTimer);
+      }
       const currentSession = registry.get(clientId);
       if (!currentSession) break;
       if (!resolvedSessionId && currentSession.sessionId) {
@@ -580,12 +601,20 @@ export async function runQueryLoop(
     }
   } catch (err: unknown) {
     const currentSession = registry.get(clientId);
-    if (currentSession && !abortController.signal.aborted) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      log.warn('query loop error', { clientId, error: message });
-      send(currentSession.transport, { type: 'error', error: message });
+    if (currentSession) {
+      if (timedOut) {
+        const seconds = Math.round(QUERY_FIRST_EVENT_TIMEOUT_MS / 1000);
+        const message = `Agent did not respond within ${seconds}s — the selected model may be unavailable on this provider.`;
+        log.warn('query loop timed out waiting for first event', { clientId, seconds });
+        send(currentSession.transport, { type: 'error', error: message });
+      } else if (!abortController.signal.aborted) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        log.warn('query loop error', { clientId, error: message });
+        send(currentSession.transport, { type: 'error', error: message });
+      }
     }
   } finally {
+    clearTimeout(firstEventTimer);
     const finalSession = registry.get(clientId);
     if (finalSession) {
       finalSession.currentSnapshot = null;

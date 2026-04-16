@@ -38,6 +38,13 @@ export interface WebSocketLike {
   close(): void;
 }
 
+/**
+ * Cap on the number of payloads queued per pool entry while the socket is
+ * unavailable. Sized generously enough to survive a short outage on mobile
+ * without memory growth running away during a long one.
+ */
+const MAX_PENDING_SENDS = 100;
+
 // ─── Pool entry ──────────────────────────────────────────────────────────────
 
 interface PoolEntry {
@@ -48,6 +55,14 @@ interface PoolEntry {
   lastSeq: number;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
   listeners: Set<MsgListener>;
+  /**
+   * Messages issued via send() while the socket was still CONNECTING.
+   * Flushed in-order once the socket transitions to OPEN. This covers the
+   * new-session flow where the store subscribes and immediately tries to
+   * send the first user prompt — without this queue the first send would
+   * silently drop because readyState !== OPEN.
+   */
+  pendingSends: string[];
 }
 
 // ─── Pool ────────────────────────────────────────────────────────────────────
@@ -101,11 +116,31 @@ export class WsPool {
     return () => entry.listeners.delete(listener);
   }
 
-  /** Send a message on the connection for this key. */
+  /**
+   * Send a message on the connection for this key.
+   * If the socket is still CONNECTING (or closed with a reconnect pending),
+   * the payload is queued and flushed in order once the socket opens.
+   * Returns false only when there is no entry or the socket is already
+   * closed/closing with no reconnect attempt queued.
+   */
   send(key: string, msg: unknown): boolean {
     const entry = this.pool.get(key);
-    if (entry?.ws?.readyState === WS_READY_STATE.OPEN) {
-      entry.ws.send(JSON.stringify(msg));
+    if (!entry) return false;
+    const payload = JSON.stringify(msg);
+    const state = entry.ws?.readyState;
+    if (state === WS_READY_STATE.OPEN && entry.ws) {
+      entry.ws.send(payload);
+      return true;
+    }
+    if (state === WS_READY_STATE.CONNECTING || entry.reconnectTimer) {
+      // Bound the queue so a long outage doesn't grow memory without limit.
+      // When we hit the cap we drop the oldest payload — matches the
+      // "keep the most recent intent" preference users typically have on
+      // mobile, and matches how the server's message buffer behaves.
+      if (entry.pendingSends.length >= MAX_PENDING_SENDS) {
+        entry.pendingSends.shift();
+      }
+      entry.pendingSends.push(payload);
       return true;
     }
     return false;
@@ -175,6 +210,7 @@ export class WsPool {
         lastSeq: 0,
         reconnectTimer: null,
         listeners: new Set(),
+        pendingSends: [],
       };
       this.pool.set(key, entry);
       this.connectEntry(key, entry);
@@ -198,7 +234,34 @@ export class WsPool {
     const ws = this.config.createWebSocket(url);
     entry.ws = ws;
 
-    ws.onopen = () => this.broadcast(entry, { type: '_open' });
+    ws.onopen = () => {
+      // Flush queued messages BEFORE broadcasting _open. Listeners react
+      // to _open by marking connection='connected' and often by firing
+      // follow-up sends of their own; if we broadcast first, those fresh
+      // sends could interleave in front of the queued ones and change
+      // the server-visible order. The flush is synchronous on the same
+      // WebSocket, so once _open fans out the queued payloads have
+      // already been written to the wire.
+      //
+      // Guard each send: if one throws (browser extension closing the
+      // socket mid-flush, a misbehaving mock, etc.), we requeue the
+      // remaining payloads onto pendingSends so the next reconnect picks
+      // them up, and we still broadcast _open so listeners transition
+      // into the connected state.
+      if (entry.pendingSends.length > 0) {
+        const toFlush = entry.pendingSends;
+        entry.pendingSends = [];
+        for (let i = 0; i < toFlush.length; i++) {
+          try {
+            ws.send(toFlush[i]);
+          } catch {
+            entry.pendingSends.unshift(...toFlush.slice(i));
+            break;
+          }
+        }
+      }
+      this.broadcast(entry, { type: '_open' });
+    };
 
     ws.onmessage = (e: { data: string }) => {
       let msg: WsMsg;

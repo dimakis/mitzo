@@ -193,6 +193,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         : null;
       const clientMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+      // Capture whether a turn is in-flight BEFORE we dispatch USER_SEND.
+      // USER_SEND flips messages.running to true so the composer can show
+      // the stop button — if we read running after dispatching, every
+      // follow-up would incorrectly look like it arrived mid-turn and get
+      // silently queued in parserState.pendingSend forever.
+      const wasRunning = get().messages.running;
+
       const buildPayload = (): Record<string, unknown> => {
         const msg: Record<string, unknown> = {
           type: 'send',
@@ -240,8 +247,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
       const msg = buildPayload();
 
-      // If running, queue for after session_end
-      if (get().messages.running) {
+      // If a turn was already running when the user hit send, queue the
+      // payload and flush it once the server signals session_end.
+      if (wasRunning) {
         parserState.pendingSend = msg;
       } else {
         wsPool.setRunning(poolKey, true);
