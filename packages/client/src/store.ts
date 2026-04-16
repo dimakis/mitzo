@@ -61,7 +61,7 @@ export interface MitzoStoreState {
   respondToPermission(permId: string, decision: 'once' | 'always' | 'deny'): void;
   setMode(mode: MitzoMode): void;
   setModel(modelId: string): void;
-  loadSessions(offset?: number): Promise<void>;
+  loadSessions(): Promise<void>;
   refreshSessions(): Promise<void>;
 }
 
@@ -282,11 +282,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }));
     },
 
-    async loadSessions(offset?: number) {
+    async loadSessions() {
       set((s) => ({ sessions: { ...s.sessions, loading: true } }));
       try {
-        const raw = await api.listSessions(offset);
-        const list = Array.isArray(raw) ? raw : (raw as unknown as { sessions: typeof raw }).sessions ?? [];
+        const raw = await api.listSessions();
+        const list = Array.isArray(raw)
+          ? raw
+          : ((raw as unknown as { sessions: typeof raw }).sessions ?? []);
         set((s) => ({ sessions: { ...s.sessions, list, loading: false } }));
       } catch {
         set((s) => ({ sessions: { ...s.sessions, loading: false } }));
@@ -296,7 +298,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     async refreshSessions() {
       try {
         const raw = await api.listSessions();
-        const list = Array.isArray(raw) ? raw : (raw as unknown as { sessions: typeof raw }).sessions ?? [];
+        const list = Array.isArray(raw)
+          ? raw
+          : ((raw as unknown as { sessions: typeof raw }).sessions ?? []);
         set((s) => ({ sessions: { ...s.sessions, list } }));
       } catch {
         // Silent — keep existing list on failure
