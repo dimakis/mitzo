@@ -568,6 +568,34 @@ describe('sendMessage — new session connection bootstrap', () => {
 
     expect(store.getState().connection.status).toBe('connected');
   });
+
+  it('unsubscribes previous session WS when first message creates a new pool entry', async () => {
+    const transport = mockTransport();
+    (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve([]),
+      text: () => Promise.resolve(''),
+    });
+    const store = createMitzoStore(makeOptions(transport));
+
+    // Start in an existing session
+    await store.getState().switchSession('old-session');
+    const oldWs = lastWs;
+    oldWs.simulateMessage({ type: 'client_id', clientId: 'c1' });
+    oldWs.simulateMessage({ type: 'subscribed', running: false });
+
+    // Start a brand-new session by calling newSession then sendMessage
+    store.getState().newSession();
+    store.getState().sendMessage('fresh start');
+
+    // Messages on the old WS must not leak into the new session
+    oldWs.simulateMessage({ type: 'message_start', messageId: 'old-leak' });
+
+    // Only the user message from sendMessage should be present
+    expect(store.getState().messages.messages).toHaveLength(1);
+    expect(store.getState().messages.messages[0].role).toBe('user');
+    expect(store.getState().messages.current).toBeNull();
+  });
 });
 
 describe('sendMessage — resume drops stale session ID after error', () => {
