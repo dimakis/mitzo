@@ -23,7 +23,9 @@ export const clientStore = createMitzoStore({
       return {
         send: (data: string) => ws.send(data),
         close: () => ws.close(),
-        get readyState() { return ws.readyState; },
+        get readyState() {
+          return ws.readyState;
+        },
       };
     },
     fetch: (url, init) => fetch(url, init),

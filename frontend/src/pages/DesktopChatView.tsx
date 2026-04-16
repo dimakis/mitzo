@@ -70,11 +70,14 @@ export function DesktopChatView() {
 
   // Local model state — persisted to localStorage, sent in payload
   const [modelState, setModelState] = useState(getPreferredModel);
-  const setModel = useCallback((id: string) => {
-    setModelState(id);
-    setPreferredModel(id);
-    storeSetModel(id);
-  }, [storeSetModel]);
+  const setModel = useCallback(
+    (id: string) => {
+      setModelState(id);
+      setPreferredModel(id);
+      storeSetModel(id);
+    },
+    [storeSetModel],
+  );
 
   const [mode, setMode] = useState<'ask' | 'agent' | 'auto'>(
     searchParams.get('extraTools') ? 'auto' : 'agent',
@@ -179,7 +182,11 @@ export function DesktopChatView() {
     storeDispatchMessages({ type: 'SET_RUNNING', running: false });
   }, [storeStopGeneration, storeDispatchMessages]);
 
-  function handlePermission(permId: string, decision: 'once' | 'always' | 'deny', _toolName: string) {
+  function handlePermission(
+    permId: string,
+    decision: 'once' | 'always' | 'deny',
+    _toolName: string,
+  ) {
     storeRespondToPermission(permId, decision);
   }
 

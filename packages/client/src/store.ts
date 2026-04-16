@@ -393,7 +393,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       store.getState().refreshSessions();
     },
 
-    onSessionExpired(_sessionId: string) {
+    onSessionExpired() {
       parserState.currentSessionId = undefined;
       store.setState((s) => ({
         sessions: { ...s.sessions, active: null },
