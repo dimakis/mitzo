@@ -144,7 +144,11 @@ export function DesktopChatView() {
   // ── Actions ──────────────────────────────────────────────────────────────
 
   function handleSend(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): boolean {
-    if (connection.status !== 'connected') {
+    // For new sessions (no activeSessionId) the store bootstraps a WS on
+    // demand inside sendMessage(), so we must not block on connection status.
+    // Only gate on connection for existing sessions where a WS should already
+    // be open.
+    if (activeSessionId && connection.status !== 'connected') {
       storeDispatchMessages({ type: 'CONNECTION_LOST' });
       return false;
     }

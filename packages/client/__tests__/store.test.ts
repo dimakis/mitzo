@@ -459,6 +459,83 @@ describe('respondToPermission', () => {
   });
 });
 
+describe('sendMessage — new session connection bootstrap', () => {
+  it('new session send works even when connection.status is disconnected', () => {
+    const store = createMitzoStore(makeOptions());
+
+    // Initial state: connection is disconnected (no WS subscription yet)
+    expect(store.getState().connection.status).toBe('disconnected');
+
+    // sendMessage should still work — it creates a pool entry on demand
+    store.getState().sendMessage('hello from a new session');
+
+    const { messages, running } = store.getState().messages;
+    expect(messages).toHaveLength(1);
+    expect(messages[0].blocks[0].content).toBe('hello from a new session');
+    expect(running).toBe(true);
+    // A WebSocket was created (pool entry bootstrapped)
+    expect(lastWs).toBeDefined();
+  });
+
+  it('connection becomes connected after new-session WS opens and receives client_id', () => {
+    const store = createMitzoStore(makeOptions());
+    store.getState().sendMessage('hello');
+
+    // Simulate full handshake
+    lastWs.simulateOpen();
+    lastWs.simulateMessage({ type: 'client_id', clientId: 'c1' });
+
+    expect(store.getState().connection.status).toBe('connected');
+  });
+});
+
+describe('sendMessage — resume drops stale session ID after error', () => {
+  it('clears currentSessionId on "No conversation found" so next send is fresh', async () => {
+    const transport = mockTransport();
+    (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve([]),
+      text: () => Promise.resolve(''),
+    });
+    const store = createMitzoStore(makeOptions(transport));
+
+    // Switch to an existing session (sets parserState.currentSessionId)
+    await store.getState().switchSession('old-session-id');
+
+    // Simulate WS handshake
+    lastWs.simulateMessage({ type: 'client_id', clientId: 'c1' });
+    lastWs.simulateMessage({ type: 'subscribed', running: false });
+
+    // Send a message — should include resume
+    store.getState().sendMessage('first attempt');
+    const firstSent = lastWs.sent.map((s) => JSON.parse(s));
+    const resumeMsg = firstSent.find(
+      (m: Record<string, unknown>) => m.type === 'send' && m.resume === 'old-session-id',
+    );
+    expect(resumeMsg).toBeDefined();
+
+    // Server responds with "No conversation found"
+    lastWs.simulateMessage({
+      type: 'error',
+      error:
+        'Claude Code returned an error result: No conversation found with session ID: old-session-id',
+    });
+
+    // Session should be expired — active cleared
+    expect(store.getState().sessions.active).toBeNull();
+
+    // Send another message — should NOT include resume (fresh session)
+    store.getState().sendMessage('second attempt');
+
+    // The second send should go through a new pool key (no resume)
+    // It creates a new WS, so check the new lastWs
+    const newWsSent = lastWs.sent.map((s) => JSON.parse(s));
+    const freshMsg = newWsSent.find((m: Record<string, unknown>) => m.type === 'send' && !m.resume);
+    expect(freshMsg).toBeDefined();
+    expect(freshMsg.prompt).toBe('second attempt');
+  });
+});
+
 describe('setMode', () => {
   it('updates config mode', () => {
     const store = createMitzoStore(makeOptions());

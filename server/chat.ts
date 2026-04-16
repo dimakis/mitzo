@@ -405,7 +405,22 @@ export async function startChat(
 ) {
   const abortController = new AbortController();
   const mode = options.mode || 'agent';
-  const baseCwd = options.cwd || BASE_REPO;
+
+  // When resuming, look up the original session's CWD from the event store.
+  // The SDK stores conversation data under ~/.claude/projects/<encoded-cwd>/,
+  // so we must use the same CWD the session was created with — otherwise the
+  // SDK can't find the conversation and returns "No conversation found".
+  let baseCwd = options.cwd || BASE_REPO;
+  if (options.resume && !options.cwd) {
+    const sessionMeta = eventStore.getSession(options.resume);
+    if (sessionMeta?.cwd) {
+      baseCwd = sessionMeta.cwd;
+      log.info('resume: using original session CWD', {
+        sessionId: options.resume,
+        cwd: baseCwd,
+      });
+    }
+  }
 
   // Generate session-scoped worktree ID and create worktrees in all repos
   const wtId = generateWtId();
