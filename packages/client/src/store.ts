@@ -28,6 +28,8 @@ import { INITIAL_TODOS_STATE } from './slices/todos.js';
 import type { TodosState } from './slices/todos.js';
 import { INITIAL_CONFIG_STATE } from './slices/config.js';
 import type { ConfigState } from './slices/config.js';
+import { INITIAL_TOKENS_STATE } from './slices/tokens.js';
+import type { TokensState } from './slices/tokens.js';
 import { parseServerMessage } from './protocol-parser.js';
 import type { ProtocolParserState, ProtocolCallbacks } from './protocol-parser.js';
 import type { WsMsg } from './server-messages.js';
@@ -36,6 +38,15 @@ import { WsPool } from './ws-connection.js';
 import type { WsPoolConfig } from './ws-connection.js';
 
 // ─── Store state ─────────────────────────────────────────────────────────────
+
+export interface SendMessageOptions {
+  contextBlocks?: string[];
+  images?: ImageAttachment[];
+  model?: string;
+  mode?: MitzoMode;
+  cwd?: string;
+  extraTools?: string;
+}
 
 export interface MitzoStoreState {
   // Slices
@@ -48,6 +59,7 @@ export interface MitzoStoreState {
   calendar: CalendarState;
   todos: TodosState;
   config: ConfigState;
+  tokens: TokensState;
 
   // Error state
   sendError: string | null;
@@ -56,13 +68,15 @@ export interface MitzoStoreState {
   dispatchMessages(action: MessagesAction): void;
   switchSession(id: string): Promise<void>;
   newSession(): void;
-  sendMessage(text: string, opts?: { contextBlocks?: string[]; images?: ImageAttachment[] }): void;
+  sendMessage(text: string, opts?: SendMessageOptions): void;
+  interruptMessage(text: string, opts?: SendMessageOptions): void;
   stopGeneration(): void;
   respondToPermission(permId: string, decision: 'once' | 'always' | 'deny'): void;
   setMode(mode: MitzoMode): void;
   setModel(modelId: string): void;
   loadSessions(): Promise<void>;
   refreshSessions(): Promise<void>;
+  fetchSessionMeta(sessionId: string): Promise<void>;
 }
 
 // ─── Store options ───────────────────────────────────────────────────────────
@@ -126,6 +140,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     calendar: INITIAL_CALENDAR_STATE,
     todos: INITIAL_TODOS_STATE,
     config: INITIAL_CONFIG_STATE,
+    tokens: INITIAL_TOKENS_STATE,
     sendError: null,
 
     // ── Actions ──────────────────────────────────────────────────────────
@@ -144,6 +159,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         sessions: { ...s.sessions, active: id },
         messages: INITIAL_MESSAGES_STATE,
         permissions: INITIAL_PERMISSIONS_STATE,
+        tokens: INITIAL_TOKENS_STATE,
       }));
 
       // Subscribe to WS messages for this session
@@ -171,44 +187,31 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       });
     },
 
-    sendMessage(text: string, opts?: { contextBlocks?: string[]; images?: ImageAttachment[] }) {
+    sendMessage(text: string, opts?: SendMessageOptions) {
       const poolKey = parserState.currentSessionId
         ? `session:${parserState.currentSessionId}`
         : null;
       const clientMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-      // For new sessions, subscribe first so the pool entry exists
-      if (!poolKey) {
-        const newKey = `new:${Date.now()}`;
-        activePoolKey = newKey;
-        wsPool.subscribe(newKey, wsListener);
-
-        // Optimistic update
-        set((s) => ({
-          messages: messagesReducer(s.messages, {
-            type: 'USER_SEND',
-            text,
-            clientMsgId,
-            images: opts?.images?.map((img) => img.preview),
-            contextBlocks: opts?.contextBlocks,
-          }),
-          sendError: null,
-        }));
-
+      const buildPayload = (): Record<string, unknown> => {
         const msg: Record<string, unknown> = {
           type: 'send',
           prompt: text,
           clientMsgId,
         };
-        if (opts?.contextBlocks) msg.contextBlocks = opts.contextBlocks;
-        if (opts?.images) msg.images = opts.images;
-
-        const sent = wsPool.send(newKey, msg);
-        if (!sent) {
-          set({ sendError: 'Not connected. Message will be sent when reconnected.' });
+        const model = opts?.model ?? get().config.modelId;
+        const mode = opts?.mode ?? get().config.mode;
+        if (model) msg.model = model;
+        if (mode) msg.mode = mode;
+        if (parserState.currentSessionId) msg.resume = parserState.currentSessionId;
+        if (opts?.contextBlocks?.length) msg.contextBlocks = opts.contextBlocks;
+        if (opts?.images?.length) {
+          msg.images = opts.images.map((img) => ({ data: img.data, mediaType: img.mediaType }));
         }
-        return;
-      }
+        if (opts?.cwd) msg.cwd = opts.cwd;
+        if (opts?.extraTools) msg.extraTools = opts.extraTools;
+        return msg;
+      };
 
       // Optimistic update
       set((s) => ({
@@ -222,23 +225,62 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         sendError: null,
       }));
 
-      const msg: Record<string, unknown> = {
-        type: 'send',
-        prompt: text,
-        clientMsgId,
-      };
-      if (opts?.contextBlocks) msg.contextBlocks = opts.contextBlocks;
-      if (opts?.images) msg.images = opts.images;
+      // For new sessions, subscribe first so the pool entry exists
+      if (!poolKey) {
+        const newKey = `new:${Date.now()}`;
+        activePoolKey = newKey;
+        wsPool.subscribe(newKey, wsListener);
+
+        const sent = wsPool.send(newKey, buildPayload());
+        if (!sent) {
+          set({ sendError: 'Not connected. Message will be sent when reconnected.' });
+        }
+        return;
+      }
+
+      const msg = buildPayload();
 
       // If running, queue for after session_end
       if (get().messages.running) {
         parserState.pendingSend = msg;
       } else {
+        wsPool.setRunning(poolKey, true);
         const sent = wsPool.send(poolKey, msg);
         if (!sent) {
           set({ sendError: 'Not connected. Message will be sent when reconnected.' });
         }
       }
+    },
+
+    interruptMessage(text: string, opts?: SendMessageOptions) {
+      const poolKey = parserState.currentSessionId
+        ? `session:${parserState.currentSessionId}`
+        : null;
+      if (!poolKey || !get().messages.running) return;
+
+      const clientMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+      const msg: Record<string, unknown> = {
+        type: 'interrupt',
+        prompt: text,
+        clientMsgId,
+      };
+      if (opts?.images?.length) {
+        msg.images = opts.images.map((img) => ({ data: img.data, mediaType: img.mediaType }));
+      }
+      if (opts?.contextBlocks?.length) msg.contextBlocks = opts.contextBlocks;
+
+      wsPool.send(poolKey, msg);
+
+      set((s) => ({
+        messages: messagesReducer(s.messages, {
+          type: 'USER_SEND',
+          text,
+          clientMsgId,
+          images: opts?.images?.map((img) => img.preview),
+          contextBlocks: opts?.contextBlocks,
+        }),
+      }));
     },
 
     stopGeneration() {
@@ -304,6 +346,35 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         set((s) => ({ sessions: { ...s.sessions, list } }));
       } catch {
         // Silent — keep existing list on failure
+      }
+    },
+
+    async fetchSessionMeta(sessionId: string) {
+      try {
+        const meta = await api.getSessionMeta(sessionId);
+        if (!meta) return;
+        if (meta.branch) {
+          set((s) => ({
+            messages: messagesReducer(s.messages, {
+              type: 'SESSION_INFO',
+              branch: meta.branch!,
+              isWorktree: !!meta.wtId,
+              wtId: meta.wtId ?? undefined,
+            }),
+          }));
+        }
+        if (meta.numTurns > 0) {
+          set((s) => ({
+            tokens: {
+              ...s.tokens,
+              sessionTotal: meta.totalTokens ?? s.tokens.sessionTotal,
+              numTurns: meta.numTurns ?? s.tokens.numTurns,
+              turnIndex: meta.numTurns ?? s.tokens.turnIndex,
+            },
+          }));
+        }
+      } catch {
+        // Session meta may not be available — graceful no-op
       }
     },
   }));
@@ -392,6 +463,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           }));
           break;
       }
+    }
+
+    // Token update
+    if (result.tokensUpdate) {
+      store.setState((s) => ({
+        tokens: { ...s.tokens, ...result.tokensUpdate },
+      }));
     }
 
     // Connection update

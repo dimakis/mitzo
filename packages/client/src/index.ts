@@ -9,7 +9,7 @@ export { WS_READY_STATE } from './types.js';
 
 // Store
 export { createMitzoStore } from './store.js';
-export type { MitzoStoreState, MitzoStoreOptions } from './store.js';
+export type { MitzoStoreState, MitzoStoreOptions, SendMessageOptions } from './store.js';
 
 // Slices — state shapes and types
 export type { MessagesState, MessagesAction, ActiveWorktree } from './slices/messages.js';
@@ -22,6 +22,8 @@ export type { InboxState, InboxItem } from './slices/inbox.js';
 export type { CalendarState, CalendarEvent, SprintInfo } from './slices/calendar.js';
 export type { TodosState, TodoItem, TodoSource, TodoContextHints } from './slices/todos.js';
 export type { ConfigState, ContextBlockEntry, SkillMetadata } from './slices/config.js';
+export type { TokensState } from './slices/tokens.js';
+export { INITIAL_TOKENS_STATE, DEFAULT_CONTEXT_CEILING } from './slices/tokens.js';
 
 // Protocol parser
 export { parseServerMessage } from './protocol-parser.js';
@@ -40,6 +42,7 @@ export type {
   GitInfo,
   FileEntry,
   CalendarData,
+  SessionMetaResponse,
 } from './api-client.js';
 
 // WS connection
