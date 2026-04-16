@@ -5,7 +5,7 @@
  * Uses a TransportAdapter.fetch so it works in both browser and Theia.
  */
 
-import type { FinishedMessage, Session, MitzoMode } from '@mitzo/protocol';
+import type { FinishedMessage, Session } from '@mitzo/protocol';
 import type { Task } from './slices/tasks.js';
 import type { TodoItem } from './slices/todos.js';
 import type { InboxItem } from './slices/inbox.js';
@@ -67,17 +67,21 @@ export class MitzoApiClient {
   // ── Auth ─────────────────────────────────────────────────────────────────
 
   async checkAuth(): Promise<AuthCheckResult> {
-    const res = await this.assertOk(await this.fetch('/api/auth/check', { credentials: 'include' }));
+    const res = await this.assertOk(
+      await this.fetch('/api/auth/check', { credentials: 'include' }),
+    );
     return res.json();
   }
 
   async login(passphrase: string): Promise<Response> {
-    return this.assertOk(await this.fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ passphrase }),
-    }));
+    return this.assertOk(
+      await this.fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ passphrase }),
+      }),
+    );
   }
 
   // ── Sessions ─────────────────────────────────────────────────────────────
@@ -88,38 +92,43 @@ export class MitzoApiClient {
     return res.json();
   }
 
-  async getSessionMessages(
-    sessionId: string,
-    signal?: AbortSignal,
-  ): Promise<FinishedMessage[]> {
-    const res = await this.assertOk(await this.fetch(`/api/sessions/${sessionId}/messages`, {
-      credentials: 'include',
-      signal,
-    }));
+  async getSessionMessages(sessionId: string, signal?: AbortSignal): Promise<FinishedMessage[]> {
+    const res = await this.assertOk(
+      await this.fetch(`/api/sessions/${sessionId}/messages`, {
+        credentials: 'include',
+        signal,
+      }),
+    );
     return res.json();
   }
 
   async deleteSession(sessionId: string): Promise<void> {
-    await this.assertOk(await this.fetch(`/api/sessions/${sessionId}`, {
-      method: 'DELETE',
-      credentials: 'include',
-    }));
+    await this.assertOk(
+      await this.fetch(`/api/sessions/${sessionId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      }),
+    );
   }
 
   async deleteAllSessions(): Promise<void> {
-    await this.assertOk(await this.fetch('/api/sessions', {
-      method: 'DELETE',
-      credentials: 'include',
-    }));
+    await this.assertOk(
+      await this.fetch('/api/sessions', {
+        method: 'DELETE',
+        credentials: 'include',
+      }),
+    );
   }
 
   async renameSession(sessionId: string, title: string): Promise<void> {
-    await this.assertOk(await this.fetch(`/api/sessions/${sessionId}/rename`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ title }),
-    }));
+    await this.assertOk(
+      await this.fetch(`/api/sessions/${sessionId}/rename`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ title }),
+      }),
+    );
   }
 
   // ── Config ───────────────────────────────────────────────────────────────
@@ -135,17 +144,21 @@ export class MitzoApiClient {
   }
 
   async checkForUpdate(): Promise<{ updateAvailable: boolean; latestVersion?: string }> {
-    const res = await this.assertOk(await this.fetch('/api/version/check', {
-      method: 'POST',
-      credentials: 'include',
-    }));
+    const res = await this.assertOk(
+      await this.fetch('/api/version/check', {
+        method: 'POST',
+        credentials: 'include',
+      }),
+    );
     return res.json();
   }
 
   // ── Files ────────────────────────────────────────────────────────────────
 
   async getFileRoots(): Promise<string[]> {
-    const res = await this.assertOk(await this.fetch('/api/files/roots', { credentials: 'include' }));
+    const res = await this.assertOk(
+      await this.fetch('/api/files/roots', { credentials: 'include' }),
+    );
     return res.json();
   }
 
@@ -157,23 +170,29 @@ export class MitzoApiClient {
   async listDirectory(dir: string, root?: string): Promise<FileEntry[]> {
     const params = new URLSearchParams({ dir });
     if (root) params.set('root', root);
-    const res = await this.assertOk(await this.fetch(`/api/files?${params}`, { credentials: 'include' }));
+    const res = await this.assertOk(
+      await this.fetch(`/api/files?${params}`, { credentials: 'include' }),
+    );
     return res.json();
   }
 
   async readFile(path: string): Promise<string> {
     const params = new URLSearchParams({ path });
-    const res = await this.assertOk(await this.fetch(`/api/files/read?${params}`, { credentials: 'include' }));
+    const res = await this.assertOk(
+      await this.fetch(`/api/files/read?${params}`, { credentials: 'include' }),
+    );
     return res.text();
   }
 
   async writeFile(path: string, content: string): Promise<void> {
-    await this.assertOk(await this.fetch('/api/files/write', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ path, content }),
-    }));
+    await this.assertOk(
+      await this.fetch('/api/files/write', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ path, content }),
+      }),
+    );
   }
 
   // ── Tasks & Loop ─────────────────────────────────────────────────────────
@@ -184,80 +203,104 @@ export class MitzoApiClient {
   }
 
   async createTask(input: Partial<Task>): Promise<Task> {
-    const res = await this.assertOk(await this.fetch('/api/tasks', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(input),
-    }));
+    const res = await this.assertOk(
+      await this.fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(input),
+      }),
+    );
     return res.json();
   }
 
   async updateTask(taskId: string, update: Partial<Task>): Promise<Task> {
-    const res = await this.assertOk(await this.fetch(`/api/tasks/${taskId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(update),
-    }));
+    const res = await this.assertOk(
+      await this.fetch(`/api/tasks/${taskId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(update),
+      }),
+    );
     return res.json();
   }
 
   async deleteTask(taskId: string): Promise<void> {
-    await this.assertOk(await this.fetch(`/api/tasks/${taskId}`, {
-      method: 'DELETE',
-      credentials: 'include',
-    }));
+    await this.assertOk(
+      await this.fetch(`/api/tasks/${taskId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      }),
+    );
   }
 
   async approveTask(taskId: string): Promise<void> {
-    await this.assertOk(await this.fetch(`/api/tasks/${taskId}/approve`, {
-      method: 'POST',
-      credentials: 'include',
-    }));
+    await this.assertOk(
+      await this.fetch(`/api/tasks/${taskId}/approve`, {
+        method: 'POST',
+        credentials: 'include',
+      }),
+    );
   }
 
   async rejectTask(taskId: string, feedback: string): Promise<void> {
-    await this.assertOk(await this.fetch(`/api/tasks/${taskId}/reject`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ feedback }),
-    }));
+    await this.assertOk(
+      await this.fetch(`/api/tasks/${taskId}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ feedback }),
+      }),
+    );
   }
 
   async getLoopStatus(): Promise<{ state: string; goalId: string | null }> {
-    const res = await this.assertOk(await this.fetch('/api/loop/status', { credentials: 'include' }));
+    const res = await this.assertOk(
+      await this.fetch('/api/loop/status', { credentials: 'include' }),
+    );
     return res.json();
   }
 
   async startLoop(goalId: string, specMode?: boolean): Promise<void> {
-    await this.assertOk(await this.fetch('/api/loop/start', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ goalId, specMode }),
-    }));
+    await this.assertOk(
+      await this.fetch('/api/loop/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ goalId, specMode }),
+      }),
+    );
   }
 
   async pauseLoop(): Promise<void> {
-    await this.assertOk(await this.fetch('/api/loop/pause', { method: 'POST', credentials: 'include' }));
+    await this.assertOk(
+      await this.fetch('/api/loop/pause', { method: 'POST', credentials: 'include' }),
+    );
   }
 
   async resumeLoop(): Promise<void> {
-    await this.assertOk(await this.fetch('/api/loop/resume', { method: 'POST', credentials: 'include' }));
+    await this.assertOk(
+      await this.fetch('/api/loop/resume', { method: 'POST', credentials: 'include' }),
+    );
   }
 
   async stopLoop(): Promise<void> {
-    await this.assertOk(await this.fetch('/api/loop/stop', { method: 'POST', credentials: 'include' }));
+    await this.assertOk(
+      await this.fetch('/api/loop/stop', { method: 'POST', credentials: 'include' }),
+    );
   }
 
   async approveSpec(): Promise<void> {
-    await this.assertOk(await this.fetch('/api/loop/spec/approve', { method: 'POST', credentials: 'include' }));
+    await this.assertOk(
+      await this.fetch('/api/loop/spec/approve', { method: 'POST', credentials: 'include' }),
+    );
   }
 
   async rejectSpec(): Promise<void> {
-    await this.assertOk(await this.fetch('/api/loop/spec/reject', { method: 'POST', credentials: 'include' }));
+    await this.assertOk(
+      await this.fetch('/api/loop/spec/reject', { method: 'POST', credentials: 'include' }),
+    );
   }
 
   // ── Todos ────────────────────────────────────────────────────────────────
@@ -269,33 +312,35 @@ export class MitzoApiClient {
   }
 
   async createTodo(summary: string, profile: string, parentId?: string): Promise<TodoItem> {
-    const res = await this.assertOk(await this.fetch('/api/todos', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ summary, profile, parentId }),
-    }));
+    const res = await this.assertOk(
+      await this.fetch('/api/todos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ summary, profile, parentId }),
+      }),
+    );
     return res.json();
   }
 
-  async todoAction(
-    todoId: string,
-    action: string,
-    days?: number,
-  ): Promise<void> {
-    await this.assertOk(await this.fetch(`/api/todos/${todoId}/action`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ action, days }),
-    }));
+  async todoAction(todoId: string, action: string, days?: number): Promise<void> {
+    await this.assertOk(
+      await this.fetch(`/api/todos/${todoId}/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action, days }),
+      }),
+    );
   }
 
   // ── Calendar ─────────────────────────────────────────────────────────────
 
   async getCalendar(date: string, days: number): Promise<CalendarData> {
     const params = new URLSearchParams({ date, days: String(days) });
-    const res = await this.assertOk(await this.fetch(`/api/calendar?${params}`, { credentials: 'include' }));
+    const res = await this.assertOk(
+      await this.fetch(`/api/calendar?${params}`, { credentials: 'include' }),
+    );
     return res.json();
   }
 
@@ -307,22 +352,28 @@ export class MitzoApiClient {
   }
 
   async getInboxItem(filename: string): Promise<string> {
-    const res = await this.assertOk(await this.fetch(`/api/inbox/${filename}`, { credentials: 'include' }));
+    const res = await this.assertOk(
+      await this.fetch(`/api/inbox/${filename}`, { credentials: 'include' }),
+    );
     return res.text();
   }
 
   async approveInboxItem(filename: string): Promise<void> {
-    await this.assertOk(await this.fetch(`/api/inbox/${filename}/approve`, {
-      method: 'POST',
-      credentials: 'include',
-    }));
+    await this.assertOk(
+      await this.fetch(`/api/inbox/${filename}/approve`, {
+        method: 'POST',
+        credentials: 'include',
+      }),
+    );
   }
 
   async deleteInboxItem(filename: string): Promise<void> {
-    await this.assertOk(await this.fetch(`/api/inbox/${filename}`, {
-      method: 'DELETE',
-      credentials: 'include',
-    }));
+    await this.assertOk(
+      await this.fetch(`/api/inbox/${filename}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      }),
+    );
   }
 
   // ── Skills ───────────────────────────────────────────────────────────────

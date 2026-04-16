@@ -33,6 +33,12 @@ describe('cleanupStaleWorktrees', () => {
     baseRepo = mkdtempSync(join(tmpdir(), 'mitzo-wt-test-'));
     inboxDir = join(baseRepo, 'test-inbox');
     execFileSync('git', ['-C', baseRepo, 'init'], { stdio: 'pipe' });
+    execFileSync('git', ['-C', baseRepo, 'config', 'user.email', 'test@test.com'], {
+      stdio: 'pipe',
+    });
+    execFileSync('git', ['-C', baseRepo, 'config', 'user.name', 'Test'], {
+      stdio: 'pipe',
+    });
     execFileSync('git', ['-C', baseRepo, 'commit', '--allow-empty', '-m', 'init'], {
       stdio: 'pipe',
     });

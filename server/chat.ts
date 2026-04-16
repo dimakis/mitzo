@@ -186,7 +186,10 @@ function createSessionWorktrees(
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     log.error('primary worktree creation failed, using base repo', { error: message });
-    send(transport, { type: 'error', error: `Worktree creation failed (using base repo): ${message}` });
+    send(transport, {
+      type: 'error',
+      error: `Worktree creation failed (using base repo): ${message}`,
+    });
     return { cwd: baseCwd, wtId, repoWorktrees };
   }
 
@@ -393,7 +396,12 @@ export async function startChat(
 
   // Generate session-scoped worktree ID and create worktrees in all repos
   const wtId = generateWtId();
-  const { cwd, worktreePath, repoWorktrees } = createSessionWorktrees(transport, baseCwd, wtId, options);
+  const { cwd, worktreePath, repoWorktrees } = createSessionWorktrees(
+    transport,
+    baseCwd,
+    wtId,
+    options,
+  );
 
   const fullPrompt = assemblePrompt(prompt, cwd, options.images, options.contextBlocks);
 

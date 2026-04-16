@@ -49,8 +49,20 @@ describe('extractRecentPrompts', () => {
   it('extracts user_message texts from events', () => {
     const events: StoredEvent[] = [
       { seq: 1, sessionId: 's1', type: 'user_message', payload: { text: 'Hello' }, createdAt: 1 },
-      { seq: 2, sessionId: 's1', type: 'message_start', payload: { messageId: 'msg-1' }, createdAt: 2 },
-      { seq: 3, sessionId: 's1', type: 'user_message', payload: { text: 'Fix the bug' }, createdAt: 3 },
+      {
+        seq: 2,
+        sessionId: 's1',
+        type: 'message_start',
+        payload: { messageId: 'msg-1' },
+        createdAt: 2,
+      },
+      {
+        seq: 3,
+        sessionId: 's1',
+        type: 'user_message',
+        payload: { text: 'Fix the bug' },
+        createdAt: 3,
+      },
     ];
     const prompts = extractRecentPrompts(events);
     expect(prompts).toEqual(['Hello', 'Fix the bug']);
@@ -58,7 +70,13 @@ describe('extractRecentPrompts', () => {
 
   it('returns empty array when no user messages', () => {
     const events: StoredEvent[] = [
-      { seq: 1, sessionId: 's1', type: 'message_start', payload: { messageId: 'msg-1' }, createdAt: 1 },
+      {
+        seq: 1,
+        sessionId: 's1',
+        type: 'message_start',
+        payload: { messageId: 'msg-1' },
+        createdAt: 1,
+      },
     ];
     expect(extractRecentPrompts(events)).toEqual([]);
   });
@@ -116,9 +134,7 @@ describe('generateSessionName', () => {
       content: [{ type: 'text', text: 'Auth Bug Fix Session' }],
     });
 
-    setClientFactory(
-      () => ({ messages: { create: mockCreate } }) as never,
-    );
+    setClientFactory(() => ({ messages: { create: mockCreate } }) as never);
 
     const result = await generateSessionName(['Fix the auth bug', 'Update login page']);
 
@@ -139,9 +155,7 @@ describe('generateSessionName', () => {
   it('falls back to keyword extraction when API call fails', async () => {
     const mockCreate = vi.fn().mockRejectedValue(new Error('API key invalid'));
 
-    setClientFactory(
-      () => ({ messages: { create: mockCreate } }) as never,
-    );
+    setClientFactory(() => ({ messages: { create: mockCreate } }) as never);
 
     const prompts = ['Fix the authentication bug', 'Update the login page'];
     const result = await generateSessionName(prompts);
@@ -156,9 +170,7 @@ describe('generateSessionName', () => {
       content: [{ type: 'text', text: longName }],
     });
 
-    setClientFactory(
-      () => ({ messages: { create: mockCreate } }) as never,
-    );
+    setClientFactory(() => ({ messages: { create: mockCreate } }) as never);
 
     const result = await generateSessionName(['Some prompt']);
     expect(result.length).toBeLessThanOrEqual(60);

@@ -18,15 +18,15 @@ jobs:
           node-version: 24
           cache: npm
 
-      - name: Install root dependencies
+      - name: Install dependencies
         # TODO: Restore `npm ci` once lockfile is generated on Linux.
         # jsdom's optional @emnapi/* native deps vary by platform — a macOS-generated
         # lockfile omits Linux variants, causing npm ci to fail on Ubuntu runners.
         # Fix: run `npm install` in a Linux container and commit that lockfile.
         run: npm install --no-audit
 
-      - name: Install frontend dependencies
-        run: cd frontend && npm ci
+      - name: Build workspace packages
+        run: npx tsc -b packages/protocol packages/harness packages/client
 
       - name: Lint
         id: lint

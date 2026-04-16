@@ -11,7 +11,6 @@ import type {
   StreamingMessage,
   StreamingBlock,
   PermissionRequest,
-  ToolTier,
   RawToolInput,
   BlockType,
 } from '@mitzo/protocol';
@@ -148,10 +147,7 @@ export function patchToolResult(
 
 // ─── Reducer ─────────────────────────────────────────────────────────────────
 
-export function messagesReducer(
-  state: MessagesState,
-  action: MessagesAction,
-): MessagesState {
+export function messagesReducer(state: MessagesState, action: MessagesAction): MessagesState {
   switch (action.type) {
     case 'MESSAGE_START': {
       const base = state.current

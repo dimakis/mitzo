@@ -1,5 +1,10 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { getToolTier, shouldAutoAllow, getAllowedToolsForMode, applyTierOverrides } from '../src/tool-tiers.js';
+import {
+  getToolTier,
+  shouldAutoAllow,
+  getAllowedToolsForMode,
+  applyTierOverrides,
+} from '../src/tool-tiers.js';
 
 describe('tool-tiers', () => {
   describe('getToolTier', () => {

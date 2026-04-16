@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  messagesReducer,
-  INITIAL_MESSAGES_STATE,
-} from '../src/slices/messages.js';
+import { messagesReducer, INITIAL_MESSAGES_STATE } from '../src/slices/messages.js';
 import type { MessagesState } from '../src/slices/messages.js';
 import type { FinishedBlock } from '@mitzo/protocol';
 
@@ -1076,7 +1073,9 @@ describe('CONNECTION_LOST', () => {
 
     state = messagesReducer(state, { type: 'CONNECTION_LOST' });
     expect(state.messages.length).toBe(msgCount + 1);
-    expect(state.messages[state.messages.length - 1].blocks[0].content).toContain('Connection lost');
+    expect(state.messages[state.messages.length - 1].blocks[0].content).toContain(
+      'Connection lost',
+    );
   });
 });
 

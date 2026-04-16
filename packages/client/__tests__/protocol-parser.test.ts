@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { parseServerMessage } from '../src/protocol-parser.js';
 import type { ProtocolCallbacks, ProtocolParserState } from '../src/protocol-parser.js';
-import type { WsMsg } from '../src/server-messages.js';
 
 function makeState(overrides?: Partial<ProtocolParserState>): ProtocolParserState {
   return {
@@ -102,12 +101,7 @@ describe('session lifecycle', () => {
   it('session_end clears pending send and queues it', () => {
     const state = makeState({ pendingSend: { type: 'send', prompt: 'follow-up' } });
     const cb = makeCallbacks();
-    const r = parseServerMessage(
-      { type: 'session_end', sessionId: 'sid' },
-      state,
-      cb,
-      POOL_KEY,
-    );
+    const r = parseServerMessage({ type: 'session_end', sessionId: 'sid' }, state, cb, POOL_KEY);
     expect(r.messagesActions).toContainEqual({ type: 'SESSION_END', sessionId: 'sid' });
     expect(r.messagesActions).toContainEqual({ type: 'SET_RUNNING', running: true });
     expect(cb.sendQueued).toHaveBeenCalledWith(POOL_KEY, { type: 'send', prompt: 'follow-up' });
@@ -130,19 +124,39 @@ describe('v2 content events', () => {
 
   it('block_start dispatches BLOCK_START with toolName', () => {
     const r = parseServerMessage(
-      { type: 'block_start', v: 2, messageId: 'msg-1', blockId: 'b1', blockType: 'tool_use', toolName: 'Bash' },
+      {
+        type: 'block_start',
+        v: 2,
+        messageId: 'msg-1',
+        blockId: 'b1',
+        blockType: 'tool_use',
+        toolName: 'Bash',
+      },
       makeState(),
       makeCallbacks(),
       POOL_KEY,
     );
     expect(r.messagesActions).toEqual([
-      { type: 'BLOCK_START', messageId: 'msg-1', blockId: 'b1', blockType: 'tool_use', toolName: 'Bash' },
+      {
+        type: 'BLOCK_START',
+        messageId: 'msg-1',
+        blockId: 'b1',
+        blockType: 'tool_use',
+        toolName: 'Bash',
+      },
     ]);
   });
 
   it('block_delta dispatches BLOCK_DELTA', () => {
     const r = parseServerMessage(
-      { type: 'block_delta', v: 2, messageId: 'msg-1', blockId: 'b1', blockType: 'text', delta: 'hi' },
+      {
+        type: 'block_delta',
+        v: 2,
+        messageId: 'msg-1',
+        blockId: 'b1',
+        blockType: 'text',
+        delta: 'hi',
+      },
       makeState(),
       makeCallbacks(),
       POOL_KEY,
@@ -178,7 +192,14 @@ describe('v2 content events', () => {
 
   it('tool_result dispatches TOOL_RESULT', () => {
     const r = parseServerMessage(
-      { type: 'tool_result', v: 2, messageId: 'msg-1', toolId: 'tool-1', result: 'output', isError: false },
+      {
+        type: 'tool_result',
+        v: 2,
+        messageId: 'msg-1',
+        toolId: 'tool-1',
+        result: 'output',
+        isError: false,
+      },
       makeState(),
       makeCallbacks(),
       POOL_KEY,
@@ -377,7 +398,15 @@ describe('task system messages', () => {
 
   it('loop_status produces tasksUpdate', () => {
     const r = parseServerMessage(
-      { type: 'loop_status', state: 'running', goalId: 'g1', activeTaskId: 't1', progress: { done: 2, total: 5 }, specMode: false, awaitingApproval: false },
+      {
+        type: 'loop_status',
+        state: 'running',
+        goalId: 'g1',
+        activeTaskId: 't1',
+        progress: { done: 2, total: 5 },
+        specMode: false,
+        awaitingApproval: false,
+      },
       makeState(),
       makeCallbacks(),
       POOL_KEY,
@@ -393,12 +422,7 @@ describe('task system messages', () => {
 
 describe('inbox', () => {
   it('inbox_updated signals refresh', () => {
-    const r = parseServerMessage(
-      { type: 'inbox_updated' },
-      makeState(),
-      makeCallbacks(),
-      POOL_KEY,
-    );
+    const r = parseServerMessage({ type: 'inbox_updated' }, makeState(), makeCallbacks(), POOL_KEY);
     expect(r.inboxRefresh).toBe(true);
   });
 });

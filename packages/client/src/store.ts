@@ -7,7 +7,7 @@
 
 import { createStore } from 'zustand/vanilla';
 import type { StoreApi } from 'zustand/vanilla';
-import type { FinishedMessage, MitzoMode, ImageAttachment } from '@mitzo/protocol';
+import type { MitzoMode, ImageAttachment } from '@mitzo/protocol';
 
 import type { TransportAdapter } from './types.js';
 import { messagesReducer, INITIAL_MESSAGES_STATE } from './slices/messages.js';
@@ -99,9 +99,7 @@ function removeTaskFromTree(tasks: Task[], id: string): Task[] {
 
 // ─── Factory ─────────────────────────────────────────────────────────────────
 
-export function createMitzoStore(
-  options: MitzoStoreOptions,
-): StoreApi<MitzoStoreState> {
+export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStoreState> {
   const api = new MitzoApiClient(options.transport.fetch.bind(options.transport));
   const wsPool = new WsPool(options.wsConfig);
 
@@ -296,7 +294,7 @@ export function createMitzoStore(
       }));
     },
 
-    onSessionExpired(sessionId: string) {
+    onSessionExpired(_sessionId: string) {
       parserState.currentSessionId = undefined;
       store.setState((s) => ({
         sessions: { ...s.sessions, active: null },
@@ -307,13 +305,16 @@ export function createMitzoStore(
     onMessagesRestored() {
       // Triggered after reattach_failed recovery — reload messages from API
       if (parserState.currentSessionId) {
-        api.getSessionMessages(parserState.currentSessionId).then((msgs) => {
-          if (Array.isArray(msgs) && msgs.length > 0) {
-            store.setState((s) => ({
-              messages: messagesReducer(s.messages, { type: 'RESTORE', messages: msgs }),
-            }));
-          }
-        }).catch(() => {});
+        api
+          .getSessionMessages(parserState.currentSessionId)
+          .then((msgs) => {
+            if (Array.isArray(msgs) && msgs.length > 0) {
+              store.setState((s) => ({
+                messages: messagesReducer(s.messages, { type: 'RESTORE', messages: msgs }),
+              }));
+            }
+          })
+          .catch(() => {});
       }
     },
 
@@ -346,7 +347,9 @@ export function createMitzoStore(
     if (result.tasksUpdate) {
       switch (result.tasksUpdate.type) {
         case 'task_state':
-          store.setState((s) => ({ tasks: { ...s.tasks, tree: (result.tasksUpdate as { tasks: Task[] }).tasks } }));
+          store.setState((s) => ({
+            tasks: { ...s.tasks, tree: (result.tasksUpdate as { tasks: Task[] }).tasks },
+          }));
           break;
         case 'task_updated': {
           const updated = result.tasksUpdate.task;
@@ -364,7 +367,10 @@ export function createMitzoStore(
         }
         case 'loop_status':
           store.setState((s) => ({
-            tasks: { ...s.tasks, loopStatus: (result.tasksUpdate as { status: LoopStatus }).status },
+            tasks: {
+              ...s.tasks,
+              loopStatus: (result.tasksUpdate as { status: LoopStatus }).status,
+            },
           }));
           break;
       }
@@ -379,9 +385,12 @@ export function createMitzoStore(
 
     // Inbox refresh
     if (result.inboxRefresh) {
-      api.getInbox().then((items) => {
-        store.setState({ inbox: { items, count: items.length } });
-      }).catch(() => {});
+      api
+        .getInbox()
+        .then((items) => {
+          store.setState({ inbox: { items, count: items.length } });
+        })
+        .catch(() => {});
     }
   }
 

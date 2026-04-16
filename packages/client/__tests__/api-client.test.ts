@@ -23,7 +23,10 @@ describe('MitzoApiClient', () => {
 
   it('checkAuth calls /api/auth/check', async () => {
     await client.checkAuth();
-    expect(fetchFn).toHaveBeenCalledWith('/api/auth/check', expect.objectContaining({ credentials: 'include' }));
+    expect(fetchFn).toHaveBeenCalledWith(
+      '/api/auth/check',
+      expect.objectContaining({ credentials: 'include' }),
+    );
   });
 
   it('login sends passphrase', async () => {
@@ -207,10 +210,7 @@ describe('MitzoApiClient', () => {
 
   it('getSkills with cwd', async () => {
     await client.getSkills('/tmp/project');
-    expect(fetchFn).toHaveBeenCalledWith(
-      '/api/skills?cwd=%2Ftmp%2Fproject',
-      expect.any(Object),
-    );
+    expect(fetchFn).toHaveBeenCalledWith('/api/skills?cwd=%2Ftmp%2Fproject', expect.any(Object));
   });
 
   // ── Files ────────────────────────────────────────────────────────────────
@@ -244,7 +244,9 @@ describe('MitzoApiClient', () => {
       json: () => Promise.resolve({ error: 'Session not found' }),
     });
     const errorClient = new MitzoApiClient(errorFetch);
-    await expect(errorClient.getSessionMessages('bad-id')).rejects.toThrow('API 404: Session not found');
+    await expect(errorClient.getSessionMessages('bad-id')).rejects.toThrow(
+      'API 404: Session not found',
+    );
   });
 
   it('throws on 500 with empty body', async () => {

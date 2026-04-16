@@ -97,14 +97,14 @@ export function buildPermissionHandler(clientId: string, registry: SessionRegist
         if (hasPending(permId)) {
           removePending(permId);
           resolve({ behavior: 'deny', message: 'Aborted' });
-          transportSend(session.transport,{ type: 'permission_timeout', permId });
+          transportSend(session.transport, { type: 'permission_timeout', permId });
         }
       };
       opts.signal.addEventListener('abort', onAbort, { once: true });
 
       registerPending(permId, toolName, wrappedResolve, _toolInput, tier);
 
-      transportSend(session.transport,{
+      transportSend(session.transport, {
         type: 'permission_request',
         permId,
         toolName,
@@ -132,7 +132,7 @@ export function buildPermissionHandler(clientId: string, registry: SessionRegist
           removePending(permId);
           opts.signal.removeEventListener('abort', onAbort);
           resolve({ behavior: 'deny', message: 'Permission request timed out' });
-          transportSend(session.transport,{ type: 'permission_timeout', permId });
+          transportSend(session.transport, { type: 'permission_timeout', permId });
         }
       }, PERMISSION_TIMEOUT_MS);
     });
