@@ -38,6 +38,13 @@ export interface WebSocketLike {
   close(): void;
 }
 
+/**
+ * Cap on the number of payloads queued per pool entry while the socket is
+ * unavailable. Sized generously enough to survive a short outage on mobile
+ * without memory growth running away during a long one.
+ */
+const MAX_PENDING_SENDS = 100;
+
 // ─── Pool entry ──────────────────────────────────────────────────────────────
 
 interface PoolEntry {
@@ -111,10 +118,10 @@ export class WsPool {
 
   /**
    * Send a message on the connection for this key.
-   * If the socket is still CONNECTING, the payload is queued and flushed
-   * in order once the socket opens. Returns false only when there is no
-   * entry or the socket is already closed/closing with no reconnect
-   * attempt queued.
+   * If the socket is still CONNECTING (or closed with a reconnect pending),
+   * the payload is queued and flushed in order once the socket opens.
+   * Returns false only when there is no entry or the socket is already
+   * closed/closing with no reconnect attempt queued.
    */
   send(key: string, msg: unknown): boolean {
     const entry = this.pool.get(key);
@@ -126,6 +133,13 @@ export class WsPool {
       return true;
     }
     if (state === WS_READY_STATE.CONNECTING || entry.reconnectTimer) {
+      // Bound the queue so a long outage doesn't grow memory without limit.
+      // When we hit the cap we drop the oldest payload — matches the
+      // "keep the most recent intent" preference users typically have on
+      // mobile, and matches how the server's message buffer behaves.
+      if (entry.pendingSends.length >= MAX_PENDING_SENDS) {
+        entry.pendingSends.shift();
+      }
       entry.pendingSends.push(payload);
       return true;
     }
@@ -221,7 +235,14 @@ export class WsPool {
     entry.ws = ws;
 
     ws.onopen = () => {
-      // Flush any messages queued while the socket was still CONNECTING.
+      // Flush queued messages BEFORE broadcasting _open. Listeners react
+      // to _open by marking connection='connected' and often by firing
+      // follow-up sends of their own; if we broadcast first, those fresh
+      // sends could interleave in front of the queued ones and change
+      // the server-visible order. The flush is synchronous on the same
+      // WebSocket, so once _open fans out the queued payloads have
+      // already been written to the wire.
+      //
       // Guard each send: if one throws (browser extension closing the
       // socket mid-flush, a misbehaving mock, etc.), we requeue the
       // remaining payloads onto pendingSends so the next reconnect picks

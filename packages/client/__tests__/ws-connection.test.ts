@@ -99,6 +99,48 @@ describe('WsPool message delivery', () => {
     ]);
   });
 
+  it('queues sends issued while the socket is closed with a reconnect pending', () => {
+    vi.useFakeTimers();
+    pool.subscribe('new:reconnect-queue', () => {});
+    const ws1 = lastCreatedWs!;
+    ws1.simulateOpen();
+    // Close — ws becomes null on the entry, reconnectTimer is armed.
+    ws1.simulateClose();
+
+    // At this point entry.ws is null but reconnectTimer is set. send()
+    // should take the reconnect-pending branch and enqueue the payload.
+    const sent = pool.send('new:reconnect-queue', { type: 'send', prompt: 'during-reconnect' });
+    expect(sent).toBe(true);
+
+    // Drive the reconnect through and verify the queued payload flushes
+    // onto the fresh socket on open.
+    vi.advanceTimersByTime(200);
+    const ws2 = lastCreatedWs!;
+    expect(ws2).not.toBe(ws1);
+    ws2.simulateOpen();
+
+    const ws2Sends = ws2.send.mock.calls.map((c: string[]) => JSON.parse(c[0]));
+    expect(ws2Sends).toContainEqual({ type: 'send', prompt: 'during-reconnect' });
+    vi.useRealTimers();
+  });
+
+  it('caps the pending queue at 100 and drops the oldest payload on overflow', () => {
+    pool.subscribe('new:queue-cap', () => {});
+    const ws = lastCreatedWs!;
+
+    for (let i = 0; i < 105; i++) {
+      pool.send('new:queue-cap', { type: 'send', prompt: `m${i}` });
+    }
+
+    ws.simulateOpen();
+
+    const flushed = ws.send.mock.calls.map((c: string[]) => JSON.parse(c[0]));
+    expect(flushed).toHaveLength(100);
+    // Oldest five (m0..m4) were dropped; newest (m104) preserved.
+    expect(flushed[0]).toEqual({ type: 'send', prompt: 'm5' });
+    expect(flushed[flushed.length - 1]).toEqual({ type: 'send', prompt: 'm104' });
+  });
+
   it('carries queued sends across a CONNECTING → CLOSED → reconnect cycle', () => {
     vi.useFakeTimers();
     pool.subscribe('new:queue-survives', () => {});
