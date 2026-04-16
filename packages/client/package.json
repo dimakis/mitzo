@@ -14,7 +14,9 @@
       "import": "./dist/hooks/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc --build"
   },

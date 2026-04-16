@@ -19,8 +19,15 @@ describe('permissions module', () => {
   });
 
   it('resolvePending with "once" calls resolver with allow + user_temporary + updatedInput', () => {
-    let result: any = null;
-    registerPending(permId, 'Bash', (r) => { result = r; }, toolInput);
+    let result: Record<string, unknown> | null = null;
+    registerPending(
+      permId,
+      'Bash',
+      (r) => {
+        result = r;
+      },
+      toolInput,
+    );
 
     const ok = resolvePending(permId, 'once');
     expect(ok).toBe(true);
@@ -30,8 +37,15 @@ describe('permissions module', () => {
   });
 
   it('resolvePending with "always" passes toolInput as updatedInput', () => {
-    let result: any = null;
-    registerPending(permId, 'Edit', (r) => { result = r; }, toolInput);
+    let result: Record<string, unknown> | null = null;
+    registerPending(
+      permId,
+      'Edit',
+      (r) => {
+        result = r;
+      },
+      toolInput,
+    );
 
     resolvePending(permId, 'always');
     expect(result.behavior).toBe('allow');
@@ -40,8 +54,15 @@ describe('permissions module', () => {
   });
 
   it('resolvePending with "deny" calls resolver with deny + user_reject', () => {
-    let result: any = null;
-    registerPending(permId, 'Bash', (r) => { result = r; }, toolInput);
+    let result: Record<string, unknown> | null = null;
+    registerPending(
+      permId,
+      'Bash',
+      (r) => {
+        result = r;
+      },
+      toolInput,
+    );
 
     resolvePending(permId, 'deny');
     expect(result.behavior).toBe('deny');

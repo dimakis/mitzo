@@ -9,7 +9,13 @@
  * via the Callbacks interface so the store factory can wire them.
  */
 
-import type { FinishedMessage, FinishedBlock, BlockType, ToolTier, RawToolInput } from '@mitzo/protocol';
+import type {
+  FinishedMessage,
+  FinishedBlock,
+  BlockType,
+  ToolTier,
+  RawToolInput,
+} from '@mitzo/protocol';
 import type { MessagesAction } from './slices/messages.js';
 import type { WsMsg } from './server-messages.js';
 import type { Task, LoopStatus } from './slices/tasks.js';
@@ -56,7 +62,8 @@ export interface ParseResult {
   messagesActions: MessagesAction[];
 
   /** Tasks state update, if any. */
-  tasksUpdate?: { type: 'task_state'; tasks: Task[] }
+  tasksUpdate?:
+    | { type: 'task_state'; tasks: Task[] }
     | { type: 'task_updated'; task: Task }
     | { type: 'task_deleted'; taskId: string }
     | { type: 'loop_status'; status: LoopStatus };
@@ -95,7 +102,8 @@ export function parseServerMessage(
       if (state.currentSessionId && callbacks.fetchMessages) {
         const sessionId = state.currentSessionId;
         const controller = new AbortController();
-        callbacks.fetchMessages(sessionId, controller.signal)
+        callbacks
+          .fetchMessages(sessionId, controller.signal)
           .then((msgs) => {
             if (controller.signal.aborted) return;
             if (Array.isArray(msgs) && msgs.length > 0) {

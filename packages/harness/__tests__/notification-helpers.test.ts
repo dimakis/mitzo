@@ -30,10 +30,7 @@ describe('extractSnippet', () => {
   });
 
   it('uses last text block', () => {
-    const blocks: SnapshotBlock[] = [
-      textBlock('first'),
-      textBlock('second'),
-    ];
+    const blocks: SnapshotBlock[] = [textBlock('first'), textBlock('second')];
     expect(extractSnippet(blocks, 200)).toBe('second');
   });
 });

@@ -143,9 +143,9 @@ export async function runQueryLoop(
     }
   }
 
-  function forceFlushPendingMessage(
-    session: { currentSnapshot: { blocks: SnapshotBlock[] } | null },
-  ) {
+  function forceFlushPendingMessage(session: {
+    currentSnapshot: { blocks: SnapshotBlock[] } | null;
+  }) {
     if (!pendingMessageEnd) return;
     for (const [index, bid] of blockIdByIndex) {
       if (openBlockCount <= 0) break;
@@ -340,7 +340,7 @@ export async function runQueryLoop(
           });
         }
 
-        emit( v2('session_end', { sessionId: msg.session_id, usage: usageData }));
+        emit(v2('session_end', { sessionId: msg.session_id, usage: usageData }));
         if (!registry.isAttached(clientId)) {
           const snippet = extractSnippet(snapshotBlocks, NOTIFY_SNIPPET_MAX_CHARS);
           const sid = (msg.session_id as string) || currentSession.sessionId;
@@ -362,7 +362,7 @@ export async function runQueryLoop(
           currentMessageId = (apiMsg?.id as string | undefined) ?? `msg-${Date.now()}`;
           // Init snapshot on the session.
           currentSession.currentSnapshot = { messageId: currentMessageId, blocks: [] };
-          emit( v2('message_start', { messageId: currentMessageId }));
+          emit(v2('message_start', { messageId: currentMessageId }));
 
           // Extract agent context from message_start usage.
           // Only track parent agent (parent_tool_use_id === null) — sub-agent
@@ -396,7 +396,7 @@ export async function runQueryLoop(
           if (!currentMessageId) {
             currentMessageId = `msg-${Date.now()}`;
             currentSession.currentSnapshot = { messageId: currentMessageId, blocks: [] };
-            emit( v2('message_start', { messageId: currentMessageId }));
+            emit(v2('message_start', { messageId: currentMessageId }));
           }
           const contentBlock = evt.content_block as Record<string, unknown> | undefined;
           const index = evt.index as number;

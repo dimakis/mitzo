@@ -22,6 +22,14 @@ export default tseslint.config(
   },
 
   {
+    files: ['packages/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+    },
+  },
+
+  {
     files: ['frontend/src/**/*.{ts,tsx}'],
     plugins: {
       'react-hooks': reactHooks,

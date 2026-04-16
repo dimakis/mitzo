@@ -35,20 +35,28 @@ describe('buildPermissionHandler', () => {
     });
 
     const handler = buildPermissionHandler('client-1', registry);
-    const result = await handler('Read', { file_path: '/foo' }, {
-      signal: new AbortController().signal,
-      toolUseID: 'tool-1',
-    });
+    const result = await handler(
+      'Read',
+      { file_path: '/foo' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-1',
+      },
+    );
 
     expect(result.behavior).toBe('allow');
   });
 
   it('denies when session not found', async () => {
     const handler = buildPermissionHandler('nonexistent', registry);
-    const result = await handler('Read', {}, {
-      signal: new AbortController().signal,
-      toolUseID: 'tool-1',
-    });
+    const result = await handler(
+      'Read',
+      {},
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-1',
+      },
+    );
 
     expect(result.behavior).toBe('deny');
     expect(result.message).toBe('Session not found');
@@ -66,10 +74,14 @@ describe('buildPermissionHandler', () => {
     setSkillPolicy(registry, 'client-1', ['Read', 'Grep']);
 
     const handler = buildPermissionHandler('client-1', registry);
-    const result = await handler('Bash', { command: 'ls' }, {
-      signal: new AbortController().signal,
-      toolUseID: 'tool-1',
-    });
+    const result = await handler(
+      'Bash',
+      { command: 'ls' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-1',
+      },
+    );
 
     expect(result.behavior).toBe('deny');
     expect(result.message).toBe('Tool not allowed by active skill policy');
@@ -86,10 +98,14 @@ describe('buildPermissionHandler', () => {
     });
 
     const handler = buildPermissionHandler('client-1', registry);
-    const result = await handler('mcp__jira__search', { query: 'test' }, {
-      signal: new AbortController().signal,
-      toolUseID: 'tool-1',
-    });
+    const result = await handler(
+      'mcp__jira__search',
+      { query: 'test' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-1',
+      },
+    );
 
     expect(result.behavior).toBe('allow');
     expect(result.decisionClassification).toBe('user_permanent');
@@ -106,10 +122,14 @@ describe('buildPermissionHandler', () => {
     });
 
     const handler = buildPermissionHandler('client-1', registry);
-    const promise = handler('mcp__custom__tool', { arg: 'val' }, {
-      signal: new AbortController().signal,
-      toolUseID: 'tool-1',
-    });
+    const promise = handler(
+      'mcp__custom__tool',
+      { arg: 'val' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-1',
+      },
+    );
 
     // Should have sent a permission_request
     expect(transport.sent.length).toBe(1);
@@ -139,10 +159,14 @@ describe('buildPermissionHandler', () => {
 
     // Abort before calling
     abort.abort();
-    const result = await handler('mcp__custom__tool', {}, {
-      signal: abort.signal,
-      toolUseID: 'tool-1',
-    });
+    const result = await handler(
+      'mcp__custom__tool',
+      {},
+      {
+        signal: abort.signal,
+        toolUseID: 'tool-1',
+      },
+    );
 
     expect(result.behavior).toBe('deny');
     expect(result.message).toBe('Aborted');

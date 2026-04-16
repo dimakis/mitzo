@@ -55,5 +55,4 @@ describe('skill-policy', () => {
     expect(() => setSkillPolicy(registry, 'nonexistent', ['Read'])).not.toThrow();
     expect(() => clearSkillPolicy(registry, 'nonexistent')).not.toThrow();
   });
-
 });

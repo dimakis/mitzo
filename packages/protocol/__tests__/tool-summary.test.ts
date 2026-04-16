@@ -30,9 +30,9 @@ describe('summarizeToolInput', () => {
   });
 
   it('summarizes Glob tool with pattern and directory', () => {
-    expect(
-      summarizeToolInput('Glob', { pattern: '**/*.ts', path: '/src' }),
-    ).toBe('**/*.ts in /src');
+    expect(summarizeToolInput('Glob', { pattern: '**/*.ts', path: '/src' })).toBe(
+      '**/*.ts in /src',
+    );
   });
 
   it('summarizes Glob tool with default directory', () => {
@@ -40,9 +40,7 @@ describe('summarizeToolInput', () => {
   });
 
   it('summarizes Grep tool with pattern and path', () => {
-    expect(
-      summarizeToolInput('Grep', { pattern: 'TODO', path: '/src' }),
-    ).toBe('/TODO/ in /src');
+    expect(summarizeToolInput('Grep', { pattern: 'TODO', path: '/src' })).toBe('/TODO/ in /src');
   });
 
   it('summarizes WebSearch tool', () => {
@@ -80,16 +78,16 @@ describe('summarizeToolInput', () => {
   });
 
   it('summarizes task MCP tools', () => {
-    expect(
-      summarizeToolInput('mcp__task-board__TaskSet', { tasks: [{}, {}, {}] }),
-    ).toBe('3 subtasks');
+    expect(summarizeToolInput('mcp__task-board__TaskSet', { tasks: [{}, {}, {}] })).toBe(
+      '3 subtasks',
+    );
     expect(
       summarizeToolInput('mcp__task-board__TaskComplete', { summary: 'Done with feature' }),
     ).toBe('Done with feature');
     expect(summarizeToolInput('mcp__task-board__TaskStatus', {})).toBe('get status');
-    expect(
-      summarizeToolInput('mcp__task-board__TaskBlock', { reason: 'Need clarification' }),
-    ).toBe('Need clarification');
+    expect(summarizeToolInput('mcp__task-board__TaskBlock', { reason: 'Need clarification' })).toBe(
+      'Need clarification',
+    );
   });
 });
 

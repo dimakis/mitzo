@@ -32,7 +32,15 @@ export type { ServerMessage, WsMsg } from './server-messages.js';
 
 // API client
 export { MitzoApiClient } from './api-client.js';
-export type { ApiFetch, AppConfig, AuthCheckResult, VersionInfo, GitInfo, FileEntry, CalendarData } from './api-client.js';
+export type {
+  ApiFetch,
+  AppConfig,
+  AuthCheckResult,
+  VersionInfo,
+  GitInfo,
+  FileEntry,
+  CalendarData,
+} from './api-client.js';
 
 // WS connection
 export { WsPool } from './ws-connection.js';

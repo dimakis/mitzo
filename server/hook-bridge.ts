@@ -149,9 +149,10 @@ export function createCommandCallback(
       // Kill child if the session is aborted
       options.signal.addEventListener('abort', () => child.kill(), { once: true });
 
-      // Pipe hook input to stdin
-      const stdinPayload = JSON.stringify(input);
-      if (child.stdin) {
+      // Pipe hook input to stdin (skip if already aborted)
+      if (!options.signal.aborted && child.stdin) {
+        const stdinPayload = JSON.stringify(input);
+        child.stdin.on('error', () => {}); // Ignore EPIPE from killed process
         child.stdin.write(stdinPayload, () => {
           child.stdin?.end();
         });

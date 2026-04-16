@@ -9,14 +9,8 @@ export default defineConfig({
       'react-dom': resolve(__dirname, 'node_modules/react-dom'),
       'react-router-dom': resolve(__dirname, 'node_modules/react-router-dom'),
       '@testing-library/react': resolve(__dirname, 'node_modules/@testing-library/react'),
-      '@testing-library/jest-dom': resolve(
-        __dirname,
-        'node_modules/@testing-library/jest-dom',
-      ),
-      '@testing-library/user-event': resolve(
-        __dirname,
-        'node_modules/@testing-library/user-event',
-      ),
+      '@testing-library/jest-dom': resolve(__dirname, 'node_modules/@testing-library/jest-dom'),
+      '@testing-library/user-event': resolve(__dirname, 'node_modules/@testing-library/user-event'),
     },
   },
   test: {

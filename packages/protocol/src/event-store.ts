@@ -158,12 +158,21 @@ export class EventStore {
     const migrations: Array<[string, string]> = [
       ['input_tokens', 'ALTER TABLE sessions ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0'],
       ['output_tokens', 'ALTER TABLE sessions ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0'],
-      ['cache_read_tokens', 'ALTER TABLE sessions ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0'],
-      ['cache_creation_tokens', 'ALTER TABLE sessions ADD COLUMN cache_creation_tokens INTEGER NOT NULL DEFAULT 0'],
+      [
+        'cache_read_tokens',
+        'ALTER TABLE sessions ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0',
+      ],
+      [
+        'cache_creation_tokens',
+        'ALTER TABLE sessions ADD COLUMN cache_creation_tokens INTEGER NOT NULL DEFAULT 0',
+      ],
       ['total_cost_usd', 'ALTER TABLE sessions ADD COLUMN total_cost_usd REAL NOT NULL DEFAULT 0'],
       ['num_turns', 'ALTER TABLE sessions ADD COLUMN num_turns INTEGER NOT NULL DEFAULT 0'],
       ['duration_ms', 'ALTER TABLE sessions ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0'],
-      ['duration_api_ms', 'ALTER TABLE sessions ADD COLUMN duration_api_ms INTEGER NOT NULL DEFAULT 0'],
+      [
+        'duration_api_ms',
+        'ALTER TABLE sessions ADD COLUMN duration_api_ms INTEGER NOT NULL DEFAULT 0',
+      ],
       ['goal_id', 'ALTER TABLE sessions ADD COLUMN goal_id TEXT'],
     ];
     for (const [col, sql] of migrations) {
@@ -213,14 +222,38 @@ export class EventStore {
     if (existing) {
       const fields: string[] = [];
       const values: unknown[] = [];
-      if (meta.summary !== undefined) { fields.push('summary = ?'); values.push(meta.summary); }
-      if (meta.branch !== undefined) { fields.push('branch = ?'); values.push(meta.branch); }
-      if (meta.cwd !== undefined) { fields.push('cwd = ?'); values.push(meta.cwd); }
-      if (meta.mode !== undefined) { fields.push('mode = ?'); values.push(meta.mode); }
-      if (meta.isActive !== undefined) { fields.push('is_active = ?'); values.push(meta.isActive ? 1 : 0); }
-      if (meta.initialPrompt !== undefined) { fields.push('initial_prompt = ?'); values.push(meta.initialPrompt); }
-      if (meta.goalId !== undefined) { fields.push('goal_id = ?'); values.push(meta.goalId); }
-      if (meta.wtId !== undefined) { fields.push('wt_id = ?'); values.push(meta.wtId); }
+      if (meta.summary !== undefined) {
+        fields.push('summary = ?');
+        values.push(meta.summary);
+      }
+      if (meta.branch !== undefined) {
+        fields.push('branch = ?');
+        values.push(meta.branch);
+      }
+      if (meta.cwd !== undefined) {
+        fields.push('cwd = ?');
+        values.push(meta.cwd);
+      }
+      if (meta.mode !== undefined) {
+        fields.push('mode = ?');
+        values.push(meta.mode);
+      }
+      if (meta.isActive !== undefined) {
+        fields.push('is_active = ?');
+        values.push(meta.isActive ? 1 : 0);
+      }
+      if (meta.initialPrompt !== undefined) {
+        fields.push('initial_prompt = ?');
+        values.push(meta.initialPrompt);
+      }
+      if (meta.goalId !== undefined) {
+        fields.push('goal_id = ?');
+        values.push(meta.goalId);
+      }
+      if (meta.wtId !== undefined) {
+        fields.push('wt_id = ?');
+        values.push(meta.wtId);
+      }
       fields.push("updated_at = unixepoch('now', 'subsec') * 1000");
       values.push(meta.sessionId);
       this.db!.prepare(`UPDATE sessions SET ${fields.join(', ')} WHERE session_id = ?`).run(
