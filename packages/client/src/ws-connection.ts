@@ -70,10 +70,11 @@ export class WsPool {
     if (typeof document === 'undefined') return;
 
     const reconnectAll = () => this.reconnectAll();
-
-    document.addEventListener('visibilitychange', () => {
+    const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') reconnectAll();
-    });
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
     window.addEventListener('pageshow', reconnectAll);
     window.addEventListener('focus', reconnectAll);
 
@@ -81,6 +82,7 @@ export class WsPool {
 
     this.visibilityCleanup = () => {
       clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('pageshow', reconnectAll);
       window.removeEventListener('focus', reconnectAll);
     };
@@ -138,7 +140,7 @@ export class WsPool {
   /** Close all connections and clear the pool. */
   destroy(): void {
     this.stopVisibilityMonitor();
-    for (const [key, entry] of this.pool) {
+    for (const entry of this.pool.values()) {
       if (entry.reconnectTimer) clearTimeout(entry.reconnectTimer);
       if (entry.ws) {
         entry.ws.onclose = null;

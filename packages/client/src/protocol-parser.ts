@@ -99,8 +99,7 @@ export function parseServerMessage(
           .then((msgs) => {
             if (controller.signal.aborted) return;
             if (Array.isArray(msgs) && msgs.length > 0) {
-              // This is async — the caller needs to dispatch RESTORE separately.
-              // The store factory handles this by dispatching into the store directly.
+              callbacks.onMessagesRestored?.();
             }
           })
           .catch(() => {});

@@ -19,7 +19,7 @@ import type { ConnectionState } from './slices/connection.js';
 import { INITIAL_PERMISSIONS_STATE } from './slices/permissions.js';
 import type { PermissionsState } from './slices/permissions.js';
 import { INITIAL_TASKS_STATE } from './slices/tasks.js';
-import type { TasksState, Task } from './slices/tasks.js';
+import type { TasksState, Task, LoopStatus } from './slices/tasks.js';
 import { INITIAL_INBOX_STATE } from './slices/inbox.js';
 import type { InboxState } from './slices/inbox.js';
 import { INITIAL_CALENDAR_STATE } from './slices/calendar.js';
@@ -29,7 +29,8 @@ import type { TodosState } from './slices/todos.js';
 import { INITIAL_CONFIG_STATE } from './slices/config.js';
 import type { ConfigState } from './slices/config.js';
 import { parseServerMessage } from './protocol-parser.js';
-import type { ProtocolParserState } from './protocol-parser.js';
+import type { ProtocolParserState, ProtocolCallbacks } from './protocol-parser.js';
+import type { WsMsg } from './server-messages.js';
 import { MitzoApiClient } from './api-client.js';
 import { WsPool } from './ws-connection.js';
 import type { WsPoolConfig } from './ws-connection.js';
@@ -105,6 +106,7 @@ export function createMitzoStore(
 
     async switchSession(id: string) {
       parserState.currentSessionId = id;
+      const poolKey = `session:${id}`;
 
       // Reset messages state for new session
       set((s) => ({
@@ -112,6 +114,9 @@ export function createMitzoStore(
         messages: INITIAL_MESSAGES_STATE,
         permissions: INITIAL_PERMISSIONS_STATE,
       }));
+
+      // Subscribe to WS messages for this session
+      wsPool.subscribe(poolKey, wsListener);
 
       // Load session messages
       try {
@@ -138,8 +143,40 @@ export function createMitzoStore(
     sendMessage(text: string, opts?: { contextBlocks?: string[]; images?: ImageAttachment[] }) {
       const poolKey = parserState.currentSessionId
         ? `session:${parserState.currentSessionId}`
-        : `new:${Date.now()}`;
+        : null;
       const clientMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+      // For new sessions, subscribe first so the pool entry exists
+      if (!poolKey) {
+        const newKey = `new:${Date.now()}`;
+        wsPool.subscribe(newKey, wsListener);
+
+        // Optimistic update
+        set((s) => ({
+          messages: messagesReducer(s.messages, {
+            type: 'USER_SEND',
+            text,
+            clientMsgId,
+            images: opts?.images?.map((img) => img.preview),
+            contextBlocks: opts?.contextBlocks,
+          }),
+          sendError: null,
+        }));
+
+        const msg: Record<string, unknown> = {
+          type: 'send',
+          prompt: text,
+          clientMsgId,
+        };
+        if (opts?.contextBlocks) msg.contextBlocks = opts.contextBlocks;
+        if (opts?.images) msg.images = opts.images;
+
+        const sent = wsPool.send(newKey, msg);
+        if (!sent) {
+          set({ sendError: 'Not connected. Message will be sent when reconnected.' });
+        }
+        return;
+      }
 
       // Optimistic update
       set((s) => ({
@@ -162,7 +199,7 @@ export function createMitzoStore(
       if (opts?.images) msg.images = opts.images;
 
       // If running, queue for after session_end
-      if (get().messages.running && parserState.currentSessionId) {
+      if (get().messages.running) {
         parserState.pendingSend = msg;
       } else {
         const sent = wsPool.send(poolKey, msg);
@@ -192,9 +229,7 @@ export function createMitzoStore(
           decision,
         });
       }
-      set((s) => ({
-        permissions: { pending: null },
-      }));
+      set({ permissions: { pending: null } });
     },
 
     setMode(mode: MitzoMode) {
@@ -215,6 +250,112 @@ export function createMitzoStore(
       }));
     },
   }));
+
+  // ── WS → store wiring ──────────────────────────────────────────────────
+  // Central listener: routes every WS message through the protocol parser
+  // and dispatches resulting actions into the store.
+
+  const callbacks: ProtocolCallbacks = {
+    onSessionAssigned(sessionId: string) {
+      parserState.currentSessionId = sessionId;
+      store.setState((s) => ({
+        sessions: { ...s.sessions, active: sessionId },
+      }));
+    },
+
+    onSessionExpired(sessionId: string) {
+      parserState.currentSessionId = undefined;
+      store.setState((s) => ({
+        sessions: { ...s.sessions, active: null },
+        messages: INITIAL_MESSAGES_STATE,
+      }));
+    },
+
+    onMessagesRestored() {
+      // Triggered after reattach_failed recovery — reload messages from API
+      if (parserState.currentSessionId) {
+        api.getSessionMessages(parserState.currentSessionId).then((msgs) => {
+          if (Array.isArray(msgs) && msgs.length > 0) {
+            store.setState((s) => ({
+              messages: messagesReducer(s.messages, { type: 'RESTORE', messages: msgs }),
+            }));
+          }
+        }).catch(() => {});
+      }
+    },
+
+    fetchMessages(sessionId: string, signal: AbortSignal) {
+      return api.getSessionMessages(sessionId, signal);
+    },
+
+    setWsRunning(poolKey: string, running: boolean) {
+      wsPool.setRunning(poolKey, running);
+    },
+
+    sendQueued(poolKey: string, msg: unknown) {
+      wsPool.send(poolKey, msg);
+    },
+  };
+
+  function wsListener(wsMsg: WsMsg) {
+    const poolKey = parserState.currentSessionId
+      ? `session:${parserState.currentSessionId}`
+      : 'default';
+
+    const result = parseServerMessage(wsMsg, parserState, callbacks, poolKey);
+
+    // Dispatch messages actions
+    for (const action of result.messagesActions) {
+      store.setState((s) => ({
+        messages: messagesReducer(s.messages, action),
+      }));
+    }
+
+    // Dispatch tasks update
+    if (result.tasksUpdate) {
+      switch (result.tasksUpdate.type) {
+        case 'task_state':
+          store.setState((s) => ({ tasks: { ...s.tasks, tree: result.tasksUpdate!.type === 'task_state' ? (result.tasksUpdate as { tasks: Task[] }).tasks : s.tasks.tree } }));
+          break;
+        case 'task_updated': {
+          const updated = result.tasksUpdate.task;
+          store.setState((s) => ({
+            tasks: {
+              ...s.tasks,
+              tree: s.tasks.tree.map((t) => (t.id === updated.id ? updated : t)),
+            },
+          }));
+          break;
+        }
+        case 'task_deleted': {
+          const deletedId = result.tasksUpdate.taskId;
+          store.setState((s) => ({
+            tasks: { ...s.tasks, tree: s.tasks.tree.filter((t) => t.id !== deletedId) },
+          }));
+          break;
+        }
+        case 'loop_status':
+          store.setState((s) => ({
+            tasks: { ...s.tasks, loopStatus: (result.tasksUpdate as { status: LoopStatus }).status },
+          }));
+          break;
+      }
+    }
+
+    // Connection update
+    if (result.connectionUpdate) {
+      store.setState((s) => ({
+        connection: { ...s.connection, ...result.connectionUpdate },
+      }));
+    }
+
+    // Inbox refresh
+    if (result.inboxRefresh) {
+      api.getInbox().then((items) => {
+        store.setState({ inbox: { items, count: items.length } });
+      }).catch(() => {});
+    }
+  }
 
   return store;
 }

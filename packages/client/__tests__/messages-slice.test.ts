@@ -1042,3 +1042,57 @@ describe('full turn sequence', () => {
     expect(assistantMsg.blocks[0].toolResult).toBe('file1\nfile2');
   });
 });
+
+// ─── ERROR ──────────────────────────────────────────────────────────────────
+
+describe('ERROR', () => {
+  it('clears running and current state', () => {
+    let state = messagesReducer(INITIAL, { type: 'USER_SEND', text: 'hello', clientMsgId: 'c1' });
+    expect(state.running).toBe(true);
+
+    state = messagesReducer(state, { type: 'MESSAGE_START', messageId: 'msg-1' });
+    expect(state.current).not.toBeNull();
+
+    state = messagesReducer(state, { type: 'ERROR', error: 'Something went wrong' });
+    expect(state.running).toBe(false);
+    expect(state.current).toBeNull();
+  });
+
+  it('appends an error message to the list', () => {
+    let state = messagesReducer(INITIAL, { type: 'USER_SEND', text: 'hello', clientMsgId: 'c1' });
+    const msgCount = state.messages.length;
+    state = messagesReducer(state, { type: 'ERROR', error: 'fail' });
+    expect(state.messages.length).toBe(msgCount + 1);
+    expect(state.messages[state.messages.length - 1].blocks[0].content).toContain('fail');
+  });
+});
+
+// ─── CONNECTION_LOST ────────────────────────────────────────────────────────
+
+describe('CONNECTION_LOST', () => {
+  it('appends a connection lost message without clearing running', () => {
+    let state = messagesReducer(INITIAL, { type: 'USER_SEND', text: 'hello', clientMsgId: 'c1' });
+    const msgCount = state.messages.length;
+
+    state = messagesReducer(state, { type: 'CONNECTION_LOST' });
+    expect(state.messages.length).toBe(msgCount + 1);
+    expect(state.messages[state.messages.length - 1].blocks[0].content).toContain('Connection lost');
+  });
+});
+
+// ─── NATIVE_COMMAND_RESULT ──────────────────────────────────────────────────
+
+describe('NATIVE_COMMAND_RESULT', () => {
+  it('appends a native command result message', () => {
+    const state = messagesReducer(INITIAL, {
+      type: 'NATIVE_COMMAND_RESULT',
+      command: 'skills',
+      content: 'Available skills: none',
+    });
+    expect(state.messages.length).toBe(1);
+    const msg = state.messages[0];
+    expect(msg.role).toBe('assistant');
+    expect(msg.blocks.length).toBe(1);
+    expect(msg.blocks[0].content).toContain('Available skills');
+  });
+});

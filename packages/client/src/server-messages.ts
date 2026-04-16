@@ -6,8 +6,6 @@
  * is out of scope for Phase 3 — tracked for a future cleanup.
  */
 
-import type { BlockType, FinishedBlock, ToolTier, RawToolInput } from '@mitzo/protocol';
-
 // Using a record-based approach rather than discriminated unions
 // so the protocol parser can handle unknown message types gracefully.
 export interface ServerMessage {

@@ -232,4 +232,30 @@ describe('MitzoApiClient', () => {
       }),
     );
   });
+
+  // ── Error handling ──────────────────────────────────────────────────────
+
+  it('throws on non-ok response', async () => {
+    const errorFetch: ApiFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      statusText: 'Not Found',
+      text: () => Promise.resolve('Session not found'),
+      json: () => Promise.resolve({ error: 'Session not found' }),
+    });
+    const errorClient = new MitzoApiClient(errorFetch);
+    await expect(errorClient.getSessionMessages('bad-id')).rejects.toThrow('API 404: Session not found');
+  });
+
+  it('throws on 500 with empty body', async () => {
+    const errorFetch: ApiFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      text: () => Promise.resolve(''),
+      json: () => Promise.resolve({}),
+    });
+    const errorClient = new MitzoApiClient(errorFetch);
+    await expect(errorClient.checkAuth()).rejects.toThrow('API 500: Internal Server Error');
+  });
 });
