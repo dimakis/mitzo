@@ -121,6 +121,26 @@ export function updateSessionTitle(repoPath: string, wtId: string, title: string
 }
 
 /**
+ * Finalize a session's closeout state in the index.
+ */
+export function finalizeCloseout(
+  repoPath: string,
+  wtId: string,
+  fields: {
+    status: 'closed' | 'abandoned';
+    tokens_used?: number;
+    cost_usd?: number;
+    has_uncommitted?: boolean;
+    closeout_summary?: string;
+  },
+): void {
+  const entries = readIndex(repoPath);
+  if (!entries.some((e) => e.id === wtId)) return;
+
+  upsertEntry(repoPath, { id: wtId, ...fields });
+}
+
+/**
  * Set the SDK session ID on an existing index entry.
  */
 export function updateSessionSdkId(repoPath: string, wtId: string, sdkSessionId: string): void {

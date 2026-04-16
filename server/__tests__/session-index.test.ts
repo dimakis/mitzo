@@ -8,6 +8,7 @@ import {
   registerSession,
   updateSessionTitle,
   updateSessionSdkId,
+  finalizeCloseout,
 } from '../session-index.js';
 
 describe('session-index', () => {
@@ -246,6 +247,45 @@ describe('session-index', () => {
 
     it('is a no-op if session does not exist in index', () => {
       updateSessionTitle(repoPath, 'nonexistent', 'Some title');
+      expect(readIndex(repoPath)).toEqual([]);
+    });
+  });
+
+  describe('finalizeCloseout', () => {
+    it('sets status to closed with tokens, cost, and summary', () => {
+      upsertEntry(repoPath, { id: 'sess-1', status: 'active', initial_title: 'Test' });
+
+      finalizeCloseout(repoPath, 'sess-1', {
+        status: 'closed',
+        tokens_used: 50000,
+        cost_usd: 0.42,
+        has_uncommitted: false,
+        closeout_summary: 'Finished the email draft.',
+      });
+
+      const entries = readIndex(repoPath);
+      expect(entries[0].status).toBe('closed');
+      expect(entries[0].tokens_used).toBe(50000);
+      expect(entries[0].cost_usd).toBe(0.42);
+      expect(entries[0].has_uncommitted).toBe(false);
+      expect(entries[0].closeout_summary).toBe('Finished the email draft.');
+    });
+
+    it('sets status to abandoned when closeout fails', () => {
+      upsertEntry(repoPath, { id: 'sess-1', status: 'active' });
+
+      finalizeCloseout(repoPath, 'sess-1', {
+        status: 'abandoned',
+        tokens_used: 30000,
+        cost_usd: 0.25,
+      });
+
+      const entries = readIndex(repoPath);
+      expect(entries[0].status).toBe('abandoned');
+    });
+
+    it('is a no-op if session does not exist', () => {
+      finalizeCloseout(repoPath, 'nonexistent', { status: 'closed' });
       expect(readIndex(repoPath)).toEqual([]);
     });
   });

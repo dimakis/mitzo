@@ -39,7 +39,7 @@ export function setConnectionRegistry(registry: ConnectionRegistry): void {
 import { EventStore } from './event-store.js';
 import { capturePromptComparison } from './prompt-compare.js';
 import { shouldAutoRename, extractRecentPrompts, generateSessionName } from './auto-rename.js';
-import { registerSession, updateSessionTitle } from './session-index.js';
+import { registerSession, updateSessionTitle, finalizeCloseout } from './session-index.js';
 import { createLogger } from './logger.js';
 
 const log = createLogger('chat');
@@ -713,6 +713,69 @@ function cleanupSessionWorktrees(session: import('./session-registry.js').Manage
   }
   session.worktreePaths.clear();
 }
+
+const CLOSEOUT_PROMPT = `This session is closing in 10 minutes due to inactivity.
+Please perform session closeout:
+
+1. If there is uncommitted work in any worktree, commit it now with a descriptive message
+2. If there are memory-worthy observations, decisions, or patterns — write them to memory/Observations/ or memory/Decisions/
+3. Write a 2-3 sentence summary of what was accomplished and what remains unfinished — output it as your final chat message so it appears in the conversation history
+4. Do not ask for confirmation — just do it`;
+
+/**
+ * Graceful session closeout. Called by the registry's closeout handler
+ * when the detach TTL is about to expire. Injects a closeout prompt into
+ * the agent's input queue so it can commit work and write memory while it
+ * still has full conversation context.
+ */
+export function closeoutSession(clientId: string): void {
+  const session = registry.get(clientId);
+  if (!session?.inputQueue) {
+    // No active session or input queue — just finalize as abandoned
+    if (session?.wtId) {
+      try {
+        finalizeCloseout(BASE_REPO, session.wtId, {
+          status: 'abandoned',
+          tokens_used: session.cumulativeSessionTokens,
+          cost_usd: session.cumulativeCostUsd,
+        });
+      } catch {
+        // best-effort
+      }
+    }
+    return;
+  }
+
+  log.info('injecting closeout prompt', { clientId, wtId: session.wtId });
+
+  // Push the closeout prompt as an interrupt so the agent sees it immediately
+  session.inputQueue.push(makeUserMessage(CLOSEOUT_PROMPT, 'now'));
+
+  // The registry's CLOSEOUT_TIMEOUT_MS timer will abort the session after
+  // 10 minutes regardless. When the session is finally aborted (by the
+  // registry or by natural completion), the index gets finalized.
+  //
+  // We register a one-time listener on the abort signal to finalize.
+  if (session.wtId) {
+    const wtId = session.wtId;
+    const onAbort = () => {
+      const status = registry.isClosingOut(clientId) ? 'abandoned' : 'closed';
+      try {
+        finalizeCloseout(BASE_REPO, wtId, {
+          status,
+          tokens_used: session.cumulativeSessionTokens,
+          cost_usd: session.cumulativeCostUsd,
+        });
+      } catch {
+        // best-effort
+      }
+    };
+    session.abortController.signal.addEventListener('abort', onAbort, { once: true });
+  }
+}
+
+// Wire closeout handler on the registry
+registry.setCloseoutHandler(closeoutSession);
 
 export function stopChat(clientId: string) {
   const session = registry.get(clientId);
