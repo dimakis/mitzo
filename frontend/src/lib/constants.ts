@@ -7,7 +7,7 @@ export const WS_RECONNECT_POLL_MS = 5_000;
 export const SCROLL_NEAR_BOTTOM_PX = 150;
 export const SCROLL_RESTORE_DELAY_MS = 100;
 export const LAST_SESSION_KEY = 'mitzo-last-session';
-export const DEFAULT_MODEL = 'claude-sonnet-4-6';
+export const DEFAULT_MODEL = 'claude-opus-4-7';
 
 // --- Tool grouping ---
 export const TOOL_GROUP_THRESHOLD = 3;
