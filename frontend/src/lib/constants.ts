@@ -7,7 +7,12 @@ export const WS_RECONNECT_POLL_MS = 5_000;
 export const SCROLL_NEAR_BOTTOM_PX = 150;
 export const SCROLL_RESTORE_DELAY_MS = 100;
 export const LAST_SESSION_KEY = 'mitzo-last-session';
-export const DEFAULT_MODEL = 'claude-opus-4-7';
+// Default model for new sessions. Opus 4.6 is used rather than 4.7 because
+// 4.7 is not yet available on every supported provider (e.g. Vertex AI at
+// time of writing) — picking a widely-available model keeps the out-of-box
+// experience functional. Users with access can still select Opus 4.7 from
+// the dropdown; the selection persists per-browser.
+export const DEFAULT_MODEL = 'claude-opus-4-6';
 
 // --- Tool grouping ---
 export const TOOL_GROUP_THRESHOLD = 3;

@@ -1115,4 +1115,75 @@ describe('runQueryLoop', () => {
       expect(closedTransport.sent).toHaveLength(0);
     });
   });
+
+  describe('first-event timeout', () => {
+    it('sends an error and exits when the SDK yields no events within the timeout window', async () => {
+      vi.useFakeTimers();
+
+      // An async iterable that blocks forever on a promise that only resolves
+      // when the abortController aborts — this mirrors the Agent SDK behaviour
+      // of waiting on an inbound stream that never arrives (e.g. the Claude
+      // Code subprocess is unreachable because the selected model is not
+      // available on the configured provider).
+      async function* stalled(signal: AbortSignal): AsyncIterable<Record<string, unknown>> {
+        await new Promise<void>((_, reject) => {
+          if (signal.aborted) {
+            reject(new Error('aborted'));
+            return;
+          }
+          signal.addEventListener('abort', () => reject(new Error('aborted')));
+        });
+        yield {} as Record<string, unknown>;
+      }
+
+      const runPromise = runQueryLoop(
+        stalled(abortController.signal),
+        clientId,
+        registry,
+        abortController,
+      );
+
+      // Advance past the first-event timeout
+      await vi.advanceTimersByTimeAsync(90_001);
+
+      await expect(runPromise).resolves.toBeUndefined();
+
+      expect(transport.sent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'error',
+            error: expect.stringMatching(/did not respond|unavailable/i),
+          }),
+        ]),
+      );
+
+      vi.useRealTimers();
+    });
+
+    it('does not fire the timeout once the first SDK event has arrived', async () => {
+      vi.useFakeTimers();
+
+      const events: Record<string, unknown>[] = [
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-ok' } } },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-ok' },
+        { type: 'result', session_id: 'sess-ok' },
+      ];
+
+      const runPromise = runQueryLoop(eventStream(events), clientId, registry, abortController);
+
+      // Flush the initial microtasks so the iterator produces its first event
+      await vi.advanceTimersByTimeAsync(0);
+      // Then blow past the timeout — nothing should happen because firstEventReceived is true
+      await vi.advanceTimersByTimeAsync(120_000);
+
+      await runPromise;
+
+      // No error — just the normal happy-path events
+      expect(transport.sent).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ type: 'error' })]),
+      );
+
+      vi.useRealTimers();
+    });
+  });
 });

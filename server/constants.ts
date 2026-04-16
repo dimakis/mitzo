@@ -33,3 +33,9 @@ export const GIT_BRANCH_TIMEOUT_MS = 5_000;
 export const HEARTBEAT_INTERVAL_MS = 15_000;
 export const PORT_DEFAULT = 3100;
 export const SHUTDOWN_GRACE_MS = 5_000;
+
+// --- Query loop ---
+// If the Agent SDK yields no events within this window, we treat the turn
+// as unreachable (e.g. model unavailable on the configured provider) and
+// surface an error to the client instead of hanging forever.
+export const QUERY_FIRST_EVENT_TIMEOUT_MS = 90_000;
