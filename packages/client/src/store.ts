@@ -270,7 +270,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
       if (opts?.contextBlocks?.length) msg.contextBlocks = opts.contextBlocks;
 
-      wsPool.send(poolKey, msg);
+      const sent = wsPool.send(poolKey, msg);
+      if (!sent) {
+        set({ sendError: 'Not connected. Interrupt was not delivered.' });
+        return;
+      }
 
       set((s) => ({
         messages: messagesReducer(s.messages, {
@@ -398,6 +402,19 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       store.setState((s) => ({
         sessions: { ...s.sessions, active: null },
         messages: INITIAL_MESSAGES_STATE,
+      }));
+    },
+
+    onSessionRenamed(name: string) {
+      const sessionId = parserState.currentSessionId;
+      if (!sessionId) return;
+      store.setState((s) => ({
+        sessions: {
+          ...s.sessions,
+          list: s.sessions.list.map((sess) =>
+            sess.id === sessionId ? { ...sess, summary: name } : sess,
+          ),
+        },
       }));
     },
 

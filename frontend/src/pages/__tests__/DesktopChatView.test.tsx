@@ -121,6 +121,8 @@ function createMockStore() {
     respondToPermission: vi.fn(),
     setMode: vi.fn(),
     setModel: vi.fn(),
+    loadSessions: vi.fn().mockResolvedValue(undefined),
+    refreshSessions: vi.fn().mockResolvedValue(undefined),
     fetchSessionMeta: vi.fn().mockResolvedValue(undefined),
   }));
 }

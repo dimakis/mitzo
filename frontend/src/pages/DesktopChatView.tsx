@@ -9,7 +9,7 @@ import { ChatInput } from '../components/ChatInput';
 import { StatusBar } from '../components/StatusBar';
 import { VoiceSettings } from '../components/VoiceSettings';
 import { useMessages, useConnection, useTokens, useMitzoStore } from '@mitzo/client/hooks';
-import { SCROLL_RESTORE_DELAY_MS, LAST_SESSION_KEY } from '../lib/constants';
+import { LAST_SESSION_KEY } from '../lib/constants';
 import { getPreferredModel, setPreferredModel } from '../lib/model-preference';
 import { useVoice } from '../hooks/useVoice';
 import { useAutoSpeak } from '../hooks/useAutoSpeak';
@@ -108,6 +108,17 @@ export function DesktopChatView() {
     }
   }, [activeSessionId]);
 
+  // Navigate away when session expires (store clears active while route still has :id)
+  const hadSession = useRef(false);
+  useEffect(() => {
+    if (activeSessionId) hadSession.current = true;
+    if (sessionId && !activeSessionId && hadSession.current) {
+      hadSession.current = false;
+      localStorage.removeItem(LAST_SESSION_KEY);
+      navigate('/chat', { replace: true });
+    }
+  }, [activeSessionId, sessionId, navigate]);
+
   // When store assigns a session (new conversation), update URL
   useEffect(() => {
     if (activeSessionId && !sessionId && window.location.pathname === '/chat') {
@@ -120,27 +131,6 @@ export function DesktopChatView() {
     if (sessionId) {
       storeFetchSessionMeta(sessionId);
     }
-  }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Restore messages when navigating to an existing session
-  useEffect(() => {
-    if (!sessionId) return;
-    const controller = new AbortController();
-    fetch(`/api/sessions/${sessionId}/messages`, {
-      credentials: 'include',
-      signal: controller.signal,
-    })
-      .then((r) => (r.ok ? r.json() : []))
-      .then((msgs: unknown[]) => {
-        if (controller.signal.aborted) return;
-        const apiMsgs = msgs as import('../types/chat').FinishedMessage[];
-        if (apiMsgs.length > 0) {
-          storeDispatchMessages({ type: 'RESTORE', messages: apiMsgs });
-          setTimeout(forceScrollToBottom, SCROLL_RESTORE_DELAY_MS);
-        }
-      })
-      .catch(() => {});
-    return () => controller.abort();
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useAutoSpeak({

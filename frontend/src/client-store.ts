@@ -14,20 +14,6 @@ const wsUrl = `${proto}://${location.host}/ws/chat`;
 
 export const clientStore = createMitzoStore({
   transport: {
-    connectWs(url, handlers) {
-      const ws = new WebSocket(url);
-      ws.onopen = () => handlers.onOpen();
-      ws.onmessage = (e) => handlers.onMessage(e.data);
-      ws.onclose = () => handlers.onClose();
-      ws.onerror = (e) => handlers.onError(e);
-      return {
-        send: (data: string) => ws.send(data),
-        close: () => ws.close(),
-        get readyState() {
-          return ws.readyState;
-        },
-      };
-    },
     fetch: (url, init) => fetch(url, init),
   },
   wsConfig: {

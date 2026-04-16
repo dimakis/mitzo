@@ -19,7 +19,8 @@ export interface WsConnection {
 }
 
 export interface TransportAdapter {
-  connectWs(url: string, handlers: WsHandlers): WsConnection;
+  /** @deprecated Use wsConfig instead — connectWs is unused by the store. */
+  connectWs?(url: string, handlers: WsHandlers): WsConnection;
   fetch(url: string, init?: RequestInit): Promise<Response>;
 }
 
