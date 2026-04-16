@@ -27,13 +27,23 @@ const POOL_KEY = 'session:test';
 // ─── Lifecycle events ─────────────────────────────────────────────────────────
 
 describe('pool lifecycle events', () => {
-  it('_open and _close produce no actions', () => {
+  it('_open and _close produce no message actions', () => {
     const state = makeState();
     const cb = makeCallbacks();
     const r1 = parseServerMessage({ type: '_open' }, state, cb, POOL_KEY);
     const r2 = parseServerMessage({ type: '_close' }, state, cb, POOL_KEY);
     expect(r1.messagesActions).toHaveLength(0);
     expect(r2.messagesActions).toHaveLength(0);
+  });
+
+  it('_open emits connectionUpdate with status=connected', () => {
+    const r = parseServerMessage({ type: '_open' }, makeState(), makeCallbacks(), POOL_KEY);
+    expect(r.connectionUpdate).toEqual({ status: 'connected' });
+  });
+
+  it('_close emits connectionUpdate with status=disconnected', () => {
+    const r = parseServerMessage({ type: '_close' }, makeState(), makeCallbacks(), POOL_KEY);
+    expect(r.connectionUpdate).toEqual({ status: 'disconnected' });
   });
 });
 
@@ -51,9 +61,10 @@ describe('reattach', () => {
     expect(r.messagesActions).toEqual([{ type: 'SET_RUNNING', running: true }]);
     expect(cb.onSessionAssigned).toHaveBeenCalledWith('sid-1');
     expect(cb.setWsRunning).toHaveBeenCalledWith(POOL_KEY, true);
+    expect(r.connectionUpdate).toEqual({ status: 'connected' });
   });
 
-  it('reattach_failed sets running=false', () => {
+  it('reattach_failed sets running=false and marks connection connected', () => {
     const cb = makeCallbacks();
     const r = parseServerMessage(
       { type: 'reattach_failed', clientId: 'old' },
@@ -63,6 +74,7 @@ describe('reattach', () => {
     );
     expect(r.messagesActions).toEqual([{ type: 'SET_RUNNING', running: false }]);
     expect(cb.setWsRunning).toHaveBeenCalledWith(POOL_KEY, false);
+    expect(r.connectionUpdate).toEqual({ status: 'connected' });
   });
 
   it('reattach_failed calls onMessagesRestored with fetched messages', async () => {
