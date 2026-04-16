@@ -470,7 +470,6 @@ export async function startChat(
   // Fire-and-forget: capture prompt comparison for the experiments spoke
   capturePromptComparison(wtId, cwd, systemPromptAppend, repoWorktrees).catch(() => {});
 
-  let messageHandler: ((raw: Buffer) => void) | null = null;
   try {
     const q = query({
       prompt: inputQueue as AsyncIterable<SDKUserMessage>,
