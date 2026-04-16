@@ -128,6 +128,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   // Track the actual WS pool key so wsListener routes to the correct entry
   let activePoolKey: string | null = null;
 
+  // Unsubscribe handle for the current WS subscription — called when
+  // switching sessions or starting a new one so old session messages
+  // don't leak into the new session's state.
+  let activeUnsub: (() => void) | null = null;
+
   const store = createStore<MitzoStoreState>((set, get) => ({
     // ── Initial state ────────────────────────────────────────────────────
 
@@ -150,6 +155,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     async switchSession(id: string) {
+      // Unsubscribe from previous session's WS before subscribing to the new
+      // one — otherwise the old listener keeps dispatching messages into the
+      // store, causing sessions to "merge."
+      activeUnsub?.();
+
       parserState.currentSessionId = id;
       const poolKey = `session:${id}`;
       activePoolKey = poolKey;
@@ -163,7 +173,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }));
 
       // Subscribe to WS messages for this session
-      wsPool.subscribe(poolKey, wsListener);
+      activeUnsub = wsPool.subscribe(poolKey, wsListener);
 
       // Load session messages
       try {
@@ -179,6 +189,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     newSession() {
+      activeUnsub?.();
+      activeUnsub = null;
+      activePoolKey = null;
       parserState.currentSessionId = undefined;
       set({
         sessions: { ...get().sessions, active: null },
@@ -234,9 +247,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
       // For new sessions, subscribe first so the pool entry exists
       if (!poolKey) {
+        activeUnsub?.();
         const newKey = `new:${Date.now()}`;
         activePoolKey = newKey;
-        wsPool.subscribe(newKey, wsListener);
+        activeUnsub = wsPool.subscribe(newKey, wsListener);
 
         const sent = wsPool.send(newKey, buildPayload());
         if (!sent) {

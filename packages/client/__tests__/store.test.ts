@@ -139,6 +139,44 @@ describe('switchSession', () => {
     expect(store.getState().messages.messages).toHaveLength(1);
     expect(store.getState().messages.messages[0].messageId).toBe('m1');
   });
+
+  it('unsubscribes old session WS when switching to a new one', async () => {
+    const transport = mockTransport();
+    (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve([]),
+      text: () => Promise.resolve(''),
+    });
+    const store = createMitzoStore(makeOptions(transport));
+
+    // Switch to session A
+    await store.getState().switchSession('session-a');
+    const wsA = lastWs;
+    wsA.simulateMessage({ type: 'client_id', clientId: 'c1' });
+    wsA.simulateMessage({ type: 'subscribed', running: true });
+
+    // Switch to session B
+    await store.getState().switchSession('session-b');
+
+    // Messages on session A's WS should NOT dispatch into session B's state
+    wsA.simulateMessage({ type: 'message_start', messageId: 'a-msg' });
+    wsA.simulateMessage({
+      type: 'block_start',
+      messageId: 'a-msg',
+      blockId: 'b1',
+      blockType: 'text',
+    });
+    wsA.simulateMessage({
+      type: 'block_delta',
+      messageId: 'a-msg',
+      blockId: 'b1',
+      blockType: 'text',
+      delta: 'should not appear',
+    });
+
+    expect(store.getState().messages.messages).toHaveLength(0);
+    expect(store.getState().messages.current).toBeNull();
+  });
 });
 
 describe('newSession', () => {
@@ -152,6 +190,49 @@ describe('newSession', () => {
 
     expect(store.getState().sessions.active).toBeNull();
     expect(store.getState().messages.messages).toHaveLength(0);
+  });
+
+  it('isolates new session from old session messages', async () => {
+    const transport = mockTransport();
+    (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve([]),
+      text: () => Promise.resolve(''),
+    });
+    const store = createMitzoStore(makeOptions(transport));
+
+    // Start in an existing session with an active WS
+    await store.getState().switchSession('old-session');
+    const oldWs = lastWs;
+
+    // Complete the handshake so messages flow
+    oldWs.simulateMessage({ type: 'client_id', clientId: 'c1' });
+    oldWs.simulateMessage({ type: 'subscribed', running: true });
+
+    // Now switch to a new session
+    store.getState().newSession();
+    expect(store.getState().messages.messages).toHaveLength(0);
+
+    // Simulate messages arriving on the OLD session's WS — these must
+    // NOT appear in the new session's state.
+    oldWs.simulateMessage({ type: 'message_start', messageId: 'old-msg' });
+    oldWs.simulateMessage({
+      type: 'block_start',
+      messageId: 'old-msg',
+      blockId: 'b1',
+      blockType: 'text',
+    });
+    oldWs.simulateMessage({
+      type: 'block_delta',
+      messageId: 'old-msg',
+      blockId: 'b1',
+      blockType: 'text',
+      delta: 'leaked!',
+    });
+
+    // The store should still have zero messages — old session is unsubscribed
+    expect(store.getState().messages.messages).toHaveLength(0);
+    expect(store.getState().messages.current).toBeNull();
   });
 });
 
@@ -486,6 +567,34 @@ describe('sendMessage — new session connection bootstrap', () => {
     lastWs.simulateMessage({ type: 'client_id', clientId: 'c1' });
 
     expect(store.getState().connection.status).toBe('connected');
+  });
+
+  it('unsubscribes previous session WS when first message creates a new pool entry', async () => {
+    const transport = mockTransport();
+    (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve([]),
+      text: () => Promise.resolve(''),
+    });
+    const store = createMitzoStore(makeOptions(transport));
+
+    // Start in an existing session
+    await store.getState().switchSession('old-session');
+    const oldWs = lastWs;
+    oldWs.simulateMessage({ type: 'client_id', clientId: 'c1' });
+    oldWs.simulateMessage({ type: 'subscribed', running: false });
+
+    // Start a brand-new session by calling newSession then sendMessage
+    store.getState().newSession();
+    store.getState().sendMessage('fresh start');
+
+    // Messages on the old WS must not leak into the new session
+    oldWs.simulateMessage({ type: 'message_start', messageId: 'old-leak' });
+
+    // Only the user message from sendMessage should be present
+    expect(store.getState().messages.messages).toHaveLength(1);
+    expect(store.getState().messages.messages[0].role).toBe('user');
+    expect(store.getState().messages.current).toBeNull();
   });
 });
 
