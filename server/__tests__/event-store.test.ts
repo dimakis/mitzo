@@ -196,6 +196,45 @@ describe('EventStore', () => {
       expect(session!.wtId).toBe('wt-session-123');
       expect(session!.mode).toBe('agent');
     });
+
+    it('persists and retrieves cwd', () => {
+      store.upsertSession({
+        sessionId: 'sess-1',
+        cwd: '/Users/dev/repo/.claude/worktrees/2026-04-16-abc123',
+        mode: 'agent',
+      });
+
+      const session = store.getSession('sess-1');
+      expect(session).not.toBeNull();
+      expect(session!.cwd).toBe('/Users/dev/repo/.claude/worktrees/2026-04-16-abc123');
+    });
+
+    it('resume CWD lookup: getSession returns original cwd for worktree sessions', () => {
+      // Simulates the pattern used in startChat for resume: store the
+      // worktree CWD at session creation, retrieve it when resuming.
+      const worktreeCwd = '/Users/dev/repo/.claude/worktrees/2026-04-16-abc123';
+      store.upsertSession({
+        sessionId: 'sess-resume',
+        cwd: worktreeCwd,
+        branch: 'session/2026-04-16-abc123',
+        wtId: '2026-04-16-abc123',
+        mode: 'agent',
+      });
+
+      // Later: resume looks up the session to get the original CWD
+      const meta = store.getSession('sess-resume');
+      expect(meta).not.toBeNull();
+      expect(meta!.cwd).toBe(worktreeCwd);
+      expect(meta!.wtId).toBe('2026-04-16-abc123');
+    });
+
+    it('returns null cwd when session was created without one', () => {
+      store.upsertSession({ sessionId: 'sess-no-cwd', summary: 'No CWD' });
+
+      const session = store.getSession('sess-no-cwd');
+      expect(session).not.toBeNull();
+      expect(session!.cwd).toBeNull();
+    });
   });
 
   describe('getSession', () => {
