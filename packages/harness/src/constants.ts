@@ -12,6 +12,8 @@ export {
 } from '@mitzo/protocol';
 
 // --- Session & Permission ---
-export const DETACHED_TTL_MS = 3_600_000; // 1 hour — events survive in durable store regardless
+export const DETACHED_TTL_MS = 21_600_000; // 6 hours — personal instance, negligible resource cost
+export const CLOSEOUT_LEAD_MS = 600_000; // 10 minutes before TTL expiry, start closeout
+export const CLOSEOUT_TIMEOUT_MS = 600_000; // 10 minutes max for the agent to finish closeout
 export const PERMISSION_TIMEOUT_MS = 120_000; // 2 minutes
 export const NTFY_NOTIFICATION_DELAY_MS = 10_000; // 10 seconds

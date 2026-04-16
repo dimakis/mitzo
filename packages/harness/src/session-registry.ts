@@ -1,11 +1,16 @@
 import type { SessionTransport } from './session-transport.js';
-import { DETACHED_TTL_MS, MAX_OBSERVERS_PER_SESSION } from './constants.js';
+import {
+  DETACHED_TTL_MS,
+  CLOSEOUT_LEAD_MS,
+  CLOSEOUT_TIMEOUT_MS,
+  MAX_OBSERVERS_PER_SESSION,
+} from './constants.js';
 import { createLogger } from './logger.js';
 
 const log = createLogger('session-registry');
 
 export type { MitzoMode, SnapshotBlock, MessageSnapshot, RawToolInput } from '@mitzo/protocol';
-import type { MitzoMode, SnapshotBlock, MessageSnapshot } from '@mitzo/protocol';
+import type { MitzoMode, MessageSnapshot } from '@mitzo/protocol';
 
 export interface ManagedSession {
   transport: SessionTransport;
@@ -45,10 +50,25 @@ export interface ActiveSessionInfo {
   observerCount: number;
 }
 
+export type CloseoutHandler = (clientId: string) => void;
+
 export class SessionRegistry {
   private sessions = new Map<string, ManagedSession>();
   private attached = new Set<string>();
   private detachTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private closeoutTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private closingOut = new Set<string>();
+  private closeoutHandler: CloseoutHandler | null = null;
+
+  /** Register a handler called when a session enters closeout. */
+  setCloseoutHandler(handler: CloseoutHandler): void {
+    this.closeoutHandler = handler;
+  }
+
+  /** Check if a session is currently in the closeout phase. */
+  isClosingOut(clientId: string): boolean {
+    return this.closingOut.has(clientId);
+  }
 
   register(
     clientId: string,
@@ -98,30 +118,55 @@ export class SessionRegistry {
 
   /**
    * Detach the transport from a session without killing the SDK query.
-   * Starts a TTL timer — if no reattach arrives, the session is aborted.
+   * Starts a two-phase timer:
+   * 1. At TTL - CLOSEOUT_LEAD_MS: start graceful closeout (if handler set)
+   * 2. At TTL (or CLOSEOUT_TIMEOUT_MS after closeout start): abort
    */
   detach(clientId: string): void {
     const session = this.sessions.get(clientId);
     if (!session) return;
 
     this.attached.delete(clientId);
-
     this.clearDetachTimer(clientId);
+    this.clearCloseoutTimer(clientId);
 
-    const timer = setTimeout(() => {
-      this.detachTimers.delete(clientId);
-      if (this.sessions.has(clientId) && !this.attached.has(clientId)) {
-        log.info(`detach TTL expired for ${clientId}, aborting`);
-        this.abort(clientId);
-      }
-    }, DETACHED_TTL_MS);
-
-    this.detachTimers.set(clientId, timer);
+    if (this.closeoutHandler) {
+      // Phase 1: fire closeout at TTL - CLOSEOUT_LEAD_MS
+      const closeoutDelay = DETACHED_TTL_MS - CLOSEOUT_LEAD_MS;
+      const timer = setTimeout(() => {
+        this.detachTimers.delete(clientId);
+        if (!this.sessions.has(clientId) || this.attached.has(clientId)) return;
+        log.info(`detach closeout starting for ${clientId}`);
+        this.closingOut.add(clientId);
+        this.closeoutHandler!(clientId);
+        // Phase 2: hard abort after CLOSEOUT_TIMEOUT_MS
+        const abortTimer = setTimeout(() => {
+          this.closeoutTimers.delete(clientId);
+          this.closingOut.delete(clientId);
+          if (this.sessions.has(clientId) && !this.attached.has(clientId)) {
+            log.info(`closeout timeout for ${clientId}, aborting`);
+            this.abort(clientId);
+          }
+        }, CLOSEOUT_TIMEOUT_MS);
+        this.closeoutTimers.set(clientId, abortTimer);
+      }, closeoutDelay);
+      this.detachTimers.set(clientId, timer);
+    } else {
+      // No closeout handler — fall back to direct abort at full TTL
+      const timer = setTimeout(() => {
+        this.detachTimers.delete(clientId);
+        if (this.sessions.has(clientId) && !this.attached.has(clientId)) {
+          log.info(`detach TTL expired for ${clientId}, aborting`);
+          this.abort(clientId);
+        }
+      }, DETACHED_TTL_MS);
+      this.detachTimers.set(clientId, timer);
+    }
   }
 
   /**
    * Reattach a new transport to an existing session.
-   * Returns true if the session was found and reattached.
+   * Cancels any pending closeout. Returns true if reattached.
    */
   reattach(clientId: string, transport: SessionTransport): boolean {
     const session = this.sessions.get(clientId);
@@ -130,6 +175,8 @@ export class SessionRegistry {
     session.transport = transport;
     this.attached.add(clientId);
     this.clearDetachTimer(clientId);
+    this.clearCloseoutTimer(clientId);
+    this.closingOut.delete(clientId);
     return true;
   }
 
@@ -227,6 +274,8 @@ export class SessionRegistry {
     if (!session) return;
 
     this.clearDetachTimer(clientId);
+    this.clearCloseoutTimer(clientId);
+    this.closingOut.delete(clientId);
     session.abortController.abort();
     session.observers.clear();
     this.sessions.delete(clientId);
@@ -253,6 +302,12 @@ export class SessionRegistry {
       clearTimeout(timer);
     }
     this.detachTimers.clear();
+
+    for (const timer of this.closeoutTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.closeoutTimers.clear();
+    this.closingOut.clear();
 
     for (const [clientId] of this.sessions) {
       this.abort(clientId);
@@ -286,6 +341,14 @@ export class SessionRegistry {
     if (existing) {
       clearTimeout(existing);
       this.detachTimers.delete(clientId);
+    }
+  }
+
+  private clearCloseoutTimer(clientId: string): void {
+    const existing = this.closeoutTimers.get(clientId);
+    if (existing) {
+      clearTimeout(existing);
+      this.closeoutTimers.delete(clientId);
     }
   }
 }
