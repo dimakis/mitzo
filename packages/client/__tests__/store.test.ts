@@ -174,6 +174,37 @@ describe('sendMessage', () => {
     // The WS was created (subscribe triggers getOrCreate → connectEntry)
     expect(lastWs).toBeDefined();
   });
+
+  it('sends the second message to the WS after the first turn completes', async () => {
+    const store = createMitzoStore(makeOptions());
+
+    // First send — establishes the session via new: pool key
+    store.getState().sendMessage('first');
+    const ws = lastWs;
+
+    // Simulate the server assigning a session id, then ending the turn so
+    // running flips back to false. This is the state the app is in when the
+    // user types their follow-up prompt.
+    ws.simulateMessage({ type: 'client_id', clientId: 'c1' });
+    ws.simulateMessage({ type: 'session_id', sessionId: 'sess-xyz' });
+    ws.simulateMessage({ type: 'session_end', sessionId: 'sess-xyz' });
+
+    expect(store.getState().messages.running).toBe(false);
+    const sentBeforeSecond = ws.sent.length;
+
+    // Second send — must actually hit the WS, not be silently queued in
+    // parserState.pendingSend. Reproduces the "hang after second prompt" bug
+    // where USER_SEND flipped running=true before the is-running check ran,
+    // causing every follow-up to stall.
+    store.getState().sendMessage('second');
+
+    const newlySent = ws.sent.slice(sentBeforeSecond).map((s) => JSON.parse(s));
+    expect(newlySent).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'send', prompt: 'second', resume: 'sess-xyz' }),
+      ]),
+    );
+  });
 });
 
 describe('WS → store wiring', () => {
