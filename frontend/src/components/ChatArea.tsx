@@ -37,6 +37,18 @@ export function ChatArea({
 }: ChatAreaProps) {
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
+  const prevMessageCount = useRef(0);
+
+  // Scroll to bottom on session restore (messages jump from 0 to N)
+  useEffect(() => {
+    const wasEmpty = prevMessageCount.current === 0;
+    prevMessageCount.current = messages.length;
+    if (wasEmpty && messages.length > 0) {
+      requestAnimationFrame(() => {
+        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+      });
+    }
+  }, [messages, scrollRef]);
 
   // Auto-scroll during streaming: follow new content if user is near the bottom
   useEffect(() => {

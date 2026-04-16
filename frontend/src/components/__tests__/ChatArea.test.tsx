@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, act } from '@testing-library/react';
 import { ChatArea } from '../ChatArea';
 import type { FinishedMessage, StreamingBlock } from '../../types/chat';
 
@@ -126,5 +126,42 @@ describe('ChatArea', () => {
     ];
     render(<ChatArea {...defaultProps} messages={messages} />);
     expect(screen.getByTestId('thinking-block')).toBeTruthy();
+  });
+
+  it('scrolls to bottom when messages appear for the first time (session restore)', async () => {
+    const scrollRef = { current: null as HTMLDivElement | null };
+    const restoredMessages: FinishedMessage[] = [
+      {
+        messageId: 'u1',
+        role: 'user',
+        blocks: [{ blockId: 'b1', blockType: 'text', content: 'Hello' }],
+      },
+      {
+        messageId: 'a1',
+        role: 'assistant',
+        blocks: [{ blockId: 'b2', blockType: 'text', content: 'Hi there' }],
+      },
+    ];
+
+    // Initial render with no messages
+    const { rerender } = render(<ChatArea {...defaultProps} scrollRef={scrollRef} />);
+
+    // Spy on scrollTo after the ref is attached
+    const scrollTo = vi.fn();
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo = scrollTo;
+    }
+
+    // Simulate RESTORE: messages appear in one shot
+    await act(async () => {
+      rerender(<ChatArea {...defaultProps} messages={restoredMessages} scrollRef={scrollRef} />);
+    });
+
+    // Give the rAF time to fire
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
+    expect(scrollTo).toHaveBeenCalled();
   });
 });
