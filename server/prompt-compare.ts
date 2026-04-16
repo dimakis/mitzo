@@ -5,7 +5,8 @@
  * Runs at chat start (fire-and-forget). Writes comparison files to
  * the experiments spoke in mgmt.
  */
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 'fs';
+import { readFileSync, existsSync, readdirSync } from 'fs';
+import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { compile } from 'contexgin';
 import type { CompiledContext } from 'contexgin';
@@ -190,7 +191,11 @@ function computeDiff(
 ): { onlyMitzo: string[]; onlyContexgin: string[]; shared: string[] } {
   // Normalize origins for comparison (strip heading paths for file-level matching)
   const mitzoFiles = new Set(mitzoSections.map((s) => s.origin.split('#')[0]));
-  const cxFiles = new Set(contexginSections.map((s) => s.origin.split('#')[0]));
+  const cxFiles = new Set(
+    contexginSections
+      .filter((s) => !s.origin.startsWith('contexgin:'))
+      .map((s) => s.origin.split('#')[0]),
+  );
 
   const onlyMitzo: string[] = [];
   const onlyContexgin: string[] = [];
@@ -293,13 +298,13 @@ export async function capturePromptComparison(
       systemPromptAppendTokens: estimateTokens(systemPromptAppend),
     };
 
-    // Write to experiments spoke
-    const outDir = outputRoot ?? join(primaryCwd, 'experiments', 'prompt-comparisons');
-    mkdirSync(outDir, { recursive: true });
+    // Write to .mitzo data directory (not in repo working tree)
+    const outDir = outputRoot ?? join(primaryCwd, '.mitzo', 'prompt-comparisons');
+    await mkdir(outDir, { recursive: true });
 
     const safeTimestamp = timestamp.replace(/[:.]/g, '-');
     const filename = `${sessionId}_${safeTimestamp}.json`;
-    writeFileSync(join(outDir, filename), JSON.stringify(report, null, 2));
+    await writeFile(join(outDir, filename), JSON.stringify(report, null, 2));
 
     // Log summary
     const totalMitzo = repos.reduce((s, r) => s + r.mitzo.totalTokens, 0);
