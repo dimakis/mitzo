@@ -39,6 +39,7 @@ export function setConnectionRegistry(registry: ConnectionRegistry): void {
 import { EventStore } from './event-store.js';
 import { capturePromptComparison } from './prompt-compare.js';
 import { shouldAutoRename, extractRecentPrompts, generateSessionName } from './auto-rename.js';
+import { registerSession, updateSessionTitle } from './session-index.js';
 import { createLogger } from './logger.js';
 
 const log = createLogger('chat');
@@ -487,6 +488,15 @@ export async function startChat(
     });
   }
 
+  // Register session in the workspace index (fire-and-forget, best-effort)
+  try {
+    registerSession(BASE_REPO, wtId, repoWorktrees, branch);
+  } catch (err: unknown) {
+    log.warn('session index write failed', {
+      error: err instanceof Error ? err.message : 'unknown',
+    });
+  }
+
   // Build session env with worktree paths for the agent
   const sessionEnv = sdkEnv();
   sessionEnv.MITZO_SESSION_ID = wtId;
@@ -596,8 +606,19 @@ async function tryAutoRename(sessionId: string, clientId: string): Promise<void>
       });
     });
 
-    // Push the new name to the connected frontend
+    // Update session index title (initial_title frozen, last_title updated)
     const session = registry.get(clientId);
+    if (session?.wtId) {
+      try {
+        updateSessionTitle(BASE_REPO, session.wtId, newName);
+      } catch (err: unknown) {
+        log.warn('session index title update failed', {
+          error: err instanceof Error ? err.message : 'unknown',
+        });
+      }
+    }
+
+    // Push the new name to the connected frontend
     if (session) {
       send(session.transport, { type: 'session_renamed', sessionId, name: newName });
     }
