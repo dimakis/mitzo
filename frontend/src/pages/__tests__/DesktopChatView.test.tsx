@@ -124,6 +124,22 @@ function createMockStore() {
     loadSessions: vi.fn().mockResolvedValue(undefined),
     refreshSessions: vi.fn().mockResolvedValue(undefined),
     fetchSessionMeta: vi.fn().mockResolvedValue(undefined),
+    loadTasks: vi.fn().mockResolvedValue(undefined),
+    loadLoopStatus: vi.fn().mockResolvedValue(undefined),
+    createTask: vi.fn().mockResolvedValue(undefined),
+    updateTask: vi.fn().mockResolvedValue(undefined),
+    deleteTask: vi.fn().mockResolvedValue(undefined),
+    startLoop: vi.fn().mockResolvedValue(undefined),
+    pauseLoop: vi.fn().mockResolvedValue(undefined),
+    resumeLoop: vi.fn().mockResolvedValue(undefined),
+    stopLoop: vi.fn().mockResolvedValue(undefined),
+    approveTask: vi.fn().mockResolvedValue(undefined),
+    rejectTask: vi.fn().mockResolvedValue(undefined),
+    approveSpec: vi.fn().mockResolvedValue(undefined),
+    rejectSpec: vi.fn().mockResolvedValue(undefined),
+    refreshTasks: vi.fn(),
+    loadInbox: vi.fn().mockResolvedValue(undefined),
+    loadTodos: vi.fn().mockResolvedValue(undefined),
   }));
 }
 
