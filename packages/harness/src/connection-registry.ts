@@ -102,4 +102,21 @@ export class ConnectionRegistry {
       }
     }
   }
+
+  /**
+   * Send a message to every open connection regardless of watched sessions.
+   * Used for global events (update_available, inbox_updated, task state).
+   */
+  broadcastAll(data: Record<string, unknown>): void {
+    for (const conn of this.connections.values()) {
+      if (!conn.transport.isOpen()) continue;
+      try {
+        conn.transport.send(data);
+      } catch {
+        log.warn('broadcastAll send failed', {
+          connectionId: conn.connectionId,
+        });
+      }
+    }
+  }
 }

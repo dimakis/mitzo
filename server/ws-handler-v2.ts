@@ -295,6 +295,8 @@ export function handleSendV2(
       }
 
       // Session exists in store but no active driver — start with resume
+      ctx.connRegistry.watch(connectionId, sessionId);
+      ctx.connRegistry.setActive(connectionId, sessionId);
       span.setAttribute('routing.decision', 'resume');
       startChat(transport, connectionId, prompt, {
         resume: sessionId,
@@ -307,8 +309,13 @@ export function handleSendV2(
         clientMsgId: msg.clientMsgId,
       });
     } else {
-      // null sessionId — new session
+      // null sessionId — new session. Supply onSessionResolved so the
+      // connection auto-watches once the SDK resolves the session ID.
       span.setAttribute('routing.decision', 'create');
+      const onSessionResolved = (resolvedId: string) => {
+        ctx.connRegistry.watch(connectionId, resolvedId);
+        ctx.connRegistry.setActive(connectionId, resolvedId);
+      };
       startChat(transport, connectionId, prompt, {
         cwd: msg.cwd,
         model: msg.model,
@@ -317,6 +324,7 @@ export function handleSendV2(
         images: msg.images,
         contextBlocks: msg.contextBlocks,
         clientMsgId: msg.clientMsgId,
+        onSessionResolved,
       });
     }
 

@@ -159,4 +159,46 @@ describe('ConnectionRegistry', () => {
       expect(() => registry.broadcast('sess-a', { type: 'test' })).not.toThrow();
     });
   });
+
+  describe('broadcastAll', () => {
+    it('sends to every open connection regardless of watched sessions', () => {
+      const t1 = mockTransport(true);
+      const t2 = mockTransport(true);
+      registry.register('conn-1', t1);
+      registry.register('conn-2', t2);
+      // conn-1 watches sess-a, conn-2 watches nothing
+      registry.watch('conn-1', 'sess-a');
+
+      registry.broadcastAll({ type: 'update_available' });
+
+      expect(t1.send).toHaveBeenCalledWith({ type: 'update_available' });
+      expect(t2.send).toHaveBeenCalledWith({ type: 'update_available' });
+    });
+
+    it('skips closed connections', () => {
+      const tOpen = mockTransport(true);
+      const tClosed = mockTransport(false);
+      registry.register('conn-open', tOpen);
+      registry.register('conn-closed', tClosed);
+
+      registry.broadcastAll({ type: 'inbox_updated' });
+
+      expect(tOpen.send).toHaveBeenCalledWith({ type: 'inbox_updated' });
+      expect(tClosed.send).not.toHaveBeenCalled();
+    });
+
+    it('does not throw when a send fails', () => {
+      const t = mockTransport(true);
+      (t.send as ReturnType<typeof vi.fn>).mockImplementation(() => {
+        throw new Error('socket closing');
+      });
+      registry.register('conn-1', t);
+
+      expect(() => registry.broadcastAll({ type: 'test' })).not.toThrow();
+    });
+
+    it('is a no-op when no connections exist', () => {
+      expect(() => registry.broadcastAll({ type: 'test' })).not.toThrow();
+    });
+  });
 });

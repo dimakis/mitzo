@@ -1,12 +1,40 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { SessionTransport } from '@mitzo/harness';
 import { ConnectionRegistry } from '@mitzo/harness';
+
+vi.mock('../chat.js', () => ({
+  startChat: vi.fn(),
+  sendToChat: vi.fn(),
+  interruptChat: vi.fn(),
+  stopChat: vi.fn(),
+  isActive: vi.fn().mockReturnValue(false),
+  BASE_REPO: '/tmp/test-repo',
+}));
+
+vi.mock('../app.js', () => ({
+  buildSkillRegistry: vi.fn().mockReturnValue(new Map()),
+  isAllowedPath: vi.fn().mockReturnValue(true),
+  NATIVE_COMMAND_NAMES: new Set(),
+}));
+
+vi.mock('../slash-commands.js', () => ({
+  resolveSlashCommand: vi.fn().mockReturnValue({ type: 'plain' }),
+}));
+
+vi.mock('../skill-policy.js', () => ({
+  setSkillPolicy: vi.fn(),
+  clearSkillPolicy: vi.fn(),
+}));
+
+import { startChat } from '../chat.js';
+
 import {
   handleHello,
   handleReconnect,
   handleWatch,
   handleUnwatch,
   handleSwitchSession,
+  handleSendV2,
   handleSetModeV2,
   handleStopV2,
   handlePermissionResponseV2,
@@ -302,6 +330,74 @@ describe('handleSetModeV2', () => {
     expect(modeMsg).toEqual(
       expect.objectContaining({ type: 'mode_changed', sessionId: 'sess-1', mode: 'auto' }),
     );
+  });
+});
+
+// ─── handleSendV2 auto-watch ─────────────────────────────────────────────────
+
+describe('handleSendV2 auto-watch', () => {
+  it('watches + activates the session on the resume path', () => {
+    const sessionReg = mockSessionRegistry();
+    // findBySessionId returns a result but isActive returns false → resume path
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-driver', session: {} });
+    sessionReg.isActive.mockReturnValue(false);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    // We can't fully test startChat without mocking the Agent SDK, but we can
+    // verify that watch + setActive are called before startChat. The resume
+    // path should ensure the connection is watching the session.
+    handleSendV2(
+      'c1',
+      transport,
+      {
+        type: 'send' as const,
+        sessionId: 'sess-resume',
+        prompt: 'continue',
+        clientMsgId: 'cmsg-1',
+      },
+      ctx,
+    );
+
+    const conn = ctx.connRegistry.get('c1');
+    expect(conn).toBeDefined();
+    expect(conn!.watchedSessions.has('sess-resume')).toBe(true);
+    expect(conn!.activeSession).toBe('sess-resume');
+  });
+
+  it('passes onSessionResolved callback to startChat on the create path', () => {
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleSendV2(
+      'c1',
+      transport,
+      {
+        type: 'send' as const,
+        sessionId: null,
+        prompt: 'hello world',
+        clientMsgId: 'cmsg-2',
+      },
+      ctx,
+    );
+
+    expect(startChat).toHaveBeenCalledTimes(1);
+    const callArgs = (startChat as ReturnType<typeof vi.fn>).mock.calls[0];
+    const options = callArgs[3];
+    expect(options.onSessionResolved).toBeTypeOf('function');
+
+    // Simulate the callback firing — should watch + activate
+    options.onSessionResolved('sess-new');
+    const conn = ctx.connRegistry.get('c1');
+    expect(conn).toBeDefined();
+    expect(conn!.watchedSessions.has('sess-new')).toBe(true);
+    expect(conn!.activeSession).toBe('sess-new');
   });
 });
 

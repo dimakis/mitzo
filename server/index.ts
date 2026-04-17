@@ -21,6 +21,7 @@ import {
   registry,
   eventStore,
   getRepoConfig,
+  setConnectionRegistry,
 } from './chat.js';
 import { cleanupStaleWorktrees } from './worktree.js';
 import { HEARTBEAT_INTERVAL_MS, PORT_DEFAULT, SHUTDOWN_GRACE_MS } from './constants.js';
@@ -58,6 +59,7 @@ const PORT = parseInt(process.env.PORT || String(PORT_DEFAULT), 10);
 
 const nativeCommands = new NativeCommandRegistry();
 const connRegistry = new ConnectionRegistry();
+setConnectionRegistry(connRegistry);
 
 // Resolve cert paths relative to the project root (where package.json lives)
 const __filename = fileURLToPath(import.meta.url);
@@ -73,24 +75,32 @@ const server = USE_TLS
 const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
 
 setUpdateBroadcast(() => {
-  const msg = JSON.stringify({ type: 'update_available' });
+  const data = { type: 'update_available' };
+  const msg = JSON.stringify(data);
   wss.clients.forEach((client) => {
+    if (v2Sockets.has(client)) return;
     if (client.readyState === client.OPEN) client.send(msg);
   });
+  connRegistry.broadcastAll(data);
 });
 
 setInboxBroadcast(() => {
-  const msg = JSON.stringify({ type: 'inbox_updated' });
+  const data = { type: 'inbox_updated' };
+  const msg = JSON.stringify(data);
   wss.clients.forEach((client) => {
+    if (v2Sockets.has(client)) return;
     if (client.readyState === client.OPEN) client.send(msg);
   });
+  connRegistry.broadcastAll(data);
 });
 
 setTaskBroadcast((event) => {
   const msg = JSON.stringify(event);
   wss.clients.forEach((client) => {
+    if (v2Sockets.has(client)) return;
     if (client.readyState === client.OPEN) client.send(msg);
   });
+  connRegistry.broadcastAll(event as Record<string, unknown>);
 });
 
 // --- Task Orchestrator ---
@@ -120,17 +130,23 @@ const orchestrator = new TaskOrchestrator({
     }
   },
   broadcastStatus: (status) => {
-    const msg = JSON.stringify({ type: 'loop_status', ...status });
+    const data = { type: 'loop_status', ...status };
+    const msg = JSON.stringify(data);
     wss.clients.forEach((client) => {
+      if (v2Sockets.has(client)) return;
       if (client.readyState === client.OPEN) client.send(msg);
     });
+    connRegistry.broadcastAll(data);
   },
   broadcastTasks: () => {
     const tree = taskStore.getTree();
-    const msg = JSON.stringify({ type: 'task_state', tasks: tree });
+    const data = { type: 'task_state', tasks: tree };
+    const msg = JSON.stringify(data);
     wss.clients.forEach((client) => {
+      if (v2Sockets.has(client)) return;
       if (client.readyState === client.OPEN) client.send(msg);
     });
+    connRegistry.broadcastAll(data as Record<string, unknown>);
   },
   getActiveSessionIds: () => {
     const ids = new Set<string>();
@@ -221,6 +237,7 @@ const v2Ctx: V2HandlerContext = {
  */
 function handleChatWsV2(ws: WebSocket, connectionId: string) {
   const transport = getTransport(ws);
+  v2Sockets.add(ws);
   handleHello(connectionId, transport, v2Ctx);
 
   const heartbeat = setInterval(() => {
@@ -239,6 +256,7 @@ function handleChatWsV2(ws: WebSocket, connectionId: string) {
 
   ws.on('close', (code, reason) => {
     clearInterval(heartbeat);
+    v2Sockets.delete(ws);
     connRegistry.remove(connectionId);
     registry.removeObserver(transport);
     transportMap.delete(ws);
@@ -256,6 +274,9 @@ function handleChatWsV2(ws: WebSocket, connectionId: string) {
 
 /** Map raw WebSocket → WsTransport wrapper, so removeObserver can look up the transport. */
 const transportMap = new Map<WebSocket, WsTransport>();
+
+/** v2 WebSockets — tracked so wss.clients broadcasts skip them (v2 gets events via connRegistry). */
+const v2Sockets = new Set<WebSocket>();
 
 /**
  * Get or create a WsTransport wrapper for a raw WebSocket.
