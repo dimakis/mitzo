@@ -57,6 +57,9 @@ export const SwitchSessionMessage = z.object({
 
 // ─── Chat messages (session-scoped) ─────────────────────────────────────────
 
+// sessionId is nullable on send (null = start new session) but required on
+// interrupt/stop/permission_response/set_mode — you can't target a session
+// that doesn't exist yet for those operations.
 export const V2SendMessage = z.object({
   type: z.literal('send'),
   sessionId: z.string().min(1).nullable(),

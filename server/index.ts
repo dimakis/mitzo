@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import './tracing.js';
 import { existsSync, readFileSync } from 'fs';
 import { createServer } from 'http';
 import { createServer as createHttpsServer } from 'https';

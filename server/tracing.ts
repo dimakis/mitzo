@@ -5,12 +5,10 @@
  * (compatible with Jaeger, Grafana Tempo, etc.). When unset, tracing is a
  * no-op — the @opentelemetry/api returns noop spans, so instrumentation
  * code has zero overhead.
- *
- * Import this module at the top of server/index.ts (before other imports)
- * so the SDK is initialized before any instrumented code runs.
  */
 
-import { NodeSDK } from '@opentelemetry/sdk-node';
+import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
+import { SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { Resource } from '@opentelemetry/resources';
 import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from '@opentelemetry/semantic-conventions';
@@ -22,19 +20,23 @@ const log = createLogger('tracing');
 const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 
 if (endpoint) {
-  const sdk = new NodeSDK({
+  const provider = new NodeTracerProvider({
     resource: new Resource({
       [ATTR_SERVICE_NAME]: 'mitzo',
       [ATTR_SERVICE_VERSION]: process.env.npm_package_version ?? 'dev',
     }),
-    traceExporter: new OTLPTraceExporter({ url: `${endpoint}/v1/traces` }),
   });
 
-  sdk.start();
+  // Let the exporter read OTEL_EXPORTER_OTLP_ENDPOINT natively — don't
+  // append /v1/traces manually, the SDK handles path construction.
+  provider.addSpanProcessor(new SimpleSpanProcessor(new OTLPTraceExporter()));
+  provider.register();
+
   log.info('OTel tracing initialized', { endpoint });
 
-  process.on('SIGTERM', () => sdk.shutdown());
-  process.on('SIGINT', () => sdk.shutdown());
+  const shutdown = () => provider.shutdown().catch(() => {});
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 }
 
 /**
