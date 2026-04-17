@@ -155,10 +155,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     async switchSession(id: string) {
-      // Unsubscribe from previous session's WS before subscribing to the new
-      // one — otherwise the old listener keeps dispatching messages into the
-      // store, causing sessions to "merge."
+      // Unsubscribe the listener so old events stop hitting the store,
+      // then defuse the pool entry so it won't reattach on reconnect
+      // (wasRunning=false prevents the reattach handshake that causes bleed).
       activeUnsub?.();
+      if (activePoolKey) {
+        wsPool.setRunning(activePoolKey, false);
+        wsPool.removeIfIdle(activePoolKey);
+      }
 
       parserState.currentSessionId = id;
       const poolKey = `session:${id}`;
@@ -190,6 +194,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     newSession() {
       activeUnsub?.();
+      if (activePoolKey) {
+        wsPool.setRunning(activePoolKey, false);
+        wsPool.removeIfIdle(activePoolKey);
+      }
       activeUnsub = null;
       activePoolKey = null;
       parserState.currentSessionId = undefined;
@@ -251,6 +259,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         const newKey = `new:${Date.now()}`;
         activePoolKey = newKey;
         activeUnsub = wsPool.subscribe(newKey, wsListener);
+        wsPool.setRunning(newKey, true);
 
         const sent = wsPool.send(newKey, buildPayload());
         if (!sent) {
