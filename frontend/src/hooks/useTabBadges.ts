@@ -27,7 +27,7 @@ export function useTabBadges(): TabBadges {
   }, [loadInbox, loadTodos]);
 
   const todoCount = useMemo(
-    () => todoItems.filter((item) => item.status !== 'completed').length,
+    () => (todoItems ?? []).filter((item) => item.status !== 'completed').length,
     [todoItems],
   );
 

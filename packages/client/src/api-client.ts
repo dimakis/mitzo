@@ -324,7 +324,7 @@ export class MitzoApiClient {
 
   // ── Todos ────────────────────────────────────────────────────────────────
 
-  async getTodos(profile?: string): Promise<TodoItem[]> {
+  async getTodos(profile?: string): Promise<{ items: TodoItem[]; profiles: string[] }> {
     const url = profile ? `/api/todos?profile=${encodeURIComponent(profile)}` : '/api/todos';
     const res = await this.assertOk(await this.fetch(url, { credentials: 'include' }));
     return res.json();

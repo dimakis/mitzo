@@ -474,8 +474,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     async loadTodos() {
       try {
-        const items = await api.getTodos();
-        set({ todos: { ...get().todos, items } });
+        const data = await api.getTodos();
+        set({ todos: { items: data.items ?? [], profiles: data.profiles ?? [] } });
       } catch {
         // Graceful — keep existing todos
       }
