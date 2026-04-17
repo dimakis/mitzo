@@ -653,9 +653,9 @@ export async function runQueryLoop(
           send(finalSession.transport, endMsg);
           broadcastToObservers(finalSession.observers, endMsg);
         }
-      }
-      if (connRegistry?.get(clientId)) {
-        connRegistry.setActive(clientId, null);
+        if (connRegistry?.get(clientId)) {
+          connRegistry.setActive(clientId, null);
+        }
       }
       registry.remove(clientId);
     }

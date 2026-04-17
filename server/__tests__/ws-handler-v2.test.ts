@@ -1,6 +1,33 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { SessionTransport } from '@mitzo/harness';
 import { ConnectionRegistry } from '@mitzo/harness';
+
+vi.mock('../chat.js', () => ({
+  startChat: vi.fn(),
+  sendToChat: vi.fn(),
+  interruptChat: vi.fn(),
+  stopChat: vi.fn(),
+  isActive: vi.fn().mockReturnValue(false),
+  BASE_REPO: '/tmp/test-repo',
+}));
+
+vi.mock('../app.js', () => ({
+  buildSkillRegistry: vi.fn().mockReturnValue(new Map()),
+  isAllowedPath: vi.fn().mockReturnValue(true),
+  NATIVE_COMMAND_NAMES: new Set(),
+}));
+
+vi.mock('../slash-commands.js', () => ({
+  resolveSlashCommand: vi.fn().mockReturnValue({ type: 'plain' }),
+}));
+
+vi.mock('../skill-policy.js', () => ({
+  setSkillPolicy: vi.fn(),
+  clearSkillPolicy: vi.fn(),
+}));
+
+import { startChat } from '../chat.js';
+
 import {
   handleHello,
   handleReconnect,
@@ -340,6 +367,37 @@ describe('handleSendV2 auto-watch', () => {
     expect(conn).toBeDefined();
     expect(conn!.watchedSessions.has('sess-resume')).toBe(true);
     expect(conn!.activeSession).toBe('sess-resume');
+  });
+
+  it('passes onSessionResolved callback to startChat on the create path', () => {
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleSendV2(
+      'c1',
+      transport,
+      {
+        type: 'send' as const,
+        sessionId: null,
+        prompt: 'hello world',
+        clientMsgId: 'cmsg-2',
+      },
+      ctx,
+    );
+
+    expect(startChat).toHaveBeenCalledTimes(1);
+    const callArgs = (startChat as ReturnType<typeof vi.fn>).mock.calls[0];
+    const options = callArgs[3];
+    expect(options.onSessionResolved).toBeTypeOf('function');
+
+    // Simulate the callback firing — should watch + activate
+    options.onSessionResolved('sess-new');
+    const conn = ctx.connRegistry.get('c1');
+    expect(conn).toBeDefined();
+    expect(conn!.watchedSessions.has('sess-new')).toBe(true);
+    expect(conn!.activeSession).toBe('sess-new');
   });
 });
 

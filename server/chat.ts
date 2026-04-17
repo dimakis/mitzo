@@ -538,8 +538,8 @@ export async function startChat(
       eventStore,
       options.resume ? undefined : fullPrompt,
       {
-        ...(_connRegistry ? { connRegistry: _connRegistry } : {}),
-        ...(options.onSessionResolved ? { onSessionResolved: options.onSessionResolved } : {}),
+        connRegistry: _connRegistry ?? undefined,
+        onSessionResolved: options.onSessionResolved,
       },
     );
   } catch (err: unknown) {

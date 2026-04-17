@@ -78,6 +78,7 @@ setUpdateBroadcast(() => {
   const data = { type: 'update_available' };
   const msg = JSON.stringify(data);
   wss.clients.forEach((client) => {
+    if (v2Sockets.has(client)) return;
     if (client.readyState === client.OPEN) client.send(msg);
   });
   connRegistry.broadcastAll(data);
@@ -87,6 +88,7 @@ setInboxBroadcast(() => {
   const data = { type: 'inbox_updated' };
   const msg = JSON.stringify(data);
   wss.clients.forEach((client) => {
+    if (v2Sockets.has(client)) return;
     if (client.readyState === client.OPEN) client.send(msg);
   });
   connRegistry.broadcastAll(data);
@@ -95,6 +97,7 @@ setInboxBroadcast(() => {
 setTaskBroadcast((event) => {
   const msg = JSON.stringify(event);
   wss.clients.forEach((client) => {
+    if (v2Sockets.has(client)) return;
     if (client.readyState === client.OPEN) client.send(msg);
   });
   connRegistry.broadcastAll(event as Record<string, unknown>);
@@ -130,6 +133,7 @@ const orchestrator = new TaskOrchestrator({
     const data = { type: 'loop_status', ...status };
     const msg = JSON.stringify(data);
     wss.clients.forEach((client) => {
+      if (v2Sockets.has(client)) return;
       if (client.readyState === client.OPEN) client.send(msg);
     });
     connRegistry.broadcastAll(data);
@@ -139,6 +143,7 @@ const orchestrator = new TaskOrchestrator({
     const data = { type: 'task_state', tasks: tree };
     const msg = JSON.stringify(data);
     wss.clients.forEach((client) => {
+      if (v2Sockets.has(client)) return;
       if (client.readyState === client.OPEN) client.send(msg);
     });
     connRegistry.broadcastAll(data as Record<string, unknown>);
@@ -232,6 +237,7 @@ const v2Ctx: V2HandlerContext = {
  */
 function handleChatWsV2(ws: WebSocket, connectionId: string) {
   const transport = getTransport(ws);
+  v2Sockets.add(ws);
   handleHello(connectionId, transport, v2Ctx);
 
   const heartbeat = setInterval(() => {
@@ -250,6 +256,7 @@ function handleChatWsV2(ws: WebSocket, connectionId: string) {
 
   ws.on('close', (code, reason) => {
     clearInterval(heartbeat);
+    v2Sockets.delete(ws);
     connRegistry.remove(connectionId);
     registry.removeObserver(transport);
     transportMap.delete(ws);
@@ -267,6 +274,9 @@ function handleChatWsV2(ws: WebSocket, connectionId: string) {
 
 /** Map raw WebSocket → WsTransport wrapper, so removeObserver can look up the transport. */
 const transportMap = new Map<WebSocket, WsTransport>();
+
+/** v2 WebSockets — tracked so wss.clients broadcasts skip them (v2 gets events via connRegistry). */
+const v2Sockets = new Set<WebSocket>();
 
 /**
  * Get or create a WsTransport wrapper for a raw WebSocket.
