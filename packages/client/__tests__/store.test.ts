@@ -9,7 +9,7 @@ import type { StoreApi } from 'zustand/vanilla';
 // ─── Mock WebSocket ─────────────────────────────────────────────────────────
 
 class MockWebSocket implements WebSocketLike {
-  readyState = WS_READY_STATE.OPEN;
+  readyState = WS_READY_STATE.CONNECTING;
   onopen: ((ev: unknown) => void) | null = null;
   onmessage: ((ev: { data: string }) => void) | null = null;
   onclose: (() => void) | null = null;
@@ -24,7 +24,6 @@ class MockWebSocket implements WebSocketLike {
     this.readyState = WS_READY_STATE.CLOSED;
   }
 
-  // Test helpers
   simulateOpen() {
     this.readyState = WS_READY_STATE.OPEN;
     this.onopen?.({});
@@ -37,6 +36,16 @@ class MockWebSocket implements WebSocketLike {
   simulateClose() {
     this.readyState = WS_READY_STATE.CLOSED;
     this.onclose?.();
+  }
+
+  /** Complete the v2 hello/welcome handshake. */
+  completeHandshake() {
+    this.simulateOpen();
+    this.simulateMessage({ type: 'welcome', protocolVersion: 2, connectionId: 'conn-1' });
+  }
+
+  parsedSent(): Record<string, unknown>[] {
+    return this.sent.map((s) => JSON.parse(s));
   }
 }
 
@@ -70,6 +79,13 @@ function makeOptions(transport?: TransportAdapter): MitzoStoreOptions {
   };
 }
 
+/** Create store and complete the v2 handshake so it's ready to use. */
+function createReadyStore(transport?: TransportAdapter) {
+  const store = createMitzoStore(makeOptions(transport));
+  lastWs.completeHandshake();
+  return store;
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('createMitzoStore', () => {
@@ -99,14 +115,25 @@ describe('createMitzoStore', () => {
     expect(typeof state.setMode).toBe('function');
     expect(typeof state.setModel).toBe('function');
   });
+
+  it('connects to WS and completes v2 handshake on creation', () => {
+    createMitzoStore(makeOptions());
+    const ws = lastWs;
+    ws.simulateOpen();
+
+    expect(ws.parsedSent()).toContainEqual({ type: 'hello', protocolVersion: 2 });
+  });
+
+  it('sets connection status to connected after welcome', () => {
+    const store = createReadyStore();
+    expect(store.getState().connection.status).toBe('connected');
+  });
 });
 
 describe('switchSession', () => {
   it('updates active session and resets messages', async () => {
-    const transport = mockTransport();
-    const store = createMitzoStore(makeOptions(transport));
+    const store = createReadyStore();
 
-    // Pre-populate some messages
     store.getState().dispatchMessages({
       type: 'USER_SEND',
       text: 'hello',
@@ -135,7 +162,7 @@ describe('switchSession', () => {
       text: () => Promise.resolve(''),
     });
 
-    const store = createMitzoStore(makeOptions(transport));
+    const store = createReadyStore(transport);
     await store.getState().switchSession('session-abc');
 
     expect(transport.fetch).toHaveBeenCalledWith(
@@ -146,48 +173,35 @@ describe('switchSession', () => {
     expect(store.getState().messages.messages[0].messageId).toBe('m1');
   });
 
-  it('unsubscribes old session WS when switching to a new one', async () => {
-    const transport = mockTransport();
-    (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve([]),
-      text: () => Promise.resolve(''),
+  it('sends switch_session over WS', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('session-abc');
+
+    expect(lastWs.parsedSent()).toContainEqual({
+      type: 'switch_session',
+      sessionId: 'session-abc',
     });
-    const store = createMitzoStore(makeOptions(transport));
+  });
 
-    // Switch to session A
-    await store.getState().switchSession('session-a');
-    const wsA = lastWs;
-    wsA.simulateMessage({ type: 'client_id', clientId: 'c1' });
-    wsA.simulateMessage({ type: 'subscribed', running: true });
-
-    // Switch to session B
+  it('filters events from non-active sessions after switch', async () => {
+    const store = createReadyStore();
     await store.getState().switchSession('session-b');
 
-    // Messages on session A's WS should NOT dispatch into session B's state
-    wsA.simulateMessage({ type: 'message_start', messageId: 'a-msg' });
-    wsA.simulateMessage({
-      type: 'block_start',
+    // Events tagged with session-a should be ignored
+    lastWs.simulateMessage({
+      type: 'message_start',
       messageId: 'a-msg',
-      blockId: 'b1',
-      blockType: 'text',
-    });
-    wsA.simulateMessage({
-      type: 'block_delta',
-      messageId: 'a-msg',
-      blockId: 'b1',
-      blockType: 'text',
-      delta: 'should not appear',
+      sessionId: 'session-a',
     });
 
-    expect(store.getState().messages.messages).toHaveLength(0);
     expect(store.getState().messages.current).toBeNull();
+    expect(store.getState().messages.messages).toHaveLength(0);
   });
 });
 
 describe('newSession', () => {
   it('clears active session and resets messages', () => {
-    const store = createMitzoStore(makeOptions());
+    const store = createReadyStore();
     store.setState((s) => ({
       sessions: { ...s.sessions, active: 'old-session' },
     }));
@@ -198,45 +212,30 @@ describe('newSession', () => {
     expect(store.getState().messages.messages).toHaveLength(0);
   });
 
-  it('isolates new session from old session messages', async () => {
-    const transport = mockTransport();
-    (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve([]),
-      text: () => Promise.resolve(''),
-    });
-    const store = createMitzoStore(makeOptions(transport));
-
-    // Start in an existing session with an active WS
-    await store.getState().switchSession('old-session');
-    const oldWs = lastWs;
-
-    // Complete the handshake so messages flow
-    oldWs.simulateMessage({ type: 'client_id', clientId: 'c1' });
-    oldWs.simulateMessage({ type: 'subscribed', running: true });
-
-    // Now switch to a new session
+  it('sends switch_session with null to clear server-side active', () => {
+    const store = createReadyStore();
     store.getState().newSession();
-    expect(store.getState().messages.messages).toHaveLength(0);
 
-    // Simulate messages arriving on the OLD session's WS — these must
-    // NOT appear in the new session's state.
-    oldWs.simulateMessage({ type: 'message_start', messageId: 'old-msg' });
-    oldWs.simulateMessage({
-      type: 'block_start',
-      messageId: 'old-msg',
-      blockId: 'b1',
-      blockType: 'text',
+    expect(lastWs.parsedSent()).toContainEqual({
+      type: 'switch_session',
+      sessionId: null,
     });
-    oldWs.simulateMessage({
-      type: 'block_delta',
+  });
+
+  it('isolates new session from old session messages via sessionId filter', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('old-session');
+
+    store.getState().newSession();
+
+    // Messages tagged with old-session should be filtered out since
+    // currentSessionId is now undefined (no active session)
+    lastWs.simulateMessage({
+      type: 'message_start',
       messageId: 'old-msg',
-      blockId: 'b1',
-      blockType: 'text',
-      delta: 'leaked!',
+      sessionId: 'old-session',
     });
 
-    // The store should still have zero messages — old session is unsubscribed
     expect(store.getState().messages.messages).toHaveLength(0);
     expect(store.getState().messages.current).toBeNull();
   });
@@ -244,7 +243,7 @@ describe('newSession', () => {
 
 describe('sendMessage', () => {
   it('adds optimistic user message', () => {
-    const store = createMitzoStore(makeOptions());
+    const store = createReadyStore();
     store.getState().sendMessage('hello');
 
     const { messages, running } = store.getState().messages;
@@ -254,70 +253,71 @@ describe('sendMessage', () => {
     expect(running).toBe(true);
   });
 
-  it('subscribes to WS pool for new sessions', () => {
-    const store = createMitzoStore(makeOptions());
+  it('sends v2 send message with sessionId=null for new sessions', () => {
+    const store = createReadyStore();
     store.getState().sendMessage('hello');
 
-    // The WS was created (subscribe triggers getOrCreate → connectEntry)
-    expect(lastWs).toBeDefined();
+    const sends = lastWs.parsedSent().filter((m) => m.type === 'send');
+    expect(sends).toHaveLength(1);
+    expect(sends[0].sessionId).toBeNull();
+    expect(sends[0].prompt).toBe('hello');
+    expect(sends[0].clientMsgId).toBeDefined();
   });
 
-  it('marks the pool entry running on new-session send so iOS reconnects attempt reattach', () => {
-    vi.useFakeTimers();
-    const store = createMitzoStore(makeOptions());
+  it('sends v2 send message with sessionId for existing sessions', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('sess-abc');
 
-    store.getState().sendMessage('hello');
-    const ws1 = lastWs;
+    // Simulate server assigning session (via session_id event)
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'sess-abc' });
 
-    // Server assigns client_id (pool entry now has clientId set).
-    ws1.simulateMessage({ type: 'client_id', clientId: 'c-original' });
+    store.getState().sendMessage('follow-up');
 
-    // iOS kills the socket mid-first-turn. If wasRunning is true, the
-    // reconnect will send reattach; if false, it'll send subscribe.
-    ws1.simulateClose();
-    vi.advanceTimersByTime(1000);
-
-    const ws2 = lastWs;
-    expect(ws2).not.toBe(ws1);
-    ws2.simulateOpen();
-    ws2.simulateMessage({ type: 'client_id', clientId: 'c-reconnected' });
-
-    const ws2Sends = ws2.sent.map((s) => JSON.parse(s));
-    expect(ws2Sends).toContainEqual(
-      expect.objectContaining({ type: 'reattach', clientId: 'c-original' }),
-    );
-    vi.useRealTimers();
+    const sends = lastWs.parsedSent().filter((m) => m.type === 'send');
+    expect(sends).toHaveLength(1);
+    expect(sends[0].sessionId).toBe('sess-abc');
+    expect(sends[0].prompt).toBe('follow-up');
+    // v2: no `resume` field
+    expect(sends[0].resume).toBeUndefined();
   });
 
-  it('sends the second message to the WS after the first turn completes', async () => {
-    const store = createMitzoStore(makeOptions());
+  it('sends the second message to WS after first turn completes', async () => {
+    const store = createReadyStore();
 
-    // First send — establishes the session via new: pool key
     store.getState().sendMessage('first');
-    const ws = lastWs;
-
-    // Simulate the server assigning a session id, then ending the turn so
-    // running flips back to false. This is the state the app is in when the
-    // user types their follow-up prompt.
-    ws.simulateMessage({ type: 'client_id', clientId: 'c1' });
-    ws.simulateMessage({ type: 'session_id', sessionId: 'sess-xyz' });
-    ws.simulateMessage({ type: 'session_end', sessionId: 'sess-xyz' });
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'sess-xyz' });
+    lastWs.simulateMessage({ type: 'session_end', sessionId: 'sess-xyz' });
 
     expect(store.getState().messages.running).toBe(false);
-    const sentBeforeSecond = ws.sent.length;
+    const sentBefore = lastWs.sent.length;
 
-    // Second send — must actually hit the WS, not be silently queued in
-    // parserState.pendingSend. Reproduces the "hang after second prompt" bug
-    // where USER_SEND flipped running=true before the is-running check ran,
-    // causing every follow-up to stall.
     store.getState().sendMessage('second');
 
-    const newlySent = ws.sent.slice(sentBeforeSecond).map((s) => JSON.parse(s));
-    expect(newlySent).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ type: 'send', prompt: 'second', resume: 'sess-xyz' }),
-      ]),
+    const newSends = lastWs.sent.slice(sentBefore).map((s) => JSON.parse(s));
+    expect(newSends).toContainEqual(
+      expect.objectContaining({ type: 'send', prompt: 'second', sessionId: 'sess-xyz' }),
     );
+  });
+
+  it('queues second message while first turn is running', async () => {
+    const store = createReadyStore();
+
+    store.getState().sendMessage('first');
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'sess-q' });
+
+    // Turn is still running — second send should queue
+    const sentBefore = lastWs.sent.length;
+    store.getState().sendMessage('second');
+
+    // Should NOT have sent yet
+    const newSendsImmediate = lastWs.sent.slice(sentBefore).map((s) => JSON.parse(s));
+    expect(newSendsImmediate.filter((m) => m.type === 'send')).toHaveLength(0);
+
+    // session_end triggers flush of queued message
+    lastWs.simulateMessage({ type: 'session_end', sessionId: 'sess-q' });
+
+    const newSends = lastWs.sent.slice(sentBefore).map((s) => JSON.parse(s));
+    expect(newSends).toContainEqual(expect.objectContaining({ type: 'send', prompt: 'second' }));
   });
 });
 
@@ -331,31 +331,33 @@ describe('WS → store wiring', () => {
       json: () => Promise.resolve([]),
       text: () => Promise.resolve(''),
     });
-    store = createMitzoStore(makeOptions(transport));
-
-    // Switch to a session to wire up the WS listener
+    store = createReadyStore(transport);
     await store.getState().switchSession('test-session');
   });
 
   it('dispatches MESSAGE_START through the protocol parser', () => {
-    lastWs.simulateMessage({ type: 'client_id', clientId: 'c1' });
-    // client_id triggers a subscribe message, then we get server messages
-    lastWs.simulateMessage({ type: 'subscribed', running: false });
-    lastWs.simulateMessage({ type: 'message_start', messageId: 'msg-1' });
+    lastWs.simulateMessage({
+      type: 'message_start',
+      messageId: 'msg-1',
+      sessionId: 'test-session',
+    });
 
     expect(store.getState().messages.current).not.toBeNull();
     expect(store.getState().messages.current!.messageId).toBe('msg-1');
   });
 
   it('dispatches full message turn and finalizes', () => {
-    lastWs.simulateMessage({ type: 'client_id', clientId: 'c1' });
-    lastWs.simulateMessage({ type: 'subscribed', running: false });
-    lastWs.simulateMessage({ type: 'message_start', messageId: 'msg-1' });
+    lastWs.simulateMessage({
+      type: 'message_start',
+      messageId: 'msg-1',
+      sessionId: 'test-session',
+    });
     lastWs.simulateMessage({
       type: 'block_start',
       messageId: 'msg-1',
       blockId: 'b1',
       blockType: 'text',
+      sessionId: 'test-session',
     });
     lastWs.simulateMessage({
       type: 'block_delta',
@@ -363,14 +365,16 @@ describe('WS → store wiring', () => {
       blockId: 'b1',
       blockType: 'text',
       delta: 'Hello!',
+      sessionId: 'test-session',
     });
     lastWs.simulateMessage({
       type: 'block_end',
       messageId: 'msg-1',
       blockId: 'b1',
       blockType: 'text',
+      sessionId: 'test-session',
     });
-    lastWs.simulateMessage({ type: 'message_end', messageId: 'msg-1' });
+    lastWs.simulateMessage({ type: 'message_end', messageId: 'msg-1', sessionId: 'test-session' });
 
     expect(store.getState().messages.current).toBeNull();
     expect(store.getState().messages.messages).toHaveLength(1);
@@ -378,9 +382,7 @@ describe('WS → store wiring', () => {
   });
 
   it('dispatches session_end and clears running', () => {
-    lastWs.simulateMessage({ type: 'client_id', clientId: 'c1' });
-    lastWs.simulateMessage({ type: 'subscribed', running: true });
-
+    store.getState().dispatchMessages({ type: 'SET_RUNNING', running: true });
     expect(store.getState().messages.running).toBe(true);
 
     lastWs.simulateMessage({ type: 'session_end', sessionId: 'test-session' });
@@ -389,8 +391,6 @@ describe('WS → store wiring', () => {
   });
 
   it('dispatches task_state updates', () => {
-    lastWs.simulateMessage({ type: 'client_id', clientId: 'c1' });
-    lastWs.simulateMessage({ type: 'subscribed', running: false });
     lastWs.simulateMessage({
       type: 'task_state',
       tasks: [{ id: 't1', summary: 'Task 1', status: 'pending', children: [] }],
@@ -401,10 +401,6 @@ describe('WS → store wiring', () => {
   });
 
   it('dispatches task_updated recursively', () => {
-    lastWs.simulateMessage({ type: 'client_id', clientId: 'c1' });
-    lastWs.simulateMessage({ type: 'subscribed', running: false });
-
-    // Set up a tree with nested tasks
     lastWs.simulateMessage({
       type: 'task_state',
       tasks: [
@@ -417,7 +413,6 @@ describe('WS → store wiring', () => {
       ],
     });
 
-    // Update the nested task
     lastWs.simulateMessage({
       type: 'task_updated',
       task: { id: 't2', summary: 'Child Updated', status: 'done', children: [] },
@@ -428,9 +423,6 @@ describe('WS → store wiring', () => {
   });
 
   it('dispatches task_deleted recursively', () => {
-    lastWs.simulateMessage({ type: 'client_id', clientId: 'c1' });
-    lastWs.simulateMessage({ type: 'subscribed', running: false });
-
     lastWs.simulateMessage({
       type: 'task_state',
       tasks: [
@@ -449,17 +441,21 @@ describe('WS → store wiring', () => {
     expect(store.getState().tasks.tree[0].children).toHaveLength(0);
   });
 
-  it('updates session on session_id message', () => {
-    lastWs.simulateMessage({ type: 'client_id', clientId: 'c1' });
-    lastWs.simulateMessage({ type: 'subscribed', running: false });
-    lastWs.simulateMessage({ type: 'session_id', sessionId: 'new-sid' });
+  it('accepts session_id matching the active session', () => {
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'test-session' });
 
-    expect(store.getState().sessions.active).toBe('new-sid');
+    // Active session remains test-session (confirmed, not changed)
+    expect(store.getState().sessions.active).toBe('test-session');
+  });
+
+  it('rejects session_id from a different session when active is set', () => {
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'foreign-session' });
+
+    // Should NOT hijack the active session
+    expect(store.getState().sessions.active).toBe('test-session');
   });
 
   it('dispatches error messages', () => {
-    lastWs.simulateMessage({ type: 'client_id', clientId: 'c1' });
-    lastWs.simulateMessage({ type: 'subscribed', running: false });
     lastWs.simulateMessage({ type: 'error', error: 'Something broke' });
 
     const msgs = store.getState().messages.messages;
@@ -468,304 +464,226 @@ describe('WS → store wiring', () => {
   });
 });
 
-describe('reattach_failed → onMessagesRestored', () => {
-  it('restores messages exactly once via passed-through messages (no double-fetch)', async () => {
-    const transport = mockTransport();
-    const restoredMsgs = [
-      {
-        messageId: 'm1',
-        role: 'assistant',
-        blocks: [{ blockId: 'b1', blockType: 'text', content: 'restored' }],
-      },
-    ];
-    // getSessionMessages returns restored messages
-    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
-      if (url.includes('/messages')) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve(restoredMsgs),
-          text: () => Promise.resolve(''),
-        });
-      }
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve([]),
-        text: () => Promise.resolve(''),
-      });
-    });
-
-    const store = createMitzoStore(makeOptions(transport));
-    await store.getState().switchSession('test-session');
-
-    // Simulate WS connection + reattach_failed
-    lastWs.simulateMessage({ type: 'client_id', clientId: 'c1' });
-    lastWs.simulateMessage({ type: 'subscribed', running: false });
-    lastWs.simulateMessage({ type: 'reattach_failed', clientId: 'old' });
-
-    // Wait for the async fetch to resolve and messages to be restored
-    await vi.waitFor(() => {
-      expect(store.getState().messages.messages).toHaveLength(1);
-    });
-
-    expect(store.getState().messages.messages[0].messageId).toBe('m1');
-    expect(store.getState().messages.messages[0].blocks[0].content).toBe('restored');
-  });
-});
-
 describe('stopGeneration', () => {
-  it('sends interrupt message over WS', async () => {
-    const transport = mockTransport();
-    (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve([]),
-      text: () => Promise.resolve(''),
-    });
-    const store = createMitzoStore(makeOptions(transport));
+  it('sends v2 stop message with sessionId over WS', async () => {
+    const store = createReadyStore();
     await store.getState().switchSession('test-session');
-
-    lastWs.simulateMessage({ type: 'client_id', clientId: 'c1' });
-    lastWs.simulateMessage({ type: 'subscribed', running: true });
 
     store.getState().stopGeneration();
 
-    const sent = lastWs.sent.map((s) => JSON.parse(s));
-    const interrupt = sent.find((m) => m.type === 'interrupt');
-    expect(interrupt).toBeDefined();
+    const sent = lastWs.parsedSent();
+    const stop = sent.find((m) => m.type === 'stop');
+    expect(stop).toBeDefined();
+    expect(stop!.sessionId).toBe('test-session');
+  });
+
+  it('sends stop with null sessionId during first turn before session_id arrives', () => {
+    const store = createReadyStore();
+    store.getState().sendMessage('hello');
+
+    store.getState().stopGeneration();
+
+    const sent = lastWs.parsedSent();
+    const stop = sent.find((m) => m.type === 'stop');
+    expect(stop).toBeDefined();
+    expect(stop!.sessionId).toBeNull();
   });
 });
 
 describe('respondToPermission', () => {
-  it('sends permission_response and clears pending', async () => {
-    const transport = mockTransport();
-    (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve([]),
-      text: () => Promise.resolve(''),
-    });
-    const store = createMitzoStore(makeOptions(transport));
+  it('sends v2 permission_response with sessionId and clears pending', async () => {
+    const store = createReadyStore();
     await store.getState().switchSession('test-session');
 
-    lastWs.simulateMessage({ type: 'client_id', clientId: 'c1' });
-    lastWs.simulateMessage({ type: 'subscribed', running: true });
-
-    // Simulate a permission request arriving (lands in messages.permission via reducer)
     lastWs.simulateMessage({
       type: 'permission_request',
       permId: 'perm-1',
       toolName: 'Bash',
       toolInput: 'rm -rf /',
       tier: 'elevated',
+      sessionId: 'test-session',
     });
     expect(store.getState().messages.permission).not.toBeNull();
-    expect(store.getState().messages.permission!.permId).toBe('perm-1');
 
-    // Respond to the permission
     store.getState().respondToPermission('perm-1', 'once');
 
-    // WS should have sent the response
-    const sent = lastWs.sent.map((s) => JSON.parse(s));
+    const sent = lastWs.parsedSent();
     const response = sent.find((m) => m.type === 'permission_response');
     expect(response).toEqual({
       type: 'permission_response',
+      sessionId: 'test-session',
       permId: 'perm-1',
       decision: 'once',
     });
   });
 });
 
-describe('sendMessage — new session connection bootstrap', () => {
-  it('new session send works even when connection.status is disconnected', () => {
-    const store = createMitzoStore(makeOptions());
-
-    // Initial state: connection is disconnected (no WS subscription yet)
-    expect(store.getState().connection.status).toBe('disconnected');
-
-    // sendMessage should still work — it creates a pool entry on demand
-    store.getState().sendMessage('hello from a new session');
-
-    const { messages, running } = store.getState().messages;
-    expect(messages).toHaveLength(1);
-    expect(messages[0].blocks[0].content).toBe('hello from a new session');
-    expect(running).toBe(true);
-    // A WebSocket was created (pool entry bootstrapped)
-    expect(lastWs).toBeDefined();
-  });
-
-  it('connection becomes connected after new-session WS opens and receives client_id', () => {
-    const store = createMitzoStore(makeOptions());
+describe('respondToPermission — first turn edge case', () => {
+  it('sends permission_response with null sessionId when no session is active', () => {
+    const store = createReadyStore();
     store.getState().sendMessage('hello');
 
-    // Simulate full handshake
-    lastWs.simulateOpen();
-    lastWs.simulateMessage({ type: 'client_id', clientId: 'c1' });
-
-    expect(store.getState().connection.status).toBe('connected');
-  });
-
-  it('unsubscribes previous session WS when first message creates a new pool entry', async () => {
-    const transport = mockTransport();
-    (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve([]),
-      text: () => Promise.resolve(''),
+    // Permission arrives before session_id
+    lastWs.simulateMessage({
+      type: 'permission_request',
+      permId: 'perm-1',
+      toolName: 'Bash',
+      toolInput: 'ls',
+      tier: 'elevated',
     });
-    const store = createMitzoStore(makeOptions(transport));
 
-    // Start in an existing session
-    await store.getState().switchSession('old-session');
-    const oldWs = lastWs;
-    oldWs.simulateMessage({ type: 'client_id', clientId: 'c1' });
-    oldWs.simulateMessage({ type: 'subscribed', running: false });
+    store.getState().respondToPermission('perm-1', 'once');
 
-    // Start a brand-new session by calling newSession then sendMessage
-    store.getState().newSession();
-    store.getState().sendMessage('fresh start');
-
-    // Messages on the old WS must not leak into the new session
-    oldWs.simulateMessage({ type: 'message_start', messageId: 'old-leak' });
-
-    // Only the user message from sendMessage should be present
-    expect(store.getState().messages.messages).toHaveLength(1);
-    expect(store.getState().messages.messages[0].role).toBe('user');
-    expect(store.getState().messages.current).toBeNull();
+    const sent = lastWs.parsedSent();
+    const response = sent.find((m) => m.type === 'permission_response');
+    expect(response).toBeDefined();
+    expect(response!.sessionId).toBeNull();
+    expect(response!.permId).toBe('perm-1');
+    expect(response!.decision).toBe('once');
   });
 });
 
-describe('sendMessage — resume drops stale session ID after error', () => {
+describe('sendMessage — session expired recovery', () => {
   it('clears currentSessionId on "No conversation found" so next send is fresh', async () => {
-    const transport = mockTransport();
-    (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve([]),
-      text: () => Promise.resolve(''),
-    });
-    const store = createMitzoStore(makeOptions(transport));
-
-    // Switch to an existing session (sets parserState.currentSessionId)
+    const store = createReadyStore();
     await store.getState().switchSession('old-session-id');
 
-    // Simulate WS handshake
-    lastWs.simulateMessage({ type: 'client_id', clientId: 'c1' });
-    lastWs.simulateMessage({ type: 'subscribed', running: false });
-
-    // Send a message — should include resume
     store.getState().sendMessage('first attempt');
-    const firstSent = lastWs.sent.map((s) => JSON.parse(s));
-    const resumeMsg = firstSent.find(
-      (m: Record<string, unknown>) => m.type === 'send' && m.resume === 'old-session-id',
-    );
+    const firstSent = lastWs.parsedSent();
+    const resumeMsg = firstSent.find((m) => m.type === 'send' && m.sessionId === 'old-session-id');
     expect(resumeMsg).toBeDefined();
 
-    // Server responds with "No conversation found"
     lastWs.simulateMessage({
       type: 'error',
       error:
         'Claude Code returned an error result: No conversation found with session ID: old-session-id',
     });
 
-    // Session should be expired — active cleared
     expect(store.getState().sessions.active).toBeNull();
 
-    // Send another message — should NOT include resume (fresh session)
     store.getState().sendMessage('second attempt');
 
-    // The second send should go through a new pool key (no resume)
-    // It creates a new WS, so check the new lastWs
-    const newWsSent = lastWs.sent.map((s) => JSON.parse(s));
-    const freshMsg = newWsSent.find((m: Record<string, unknown>) => m.type === 'send' && !m.resume);
-    expect(freshMsg).toBeDefined();
-    expect(freshMsg.prompt).toBe('second attempt');
+    const allSends = lastWs.parsedSent().filter((m) => m.type === 'send');
+    const fresh = allSends.find((m) => m.prompt === 'second attempt');
+    expect(fresh).toBeDefined();
+    expect(fresh!.sessionId).toBeNull();
   });
 });
 
-describe('session bleed prevention — pool cleanup', () => {
-  it('switchSession defuses reattach on the old pool entry', async () => {
-    const transport = mockTransport();
-    (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve([]),
-      text: () => Promise.resolve(''),
-    });
-    const store = createMitzoStore(makeOptions(transport));
-
-    // Switch to session A — creates a pool entry + WS
-    await store.getState().switchSession('session-a');
-    const wsA = lastWs;
-    wsA.simulateMessage({ type: 'client_id', clientId: 'c1' });
-    wsA.simulateMessage({ type: 'subscribed', running: true });
-
-    // Switch to session B — old entry should be cleaned up (idle after unsub)
+describe('session isolation via sessionId filtering', () => {
+  it('ignores events tagged with a different sessionId', async () => {
+    const store = createReadyStore();
     await store.getState().switchSession('session-b');
 
-    // Old WS should be closed (removeIfIdle succeeds after unsub + setRunning(false))
-    expect(wsA.readyState).toBe(WS_READY_STATE.CLOSED);
-  });
-
-  it('newSession defuses reattach on the old pool entry', async () => {
-    const transport = mockTransport();
-    (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve([]),
-      text: () => Promise.resolve(''),
+    lastWs.simulateMessage({
+      type: 'message_start',
+      messageId: 'a-msg',
+      sessionId: 'session-a',
     });
-    const store = createMitzoStore(makeOptions(transport));
-
-    await store.getState().switchSession('session-a');
-    const wsA = lastWs;
-    wsA.simulateMessage({ type: 'client_id', clientId: 'c1' });
-    wsA.simulateMessage({ type: 'subscribed', running: true });
-
-    store.getState().newSession();
-
-    expect(wsA.readyState).toBe(WS_READY_STATE.CLOSED);
-  });
-
-  it('newSession + sendMessage creates a fully independent WS without bleed', async () => {
-    const transport = mockTransport();
-    (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve([]),
-      text: () => Promise.resolve(''),
+    lastWs.simulateMessage({
+      type: 'block_start',
+      messageId: 'a-msg',
+      blockId: 'b1',
+      blockType: 'text',
+      sessionId: 'session-a',
     });
-    const store = createMitzoStore(makeOptions(transport));
+    lastWs.simulateMessage({
+      type: 'block_delta',
+      messageId: 'a-msg',
+      blockId: 'b1',
+      blockType: 'text',
+      delta: 'should not appear',
+      sessionId: 'session-a',
+    });
 
-    // Start session A, get a session ID assigned, then session ends
-    await store.getState().switchSession('session-a');
-    const wsA = lastWs;
-    wsA.simulateMessage({ type: 'client_id', clientId: 'c1' });
-    wsA.simulateMessage({ type: 'subscribed', running: true });
-    wsA.simulateMessage({ type: 'session_end', sessionId: 'session-a' });
-
-    // Go to new session
-    store.getState().newSession();
-
-    // Send first message in new session
-    store.getState().sendMessage('fresh start');
-    const wsNew = lastWs;
-
-    // The new WS should be a different instance
-    expect(wsNew).not.toBe(wsA);
-
-    // Messages on old WS must not leak into new session's state
-    wsA.simulateMessage({ type: 'message_start', messageId: 'stale' });
+    expect(store.getState().messages.messages).toHaveLength(0);
     expect(store.getState().messages.current).toBeNull();
-    // Only the optimistic user message
-    expect(store.getState().messages.messages).toHaveLength(1);
-    expect(store.getState().messages.messages[0].role).toBe('user');
+  });
+
+  it('accepts events tagged with the active sessionId', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('session-b');
+
+    lastWs.simulateMessage({
+      type: 'message_start',
+      messageId: 'b-msg',
+      sessionId: 'session-b',
+    });
+
+    expect(store.getState().messages.current).not.toBeNull();
+    expect(store.getState().messages.current!.messageId).toBe('b-msg');
+  });
+
+  it('rejects session_end from a foreign session when active session is set', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('session-b');
+    store.getState().dispatchMessages({ type: 'SET_RUNNING', running: true });
+
+    lastWs.simulateMessage({
+      type: 'session_end',
+      sessionId: 'session-a',
+    });
+
+    // running should NOT be cleared — the event was from a different session
+    expect(store.getState().messages.running).toBe(true);
+  });
+
+  it('rejects session_id from a foreign session when active session is set', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('session-b');
+
+    lastWs.simulateMessage({
+      type: 'session_id',
+      sessionId: 'session-a',
+    });
+
+    // Active session should NOT change
+    expect(store.getState().sessions.active).toBe('session-b');
+  });
+
+  it('accepts session_id when no active session (new session assignment)', () => {
+    const store = createReadyStore();
+
+    lastWs.simulateMessage({
+      type: 'session_id',
+      sessionId: 'brand-new',
+    });
+
+    expect(store.getState().sessions.active).toBe('brand-new');
+  });
+
+  it('accepts global events without sessionId', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('session-b');
+
+    lastWs.simulateMessage({
+      type: 'task_state',
+      tasks: [{ id: 't1', summary: 'Global task', status: 'pending', children: [] }],
+    });
+
+    expect(store.getState().tasks.tree).toHaveLength(1);
   });
 });
 
 describe('setMode', () => {
-  it('updates config mode', () => {
-    const store = createMitzoStore(makeOptions());
+  it('updates config mode and sends v2 set_mode', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('test-session');
+
     store.getState().setMode('auto');
+
     expect(store.getState().config.mode).toBe('auto');
+    expect(lastWs.parsedSent()).toContainEqual({
+      type: 'set_mode',
+      sessionId: 'test-session',
+      mode: 'auto',
+    });
   });
 });
 
 describe('setModel', () => {
   it('updates config modelId', () => {
-    const store = createMitzoStore(makeOptions());
+    const store = createReadyStore();
     store.getState().setModel('claude-sonnet-4-5-20250514');
     expect(store.getState().config.modelId).toBe('claude-sonnet-4-5-20250514');
   });
@@ -773,7 +691,7 @@ describe('setModel', () => {
 
 describe('dispatchMessages', () => {
   it('applies messages reducer action directly', () => {
-    const store = createMitzoStore(makeOptions());
+    const store = createReadyStore();
     store.getState().dispatchMessages({ type: 'SET_RUNNING', running: true });
     expect(store.getState().messages.running).toBe(true);
   });

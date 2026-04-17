@@ -45,6 +45,10 @@ export type {
   SessionMetaResponse,
 } from './api-client.js';
 
-// WS connection
+// WS connection (v2)
+export { MitzoConnection } from './connection.js';
+export type { MitzoConnectionConfig, ConnectionListener } from './connection.js';
+
+// WS connection (v1 — legacy, used by frontend ws-pool consumers)
 export { WsPool } from './ws-connection.js';
 export type { WsPoolConfig, WebSocketLike, MsgListener } from './ws-connection.js';
