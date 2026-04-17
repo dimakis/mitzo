@@ -301,8 +301,17 @@ app.post('/api/repos/open', (req, res) => {
     const worktreePath = createWorktree(wtId, repoPath);
     session.worktreePaths.set(repoName, { path: worktreePath, wtId });
 
-    // Persist to event store for replay on reattach
-    const event = { v: 2, type: 'worktree_opened', ts: Date.now(), repoName, path: worktreePath };
+    // Persist to event store for replay on reattach. Include sessionId
+    // for v2 client demuxing — the client needs to know which session
+    // this worktree belongs to.
+    const event = {
+      v: 2,
+      type: 'worktree_opened',
+      ts: Date.now(),
+      repoName,
+      path: worktreePath,
+      ...(session.sessionId ? { sessionId: session.sessionId } : {}),
+    };
     let seq: number | undefined;
     if (session.sessionId) {
       seq = eventStore.append(session.sessionId, 'worktree_opened', event);

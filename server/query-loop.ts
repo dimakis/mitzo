@@ -69,9 +69,14 @@ function sendOrBuffer(
   sessionId?: string,
 ) {
   let enriched: Record<string, unknown> = data;
-  if (store && sessionId && data.v === 2) {
-    const seq = store.append(sessionId, data.type as string, data);
-    enriched = { ...data, seq };
+  // Tag v2 events with sessionId for v2 client demuxing. v1 clients
+  // ignore the extra field. Persist to the durable store before delivery.
+  if (data.v === 2 && sessionId) {
+    enriched = { ...data, sessionId };
+    if (store) {
+      const seq = store.append(sessionId, data.type as string, enriched);
+      enriched = { ...enriched, seq };
+    }
   }
   const session = registry.get(clientId);
   if (session) {
