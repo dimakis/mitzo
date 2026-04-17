@@ -253,8 +253,9 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
           // pool reconnects with a subscribe carrying the session ID.
           const ok = reattachChat(found.clientId, transport);
           if (ok) {
-            clientId = found.clientId;
-            const session = registry.get(clientId);
+            // Do NOT reassign clientId — it would break subsequent
+            // sends on this WS by routing them to the old session.
+            const session = registry.get(found.clientId);
             transport.send({
               type: 'reattached',
               clientId: found.clientId,
@@ -279,7 +280,7 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
                 transport.send({ ...evt.payload, seq: evt.seq } as Record<string, unknown>);
               }
               log.info('subscribe-reattach replayed events', {
-                clientId,
+                driverClientId: found.clientId,
                 sessionId: msg.sessionId,
                 count: missed.length,
               });
@@ -294,7 +295,8 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
               });
             }
             log.info('subscribe promoted to reattach (detached session)', {
-              clientId,
+              wsClientId: clientId,
+              driverClientId: found.clientId,
               sessionId: msg.sessionId,
             });
           } else {
