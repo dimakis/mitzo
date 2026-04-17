@@ -21,6 +21,7 @@ import {
   registry,
   eventStore,
   getRepoConfig,
+  setConnectionRegistry,
 } from './chat.js';
 import { cleanupStaleWorktrees } from './worktree.js';
 import { HEARTBEAT_INTERVAL_MS, PORT_DEFAULT, SHUTDOWN_GRACE_MS } from './constants.js';
@@ -58,6 +59,7 @@ const PORT = parseInt(process.env.PORT || String(PORT_DEFAULT), 10);
 
 const nativeCommands = new NativeCommandRegistry();
 const connRegistry = new ConnectionRegistry();
+setConnectionRegistry(connRegistry);
 
 // Resolve cert paths relative to the project root (where package.json lives)
 const __filename = fileURLToPath(import.meta.url);
@@ -73,17 +75,21 @@ const server = USE_TLS
 const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
 
 setUpdateBroadcast(() => {
-  const msg = JSON.stringify({ type: 'update_available' });
+  const data = { type: 'update_available' };
+  const msg = JSON.stringify(data);
   wss.clients.forEach((client) => {
     if (client.readyState === client.OPEN) client.send(msg);
   });
+  connRegistry.broadcastAll(data);
 });
 
 setInboxBroadcast(() => {
-  const msg = JSON.stringify({ type: 'inbox_updated' });
+  const data = { type: 'inbox_updated' };
+  const msg = JSON.stringify(data);
   wss.clients.forEach((client) => {
     if (client.readyState === client.OPEN) client.send(msg);
   });
+  connRegistry.broadcastAll(data);
 });
 
 setTaskBroadcast((event) => {
@@ -91,6 +97,7 @@ setTaskBroadcast((event) => {
   wss.clients.forEach((client) => {
     if (client.readyState === client.OPEN) client.send(msg);
   });
+  connRegistry.broadcastAll(event as Record<string, unknown>);
 });
 
 // --- Task Orchestrator ---
@@ -120,17 +127,21 @@ const orchestrator = new TaskOrchestrator({
     }
   },
   broadcastStatus: (status) => {
-    const msg = JSON.stringify({ type: 'loop_status', ...status });
+    const data = { type: 'loop_status', ...status };
+    const msg = JSON.stringify(data);
     wss.clients.forEach((client) => {
       if (client.readyState === client.OPEN) client.send(msg);
     });
+    connRegistry.broadcastAll(data);
   },
   broadcastTasks: () => {
     const tree = taskStore.getTree();
-    const msg = JSON.stringify({ type: 'task_state', tasks: tree });
+    const data = { type: 'task_state', tasks: tree };
+    const msg = JSON.stringify(data);
     wss.clients.forEach((client) => {
       if (client.readyState === client.OPEN) client.send(msg);
     });
+    connRegistry.broadcastAll(data as Record<string, unknown>);
   },
   getActiveSessionIds: () => {
     const ids = new Set<string>();

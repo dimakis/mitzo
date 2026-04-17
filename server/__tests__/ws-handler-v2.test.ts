@@ -7,6 +7,7 @@ import {
   handleWatch,
   handleUnwatch,
   handleSwitchSession,
+  handleSendV2,
   handleSetModeV2,
   handleStopV2,
   handlePermissionResponseV2,
@@ -302,6 +303,43 @@ describe('handleSetModeV2', () => {
     expect(modeMsg).toEqual(
       expect.objectContaining({ type: 'mode_changed', sessionId: 'sess-1', mode: 'auto' }),
     );
+  });
+});
+
+// ─── handleSendV2 auto-watch ─────────────────────────────────────────────────
+
+describe('handleSendV2 auto-watch', () => {
+  it('watches + activates the session on the resume path', () => {
+    const sessionReg = mockSessionRegistry();
+    // findBySessionId returns a result but isActive returns false → resume path
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-driver', session: {} });
+    sessionReg.isActive.mockReturnValue(false);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    // We can't fully test startChat without mocking the Agent SDK, but we can
+    // verify that watch + setActive are called before startChat. The resume
+    // path should ensure the connection is watching the session.
+    handleSendV2(
+      'c1',
+      transport,
+      {
+        type: 'send' as const,
+        sessionId: 'sess-resume',
+        prompt: 'continue',
+        clientMsgId: 'cmsg-1',
+      },
+      ctx,
+    );
+
+    const conn = ctx.connRegistry.get('c1');
+    expect(conn).toBeDefined();
+    expect(conn!.watchedSessions.has('sess-resume')).toBe(true);
+    expect(conn!.activeSession).toBe('sess-resume');
   });
 });
 

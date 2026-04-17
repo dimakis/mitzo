@@ -5,7 +5,7 @@ import {
   renameSession,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { SessionTransport } from '@mitzo/harness';
+import type { SessionTransport, ConnectionRegistry } from '@mitzo/harness';
 import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
 import { join, resolve, dirname } from 'path';
@@ -29,6 +29,11 @@ import type { TaskStore } from './task-store.js';
 let _taskStore: TaskStore | null = null;
 export function setTaskStore(store: TaskStore): void {
   _taskStore = store;
+}
+
+let _connRegistry: ConnectionRegistry | null = null;
+export function setConnectionRegistry(registry: ConnectionRegistry): void {
+  _connRegistry = registry;
 }
 import { EventStore } from './event-store.js';
 import { capturePromptComparison } from './prompt-compare.js';
@@ -401,6 +406,7 @@ export async function startChat(
     images?: Array<{ data: string; mediaType: string }>;
     contextBlocks?: string[];
     clientMsgId?: string;
+    onSessionResolved?: (sessionId: string) => void;
   },
 ) {
   const abortController = new AbortController();
@@ -531,6 +537,10 @@ export async function startChat(
       abortController,
       eventStore,
       options.resume ? undefined : fullPrompt,
+      {
+        ...(_connRegistry ? { connRegistry: _connRegistry } : {}),
+        ...(options.onSessionResolved ? { onSessionResolved: options.onSessionResolved } : {}),
+      },
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
