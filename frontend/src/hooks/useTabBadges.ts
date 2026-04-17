@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { wsSubscribe } from '../lib/ws-pool';
+import { useEffect, useMemo } from 'react';
+import { useMitzoStore } from '@mitzo/client/hooks';
 
 export interface TabBadges {
   inboxCount: number;
@@ -7,56 +7,29 @@ export interface TabBadges {
 }
 
 export function useTabBadges(): TabBadges {
-  const [inboxCount, setInboxCount] = useState(0);
-  const [todoCount, setTodoCount] = useState(0);
+  const inboxCount = useMitzoStore((s) => s.inbox.count);
+  const todoItems = useMitzoStore((s) => s.todos.items);
+  const loadInbox = useMitzoStore((s) => s.loadInbox);
+  const loadTodos = useMitzoStore((s) => s.loadTodos);
 
   useEffect(() => {
-    const fetchCounts = () =>
-      Promise.all([
-        fetch('/api/inbox')
-          .then((r) => r.json())
-          .catch(() => []),
-        fetch('/api/todos')
-          .then((r) => r.json())
-          .catch(() => ({ items: [] })),
-      ]).then(([inboxData, todoData]) => {
-        if (Array.isArray(inboxData)) setInboxCount(inboxData.length);
-        if (todoData?.items) {
-          const pending = todoData.items.filter(
-            (item: { status?: string }) => item.status !== 'completed',
-          );
-          setTodoCount(pending.length);
-        }
-      });
-
-    fetchCounts();
+    loadInbox();
+    loadTodos();
 
     const onVisible = () => {
-      if (document.visibilityState === 'visible') fetchCounts();
+      if (document.visibilityState === 'visible') {
+        loadInbox();
+        loadTodos();
+      }
     };
     document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [loadInbox, loadTodos]);
 
-    let inboxFetchTimer: ReturnType<typeof setTimeout> | null = null;
-    const unsub = wsSubscribe('global:system', (msg) => {
-      if (msg.type === 'inbox_updated') {
-        if (inboxFetchTimer) clearTimeout(inboxFetchTimer);
-        inboxFetchTimer = setTimeout(() => {
-          fetch('/api/inbox')
-            .then((r) => r.json())
-            .then((data) => {
-              if (Array.isArray(data)) setInboxCount(data.length);
-            })
-            .catch(() => {});
-        }, 300);
-      }
-    });
-
-    return () => {
-      document.removeEventListener('visibilitychange', onVisible);
-      if (inboxFetchTimer) clearTimeout(inboxFetchTimer);
-      unsub();
-    };
-  }, []);
+  const todoCount = useMemo(
+    () => todoItems.filter((item) => item.status !== 'completed').length,
+    [todoItems],
+  );
 
   return { inboxCount, todoCount };
 }

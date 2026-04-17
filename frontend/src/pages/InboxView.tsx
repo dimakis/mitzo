@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { wsSubscribe } from '../lib/ws-pool';
+import { useMitzoStore } from '@mitzo/client/hooks';
 import { EmptyState } from '../components/EmptyState';
 
 interface InboxItem {
@@ -173,29 +173,31 @@ export function InboxView() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Sync from the store's inbox (updated via v2 WS inbox_updated events)
+  const storeInbox = useMitzoStore((s) => s.inbox.items);
+  const loadInbox = useMitzoStore((s) => s.loadInbox);
+
   useEffect(() => {
     loadItems();
+    loadInbox();
 
     const onVisible = () => {
       if (document.visibilityState === 'visible') loadItems();
     };
     document.addEventListener('visibilitychange', onVisible);
 
-    // Subscribe to WS for real-time inbox updates (debounce burst events)
-    let debounceTimer: ReturnType<typeof setTimeout>;
-    const unsub = wsSubscribe('global:system', (msg) => {
-      if (msg.type === 'inbox_updated') {
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(loadItems, 300);
-      }
-    });
-
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
-      clearTimeout(debounceTimer);
-      unsub();
     };
-  }, [loadItems]);
+  }, [loadItems, loadInbox]);
+
+  // When the store's inbox updates (via WS), sync to local state
+  useEffect(() => {
+    if (storeInbox.length > 0) {
+      setItems(storeInbox as InboxItem[]);
+      setLoading(false);
+    }
+  }, [storeInbox]);
 
   function handleApprove(filename: string) {
     setItems((prev) => prev.filter((i) => i.filename !== filename));

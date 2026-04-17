@@ -696,3 +696,158 @@ describe('dispatchMessages', () => {
     expect(store.getState().messages.running).toBe(true);
   });
 });
+
+describe('loadTasks', () => {
+  it('fetches tasks from API and sets store.tasks.tree', async () => {
+    const transport = mockTransport();
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url === '/api/tasks') {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              tasks: [{ id: 't1', title: 'Task 1', status: 'pending', children: [] }],
+            }),
+          text: () => Promise.resolve(''),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve([]),
+        text: () => Promise.resolve(''),
+      });
+    });
+
+    const store = createReadyStore(transport);
+    await store.getState().loadTasks();
+
+    expect(store.getState().tasks.tree).toHaveLength(1);
+    expect(store.getState().tasks.tree[0].id).toBe('t1');
+  });
+});
+
+describe('loadLoopStatus', () => {
+  it('fetches loop status from API and sets store.tasks.loopStatus', async () => {
+    const transport = mockTransport();
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url === '/api/loop/status') {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              state: 'running',
+              goalId: 'g1',
+              activeTaskId: 't1',
+              progress: { done: 2, total: 5 },
+              specMode: false,
+              awaitingApproval: true,
+            }),
+          text: () => Promise.resolve(''),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve([]),
+        text: () => Promise.resolve(''),
+      });
+    });
+
+    const store = createReadyStore(transport);
+    await store.getState().loadLoopStatus();
+
+    expect(store.getState().tasks.loopStatus.state).toBe('running');
+    expect(store.getState().tasks.loopStatus.goalId).toBe('g1');
+    expect(store.getState().tasks.loopStatus.awaitingApproval).toBe(true);
+  });
+});
+
+describe('loadInbox', () => {
+  it('fetches inbox items from API and sets store.inbox', async () => {
+    const transport = mockTransport();
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url === '/api/inbox') {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve([
+              {
+                filename: 'f1.md',
+                agent: 'troubadour',
+                title: 'Hello',
+                tags: [],
+                timestamp: '2026-04-17',
+                preview: 'hi',
+              },
+            ]),
+          text: () => Promise.resolve(''),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve([]),
+        text: () => Promise.resolve(''),
+      });
+    });
+
+    const store = createReadyStore(transport);
+    await store.getState().loadInbox();
+
+    expect(store.getState().inbox.items).toHaveLength(1);
+    expect(store.getState().inbox.count).toBe(1);
+    expect(store.getState().inbox.items[0].filename).toBe('f1.md');
+  });
+});
+
+describe('task CRUD actions', () => {
+  it('createTask calls the API', async () => {
+    const transport = mockTransport();
+    (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({ id: 't-new', title: 'New Task', status: 'pending', children: [] }),
+      text: () => Promise.resolve(''),
+    });
+    const store = createReadyStore(transport);
+
+    await store.getState().createTask({ title: 'New Task' });
+
+    expect(transport.fetch).toHaveBeenCalledWith(
+      '/api/tasks',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('deleteTask calls the API', async () => {
+    const transport = mockTransport();
+    (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({}),
+      text: () => Promise.resolve(''),
+    });
+    const store = createReadyStore(transport);
+
+    await store.getState().deleteTask('t1');
+
+    expect(transport.fetch).toHaveBeenCalledWith(
+      '/api/tasks/t1',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('startLoop calls the API', async () => {
+    const transport = mockTransport();
+    (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({}),
+      text: () => Promise.resolve(''),
+    });
+    const store = createReadyStore(transport);
+
+    await store.getState().startLoop('g1', true);
+
+    expect(transport.fetch).toHaveBeenCalledWith(
+      '/api/loop/start',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+});

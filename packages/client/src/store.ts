@@ -64,7 +64,7 @@ export interface MitzoStoreState {
   // Error state
   sendError: string | null;
 
-  // Actions
+  // Actions — chat
   dispatchMessages(action: MessagesAction): void;
   switchSession(id: string): Promise<void>;
   newSession(): void;
@@ -77,6 +77,28 @@ export interface MitzoStoreState {
   loadSessions(): Promise<void>;
   refreshSessions(): Promise<void>;
   fetchSessionMeta(sessionId: string): Promise<void>;
+
+  // Actions — tasks
+  loadTasks(): Promise<void>;
+  loadLoopStatus(): Promise<void>;
+  createTask(input: Record<string, unknown>): Promise<void>;
+  updateTask(id: string, input: Record<string, unknown>): Promise<void>;
+  deleteTask(id: string): Promise<void>;
+  startLoop(goalId: string, specMode?: boolean): Promise<void>;
+  pauseLoop(): Promise<void>;
+  resumeLoop(): Promise<void>;
+  stopLoop(): Promise<void>;
+  approveTask(id: string): Promise<void>;
+  rejectTask(id: string, feedback: string): Promise<void>;
+  approveSpec(): Promise<void>;
+  rejectSpec(): Promise<void>;
+  refreshTasks(): void;
+
+  // Actions — inbox
+  loadInbox(): Promise<void>;
+
+  // Actions — todos
+  loadTodos(): Promise<void>;
 }
 
 // ─── Store options ───────────────────────────────────────────────────────────
@@ -348,6 +370,115 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         }
       } catch {
         // Session meta may not be available — graceful no-op
+      }
+    },
+
+    // ── Task actions ──────────────────────────────────────────────────────
+
+    async loadTasks() {
+      try {
+        const result = await api.getTasks();
+        const tasks = Array.isArray(result) ? result : ((result as { tasks: Task[] }).tasks ?? []);
+        set((s) => ({ tasks: { ...s.tasks, tree: tasks } }));
+      } catch {
+        // Graceful — keep existing tree
+      }
+    },
+
+    async loadLoopStatus() {
+      try {
+        const status = await api.getLoopStatus();
+        if (status) {
+          set((s) => ({
+            tasks: {
+              ...s.tasks,
+              loopStatus: {
+                state: (status.state ?? 'idle') as LoopStatus['state'],
+                goalId: ((status as Record<string, unknown>).goalId as string | null) ?? null,
+                activeTaskId:
+                  ((status as Record<string, unknown>).activeTaskId as string | null) ?? null,
+                progress:
+                  ((status as Record<string, unknown>).progress as LoopStatus['progress']) ?? null,
+                specMode: ((status as Record<string, unknown>).specMode as boolean) ?? false,
+                awaitingApproval:
+                  ((status as Record<string, unknown>).awaitingApproval as boolean) ?? false,
+              },
+            },
+          }));
+        }
+      } catch {
+        // Graceful — keep existing status
+      }
+    },
+
+    async createTask(input: Record<string, unknown>) {
+      await api.createTask(input as Partial<Task>);
+    },
+
+    async updateTask(id: string, input: Record<string, unknown>) {
+      await api.updateTask(id, input as Partial<Task>);
+    },
+
+    async deleteTask(id: string) {
+      await api.deleteTask(id);
+    },
+
+    async startLoop(goalId: string, specMode?: boolean) {
+      await api.startLoop(goalId, specMode);
+    },
+
+    async pauseLoop() {
+      await api.pauseLoop();
+    },
+
+    async resumeLoop() {
+      await api.resumeLoop();
+    },
+
+    async stopLoop() {
+      await api.stopLoop();
+    },
+
+    async approveTask(id: string) {
+      await api.approveTask(id);
+    },
+
+    async rejectTask(id: string, feedback: string) {
+      await api.rejectTask(id, feedback);
+    },
+
+    async approveSpec() {
+      await api.approveSpec();
+    },
+
+    async rejectSpec() {
+      await api.rejectSpec();
+    },
+
+    refreshTasks() {
+      get().loadTasks();
+      get().loadLoopStatus();
+    },
+
+    // ── Inbox actions ─────────────────────────────────────────────────────
+
+    async loadInbox() {
+      try {
+        const items = await api.getInbox();
+        set({ inbox: { items, count: items.length } });
+      } catch {
+        // Graceful — keep existing inbox
+      }
+    },
+
+    // ── Todo actions ──────────────────────────────────────────────────────
+
+    async loadTodos() {
+      try {
+        const items = await api.getTodos();
+        set({ todos: { ...get().todos, items } });
+      } catch {
+        // Graceful — keep existing todos
       }
     },
   }));
