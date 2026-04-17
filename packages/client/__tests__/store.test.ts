@@ -441,10 +441,18 @@ describe('WS → store wiring', () => {
     expect(store.getState().tasks.tree[0].children).toHaveLength(0);
   });
 
-  it('updates session on session_id message', () => {
-    lastWs.simulateMessage({ type: 'session_id', sessionId: 'new-sid' });
+  it('accepts session_id matching the active session', () => {
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'test-session' });
 
-    expect(store.getState().sessions.active).toBe('new-sid');
+    // Active session remains test-session (confirmed, not changed)
+    expect(store.getState().sessions.active).toBe('test-session');
+  });
+
+  it('rejects session_id from a different session when active is set', () => {
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'foreign-session' });
+
+    // Should NOT hijack the active session
+    expect(store.getState().sessions.active).toBe('test-session');
   });
 
   it('dispatches error messages', () => {
@@ -467,6 +475,18 @@ describe('stopGeneration', () => {
     const stop = sent.find((m) => m.type === 'stop');
     expect(stop).toBeDefined();
     expect(stop!.sessionId).toBe('test-session');
+  });
+
+  it('sends stop with null sessionId during first turn before session_id arrives', () => {
+    const store = createReadyStore();
+    store.getState().sendMessage('hello');
+
+    store.getState().stopGeneration();
+
+    const sent = lastWs.parsedSent();
+    const stop = sent.find((m) => m.type === 'stop');
+    expect(stop).toBeDefined();
+    expect(stop!.sessionId).toBeNull();
   });
 });
 
@@ -495,6 +515,31 @@ describe('respondToPermission', () => {
       permId: 'perm-1',
       decision: 'once',
     });
+  });
+});
+
+describe('respondToPermission — first turn edge case', () => {
+  it('sends permission_response with null sessionId when no session is active', () => {
+    const store = createReadyStore();
+    store.getState().sendMessage('hello');
+
+    // Permission arrives before session_id
+    lastWs.simulateMessage({
+      type: 'permission_request',
+      permId: 'perm-1',
+      toolName: 'Bash',
+      toolInput: 'ls',
+      tier: 'elevated',
+    });
+
+    store.getState().respondToPermission('perm-1', 'once');
+
+    const sent = lastWs.parsedSent();
+    const response = sent.find((m) => m.type === 'permission_response');
+    expect(response).toBeDefined();
+    expect(response!.sessionId).toBeNull();
+    expect(response!.permId).toBe('perm-1');
+    expect(response!.decision).toBe('once');
   });
 });
 
@@ -567,6 +612,44 @@ describe('session isolation via sessionId filtering', () => {
 
     expect(store.getState().messages.current).not.toBeNull();
     expect(store.getState().messages.current!.messageId).toBe('b-msg');
+  });
+
+  it('rejects session_end from a foreign session when active session is set', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('session-b');
+    store.getState().dispatchMessages({ type: 'SET_RUNNING', running: true });
+
+    lastWs.simulateMessage({
+      type: 'session_end',
+      sessionId: 'session-a',
+    });
+
+    // running should NOT be cleared — the event was from a different session
+    expect(store.getState().messages.running).toBe(true);
+  });
+
+  it('rejects session_id from a foreign session when active session is set', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('session-b');
+
+    lastWs.simulateMessage({
+      type: 'session_id',
+      sessionId: 'session-a',
+    });
+
+    // Active session should NOT change
+    expect(store.getState().sessions.active).toBe('session-b');
+  });
+
+  it('accepts session_id when no active session (new session assignment)', () => {
+    const store = createReadyStore();
+
+    lastWs.simulateMessage({
+      type: 'session_id',
+      sessionId: 'brand-new',
+    });
+
+    expect(store.getState().sessions.active).toBe('brand-new');
   });
 
   it('accepts global events without sessionId', async () => {

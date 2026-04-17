@@ -162,7 +162,10 @@ export class MitzoConnection {
       this.reconnectTimer = setTimeout(() => this.doConnect(), this.config.reconnectDelayMs);
     };
 
-    ws.onerror = () => {};
+    ws.onerror = () => {
+      // Intentionally empty — error events always precede close, and
+      // reconnect is handled in onclose. Nothing actionable here.
+    };
   }
 
   private flushPendingSends(): void {

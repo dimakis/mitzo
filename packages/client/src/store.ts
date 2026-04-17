@@ -262,20 +262,19 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     stopGeneration() {
-      if (parserState.currentSessionId) {
-        connection.send({ type: 'stop', sessionId: parserState.currentSessionId });
-      }
+      connection.send({
+        type: 'stop',
+        sessionId: parserState.currentSessionId ?? null,
+      });
     },
 
     respondToPermission(permId: string, decision: 'once' | 'always' | 'deny') {
-      if (parserState.currentSessionId) {
-        connection.send({
-          type: 'permission_response',
-          sessionId: parserState.currentSessionId,
-          permId,
-          decision,
-        });
-      }
+      connection.send({
+        type: 'permission_response',
+        sessionId: parserState.currentSessionId ?? null,
+        permId,
+        decision,
+      });
       set({ permissions: { pending: null } });
     },
 
@@ -414,20 +413,21 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
   };
 
-  // Session-scoped events that assign/change the active session — always accepted
-  const SESSION_ASSIGNING_TYPES = new Set(['session_id', 'session_end']);
-
   function wsListener(msg: Record<string, unknown>) {
     const eventSessionId = msg.sessionId as string | undefined;
 
-    // Session-scoped event filtering:
-    // - Global events (no sessionId) always pass through
-    // - Session-assigning events (session_id, session_end) always pass through
-    // - When no active session: only accept globals + session-assigning events
-    // - When active session set: reject events from other sessions
-    if (eventSessionId && !SESSION_ASSIGNING_TYPES.has(msg.type as string)) {
-      if (!parserState.currentSessionId) return;
-      if (eventSessionId !== parserState.currentSessionId) return;
+    // Session-scoped event filtering for multiplexed v2 connections:
+    // - No sessionId on the event → global (task_state, inbox_updated, etc.) → always accept
+    // - sessionId matches currentSessionId → accept
+    // - No active session AND event is session_id/session_end → accept (new session assignment)
+    // - Otherwise → drop (foreign session event)
+    if (eventSessionId) {
+      if (parserState.currentSessionId) {
+        if (eventSessionId !== parserState.currentSessionId) return;
+      } else {
+        const isAssignment = msg.type === 'session_id' || msg.type === 'session_end';
+        if (!isAssignment) return;
+      }
     }
 
     const result = parseServerMessage(msg as WsMsg, parserState, callbacks, 'v2');
