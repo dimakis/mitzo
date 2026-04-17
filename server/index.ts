@@ -245,10 +245,47 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
 
       if (msg.type === 'subscribe') {
         const found = registry.findBySessionId(msg.sessionId);
-        if (found) {
+        if (found && !registry.isAttached(found.clientId)) {
+          // Driver WS is dead (session detached). Promote this subscriber
+          // to the session driver so it receives direct query-loop events
+          // instead of being a passive observer. This is the typical iOS
+          // Safari reconnect path: the socket drops every 30-90s and the
+          // pool reconnects with a subscribe carrying the session ID.
+          const ok = reattachChat(found.clientId, transport);
+          if (ok) {
+            clientId = found.clientId;
+            const session = registry.get(clientId);
+            transport.send({
+              type: 'reattached',
+              clientId: found.clientId,
+              sessionId: session?.sessionId,
+              running: true,
+            });
+            if (session?.currentSnapshot) {
+              transport.send({
+                v: 2,
+                type: 'message_snapshot',
+                ts: Date.now(),
+                messageId: session.currentSnapshot.messageId,
+                blocks: session.currentSnapshot.blocks,
+              });
+            }
+            log.info('subscribe promoted to reattach (detached session)', {
+              clientId,
+              sessionId: msg.sessionId,
+            });
+          } else {
+            // Reattach failed — fall back to observer
+            registry.addObserver(msg.sessionId, transport);
+            transport.send({
+              type: 'subscribed',
+              sessionId: msg.sessionId,
+              running: true,
+            });
+          }
+        } else if (found) {
+          // Driver is still attached (another client). Join as observer.
           registry.addObserver(msg.sessionId, transport);
-          // Send subscribed first so the client knows it's connected,
-          // then send snapshot so it can render the current streaming state.
           transport.send({
             type: 'subscribed',
             sessionId: msg.sessionId,
