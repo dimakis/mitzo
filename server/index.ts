@@ -180,6 +180,49 @@ function getTransport(ws: WebSocket): WsTransport {
 }
 
 /**
+ * Replay missed v2 events from the durable event store and send the
+ * current snapshot if the session is still streaming. Used by both the
+ * reattach handler and the subscribe-to-reattach promotion path.
+ */
+function replayMissedEvents(
+  session: NonNullable<ReturnType<typeof registry.get>>,
+  transport: WsTransport,
+  lastSeq: number | undefined,
+): number {
+  if (!session.sessionId || lastSeq == null) return 0;
+  const missed = eventStore.getEventsAfter(session.sessionId, lastSeq);
+  for (const evt of missed) {
+    if (evt.type === 'worktree_opened') {
+      const p = evt.payload as { path?: string; repoName?: string };
+      if (p.path && !existsSync(p.path)) continue;
+      if (p.path && p.repoName && !session.worktreePaths.has(p.repoName)) {
+        const match = p.path.match(/session-(wt-[^/]+)$/);
+        if (match) {
+          session.worktreePaths.set(p.repoName, { path: p.path, wtId: match[1] });
+        }
+      }
+    }
+    transport.send({ ...evt.payload, seq: evt.seq } as Record<string, unknown>);
+  }
+  return missed.length;
+}
+
+function sendSnapshot(
+  session: NonNullable<ReturnType<typeof registry.get>>,
+  transport: WsTransport,
+): void {
+  if (session.currentSnapshot) {
+    transport.send({
+      v: 2,
+      type: 'message_snapshot',
+      ts: Date.now(),
+      messageId: session.currentSnapshot.messageId,
+      blocks: session.currentSnapshot.blocks,
+    });
+  }
+}
+
+/**
  * If `resume` targets a session that's already active, subscribe the caller
  * as an observer and inject the message into the running session.
  * Returns the driver's clientId if handled, null to fall through to startChat.
@@ -254,8 +297,7 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
           // pool reconnects with a subscribe carrying the session ID.
           const ok = reattachChat(found.clientId, transport);
           if (ok) {
-            // Do NOT reassign clientId — it would break subsequent
-            // sends on this WS by routing them to the old session.
+            // Do NOT reassign clientId — see replayMissedEvents doc.
             const session = registry.get(found.clientId);
             transport.send({
               type: 'reattached',
@@ -263,37 +305,16 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
               sessionId: session?.sessionId,
               running: true,
             });
-            // Replay missed events from the durable event store so the
-            // client catches up on anything sent while the WS was dead.
-            if (session?.sessionId && msg.lastSeq != null) {
-              const missed = eventStore.getEventsAfter(session.sessionId, msg.lastSeq);
-              for (const evt of missed) {
-                if (evt.type === 'worktree_opened') {
-                  const p = evt.payload as { path?: string; repoName?: string };
-                  if (p.path && !existsSync(p.path)) continue;
-                  if (p.path && p.repoName && session && !session.worktreePaths.has(p.repoName)) {
-                    const match = p.path.match(/session-(wt-[^/]+)$/);
-                    if (match) {
-                      session.worktreePaths.set(p.repoName, { path: p.path, wtId: match[1] });
-                    }
-                  }
-                }
-                transport.send({ ...evt.payload, seq: evt.seq } as Record<string, unknown>);
+            if (session) {
+              const count = replayMissedEvents(session, transport, msg.lastSeq);
+              sendSnapshot(session, transport);
+              if (count > 0) {
+                log.info('subscribe-reattach replayed events', {
+                  driverClientId: found.clientId,
+                  sessionId: msg.sessionId,
+                  count,
+                });
               }
-              log.info('subscribe-reattach replayed events', {
-                driverClientId: found.clientId,
-                sessionId: msg.sessionId,
-                count: missed.length,
-              });
-            }
-            if (session?.currentSnapshot) {
-              transport.send({
-                v: 2,
-                type: 'message_snapshot',
-                ts: Date.now(),
-                messageId: session.currentSnapshot.messageId,
-                blocks: session.currentSnapshot.blocks,
-              });
             }
             log.info('subscribe promoted to reattach (detached session)', {
               wsClientId: clientId,
@@ -317,15 +338,7 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
             sessionId: msg.sessionId,
             running: true,
           });
-          if (found.session.currentSnapshot) {
-            transport.send({
-              v: 2,
-              type: 'message_snapshot',
-              ts: Date.now(),
-              messageId: found.session.currentSnapshot.messageId,
-              blocks: found.session.currentSnapshot.blocks,
-            });
-          }
+          sendSnapshot(found.session, transport);
           log.info('client subscribed to active session', {
             clientId,
             sessionId: msg.sessionId,
@@ -348,36 +361,9 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
             sessionId: session?.sessionId,
             running: true,
           });
-          // Replay missed events from durable event store.
-          if (session?.sessionId && msg.lastSeq != null) {
-            const missed = eventStore.getEventsAfter(session.sessionId, msg.lastSeq);
-            for (const evt of missed) {
-              // Skip worktree_opened events whose paths were cleaned up (e.g. server restart)
-              if (evt.type === 'worktree_opened') {
-                const p = evt.payload as { path?: string; repoName?: string };
-                if (p.path && !existsSync(p.path)) {
-                  log.info('skipping stale worktree_opened event on reattach', { path: p.path });
-                  continue;
-                }
-                // Re-populate in-memory worktreePaths for valid worktrees
-                if (p.path && p.repoName && !session.worktreePaths.has(p.repoName)) {
-                  const match = p.path.match(/session-(wt-[^/]+)$/);
-                  if (match) {
-                    session.worktreePaths.set(p.repoName, { path: p.path, wtId: match[1] });
-                  }
-                }
-              }
-              transport.send({ ...evt.payload, seq: evt.seq } as Record<string, unknown>);
-            }
-          }
-          if (session?.currentSnapshot) {
-            transport.send({
-              v: 2,
-              type: 'message_snapshot',
-              ts: Date.now(),
-              messageId: session.currentSnapshot.messageId,
-              blocks: session.currentSnapshot.blocks,
-            });
+          if (session) {
+            replayMissedEvents(session, transport, msg.lastSeq);
+            sendSnapshot(session, transport);
           }
           log.info('reattached', { oldClientId: msg.clientId, newClientId: initialClientId });
         } else {
