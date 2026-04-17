@@ -163,29 +163,45 @@ export class WsPool {
     const entry = this.pool.get(key);
     if (!entry) return false;
     if (entry.wasRunning || entry.listeners.size > 0) return false;
-    if (entry.reconnectTimer) clearTimeout(entry.reconnectTimer);
-    if (entry.ws) {
-      entry.ws.onclose = null;
-      entry.ws.close();
-    }
+    this.teardownEntry(entry);
     this.pool.delete(key);
     return true;
+  }
+
+  /**
+   * Unconditionally tear down a pool entry and remove it plus all aliases.
+   * Used when explicitly leaving a session — unlike removeIfIdle, this
+   * ignores wasRunning and listener count.
+   */
+  forceRemove(key: string): void {
+    const entry = this.pool.get(key);
+    if (!entry) return;
+    this.teardownEntry(entry);
+    // Remove every key that points to this same entry object (aliases)
+    for (const [k, v] of this.pool) {
+      if (v === entry) this.pool.delete(k);
+    }
   }
 
   /** Close all connections and clear the pool. */
   destroy(): void {
     this.stopVisibilityMonitor();
     for (const entry of this.pool.values()) {
-      if (entry.reconnectTimer) clearTimeout(entry.reconnectTimer);
-      if (entry.ws) {
-        entry.ws.onclose = null;
-        entry.ws.close();
-      }
+      this.teardownEntry(entry);
     }
     this.pool.clear();
   }
 
   // ─── Internal ──────────────────────────────────────────────────────────────
+
+  private teardownEntry(entry: PoolEntry): void {
+    if (entry.reconnectTimer) clearTimeout(entry.reconnectTimer);
+    if (entry.ws) {
+      entry.ws.onclose = null;
+      entry.ws.close();
+    }
+    entry.wasRunning = false;
+  }
 
   private broadcast(entry: PoolEntry, msg: WsMsg): void {
     entry.listeners.forEach((l) => l(msg));
@@ -293,7 +309,13 @@ export class WsPool {
         const sessionPrefix = 'session:';
         if (key.startsWith(sessionPrefix)) {
           const sessionId = key.slice(sessionPrefix.length);
-          ws.send(JSON.stringify({ type: 'subscribe', sessionId }));
+          ws.send(
+            JSON.stringify({
+              type: 'subscribe',
+              sessionId,
+              ...(entry.lastSeq > 0 ? { lastSeq: entry.lastSeq } : {}),
+            }),
+          );
           return;
         }
         this.broadcast(entry, { type: '_open' });

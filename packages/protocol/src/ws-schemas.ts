@@ -50,6 +50,7 @@ export const SetModeMessage = z.object({
 export const SubscribeMessage = z.object({
   type: z.literal('subscribe'),
   sessionId: z.string().min(1),
+  lastSeq: z.number().optional(),
 });
 
 export const IncomingWsMessage = z.discriminatedUnion('type', [

@@ -261,6 +261,29 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
               sessionId: session?.sessionId,
               running: true,
             });
+            // Replay missed events from the durable event store so the
+            // client catches up on anything sent while the WS was dead.
+            if (session?.sessionId && msg.lastSeq != null) {
+              const missed = eventStore.getEventsAfter(session.sessionId, msg.lastSeq);
+              for (const evt of missed) {
+                if (evt.type === 'worktree_opened') {
+                  const p = evt.payload as { path?: string; repoName?: string };
+                  if (p.path && !existsSync(p.path)) continue;
+                  if (p.path && p.repoName && session && !session.worktreePaths.has(p.repoName)) {
+                    const match = p.path.match(/session-(wt-[^/]+)$/);
+                    if (match) {
+                      session.worktreePaths.set(p.repoName, { path: p.path, wtId: match[1] });
+                    }
+                  }
+                }
+                transport.send({ ...evt.payload, seq: evt.seq } as Record<string, unknown>);
+              }
+              log.info('subscribe-reattach replayed events', {
+                clientId,
+                sessionId: msg.sessionId,
+                count: missed.length,
+              });
+            }
             if (session?.currentSnapshot) {
               transport.send({
                 v: 2,
