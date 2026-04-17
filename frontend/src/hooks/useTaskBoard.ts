@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import type { Task, LoopStatus } from '../types/task';
 
@@ -41,6 +41,7 @@ export interface UseTaskBoardResult {
 }
 
 export function useTaskBoard(): UseTaskBoardResult {
+  const [loading, setLoading] = useState(true);
   const tasks = useMitzoStore((s) => s.tasks.tree);
   const loopStatus = useMitzoStore((s) => s.tasks.loopStatus);
   const loadTasks = useMitzoStore((s) => s.loadTasks);
@@ -59,11 +60,8 @@ export function useTaskBoard(): UseTaskBoardResult {
   const refreshTasks = useMitzoStore((s) => s.refreshTasks);
 
   useEffect(() => {
-    loadTasks();
-    loadLoopStatus();
+    Promise.all([loadTasks(), loadLoopStatus()]).finally(() => setLoading(false));
   }, [loadTasks, loadLoopStatus]);
-
-  const loading = tasks.length === 0;
 
   return {
     loading,

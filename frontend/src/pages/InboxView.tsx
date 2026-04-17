@@ -193,10 +193,8 @@ export function InboxView() {
 
   // When the store's inbox updates (via WS), sync to local state
   useEffect(() => {
-    if (storeInbox.length > 0) {
-      setItems(storeInbox as InboxItem[]);
-      setLoading(false);
-    }
+    setItems(storeInbox as InboxItem[]);
+    setLoading(false);
   }, [storeInbox]);
 
   function handleApprove(filename: string) {

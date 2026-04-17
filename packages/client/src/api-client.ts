@@ -217,7 +217,8 @@ export class MitzoApiClient {
 
   async getTasks(): Promise<Task[]> {
     const res = await this.assertOk(await this.fetch('/api/tasks', { credentials: 'include' }));
-    return res.json();
+    const data = await res.json();
+    return Array.isArray(data) ? data : (data.tasks ?? []);
   }
 
   async createTask(input: Partial<Task>): Promise<Task> {

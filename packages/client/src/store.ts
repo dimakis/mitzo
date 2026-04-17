@@ -377,8 +377,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     async loadTasks() {
       try {
-        const result = await api.getTasks();
-        const tasks = Array.isArray(result) ? result : ((result as { tasks: Task[] }).tasks ?? []);
+        const tasks = await api.getTasks();
         set((s) => ({ tasks: { ...s.tasks, tree: tasks } }));
       } catch {
         // Graceful — keep existing tree
