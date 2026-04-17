@@ -162,6 +162,6 @@ describe('ChatArea', () => {
       await new Promise((r) => setTimeout(r, 50));
     });
 
-    expect(scrollTo).toHaveBeenCalled();
+    expect(scrollTo).toHaveBeenCalledWith({ top: expect.any(Number) });
   });
 });

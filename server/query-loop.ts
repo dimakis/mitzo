@@ -140,6 +140,7 @@ export async function runQueryLoop(
   let agentContextTokens = 0; // full context window size (input + cached) from parent message_start
   let turnIndex = 0; // increments on each parent message_start (excludes sub-agents)
   let numCompactions = 0; // counts successful compaction events from SDK
+  const compactionFields = () => (numCompactions > 0 ? { numCompactions } : {});
 
   // Track last-reported cumulative usage to compute deltas (SDK reports cumulative totals).
   let lastReportedUsage = {
@@ -344,7 +345,7 @@ export async function runQueryLoop(
           sessionTotal: currentSession.cumulativeSessionTokens,
           numTurns: usageData.numTurns,
           turnIndex,
-          ...(numCompactions > 0 ? { numCompactions } : {}),
+          ...compactionFields(),
         });
 
         // Resolve goal creation (if pending) and report usage
@@ -436,7 +437,7 @@ export async function runQueryLoop(
                 agentContext: agentContextTokens,
                 contextCeiling: CONTEXT_CEILING_TOKENS,
                 turnIndex,
-                ...(numCompactions > 0 ? { numCompactions } : {}),
+                ...compactionFields(),
               });
             }
           }

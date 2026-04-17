@@ -15,9 +15,7 @@ export function ScrollFab({ scrollRef }: Props) {
     if (!el) return;
 
     function update() {
-      const el = scrollRef.current;
-      if (!el) return;
-      const { scrollTop, scrollHeight, clientHeight } = el;
+      const { scrollTop, scrollHeight, clientHeight } = el!;
       const canScroll = scrollHeight > clientHeight;
       setShowTop(canScroll && scrollTop > THRESHOLD);
       setShowBottom(canScroll && scrollHeight - scrollTop - clientHeight > THRESHOLD);
@@ -36,7 +34,6 @@ export function ScrollFab({ scrollRef }: Props) {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [scrollRef]);
 
-  if (!scrollRef.current) return null;
   if (!showTop && !showBottom) return null;
 
   return (
