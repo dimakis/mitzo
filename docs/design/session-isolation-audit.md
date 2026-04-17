@@ -420,9 +420,123 @@ New clients (protocol v2): routed through new connection handler.
 | Remove `reattach` / `subscribe` message schemas     | `packages/protocol/src/ws-schemas.ts`  | Small      |
 | Update `ws-schemas.ts` with v2 schemas              | `packages/protocol/src/ws-schemas.ts`  | Medium     |
 
-## 7. Testing Strategy
+## 7. Observability: OpenTelemetry Tracing
 
-### Key Scenarios
+### 7.1 Why Now
+
+The single-WS migration changes every message path. Without tracing, debugging "session B received session A's data" means reading logs and guessing. With tracing, it's a single trace view: connection → routing decision → session → delivery. Instrument during the build, not after the bugs.
+
+### 7.2 Span Hierarchy
+
+```
+connection.lifecycle          (connect / disconnect / reconnect)
+│
+├─ connection.message         (one per inbound WS message)
+│  ├─ session.route           (routing decision: create / resume / existing)
+│  ├─ session.create          (if new session)
+│  │  └─ worktree.create      (per-repo worktree setup)
+│  ├─ session.switch          (if switch_session)
+│  │  └─ metadata.load        (event store read for tokens/cwd)
+│  └─ query_loop.send         (injecting prompt into SDK)
+│
+├─ query_loop.event           (one per outbound event from SDK)
+│  ├─ event_store.append      (durable persistence)
+│  └─ connection.deliver      (fan-out to watching connections)
+│     └─ one child per connection receiving the event
+│
+├─ connection.reconnect       (on WS reconnect)
+│  └─ session.replay          (one per session being replayed)
+│     └─ event_store.query    (getEventsAfter)
+│
+└─ task.broadcast             (task board / loop status events)
+   └─ connection.deliver      (scoped to owning session's watchers)
+```
+
+### 7.3 Key Attributes
+
+Every span carries a base set. Child spans inherit from parent.
+
+| Attribute                   | Set on                            | Example                               |
+| --------------------------- | --------------------------------- | ------------------------------------- |
+| `connection.id`             | `connection.lifecycle`            | `conn-a1b2c3`                         |
+| `session.id`                | `session.route` and below         | `abc123-def456`                       |
+| `message.type`              | `connection.message`              | `send`, `switch_session`, `watch`     |
+| `message.client_msg_id`     | `connection.message` (if present) | `msg-xyz`                             |
+| `session.count`             | `connection.lifecycle`            | `3` (sessions watched)                |
+| `event.type`                | `query_loop.event`                | `block_delta`, `message_end`          |
+| `event.seq`                 | `event_store.append`              | `147`                                 |
+| `replay.count`              | `session.replay`                  | `12` (events replayed)                |
+| `delivery.connection_count` | `connection.deliver`              | `2` (connections receiving)           |
+| `routing.decision`          | `session.route`                   | `create`, `resume`, `active`, `watch` |
+
+### 7.4 Debugging Session Bleeding with Traces
+
+**Scenario:** "Session B showed session A's message."
+
+1. Search traces by `session.id = B`
+2. Find the `connection.deliver` span that sent the wrong event
+3. Check parent `query_loop.event` — its `session.id` will show `A`
+4. The `connection.deliver` span reveals _why_ connection was in the fan-out set
+5. Root cause visible: connection was watching session A, routing didn't filter
+
+**Scenario:** "Token count jumped to zero on session switch."
+
+1. Search by `message.type = switch_session` + `session.id = target`
+2. Check `metadata.load` child span — did it run? What did it return?
+3. If missing: server didn't load metadata. If present with duration > 0: async race.
+
+**Scenario:** "iOS reconnect lost 3 messages."
+
+1. Search by `connection.id` + `connection.reconnect` spans
+2. Check `session.replay` child — `replay.count` should match gap
+3. If `replay.count = 0`: `lastSeq` wasn't sent or was stale
+4. Check the `reconnect` message's `sessions` array in the parent span attributes
+
+### 7.5 Implementation
+
+**Package:** `@opentelemetry/api` (thin API, no SDK bundled into prod). SDK configured at server startup for local dev / Jaeger export.
+
+**Instrumentation points (server-side only for now):**
+
+| File                                   | What to instrument                                               |
+| -------------------------------------- | ---------------------------------------------------------------- |
+| `server/index.ts`                      | Connection lifecycle, inbound message handler, reconnect handler |
+| `server/chat.ts`                       | `startChat`, `switchSession`, `reattachChat`                     |
+| `server/query-loop.ts`                 | `sendOrBuffer` (outbound events), `broadcastToObservers`         |
+| `packages/protocol/src/event-store.ts` | `append`, `getEventsAfter`                                       |
+| `server/task-orchestrator.ts`          | `broadcastStatus`, `broadcastTasks`                              |
+| `server/worktree.ts`                   | `createSessionWorktrees`, `removeWorktree`                       |
+
+**Not instrumented (for now):**
+
+- Client-side (browser OTel is heavyweight, traces are most useful server-side)
+- SDK internals (opaque — we trace around it, not into it)
+- MCP server calls (separate concern, instrument later if needed)
+
+**Trace context propagation:** Not needed across services — Mitzo is a single-process server. All spans share the same trace via Node.js `AsyncLocalStorage` context.
+
+### 7.6 Local Dev Setup
+
+```typescript
+// server/tracing.ts — loaded before anything else
+import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
+import { SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
+
+const provider = new NodeTracerProvider();
+provider.addSpanProcessor(
+  new SimpleSpanProcessor(new OTLPTraceExporter({ url: 'http://localhost:4318/v1/traces' })),
+);
+provider.register();
+```
+
+Run Jaeger locally: `docker run -p 16686:16686 -p 4318:4318 jaegertracing/jaeger:latest`
+
+Tracing is opt-in: if no `OTEL_EXPORTER_OTLP_ENDPOINT` is set, the provider is a no-op. Zero overhead in production unless enabled.
+
+## 8. Testing Strategy
+
+### 8.1 Key Scenarios
 
 | Test                                                             | What it validates    |
 | ---------------------------------------------------------------- | -------------------- |
@@ -437,14 +551,14 @@ New clients (protocol v2): routed through new connection handler.
 | `unwatch` stops event delivery immediately                       | Cleanup              |
 | v1 client still works during migration (Phase 0)                 | Backwards compat     |
 
-### Existing Tests to Update
+### 8.2 Existing Tests to Update
 
 - `server/__tests__/session-registry.test.ts` — adapt for sessionId-keyed registry
 - `server/__tests__/multi-client-sessions.test.ts` — rewrite for connection model
 - `server/__tests__/reattach-isolation.test.ts` — rewrite as reconnect tests
 - `packages/client/__tests__/store.test.ts` — rewrite for MitzoConnection
 
-## 8. Decisions
+## 9. Decisions
 
 1. **Single WS per tab, not per app.** Multiple browser tabs each get their own WS and their own set of watched sessions. Tabs are independent — we don't try to coordinate across them. This matches how the app works today (each tab is a separate "client").
 
