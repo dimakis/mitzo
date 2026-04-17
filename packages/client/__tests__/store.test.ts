@@ -26,11 +26,17 @@ class MockWebSocket implements WebSocketLike {
 
   // Test helpers
   simulateOpen() {
+    this.readyState = WS_READY_STATE.OPEN;
     this.onopen?.({});
   }
 
   simulateMessage(msg: Record<string, unknown>) {
     this.onmessage?.({ data: JSON.stringify(msg) });
+  }
+
+  simulateClose() {
+    this.readyState = WS_READY_STATE.CLOSED;
+    this.onclose?.();
   }
 }
 
@@ -254,6 +260,33 @@ describe('sendMessage', () => {
 
     // The WS was created (subscribe triggers getOrCreate → connectEntry)
     expect(lastWs).toBeDefined();
+  });
+
+  it('marks the pool entry running on new-session send so iOS reconnects attempt reattach', () => {
+    vi.useFakeTimers();
+    const store = createMitzoStore(makeOptions());
+
+    store.getState().sendMessage('hello');
+    const ws1 = lastWs;
+
+    // Server assigns client_id (pool entry now has clientId set).
+    ws1.simulateMessage({ type: 'client_id', clientId: 'c-original' });
+
+    // iOS kills the socket mid-first-turn. If wasRunning is true, the
+    // reconnect will send reattach; if false, it'll send subscribe.
+    ws1.simulateClose();
+    vi.advanceTimersByTime(1000);
+
+    const ws2 = lastWs;
+    expect(ws2).not.toBe(ws1);
+    ws2.simulateOpen();
+    ws2.simulateMessage({ type: 'client_id', clientId: 'c-reconnected' });
+
+    const ws2Sends = ws2.sent.map((s) => JSON.parse(s));
+    expect(ws2Sends).toContainEqual(
+      expect.objectContaining({ type: 'reattach', clientId: 'c-original' }),
+    );
+    vi.useRealTimers();
   });
 
   it('sends the second message to the WS after the first turn completes', async () => {
@@ -642,6 +675,83 @@ describe('sendMessage — resume drops stale session ID after error', () => {
     const freshMsg = newWsSent.find((m: Record<string, unknown>) => m.type === 'send' && !m.resume);
     expect(freshMsg).toBeDefined();
     expect(freshMsg.prompt).toBe('second attempt');
+  });
+});
+
+describe('session bleed prevention — pool cleanup', () => {
+  it('switchSession defuses reattach on the old pool entry', async () => {
+    const transport = mockTransport();
+    (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve([]),
+      text: () => Promise.resolve(''),
+    });
+    const store = createMitzoStore(makeOptions(transport));
+
+    // Switch to session A — creates a pool entry + WS
+    await store.getState().switchSession('session-a');
+    const wsA = lastWs;
+    wsA.simulateMessage({ type: 'client_id', clientId: 'c1' });
+    wsA.simulateMessage({ type: 'subscribed', running: true });
+
+    // Switch to session B — old entry should be cleaned up (idle after unsub)
+    await store.getState().switchSession('session-b');
+
+    // Old WS should be closed (removeIfIdle succeeds after unsub + setRunning(false))
+    expect(wsA.readyState).toBe(WS_READY_STATE.CLOSED);
+  });
+
+  it('newSession defuses reattach on the old pool entry', async () => {
+    const transport = mockTransport();
+    (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve([]),
+      text: () => Promise.resolve(''),
+    });
+    const store = createMitzoStore(makeOptions(transport));
+
+    await store.getState().switchSession('session-a');
+    const wsA = lastWs;
+    wsA.simulateMessage({ type: 'client_id', clientId: 'c1' });
+    wsA.simulateMessage({ type: 'subscribed', running: true });
+
+    store.getState().newSession();
+
+    expect(wsA.readyState).toBe(WS_READY_STATE.CLOSED);
+  });
+
+  it('newSession + sendMessage creates a fully independent WS without bleed', async () => {
+    const transport = mockTransport();
+    (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve([]),
+      text: () => Promise.resolve(''),
+    });
+    const store = createMitzoStore(makeOptions(transport));
+
+    // Start session A, get a session ID assigned, then session ends
+    await store.getState().switchSession('session-a');
+    const wsA = lastWs;
+    wsA.simulateMessage({ type: 'client_id', clientId: 'c1' });
+    wsA.simulateMessage({ type: 'subscribed', running: true });
+    wsA.simulateMessage({ type: 'session_end', sessionId: 'session-a' });
+
+    // Go to new session
+    store.getState().newSession();
+
+    // Send first message in new session
+    store.getState().sendMessage('fresh start');
+    const wsNew = lastWs;
+
+    // The new WS should be a different instance
+    expect(wsNew).not.toBe(wsA);
+
+    // Messages on old WS must not leak into new session's state
+    wsA.simulateMessage({ type: 'message_start', messageId: 'stale' });
+    expect(store.getState().messages.current).toBeNull();
+    // Only the optimistic user message
+    expect(store.getState().messages.messages).toHaveLength(1);
+    expect(store.getState().messages.messages[0].role).toBe('user');
   });
 });
 

@@ -346,6 +346,54 @@ describe('observer broadcast when driver is detached', () => {
   });
 });
 
+describe('subscribe-to-detached promotes to driver', () => {
+  let registry: SessionRegistry;
+
+  beforeEach(() => {
+    registry = new SessionRegistry();
+  });
+
+  afterEach(() => {
+    registry.dispose();
+  });
+
+  it('reattach succeeds on a detached session, making the new transport the driver', () => {
+    const driverTransport = mockTransport();
+    const newTransport = mockTransport();
+    registry.register('c1', {
+      transport: driverTransport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+      sessionId: 'sess-1',
+    });
+
+    registry.detach('c1');
+    expect(registry.isAttached('c1')).toBe(false);
+
+    const ok = registry.reattach('c1', newTransport);
+    expect(ok).toBe(true);
+    expect(registry.isAttached('c1')).toBe(true);
+    expect(registry.get('c1')!.transport).toBe(newTransport);
+  });
+
+  it('findBySessionId + isAttached correctly identifies a detached session', () => {
+    const transport = mockTransport();
+    registry.register('c1', {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+      sessionId: 'sess-1',
+    });
+
+    registry.detach('c1');
+    const found = registry.findBySessionId('sess-1');
+    expect(found).not.toBeNull();
+    expect(registry.isAttached(found!.clientId)).toBe(false);
+  });
+});
+
 describe('addObserver cancels detach timer', () => {
   beforeEach(() => {
     vi.useFakeTimers();
