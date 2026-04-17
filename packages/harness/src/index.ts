@@ -3,6 +3,10 @@ export type { SessionTransport } from './session-transport.js';
 
 // Session registry
 export { SessionRegistry } from './session-registry.js';
+
+// Connection registry (v2 single-WS protocol)
+export { ConnectionRegistry } from './connection-registry.js';
+export type { Connection } from './connection-registry.js';
 export type { ManagedSession, ActiveSessionInfo } from './session-registry.js';
 export type {
   MitzoMode,
