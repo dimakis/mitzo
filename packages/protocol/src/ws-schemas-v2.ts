@@ -1,0 +1,115 @@
+/**
+ * v2 WebSocket protocol schemas.
+ *
+ * These coexist with the v1 schemas in ws-schemas.ts during migration.
+ * v2 clients send { type: 'hello', protocolVersion: 2 } on connect;
+ * the server routes to the v2 handler for that connection.
+ *
+ * Key differences from v1:
+ * - Every session-scoped message carries an explicit sessionId
+ * - 'reconnect' replaces both 'reattach' and 'subscribe'
+ * - 'watch'/'unwatch' manage which sessions a connection receives events for
+ * - 'switch_session' triggers synchronous metadata delivery
+ */
+
+import { z } from 'zod';
+
+const ImageSchema = z.object({
+  data: z.string(),
+  mediaType: z.string(),
+});
+
+// ─── Handshake ──────────────────────────────────────────────────────────────
+
+export const HelloMessage = z.object({
+  type: z.literal('hello'),
+  protocolVersion: z.number().int().min(2),
+});
+
+// ─── Connection lifecycle ───────────────────────────────────────────────────
+
+export const ReconnectMessage = z.object({
+  type: z.literal('reconnect'),
+  sessions: z.array(
+    z.object({
+      sessionId: z.string().min(1),
+      lastSeq: z.number().int().min(0),
+    }),
+  ),
+});
+
+// ─── Session management ─────────────────────────────────────────────────────
+
+export const WatchMessage = z.object({
+  type: z.literal('watch'),
+  sessionId: z.string().min(1),
+});
+
+export const UnwatchMessage = z.object({
+  type: z.literal('unwatch'),
+  sessionId: z.string().min(1),
+});
+
+export const SwitchSessionMessage = z.object({
+  type: z.literal('switch_session'),
+  sessionId: z.string().min(1).nullable(),
+});
+
+// ─── Chat messages (session-scoped) ─────────────────────────────────────────
+
+export const V2SendMessage = z.object({
+  type: z.literal('send'),
+  sessionId: z.string().min(1).nullable(),
+  prompt: z.string().min(1),
+  clientMsgId: z.string().min(1),
+  model: z.string().optional(),
+  mode: z.enum(['ask', 'agent', 'auto']).optional(),
+  cwd: z.string().optional(),
+  extraTools: z.string().optional(),
+  images: z.array(ImageSchema).optional(),
+  contextBlocks: z.array(z.string()).optional(),
+});
+
+export const V2InterruptMessage = z.object({
+  type: z.literal('interrupt'),
+  sessionId: z.string().min(1),
+  prompt: z.string().min(1),
+  clientMsgId: z.string().min(1),
+  images: z.array(ImageSchema).optional(),
+  contextBlocks: z.array(z.string()).optional(),
+});
+
+export const V2StopMessage = z.object({
+  type: z.literal('stop'),
+  sessionId: z.string().min(1),
+});
+
+export const V2PermissionResponseMessage = z.object({
+  type: z.literal('permission_response'),
+  sessionId: z.string().min(1),
+  permId: z.string(),
+  decision: z.enum(['once', 'always', 'deny']).optional(),
+});
+
+export const V2SetModeMessage = z.object({
+  type: z.literal('set_mode'),
+  sessionId: z.string().min(1),
+  mode: z.enum(['ask', 'agent', 'auto']),
+});
+
+// ─── Union ──────────────────────────────────────────────────────────────────
+
+export const IncomingWsMessageV2 = z.discriminatedUnion('type', [
+  HelloMessage,
+  ReconnectMessage,
+  WatchMessage,
+  UnwatchMessage,
+  SwitchSessionMessage,
+  V2SendMessage,
+  V2InterruptMessage,
+  V2StopMessage,
+  V2PermissionResponseMessage,
+  V2SetModeMessage,
+]);
+
+export type IncomingWsMessageV2 = z.infer<typeof IncomingWsMessageV2>;
