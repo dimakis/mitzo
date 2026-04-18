@@ -869,6 +869,7 @@ export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
   // doesn't track (e.g. sessions orphaned by a server restart mid-query,
   // or created by external agents in a worktree).
   const knownIds = eventStore.getKnownSessionIds(Array.from(seen.keys()));
+  let reconciledCount = 0;
   for (const [sessionId, entry] of seen) {
     if (!knownIds.has(sessionId)) {
       eventStore.upsertSession({
@@ -876,9 +877,13 @@ export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
         summary: entry.summary || null,
         cwd: entry.cwd ?? (BASE_REPO || null),
         branch: entry.branch ?? null,
+        isActive: false,
       });
-      log.info('reconciled orphaned session', { sessionId });
+      reconciledCount++;
     }
+  }
+  if (reconciledCount > 0) {
+    log.info('reconciled orphaned sessions', { count: reconciledCount });
   }
 
   const deduped = Array.from(seen.values());
@@ -905,6 +910,7 @@ export async function discoverSession(
       summary: info.summary || null,
       cwd: info.cwd ?? null,
       branch: info.gitBranch ?? null,
+      isActive: false,
     });
     log.info('discovered and backfilled session', { sessionId, cwd: info.cwd });
     return eventStore.getSession(sessionId);

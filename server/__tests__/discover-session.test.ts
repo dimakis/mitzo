@@ -132,7 +132,7 @@ describe('getSessions reconciliation', () => {
     mockGetKnownSessionIds.mockReturnValue(new Set(['sess-known']));
 
     const { getSessions } = await import('../chat.js');
-    await getSessions();
+    const result = await getSessions();
 
     expect(mockGetKnownSessionIds).toHaveBeenCalled();
     expect(mockUpsertSession).toHaveBeenCalledTimes(1);
@@ -142,7 +142,13 @@ describe('getSessions reconciliation', () => {
         summary: 'Orphan',
         cwd: '/projects/bar',
         branch: 'feat',
+        isActive: false,
       }),
     );
+
+    // Backfilled sessions should appear in the returned list
+    const ids = result.sessions.map((s: { id: string }) => s.id);
+    expect(ids).toContain('sess-orphan');
+    expect(ids).toContain('sess-known');
   });
 });

@@ -13,6 +13,6 @@ for f in "$LOGDIR/server-stdout.log" "$LOGDIR/server-stderr.log"; do
 done
 
 # Prune rotated logs older than 7 days
-find "$LOGDIR" -name 'server-*.2*.log' -mtime +7 -delete 2>/dev/null || true
+find "$LOGDIR" -name 'server-std*.????????-??????.log' -mtime +7 -delete 2>/dev/null || true
 
 exec node dist/index.js
