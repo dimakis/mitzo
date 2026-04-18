@@ -99,6 +99,9 @@ export interface MitzoStoreState {
 
   // Actions — todos
   loadTodos(): Promise<void>;
+
+  // Actions — lifecycle
+  forceReconnect(): void;
 }
 
 // ─── Store options ───────────────────────────────────────────────────────────
@@ -480,6 +483,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       } catch {
         // Graceful — keep existing todos
       }
+    },
+
+    forceReconnect() {
+      connection.checkAndReconnect();
     },
   }));
 

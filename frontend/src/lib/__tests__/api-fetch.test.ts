@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { apiFetch, getApiBaseUrl, getWsBaseUrl } from '../api-fetch';
 
 const mockFetch = vi.fn();

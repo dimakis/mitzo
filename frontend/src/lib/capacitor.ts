@@ -16,17 +16,17 @@ export function isCapacitor(): boolean {
 
 /**
  * Register Capacitor app lifecycle events. When the app returns to the
- * foreground, dispatches a visibilitychange event so MitzoConnection's
- * existing browser listeners trigger reconnection.
+ * foreground, calls the provided callback to force a WebSocket reconnect
+ * check. This directly invokes MitzoConnection.checkAndReconnect() rather
+ * than relying on synthetic visibilitychange events (which won't update
+ * the read-only document.visibilityState property).
  *
  * Call once at app startup. No-op in browser environments.
  */
-export function registerCapacitorLifecycle(): void {
+export function registerCapacitorLifecycle(onResume: () => void): void {
   if (!isCapacitor()) return;
 
   App.addListener('appStateChange', ({ isActive }) => {
-    if (isActive && typeof document !== 'undefined') {
-      document.dispatchEvent(new Event('visibilitychange'));
-    }
+    if (isActive) onResume();
   });
 }

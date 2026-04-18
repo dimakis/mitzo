@@ -22,8 +22,8 @@ export const clientStore = createMitzoStore({
   },
 });
 
-// Wire Capacitor app lifecycle → visibilitychange (no-op in browser)
-registerCapacitorLifecycle();
+// Wire Capacitor app lifecycle → force WS reconnect on resume (no-op in browser)
+registerCapacitorLifecycle(() => clientStore.getState().forceReconnect());
 
 // Expose on window for console debugging during testing
 if (typeof window !== 'undefined') {

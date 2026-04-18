@@ -104,11 +104,10 @@ describe('CORS middleware', () => {
     expect(res.headers['access-control-allow-methods']).toContain('POST');
   });
 
-  it('does not return 204 for OPTIONS from disallowed origin', async () => {
+  it('returns 204 for OPTIONS from disallowed origin but without CORS headers', async () => {
     const res = await request(app)
       .options('/api/version')
       .set('Origin', 'https://evil.example.com');
-    // Still returns 204 (OPTIONS is handled) but no CORS headers
     expect(res.status).toBe(204);
     expect(res.headers['access-control-allow-origin']).toBeUndefined();
   });

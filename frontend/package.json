@@ -11,9 +11,7 @@
   },
   "dependencies": {
     "@capacitor/app": "^8.1.0",
-    "@capacitor/cli": "^8.3.1",
     "@capacitor/core": "^8.3.1",
-    "@capacitor/ios": "^8.3.1",
     "@mitzo/client": "*",
     "@mitzo/protocol": "*",
     "@xterm/addon-fit": "^0.10.0",
@@ -27,6 +25,8 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.3.1",
+    "@capacitor/ios": "^8.3.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
