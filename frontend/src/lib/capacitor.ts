@@ -9,6 +9,7 @@
 
 import { Capacitor } from '@capacitor/core';
 import { App } from '@capacitor/app';
+import { StatusBar, Style } from '@capacitor/status-bar';
 
 export function isCapacitor(): boolean {
   return Capacitor.isNativePlatform();
@@ -29,4 +30,17 @@ export function registerCapacitorLifecycle(onResume: () => void): void {
   App.addListener('appStateChange', ({ isActive }) => {
     if (isActive) onResume();
   });
+}
+
+/**
+ * Configure the native status bar appearance. Sets light text on the dark
+ * app background (#0f0f1a) so the status bar blends with the UI.
+ *
+ * No-op in browser environments.
+ */
+export async function configureStatusBar(): Promise<void> {
+  if (!isCapacitor()) return;
+
+  await StatusBar.setStyle({ style: Style.Dark });
+  await StatusBar.setBackgroundColor({ color: '#0f0f1a' });
 }

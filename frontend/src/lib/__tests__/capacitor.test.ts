@@ -18,9 +18,22 @@ vi.mock('@capacitor/app', () => ({
   },
 }));
 
+// Mock @capacitor/status-bar
+vi.mock('@capacitor/status-bar', () => ({
+  StatusBar: {
+    setStyle: vi.fn().mockResolvedValue(undefined),
+    setBackgroundColor: vi.fn().mockResolvedValue(undefined),
+  },
+  Style: {
+    Dark: 'DARK',
+    Light: 'LIGHT',
+  },
+}));
+
 import { Capacitor } from '@capacitor/core';
 import { App } from '@capacitor/app';
-import { isCapacitor, registerCapacitorLifecycle } from '../capacitor';
+import { StatusBar, Style } from '@capacitor/status-bar';
+import { isCapacitor, registerCapacitorLifecycle, configureStatusBar } from '../capacitor';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -72,5 +85,27 @@ describe('registerCapacitorLifecycle', () => {
     // Simulate app going to background
     listeners['appStateChange']({ isActive: false });
     expect(onResume).not.toHaveBeenCalled();
+  });
+});
+
+describe('configureStatusBar', () => {
+  it('no-ops in browser environment', async () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
+    await configureStatusBar();
+    expect(StatusBar.setStyle).not.toHaveBeenCalled();
+  });
+
+  it('sets dark style (light text) on native platform', async () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    await configureStatusBar();
+    expect(StatusBar.setStyle).toHaveBeenCalledWith({ style: Style.Dark });
+  });
+
+  it('sets background color on native platform', async () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    await configureStatusBar();
+    expect(StatusBar.setBackgroundColor).toHaveBeenCalledWith({
+      color: '#0f0f1a',
+    });
   });
 });
