@@ -108,6 +108,19 @@ export class MitzoConnection {
 
   // ─── Internal ──────────────────────────────────────────────────────────────
 
+  /**
+   * Detach handlers from the old WS so its delayed onclose can't overwrite
+   * `this.ws` / `this._connected` after a new WS has been created.
+   */
+  private defuseOldWs(): void {
+    if (this.ws) {
+      this.ws.onclose = null;
+      this.ws.onmessage = null;
+      this.ws.onerror = null;
+      this.ws = null;
+    }
+  }
+
   private doConnect(): void {
     if (
       this.ws?.readyState === WS_READY_STATE.OPEN ||
@@ -200,7 +213,7 @@ export class MitzoConnection {
     if (typeof globalThis.setInterval === 'undefined') return;
     this.heartbeatTimer = setInterval(() => {
       if (this.ws && this.ws.readyState !== WS_READY_STATE.OPEN && !this.reconnectTimer) {
-        this.ws = null;
+        this.defuseOldWs();
         this._connected = false;
         this.listener?.({ type: '_close' });
         this.doConnect();
@@ -221,6 +234,9 @@ export class MitzoConnection {
     this.boundOnVisibility = () => {
       if (document.visibilityState === 'visible') {
         this.checkAndReconnect();
+        // Notify the store so it can re-hydrate messages if the page was
+        // evicted from memory (iOS bfcache discard) and state was lost.
+        this.listener?.({ type: '_foreground' });
       }
     };
 
@@ -247,7 +263,7 @@ export class MitzoConnection {
   checkAndReconnect(): void {
     if (!this.ws || this.ws.readyState !== WS_READY_STATE.OPEN) {
       if (this.reconnectTimer) return;
-      this.ws = null;
+      this.defuseOldWs();
       this._connected = false;
       this.listener?.({ type: '_close' });
       this.doConnect();
