@@ -1,0 +1,11 @@
+# Local Jaeger instance for end-to-end tracing.
+# Start: npm run tracing:up   Stop: npm run tracing:down
+# UI: http://localhost:16686
+services:
+  jaeger:
+    image: jaegertracing/jaeger:latest
+    ports:
+      - '4318:4318'   # OTLP HTTP receiver (server + browser)
+      - '16686:16686' # Jaeger UI
+    environment:
+      COLLECTOR_OTLP_ENABLED: 'true'

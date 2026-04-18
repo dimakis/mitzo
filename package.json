@@ -23,6 +23,8 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "tracing:up": "docker compose up -d jaeger",
+    "tracing:down": "docker compose down",
     "prepare": "husky || true"
   },
   "dependencies": {
