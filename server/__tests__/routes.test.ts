@@ -232,9 +232,7 @@ describe('bearer token auth', () => {
   });
 
   it('rejects malformed Authorization header', async () => {
-    const res = await request(app)
-      .get('/api/auth/check')
-      .set('Authorization', 'Basic abc123');
+    const res = await request(app).get('/api/auth/check').set('Authorization', 'Basic abc123');
     expect(res.status).toBe(401);
   });
 });

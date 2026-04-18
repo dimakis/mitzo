@@ -27,8 +27,7 @@ export const MAX_IMAGE_ATTACHMENTS = 4;
 // relative path "/api/yapper". Browsers resolve relative WebSocket URLs against
 // the page origin, so `new WebSocket('/api/yapper-ws/...')` works correctly.
 // In Capacitor, getApiBaseUrl() returns a full URL so the ws:// replace works.
-export const YAPPER_URL =
-  import.meta.env.VITE_YAPPER_URL || `${getApiBaseUrl()}/api/yapper`;
+export const YAPPER_URL = import.meta.env.VITE_YAPPER_URL || `${getApiBaseUrl()}/api/yapper`;
 export const YAPPER_HEALTH_POLL_MS = 30_000;
 export const MAX_RECORDING_DURATION_MS = 120_000;
 export const MIN_RECORDING_DURATION_MS = 500;

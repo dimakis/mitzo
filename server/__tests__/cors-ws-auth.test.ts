@@ -73,31 +73,23 @@ beforeAll(async () => {
 
 describe('CORS middleware', () => {
   it('adds CORS headers for allowed origin', async () => {
-    const res = await request(app)
-      .get('/api/version')
-      .set('Origin', 'capacitor://localhost');
+    const res = await request(app).get('/api/version').set('Origin', 'capacitor://localhost');
     expect(res.headers['access-control-allow-origin']).toBe('capacitor://localhost');
     expect(res.headers['access-control-allow-credentials']).toBe('true');
   });
 
   it('adds CORS headers for second allowed origin', async () => {
-    const res = await request(app)
-      .get('/api/version')
-      .set('Origin', 'https://custom.example.com');
+    const res = await request(app).get('/api/version').set('Origin', 'https://custom.example.com');
     expect(res.headers['access-control-allow-origin']).toBe('https://custom.example.com');
   });
 
   it('does not add CORS headers for disallowed origin', async () => {
-    const res = await request(app)
-      .get('/api/version')
-      .set('Origin', 'https://evil.example.com');
+    const res = await request(app).get('/api/version').set('Origin', 'https://evil.example.com');
     expect(res.headers['access-control-allow-origin']).toBeUndefined();
   });
 
   it('handles OPTIONS preflight with 204', async () => {
-    const res = await request(app)
-      .options('/api/version')
-      .set('Origin', 'capacitor://localhost');
+    const res = await request(app).options('/api/version').set('Origin', 'capacitor://localhost');
     expect(res.status).toBe(204);
     expect(res.headers['access-control-allow-origin']).toBe('capacitor://localhost');
     expect(res.headers['access-control-allow-headers']).toContain('Authorization');

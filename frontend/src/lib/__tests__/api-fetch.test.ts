@@ -39,10 +39,7 @@ describe('apiFetch', () => {
 
   it('does not prepend base URL to absolute URLs', async () => {
     await apiFetch('https://external.com/api/data');
-    expect(mockFetch).toHaveBeenCalledWith(
-      'https://external.com/api/data',
-      expect.anything(),
-    );
+    expect(mockFetch).toHaveBeenCalledWith('https://external.com/api/data', expect.anything());
   });
 
   it('passes through RequestInit options', async () => {

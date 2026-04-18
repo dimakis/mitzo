@@ -119,7 +119,8 @@ app.use(
 
 // --- CORS for non-same-origin clients (Capacitor iOS, etc.) ---
 // Mounted before yapper proxy so cross-origin voice requests get CORS headers.
-const CORS_ALLOWED_ORIGINS = process.env.CORS_ALLOWED_ORIGINS?.split(',').map((s) => s.trim()) ?? [];
+const CORS_ALLOWED_ORIGINS =
+  process.env.CORS_ALLOWED_ORIGINS?.split(',').map((s) => s.trim()) ?? [];
 
 if (CORS_ALLOWED_ORIGINS.length > 0) {
   app.use((req, res, next) => {

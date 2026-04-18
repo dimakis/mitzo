@@ -24,8 +24,7 @@ export function getWsBaseUrl(): string {
 /** Build the full WebSocket URL with token auth query param when needed. */
 export function getWsChatUrl(): string {
   const base = getWsBaseUrl();
-  const token =
-    typeof localStorage !== 'undefined' ? localStorage.getItem(AUTH_TOKEN_KEY) : null;
+  const token = typeof localStorage !== 'undefined' ? localStorage.getItem(AUTH_TOKEN_KEY) : null;
   const url = `${base}/ws/chat`;
   return token ? `${url}?token=${encodeURIComponent(token)}` : url;
 }
