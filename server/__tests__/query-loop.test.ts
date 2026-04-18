@@ -1296,6 +1296,69 @@ describe('runQueryLoop', () => {
       // session_end should reach v2Transport via connRegistry in the finally block
       expect(v2Transport.sent.some((m) => m.type === 'session_end')).toBe(true);
     });
+
+    it('delivers events to a NEW connection after WS reconnect (old connection gone)', async () => {
+      const connRegistry = new ConnectionRegistry();
+      const oldTransport = fakeTransport();
+      const newTransport = fakeTransport();
+
+      // Simulate initial v2 connection
+      connRegistry.register(clientId, oldTransport);
+      connRegistry.watch(clientId, 'sess-recon');
+      connRegistry.setActive(clientId, 'sess-recon');
+
+      // Pre-set sessionId (session already resolved from previous turn)
+      const session = registry.get(clientId)!;
+      session.sessionId = 'sess-recon';
+
+      // Simulate WS disconnect: old connection removed from connRegistry
+      connRegistry.remove(clientId);
+
+      // Simulate WS reconnect: new connection with different ID watches the session
+      const newConnId = 'conn-new-after-reconnect';
+      connRegistry.register(newConnId, newTransport);
+      connRegistry.watch(newConnId, 'sess-recon');
+      connRegistry.setActive(newConnId, 'sess-recon');
+
+      // Query loop still uses the OLD clientId (closed over at start)
+      const events: Record<string, unknown>[] = [
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-recon' } } },
+        {
+          type: 'stream_event',
+          event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+        },
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'hello after reconnect' },
+          },
+        },
+        { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-recon' },
+        { type: 'result', session_id: 'sess-recon' },
+      ];
+
+      await runQueryLoop(
+        eventStream(events),
+        clientId, // OLD clientId — no longer in connRegistry
+        registry,
+        abortController,
+        undefined,
+        undefined,
+        { connRegistry },
+      );
+
+      // The NEW transport should receive events via broadcast
+      // (even though the query loop's clientId is no longer in connRegistry)
+      expect(newTransport.sent.some((m) => m.type === 'message_start')).toBe(true);
+      expect(newTransport.sent.some((m) => m.type === 'block_delta')).toBe(true);
+      expect(newTransport.sent.some((m) => m.type === 'session_end')).toBe(true);
+
+      // Old transport should NOT receive anything (it was removed)
+      expect(oldTransport.sent).toHaveLength(0);
+    });
   });
 
   describe('onSessionResolved callback', () => {

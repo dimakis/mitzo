@@ -8,6 +8,7 @@ vi.mock('../chat.js', () => ({
   interruptChat: vi.fn(),
   stopChat: vi.fn(),
   isActive: vi.fn().mockReturnValue(false),
+  reattachChat: vi.fn().mockReturnValue(true),
   BASE_REPO: '/tmp/test-repo',
   discoverSession: vi.fn().mockResolvedValue(null),
 }));
@@ -73,6 +74,8 @@ function mockSessionRegistry() {
     findBySessionId: vi.fn().mockReturnValue(null),
     setMode: vi.fn(),
     isActive: vi.fn().mockReturnValue(false),
+    isAttached: vi.fn().mockReturnValue(true),
+    reattach: vi.fn().mockReturnValue(true),
     entries: vi.fn(() => new Map().entries()),
   };
 }

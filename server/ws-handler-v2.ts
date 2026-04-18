@@ -41,6 +41,7 @@ import {
   interruptChat,
   stopChat,
   isActive,
+  reattachChat,
   BASE_REPO,
   discoverSession,
 } from './chat.js';
@@ -118,9 +119,23 @@ export function handleReconnect(
         } as Record<string, unknown>);
       }
 
-      // Check if session has an active driver in the SessionRegistry
+      // Check if session has an active driver in the SessionRegistry.
+      // If the driver is still running but was detached by the old WS close,
+      // reattach it with the new connection's transport so future events
+      // from the query loop can be delivered via the v1 fallback path.
       const found = ctx.sessionRegistry.findBySessionId(entry.sessionId);
       const running = found ? ctx.sessionRegistry.isActive(found.clientId) : false;
+      if (found && running && !ctx.sessionRegistry.isAttached(found.clientId)) {
+        const conn = ctx.connRegistry.get(connectionId);
+        if (conn) {
+          ctx.sessionRegistry.reattach(found.clientId, conn.transport);
+          log.info('reattached detached session on reconnect', {
+            connectionId,
+            sessionId: entry.sessionId,
+            clientId: found.clientId,
+          });
+        }
+      }
 
       summaries.push({
         sessionId: entry.sessionId,
@@ -312,6 +327,17 @@ export function handleSendV2(
       // Resume existing session
       const found = ctx.sessionRegistry.findBySessionId(sessionId);
       if (found && isActive(found.clientId)) {
+        // Reattach if session was detached by a previous WS disconnect.
+        // This updates the session's transport to the current connection
+        // so the v1 fallback path in sendOrBuffer can still deliver events.
+        if (!ctx.sessionRegistry.isAttached(found.clientId)) {
+          reattachChat(found.clientId, transport);
+          log.info('reattached detached session on send', {
+            connectionId,
+            sessionId,
+            clientId: found.clientId,
+          });
+        }
         applySkillPolicy(found.clientId);
         sendToChat(found.clientId, prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
         ctx.connRegistry.watch(connectionId, sessionId);
