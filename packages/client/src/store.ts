@@ -555,8 +555,15 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       if (parserState.currentSessionId) {
         if (eventSessionId !== parserState.currentSessionId) return;
       } else {
-        const isAssignment = msg.type === 'session_id' || msg.type === 'session_end';
-        if (!isAssignment) return;
+        // Allow session assignment, session end, and permission requests through
+        // before session_id arrives. Permission requests can arrive for brand-new
+        // sessions before the session_id event — dropping them blocks the user
+        // from answering tool prompts.
+        const isEarlySessionEvent =
+          msg.type === 'session_id' ||
+          msg.type === 'session_end' ||
+          msg.type === 'permission_request';
+        if (!isEarlySessionEvent) return;
       }
     }
 

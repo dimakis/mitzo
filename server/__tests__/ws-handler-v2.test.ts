@@ -41,6 +41,7 @@ import {
   isHelloHandshake,
   type V2HandlerContext,
 } from '../ws-handler-v2.js';
+import { NativeCommandRegistry } from '../native-commands.js';
 
 function mockTransport(): SessionTransport & { sent: Record<string, unknown>[] } {
   const sent: Record<string, unknown>[] = [];
@@ -80,6 +81,7 @@ function createContext(overrides?: Partial<V2HandlerContext>): V2HandlerContext 
       (mockSessionRegistry() as unknown as V2HandlerContext['sessionRegistry']),
     eventStore:
       overrides?.eventStore ?? (mockEventStore() as unknown as V2HandlerContext['eventStore']),
+    nativeCommands: overrides?.nativeCommands ?? new NativeCommandRegistry(),
     ...overrides,
   };
 }
@@ -312,6 +314,18 @@ describe('handleSwitchSession', () => {
 // ─── handleSetModeV2 ─────────────────────────────────────────────────────────
 
 describe('handleSetModeV2', () => {
+  it('is a no-op when session is not found', () => {
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    ctx.connRegistry.watch('c1', 'sess-1');
+
+    handleSetModeV2('c1', { type: 'set_mode', sessionId: 'sess-1', mode: 'auto' }, ctx);
+
+    // No broadcast should happen when session doesn't exist
+    expect(transport.sent).toHaveLength(0);
+  });
+
   it('delegates to sessionRegistry.setMode and broadcasts mode_changed', () => {
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });

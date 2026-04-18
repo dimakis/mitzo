@@ -229,6 +229,7 @@ const v2Ctx: V2HandlerContext = {
   connRegistry,
   sessionRegistry: registry,
   eventStore,
+  nativeCommands,
 };
 
 /**
@@ -257,13 +258,26 @@ function handleChatWsV2(ws: WebSocket, connectionId: string) {
   ws.on('close', (code, reason) => {
     clearInterval(heartbeat);
     v2Sockets.delete(ws);
+
+    // Snapshot watched sessions before removing the connection — we need to
+    // detach ALL sessions this connection was driving, not just the most recent.
+    const conn = connRegistry.get(connectionId);
+    const watchedSessions = conn ? [...conn.watchedSessions] : [];
+
     connRegistry.remove(connectionId);
     registry.removeObserver(transport);
     transportMap.delete(ws);
     log.info('v2 disconnected', { connectionId, code, reason: reason?.toString() });
-    if (isActive(connectionId)) {
-      detachChat(connectionId);
-      log.info('v2 session detached (surviving)', { connectionId });
+
+    // Detach any session whose transport matches this connection's transport
+    for (const sessionId of watchedSessions) {
+      const found = registry.findBySessionId(sessionId);
+      if (!found) continue;
+      const session = registry.get(found.clientId);
+      if (session && session.transport === transport && registry.isAttached(found.clientId)) {
+        detachChat(found.clientId);
+        log.info('v2 session detached (surviving)', { connectionId, sessionId });
+      }
     }
   });
 

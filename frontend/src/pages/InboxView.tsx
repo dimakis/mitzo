@@ -164,6 +164,7 @@ export function InboxView() {
   const [items, setItems] = useState<InboxItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
+  const [pendingRemovals, setPendingRemovals] = useState<Set<string>>(new Set());
 
   const loadItems = useCallback(() => {
     fetch('/api/inbox')
@@ -191,28 +192,48 @@ export function InboxView() {
     };
   }, [loadItems, loadInbox]);
 
-  // When the store's inbox updates (via WS), sync to local state
+  // When the store's inbox updates (via WS), sync to local state — but
+  // filter out items that were optimistically removed to prevent flicker.
   useEffect(() => {
-    setItems(storeInbox as InboxItem[]);
+    const filtered = (storeInbox as InboxItem[]).filter(
+      (item) => !pendingRemovals.has(item.filename),
+    );
+    setItems(filtered);
     setLoading(false);
-  }, [storeInbox]);
+  }, [storeInbox, pendingRemovals]);
 
   function handleApprove(filename: string) {
+    setPendingRemovals((prev) => new Set(prev).add(filename));
     setItems((prev) => prev.filter((i) => i.filename !== filename));
     fetch(`/api/inbox/${encodeURIComponent(filename)}/approve`, { method: 'POST' })
       .then((res) => {
         if (!res.ok) loadItems();
       })
-      .catch(loadItems);
+      .catch(loadItems)
+      .finally(() => {
+        setPendingRemovals((prev) => {
+          const next = new Set(prev);
+          next.delete(filename);
+          return next;
+        });
+      });
   }
 
   function handleDiscard(filename: string) {
+    setPendingRemovals((prev) => new Set(prev).add(filename));
     setItems((prev) => prev.filter((i) => i.filename !== filename));
     fetch(`/api/inbox/${encodeURIComponent(filename)}`, { method: 'DELETE' })
       .then((res) => {
         if (!res.ok) loadItems();
       })
-      .catch(loadItems);
+      .catch(loadItems)
+      .finally(() => {
+        setPendingRemovals((prev) => {
+          const next = new Set(prev);
+          next.delete(filename);
+          return next;
+        });
+      });
   }
 
   const sources = [...new Set(items.map((i) => i.agent))].sort();

@@ -39,16 +39,16 @@ import { startChat, sendToChat, interruptChat, stopChat, isActive, BASE_REPO } f
 import { setSkillPolicy, clearSkillPolicy } from './skill-policy.js';
 import { resolveSlashCommand } from './slash-commands.js';
 import { buildSkillRegistry, isAllowedPath, NATIVE_COMMAND_NAMES } from './app.js';
-import { NativeCommandRegistry } from './native-commands.js';
+import type { NativeCommandRegistry } from './native-commands.js';
 import { createLogger } from './logger.js';
 
 const log = createLogger('ws-v2');
-const nativeCommands = new NativeCommandRegistry();
 
 export interface V2HandlerContext {
   connRegistry: ConnectionRegistry;
   sessionRegistry: SessionRegistry;
   eventStore: EventStore;
+  nativeCommands: NativeCommandRegistry;
 }
 
 // ─── Hello handshake detection ───────────────────────────────────────────────
@@ -241,7 +241,11 @@ export function handleSendV2(
     const resolution = resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
 
     if (resolution.type === 'native') {
-      const result = nativeCommands.execute(resolution.name, resolution.arguments, skillRegistry);
+      const result = ctx.nativeCommands.execute(
+        resolution.name,
+        resolution.arguments,
+        skillRegistry,
+      );
       if (result) {
         transport.send({
           type: 'native_command_result',
@@ -370,7 +374,7 @@ export function handlePermissionResponseV2(
   msg: PermissionMsg,
   _ctx: V2HandlerContext,
 ): void {
-  resolvePending(msg.permId, msg.decision || 'deny');
+  resolvePending(msg.permId, msg.decision ?? 'deny');
   log.info('permission_response', {
     connectionId,
     sessionId: msg.sessionId,
@@ -384,9 +388,12 @@ export function handleSetModeV2(
   ctx: V2HandlerContext,
 ): void {
   const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
-  if (found) {
-    ctx.sessionRegistry.setMode(found.clientId, msg.mode);
+  if (!found) {
+    log.warn('set_mode: session not found', { connectionId, sessionId: msg.sessionId });
+    return;
   }
+
+  ctx.sessionRegistry.setMode(found.clientId, msg.mode);
 
   // Broadcast to all watchers of this session
   ctx.connRegistry.broadcast(msg.sessionId, {

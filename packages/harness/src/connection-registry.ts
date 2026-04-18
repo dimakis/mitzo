@@ -89,16 +89,11 @@ export class ConnectionRegistry {
    * aborting the broadcast loop.
    */
   broadcast(sessionId: string, data: Record<string, unknown>): void {
-    for (const conn of this.connections.values()) {
-      if (!conn.watchedSessions.has(sessionId)) continue;
-      if (!conn.transport.isOpen()) continue;
+    for (const { connectionId, transport } of this.getConnectionsWatching(sessionId, true)) {
       try {
-        conn.transport.send(data);
+        transport.send(data);
       } catch {
-        log.warn('broadcast send failed', {
-          connectionId: conn.connectionId,
-          sessionId,
-        });
+        log.warn('broadcast send failed', { connectionId, sessionId });
       }
     }
   }

@@ -6,10 +6,10 @@
     <string>com.mitzo.server</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/dsaridak/tools/mitzo/scripts/start.sh</string>
+        <string>__MITZO_HOME__/scripts/start.sh</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/dsaridak/tools/mitzo</string>
+    <string>__MITZO_HOME__</string>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
@@ -17,9 +17,9 @@
     <key>ThrottleInterval</key>
     <integer>30</integer>
     <key>StandardOutPath</key>
-    <string>/Users/dsaridak/tools/mitzo/logs/server-stdout.log</string>
+    <string>__MITZO_HOME__/logs/server-stdout.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/dsaridak/tools/mitzo/logs/server-stderr.log</string>
+    <string>__MITZO_HOME__/logs/server-stderr.log</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
