@@ -245,13 +245,11 @@ function handleChatWsV2(ws: WebSocket, connectionId: string) {
   }, HEARTBEAT_INTERVAL_MS);
 
   ws.on('message', (raw) => {
-    try {
-      dispatchV2Message(connectionId, transport, raw.toString(), v2Ctx);
-    } catch (err: unknown) {
+    dispatchV2Message(connectionId, transport, raw.toString(), v2Ctx).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : 'Unknown error';
       log.warn('v2 message dispatch error', { connectionId, error: message });
       transport.send({ type: 'error', error: message });
-    }
+    });
   });
 
   ws.on('close', (code, reason) => {

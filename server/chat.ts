@@ -1,6 +1,7 @@
 import {
   query,
   listSessions,
+  getSessionInfo,
   getSessionMessages,
   renameSession,
 } from '@anthropic-ai/claude-agent-sdk';
@@ -474,6 +475,18 @@ export async function startChat(
   session.branch = branch;
   send(transport, { type: 'session_info', branch, cwd, worktree: !!worktreePath, wtId });
 
+  // Pre-register resumed sessions in EventStore so they're discoverable
+  // even if the query loop dies before the first assistant event.
+  if (options.resume) {
+    eventStore.upsertSession({
+      sessionId: options.resume,
+      cwd,
+      mode,
+      branch,
+      ...(worktreePath ? { wtId } : {}),
+    });
+  }
+
   // Build session env with worktree paths for the agent
   const sessionEnv = sdkEnv();
   sessionEnv.MITZO_SESSION_ID = wtId;
@@ -826,7 +839,7 @@ export async function renameSessionById(
 export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
   const seen = new Map<
     string,
-    { id: string; summary: string; lastModified: number; branch?: string }
+    { id: string; summary: string; lastModified: number; branch?: string; cwd?: string }
   >();
   // Fetch enough from each dir to cover the requested window after dedup.
   // The SDK handles worktree discovery via includeWorktrees (default true).
@@ -843,6 +856,7 @@ export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
             summary: s.summary,
             lastModified: s.lastModified,
             branch: s.gitBranch,
+            cwd: s.cwd ?? dir,
           });
         }
       }
@@ -850,11 +864,56 @@ export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
       // Expected when session dir doesn't exist
     }
   }
+
+  // Reconcile: backfill EventStore for SDK-discovered sessions that Mitzo
+  // doesn't track (e.g. sessions orphaned by a server restart mid-query,
+  // or created by external agents in a worktree).
+  for (const [sessionId, entry] of seen) {
+    if (!eventStore.getSession(sessionId)) {
+      eventStore.upsertSession({
+        sessionId,
+        summary: entry.summary || null,
+        cwd: entry.cwd ?? null,
+        branch: entry.branch ?? null,
+      });
+      log.info('reconciled orphaned session', { sessionId });
+    }
+  }
+
   const deduped = Array.from(seen.values());
   deduped.sort((a, b) => b.lastModified - a.lastModified);
   const page = deduped.slice(offset, offset + limit);
   const hasMore = deduped.length > offset + limit;
   return { sessions: page, hasMore };
+}
+
+/**
+ * Look up a single session by ID via the Claude SDK.
+ * Used as a fallback when the EventStore doesn't have the session yet
+ * (e.g. orphaned by a restart or created externally). If found, backfills
+ * the EventStore so subsequent lookups are fast.
+ */
+export async function discoverSession(
+  sessionId: string,
+): Promise<import('./event-store.js').SessionMeta | null> {
+  try {
+    const info = await getSessionInfo(sessionId);
+    if (!info) return null;
+    eventStore.upsertSession({
+      sessionId,
+      summary: info.summary || null,
+      cwd: info.cwd ?? null,
+      branch: info.gitBranch ?? null,
+    });
+    log.info('discovered and backfilled session', { sessionId, cwd: info.cwd });
+    return eventStore.getSession(sessionId);
+  } catch (err: unknown) {
+    log.warn('discoverSession failed', {
+      sessionId,
+      error: err instanceof Error ? err.message : 'unknown',
+    });
+    return null;
+  }
 }
 
 export interface RestoredMessage {

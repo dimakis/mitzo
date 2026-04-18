@@ -9,6 +9,7 @@ vi.mock('../chat.js', () => ({
   stopChat: vi.fn(),
   isActive: vi.fn().mockReturnValue(false),
   BASE_REPO: '/tmp/test-repo',
+  discoverSession: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock('../app.js', () => ({
@@ -26,7 +27,7 @@ vi.mock('../skill-policy.js', () => ({
   clearSkillPolicy: vi.fn(),
 }));
 
-import { startChat } from '../chat.js';
+import { startChat, discoverSession } from '../chat.js';
 
 import {
   handleHello,
@@ -243,7 +244,7 @@ describe('handleUnwatch', () => {
 // ─── handleSwitchSession ─────────────────────────────────────────────────────
 
 describe('handleSwitchSession', () => {
-  it('sets active session and sends session metadata from event store', () => {
+  it('sets active session and sends session metadata from event store', async () => {
     const eventStore = mockEventStore();
     eventStore.getSession.mockReturnValue({
       sessionId: 'sess-1',
@@ -264,7 +265,7 @@ describe('handleSwitchSession', () => {
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
 
-    handleSwitchSession('c1', { type: 'switch_session', sessionId: 'sess-1' }, ctx);
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'sess-1' }, ctx);
 
     expect(ctx.connRegistry.get('c1')!.activeSession).toBe('sess-1');
     const resp = transport.sent[0];
@@ -281,29 +282,68 @@ describe('handleSwitchSession', () => {
     expect(resp).toHaveProperty('tokens');
   });
 
-  it('clears active session when sessionId is null', () => {
+  it('clears active session when sessionId is null', async () => {
     const ctx = createContext();
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
     ctx.connRegistry.setActive('c1', 'sess-old');
 
-    handleSwitchSession('c1', { type: 'switch_session', sessionId: null }, ctx);
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: null }, ctx);
 
     expect(ctx.connRegistry.get('c1')!.activeSession).toBeNull();
     expect(transport.sent[0]).toEqual(expect.objectContaining({ type: 'session_cleared' }));
   });
 
-  it('sends error for unknown session', () => {
+  it('sends error for unknown session when SDK discovery also fails', async () => {
     const ctx = createContext();
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
 
-    handleSwitchSession('c1', { type: 'switch_session', sessionId: 'nope' }, ctx);
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'nope' }, ctx);
 
+    expect(discoverSession).toHaveBeenCalledWith('nope');
     expect(transport.sent[0]).toEqual(
       expect.objectContaining({
         type: 'error',
         error: expect.stringContaining('nope'),
+      }),
+    );
+  });
+
+  it('falls back to SDK discovery when EventStore misses, then succeeds', async () => {
+    const eventStore = mockEventStore();
+    // First call: not found. Second call (after backfill): found.
+    eventStore.getSession.mockReturnValueOnce(null).mockReturnValueOnce(null);
+
+    const discoveredMeta = {
+      sessionId: 'orphan-1',
+      mode: 'agent',
+      cwd: '/projects/orphan',
+      branch: 'main',
+      wtId: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      totalCostUsd: 0,
+    };
+
+    (discoverSession as ReturnType<typeof vi.fn>).mockResolvedValueOnce(discoveredMeta);
+
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'orphan-1' }, ctx);
+
+    expect(discoverSession).toHaveBeenCalledWith('orphan-1');
+    expect(ctx.connRegistry.get('c1')!.activeSession).toBe('orphan-1');
+    expect(transport.sent[0]).toEqual(
+      expect.objectContaining({
+        type: 'session_switched',
+        sessionId: 'orphan-1',
       }),
     );
   });
