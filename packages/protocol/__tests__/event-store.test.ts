@@ -318,6 +318,46 @@ describe('EventStore', () => {
     });
   });
 
+  describe('getKnownSessionIds', () => {
+    it('returns empty set for empty input', () => {
+      expect(store.getKnownSessionIds([])).toEqual(new Set());
+    });
+
+    it('returns empty set when none of the IDs exist', () => {
+      expect(store.getKnownSessionIds(['a', 'b', 'c'])).toEqual(new Set());
+    });
+
+    it('returns only IDs that exist in the store', () => {
+      store.upsertSession({ sessionId: 'sess-1' });
+      store.upsertSession({ sessionId: 'sess-3' });
+
+      const result = store.getKnownSessionIds(['sess-1', 'sess-2', 'sess-3', 'sess-4']);
+      expect(result).toEqual(new Set(['sess-1', 'sess-3']));
+    });
+
+    it('returns all IDs when all exist', () => {
+      store.upsertSession({ sessionId: 'a' });
+      store.upsertSession({ sessionId: 'b' });
+
+      expect(store.getKnownSessionIds(['a', 'b'])).toEqual(new Set(['a', 'b']));
+    });
+
+    it('handles large batches via chunking', () => {
+      const ids: string[] = [];
+      for (let i = 0; i < 600; i++) {
+        const id = `sess-${i}`;
+        ids.push(id);
+        if (i % 2 === 0) store.upsertSession({ sessionId: id });
+      }
+      const result = store.getKnownSessionIds(ids);
+      expect(result.size).toBe(300);
+      expect(result.has('sess-0')).toBe(true);
+      expect(result.has('sess-1')).toBe(false);
+      expect(result.has('sess-598')).toBe(true);
+      expect(result.has('sess-599')).toBe(false);
+    });
+  });
+
   describe('close', () => {
     it('is safe to call multiple times', () => {
       store.close();
