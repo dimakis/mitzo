@@ -8,8 +8,7 @@ const config: CapacitorConfig = {
     contentInset: 'automatic',
   },
   server: {
-    // Tailscale MagicDNS and CGNAT range — Capacitor globs don't support
-    // regex, so we allow 100.* (Tailscale uses 100.64–127). The app is
+    // Allow navigation to Tailscale MagicDNS hostnames. The app is
     // passphrase-authenticated so the blast radius is limited.
     allowNavigation: ['*.ts.net'],
   },

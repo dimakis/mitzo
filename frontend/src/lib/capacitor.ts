@@ -2,9 +2,9 @@
  * Capacitor-specific lifecycle integration.
  *
  * When running as a native iOS app, registers appStateChange listener
- * to trigger document visibilitychange — which MitzoConnection already
- * listens for to force WebSocket reconnection. This piggybacks on the
- * existing reconnect logic rather than requiring a direct connection ref.
+ * to force a WebSocket reconnect check on resume. The callback directly
+ * invokes MitzoConnection.checkAndReconnect() via the store rather than
+ * relying on synthetic DOM events.
  */
 
 import { Capacitor } from '@capacitor/core';

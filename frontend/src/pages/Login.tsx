@@ -11,6 +11,9 @@ export function Login() {
     e.preventDefault();
     setError('');
 
+    // Clear any stale token before attempting login
+    localStorage.removeItem('mitzo_auth_token');
+
     const res = await apiFetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
