@@ -261,13 +261,14 @@ export class EventStore {
       );
     } else {
       this.db!.prepare(
-        'INSERT INTO sessions (session_id, summary, branch, cwd, mode, initial_prompt, wt_id, goal_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO sessions (session_id, summary, branch, cwd, mode, is_active, initial_prompt, wt_id, goal_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       ).run(
         meta.sessionId,
         meta.summary ?? null,
         meta.branch ?? null,
         meta.cwd ?? null,
         meta.mode ?? 'agent',
+        meta.isActive === false ? 0 : 1,
         meta.initialPrompt ?? null,
         meta.wtId ?? null,
         meta.goalId ?? null,
@@ -278,6 +279,25 @@ export class EventStore {
   getSession(sessionId: string): SessionMeta | null {
     const row = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
     return row ? rowToSession(row) : null;
+  }
+
+  /**
+   * Return the subset of `sessionIds` that already exist in the sessions table.
+   * Batches into chunks of 500 to stay within SQLite's SQLITE_MAX_VARIABLE_NUMBER.
+   */
+  getKnownSessionIds(sessionIds: string[]): Set<string> {
+    if (sessionIds.length === 0) return new Set();
+    const CHUNK = 500;
+    const result = new Set<string>();
+    for (let i = 0; i < sessionIds.length; i += CHUNK) {
+      const chunk = sessionIds.slice(i, i + CHUNK);
+      const placeholders = chunk.map(() => '?').join(',');
+      const rows = this.db!.prepare(
+        `SELECT session_id FROM sessions WHERE session_id IN (${placeholders})`,
+      ).all(...chunk) as Array<{ session_id: string }>;
+      for (const r of rows) result.add(r.session_id);
+    }
+    return result;
   }
 
   listSessions(limit?: number): SessionMeta[] {
