@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SessionRegistry } from '../session-registry.js';
 import { broadcastToObservers } from '../query-loop.js';
-import { MAX_OBSERVERS_PER_SESSION } from '../constants.js';
+import { MAX_OBSERVERS_PER_SESSION, DETACHED_TTL_MS } from '../constants.js';
 import type { SessionTransport } from '../../packages/harness/src/session-transport.js';
 
 function mockTransport(open = true): SessionTransport & { _sent: unknown[] } {
@@ -149,7 +149,7 @@ describe('SessionRegistry.removeObserver', () => {
     expect(registry.isActive('c1')).toBe(true); // still alive
 
     // Fast-forward past TTL — session should be aborted
-    vi.advanceTimersByTime(3_600_001);
+    vi.advanceTimersByTime(DETACHED_TTL_MS + 1);
     expect(registry.isActive('c1')).toBe(false);
 
     vi.useRealTimers();

@@ -15,9 +15,14 @@ export {
 } from '@mitzo/protocol';
 
 // --- Session & Permission ---
-export const DETACHED_TTL_MS = 3_600_000; // 1 hour — events survive in durable store regardless
-export const PERMISSION_TIMEOUT_MS = 120_000; // 2 minutes
-export const NTFY_NOTIFICATION_DELAY_MS = 10_000; // 10 seconds
+// Re-export session lifecycle constants from harness (canonical source).
+export {
+  DETACHED_TTL_MS,
+  CLOSEOUT_LEAD_MS,
+  CLOSEOUT_TIMEOUT_MS,
+  PERMISSION_TIMEOUT_MS,
+  NTFY_NOTIFICATION_DELAY_MS,
+} from '@mitzo/harness';
 
 // --- Worktree ---
 export const WORKTREE_BRANCH_PREFIX = 'session/';

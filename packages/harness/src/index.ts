@@ -3,7 +3,7 @@ export type { SessionTransport } from './session-transport.js';
 
 // Session registry
 export { SessionRegistry } from './session-registry.js';
-export type { ManagedSession, ActiveSessionInfo } from './session-registry.js';
+export type { ManagedSession, ActiveSessionInfo, CloseoutHandler } from './session-registry.js';
 export type {
   MitzoMode,
   SnapshotBlock,
@@ -38,7 +38,13 @@ export * as pushover from './pushover.js';
 export { extractSnippet } from './notification-helpers.js';
 
 // Constants
-export { DETACHED_TTL_MS, PERMISSION_TIMEOUT_MS, NTFY_NOTIFICATION_DELAY_MS } from './constants.js';
+export {
+  DETACHED_TTL_MS,
+  CLOSEOUT_LEAD_MS,
+  CLOSEOUT_TIMEOUT_MS,
+  PERMISSION_TIMEOUT_MS,
+  NTFY_NOTIFICATION_DELAY_MS,
+} from './constants.js';
 
 // Permission handler
 export { buildPermissionHandler } from './permission-handler.js';

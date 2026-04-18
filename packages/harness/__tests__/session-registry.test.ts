@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { SessionRegistry } from '../src/session-registry.js';
-import { DETACHED_TTL_MS } from '../src/constants.js';
+import { DETACHED_TTL_MS, CLOSEOUT_LEAD_MS, CLOSEOUT_TIMEOUT_MS } from '../src/constants.js';
 import type { SessionTransport } from '../src/session-transport.js';
 
 function fakeTransport(): SessionTransport {
@@ -542,6 +542,113 @@ describe('SessionRegistry', () => {
       expect(active).toHaveLength(2);
       expect(active.map((s) => s.sessionId)).toContain('sdk-1');
       expect(active.map((s) => s.sessionId)).toContain('sdk-2');
+    });
+  });
+
+  describe('closeout', () => {
+    it('calls onCloseout handler before TTL expiry', () => {
+      vi.useFakeTimers();
+      const onCloseout = vi.fn();
+      registry.setCloseoutHandler(onCloseout);
+
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      registry.detach('client-1');
+
+      // Advance to just before closeout fires (TTL - LEAD)
+      vi.advanceTimersByTime(DETACHED_TTL_MS - CLOSEOUT_LEAD_MS - 1000);
+      expect(onCloseout).not.toHaveBeenCalled();
+
+      // Advance past closeout trigger
+      vi.advanceTimersByTime(2000);
+      expect(onCloseout).toHaveBeenCalledWith('client-1');
+      expect(registry.isClosingOut('client-1')).toBe(true);
+
+      vi.useRealTimers();
+    });
+
+    it('aborts session after CLOSEOUT_TIMEOUT_MS if closeout completes or times out', () => {
+      vi.useFakeTimers();
+      const onCloseout = vi.fn();
+      registry.setCloseoutHandler(onCloseout);
+
+      const abort = new AbortController();
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: abort,
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      registry.detach('client-1');
+
+      // Advance to closeout
+      vi.advanceTimersByTime(DETACHED_TTL_MS - CLOSEOUT_LEAD_MS + 100);
+      expect(registry.isClosingOut('client-1')).toBe(true);
+
+      // Advance through closeout timeout
+      vi.advanceTimersByTime(CLOSEOUT_TIMEOUT_MS + 100);
+      expect(registry.isActive('client-1')).toBe(false);
+      expect(abort.signal.aborted).toBe(true);
+
+      vi.useRealTimers();
+    });
+
+    it('cancels closeout on reattach', () => {
+      vi.useFakeTimers();
+      const onCloseout = vi.fn();
+      registry.setCloseoutHandler(onCloseout);
+
+      const abort = new AbortController();
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: abort,
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      registry.detach('client-1');
+
+      // Advance to closeout
+      vi.advanceTimersByTime(DETACHED_TTL_MS - CLOSEOUT_LEAD_MS + 100);
+      expect(registry.isClosingOut('client-1')).toBe(true);
+
+      // Reattach during closeout
+      registry.reattach('client-1', fakeTransport());
+      expect(registry.isClosingOut('client-1')).toBe(false);
+
+      // Advance well past timeout — session should still be alive
+      vi.advanceTimersByTime(CLOSEOUT_TIMEOUT_MS + DETACHED_TTL_MS);
+      expect(registry.isActive('client-1')).toBe(true);
+      expect(abort.signal.aborted).toBe(false);
+
+      vi.useRealTimers();
+    });
+
+    it('falls back to direct abort when no closeout handler is set', () => {
+      vi.useFakeTimers();
+
+      const abort = new AbortController();
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: abort,
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      registry.detach('client-1');
+
+      // Advance past full TTL
+      vi.advanceTimersByTime(DETACHED_TTL_MS + 100);
+      expect(registry.isActive('client-1')).toBe(false);
+      expect(abort.signal.aborted).toBe(true);
+
+      vi.useRealTimers();
     });
   });
 

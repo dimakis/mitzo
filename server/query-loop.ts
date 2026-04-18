@@ -9,6 +9,7 @@ import {
 import { createLogger } from './logger.js';
 import type { SessionRegistry, SnapshotBlock } from './session-registry.js';
 import type { EventStore } from './event-store.js';
+import { updateSessionSdkId } from './session-index.js';
 import { sendTurnCompleteNotification as ntfyTurnComplete } from './notify.js';
 import { sendTurnCompleteNotification as pushoverTurnComplete } from './pushover.js';
 import { extractSnippet } from './notification-helpers.js';
@@ -273,6 +274,15 @@ export async function runQueryLoop(
           registry.setSessionId(clientId, resolvedSessionId);
           onSessionResolved?.(resolvedSessionId);
           emit({ type: 'session_id', sessionId: msg.session_id });
+          // Update session index with SDK session ID
+          if (currentSession.wtId) {
+            try {
+              const repoPath = process.env.REPO_PATH || '';
+              updateSessionSdkId(repoPath, currentSession.wtId, resolvedSessionId);
+            } catch {
+              // best-effort — session index write failure is non-fatal
+            }
+          }
           // Persist session metadata (including initial prompt) to durable store
           if (store) {
             store.upsertSession({
