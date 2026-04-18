@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { apiFetch } from '../lib/api-fetch';
 
 export function Login() {
   const [passphrase, setPassphrase] = useState('');
@@ -10,13 +11,21 @@ export function Login() {
     e.preventDefault();
     setError('');
 
-    const res = await fetch('/api/auth/login', {
+    // Clear any stale token before attempting login
+    localStorage.removeItem('mitzo_auth_token');
+
+    const res = await apiFetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ passphrase }),
     });
 
     if (res.ok) {
+      // Store JWT for Capacitor (non-cookie) auth. Browser ignores this.
+      const data = await res.json().catch(() => ({}));
+      if (data.token) {
+        localStorage.setItem('mitzo_auth_token', data.token);
+      }
       navigate('/');
     } else {
       setError('Invalid passphrase');

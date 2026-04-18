@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { apiFetch } from '../lib/api-fetch';
 
 export interface ContextBlockEntry {
   name: string;
@@ -30,7 +31,7 @@ export function ContextPicker({ selected, onToggle, onClose }: Props) {
 
   // Fetch available context blocks from /api/config
   useEffect(() => {
-    fetch('/api/config', { credentials: 'include' })
+    apiFetch('/api/config')
       .then((r) => r.json())
       .then((data: { contextBlocks?: Record<string, { path: string; sizeBytes: number }> }) => {
         const entries: ContextBlockEntry[] = [];

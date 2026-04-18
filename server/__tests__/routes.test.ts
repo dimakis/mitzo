@@ -164,7 +164,8 @@ describe('auth routes', () => {
       .post('/api/auth/login')
       .send({ passphrase: process.env.AUTH_PASSPHRASE });
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ ok: true });
+    expect(res.body.ok).toBe(true);
+    expect(res.body.token).toBeDefined();
     expect(res.headers['set-cookie']).toBeDefined();
     const cookie = (res.headers['set-cookie'] as unknown as string[])[0];
     expect(cookie).toContain('cc_auth=');
@@ -191,6 +192,48 @@ describe('auth routes', () => {
     const res = await request(app).get('/api/auth/check').set('Cookie', authCookie);
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
+  });
+});
+
+// --- Bearer Token Auth ---
+
+describe('bearer token auth', () => {
+  let bearerToken: string;
+
+  beforeAll(async () => {
+    // Get a JWT from login response
+    const res = await request(app)
+      .post('/api/auth/login')
+      .send({ passphrase: process.env.AUTH_PASSPHRASE });
+    bearerToken = res.body.token;
+  });
+
+  it('GET /api/auth/check — accepts Authorization: Bearer header', async () => {
+    const res = await request(app)
+      .get('/api/auth/check')
+      .set('Authorization', `Bearer ${bearerToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true });
+  });
+
+  it('GET /api/sessions — works with Bearer token instead of cookie', async () => {
+    const res = await request(app)
+      .get('/api/sessions')
+      .set('Authorization', `Bearer ${bearerToken}`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.sessions)).toBe(true);
+  });
+
+  it('rejects invalid Bearer token', async () => {
+    const res = await request(app)
+      .get('/api/auth/check')
+      .set('Authorization', 'Bearer invalid-token');
+    expect(res.status).toBe(401);
+  });
+
+  it('rejects malformed Authorization header', async () => {
+    const res = await request(app).get('/api/auth/check').set('Authorization', 'Basic abc123');
+    expect(res.status).toBe(401);
   });
 });
 

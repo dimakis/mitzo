@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { apiFetch } from '../lib/api-fetch';
 
 export interface SkillEntry {
   name: string;
@@ -34,7 +35,7 @@ export function SlashPicker({ query, onSelect, onClose, cwd }: Props) {
   useEffect(() => {
     const params = new URLSearchParams();
     if (cwd) params.set('cwd', cwd);
-    fetch(`/api/skills?${params.toString()}`, { credentials: 'include' })
+    apiFetch(`/api/skills?${params.toString()}`)
       .then((r) => r.json())
       .then((data: SkillEntry[]) => {
         setSkills(data);

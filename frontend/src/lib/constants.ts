@@ -1,5 +1,7 @@
 // Frontend-wide constants. Every hardcoded value lives here.
 
+import { getApiBaseUrl } from './api-fetch';
+
 // --- WebSocket ---
 export const WS_RECONNECT_DELAY_MS = 500;
 export const WS_RECONNECT_POLL_MS = 5_000;
@@ -21,9 +23,11 @@ export const TOOL_GROUP_THRESHOLD = 3;
 export const MAX_IMAGE_ATTACHMENTS = 4;
 
 // --- Voice / Yapper ---
-export const YAPPER_URL =
-  import.meta.env.VITE_YAPPER_URL ||
-  `${typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : 'http://localhost'}/api/yapper`;
+// When VITE_API_BASE_URL is unset (browser same-origin), this resolves to the
+// relative path "/api/yapper". Browsers resolve relative WebSocket URLs against
+// the page origin, so `new WebSocket('/api/yapper-ws/...')` works correctly.
+// In Capacitor, getApiBaseUrl() returns a full URL so the ws:// replace works.
+export const YAPPER_URL = import.meta.env.VITE_YAPPER_URL || `${getApiBaseUrl()}/api/yapper`;
 export const YAPPER_HEALTH_POLL_MS = 30_000;
 export const MAX_RECORDING_DURATION_MS = 120_000;
 export const MIN_RECORDING_DURATION_MS = 500;

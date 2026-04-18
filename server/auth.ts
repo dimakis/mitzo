@@ -51,10 +51,16 @@ export async function verifyToken(token: string): Promise<boolean> {
   }
 }
 
+function extractBearerToken(req: Request): string | undefined {
+  const auth = req.headers.authorization;
+  if (auth?.startsWith('Bearer ')) return auth.slice(7);
+  return undefined;
+}
+
 export function authMiddleware(req: Request, res: Response, next: NextFunction) {
   if (req.path === '/auth/login') return next();
 
-  const token = req.cookies?.[COOKIE_NAME];
+  const token = req.cookies?.[COOKIE_NAME] || extractBearerToken(req);
   if (!token) {
     res.status(401).json({ error: 'Not authenticated' });
     return;

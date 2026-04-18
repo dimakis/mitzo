@@ -117,6 +117,28 @@ app.use(
   }),
 );
 
+// --- CORS for non-same-origin clients (Capacitor iOS, etc.) ---
+// Mounted before yapper proxy so cross-origin voice requests get CORS headers.
+const CORS_ALLOWED_ORIGINS =
+  process.env.CORS_ALLOWED_ORIGINS?.split(',').map((s) => s.trim()) ?? [];
+
+if (CORS_ALLOWED_ORIGINS.length > 0) {
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin && CORS_ALLOWED_ORIGINS.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    }
+    if (req.method === 'OPTIONS') {
+      res.status(204).end();
+      return;
+    }
+    next();
+  });
+}
+
 // --- Yapper proxy (mounted before body parsing and authMiddleware — no login required for voice) ---
 
 const YAPPER_TARGET = process.env.YAPPER_PROXY_TARGET || 'http://localhost:8700';
@@ -587,7 +609,7 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     sameSite: 'strict',
     maxAge: MAX_AGE_HOURS * 60 * 60 * 1000,
   });
-  res.json({ ok: true });
+  res.json({ ok: true, token });
 });
 
 app.post('/api/auth/logout', (_req, res) => {

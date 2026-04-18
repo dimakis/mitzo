@@ -2,6 +2,7 @@ import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import type { TodoItem, TodoData } from '../types/todo';
 import { sourceIcon, buildPrompt } from '../lib/todo-utils';
+import { apiFetch } from '../lib/api-fetch';
 
 function urgencyLabel(urgency: number): string {
   if (urgency >= 0.8) return 'high';
@@ -32,7 +33,7 @@ export function TodoDetailView() {
 
     const controller = new AbortController();
 
-    fetch('/api/todos', { signal: controller.signal })
+    apiFetch('/api/todos', { signal: controller.signal })
       .then((r) => {
         if (!r.ok) throw new Error(`${r.status}`);
         return r.json();

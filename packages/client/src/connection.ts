@@ -243,7 +243,8 @@ export class MitzoConnection {
     }
   }
 
-  private checkAndReconnect(): void {
+  /** Force a reconnect check — call from native lifecycle hooks (e.g. Capacitor appStateChange). */
+  checkAndReconnect(): void {
     if (!this.ws || this.ws.readyState !== WS_READY_STATE.OPEN) {
       if (this.reconnectTimer) return;
       this.ws = null;

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Session } from '../types/chat';
 import { renameSession as renameSessionApi } from '../lib/rename-session';
+import { apiFetch } from '../lib/api-fetch';
 
 export interface QuickAction {
   label: string;
@@ -60,13 +61,13 @@ export function useSessionList(): UseSessionListReturn {
   useEffect(() => {
     const loadAll = () =>
       Promise.all([
-        fetch('/api/sessions')
+        apiFetch('/api/sessions')
           .then((r) => r.json())
           .catch(() => ({ sessions: [], hasMore: false })),
-        fetch('/api/config')
+        apiFetch('/api/config')
           .then((r) => r.json())
           .catch(() => ({})),
-        fetch('/api/version')
+        apiFetch('/api/version')
           .then((r) => r.json())
           .catch(() => ({})),
       ]).then(([sessData, config, version]) => {
@@ -93,7 +94,7 @@ export function useSessionList(): UseSessionListReturn {
   const loadMore = useCallback(() => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
-    fetch(`/api/sessions?offset=${nextOffset.current}`)
+    apiFetch(`/api/sessions?offset=${nextOffset.current}`)
       .then((r) => r.json())
       .then((data) => {
         const { sessions: page, hasMore: more } = parseSessionsResponse(data);
@@ -107,20 +108,20 @@ export function useSessionList(): UseSessionListReturn {
 
   const dismissSession = useCallback((id: string) => {
     setSessions((prev) => prev.filter((s) => s.id !== id));
-    fetch(`/api/sessions/${id}`, { method: 'DELETE' }).catch(() => {});
+    apiFetch(`/api/sessions/${id}`, { method: 'DELETE' }).catch(() => {});
   }, []);
 
   const clearAll = useCallback(() => {
     setSessions([]);
     setHasMore(false);
     nextOffset.current = 0;
-    fetch('/api/sessions', { method: 'DELETE' }).catch(() => {});
+    apiFetch('/api/sessions', { method: 'DELETE' }).catch(() => {});
   }, []);
 
   const handleRename = useCallback((id: string, title: string) => {
     setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, summary: title } : s)));
     renameSessionApi(id, title).catch(() => {
-      fetch('/api/sessions')
+      apiFetch('/api/sessions')
         .then((r) => r.json())
         .then((data) => {
           const { sessions: page, hasMore: more } = parseSessionsResponse(data);
@@ -135,7 +136,7 @@ export function useSessionList(): UseSessionListReturn {
   const checkForUpdates = useCallback(async () => {
     setChecking(true);
     try {
-      const res = await fetch('/api/version/check', { method: 'POST' });
+      const res = await apiFetch('/api/version/check', { method: 'POST' });
       const data = await res.json();
       setUpdateAvailable(data.updateAvailable);
     } catch {

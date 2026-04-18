@@ -8,20 +8,22 @@
  */
 
 import { createMitzoStore } from '@mitzo/client';
-
-const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-const wsUrl = `${proto}://${location.host}/ws/chat`;
+import { apiFetch, getWsChatUrl } from './lib/api-fetch';
+import { registerCapacitorLifecycle } from './lib/capacitor';
 
 export const clientStore = createMitzoStore({
   transport: {
-    fetch: (url, init) => fetch(url, init),
+    fetch: (url, init) => apiFetch(url, init),
   },
   wsConfig: {
-    buildUrl: () => wsUrl,
+    buildUrl: () => getWsChatUrl(),
     createWebSocket: (url) => new WebSocket(url) as import('@mitzo/client').WebSocketLike,
     reconnectDelayMs: 500,
   },
 });
+
+// Wire Capacitor app lifecycle → force WS reconnect on resume (no-op in browser)
+registerCapacitorLifecycle(() => clientStore.getState().forceReconnect());
 
 // Expose on window for console debugging during testing
 if (typeof window !== 'undefined') {
