@@ -142,7 +142,8 @@ export class SessionRegistry {
         // Phase 2: hard abort after CLOSEOUT_TIMEOUT_MS
         const abortTimer = setTimeout(() => {
           this.closeoutTimers.delete(clientId);
-          this.closingOut.delete(clientId);
+          // Don't delete closingOut here — abort() will do it AFTER
+          // firing the abort signal, so listeners can check isClosingOut().
           if (this.sessions.has(clientId) && !this.attached.has(clientId)) {
             log.info(`closeout timeout for ${clientId}, aborting`);
             this.abort(clientId);
@@ -275,11 +276,13 @@ export class SessionRegistry {
 
     this.clearDetachTimer(clientId);
     this.clearCloseoutTimer(clientId);
-    this.closingOut.delete(clientId);
+    // Fire abort signal BEFORE clearing closingOut — abort listeners
+    // check isClosingOut() to distinguish 'abandoned' vs 'closed' status.
     session.abortController.abort();
     session.observers.clear();
     this.sessions.delete(clientId);
     this.attached.delete(clientId);
+    this.closingOut.delete(clientId);
   }
 
   /**

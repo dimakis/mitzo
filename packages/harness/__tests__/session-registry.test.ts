@@ -630,6 +630,40 @@ describe('SessionRegistry', () => {
       vi.useRealTimers();
     });
 
+    it('isClosingOut is true when abort signal fires during closeout', () => {
+      vi.useFakeTimers();
+      const onCloseout = vi.fn();
+      registry.setCloseoutHandler(onCloseout);
+
+      const abort = new AbortController();
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: abort,
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      registry.detach('client-1');
+
+      // Advance to closeout
+      vi.advanceTimersByTime(DETACHED_TTL_MS - CLOSEOUT_LEAD_MS + 100);
+      expect(registry.isClosingOut('client-1')).toBe(true);
+
+      // Listen for the abort signal and capture closingOut state at that moment
+      let closingOutDuringAbort: boolean | undefined;
+      abort.signal.addEventListener('abort', () => {
+        closingOutDuringAbort = registry.isClosingOut('client-1');
+      });
+
+      // Advance through closeout timeout — triggers abort()
+      vi.advanceTimersByTime(CLOSEOUT_TIMEOUT_MS + 100);
+      expect(abort.signal.aborted).toBe(true);
+      // The listener must see isClosingOut=true so it can distinguish abandoned vs closed
+      expect(closingOutDuringAbort).toBe(true);
+
+      vi.useRealTimers();
+    });
+
     it('falls back to direct abort when no closeout handler is set', () => {
       vi.useFakeTimers();
 
