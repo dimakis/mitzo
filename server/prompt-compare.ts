@@ -6,8 +6,9 @@
  * the experiments spoke in mgmt.
  */
 import { readFileSync, existsSync, readdirSync } from 'fs';
+import { execFileSync } from 'child_process';
 import { writeFile, mkdir } from 'fs/promises';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { compile } from 'contexgin';
 import type { CompiledContext } from 'contexgin';
 import { createLogger } from './logger.js';
@@ -59,6 +60,26 @@ export interface ComparisonReport {
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
+}
+
+// ── Repo root resolution ──────────────────────────────────────
+
+/**
+ * Resolve the real repo root from a worktree path, then return
+ * the experiments/prompt-comparisons/ directory within it.
+ * This ensures all sessions write to a single durable location
+ * instead of scattering files across transient worktrees.
+ */
+function resolveExperimentsDir(cwd: string): string {
+  try {
+    const gitCommon = execFileSync('git', ['-C', cwd, 'rev-parse', '--git-common-dir'], {
+      encoding: 'utf-8',
+    }).trim();
+    const repoRoot = resolve(cwd, gitCommon, '..');
+    return join(repoRoot, 'experiments', 'prompt-comparisons');
+  } catch {
+    return join(cwd, 'experiments', 'prompt-comparisons');
+  }
 }
 
 // ── Mitzo effective prompt capture ─────────────────────────────
@@ -298,8 +319,8 @@ export async function capturePromptComparison(
       systemPromptAppendTokens: estimateTokens(systemPromptAppend),
     };
 
-    // Write to .mitzo data directory (not in repo working tree)
-    const outDir = outputRoot ?? join(primaryCwd, '.mitzo', 'prompt-comparisons');
+    // Write to experiments spoke in the real repo root (not the worktree)
+    const outDir = outputRoot ?? resolveExperimentsDir(primaryCwd);
     await mkdir(outDir, { recursive: true });
 
     const safeTimestamp = timestamp.replace(/[:.]/g, '-');
