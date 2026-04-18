@@ -89,7 +89,7 @@ export const V2StopMessage = z.object({
 
 export const V2PermissionResponseMessage = z.object({
   type: z.literal('permission_response'),
-  sessionId: z.string().min(1),
+  sessionId: z.string().min(1).optional(),
   permId: z.string(),
   decision: z.enum(['once', 'always', 'deny']).optional(),
 });
