@@ -127,6 +127,15 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 - `FileViewer` fetches git info on mount, shows branch pill, worktree selector bar when worktrees exist.
 - Markdown files have an Edit button — toggles to a full-height textarea with Save/Cancel and unsaved-changes guards.
 
+**Observability (Jaeger):**
+
+- OpenTelemetry tracing via `server/tracing.ts`, opt-in when `OTEL_EXPORTER_OTLP_ENDPOINT` is set
+- Jaeger UI at http://localhost:16686, service name: "mitzo"
+- Currently instrumented: `ws.switch_session`, `ws.send`, `ws.reconnect` (all in `ws-handler-v2.ts`)
+- Query traces via Jaeger API: `curl http://localhost:16686/api/traces?service=mitzo&operation=<op>`
+- Deep instrumentation roadmap in `docs/design/otel-deep-instrumentation.md`
+- When debugging session/streaming issues, check Jaeger first — it shows routing decisions, timing, and errors
+
 **MCP integration:**
 
 - On startup, `loadMcpServers()` reads `~/.cursor/mcp.json` (or `MCP_CONFIG_PATH`).
