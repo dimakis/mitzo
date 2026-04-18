@@ -26,7 +26,9 @@ vi.mock('../skill-policy.js', () => ({
   clearSkillPolicy: vi.fn(),
 }));
 
-import { startChat } from '../chat.js';
+import { startChat, interruptChat, sendToChat, isActive } from '../chat.js';
+import { setSkillPolicy } from '../skill-policy.js';
+import { resolveSlashCommand } from '../slash-commands.js';
 
 import {
   handleHello,
@@ -416,10 +418,59 @@ describe('handleSendV2 auto-watch', () => {
   });
 });
 
+// ─── handleSendV2 skill policy timing ───────────────────────────────────────
+
+describe('handleSendV2 skill policy', () => {
+  it('calls setSkillPolicy with found.clientId on active-resume path', () => {
+    (sendToChat as ReturnType<typeof vi.fn>).mockClear();
+    (setSkillPolicy as ReturnType<typeof vi.fn>).mockClear();
+    (resolveSlashCommand as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+      type: 'skill',
+      name: 'test-skill',
+      renderedPrompt: 'rendered prompt',
+      allowedTools: ['Read', 'Write'],
+      arguments: '',
+    });
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
+    sessionReg.isActive.mockReturnValue(false);
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleSendV2(
+      'c1',
+      transport,
+      {
+        type: 'send' as const,
+        sessionId: 'sess-active',
+        prompt: '/test-skill',
+        clientMsgId: 'cmsg-sp',
+      },
+      ctx,
+    );
+
+    // Must use found.clientId ('driver-1'), not connectionId ('c1')
+    expect(setSkillPolicy).toHaveBeenCalledWith(expect.anything(), 'driver-1', ['Read', 'Write']);
+    expect(sendToChat).toHaveBeenCalledWith(
+      'driver-1',
+      'rendered prompt',
+      undefined,
+      undefined,
+      'cmsg-sp',
+    );
+  });
+});
+
 // ─── handleInterruptV2 ──────────────────────────────────────────────────────
 
 describe('handleInterruptV2', () => {
-  it('watches and activates the session for the connection', () => {
+  it('watches, activates, and calls interruptChat with correct args', () => {
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
 
@@ -440,6 +491,14 @@ describe('handleInterruptV2', () => {
     expect(conn).toBeDefined();
     expect(conn!.watchedSessions.has('sess-1')).toBe(true);
     expect(conn!.activeSession).toBe('sess-1');
+
+    expect(interruptChat).toHaveBeenCalledWith(
+      'driver-1',
+      'stop and do this',
+      undefined,
+      undefined,
+      'i1',
+    );
   });
 
   it('is a no-op when session is not found', () => {

@@ -319,6 +319,21 @@ describe('MitzoConnection', () => {
     // environment and are covered by the frontend test suite. Here we verify
     // the heartbeat path which works in Node.
 
+    it('emits _close when heartbeat detects dead socket', () => {
+      vi.useFakeTimers();
+      const conn = createConnection();
+      const received: Record<string, unknown>[] = [];
+      conn.onMessage((msg) => received.push(msg));
+      openWithHandshake(conn);
+
+      // Kill socket silently
+      lastWs!.readyState = 3;
+      vi.advanceTimersByTime(5_000);
+
+      expect(received.some((m) => m.type === '_close')).toBe(true);
+      vi.useRealTimers();
+    });
+
     it('skips browser listeners in non-browser environment', () => {
       // In Node, document is undefined — connect should not throw
       const conn = createConnection();

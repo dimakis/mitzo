@@ -248,6 +248,7 @@ export class MitzoConnection {
       if (this.reconnectTimer) return;
       this.ws = null;
       this._connected = false;
+      this.listener?.({ type: '_close' });
       this.doConnect();
     }
   }

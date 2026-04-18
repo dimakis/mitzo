@@ -171,7 +171,7 @@ export function InboxView() {
   const loadInbox = useMitzoStore((s) => s.loadInbox);
 
   useEffect(() => {
-    loadInbox();
+    loadInbox().then(() => setLoading(false));
 
     const onVisible = () => {
       if (document.visibilityState === 'visible') loadInbox();
@@ -190,7 +190,6 @@ export function InboxView() {
       (item) => !pendingRemovals.has(item.filename),
     );
     setItems(filtered);
-    setLoading(false);
   }, [storeInbox, pendingRemovals]);
 
   function handleApprove(filename: string) {
