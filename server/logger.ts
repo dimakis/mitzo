@@ -1,47 +1,88 @@
+import { join } from 'path';
+import pino from 'pino';
+import type { DestinationStream, LoggerOptions, TransportTargetOptions } from 'pino';
+import { trace, context } from '@opentelemetry/api';
+
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
-const LEVEL_ORDER: Record<LogLevel, number> = {
-  debug: 0,
-  info: 1,
-  warn: 2,
-  error: 3,
-};
+const VALID_LEVELS: Record<string, boolean> = { debug: true, info: true, warn: true, error: true };
 
-const configuredLevel: LogLevel =
-  (process.env.LOG_LEVEL as LogLevel) in LEVEL_ORDER ? (process.env.LOG_LEVEL as LogLevel) : 'info';
-
-interface LogEntry {
-  level: LogLevel;
-  module: string;
-  message: string;
-  [key: string]: unknown;
+function resolveLevel(): LogLevel {
+  const env = process.env.LOG_LEVEL;
+  return env && VALID_LEVELS[env] ? (env as LogLevel) : 'info';
 }
 
-function emit(entry: LogEntry): void {
-  if (LEVEL_ORDER[entry.level] < LEVEL_ORDER[configuredLevel]) return;
+function otelMixin(): Record<string, unknown> {
+  const span = trace.getSpan(context.active());
+  if (!span) return {};
+  const ctx = span.spanContext();
+  return { trace_id: ctx.traceId, span_id: ctx.spanId };
+}
 
-  const { level, module, message, ...context } = entry;
-  const prefix = `[${module}]`;
-  const hasContext = Object.keys(context).length > 0;
+function buildProductionDestination(level: LogLevel): DestinationStream {
+  const logDir = join(process.cwd(), 'logs');
+  const logFile = process.env.LOG_FILE_PATH ?? join(logDir, 'server.log');
 
-  if (level === 'error') {
-    console.error(prefix, message, ...(hasContext ? [context] : []));
-  } else if (level === 'warn') {
-    console.warn(prefix, message, ...(hasContext ? [context] : []));
-  } else {
-    console.log(prefix, message, ...(hasContext ? [context] : []));
+  const targets: TransportTargetOptions[] = [
+    {
+      target: 'pino-roll',
+      options: {
+        file: logFile,
+        frequency: 'daily',
+        mkdir: true,
+        dateFormat: 'yyyy-MM-dd',
+      },
+      level,
+    },
+    {
+      target: process.env.NODE_ENV === 'development' ? 'pino-pretty' : 'pino/file',
+      options: process.env.NODE_ENV === 'development' ? { colorize: true } : { destination: 1 },
+      level,
+    },
+  ];
+
+  return pino.transport({ targets });
+}
+
+/**
+ * Build a Pino root logger. Exported for testing — production code uses the
+ * module-level `rootLogger` singleton.
+ */
+export function _buildLogger(dest?: DestinationStream) {
+  const level = resolveLevel();
+  const opts: LoggerOptions = {
+    level,
+    mixin: otelMixin,
+    serializers: { err: pino.stdSerializers.err },
+  };
+
+  if (dest) return pino(opts, dest);
+
+  if (process.env.LOGGER_SYNC === '1' && process.env.LOG_FILE_PATH) {
+    return pino(
+      opts,
+      pino.destination({ dest: process.env.LOG_FILE_PATH, sync: true, mkdir: true }),
+    );
   }
+
+  return pino(opts, buildProductionDestination(level));
 }
 
-export function createLogger(module: string) {
+const rootLogger = _buildLogger();
+
+export interface Logger {
+  debug: (message: string, ctx?: Record<string, unknown>) => void;
+  info: (message: string, ctx?: Record<string, unknown>) => void;
+  warn: (message: string, ctx?: Record<string, unknown>) => void;
+  error: (message: string, ctx?: Record<string, unknown>) => void;
+}
+
+export function createLogger(module: string): Logger {
+  const child = rootLogger.child({ module });
   return {
-    debug: (message: string, context?: Record<string, unknown>) =>
-      emit({ level: 'debug', module, message, ...context }),
-    info: (message: string, context?: Record<string, unknown>) =>
-      emit({ level: 'info', module, message, ...context }),
-    warn: (message: string, context?: Record<string, unknown>) =>
-      emit({ level: 'warn', module, message, ...context }),
-    error: (message: string, context?: Record<string, unknown>) =>
-      emit({ level: 'error', module, message, ...context }),
+    debug: (message: string, ctx?: Record<string, unknown>) => child.debug(ctx ?? {}, message),
+    info: (message: string, ctx?: Record<string, unknown>) => child.info(ctx ?? {}, message),
+    warn: (message: string, ctx?: Record<string, unknown>) => child.warn(ctx ?? {}, message),
+    error: (message: string, ctx?: Record<string, unknown>) => child.error(ctx ?? {}, message),
   };
 }
