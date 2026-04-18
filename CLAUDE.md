@@ -17,7 +17,7 @@ npm run lint         # ESLint (server + frontend)
 npm run lint:fix     # ESLint with auto-fix
 npm run format       # Prettier (write)
 npm run format:check # Prettier (check only)
-npm test             # Vitest (2200+ tests, 187 files)
+npm test             # Vitest (22000+ tests across all packages)
 ```
 
 **Deployment:** Mitzo runs as a launchd service (`com.mitzo.server`). The server is compiled to JS via `tsc` (not live-transpiled). Run `npm run deploy` to build and restart. Logs in `logs/server-{stdout,stderr}.log`.
@@ -35,7 +35,7 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 - `chat.ts` — Agent SDK integration: `startChat()` assembles prompts, creates streaming-input `AsyncQueue`, starts `query()`, wires message handler. `sendToChat()` and `interruptChat()` push follow-up messages. Session listing via `listSessions`/`getSessionMessages` SDK calls. `getMessages()` returns v2 `FinishedMessage[]` format for session restore.
 - `query-loop.ts` — Core event translator: SDK events → v2 protocol. Maintains `openBlockCount` for deferred `message_end`. `forceFlushPendingMessage()` force-closes open blocks at turn boundaries and session end. Tracks snapshot state for iOS reattach recovery.
 - `session-registry.ts` — `SessionRegistry` class: detach/reattach/rekey, TTL-based abort (10 min), `currentSnapshot` for reattach recovery, `findBySessionId` for reconnection.
-- `permission-handler.ts` — Builds the `canUseTool` callback for SDK permission flow. Uses `shouldAutoAllow()` for auto-decisions, falls back to WS-based prompting with ntfy/Pushover notifications.
+- `permission-handler.ts` — Builds the `canUseTool` callback for SDK permission flow. Checks skill policy → worktree guard → `shouldAutoAllow()` before prompting. Falls back to WS-based prompting with ntfy/Pushover notifications.
 - `async-queue.ts` — `AsyncQueue<T>` implementing `AsyncIterable<T>` for streaming-input. Supports `push()` for follow-up messages and `close()` for session teardown.
 - `tool-tiers.ts` — Tool risk classification (`safe`, `standard`, `elevated`, `unknown`). `shouldAutoAllow()` implements mode x tier matrix. `.mitzo.json` tier overrides via `applyTierOverrides()`.
 - `tool-summary.ts` — Tool input summarization. **SDK field names**: `file_path` (not `path`), `content` (not `contents`), `pattern`/`path` for Glob (not `glob_pattern`/`target_directory`).
@@ -50,7 +50,8 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 - `hook-bridge.ts` — Bridges project-level hooks (`.claude/settings.json`) to Agent SDK sessions.
 - `api-schemas.ts` — Zod schemas for HTTP request/response validation.
 - `ws-schemas.ts` — Zod schemas for WebSocket message validation.
-- `internal-token.ts` — Internal token generation for inter-process auth.
+- `internal-token.ts` — Internal token generation for inter-process auth. Persisted to `~/.mitzo/internal-token` at startup so session hooks can authenticate with `POST /api/sessions`.
+- `session-index.ts` — YAML session index at `<repo>/.claude/sessions/index.yaml`. Tracks active/closed sessions with repo worktree mappings.
 - `repo-mcp-server.ts` — Repo-scoped MCP server configuration.
 - `notification-helpers.ts` — Shared notification formatting utilities.
 - `inbox.ts` — Inbox integration endpoint.
@@ -59,15 +60,25 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 - `task-mcp-server.ts` — Stdio MCP server exposing task tools as `mcp__task-board__*`. Calls back to internal HTTP endpoints.
 - `task-context.ts` — XML task context builder for system prompt injection. Includes current task, siblings, parent tree, and summaries (capped at 2000 chars).
 - `task-orchestrator.ts` — `TaskOrchestrator`: event-driven state machine (idle/running/paused) with DFS sequential task assignment. Spec mode for human review of decompositions. Orphan detection reclaims tasks from dead sessions.
+- `ws-handler-v2.ts` — v2 WebSocket message dispatcher: hello handshake → session routing for send/stop/interrupt/permission_response/set_mode.
+- `ws-transport.ts` — `SessionTransport` adapter wrapping WebSocket connections.
+- `connection-registry.ts` (harness) — `ConnectionRegistry`: maps connectionId → transport + sessionId, broadcasts to session observers.
 - `mcp-config.ts` — Loads MCP server configs from Cursor mcp.json.
-- `worktree.ts` — Git worktree lifecycle.
-- `repo-config.ts` — `.mitzo.json` reader for quick actions, venv paths, tier overrides.
+- `worktree.ts` — Git worktree lifecycle: `createWorktree` (with optional dir/branch/prefix overrides), `createSessionWorktrees` (bulk creation for all repos), `removeWorktree`, `cleanupStaleWorktrees` (scans both `.claude/worktrees/` and `.cursor/worktrees/`), `listWorktrees`.
+- `worktree-guard.ts` (harness) — `checkWorktreePolicy()`: inspects Write/Edit/Bash tool inputs against session worktree paths. Denies out-of-bounds writes with a redirect message. Read operations pass through.
+- `repo-config.ts` — `.mitzo.json` reader for quick actions, venv paths, tier overrides, and `repos` (secondary repo paths for multi-repo worktrees).
 - `notify.ts` / `pushover.ts` — Push notifications (ntfy + Pushover/Apple Watch).
 - `auth.ts` — Passphrase login, JWT (HS256 via jose), cookie auth.
-- `logger.ts` — Structured logger with LOG_LEVEL filtering.
+- `logger.ts` — Pino structured logging: JSON output, `LOG_LEVEL` env filtering, pino-roll daily file rotation to `logs/`, OTel trace context mixin (trace_id/span_id), pino-pretty for dev. Lazy singleton init to avoid import-time side effects in tests.
 - `constants.ts` — Server-wide constants (timeouts, buffer limits, defaults).
 - `git-version.ts` — Local/remote commit comparison for update detection.
 - `port-check.ts` — Prevents duplicate server instances.
+
+**Packages** (`packages/`) — npm workspace packages shared between server and frontend
+
+- `@mitzo/protocol` — Shared types, Zod schemas (v2 WS messages, API schemas), tool summarization.
+- `@mitzo/harness` — Session registry, connection registry, permission handler, worktree guard, tool tiers, skill policy, auto-rename, notifications, logger.
+- `@mitzo/client` — Frontend state management: `MitzoConnection` (single multiplexed WS), Zustand store (`createMitzoStore`), v2 protocol parser, session switching, message reducer.
 
 **Frontend** (`frontend/`) — React 19 + Vite + TypeScript
 
@@ -75,7 +86,7 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 - `types/ws-messages.ts` — Typed WebSocket message unions (client → server, server → client).
 - `types/task.ts` — Task model types (`Task`, `TaskStatus`, `LoopStatus`, `SessionPolicy`).
 - `hooks/` — `useChatMessages` (useReducer for v2 protocol: MESSAGE_START/BLOCK_START/BLOCK_DELTA/BLOCK_END/TOOL_RESULT/MESSAGE_END/SESSION_END/MESSAGE_SNAPSHOT/RESTORE), `useChatSession`, `useChatConnection`, `usePermission`, `useTaskBoard` (task CRUD + loop control + WS subscriptions), `useFileNavigation`, `useFileEditor`, `useLongPress`.
-- `lib/` — `ws-pool` (module-level WebSocket pool with 500-message buffer and auto-reconnect), `groupMessages` (tool block grouping with configurable threshold), `constants`, `formatTime`, `paste-images`, `model-preference`, `rename-session`, `resizeImage`, `swipe-reveal`, `truncate`.
+- `lib/` — `groupMessages` (tool block grouping with configurable threshold), `constants`, `formatTime`, `paste-images`, `model-preference`, `rename-session`, `resizeImage`, `swipe-reveal`, `truncate`.
 - Pages: `Login`, `SessionList`, `ChatView` (renders `current` inline + `messages[]` grouped), `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`, `TaskBoard`.
 - Components: `MessageBubble` (UserBubble/TextBubble), `ThinkingBlock`, `ToolPill`, `ToolGroup`, `PermissionBanner`, `ChatInput`, `SlashPicker`, `ErrorBoundary`, `MitzoLogo`, `TaskNode`, `TaskCreateForm`, `LoopControls`, `TaskSidebar`.
 - Auth via `ProtectedRoute` wrapper. Vite dev server proxies `/api` and `/ws` to backend.
@@ -87,28 +98,34 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 - `RESTORE` validates message shape — filters out pre-v2 stale localStorage caches.
 - `groupBlocks()` guards against undefined/non-array input.
 
-**Session resilience:**
+**Session resilience (v2 protocol):**
 
+- Single multiplexed WebSocket via `ConnectionRegistry` — replaces the old per-session ws-pool.
 - WebSocket disconnect detaches (not aborts) the session via `SessionRegistry`.
 - New WebSocket can reattach to a detached session using the `client_id` sent on connect.
-- Detached sessions auto-abort after 10 minutes.
-- Frontend uses a module-level WS pool (`ws-pool.ts`) — connections survive component unmount/remount.
-- Messages arriving while the chat component is unmounted are buffered in the pool (up to 500 messages) and replayed on re-mount via `wsDrainBuffer()`.
+- Detached sessions enter a two-phase closeout: graceful closeout (agent asked to commit and summarize), then hard abort after timeout.
+- `@mitzo/client` store (`MitzoConnection`) handles reconnection, session switching, and v2 event parsing.
+- All events tagged with `sessionId` for client-side demuxing.
 
 **Repo configuration (`.mitzo.json`):**
 
-- On startup, `repo-config.ts` reads `${REPO_PATH}/.mitzo.json` for quick actions and venv paths.
+- On startup, `repo-config.ts` reads `${REPO_PATH}/.mitzo.json` for quick actions, venv paths, repos, and tier overrides.
+- `repos` — secondary repo paths for multi-repo worktrees. Key = display name, value = absolute path. Validated at load (must exist and be a git repo).
 - Quick actions appear on the home screen grid. Without config, only Chat and Files are shown.
 - Venv paths are relative to `REPO_PATH`, resolved and prepended to `PATH` for Agent SDK sessions.
 - `GET /api/config` serves resolved quick actions (with absolute `cwd` paths) to the frontend.
 
-**Worktree isolation (opt-in):**
+**Session isolation (worktrees):**
 
-- Worktrees are off by default. Enabled per-session via the "WT" toggle in the chat header.
+- Every Mitzo session gets isolated git worktrees — one per configured repo, all sharing a session ID.
+- Worktree path: `<repo>/.claude/worktrees/<session-id>/`, branch: `session/<session-id>`.
 - `WORKTREE_ENABLED` env var is the ceiling — if `false`, worktrees are disabled entirely.
-- When enabled: worktree created at `${REPO_PATH}-sessions/session-<id>/`, branched from HEAD.
-- Server sends `session_info` with branch name, cwd, and worktree flag. Frontend shows branch pill.
-- Stale worktrees (>7 days) cleaned up on startup.
+- **Multi-repo:** `.mitzo.json` `repos` field lists secondary repos. All get worktrees at session start via `createSessionWorktrees()`.
+- **Enforcement:** `checkWorktreePolicy()` in `canUseTool` inspects Write/Edit/Bash tool inputs and denies out-of-worktree paths with a redirect message. The agent self-corrects. Read operations unrestricted.
+- **System prompt:** `buildWorktreeSystemPrompt()` lists ALL repo paths (including primary) so the agent has a lookup table for multi-repo navigation.
+- **Env vars:** `MITZO_SESSION_ID` + `MITZO_REPO_<NAME>` for every repo (including primary).
+- **External hooks:** `POST /api/sessions` (internal-token auth) creates worktrees for all repos. Cursor/Claude Code sessionStart hooks call this endpoint. Token persisted to `~/.mitzo/internal-token`.
+- **Cleanup:** Stale worktrees (>96h) cleaned up on startup. Scans both `.claude/worktrees/` and `.cursor/worktrees/`. Dirty worktrees (uncommitted work) are flagged in the mgmt inbox.
 - Sessions with explicit `cwd` or `resume` skip worktree creation.
 
 **Tool permission tiers:**
@@ -186,7 +203,7 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 
 ## What is Mitzo?
 
-Mitzo is a web-based command center for Claude Code sessions, built on the Anthropic Agent SDK. It provides a mobile-first interface for managing AI-assisted workflows — chat sessions with slash-command skills, file browsing/editing, worktree isolation, MCP tool integration, voice input/output via Yapper, quick actions, and a task board with autonomous orchestration.
+Mitzo is a web-based command center for Claude Code sessions, built on the Anthropic Agent SDK. It provides a mobile-first interface for managing AI-assisted workflows — chat sessions with slash-command skills, file browsing/editing, deterministic session isolation (multi-repo worktrees with tool-level enforcement), MCP tool integration, voice input/output via Yapper, quick actions, Pino structured logging with OTel tracing, and a task board with autonomous orchestration.
 
 Mitzo lives at `~/tools/mitzo/` and is pointed at the `mgmt` workspace via the `REPO_PATH` env var. It is open source and designed to be portable — no hardcoded paths or machine-specific configuration.
 
