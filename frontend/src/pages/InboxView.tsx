@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { wsSubscribe } from '../lib/ws-pool';
+import { useMitzoStore } from '@mitzo/client/hooks';
 import { EmptyState } from '../components/EmptyState';
 
 interface InboxItem {
@@ -164,55 +164,66 @@ export function InboxView() {
   const [items, setItems] = useState<InboxItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
+  const [pendingRemovals, setPendingRemovals] = useState<Set<string>>(new Set());
 
-  const loadItems = useCallback(() => {
-    fetch('/api/inbox')
-      .then((r) => r.json())
-      .then(setItems)
-      .catch(() => setItems([]))
-      .finally(() => setLoading(false));
-  }, []);
+  // Sync from the store's inbox (updated via v2 WS inbox_updated events)
+  const storeInbox = useMitzoStore((s) => s.inbox.items);
+  const loadInbox = useMitzoStore((s) => s.loadInbox);
 
   useEffect(() => {
-    loadItems();
+    loadInbox().then(() => setLoading(false));
 
     const onVisible = () => {
-      if (document.visibilityState === 'visible') loadItems();
+      if (document.visibilityState === 'visible') loadInbox();
     };
     document.addEventListener('visibilitychange', onVisible);
 
-    // Subscribe to WS for real-time inbox updates (debounce burst events)
-    let debounceTimer: ReturnType<typeof setTimeout>;
-    const unsub = wsSubscribe('global:system', (msg) => {
-      if (msg.type === 'inbox_updated') {
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(loadItems, 300);
-      }
-    });
-
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
-      clearTimeout(debounceTimer);
-      unsub();
     };
-  }, [loadItems]);
+  }, [loadInbox]);
+
+  // When the store's inbox updates (via WS), sync to local state — but
+  // filter out items that were optimistically removed to prevent flicker.
+  useEffect(() => {
+    const filtered = (storeInbox as InboxItem[]).filter(
+      (item) => !pendingRemovals.has(item.filename),
+    );
+    setItems(filtered);
+  }, [storeInbox, pendingRemovals]);
 
   function handleApprove(filename: string) {
+    setPendingRemovals((prev) => new Set(prev).add(filename));
     setItems((prev) => prev.filter((i) => i.filename !== filename));
     fetch(`/api/inbox/${encodeURIComponent(filename)}/approve`, { method: 'POST' })
       .then((res) => {
-        if (!res.ok) loadItems();
+        if (!res.ok) loadInbox();
       })
-      .catch(loadItems);
+      .catch(() => loadInbox())
+      .finally(() => {
+        setPendingRemovals((prev) => {
+          const next = new Set(prev);
+          next.delete(filename);
+          return next;
+        });
+      });
   }
 
   function handleDiscard(filename: string) {
+    setPendingRemovals((prev) => new Set(prev).add(filename));
     setItems((prev) => prev.filter((i) => i.filename !== filename));
     fetch(`/api/inbox/${encodeURIComponent(filename)}`, { method: 'DELETE' })
       .then((res) => {
-        if (!res.ok) loadItems();
+        if (!res.ok) loadInbox();
       })
-      .catch(loadItems);
+      .catch(() => loadInbox())
+      .finally(() => {
+        setPendingRemovals((prev) => {
+          const next = new Set(prev);
+          next.delete(filename);
+          return next;
+        });
+      });
   }
 
   const sources = [...new Set(items.map((i) => i.agent))].sort();

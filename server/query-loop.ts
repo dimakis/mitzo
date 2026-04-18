@@ -1,4 +1,4 @@
-import type { SessionTransport } from '@mitzo/harness';
+import type { SessionTransport, ConnectionRegistry } from '@mitzo/harness';
 import { summarizeToolInput, getRawInput } from './tool-summary.js';
 import { extractToolResultText } from './content-blocks.js';
 import {
@@ -67,12 +67,27 @@ function sendOrBuffer(
   registry: SessionRegistry,
   store?: EventStore,
   sessionId?: string,
+  connRegistry?: ConnectionRegistry,
 ) {
   let enriched: Record<string, unknown> = data;
-  if (store && sessionId && data.v === 2) {
-    const seq = store.append(sessionId, data.type as string, data);
-    enriched = { ...data, seq };
+  // Tag v2 events with sessionId for v2 client demuxing. v1 clients
+  // ignore the extra field. Persist to the durable store before delivery.
+  if (data.v === 2 && sessionId) {
+    enriched = { ...data, sessionId };
+    if (store) {
+      const seq = store.append(sessionId, data.type as string, enriched);
+      enriched = { ...enriched, seq };
+    }
   }
+
+  // v2 path: deliver via ConnectionRegistry when clientId is a registered v2
+  // connection AND sessionId is resolved (broadcast needs a session target).
+  if (connRegistry?.get(clientId) && sessionId) {
+    connRegistry.broadcast(sessionId, enriched);
+    return;
+  }
+
+  // v1 path (or pre-sessionId fallback for v2): driver transport + observers
   const session = registry.get(clientId);
   if (session) {
     if (registry.isAttached(clientId)) {
@@ -86,6 +101,11 @@ function v2(type: string, rest: Record<string, unknown> = {}): Record<string, un
   return { v: 2, type, ts: Date.now(), ...rest };
 }
 
+export interface QueryLoopOptions {
+  connRegistry?: ConnectionRegistry;
+  onSessionResolved?: (sessionId: string) => void;
+}
+
 export async function runQueryLoop(
   q: AsyncIterable<Record<string, unknown>>,
   clientId: string,
@@ -93,7 +113,10 @@ export async function runQueryLoop(
   abortController: AbortController,
   store?: EventStore,
   initialPrompt?: string,
+  options?: QueryLoopOptions,
 ) {
+  const connRegistry = options?.connRegistry;
+  const onSessionResolved = options?.onSessionResolved;
   // Tool input buffers keyed by content block index (reset per message_start).
   const toolInputBuffers = new Map<
     number,
@@ -129,9 +152,9 @@ export async function runQueryLoop(
     durationApiMs: 0,
   };
 
-  /** Wrapper that auto-injects store + sessionId into sendOrBuffer */
+  /** Wrapper that auto-injects store + sessionId + connRegistry into sendOrBuffer */
   function emit(data: Record<string, unknown>) {
-    sendOrBuffer(data, clientId, registry, store, resolvedSessionId);
+    sendOrBuffer(data, clientId, registry, store, resolvedSessionId, connRegistry);
   }
 
   function nextBlockId(): string {
@@ -246,6 +269,7 @@ export async function runQueryLoop(
         if (!currentSession.sessionId && msg.session_id) {
           resolvedSessionId = msg.session_id as string;
           registry.setSessionId(clientId, resolvedSessionId);
+          onSessionResolved?.(resolvedSessionId);
           emit({ type: 'session_id', sessionId: msg.session_id });
           // Persist session metadata (including initial prompt) to durable store
           if (store) {
@@ -362,6 +386,9 @@ export async function runQueryLoop(
         }
 
         emit(v2('session_end', { sessionId: msg.session_id, usage: usageData }));
+        if (connRegistry?.get(clientId)) {
+          connRegistry.setActive(clientId, null);
+        }
         if (!registry.isAttached(clientId)) {
           const snippet = extractSnippet(snapshotBlocks, NOTIFY_SNIPPET_MAX_CHARS);
           const sid = (msg.session_id as string) || currentSession.sessionId;
@@ -620,8 +647,15 @@ export async function runQueryLoop(
       finalSession.currentSnapshot = null;
       if (!doneSent) {
         const endMsg = v2('session_end', { sessionId: finalSession.sessionId });
-        send(finalSession.transport, endMsg);
-        broadcastToObservers(finalSession.observers, endMsg);
+        if (connRegistry?.get(clientId) && finalSession.sessionId) {
+          connRegistry.broadcast(finalSession.sessionId, endMsg);
+        } else {
+          send(finalSession.transport, endMsg);
+          broadcastToObservers(finalSession.observers, endMsg);
+        }
+        if (connRegistry?.get(clientId)) {
+          connRegistry.setActive(clientId, null);
+        }
       }
       registry.remove(clientId);
     }

@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": false,
+    "module": "node16",
+    "moduleResolution": "node16"
+  },
+  "exclude": ["server/__tests__/**"]
+}

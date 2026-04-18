@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { SessionTransport } from '../../packages/harness/src/session-transport.js';
+import { ConnectionRegistry } from '../../packages/harness/src/connection-registry.js';
 import { runQueryLoop } from '../query-loop.js';
 import type { SessionRegistry } from '../session-registry.js';
 import { EventStore } from '../event-store.js';
@@ -1113,6 +1114,348 @@ describe('runQueryLoop', () => {
 
       // Closed observer should not receive any messages
       expect(closedTransport.sent).toHaveLength(0);
+    });
+  });
+
+  describe('v2 ConnectionRegistry delivery', () => {
+    it('routes events through connRegistry.broadcast when clientId is a v2 connection', async () => {
+      const connRegistry = new ConnectionRegistry();
+      const v2Transport = fakeTransport();
+      connRegistry.register(clientId, v2Transport);
+      connRegistry.watch(clientId, 'sess-v2');
+      connRegistry.setActive(clientId, 'sess-v2');
+
+      // Pre-set sessionId so broadcast has a target from the start
+      const session = registry.get(clientId)!;
+      session.sessionId = 'sess-v2';
+
+      const events: Record<string, unknown>[] = [
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-v2' } } },
+        {
+          type: 'stream_event',
+          event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+        },
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'v2 hello' },
+          },
+        },
+        { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-v2' },
+        { type: 'result', session_id: 'sess-v2' },
+      ];
+
+      await runQueryLoop(
+        eventStream(events),
+        clientId,
+        registry,
+        abortController,
+        undefined,
+        undefined,
+        { connRegistry },
+      );
+
+      // v2Transport should receive events via connRegistry.broadcast
+      expect(v2Transport.sent.some((m) => m.type === 'message_start')).toBe(true);
+      expect(v2Transport.sent.some((m) => m.type === 'block_delta')).toBe(true);
+      expect(v2Transport.sent.some((m) => m.type === 'session_end')).toBe(true);
+    });
+
+    it('falls back to v1 path when clientId is NOT in connRegistry', async () => {
+      const connRegistry = new ConnectionRegistry();
+      // Do NOT register clientId in connRegistry — it's a v1 connection
+
+      const events: Record<string, unknown>[] = [
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-v1' } } },
+        {
+          type: 'stream_event',
+          event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+        },
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'v1 hello' },
+          },
+        },
+        { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-v1' },
+        { type: 'result', session_id: 'sess-v1' },
+      ];
+
+      await runQueryLoop(
+        eventStream(events),
+        clientId,
+        registry,
+        abortController,
+        undefined,
+        undefined,
+        { connRegistry },
+      );
+
+      // Driver transport should still receive events (v1 path)
+      expect(transport.sent.some((m) => m.type === 'message_start')).toBe(true);
+      expect(transport.sent.some((m) => m.type === 'block_delta')).toBe(true);
+      expect(transport.sent.some((m) => m.type === 'session_end')).toBe(true);
+    });
+
+    it('falls back to direct driver send before sessionId is resolved', async () => {
+      const connRegistry = new ConnectionRegistry();
+      const v2Transport = fakeTransport();
+      connRegistry.register(clientId, v2Transport);
+
+      // sessionId not pre-set — will be resolved on first assistant event
+      // Provide onSessionResolved to auto-watch (mirrors handleSendV2 behavior)
+      const onSessionResolved = (sessionId: string) => {
+        connRegistry.watch(clientId, sessionId);
+        connRegistry.setActive(clientId, sessionId);
+      };
+
+      const events: Record<string, unknown>[] = [
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-pre' } } },
+        {
+          type: 'stream_event',
+          event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+        },
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'before sessionId' },
+          },
+        },
+        // assistant resolves sessionId
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-late' },
+        // After sessionId resolved, events should go through connRegistry
+        {
+          type: 'stream_event',
+          event: { type: 'message_start', message: { id: 'msg-post' } },
+        },
+        {
+          type: 'stream_event',
+          event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+        },
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'after sessionId' },
+          },
+        },
+        { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-late' },
+        { type: 'result', session_id: 'sess-late' },
+      ];
+
+      await runQueryLoop(
+        eventStream(events),
+        clientId,
+        registry,
+        abortController,
+        undefined,
+        undefined,
+        { connRegistry, onSessionResolved },
+      );
+
+      // Pre-sessionId events should still reach the driver transport (v1 fallback)
+      expect(transport.sent.some((m) => m.type === 'message_start')).toBe(true);
+
+      // Post-sessionId events should reach v2Transport via broadcast
+      expect(v2Transport.sent.some((m) => m.type === 'session_end')).toBe(true);
+    });
+
+    it('sends session_end via connRegistry.broadcast in finally block for v2 connections', async () => {
+      const connRegistry = new ConnectionRegistry();
+      const v2Transport = fakeTransport();
+      connRegistry.register(clientId, v2Transport);
+      connRegistry.watch(clientId, 'sess-abort');
+      connRegistry.setActive(clientId, 'sess-abort');
+
+      const session = registry.get(clientId)!;
+      session.sessionId = 'sess-abort';
+
+      // Stream that errors before result (simulates abort)
+      async function* errorStream() {
+        yield {
+          type: 'stream_event',
+          event: { type: 'message_start', message: { id: 'msg-abort' } },
+        };
+        throw new Error('connection lost');
+      }
+
+      await runQueryLoop(errorStream(), clientId, registry, abortController, undefined, undefined, {
+        connRegistry,
+      });
+
+      // session_end should reach v2Transport via connRegistry in the finally block
+      expect(v2Transport.sent.some((m) => m.type === 'session_end')).toBe(true);
+    });
+  });
+
+  describe('onSessionResolved callback', () => {
+    it('invokes the callback with sessionId when first resolved', async () => {
+      const onResolved = vi.fn();
+
+      const events: Record<string, unknown>[] = [
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-cb' },
+        { type: 'result', session_id: 'sess-cb' },
+      ];
+
+      await runQueryLoop(
+        eventStream(events),
+        clientId,
+        registry,
+        abortController,
+        undefined,
+        undefined,
+        { onSessionResolved: onResolved },
+      );
+
+      expect(onResolved).toHaveBeenCalledTimes(1);
+      expect(onResolved).toHaveBeenCalledWith('sess-cb');
+    });
+
+    it('does not invoke the callback on subsequent assistant events', async () => {
+      const onResolved = vi.fn();
+
+      const events: Record<string, unknown>[] = [
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-t1' } } },
+        {
+          type: 'stream_event',
+          event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+        },
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'Turn 1' },
+          },
+        },
+        { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-multi' },
+        // Second assistant event (multi-turn)
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-t2' } } },
+        {
+          type: 'stream_event',
+          event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+        },
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'Turn 2' },
+          },
+        },
+        { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-multi' },
+        { type: 'result', session_id: 'sess-multi' },
+      ];
+
+      await runQueryLoop(
+        eventStream(events),
+        clientId,
+        registry,
+        abortController,
+        undefined,
+        undefined,
+        { onSessionResolved: onResolved },
+      );
+
+      expect(onResolved).toHaveBeenCalledTimes(1);
+    });
+
+    it('is not invoked when session already has sessionId (resume case)', async () => {
+      const onResolved = vi.fn();
+      const session = registry.get(clientId)!;
+      session.sessionId = 'sess-resume';
+
+      const events: Record<string, unknown>[] = [
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-resume' },
+        { type: 'result', session_id: 'sess-resume' },
+      ];
+
+      await runQueryLoop(
+        eventStream(events),
+        clientId,
+        registry,
+        abortController,
+        undefined,
+        undefined,
+        { onSessionResolved: onResolved },
+      );
+
+      // Callback should not fire because sessionId was already set
+      expect(onResolved).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('session_end cleanup via ConnectionRegistry', () => {
+    it('clears activeSession on the v2 connection when session ends normally', async () => {
+      const connRegistry = new ConnectionRegistry();
+      const v2Transport = fakeTransport();
+      connRegistry.register(clientId, v2Transport);
+      connRegistry.watch(clientId, 'sess-cleanup');
+      connRegistry.setActive(clientId, 'sess-cleanup');
+
+      const session = registry.get(clientId)!;
+      session.sessionId = 'sess-cleanup';
+
+      const events: Record<string, unknown>[] = [
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-cleanup' },
+        { type: 'result', session_id: 'sess-cleanup' },
+      ];
+
+      await runQueryLoop(
+        eventStream(events),
+        clientId,
+        registry,
+        abortController,
+        undefined,
+        undefined,
+        { connRegistry },
+      );
+
+      const conn = connRegistry.get(clientId);
+      expect(conn).toBeDefined();
+      expect(conn!.activeSession).toBeNull();
+      // Session should remain in watchedSessions
+      expect(conn!.watchedSessions.has('sess-cleanup')).toBe(true);
+    });
+
+    it('clears activeSession in finally block when session ends abnormally', async () => {
+      const connRegistry = new ConnectionRegistry();
+      const v2Transport = fakeTransport();
+      connRegistry.register(clientId, v2Transport);
+      connRegistry.watch(clientId, 'sess-err-cleanup');
+      connRegistry.setActive(clientId, 'sess-err-cleanup');
+
+      const session = registry.get(clientId)!;
+      session.sessionId = 'sess-err-cleanup';
+
+      async function* errorStream() {
+        yield {
+          type: 'stream_event',
+          event: { type: 'message_start', message: { id: 'msg-err' } },
+        };
+        throw new Error('unexpected');
+      }
+
+      await runQueryLoop(errorStream(), clientId, registry, abortController, undefined, undefined, {
+        connRegistry,
+      });
+
+      const conn = connRegistry.get(clientId);
+      expect(conn).toBeDefined();
+      expect(conn!.activeSession).toBeNull();
+      expect(conn!.watchedSessions.has('sess-err-cleanup')).toBe(true);
     });
   });
 

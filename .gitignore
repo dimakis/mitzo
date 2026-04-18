@@ -8,3 +8,4 @@ frontend/dist/
 .env
 mcp-server/build/
 certs/
+logs/

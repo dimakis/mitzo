@@ -2,12 +2,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 
-const mockWsSubscribe = vi.fn().mockReturnValue(vi.fn());
-
-vi.mock('../../lib/ws-pool', () => ({
-  wsSubscribe: (...args: unknown[]) => mockWsSubscribe(...args),
-}));
-
 vi.mock('../../lib/rename-session', () => ({
   renameSession: vi.fn().mockResolvedValue(undefined),
 }));
@@ -17,7 +11,6 @@ import { useSessionList } from '../useSessionList';
 const mockFetch = vi.fn();
 
 beforeEach(() => {
-  mockWsSubscribe.mockClear().mockReturnValue(vi.fn());
   mockFetch.mockReset();
   vi.stubGlobal('fetch', mockFetch);
 

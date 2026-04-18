@@ -20,7 +20,6 @@ export const clientStore = createMitzoStore({
     buildUrl: () => wsUrl,
     createWebSocket: (url) => new WebSocket(url) as import('@mitzo/client').WebSocketLike,
     reconnectDelayMs: 500,
-    reconnectPollMs: 5_000,
   },
 });
 

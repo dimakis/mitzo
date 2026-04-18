@@ -21,6 +21,7 @@ import {
   registry,
   eventStore,
   getRepoConfig,
+  setConnectionRegistry,
 } from './chat.js';
 import { cleanupStaleWorktrees } from './worktree.js';
 import { HEARTBEAT_INTERVAL_MS, PORT_DEFAULT, SHUTDOWN_GRACE_MS } from './constants.js';
@@ -44,12 +45,21 @@ import { resolvePending } from './permissions.js';
 import { resolveSlashCommand } from './slash-commands.js';
 import { NativeCommandRegistry } from './native-commands.js';
 import { setSkillPolicy, clearSkillPolicy } from './skill-policy.js';
+import { ConnectionRegistry } from '@mitzo/harness';
+import {
+  isHelloHandshake,
+  handleHello,
+  dispatchV2Message,
+  type V2HandlerContext,
+} from './ws-handler-v2.js';
 
 const log = createLogger('server');
 
 const PORT = parseInt(process.env.PORT || String(PORT_DEFAULT), 10);
 
 const nativeCommands = new NativeCommandRegistry();
+const connRegistry = new ConnectionRegistry();
+setConnectionRegistry(connRegistry);
 
 // Resolve cert paths relative to the project root (where package.json lives)
 const __filename = fileURLToPath(import.meta.url);
@@ -65,24 +75,32 @@ const server = USE_TLS
 const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
 
 setUpdateBroadcast(() => {
-  const msg = JSON.stringify({ type: 'update_available' });
+  const data = { type: 'update_available' };
+  const msg = JSON.stringify(data);
   wss.clients.forEach((client) => {
+    if (v2Sockets.has(client)) return;
     if (client.readyState === client.OPEN) client.send(msg);
   });
+  connRegistry.broadcastAll(data);
 });
 
 setInboxBroadcast(() => {
-  const msg = JSON.stringify({ type: 'inbox_updated' });
+  const data = { type: 'inbox_updated' };
+  const msg = JSON.stringify(data);
   wss.clients.forEach((client) => {
+    if (v2Sockets.has(client)) return;
     if (client.readyState === client.OPEN) client.send(msg);
   });
+  connRegistry.broadcastAll(data);
 });
 
 setTaskBroadcast((event) => {
   const msg = JSON.stringify(event);
   wss.clients.forEach((client) => {
+    if (v2Sockets.has(client)) return;
     if (client.readyState === client.OPEN) client.send(msg);
   });
+  connRegistry.broadcastAll(event as Record<string, unknown>);
 });
 
 // --- Task Orchestrator ---
@@ -112,17 +130,23 @@ const orchestrator = new TaskOrchestrator({
     }
   },
   broadcastStatus: (status) => {
-    const msg = JSON.stringify({ type: 'loop_status', ...status });
+    const data = { type: 'loop_status', ...status };
+    const msg = JSON.stringify(data);
     wss.clients.forEach((client) => {
+      if (v2Sockets.has(client)) return;
       if (client.readyState === client.OPEN) client.send(msg);
     });
+    connRegistry.broadcastAll(data);
   },
   broadcastTasks: () => {
     const tree = taskStore.getTree();
-    const msg = JSON.stringify({ type: 'task_state', tasks: tree });
+    const data = { type: 'task_state', tasks: tree };
+    const msg = JSON.stringify(data);
     wss.clients.forEach((client) => {
+      if (v2Sockets.has(client)) return;
       if (client.readyState === client.OPEN) client.send(msg);
     });
+    connRegistry.broadcastAll(data as Record<string, unknown>);
   },
   getActiveSessionIds: () => {
     const ids = new Set<string>();
@@ -157,14 +181,116 @@ server.on('upgrade', async (req, socket, head) => {
   }
 
   wss.handleUpgrade(req, socket, head, (ws) => {
-    const clientId = `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    log.info('chat connected', { clientId });
-    handleChatWs(ws, clientId);
+    const connId = `conn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    log.info('chat connected', { connectionId: connId });
+    routeWsClient(ws, connId);
   });
 });
 
+/**
+ * Route a new WebSocket to v1 or v2 protocol based on the first message.
+ * v2 clients send { type: 'hello', protocolVersion: 2 } immediately.
+ * v1 clients send a regular message (send, reattach, etc.).
+ * Timeout fallback: if no message within 5s, assume v1.
+ */
+function routeWsClient(ws: WebSocket, assignedId: string) {
+  const HANDSHAKE_TIMEOUT_MS = 5_000;
+
+  const timer = setTimeout(() => {
+    ws.removeListener('message', onFirstMessage);
+    log.info('no hello received, routing to v1', { connectionId: assignedId });
+    handleChatWs(ws, assignedId);
+  }, HANDSHAKE_TIMEOUT_MS);
+
+  const onFirstMessage = (raw: Buffer | ArrayBuffer | Buffer[]) => {
+    clearTimeout(timer);
+    ws.removeListener('message', onFirstMessage);
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw.toString());
+    } catch {
+      handleChatWs(ws, assignedId);
+      return;
+    }
+
+    if (isHelloHandshake(parsed)) {
+      handleChatWsV2(ws, assignedId);
+    } else {
+      handleChatWs(ws, assignedId, raw);
+    }
+  };
+
+  ws.on('message', onFirstMessage);
+}
+
+/** v2 handler context — shared across all v2 connections. */
+const v2Ctx: V2HandlerContext = {
+  connRegistry,
+  sessionRegistry: registry,
+  eventStore,
+  nativeCommands,
+};
+
+/**
+ * Handle a v2 WebSocket connection (after hello handshake detected).
+ * connectionId is immutable for the lifetime of this WS — never changes.
+ */
+function handleChatWsV2(ws: WebSocket, connectionId: string) {
+  const transport = getTransport(ws);
+  v2Sockets.add(ws);
+  handleHello(connectionId, transport, v2Ctx);
+
+  const heartbeat = setInterval(() => {
+    if (ws.readyState === ws.OPEN) ws.ping();
+  }, HEARTBEAT_INTERVAL_MS);
+
+  ws.on('message', (raw) => {
+    try {
+      dispatchV2Message(connectionId, transport, raw.toString(), v2Ctx);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      log.warn('v2 message dispatch error', { connectionId, error: message });
+      transport.send({ type: 'error', error: message });
+    }
+  });
+
+  ws.on('close', (code, reason) => {
+    clearInterval(heartbeat);
+    v2Sockets.delete(ws);
+
+    // Snapshot watched sessions before removing the connection — we need to
+    // detach ALL sessions this connection was driving, not just the most recent.
+    const conn = connRegistry.get(connectionId);
+    const watchedSessions = conn ? [...conn.watchedSessions] : [];
+
+    connRegistry.remove(connectionId);
+    registry.removeObserver(transport);
+    transportMap.delete(ws);
+    log.info('v2 disconnected', { connectionId, code, reason: reason?.toString() });
+
+    // Detach any session whose transport matches this connection's transport
+    for (const sessionId of watchedSessions) {
+      const found = registry.findBySessionId(sessionId);
+      if (!found) continue;
+      const session = registry.get(found.clientId);
+      if (session && session.transport === transport && registry.isAttached(found.clientId)) {
+        detachChat(found.clientId);
+        log.info('v2 session detached (surviving)', { connectionId, sessionId });
+      }
+    }
+  });
+
+  ws.on('error', (err) => {
+    log.error('v2 ws error', { connectionId, error: err.message });
+  });
+}
+
 /** Map raw WebSocket → WsTransport wrapper, so removeObserver can look up the transport. */
 const transportMap = new Map<WebSocket, WsTransport>();
+
+/** v2 WebSockets — tracked so wss.clients broadcasts skip them (v2 gets events via connRegistry). */
+const v2Sockets = new Set<WebSocket>();
 
 /**
  * Get or create a WsTransport wrapper for a raw WebSocket.
@@ -260,7 +386,11 @@ function tryRouteToActiveSession(
   return found.clientId;
 }
 
-function handleChatWs(ws: WebSocket, initialClientId: string) {
+function handleChatWs(
+  ws: WebSocket,
+  initialClientId: string,
+  bufferedMsg?: Buffer | ArrayBuffer | Buffer[],
+) {
   let clientId = initialClientId;
   const transport = getTransport(ws);
   transport.send({ type: 'client_id', clientId });
@@ -275,7 +405,7 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
     }
   }, HEARTBEAT_INTERVAL_MS);
 
-  ws.on('message', async (raw) => {
+  const processMessage = async (raw: Buffer | ArrayBuffer | Buffer[]) => {
     try {
       const parsed = JSON.parse(raw.toString());
       const result = IncomingWsMessage.safeParse(parsed);
@@ -490,7 +620,10 @@ function handleChatWs(ws: WebSocket, initialClientId: string) {
       log.warn('failed to handle WS message', { clientId, error: message });
       transport.send({ type: 'error', error: message });
     }
-  });
+  };
+
+  ws.on('message', processMessage);
+  if (bufferedMsg) processMessage(bufferedMsg);
 
   ws.on('close', (code, reason) => {
     clearInterval(heartbeat);

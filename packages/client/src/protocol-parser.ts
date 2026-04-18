@@ -39,11 +39,17 @@ export interface ProtocolCallbacks {
   /** Called to fetch messages from REST API for reattach recovery. */
   fetchMessages?(sessionId: string): Promise<FinishedMessage[]>;
 
-  /** Called to mark the WS pool entry as running/not-running. */
+  /** @deprecated v1 only — called to mark the WS pool entry as running/not-running. */
   setWsRunning?(poolKey: string, running: boolean): void;
 
-  /** Called to send a queued message after session_end. */
+  /** @deprecated v1 only — called to send a queued message after session_end. */
   sendQueued?(poolKey: string, msg: unknown): void;
+
+  /** v2: Called when a queued message should be sent after session_end. */
+  onSendQueued?(msg: Record<string, unknown>): void;
+
+  /** v2: Called with token data from session_switched response. */
+  onTokensHydrated?(tokens: Record<string, unknown>): void;
 }
 
 // ─── Parser state ────────────────────────────────────────────────────────────
@@ -96,6 +102,25 @@ export function parseServerMessage(
     case '_close':
       result.connectionUpdate = { status: 'disconnected' };
       break;
+
+    // ── v2 handshake events ────────────────────────────────────────────────
+
+    case 'reconnected':
+      result.connectionUpdate = { status: 'connected' };
+      break;
+
+    case 'session_switched': {
+      const tokens = msg.tokens as Record<string, unknown> | undefined;
+      if (tokens) {
+        callbacks.onTokensHydrated?.(tokens);
+      }
+      break;
+    }
+
+    case 'session_cleared':
+      break;
+
+    // ── v1 handshake events (kept for backward compat) ─────────────────────
 
     case 'reattached':
       result.messagesActions.push({ type: 'SET_RUNNING', running: true });
@@ -229,8 +254,14 @@ export function parseServerMessage(
       if (pending) {
         state.pendingSend = null;
         result.messagesActions.push({ type: 'SET_RUNNING', running: true });
-        callbacks.setWsRunning?.(poolKey, true);
-        callbacks.sendQueued?.(poolKey, pending);
+        // v2 path: use onSendQueued callback (no pool key needed)
+        if (callbacks.onSendQueued) {
+          callbacks.onSendQueued(pending);
+        } else {
+          // v1 fallback
+          callbacks.setWsRunning?.(poolKey, true);
+          callbacks.sendQueued?.(poolKey, pending);
+        }
       }
       break;
     }

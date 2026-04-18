@@ -11,6 +11,10 @@ export type {
   RawToolInput,
 } from './session-registry.js';
 
+// Connection registry (v2 single-WS protocol)
+export { ConnectionRegistry } from './connection-registry.js';
+export type { Connection } from './connection-registry.js';
+
 // Permissions
 export { registerPending, resolvePending, removePending, hasPending } from './permissions.js';
 

@@ -1,35 +1,21 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/bash
+set -e
+cd "$(dirname "$0")/.."
 
-MITZO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$MITZO_DIR"
+MITZO_HOME="$(pwd)"
+PLIST_DEST="$HOME/Library/LaunchAgents/com.mitzo.server.plist"
 
-echo "=== Mitzo Deploy ==="
-echo "Dir: $MITZO_DIR"
-echo ""
+echo "Building packages + server..."
+npm run build:server
 
-echo "--- Switching to main ---"
-git checkout main
-echo ""
+echo "Building frontend..."
+npm run build
 
-echo "--- Pulling latest (fast-forward only) ---"
-git fetch origin main
-git pull --ff-only origin main
-echo "Commit: $(git log --oneline -1)"
-echo ""
+# Generate launchd plist from template (replaces __MITZO_HOME__ placeholder)
+echo "Installing launchd plist..."
+sed "s|__MITZO_HOME__|${MITZO_HOME}|g" com.mitzo.server.plist > "$PLIST_DEST"
 
-echo "--- Installing dependencies ---"
-npm install --silent
-echo ""
+echo "Restarting service..."
+launchctl kickstart -k "gui/$(id -u)/com.mitzo.server"
 
-echo "--- Building frontend ---"
-npm run build --silent
-echo ""
-
-echo "--- Scheduling restart (2s delay so response can be sent) ---"
-nohup bash -c "sleep 2 && pm2 restart mitzo" > /tmp/mitzo-restart.log 2>&1 &
-echo "Server will restart in 2 seconds. Connection will briefly drop."
-echo "Commit: $(git log --oneline -1)"
-echo ""
-
-echo "=== Deploy complete ==="
+echo "Deployed and restarted."

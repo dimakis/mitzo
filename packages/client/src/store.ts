@@ -34,8 +34,8 @@ import { parseServerMessage } from './protocol-parser.js';
 import type { ProtocolParserState, ProtocolCallbacks } from './protocol-parser.js';
 import type { WsMsg } from './server-messages.js';
 import { MitzoApiClient } from './api-client.js';
-import { WsPool } from './ws-connection.js';
-import type { WsPoolConfig } from './ws-connection.js';
+import { MitzoConnection } from './connection.js';
+import type { MitzoConnectionConfig } from './connection.js';
 
 // ─── Store state ─────────────────────────────────────────────────────────────
 
@@ -64,7 +64,7 @@ export interface MitzoStoreState {
   // Error state
   sendError: string | null;
 
-  // Actions
+  // Actions — chat
   dispatchMessages(action: MessagesAction): void;
   switchSession(id: string): Promise<void>;
   newSession(): void;
@@ -77,13 +77,35 @@ export interface MitzoStoreState {
   loadSessions(): Promise<void>;
   refreshSessions(): Promise<void>;
   fetchSessionMeta(sessionId: string): Promise<void>;
+
+  // Actions — tasks
+  loadTasks(): Promise<void>;
+  loadLoopStatus(): Promise<void>;
+  createTask(input: Record<string, unknown>): Promise<void>;
+  updateTask(id: string, input: Record<string, unknown>): Promise<void>;
+  deleteTask(id: string): Promise<void>;
+  startLoop(goalId: string, specMode?: boolean): Promise<void>;
+  pauseLoop(): Promise<void>;
+  resumeLoop(): Promise<void>;
+  stopLoop(): Promise<void>;
+  approveTask(id: string): Promise<void>;
+  rejectTask(id: string, feedback: string): Promise<void>;
+  approveSpec(): Promise<void>;
+  rejectSpec(): Promise<void>;
+  refreshTasks(): void;
+
+  // Actions — inbox
+  loadInbox(): Promise<void>;
+
+  // Actions — todos
+  loadTodos(): Promise<void>;
 }
 
 // ─── Store options ───────────────────────────────────────────────────────────
 
 export interface MitzoStoreOptions {
   transport: TransportAdapter;
-  wsConfig: WsPoolConfig;
+  wsConfig: MitzoConnectionConfig;
 }
 
 // ─── Tree helpers ───────────────────────────────────────────────────────────
@@ -117,21 +139,12 @@ function removeTaskFromTree(tasks: Task[], id: string): Task[] {
 
 export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStoreState> {
   const api = new MitzoApiClient(options.transport.fetch.bind(options.transport));
-  const wsPool = new WsPool(options.wsConfig);
+  const connection = new MitzoConnection(options.wsConfig);
 
-  // Protocol parser state — mutable, shared across all messages
   const parserState: ProtocolParserState = {
     currentSessionId: undefined,
     pendingSend: null,
   };
-
-  // Track the actual WS pool key so wsListener routes to the correct entry
-  let activePoolKey: string | null = null;
-
-  // Unsubscribe handle for the current WS subscription — called when
-  // switching sessions or starting a new one so old session messages
-  // don't leak into the new session's state.
-  let activeUnsub: (() => void) | null = null;
 
   const store = createStore<MitzoStoreState>((set, get) => ({
     // ── Initial state ────────────────────────────────────────────────────
@@ -155,20 +168,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     async switchSession(id: string) {
-      // Unsubscribe the listener so old events stop hitting the store,
-      // then defuse the pool entry so it won't reattach on reconnect
-      // (wasRunning=false prevents the reattach handshake that causes bleed).
-      activeUnsub?.();
-      if (activePoolKey) {
-        wsPool.setRunning(activePoolKey, false);
-        wsPool.removeIfIdle(activePoolKey);
-      }
-
       parserState.currentSessionId = id;
-      const poolKey = `session:${id}`;
-      activePoolKey = poolKey;
 
-      // Reset messages state for new session
       set((s) => ({
         sessions: { ...s.sessions, active: id },
         messages: INITIAL_MESSAGES_STATE,
@@ -176,10 +177,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         tokens: INITIAL_TOKENS_STATE,
       }));
 
-      // Subscribe to WS messages for this session
-      activeUnsub = wsPool.subscribe(poolKey, wsListener);
+      // v2: send switch_session for token hydration + server-side active tracking
+      connection.send({ type: 'switch_session', sessionId: id });
 
-      // Load session messages
       try {
         const msgs = await api.getSessionMessages(id);
         if (Array.isArray(msgs) && msgs.length > 0) {
@@ -193,14 +193,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     newSession() {
-      activeUnsub?.();
-      if (activePoolKey) {
-        wsPool.setRunning(activePoolKey, false);
-        wsPool.removeIfIdle(activePoolKey);
-      }
-      activeUnsub = null;
-      activePoolKey = null;
       parserState.currentSessionId = undefined;
+      parserState.pendingSend = null;
+      connection.send({ type: 'switch_session', sessionId: null });
       set({
         sessions: { ...get().sessions, active: null },
         messages: INITIAL_MESSAGES_STATE,
@@ -209,21 +204,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     sendMessage(text: string, opts?: SendMessageOptions) {
-      const poolKey = parserState.currentSessionId
-        ? `session:${parserState.currentSessionId}`
-        : null;
       const clientMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-      // Capture whether a turn is in-flight BEFORE we dispatch USER_SEND.
-      // USER_SEND flips messages.running to true so the composer can show
-      // the stop button — if we read running after dispatching, every
-      // follow-up would incorrectly look like it arrived mid-turn and get
-      // silently queued in parserState.pendingSend forever.
       const wasRunning = get().messages.running;
 
       const buildPayload = (): Record<string, unknown> => {
         const msg: Record<string, unknown> = {
           type: 'send',
+          sessionId: parserState.currentSessionId ?? null,
           prompt: text,
           clientMsgId,
         };
@@ -231,7 +218,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         const mode = opts?.mode ?? get().config.mode;
         if (model) msg.model = model;
         if (mode) msg.mode = mode;
-        if (parserState.currentSessionId) msg.resume = parserState.currentSessionId;
         if (opts?.contextBlocks?.length) msg.contextBlocks = opts.contextBlocks;
         if (opts?.images?.length) {
           msg.images = opts.images.map((img) => ({ data: img.data, mediaType: img.mediaType }));
@@ -241,7 +227,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         return msg;
       };
 
-      // Optimistic update
       set((s) => ({
         messages: messagesReducer(s.messages, {
           type: 'USER_SEND',
@@ -253,30 +238,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         sendError: null,
       }));
 
-      // For new sessions, subscribe first so the pool entry exists
-      if (!poolKey) {
-        activeUnsub?.();
-        const newKey = `new:${Date.now()}`;
-        activePoolKey = newKey;
-        activeUnsub = wsPool.subscribe(newKey, wsListener);
-        wsPool.setRunning(newKey, true);
-
-        const sent = wsPool.send(newKey, buildPayload());
-        if (!sent) {
-          set({ sendError: 'Not connected. Message will be sent when reconnected.' });
-        }
-        return;
-      }
-
       const msg = buildPayload();
 
-      // If a turn was already running when the user hit send, queue the
-      // payload and flush it once the server signals session_end.
       if (wasRunning) {
         parserState.pendingSend = msg;
       } else {
-        wsPool.setRunning(poolKey, true);
-        const sent = wsPool.send(poolKey, msg);
+        const sent = connection.send(msg);
         if (!sent) {
           set({ sendError: 'Not connected. Message will be sent when reconnected.' });
         }
@@ -284,15 +251,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     interruptMessage(text: string, opts?: SendMessageOptions) {
-      const poolKey = parserState.currentSessionId
-        ? `session:${parserState.currentSessionId}`
-        : null;
-      if (!poolKey || !get().messages.running) return;
+      if (!parserState.currentSessionId || !get().messages.running) return;
 
       const clientMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
       const msg: Record<string, unknown> = {
         type: 'interrupt',
+        sessionId: parserState.currentSessionId,
         prompt: text,
         clientMsgId,
       };
@@ -301,7 +266,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
       if (opts?.contextBlocks?.length) msg.contextBlocks = opts.contextBlocks;
 
-      const sent = wsPool.send(poolKey, msg);
+      const sent = connection.send(msg);
       if (!sent) {
         set({ sendError: 'Not connected. Interrupt was not delivered.' });
         return;
@@ -319,34 +284,29 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     stopGeneration() {
-      const poolKey = parserState.currentSessionId
-        ? `session:${parserState.currentSessionId}`
-        : null;
-      if (poolKey) {
-        wsPool.send(poolKey, { type: 'interrupt' });
-      }
+      connection.send({
+        type: 'stop',
+        sessionId: parserState.currentSessionId ?? null,
+      });
     },
 
     respondToPermission(permId: string, decision: 'once' | 'always' | 'deny') {
-      const poolKey = parserState.currentSessionId
-        ? `session:${parserState.currentSessionId}`
-        : null;
-      if (poolKey) {
-        wsPool.send(poolKey, {
-          type: 'permission_response',
-          permId,
-          decision,
-        });
-      }
+      connection.send({
+        type: 'permission_response',
+        sessionId: parserState.currentSessionId ?? null,
+        permId,
+        decision,
+      });
       set({ permissions: { pending: null } });
     },
 
     setMode(mode: MitzoMode) {
-      const poolKey = parserState.currentSessionId
-        ? `session:${parserState.currentSessionId}`
-        : null;
-      if (poolKey) {
-        wsPool.send(poolKey, { type: 'set_mode', mode });
+      if (parserState.currentSessionId) {
+        connection.send({
+          type: 'set_mode',
+          sessionId: parserState.currentSessionId,
+          mode,
+        });
       }
       set((s) => ({
         config: { ...s.config, mode },
@@ -412,16 +372,121 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         // Session meta may not be available — graceful no-op
       }
     },
+
+    // ── Task actions ──────────────────────────────────────────────────────
+
+    async loadTasks() {
+      try {
+        const tasks = await api.getTasks();
+        set((s) => ({ tasks: { ...s.tasks, tree: tasks } }));
+      } catch {
+        // Graceful — keep existing tree
+      }
+    },
+
+    async loadLoopStatus() {
+      try {
+        const status = await api.getLoopStatus();
+        if (status) {
+          set((s) => ({
+            tasks: {
+              ...s.tasks,
+              loopStatus: {
+                state: (status.state ?? 'idle') as LoopStatus['state'],
+                goalId: ((status as Record<string, unknown>).goalId as string | null) ?? null,
+                activeTaskId:
+                  ((status as Record<string, unknown>).activeTaskId as string | null) ?? null,
+                progress:
+                  ((status as Record<string, unknown>).progress as LoopStatus['progress']) ?? null,
+                specMode: ((status as Record<string, unknown>).specMode as boolean) ?? false,
+                awaitingApproval:
+                  ((status as Record<string, unknown>).awaitingApproval as boolean) ?? false,
+              },
+            },
+          }));
+        }
+      } catch {
+        // Graceful — keep existing status
+      }
+    },
+
+    async createTask(input: Record<string, unknown>) {
+      await api.createTask(input as Partial<Task>);
+    },
+
+    async updateTask(id: string, input: Record<string, unknown>) {
+      await api.updateTask(id, input as Partial<Task>);
+    },
+
+    async deleteTask(id: string) {
+      await api.deleteTask(id);
+    },
+
+    async startLoop(goalId: string, specMode?: boolean) {
+      await api.startLoop(goalId, specMode);
+    },
+
+    async pauseLoop() {
+      await api.pauseLoop();
+    },
+
+    async resumeLoop() {
+      await api.resumeLoop();
+    },
+
+    async stopLoop() {
+      await api.stopLoop();
+    },
+
+    async approveTask(id: string) {
+      await api.approveTask(id);
+    },
+
+    async rejectTask(id: string, feedback: string) {
+      await api.rejectTask(id, feedback);
+    },
+
+    async approveSpec() {
+      await api.approveSpec();
+    },
+
+    async rejectSpec() {
+      await api.rejectSpec();
+    },
+
+    refreshTasks() {
+      get().loadTasks();
+      get().loadLoopStatus();
+    },
+
+    // ── Inbox actions ─────────────────────────────────────────────────────
+
+    async loadInbox() {
+      try {
+        const items = await api.getInbox();
+        set({ inbox: { items, count: items.length } });
+      } catch {
+        // Graceful — keep existing inbox
+      }
+    },
+
+    // ── Todo actions ──────────────────────────────────────────────────────
+
+    async loadTodos() {
+      try {
+        const data = await api.getTodos();
+        set({ todos: { items: data.items ?? [], profiles: data.profiles ?? [] } });
+      } catch {
+        // Graceful — keep existing todos
+      }
+    },
   }));
 
   // ── WS → store wiring ──────────────────────────────────────────────────
-  // Central listener: routes every WS message through the protocol parser
-  // and dispatches resulting actions into the store.
 
   const callbacks: ProtocolCallbacks = {
     onSessionAssigned(sessionId: string) {
       parserState.currentSessionId = sessionId;
-      activePoolKey = `session:${sessionId}`;
       store.setState((s) => ({
         sessions: { ...s.sessions, active: sessionId },
       }));
@@ -430,6 +495,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     onSessionExpired() {
       parserState.currentSessionId = undefined;
+      parserState.pendingSend = null;
       store.setState((s) => ({
         sessions: { ...s.sessions, active: null },
         messages: INITIAL_MESSAGES_STATE,
@@ -459,28 +525,56 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       return api.getSessionMessages(sessionId);
     },
 
-    setWsRunning(poolKey: string, running: boolean) {
-      wsPool.setRunning(poolKey, running);
+    onSendQueued(msg: Record<string, unknown>) {
+      connection.send(msg);
     },
 
-    sendQueued(poolKey: string, msg: unknown) {
-      wsPool.send(poolKey, msg);
+    onTokensHydrated(tokens: Record<string, unknown>) {
+      store.setState((s) => ({
+        tokens: {
+          ...s.tokens,
+          sessionTotal:
+            ((tokens.input as number) ?? 0) +
+            ((tokens.output as number) ?? 0) +
+            ((tokens.cacheRead as number) ?? 0) +
+            ((tokens.cacheCreation as number) ?? 0),
+        },
+      }));
     },
   };
 
-  function wsListener(wsMsg: WsMsg) {
-    const poolKey = activePoolKey ?? 'default';
+  function wsListener(msg: Record<string, unknown>) {
+    const eventSessionId = msg.sessionId as string | undefined;
 
-    const result = parseServerMessage(wsMsg, parserState, callbacks, poolKey);
+    // Session-scoped event filtering for multiplexed v2 connections:
+    // - No sessionId on the event → global (task_state, inbox_updated, etc.) → always accept
+    // - sessionId matches currentSessionId → accept
+    // - No active session AND event is session_id/session_end → accept (new session assignment)
+    // - Otherwise → drop (foreign session event)
+    if (eventSessionId) {
+      if (parserState.currentSessionId) {
+        if (eventSessionId !== parserState.currentSessionId) return;
+      } else {
+        // Allow session assignment, session end, and permission requests through
+        // before session_id arrives. Permission requests can arrive for brand-new
+        // sessions before the session_id event — dropping them blocks the user
+        // from answering tool prompts.
+        const isEarlySessionEvent =
+          msg.type === 'session_id' ||
+          msg.type === 'session_end' ||
+          msg.type === 'permission_request';
+        if (!isEarlySessionEvent) return;
+      }
+    }
 
-    // Dispatch messages actions
+    const result = parseServerMessage(msg as WsMsg, parserState, callbacks, 'v2');
+
     for (const action of result.messagesActions) {
       store.setState((s) => ({
         messages: messagesReducer(s.messages, action),
       }));
     }
 
-    // Dispatch tasks update
     if (result.tasksUpdate) {
       switch (result.tasksUpdate.type) {
         case 'task_state':
@@ -513,21 +607,18 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
     }
 
-    // Token update
     if (result.tokensUpdate) {
       store.setState((s) => ({
         tokens: { ...s.tokens, ...result.tokensUpdate },
       }));
     }
 
-    // Connection update
     if (result.connectionUpdate) {
       store.setState((s) => ({
         connection: { ...s.connection, ...result.connectionUpdate },
       }));
     }
 
-    // Inbox refresh
     if (result.inboxRefresh) {
       api
         .getInbox()
@@ -538,6 +629,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       store.getState().refreshSessions();
     }
   }
+
+  connection.onMessage(wsListener);
+  connection.connect();
 
   return store;
 }

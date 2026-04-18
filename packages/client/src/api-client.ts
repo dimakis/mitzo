@@ -217,7 +217,8 @@ export class MitzoApiClient {
 
   async getTasks(): Promise<Task[]> {
     const res = await this.assertOk(await this.fetch('/api/tasks', { credentials: 'include' }));
-    return res.json();
+    const data = await res.json();
+    return Array.isArray(data) ? data : (data.tasks ?? []);
   }
 
   async createTask(input: Partial<Task>): Promise<Task> {
@@ -323,7 +324,7 @@ export class MitzoApiClient {
 
   // ── Todos ────────────────────────────────────────────────────────────────
 
-  async getTodos(profile?: string): Promise<TodoItem[]> {
+  async getTodos(profile?: string): Promise<{ items: TodoItem[]; profiles: string[] }> {
     const url = profile ? `/api/todos?profile=${encodeURIComponent(profile)}` : '/api/todos';
     const res = await this.assertOk(await this.fetch(url, { credentials: 'include' }));
     return res.json();

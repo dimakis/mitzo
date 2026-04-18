@@ -5,10 +5,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm run dev          # Backend + frontend concurrently
-npm run build        # Production build (frontend into frontend/dist)
-npm start            # Serve built frontend + API from one process
+npm run dev          # Backend + frontend concurrently (tsx watch)
 npm run dev:server   # Backend only (with file watching)
+npm run build:server # Compile server TS → dist/ (+ workspace packages)
+npm run build        # Production build (frontend into frontend/dist)
+npm run build:all    # Build server + frontend
+npm start            # Run built server (node dist/index.js)
+npm run deploy       # Build all + restart launchd service
 
 npm run lint         # ESLint (server + frontend)
 npm run lint:fix     # ESLint with auto-fix
@@ -16,6 +19,8 @@ npm run format       # Prettier (write)
 npm run format:check # Prettier (check only)
 npm test             # Vitest (2200+ tests, 187 files)
 ```
+
+**Deployment:** Mitzo runs as a launchd service (`com.mitzo.server`). The server is compiled to JS via `tsc` (not live-transpiled). Run `npm run deploy` to build and restart. Logs in `logs/server-{stdout,stderr}.log`.
 
 Pre-commit hooks (husky + lint-staged) run lint and format on staged files. Conventional commit messages enforced via commitlint. **Pre-commit hooks are not a substitute for CI** — they only check staged files of specific types. Always verify CI passes after pushing (see `.cursor/rules/ci-discipline.mdc`).
 
