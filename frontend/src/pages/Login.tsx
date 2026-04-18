@@ -18,6 +18,11 @@ export function Login() {
     });
 
     if (res.ok) {
+      // Store JWT for Capacitor (non-cookie) auth. Browser ignores this.
+      const data = await res.json().catch(() => ({}));
+      if (data.token) {
+        localStorage.setItem('mitzo_auth_token', data.token);
+      }
       navigate('/');
     } else {
       setError('Invalid passphrase');
