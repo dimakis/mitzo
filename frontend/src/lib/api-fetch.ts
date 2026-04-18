@@ -16,12 +16,7 @@ export function getApiBaseUrl(): string {
 
 export function getWsBaseUrl(): string {
   const base = getApiBaseUrl();
-  if (base) {
-    const wsBase = base.replace(/^http/, 'ws');
-    const token =
-      typeof localStorage !== 'undefined' ? localStorage.getItem(AUTH_TOKEN_KEY) : null;
-    return token ? `${wsBase}` : wsBase;
-  }
+  if (base) return base.replace(/^http/, 'ws');
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   return `${proto}://${location.host}`;
 }

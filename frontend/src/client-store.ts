@@ -9,6 +9,7 @@
 
 import { createMitzoStore } from '@mitzo/client';
 import { apiFetch, getWsChatUrl } from './lib/api-fetch';
+import { registerCapacitorLifecycle } from './lib/capacitor';
 
 export const clientStore = createMitzoStore({
   transport: {
@@ -20,6 +21,9 @@ export const clientStore = createMitzoStore({
     reconnectDelayMs: 500,
   },
 });
+
+// Wire Capacitor app lifecycle → visibilitychange (no-op in browser)
+registerCapacitorLifecycle();
 
 // Expose on window for console debugging during testing
 if (typeof window !== 'undefined') {

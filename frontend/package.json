@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "build:ios": "VITE_API_BASE_URL=https://100.91.50.57:3100 tsc -b && VITE_API_BASE_URL=https://100.91.50.57:3100 vite build && npx cap sync ios",
+    "build:ios": "tsc -b && vite build && npx cap sync ios",
     "open:ios": "npx cap open ios"
   },
   "dependencies": {
@@ -14,7 +14,6 @@
     "@capacitor/cli": "^8.3.1",
     "@capacitor/core": "^8.3.1",
     "@capacitor/ios": "^8.3.1",
-    "@capacitor/status-bar": "^8.0.2",
     "@mitzo/client": "*",
     "@mitzo/protocol": "*",
     "@xterm/addon-fit": "^0.10.0",

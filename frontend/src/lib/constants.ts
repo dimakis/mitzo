@@ -1,5 +1,7 @@
 // Frontend-wide constants. Every hardcoded value lives here.
 
+import { getApiBaseUrl } from './api-fetch';
+
 // --- WebSocket ---
 export const WS_RECONNECT_DELAY_MS = 500;
 export const WS_RECONNECT_POLL_MS = 5_000;
@@ -21,8 +23,6 @@ export const TOOL_GROUP_THRESHOLD = 3;
 export const MAX_IMAGE_ATTACHMENTS = 4;
 
 // --- Voice / Yapper ---
-import { getApiBaseUrl } from './api-fetch';
-
 export const YAPPER_URL =
   import.meta.env.VITE_YAPPER_URL || `${getApiBaseUrl()}/api/yapper`;
 export const YAPPER_HEALTH_POLL_MS = 30_000;
