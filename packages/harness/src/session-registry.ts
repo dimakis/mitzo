@@ -293,8 +293,10 @@ export class SessionRegistry {
     const session = this.sessions.get(clientId);
     if (session) session.observers.clear();
     this.clearDetachTimer(clientId);
+    this.clearCloseoutTimer(clientId);
     this.sessions.delete(clientId);
     this.attached.delete(clientId);
+    this.closingOut.delete(clientId);
   }
 
   /**
