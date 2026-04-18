@@ -141,6 +141,7 @@ function createMockStore() {
     refreshTasks: vi.fn(),
     loadInbox: vi.fn().mockResolvedValue(undefined),
     loadTodos: vi.fn().mockResolvedValue(undefined),
+    forceReconnect: vi.fn(),
   }));
 }
 
