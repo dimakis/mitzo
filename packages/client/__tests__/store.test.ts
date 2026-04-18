@@ -477,7 +477,7 @@ describe('stopGeneration', () => {
     expect(stop!.sessionId).toBe('test-session');
   });
 
-  it('sends stop with null sessionId during first turn before session_id arrives', () => {
+  it('does not send stop before session_id arrives', () => {
     const store = createReadyStore();
     store.getState().sendMessage('hello');
 
@@ -485,8 +485,7 @@ describe('stopGeneration', () => {
 
     const sent = lastWs.parsedSent();
     const stop = sent.find((m) => m.type === 'stop');
-    expect(stop).toBeDefined();
-    expect(stop!.sessionId).toBeNull();
+    expect(stop).toBeUndefined();
   });
 });
 
@@ -519,7 +518,7 @@ describe('respondToPermission', () => {
 });
 
 describe('respondToPermission — first turn edge case', () => {
-  it('sends permission_response with null sessionId when no session is active', () => {
+  it('sends permission_response without sessionId when no session is active', () => {
     const store = createReadyStore();
     store.getState().sendMessage('hello');
 
@@ -537,7 +536,7 @@ describe('respondToPermission — first turn edge case', () => {
     const sent = lastWs.parsedSent();
     const response = sent.find((m) => m.type === 'permission_response');
     expect(response).toBeDefined();
-    expect(response!.sessionId).toBeNull();
+    expect(response).not.toHaveProperty('sessionId');
     expect(response!.permId).toBe('perm-1');
     expect(response!.decision).toBe('once');
   });

@@ -284,16 +284,17 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     stopGeneration() {
+      if (!parserState.currentSessionId) return;
       connection.send({
         type: 'stop',
-        sessionId: parserState.currentSessionId ?? null,
+        sessionId: parserState.currentSessionId,
       });
     },
 
     respondToPermission(permId: string, decision: 'once' | 'always' | 'deny') {
       connection.send({
         type: 'permission_response',
-        sessionId: parserState.currentSessionId ?? null,
+        ...(parserState.currentSessionId ? { sessionId: parserState.currentSessionId } : {}),
         permId,
         decision,
       });
