@@ -280,6 +280,19 @@ export class EventStore {
     return row ? rowToSession(row) : null;
   }
 
+  /**
+   * Return the subset of `sessionIds` that already exist in the sessions table.
+   * Single query regardless of input size — used for batch reconciliation.
+   */
+  getKnownSessionIds(sessionIds: string[]): Set<string> {
+    if (sessionIds.length === 0) return new Set();
+    const placeholders = sessionIds.map(() => '?').join(',');
+    const rows = this.db!.prepare(
+      `SELECT session_id FROM sessions WHERE session_id IN (${placeholders})`,
+    ).all(...sessionIds) as Array<{ session_id: string }>;
+    return new Set(rows.map((r) => r.session_id));
+  }
+
   listSessions(limit?: number): SessionMeta[] {
     const rows =
       limit != null ? this.stmts.listSessionsLimited.all(limit) : this.stmts.listSessions.all();
