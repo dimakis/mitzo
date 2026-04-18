@@ -7,7 +7,7 @@
  * code has zero overhead.
  */
 
-import { NodeTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node';
+import { NodeTracerProvider, BatchSpanProcessor } from '@opentelemetry/sdk-trace-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from '@opentelemetry/semantic-conventions';
@@ -26,7 +26,7 @@ if (endpoint) {
     }),
     // Let the exporter read OTEL_EXPORTER_OTLP_ENDPOINT natively — don't
     // append /v1/traces manually, the SDK handles path construction.
-    spanProcessors: [new SimpleSpanProcessor(new OTLPTraceExporter())],
+    spanProcessors: [new BatchSpanProcessor(new OTLPTraceExporter())],
   });
   provider.register();
 
