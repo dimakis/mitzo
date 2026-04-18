@@ -10,6 +10,7 @@
 import { createMitzoStore } from '@mitzo/client';
 import { apiFetch, getWsChatUrl } from './lib/api-fetch';
 import { registerCapacitorLifecycle, configureStatusBar } from './lib/capacitor';
+import { initPushNotifications } from './lib/push';
 
 export const clientStore = createMitzoStore({
   transport: {
@@ -27,6 +28,9 @@ registerCapacitorLifecycle(() => clientStore.getState().forceReconnect());
 
 // Configure native status bar appearance (no-op in browser)
 configureStatusBar();
+
+// Register for push notifications (no-op in browser)
+initPushNotifications();
 
 // Expose on window for console debugging during testing
 if (typeof window !== 'undefined') {
