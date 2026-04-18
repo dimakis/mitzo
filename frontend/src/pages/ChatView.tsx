@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { ChatArea } from '../components/ChatArea';
 import { ChatInput } from '../components/ChatInput';
+import { ScrollFab } from '../components/ScrollFab';
 import { VoiceSettings } from '../components/VoiceSettings';
 import { MitzoLogo } from '../components/MitzoLogo';
 import { useMessages, useConnection, useTokens, useMitzoStore } from '@mitzo/client/hooks';
@@ -212,6 +213,7 @@ export function ChatView() {
         onPermissionRespond={handlePermission}
         scrollRef={scrollRef}
       />
+      <ScrollFab scrollRef={scrollRef} />
 
       <ChatInput
         onSend={handleSend}

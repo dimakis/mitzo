@@ -235,6 +235,7 @@ export interface TokenUpdateMsg {
   contextCeiling?: number;
   sessionTotal?: number;
   numTurns?: number;
+  numCompactions?: number;
   turnIndex: number;
 }
 

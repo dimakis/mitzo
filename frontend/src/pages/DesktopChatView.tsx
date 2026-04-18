@@ -6,6 +6,7 @@ import { ContextPanel } from '../components/ContextPanel';
 import { FileBrowserPanel } from '../components/FileBrowserPanel';
 import { ChatArea } from '../components/ChatArea';
 import { ChatInput } from '../components/ChatInput';
+import { ScrollFab } from '../components/ScrollFab';
 import { StatusBar } from '../components/StatusBar';
 import { VoiceSettings } from '../components/VoiceSettings';
 import { useMessages, useConnection, useTokens, useMitzoStore } from '@mitzo/client/hooks';
@@ -259,6 +260,7 @@ export function DesktopChatView() {
             onPermissionRespond={handlePermission}
             scrollRef={scrollRef}
           />
+          <ScrollFab scrollRef={scrollRef} />
           <ChatInput
             onSend={handleSend}
             onStop={handleStop}

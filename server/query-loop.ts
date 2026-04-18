@@ -139,6 +139,8 @@ export async function runQueryLoop(
   // Token tracking state for live token_update events
   let agentContextTokens = 0; // full context window size (input + cached) from parent message_start
   let turnIndex = 0; // increments on each parent message_start (excludes sub-agents)
+  let numCompactions = 0; // counts successful compaction events from SDK
+  const compactionFields = () => (numCompactions > 0 ? { numCompactions } : {});
 
   // Track last-reported cumulative usage to compute deltas (SDK reports cumulative totals).
   let lastReportedUsage = {
@@ -343,6 +345,7 @@ export async function runQueryLoop(
           sessionTotal: currentSession.cumulativeSessionTokens,
           numTurns: usageData.numTurns,
           turnIndex,
+          ...compactionFields(),
         });
 
         // Resolve goal creation (if pending) and report usage
@@ -434,6 +437,7 @@ export async function runQueryLoop(
                 agentContext: agentContextTokens,
                 contextCeiling: CONTEXT_CEILING_TOKENS,
                 turnIndex,
+                ...compactionFields(),
               });
             }
           }
@@ -600,6 +604,14 @@ export async function runQueryLoop(
           }
           openBlockCount = Math.max(0, openBlockCount - 1);
           tryFlushMessageEnd(currentSession);
+        }
+      } else if (msg.type === 'system') {
+        // Track compaction events from SDK system status messages
+        const subtype = (msg as Record<string, unknown>).subtype;
+        const compactResult = (msg as Record<string, unknown>).compact_result;
+        if (subtype === 'status' && compactResult === 'success') {
+          numCompactions++;
+          log.info('compaction completed', { clientId, numCompactions });
         }
       } else if (msg.type === 'user') {
         // Only extract tool_result events from SDK user turns.

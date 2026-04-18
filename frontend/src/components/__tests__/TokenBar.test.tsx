@@ -11,6 +11,7 @@ function makeState(overrides: Partial<TokenState> = {}): TokenState {
     sessionTotal: 0,
     numTurns: 0,
     turnIndex: 0,
+    numCompactions: 0,
     ...overrides,
   };
 }
@@ -86,6 +87,21 @@ describe('TokenBar', () => {
     expect(screen.getByText(/50k/)).toBeTruthy();
     // Should NOT show agent context bar (0/200k is meaningless for completed sessions)
     expect(screen.queryByText(/0\/200k/)).toBeNull();
+  });
+
+  it('does not crash when sessionTotal is undefined (mid-turn state)', () => {
+    const state = makeState({
+      agentContext: 87204,
+      turnIndex: 1,
+    });
+    // Simulate the bug: sessionTotal clobbered to undefined by partial spread
+    (state as unknown as Record<string, unknown>).sessionTotal = undefined;
+    const { container } = render(<TokenBar tokenState={state} />);
+    const bar = container.querySelector('.token-bar')!;
+    fireEvent.click(bar);
+    // Should render detail panel without crashing
+    expect(screen.getByText(/Agent context/)).toBeTruthy();
+    expect(screen.getByText(/Session tokens/)).toBeTruthy();
   });
 
   it('expands detail panel on tap', () => {
