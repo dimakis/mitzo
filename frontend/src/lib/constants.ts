@@ -21,9 +21,10 @@ export const TOOL_GROUP_THRESHOLD = 3;
 export const MAX_IMAGE_ATTACHMENTS = 4;
 
 // --- Voice / Yapper ---
+import { getApiBaseUrl } from './api-fetch';
+
 export const YAPPER_URL =
-  import.meta.env.VITE_YAPPER_URL ||
-  `${typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : 'http://localhost'}/api/yapper`;
+  import.meta.env.VITE_YAPPER_URL || `${getApiBaseUrl()}/api/yapper`;
 export const YAPPER_HEALTH_POLL_MS = 30_000;
 export const MAX_RECORDING_DURATION_MS = 120_000;
 export const MIN_RECORDING_DURATION_MS = 500;

@@ -8,13 +8,13 @@
  */
 
 import { createMitzoStore } from '@mitzo/client';
+import { apiFetch, getWsBaseUrl } from './lib/api-fetch';
 
-const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-const wsUrl = `${proto}://${location.host}/ws/chat`;
+const wsUrl = `${getWsBaseUrl()}/ws/chat`;
 
 export const clientStore = createMitzoStore({
   transport: {
-    fetch: (url, init) => fetch(url, init),
+    fetch: (url, init) => apiFetch(url, init),
   },
   wsConfig: {
     buildUrl: () => wsUrl,
