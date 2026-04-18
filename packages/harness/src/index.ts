@@ -30,6 +30,9 @@ export {
 // Skill policy
 export { setSkillPolicy, clearSkillPolicy, checkSkillPolicy } from './skill-policy.js';
 
+// Worktree guard
+export { checkWorktreePolicy } from './worktree-guard.js';
+
 // Notifications
 export * as ntfy from './notify.js';
 export * as pushover from './pushover.js';

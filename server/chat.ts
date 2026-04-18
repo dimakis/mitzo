@@ -270,26 +270,30 @@ function buildTaskPromptForSession(clientId: string): string {
 
 /**
  * Build system prompt section listing all session worktrees.
- * Tells the agent exactly where each repo's worktree lives.
+ * Lists ALL repos including primary so the agent has a complete lookup table
+ * for navigating between repos (the "cd back" problem).
  */
 export function buildWorktreeSystemPrompt(
   repoWorktrees: Map<string, { path: string; wtId: string }>,
 ): string {
-  if (repoWorktrees.size <= 1) return ''; // Only primary or none
+  if (repoWorktrees.size === 0) return '';
 
   const lines = ['\n\n## Session Worktrees'];
   lines.push(`Session ID: ${repoWorktrees.values().next().value?.wtId ?? 'unknown'}`);
   lines.push(
-    'This session has isolated worktrees for multiple repos. ' +
-      'All work in each repo MUST happen in its worktree path — never in the main working tree.',
+    'This session has isolated worktrees. ALL work MUST happen in these paths. ' +
+      'When switching repos, cd to the worktree path — never to the repo root.',
   );
   lines.push('');
   for (const [name, { path }] of repoWorktrees) {
-    if (name === 'primary') continue;
-    lines.push(`- **${name}**: \`${path}\``);
+    const label = name === 'primary' ? `${name} (cwd)` : name;
+    lines.push(`- **${label}**: \`${path}\``);
   }
   lines.push('');
-  lines.push('To work in a secondary repo, `cd` to its worktree path above.');
+  lines.push(
+    'Env vars `$MITZO_REPO_<NAME>` also hold these paths. ' +
+      'Read operations from main worktrees are OK for reference.',
+  );
   return lines.join('\n');
 }
 
@@ -497,13 +501,11 @@ export async function startChat(
     });
   }
 
-  // Build session env with worktree paths for the agent
+  // Build session env with worktree paths for the agent (all repos including primary)
   const sessionEnv = sdkEnv();
   sessionEnv.MITZO_SESSION_ID = wtId;
   for (const [name, { path }] of repoWorktrees) {
-    if (name !== 'primary') {
-      sessionEnv[`MITZO_REPO_${name.toUpperCase()}`] = path;
-    }
+    sessionEnv[`MITZO_REPO_${name.toUpperCase()}`] = path;
   }
 
   // Merge dynamic MCP servers (task board if active)

@@ -22,8 +22,13 @@ import {
   getRepoConfig,
   eventStore,
   registry,
+  generateWtId,
 } from './chat.js';
-import { createWorktree, listWorktrees } from './worktree.js';
+import {
+  createWorktree,
+  createSessionWorktrees as createAllWorktrees,
+  listWorktrees,
+} from './worktree.js';
 import { GIT_BRANCH_TIMEOUT_MS } from './constants.js';
 import { INTERNAL_TOKEN } from './internal-token.js';
 import { getLocalCommit, isUpdateAvailable } from './git-version.js';
@@ -352,6 +357,40 @@ app.post('/api/repos/open', (req, res) => {
     const message = err instanceof Error ? err.message : String(err);
     log.error('failed to create repo worktree', { repoName, error: message });
     res.status(500).json({ error: `Failed to create worktree: ${message}` });
+  }
+});
+
+app.post('/api/sessions', (req, res) => {
+  if (!verifyInternalToken(req)) {
+    res.status(401).json({ error: 'Internal token required' });
+    return;
+  }
+
+  const { source } = req.body || {};
+  if (!source || typeof source !== 'string') {
+    res.status(400).json({ error: 'source is required (cursor | claude | mitzo)' });
+    return;
+  }
+
+  const wtId = generateWtId();
+  const config = getRepoConfig();
+
+  try {
+    const worktrees = createAllWorktrees(wtId, BASE_REPO, config.repos, {
+      prefix: source === 'cursor' ? '.cursor' : '.claude',
+    });
+
+    log.info('session worktrees created', {
+      sessionId: wtId,
+      source,
+      repos: Object.keys(worktrees),
+    });
+
+    res.json({ sessionId: wtId, worktrees });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error('session creation failed', { source, error: message });
+    res.status(500).json({ error: `Session creation failed: ${message}` });
   }
 });
 

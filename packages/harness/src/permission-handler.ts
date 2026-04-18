@@ -8,6 +8,7 @@ import {
 import { getToolTier, shouldAutoAllow } from './tool-tiers.js';
 import { summarizeToolInput } from '@mitzo/protocol';
 import { checkSkillPolicy } from './skill-policy.js';
+import { checkWorktreePolicy } from './worktree-guard.js';
 import { PERMISSION_TIMEOUT_MS, NTFY_NOTIFICATION_DELAY_MS } from './constants.js';
 import type { SessionRegistry } from './session-registry.js';
 import type { SessionTransport } from './session-transport.js';
@@ -61,6 +62,11 @@ export function buildPermissionHandler(clientId: string, registry: SessionRegist
     // would normally permit it.
     if (checkSkillPolicy(registry, clientId, toolName) === 'deny') {
       return { behavior: 'deny', message: 'Tool not allowed by active skill policy' };
+    }
+
+    const worktreeViolation = checkWorktreePolicy(session, toolName, _toolInput);
+    if (worktreeViolation) {
+      return { behavior: 'deny', message: worktreeViolation };
     }
 
     if (shouldAutoAllow(toolName, session.mode)) {

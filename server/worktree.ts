@@ -18,12 +18,23 @@ function worktreesDir(baseRepo: string): string {
   return join(baseRepo, '.claude', 'worktrees');
 }
 
-export function createWorktree(sessionId: string, baseRepo: string): string {
-  const dir = worktreesDir(baseRepo);
+export interface CreateWorktreeOptions {
+  dir?: string;
+  branch?: string;
+  prefix?: '.claude' | '.cursor';
+}
+
+export function createWorktree(
+  sessionId: string,
+  baseRepo: string,
+  opts?: CreateWorktreeOptions,
+): string {
+  const prefix = opts?.prefix ?? '.claude';
+  const dir = opts?.dir ?? join(baseRepo, prefix, 'worktrees');
   mkdirSync(dir, { recursive: true });
 
   const worktreePath = join(dir, sessionId);
-  const branch = `${WORKTREE_BRANCH_PREFIX}${sessionId}`;
+  const branch = opts?.branch ?? `${WORKTREE_BRANCH_PREFIX}${sessionId}`;
 
   try {
     execFileSync('git', ['-C', baseRepo, 'worktree', 'add', '-b', branch, worktreePath], {
@@ -32,7 +43,6 @@ export function createWorktree(sessionId: string, baseRepo: string): string {
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    // Branch may already exist from a previous session with the same slug
     if (message.includes('already exists')) {
       execFileSync('git', ['-C', baseRepo, 'worktree', 'add', worktreePath, branch], {
         stdio: 'pipe',
@@ -45,6 +55,39 @@ export function createWorktree(sessionId: string, baseRepo: string): string {
 
   log.info(`created: ${worktreePath} (${branch})`);
   return worktreePath;
+}
+
+/**
+ * Create worktrees for the primary repo and all configured secondary repos.
+ * All worktrees share the same session ID and branch name.
+ * Returns a map of repo name → { path, branch }.
+ */
+export function createSessionWorktrees(
+  sessionId: string,
+  primaryRepo: string,
+  secondaryRepos: Record<string, string>,
+  opts?: { prefix?: '.claude' | '.cursor' },
+): Record<string, { path: string; branch: string }> {
+  const branch = `${WORKTREE_BRANCH_PREFIX}${sessionId}`;
+  const prefix = opts?.prefix ?? '.claude';
+  const results: Record<string, { path: string; branch: string }> = {};
+
+  const primaryPath = createWorktree(sessionId, primaryRepo, { branch, prefix });
+  results.primary = { path: primaryPath, branch };
+
+  for (const [name, repoPath] of Object.entries(secondaryRepos)) {
+    try {
+      const path = createWorktree(sessionId, repoPath, { branch, prefix });
+      results[name] = { path, branch };
+    } catch (err: unknown) {
+      log.warn('secondary worktree creation failed', {
+        repo: name,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return results;
 }
 
 /**
