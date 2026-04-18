@@ -6,25 +6,30 @@ vi.mock('../../lib/rename-session', () => ({
   renameSession: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock('../../lib/api-fetch', () => ({
+  apiFetch: vi.fn(),
+}));
+
+import { apiFetch } from '../../lib/api-fetch';
 import { useSessionList } from '../useSessionList';
 
-const mockFetch = vi.fn();
-
 beforeEach(() => {
-  mockFetch.mockReset();
-  vi.stubGlobal('fetch', mockFetch);
+  vi.mocked(apiFetch).mockReset();
 
   // Default: all fetches succeed with empty data
-  mockFetch.mockImplementation((url: string) => {
-    if (url === '/api/sessions') return Promise.resolve({ json: () => Promise.resolve([]) });
-    if (url === '/api/config') return Promise.resolve({ json: () => Promise.resolve({}) });
-    if (url === '/api/version') return Promise.resolve({ json: () => Promise.resolve({}) });
-    return Promise.resolve({ json: () => Promise.resolve({}) });
+  vi.mocked(apiFetch).mockImplementation((url: string) => {
+    if (url === '/api/sessions')
+      return Promise.resolve({ json: () => Promise.resolve([]) }) as Promise<Response>;
+    if (url === '/api/config')
+      return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
+    if (url === '/api/version')
+      return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
+    return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
   });
 });
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('useSessionList', () => {
@@ -35,12 +40,14 @@ describe('useSessionList', () => {
 
   it('fetches sessions on mount', async () => {
     const sessions = [{ id: 'abc', summary: 'Test', lastModified: Date.now() }];
-    mockFetch.mockImplementation((url: string) => {
+    vi.mocked(apiFetch).mockImplementation((url: string) => {
       if (url === '/api/sessions')
-        return Promise.resolve({ json: () => Promise.resolve(sessions) });
-      if (url === '/api/config') return Promise.resolve({ json: () => Promise.resolve({}) });
-      if (url === '/api/version') return Promise.resolve({ json: () => Promise.resolve({}) });
-      return Promise.resolve({ json: () => Promise.resolve({}) });
+        return Promise.resolve({ json: () => Promise.resolve(sessions) }) as Promise<Response>;
+      if (url === '/api/config')
+        return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
+      if (url === '/api/version')
+        return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
+      return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
     });
 
     const { result } = renderHook(() => useSessionList());
@@ -57,12 +64,14 @@ describe('useSessionList', () => {
       { id: 'a', summary: 'A', lastModified: Date.now() },
       { id: 'b', summary: 'B', lastModified: Date.now() },
     ];
-    mockFetch.mockImplementation((url: string) => {
+    vi.mocked(apiFetch).mockImplementation((url: string) => {
       if (url === '/api/sessions')
-        return Promise.resolve({ json: () => Promise.resolve(sessions) });
-      if (url === '/api/config') return Promise.resolve({ json: () => Promise.resolve({}) });
-      if (url === '/api/version') return Promise.resolve({ json: () => Promise.resolve({}) });
-      return Promise.resolve({ json: () => Promise.resolve({}) });
+        return Promise.resolve({ json: () => Promise.resolve(sessions) }) as Promise<Response>;
+      if (url === '/api/config')
+        return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
+      if (url === '/api/version')
+        return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
+      return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
     });
 
     const { result } = renderHook(() => useSessionList());
@@ -74,17 +83,19 @@ describe('useSessionList', () => {
 
     expect(result.current.sessions).toHaveLength(1);
     expect(result.current.sessions[0].id).toBe('b');
-    expect(mockFetch).toHaveBeenCalledWith('/api/sessions/a', { method: 'DELETE' });
+    expect(apiFetch).toHaveBeenCalledWith('/api/sessions/a', { method: 'DELETE' });
   });
 
   it('clearAll empties sessions and calls DELETE', async () => {
     const sessions = [{ id: 'a', summary: 'A', lastModified: Date.now() }];
-    mockFetch.mockImplementation((url: string) => {
+    vi.mocked(apiFetch).mockImplementation((url: string) => {
       if (url === '/api/sessions')
-        return Promise.resolve({ json: () => Promise.resolve(sessions) });
-      if (url === '/api/config') return Promise.resolve({ json: () => Promise.resolve({}) });
-      if (url === '/api/version') return Promise.resolve({ json: () => Promise.resolve({}) });
-      return Promise.resolve({ json: () => Promise.resolve({}) });
+        return Promise.resolve({ json: () => Promise.resolve(sessions) }) as Promise<Response>;
+      if (url === '/api/config')
+        return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
+      if (url === '/api/version')
+        return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
+      return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
     });
 
     const { result } = renderHook(() => useSessionList());
@@ -95,17 +106,19 @@ describe('useSessionList', () => {
     });
 
     expect(result.current.sessions).toHaveLength(0);
-    expect(mockFetch).toHaveBeenCalledWith('/api/sessions', { method: 'DELETE' });
+    expect(apiFetch).toHaveBeenCalledWith('/api/sessions', { method: 'DELETE' });
   });
 
   it('handleRename does optimistic update', async () => {
     const sessions = [{ id: 'a', summary: 'Old', lastModified: Date.now() }];
-    mockFetch.mockImplementation((url: string) => {
+    vi.mocked(apiFetch).mockImplementation((url: string) => {
       if (url === '/api/sessions')
-        return Promise.resolve({ json: () => Promise.resolve(sessions) });
-      if (url === '/api/config') return Promise.resolve({ json: () => Promise.resolve({}) });
-      if (url === '/api/version') return Promise.resolve({ json: () => Promise.resolve({}) });
-      return Promise.resolve({ json: () => Promise.resolve({}) });
+        return Promise.resolve({ json: () => Promise.resolve(sessions) }) as Promise<Response>;
+      if (url === '/api/config')
+        return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
+      if (url === '/api/version')
+        return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
+      return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
     });
 
     const { result } = renderHook(() => useSessionList());
@@ -119,14 +132,16 @@ describe('useSessionList', () => {
   });
 
   it('builds quick actions from config', async () => {
-    mockFetch.mockImplementation((url: string) => {
-      if (url === '/api/sessions') return Promise.resolve({ json: () => Promise.resolve([]) });
+    vi.mocked(apiFetch).mockImplementation((url: string) => {
+      if (url === '/api/sessions')
+        return Promise.resolve({ json: () => Promise.resolve([]) }) as Promise<Response>;
       if (url === '/api/config')
         return Promise.resolve({
           json: () => Promise.resolve({ quickActions: [{ label: 'Test', desc: 'Test action' }] }),
-        });
-      if (url === '/api/version') return Promise.resolve({ json: () => Promise.resolve({}) });
-      return Promise.resolve({ json: () => Promise.resolve({}) });
+        }) as Promise<Response>;
+      if (url === '/api/version')
+        return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
+      return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
     });
 
     const { result } = renderHook(() => useSessionList());

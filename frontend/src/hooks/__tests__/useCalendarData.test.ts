@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, cleanup } from '@testing-library/react';
+
+vi.mock('../../lib/api-fetch', () => ({
+  apiFetch: vi.fn(),
+}));
+
+import { apiFetch } from '../../lib/api-fetch';
 import { useCalendarData } from '../useCalendarData';
 
 const MOCK_DATA = {
@@ -44,18 +50,15 @@ const MOCK_DATA = {
 };
 
 beforeEach(() => {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(MOCK_DATA),
-    }),
-  );
+  vi.clearAllMocks();
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    json: () => Promise.resolve(MOCK_DATA),
+  } as Response);
 });
 
 afterEach(() => {
   cleanup();
-  vi.restoreAllMocks();
 });
 
 describe('useCalendarData', () => {
@@ -71,7 +74,7 @@ describe('useCalendarData', () => {
     expect(result.current.loading).toBe(false);
     expect(result.current.events).toHaveLength(2);
     expect(result.current.sprints).toHaveLength(1);
-    expect(fetch).toHaveBeenCalledWith('/api/calendar?date=2026-04-10&days=7');
+    expect(apiFetch).toHaveBeenCalledWith('/api/calendar?date=2026-04-10&days=7');
   });
 
   it('passes days parameter to API', async () => {
@@ -81,7 +84,7 @@ describe('useCalendarData', () => {
       await new Promise((r) => setTimeout(r, 10));
     });
 
-    expect(fetch).toHaveBeenCalledWith('/api/calendar?date=2026-04-10&days=3');
+    expect(apiFetch).toHaveBeenCalledWith('/api/calendar?date=2026-04-10&days=3');
     expect(result.current.events).toHaveLength(2);
   });
 
@@ -94,7 +97,7 @@ describe('useCalendarData', () => {
       await new Promise((r) => setTimeout(r, 10));
     });
 
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(apiFetch).toHaveBeenCalledTimes(1);
 
     rerender({ date: '2026-04-11' });
 
@@ -102,19 +105,16 @@ describe('useCalendarData', () => {
       await new Promise((r) => setTimeout(r, 10));
     });
 
-    expect(fetch).toHaveBeenCalledTimes(2);
-    expect(fetch).toHaveBeenLastCalledWith('/api/calendar?date=2026-04-11&days=7');
+    expect(apiFetch).toHaveBeenCalledTimes(2);
+    expect(apiFetch).toHaveBeenLastCalledWith('/api/calendar?date=2026-04-11&days=7');
   });
 
   it('handles non-ok HTTP responses as errors', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 401,
-        json: () => Promise.resolve({ error: 'Unauthorized' }),
-      }),
-    );
+    vi.mocked(apiFetch).mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: () => Promise.resolve({ error: 'Unauthorized' }),
+    } as Response);
 
     const { result } = renderHook(() => useCalendarData('2026-04-10'));
 
@@ -128,7 +128,7 @@ describe('useCalendarData', () => {
   });
 
   it('handles fetch errors gracefully', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network error')));
+    vi.mocked(apiFetch).mockRejectedValue(new Error('Network error'));
 
     const { result } = renderHook(() => useCalendarData('2026-04-10'));
 
