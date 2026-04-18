@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { SetURLSearchParams } from 'react-router-dom';
+import { apiFetch } from '../lib/api-fetch';
 
 interface DirEntry {
   name: string;
@@ -59,7 +60,7 @@ export function useFileNavigation(
   const [activeRoot, setActiveRoot] = useState(rootParam);
 
   useEffect(() => {
-    fetch('/api/git/info')
+    apiFetch('/api/git/info')
       .then((r) => (r.ok ? r.json() : null))
       .then((data: GitInfo | null) => {
         if (data) {
@@ -71,7 +72,7 @@ export function useFileNavigation(
         // Network error loading git info — non-fatal
       });
 
-    fetch('/api/files/roots')
+    apiFetch('/api/files/roots')
       .then((r) => (r.ok ? r.json() : []))
       .then((data: FileRoot[]) => {
         if (Array.isArray(data)) setRoots(data);
@@ -88,7 +89,7 @@ export function useFileNavigation(
     const rootQ = activeRoot ? `&root=${encodeURIComponent(activeRoot)}` : '';
 
     if (isViewing) {
-      fetch(`/api/files/read?path=${encodeURIComponent(filePath)}`)
+      apiFetch(`/api/files/read?path=${encodeURIComponent(filePath)}`)
         .then((r) => {
           if (!r.ok) throw new Error('Failed to load file');
           return r.json();
@@ -100,7 +101,7 @@ export function useFileNavigation(
         .catch((err) => setError(err.message))
         .finally(() => setLoading(false));
     } else {
-      fetch(`/api/files?dir=${encodeURIComponent(dirPath)}${rootQ}`)
+      apiFetch(`/api/files?dir=${encodeURIComponent(dirPath)}${rootQ}`)
         .then((r) => {
           if (!r.ok) throw new Error('Failed to load directory');
           return r.json();

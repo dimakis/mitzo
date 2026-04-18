@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { ContextBlockEntry } from './ContextPicker';
+import { apiFetch } from '../lib/api-fetch';
 
 export interface ContextPanelProps {
   selected: string[];
@@ -28,7 +29,7 @@ export function ContextPanel({
   // Self-fetch config only when not provided via props (standalone usage)
   useEffect(() => {
     if (externalBlocks !== undefined) return;
-    fetch('/api/config', { credentials: 'include' })
+    apiFetch('/api/config')
       .then((r) => r.json())
       .then((data: { contextBlocks?: Record<string, { path: string; sizeBytes: number }> }) => {
         const entries: ContextBlockEntry[] = [];

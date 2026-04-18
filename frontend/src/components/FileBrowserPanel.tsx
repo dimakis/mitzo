@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { apiFetch } from '../lib/api-fetch';
 
 interface DirEntry {
   name: string;
@@ -25,7 +26,7 @@ export function FileBrowserPanel({
   // Self-fetch config only when not provided via props (standalone usage)
   useEffect(() => {
     if (externalRoots !== undefined) return;
-    fetch('/api/config', { credentials: 'include' })
+    apiFetch('/api/config')
       .then((r) => r.json())
       .then((data: { fileViewerRoots?: FileRoot[] }) => {
         setSelfRoots(data.fileViewerRoots ?? []);
@@ -57,7 +58,7 @@ export function FileBrowserPanel({
     if (!activeRoot) return;
     const dir = fetchDir || activeRoot;
     const params = new URLSearchParams({ dir });
-    fetch(`/api/files/list?${params}`, { credentials: 'include' })
+    apiFetch(`/api/files/list?${params}`)
       .then((r) => r.json())
       .then((data: { entries: DirEntry[]; currentDir: string }) => {
         setEntries(data.entries ?? []);
@@ -86,7 +87,7 @@ export function FileBrowserPanel({
   const openFile = useCallback(
     (fileName: string) => {
       const filePath = `${currentDir}/${fileName}`;
-      fetch(`/api/files/read?path=${encodeURIComponent(filePath)}`, { credentials: 'include' })
+      apiFetch(`/api/files/read?path=${encodeURIComponent(filePath)}`)
         .then((r) => r.json())
         .then((data: { content: string }) => {
           setPreview({ name: fileName, content: data.content });

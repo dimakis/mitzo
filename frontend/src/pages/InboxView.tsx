@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import { EmptyState } from '../components/EmptyState';
+import { apiFetch } from '../lib/api-fetch';
 
 interface InboxItem {
   filename: string;
@@ -35,7 +36,7 @@ function InboxCard({
     }
     if (!fullContent) {
       try {
-        const res = await fetch(`/api/inbox/${encodeURIComponent(item.filename)}`);
+        const res = await apiFetch(`/api/inbox/${encodeURIComponent(item.filename)}`);
         if (res.ok) {
           const data = await res.json();
           setFullContent(data.content);
@@ -195,7 +196,7 @@ export function InboxView() {
   function handleApprove(filename: string) {
     setPendingRemovals((prev) => new Set(prev).add(filename));
     setItems((prev) => prev.filter((i) => i.filename !== filename));
-    fetch(`/api/inbox/${encodeURIComponent(filename)}/approve`, { method: 'POST' })
+    apiFetch(`/api/inbox/${encodeURIComponent(filename)}/approve`, { method: 'POST' })
       .then((res) => {
         if (!res.ok) loadInbox();
       })
@@ -212,7 +213,7 @@ export function InboxView() {
   function handleDiscard(filename: string) {
     setPendingRemovals((prev) => new Set(prev).add(filename));
     setItems((prev) => prev.filter((i) => i.filename !== filename));
-    fetch(`/api/inbox/${encodeURIComponent(filename)}`, { method: 'DELETE' })
+    apiFetch(`/api/inbox/${encodeURIComponent(filename)}`, { method: 'DELETE' })
       .then((res) => {
         if (!res.ok) loadInbox();
       })

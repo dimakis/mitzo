@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { apiFetch } from '../lib/api-fetch';
 
 export interface CalendarEvent {
   id: string;
@@ -57,7 +58,7 @@ export function useCalendarData(date: string, days: number = 7): UseCalendarData
     let cancelled = false;
     setLoading(true);
 
-    fetch(`/api/calendar?date=${date}&days=${days}`)
+    apiFetch(`/api/calendar?date=${date}&days=${days}`)
       .then((r) => {
         if (!r.ok) throw new Error(`Calendar API returned ${r.status}`);
         return r.json();

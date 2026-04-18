@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
+import { apiFetch } from '../lib/api-fetch';
 import { DesktopShell } from '../components/DesktopShell';
 import { SessionPanel } from '../components/SessionPanel';
 import { ContextPanel } from '../components/ContextPanel';
@@ -31,7 +32,7 @@ export function DesktopChatView() {
   const [configLoaded, setConfigLoaded] = useState(false);
 
   useEffect(() => {
-    fetch('/api/config', { credentials: 'include' })
+    apiFetch('/api/config')
       .then((r) => r.json())
       .then((data) => {
         const entries: ContextBlockEntry[] = [];

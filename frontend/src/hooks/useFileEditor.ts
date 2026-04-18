@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import { apiFetch } from '../lib/api-fetch';
 
 export function useFileEditor(content: string, filePath: string, onError: (msg: string) => void) {
   const [editing, setEditing] = useState(false);
@@ -28,7 +29,7 @@ export function useFileEditor(content: string, filePath: string, onError: (msg: 
   async function saveFile(onSaved: (newContent: string) => void) {
     setSaving(true);
     try {
-      const res = await fetch('/api/files/write', {
+      const res = await apiFetch('/api/files/write', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: filePath, content: editContent }),

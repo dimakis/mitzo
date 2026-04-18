@@ -24,7 +24,7 @@ export function getWsBaseUrl(): string {
 export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const url = path.startsWith('http') ? path : `${getApiBaseUrl()}${path}`;
   const headers = new Headers(init?.headers);
-  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  const token = typeof localStorage !== 'undefined' ? localStorage.getItem(AUTH_TOKEN_KEY) : null;
   if (token) headers.set('Authorization', `Bearer ${token}`);
   return fetch(url, { ...init, headers, credentials: 'include' });
 }

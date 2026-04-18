@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { TodoItem, TodoData } from '../types/todo';
+import { apiFetch } from '../lib/api-fetch';
 
 export interface UseTodoDataResult {
   loading: boolean;
@@ -59,7 +60,7 @@ export function useTodoData(profile?: string): UseTodoDataResult {
 
     const url = profile ? `/api/todos?${new URLSearchParams({ profile })}` : '/api/todos';
 
-    fetch(url)
+    apiFetch(url)
       .then((r) => {
         if (!r.ok) throw new Error(`Todo API returned ${r.status}`);
         return r.json();
@@ -87,7 +88,7 @@ export function useTodoData(profile?: string): UseTodoDataResult {
     if (days !== undefined) body.days = days;
 
     try {
-      const res = await fetch(`/api/todos/${id}/action`, {
+      const res = await apiFetch(`/api/todos/${id}/action`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -122,7 +123,7 @@ export function useTodoData(profile?: string): UseTodoDataResult {
     });
 
     try {
-      await fetch(`/api/todos/${id}/action`, {
+      await apiFetch(`/api/todos/${id}/action`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action }),
@@ -138,7 +139,7 @@ export function useTodoData(profile?: string): UseTodoDataResult {
       if (parentId) body.parentId = parentId;
 
       try {
-        const res = await fetch('/api/todos', {
+        const res = await apiFetch('/api/todos', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),

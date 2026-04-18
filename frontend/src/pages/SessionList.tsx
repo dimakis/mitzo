@@ -195,7 +195,7 @@ async function refreshUI() {
     const keys = await caches.keys();
     await Promise.all(keys.map((k) => caches.delete(k)));
   }
-  location.reload();
+  window.location.reload();
 }
 
 export function SessionList() {
