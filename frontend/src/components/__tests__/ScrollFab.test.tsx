@@ -31,7 +31,7 @@ describe('ScrollFab', () => {
 
     // Trigger the scroll event handler
     const scrollHandler = (el.addEventListener as ReturnType<typeof vi.fn>).mock.calls.find(
-      ([event]: [string]) => event === 'scroll',
+      ([event]: string[]) => event === 'scroll',
     )?.[1];
     expect(scrollHandler).toBeTruthy();
 
@@ -47,7 +47,7 @@ describe('ScrollFab', () => {
     render(<ScrollFab scrollRef={ref} />);
 
     const scrollHandler = (el.addEventListener as ReturnType<typeof vi.fn>).mock.calls.find(
-      ([event]: [string]) => event === 'scroll',
+      ([event]: string[]) => event === 'scroll',
     )?.[1];
 
     act(() => scrollHandler!());
@@ -62,7 +62,7 @@ describe('ScrollFab', () => {
     render(<ScrollFab scrollRef={ref} />);
 
     const scrollHandler = (el.addEventListener as ReturnType<typeof vi.fn>).mock.calls.find(
-      ([event]: [string]) => event === 'scroll',
+      ([event]: string[]) => event === 'scroll',
     )?.[1];
 
     act(() => scrollHandler!());
@@ -82,7 +82,7 @@ describe('ScrollFab', () => {
     render(<ScrollFab scrollRef={ref} />);
 
     const scrollHandler = (el.addEventListener as ReturnType<typeof vi.fn>).mock.calls.find(
-      ([event]: [string]) => event === 'scroll',
+      ([event]: string[]) => event === 'scroll',
     )?.[1];
 
     act(() => scrollHandler!());

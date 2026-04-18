@@ -11,6 +11,7 @@ function makeState(overrides: Partial<TokenState> = {}): TokenState {
     sessionTotal: 0,
     numTurns: 0,
     turnIndex: 0,
+    numCompactions: 0,
     ...overrides,
   };
 }
@@ -94,7 +95,7 @@ describe('TokenBar', () => {
       turnIndex: 1,
     });
     // Simulate the bug: sessionTotal clobbered to undefined by partial spread
-    (state as Record<string, unknown>).sessionTotal = undefined;
+    (state as unknown as Record<string, unknown>).sessionTotal = undefined;
     const { container } = render(<TokenBar tokenState={state} />);
     const bar = container.querySelector('.token-bar')!;
     fireEvent.click(bar);

@@ -110,6 +110,7 @@ function createMockStore() {
       sessionTotal: 0,
       numTurns: 0,
       turnIndex: 0,
+      numCompactions: 0,
     },
     sendError: null,
     dispatchMessages: vi.fn(),
