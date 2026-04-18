@@ -137,6 +137,26 @@ export const yapperWsProxy = createProxyMiddleware({
 app.use('/api/yapper', yapperHttpProxy);
 app.use('/api/yapper-ws', yapperWsProxy);
 
+// --- CORS for non-same-origin clients (Capacitor iOS, etc.) ---
+const CORS_ALLOWED_ORIGINS = process.env.CORS_ALLOWED_ORIGINS?.split(',').map((s) => s.trim()) ?? [];
+
+if (CORS_ALLOWED_ORIGINS.length > 0) {
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin && CORS_ALLOWED_ORIGINS.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    }
+    if (req.method === 'OPTIONS') {
+      res.status(204).end();
+      return;
+    }
+    next();
+  });
+}
+
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
 
@@ -587,7 +607,7 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     sameSite: 'strict',
     maxAge: MAX_AGE_HOURS * 60 * 60 * 1000,
   });
-  res.json({ ok: true });
+  res.json({ ok: true, token });
 });
 
 app.post('/api/auth/logout', (_req, res) => {

@@ -16,9 +16,23 @@ export function getApiBaseUrl(): string {
 
 export function getWsBaseUrl(): string {
   const base = getApiBaseUrl();
-  if (base) return base.replace(/^http/, 'ws');
+  if (base) {
+    const wsBase = base.replace(/^http/, 'ws');
+    const token =
+      typeof localStorage !== 'undefined' ? localStorage.getItem(AUTH_TOKEN_KEY) : null;
+    return token ? `${wsBase}` : wsBase;
+  }
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   return `${proto}://${location.host}`;
+}
+
+/** Build the full WebSocket URL with token auth query param when needed. */
+export function getWsChatUrl(): string {
+  const base = getWsBaseUrl();
+  const token =
+    typeof localStorage !== 'undefined' ? localStorage.getItem(AUTH_TOKEN_KEY) : null;
+  const url = `${base}/ws/chat`;
+  return token ? `${url}?token=${encodeURIComponent(token)}` : url;
 }
 
 export function apiFetch(path: string, init?: RequestInit): Promise<Response> {

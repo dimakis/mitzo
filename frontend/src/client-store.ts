@@ -8,16 +8,14 @@
  */
 
 import { createMitzoStore } from '@mitzo/client';
-import { apiFetch, getWsBaseUrl } from './lib/api-fetch';
-
-const wsUrl = `${getWsBaseUrl()}/ws/chat`;
+import { apiFetch, getWsChatUrl } from './lib/api-fetch';
 
 export const clientStore = createMitzoStore({
   transport: {
     fetch: (url, init) => apiFetch(url, init),
   },
   wsConfig: {
-    buildUrl: () => wsUrl,
+    buildUrl: () => getWsChatUrl(),
     createWebSocket: (url) => new WebSocket(url) as import('@mitzo/client').WebSocketLike,
     reconnectDelayMs: 500,
   },

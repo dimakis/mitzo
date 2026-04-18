@@ -8,7 +8,7 @@ import { join } from 'path';
 import { fileURLToPath } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { WsTransport } from './ws-transport.js';
-import { verifyWsAuth } from './auth.js';
+import { verifyWsAuth, verifyToken } from './auth.js';
 import {
   startChat,
   sendToChat,
@@ -173,7 +173,9 @@ server.on('upgrade', async (req, socket, head) => {
     return;
   }
 
-  const authed = await verifyWsAuth(req.headers.cookie);
+  const authed =
+    (await verifyWsAuth(req.headers.cookie)) ||
+    (await verifyToken(url.searchParams.get('token') || ''));
   if (!authed) {
     socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
     socket.destroy();
