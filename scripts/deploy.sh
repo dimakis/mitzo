@@ -8,12 +8,8 @@ npm run build:server
 echo "Building frontend..."
 npm run build
 
-echo "Gracefully stopping service..."
-SERVICE="gui/$(id -u)/com.mitzo.server"
-launchctl kill SIGTERM "$SERVICE" 2>/dev/null || true
-sleep 3
-
 echo "Restarting service..."
-launchctl kickstart -k "$SERVICE"
+# kickstart -k sends SIGTERM and waits for termination before restarting.
+launchctl kickstart -k "gui/$(id -u)/com.mitzo.server"
 
 echo "Deployed and restarted."

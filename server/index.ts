@@ -244,12 +244,18 @@ function handleChatWsV2(ws: WebSocket, connectionId: string) {
     if (ws.readyState === ws.OPEN) ws.ping();
   }, HEARTBEAT_INTERVAL_MS);
 
+  // Per-connection promise chain ensures FIFO ordering even when individual
+  // dispatches are async (e.g. switch_session awaits SDK discovery).
+  let dispatchChain = Promise.resolve();
+
   ws.on('message', (raw) => {
-    dispatchV2Message(connectionId, transport, raw.toString(), v2Ctx).catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      log.warn('v2 message dispatch error', { connectionId, error: message });
-      transport.send({ type: 'error', error: message });
-    });
+    dispatchChain = dispatchChain
+      .then(() => dispatchV2Message(connectionId, transport, raw.toString(), v2Ctx))
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        log.warn('v2 message dispatch error', { connectionId, error: message });
+        transport.send({ type: 'error', error: message });
+      });
   });
 
   ws.on('close', (code, reason) => {

@@ -856,7 +856,7 @@ export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
             summary: s.summary,
             lastModified: s.lastModified,
             branch: s.gitBranch,
-            cwd: s.cwd ?? dir,
+            cwd: s.cwd || undefined,
           });
         }
       }
@@ -868,12 +868,13 @@ export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
   // Reconcile: backfill EventStore for SDK-discovered sessions that Mitzo
   // doesn't track (e.g. sessions orphaned by a server restart mid-query,
   // or created by external agents in a worktree).
+  const knownIds = eventStore.getKnownSessionIds(Array.from(seen.keys()));
   for (const [sessionId, entry] of seen) {
-    if (!eventStore.getSession(sessionId)) {
+    if (!knownIds.has(sessionId)) {
       eventStore.upsertSession({
         sessionId,
         summary: entry.summary || null,
-        cwd: entry.cwd ?? null,
+        cwd: entry.cwd ?? (BASE_REPO || null),
         branch: entry.branch ?? null,
       });
       log.info('reconciled orphaned session', { sessionId });
