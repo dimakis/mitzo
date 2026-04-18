@@ -19,9 +19,23 @@ function otelMixin(): Record<string, unknown> {
   return { trace_id: ctx.traceId, span_id: ctx.spanId };
 }
 
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+
+function isPinoPrettyAvailable(): boolean {
+  try {
+    require.resolve('pino-pretty');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function buildProductionDestination(level: LogLevel): DestinationStream {
   const logDir = join(process.cwd(), 'logs');
   const logFile = process.env.LOG_FILE_PATH ?? join(logDir, 'server.log');
+
+  const usePretty = process.env.NODE_ENV === 'development' && isPinoPrettyAvailable();
 
   const targets: TransportTargetOptions[] = [
     {
@@ -35,8 +49,8 @@ function buildProductionDestination(level: LogLevel): DestinationStream {
       level,
     },
     {
-      target: process.env.NODE_ENV === 'development' ? 'pino-pretty' : 'pino/file',
-      options: process.env.NODE_ENV === 'development' ? { colorize: true } : { destination: 1 },
+      target: usePretty ? 'pino-pretty' : 'pino/file',
+      options: usePretty ? { colorize: true } : { destination: 1 },
       level,
     },
   ];
@@ -68,7 +82,14 @@ export function _buildLogger(dest?: DestinationStream) {
   return pino(opts, buildProductionDestination(level));
 }
 
-const rootLogger = _buildLogger();
+let rootLogger: pino.Logger | null = null;
+
+function getRootLogger(): pino.Logger {
+  if (!rootLogger) {
+    rootLogger = _buildLogger();
+  }
+  return rootLogger;
+}
 
 export interface Logger {
   debug: (message: string, ctx?: Record<string, unknown>) => void;
@@ -78,7 +99,7 @@ export interface Logger {
 }
 
 export function createLogger(module: string): Logger {
-  const child = rootLogger.child({ module });
+  const child = getRootLogger().child({ module });
   return {
     debug: (message: string, ctx?: Record<string, unknown>) => child.debug(ctx ?? {}, message),
     info: (message: string, ctx?: Record<string, unknown>) => child.info(ctx ?? {}, message),

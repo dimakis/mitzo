@@ -6,13 +6,20 @@ import pino from 'pino';
 import { _buildLogger, createLogger } from '../logger.js';
 
 let tmpDir: string;
+let savedLogLevel: string | undefined;
 
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'logger-test-'));
+  savedLogLevel = process.env.LOG_LEVEL;
 });
 
 afterEach(() => {
   rmSync(tmpDir, { recursive: true, force: true });
+  if (savedLogLevel === undefined) {
+    delete process.env.LOG_LEVEL;
+  } else {
+    process.env.LOG_LEVEL = savedLogLevel;
+  }
 });
 
 function syncDest(logFile: string) {
@@ -78,8 +85,6 @@ describe('createLogger', () => {
     log.info('should not appear');
     log.warn('should not appear');
     log.error('should appear');
-
-    process.env.LOG_LEVEL = 'debug';
 
     const lines = readLogLines(logFile);
     expect(lines).toHaveLength(1);
