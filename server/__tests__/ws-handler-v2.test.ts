@@ -35,6 +35,7 @@ import {
   handleUnwatch,
   handleSwitchSession,
   handleSendV2,
+  handleInterruptV2,
   handleSetModeV2,
   handleStopV2,
   handlePermissionResponseV2,
@@ -412,6 +413,46 @@ describe('handleSendV2 auto-watch', () => {
     expect(conn).toBeDefined();
     expect(conn!.watchedSessions.has('sess-new')).toBe(true);
     expect(conn!.activeSession).toBe('sess-new');
+  });
+});
+
+// ─── handleInterruptV2 ──────────────────────────────────────────────────────
+
+describe('handleInterruptV2', () => {
+  it('watches and activates the session for the connection', () => {
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleInterruptV2(
+      'c1',
+      transport,
+      { type: 'interrupt', sessionId: 'sess-1', prompt: 'stop and do this', clientMsgId: 'i1' },
+      ctx,
+    );
+
+    const conn = ctx.connRegistry.get('c1');
+    expect(conn).toBeDefined();
+    expect(conn!.watchedSessions.has('sess-1')).toBe(true);
+    expect(conn!.activeSession).toBe('sess-1');
+  });
+
+  it('is a no-op when session is not found', () => {
+    const ctx = createContext();
+    const transport = mockTransport();
+    expect(() =>
+      handleInterruptV2(
+        'c1',
+        transport,
+        { type: 'interrupt', sessionId: 'nope', prompt: 'x', clientMsgId: 'i2' },
+        ctx,
+      ),
+    ).not.toThrow();
   });
 });
 

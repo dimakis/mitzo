@@ -295,4 +295,36 @@ describe('MitzoConnection', () => {
       vi.useRealTimers();
     });
   });
+
+  describe('iOS reconnect resilience', () => {
+    it('reconnects when heartbeat detects dead socket', () => {
+      vi.useFakeTimers();
+      const conn = createConnection();
+      conn.onMessage(() => {});
+      const ws = openWithHandshake(conn);
+
+      // Simulate iOS silent death — readyState changes without onclose firing
+      ws.readyState = 3; // CLOSED
+
+      // Heartbeat fires every 5s
+      vi.advanceTimersByTime(5_000);
+
+      // A new WS should have been created
+      expect(lastWs).not.toBe(ws);
+
+      vi.useRealTimers();
+    });
+
+    // Browser-specific tests (visibilitychange, pageshow) require a DOM
+    // environment and are covered by the frontend test suite. Here we verify
+    // the heartbeat path which works in Node.
+
+    it('skips browser listeners in non-browser environment', () => {
+      // In Node, document is undefined — connect should not throw
+      const conn = createConnection();
+      conn.onMessage(() => {});
+      openWithHandshake(conn);
+      conn.disconnect();
+    });
+  });
 });

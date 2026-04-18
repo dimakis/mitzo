@@ -18,6 +18,7 @@ export interface MitzoConnectionConfig {
 export type ConnectionListener = (msg: Record<string, unknown>) => void;
 
 const MAX_PENDING_SENDS = 100;
+const HEARTBEAT_INTERVAL_MS = 5_000;
 
 export class MitzoConnection {
   private ws: WebSocketLike | null = null;
@@ -28,6 +29,9 @@ export class MitzoConnection {
   private seqBySession = new Map<string, number>();
   private pendingSends: string[] = [];
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private boundOnVisibility: (() => void) | null = null;
+  private boundOnPageShow: ((e: PageTransitionEvent) => void) | null = null;
   private config: Required<MitzoConnectionConfig>;
 
   constructor(config: MitzoConnectionConfig) {
@@ -39,9 +43,13 @@ export class MitzoConnection {
 
   connect(): void {
     this.doConnect();
+    this.startHeartbeat();
+    this.addBrowserListeners();
   }
 
   disconnect(): void {
+    this.stopHeartbeat();
+    this.removeBrowserListeners();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -179,6 +187,68 @@ export class MitzoConnection {
         this.pendingSends.unshift(...toFlush.slice(i));
         break;
       }
+    }
+  }
+
+  // ─── iOS reconnect resilience ─────────────────────────────────────────────
+  // iOS Safari silently kills WebSocket connections when the app is backgrounded
+  // or the screen is locked. The onclose event may never fire. These listeners
+  // detect when the app returns to the foreground and force a reconnect if the
+  // socket is dead.
+
+  private startHeartbeat(): void {
+    if (typeof globalThis.setInterval === 'undefined') return;
+    this.heartbeatTimer = setInterval(() => {
+      if (this.ws && this.ws.readyState !== WS_READY_STATE.OPEN && !this.reconnectTimer) {
+        this.ws = null;
+        this._connected = false;
+        this.listener?.({ type: '_close' });
+        this.doConnect();
+      }
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+
+  private addBrowserListeners(): void {
+    if (typeof globalThis.document === 'undefined') return;
+
+    this.boundOnVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        this.checkAndReconnect();
+      }
+    };
+
+    this.boundOnPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) this.checkAndReconnect();
+    };
+
+    document.addEventListener('visibilitychange', this.boundOnVisibility);
+    globalThis.addEventListener('pageshow', this.boundOnPageShow);
+  }
+
+  private removeBrowserListeners(): void {
+    if (this.boundOnVisibility) {
+      document.removeEventListener('visibilitychange', this.boundOnVisibility);
+      this.boundOnVisibility = null;
+    }
+    if (this.boundOnPageShow) {
+      globalThis.removeEventListener('pageshow', this.boundOnPageShow);
+      this.boundOnPageShow = null;
+    }
+  }
+
+  private checkAndReconnect(): void {
+    if (!this.ws || this.ws.readyState !== WS_READY_STATE.OPEN) {
+      if (this.reconnectTimer) return;
+      this.ws = null;
+      this._connected = false;
+      this.doConnect();
     }
   }
 }

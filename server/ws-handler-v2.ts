@@ -265,13 +265,9 @@ export function handleSendV2(
     }
 
     const prompt = resolution.type === 'skill' ? resolution.renderedPrompt : msg.prompt;
+    const skillAllowedTools = resolution.type === 'skill' ? resolution.allowedTools : undefined;
 
     if (resolution.type === 'skill') {
-      if (resolution.allowedTools) {
-        setSkillPolicy(ctx.sessionRegistry, connectionId, resolution.allowedTools);
-      } else {
-        clearSkillPolicy(ctx.sessionRegistry, connectionId);
-      }
       transport.send({
         type: 'skill_invoked',
         v: 2,
@@ -280,9 +276,17 @@ export function handleSendV2(
         arguments: resolution.arguments,
         ...(resolution.collisions ? { collisions: resolution.collisions } : {}),
       });
-    } else {
-      clearSkillPolicy(ctx.sessionRegistry, connectionId);
     }
+
+    // Helper: apply skill policy to the correct session clientId.
+    // Must be called AFTER startChat registers the session.
+    const applySkillPolicy = (targetClientId: string) => {
+      if (skillAllowedTools) {
+        setSkillPolicy(ctx.sessionRegistry, targetClientId, skillAllowedTools);
+      } else {
+        clearSkillPolicy(ctx.sessionRegistry, targetClientId);
+      }
+    };
 
     const sessionId = msg.sessionId;
 
@@ -290,6 +294,7 @@ export function handleSendV2(
       // Resume existing session
       const found = ctx.sessionRegistry.findBySessionId(sessionId);
       if (found && isActive(found.clientId)) {
+        applySkillPolicy(found.clientId);
         sendToChat(found.clientId, prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
         ctx.connRegistry.watch(connectionId, sessionId);
         ctx.connRegistry.setActive(connectionId, sessionId);
@@ -312,6 +317,8 @@ export function handleSendV2(
         contextBlocks: msg.contextBlocks,
         clientMsgId: msg.clientMsgId,
       });
+      // startChat registers under connectionId — safe to apply now
+      applySkillPolicy(connectionId);
     } else {
       // null sessionId — new session. Supply onSessionResolved so the
       // connection auto-watches once the SDK resolves the session ID.
@@ -330,6 +337,8 @@ export function handleSendV2(
         clientMsgId: msg.clientMsgId,
         onSessionResolved,
       });
+      // startChat registers under connectionId — safe to apply now
+      applySkillPolicy(connectionId);
     }
 
     span.setStatus({ code: SpanStatusCode.OK });
@@ -364,6 +373,8 @@ export function handleInterruptV2(
 ): void {
   const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
   if (found) {
+    ctx.connRegistry.watch(connectionId, msg.sessionId);
+    ctx.connRegistry.setActive(connectionId, msg.sessionId);
     interruptChat(found.clientId, msg.prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
     log.info('interrupt', { connectionId, sessionId: msg.sessionId });
   }
