@@ -35,7 +35,15 @@ type SetModeMsg = z.infer<typeof V2SetModeMessage>;
 import { tracer } from './tracing.js';
 import { SpanStatusCode } from '@opentelemetry/api';
 import { resolvePending } from './permissions.js';
-import { startChat, sendToChat, interruptChat, stopChat, isActive, BASE_REPO } from './chat.js';
+import {
+  startChat,
+  sendToChat,
+  interruptChat,
+  stopChat,
+  isActive,
+  BASE_REPO,
+  discoverSession,
+} from './chat.js';
 import { setSkillPolicy, clearSkillPolicy } from './skill-policy.js';
 import { resolveSlashCommand } from './slash-commands.js';
 import { buildSkillRegistry, isAllowedPath, NATIVE_COMMAND_NAMES } from './app.js';
@@ -164,11 +172,11 @@ export function handleUnwatch(connectionId: string, msg: UnwatchMsg, ctx: V2Hand
   log.info('unwatch', { connectionId, sessionId: msg.sessionId });
 }
 
-export function handleSwitchSession(
+export async function handleSwitchSession(
   connectionId: string,
   msg: SwitchSessionMsg,
   ctx: V2HandlerContext,
-): void {
+): Promise<void> {
   const span = tracer.startSpan('ws.switch_session');
   span.setAttribute('ws.connectionId', connectionId);
   span.setAttribute('ws.sessionId', msg.sessionId ?? 'null');
@@ -182,8 +190,18 @@ export function handleSwitchSession(
       return;
     }
 
-    const sessionMeta = ctx.eventStore.getSession(msg.sessionId);
+    let sessionMeta = ctx.eventStore.getSession(msg.sessionId);
+
+    // Fallback: if EventStore doesn't know the session, try discovering it
+    // via the Claude SDK. This handles sessions orphaned by server restarts
+    // or created by external agents.
     if (!sessionMeta) {
+      span.setAttribute('ws.discovery', 'sdk_fallback');
+      sessionMeta = await discoverSession(msg.sessionId);
+    }
+
+    if (!sessionMeta) {
+      span.setStatus({ code: SpanStatusCode.ERROR, message: 'session not found' });
       ctx.connRegistry.get(connectionId)?.transport.send({
         type: 'error',
         error: `Session not found: ${msg.sessionId}`,
@@ -422,12 +440,12 @@ export function handleSetModeV2(
  * Main v2 message dispatcher. Called for every WS message after hello handshake.
  * Hello is NOT dispatched here — it's handled at the routing layer.
  */
-export function dispatchV2Message(
+export async function dispatchV2Message(
   connectionId: string,
   transport: SessionTransport,
   raw: string,
   ctx: V2HandlerContext,
-): void {
+): Promise<void> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -461,7 +479,7 @@ export function dispatchV2Message(
       handleUnwatch(connectionId, msg, ctx);
       break;
     case 'switch_session':
-      handleSwitchSession(connectionId, msg, ctx);
+      await handleSwitchSession(connectionId, msg, ctx);
       break;
     case 'send':
       handleSendV2(connectionId, transport, msg, ctx);

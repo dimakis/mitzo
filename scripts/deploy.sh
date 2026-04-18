@@ -16,6 +16,7 @@ echo "Installing launchd plist..."
 sed "s|__MITZO_HOME__|${MITZO_HOME}|g" com.mitzo.server.plist > "$PLIST_DEST"
 
 echo "Restarting service..."
+# kickstart -k sends SIGTERM and waits for termination before restarting.
 launchctl kickstart -k "gui/$(id -u)/com.mitzo.server"
 
 echo "Deployed and restarted."
