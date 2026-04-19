@@ -552,6 +552,34 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   };
 
   function wsListener(msg: Record<string, unknown>) {
+    // Foreground recovery: when the page becomes visible again (iOS may have
+    // evicted it from memory, losing in-memory state), re-fetch messages from
+    // the REST API if we have an active session but no messages in the store.
+    if (msg.type === '_foreground') {
+      const { sessions, messages: msgs } = store.getState();
+      if (sessions.active && msgs.messages.length === 0 && !msgs.current) {
+        api
+          .getSessionMessages(sessions.active)
+          .then((restored) => {
+            if (Array.isArray(restored) && restored.length > 0) {
+              // Only restore if store is still empty (avoid clobbering live data)
+              const current = store.getState().messages;
+              if (current.messages.length === 0 && !current.current) {
+                store.setState((s) => ({
+                  messages: messagesReducer(s.messages, { type: 'RESTORE', messages: restored }),
+                }));
+              }
+            }
+          })
+          .catch((err) => {
+            if (typeof console !== 'undefined') {
+              console.warn('[mitzo] foreground recovery fetch failed', err);
+            }
+          });
+      }
+      return;
+    }
+
     const eventSessionId = msg.sessionId as string | undefined;
 
     // Session-scoped event filtering for multiplexed v2 connections:

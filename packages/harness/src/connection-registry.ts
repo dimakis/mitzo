@@ -84,6 +84,17 @@ export class ConnectionRegistry {
   }
 
   /**
+   * Check if at least one open connection is watching the given session.
+   * Short-circuits on the first match — no array allocation.
+   */
+  hasOpenWatchers(sessionId: string): boolean {
+    for (const conn of this.connections.values()) {
+      if (conn.watchedSessions.has(sessionId) && conn.transport.isOpen()) return true;
+    }
+    return false;
+  }
+
+  /**
    * Send a message to all open connections watching a session.
    * Catches send errors to prevent one failing transport from
    * aborting the broadcast loop.

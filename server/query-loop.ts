@@ -81,9 +81,11 @@ function sendOrBuffer(
     }
   }
 
-  // v2 path: deliver via ConnectionRegistry when clientId is a registered v2
-  // connection AND sessionId is resolved (broadcast needs a session target).
-  if (connRegistry?.get(clientId) && sessionId) {
+  // v2 path: deliver via ConnectionRegistry when there are open connections
+  // watching this session. Uses sessionId-based fan-out instead of checking
+  // whether the originating clientId is still registered — after a WS
+  // reconnect the original connection is gone but new ones may be watching.
+  if (sessionId && connRegistry?.hasOpenWatchers(sessionId)) {
     connRegistry.broadcast(sessionId, enriched);
     return;
   }
@@ -399,8 +401,17 @@ export async function runQueryLoop(
         }
 
         emit(v2('session_end', { sessionId: msg.session_id, usage: usageData }));
-        if (connRegistry?.get(clientId)) {
-          connRegistry.setActive(clientId, null);
+        const resultSid = (msg.session_id as string) || currentSession.sessionId;
+        if (resultSid && connRegistry?.hasOpenWatchers(resultSid)) {
+          for (const { connectionId: cid } of connRegistry.getConnectionsWatching(
+            resultSid,
+            true,
+          )) {
+            const conn = connRegistry.get(cid);
+            if (conn?.activeSession === resultSid) {
+              connRegistry.setActive(cid, null);
+            }
+          }
         }
         if (!registry.isAttached(clientId)) {
           const snippet = extractSnippet(snapshotBlocks, NOTIFY_SNIPPET_MAX_CHARS);
@@ -669,14 +680,21 @@ export async function runQueryLoop(
       finalSession.currentSnapshot = null;
       if (!doneSent) {
         const endMsg = v2('session_end', { sessionId: finalSession.sessionId });
-        if (connRegistry?.get(clientId) && finalSession.sessionId) {
-          connRegistry.broadcast(finalSession.sessionId, endMsg);
+        const sid = finalSession.sessionId;
+        if (sid && connRegistry?.hasOpenWatchers(sid)) {
+          connRegistry.broadcast(sid, endMsg);
         } else {
           send(finalSession.transport, endMsg);
           broadcastToObservers(finalSession.observers, endMsg);
         }
-        if (connRegistry?.get(clientId)) {
-          connRegistry.setActive(clientId, null);
+        if (sid && connRegistry?.hasOpenWatchers(sid)) {
+          // Clear active session only on connections whose active is this session
+          for (const { connectionId: cid } of connRegistry.getConnectionsWatching(sid, true)) {
+            const conn = connRegistry.get(cid);
+            if (conn?.activeSession === sid) {
+              connRegistry.setActive(cid, null);
+            }
+          }
         }
       }
       registry.remove(clientId);
