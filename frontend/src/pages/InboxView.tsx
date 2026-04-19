@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import { EmptyState } from '../components/EmptyState';
 import { apiFetch } from '../lib/api-fetch';
@@ -17,10 +19,12 @@ function InboxCard({
   item,
   onApprove,
   onDiscard,
+  onNavigateFile,
 }: {
   item: InboxItem;
   onApprove: (filename: string) => void;
   onDiscard: (filename: string) => void;
+  onNavigateFile: (path: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const startX = useRef(0);
@@ -132,7 +136,37 @@ function InboxCard({
         {!expanded && <div className="inbox-card-preview">{item.preview}</div>}
         {expanded && (
           <div className="inbox-card-body">
-            <pre className="inbox-card-body-text">{bodyContent()}</pre>
+            <div className="inbox-card-body-markdown">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  a: ({ href, children }) => {
+                    if (href && !href.startsWith('http')) {
+                      return (
+                        <a
+                          href="#"
+                          className="inbox-file-link"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onNavigateFile(href);
+                          }}
+                        >
+                          {children}
+                        </a>
+                      );
+                    }
+                    return (
+                      <a href={href} target="_blank" rel="noopener noreferrer">
+                        {children}
+                      </a>
+                    );
+                  },
+                }}
+              >
+                {bodyContent()}
+              </ReactMarkdown>
+            </div>
             <div className="inbox-card-buttons">
               <button
                 className="inbox-btn inbox-btn-approve"
@@ -278,6 +312,7 @@ export function InboxView() {
               item={item}
               onApprove={handleApprove}
               onDiscard={handleDiscard}
+              onNavigateFile={(path) => navigate(`/files?path=${encodeURIComponent(path)}`)}
             />
           ))}
         </div>
