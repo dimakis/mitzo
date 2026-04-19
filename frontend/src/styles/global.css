@@ -1070,11 +1070,8 @@ textarea:focus {
 }
 
 .keyboard-open .chat-header {
-  max-height: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-  border-bottom: none;
-  opacity: 0;
+  padding: 0.25rem 0.75rem;
+  gap: var(--space-2);
 }
 
 .chat-header-name {
