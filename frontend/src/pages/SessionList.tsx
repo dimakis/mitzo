@@ -250,7 +250,6 @@ export function SessionList() {
   return (
     <div className="session-list-page">
       <header className="session-list-header">
-        <h1>Mitzo</h1>
         <div className="session-list-header-actions">
           <button
             className="check-update-btn"
@@ -267,6 +266,8 @@ export function SessionList() {
       </header>
 
       <div className="session-list-scroll">
+        <h1 className="session-list-title">Mitzo</h1>
+
         {updateAvailable && (
           <button className="update-banner" onClick={handleDeployAction}>
             Update available — Deploy Mitzo

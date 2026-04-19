@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { configureStatusBar } from '../lib/capacitor';
 
 type Theme = 'dark' | 'light' | 'system';
 
@@ -13,6 +14,7 @@ function applyTheme(resolved: 'dark' | 'light') {
   document.documentElement.setAttribute('data-theme', resolved);
   const meta = document.getElementById('theme-color-meta') as HTMLMetaElement | null;
   if (meta) meta.content = resolved === 'light' ? '#f5f5f7' : '#111113';
+  configureStatusBar(resolved);
 }
 
 export function initTheme() {
