@@ -1,23 +1,18 @@
-/**
- * Push notification integration for Capacitor iOS.
- *
- * Requests notification permissions, registers the device token with
- * the Mitzo server, and handles incoming push notifications.
- *
- * No-op in browser environments.
- */
+// Push notification integration for Capacitor iOS. No-op in browser.
 
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { apiFetch } from './api-fetch';
 
+let initialized = false;
+
 export async function initPushNotifications(): Promise<void> {
-  if (!Capacitor.isNativePlatform()) return;
+  if (!Capacitor.isNativePlatform() || initialized) return;
+  initialized = true;
 
   const permission = await PushNotifications.requestPermissions();
   if (permission.receive !== 'granted') return;
 
-  // Register listeners before calling register()
   await PushNotifications.addListener('registration', (token) => {
     apiFetch('/api/push/register', {
       method: 'POST',
@@ -31,16 +26,13 @@ export async function initPushNotifications(): Promise<void> {
   });
 
   await PushNotifications.addListener('pushNotificationReceived', (_notification) => {
-    // Foreground notification — the app is already open, so no action needed.
-    // The WS connection handles live updates.
+    // Foreground — WS handles live updates, no action needed
   });
 
   await PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
-    // User tapped a notification — navigate to the relevant session
     const data = (action as { notification: { data: Record<string, string> } }).notification.data;
     if (data?.sessionId) {
-      window.location.hash = '';
-      window.location.pathname = `/chat/${data.sessionId}`;
+      window.location.href = `/chat/${data.sessionId}`;
     }
   });
 
