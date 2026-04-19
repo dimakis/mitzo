@@ -430,6 +430,8 @@ function handleChatWs(
       }
 
       const msg = result.data;
+      // traceparent is stripped by zod — extract from raw parsed object
+      const traceparent = (parsed as Record<string, unknown>).traceparent as string | undefined;
 
       if (msg.type === 'subscribe') {
         const span = tracer.startSpan(
@@ -437,7 +439,7 @@ function handleChatWs(
           {
             attributes: { 'ws.client_id': clientId, 'ws.session_id': msg.sessionId },
           },
-          contextFromTraceparent(msg.traceparent),
+          contextFromTraceparent(traceparent),
         );
         const found = registry.findBySessionId(msg.sessionId);
         if (found && !registry.isAttached(found.clientId)) {
@@ -509,7 +511,7 @@ function handleChatWs(
           {
             attributes: { 'ws.client_id': clientId, 'ws.reattach.target_client_id': msg.clientId },
           },
-          contextFromTraceparent(msg.traceparent),
+          contextFromTraceparent(traceparent),
         );
         const ok = reattachChat(msg.clientId, transport);
         if (ok) {
@@ -547,7 +549,7 @@ function handleChatWs(
               'ws.has_resume': !!msg.resume,
             },
           },
-          contextFromTraceparent(msg.traceparent),
+          contextFromTraceparent(traceparent),
         );
         // Resolve slash commands server-side before routing
         const rawCwd = msg.cwd || registry.get(clientId)?.cwd || BASE_REPO;
@@ -659,7 +661,7 @@ function handleChatWs(
               'ws.decision': msg.decision || 'deny',
             },
           },
-          contextFromTraceparent(msg.traceparent),
+          contextFromTraceparent(traceparent),
         );
         resolvePending(msg.permId, msg.decision || 'deny');
         span.end();
@@ -669,7 +671,7 @@ function handleChatWs(
           {
             attributes: { 'ws.client_id': clientId, 'ws.mode': msg.mode },
           },
-          contextFromTraceparent(msg.traceparent),
+          contextFromTraceparent(traceparent),
         );
         registry.setMode(clientId, msg.mode);
         const session = registry.get(clientId);
@@ -683,7 +685,7 @@ function handleChatWs(
           {
             attributes: { 'ws.client_id': clientId, 'ws.client_msg_id': msg.clientMsgId },
           },
-          contextFromTraceparent(msg.traceparent),
+          contextFromTraceparent(traceparent),
         );
         interruptChat(clientId, msg.prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
         span.end();
@@ -693,7 +695,7 @@ function handleChatWs(
           {
             attributes: { 'ws.client_id': clientId },
           },
-          contextFromTraceparent(msg.traceparent),
+          contextFromTraceparent(traceparent),
         );
         stopChat(clientId);
         span.end();
