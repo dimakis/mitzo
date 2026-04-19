@@ -1124,6 +1124,7 @@ export async function discoverSession(
 export interface RestoredMessage {
   messageId: string;
   role: string;
+  timestamp?: number;
   blocks: Array<{
     blockId: string;
     blockType: string;
@@ -1183,9 +1184,11 @@ export function replayEventsToMessages(
   // Inject the initial prompt as the first message.
   // Priority: initialPrompt param (from session metadata) > legacy out-of-order event
   if (initialPrompt) {
+    const firstTs = events[0]?.createdAt;
     messages.push({
       messageId: `umsg-initial-${Date.now()}`,
       role: 'user',
+      timestamp: firstTs,
       blocks: [{ blockId: 'user-initial', blockType: 'text', content: initialPrompt }],
     });
   } else if (legacyInitialPromptEvent) {
@@ -1193,6 +1196,7 @@ export function replayEventsToMessages(
     messages.push({
       messageId: p.messageId as string,
       role: 'user',
+      timestamp: (p.ts as number) ?? legacyInitialPromptEvent.createdAt,
       blocks: [
         {
           blockId: `user-${p.messageId as string}`,
@@ -1220,6 +1224,7 @@ export function replayEventsToMessages(
         messages.push({
           messageId: p.messageId as string,
           role: 'user',
+          timestamp: (p.ts as number) ?? evt.createdAt,
           blocks: [
             {
               blockId: `user-${p.messageId as string}`,
@@ -1234,7 +1239,7 @@ export function replayEventsToMessages(
         if (currentMsg && currentMsg.blocks.length > 0) {
           messages.push(currentMsg);
         }
-        currentMsg = { messageId: p.messageId as string, role: 'assistant', blocks: [] };
+        currentMsg = { messageId: p.messageId as string, role: 'assistant', timestamp: (p.ts as number) ?? evt.createdAt, blocks: [] };
         break;
 
       case 'block_start':
