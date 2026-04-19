@@ -368,6 +368,51 @@ textarea:focus {
   padding-top: env(safe-area-inset-top);
 }
 
+.cal-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) 0 var(--space-2);
+}
+
+.cal-back {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: var(--text-xl);
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.cal-header-center {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+}
+
+.cal-header-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+}
+
+.cal-nav-prev,
+.cal-nav-next {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: var(--text-lg);
+  cursor: pointer;
+  padding: var(--space-1);
+  -webkit-tap-highlight-color: transparent;
+}
+
 /* ===== Login ===== */
 
 .login-page {
@@ -1049,11 +1094,11 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   position: fixed;
-  top: env(safe-area-inset-top);
+  top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background: var(--bg);
+  background: var(--surface);
   overflow: hidden;
 }
 
@@ -1062,6 +1107,7 @@ textarea:focus {
   align-items: center;
   gap: var(--space-3);
   padding: 0.35rem 0.75rem;
+  padding-top: calc(0.35rem + env(safe-area-inset-top));
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -1073,7 +1119,7 @@ textarea:focus {
 }
 
 .keyboard-open .chat-header {
-  padding: 0.25rem 0.75rem;
+  padding: 0.2rem 0.75rem;
   gap: var(--space-2);
 }
 
@@ -1220,6 +1266,7 @@ textarea:focus {
   flex-direction: column;
   gap: var(--space-3);
   min-height: 0;
+  background: var(--bg);
   overscroll-behavior-y: contain;
 }
 
@@ -2777,7 +2824,7 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   position: fixed;
-  top: env(safe-area-inset-top);
+  top: 0;
   left: 0;
   right: 0;
   bottom: 0;
@@ -2790,6 +2837,7 @@ textarea:focus {
   align-items: center;
   gap: var(--space-3);
   padding: 0.6rem 0.75rem;
+  padding-top: calc(0.6rem + env(safe-area-inset-top));
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
