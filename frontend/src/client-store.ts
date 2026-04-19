@@ -10,6 +10,7 @@
 import { createMitzoStore } from '@mitzo/client';
 import { apiFetch, getWsChatUrl } from './lib/api-fetch';
 import { registerCapacitorLifecycle, configureStatusBar } from './lib/capacitor';
+import { configureKeyboard } from './lib/keyboard';
 import { initPushNotifications } from './lib/push';
 
 export const clientStore = createMitzoStore({
@@ -28,6 +29,9 @@ registerCapacitorLifecycle(() => clientStore.getState().forceReconnect());
 
 // Configure native status bar appearance (no-op in browser)
 configureStatusBar();
+
+// Configure native keyboard behavior (no-op in browser)
+configureKeyboard();
 
 // Register for push notifications (no-op in browser)
 initPushNotifications();

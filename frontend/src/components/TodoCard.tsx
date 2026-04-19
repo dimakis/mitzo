@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from 'react';
 import type { TodoItem } from '../types/todo';
 import { sourceIcon } from '../lib/todo-utils';
+import { notifySuccess, impactLight } from '../lib/haptics';
 
 interface TodoCardProps {
   item: TodoItem;
@@ -77,11 +78,13 @@ export function TodoCard({
       ref.current.style.transition = 'transform 0.2s, opacity 0.2s';
       ref.current.style.transform = 'translateX(100%)';
       ref.current.style.opacity = '0';
+      impactLight();
       timers.current.push(setTimeout(() => onAck(item.id), 200));
     } else if (dx < -100) {
       ref.current.style.transition = 'transform 0.2s, opacity 0.2s';
       ref.current.style.transform = 'translateX(-100%)';
       ref.current.style.opacity = '0';
+      notifySuccess();
       timers.current.push(setTimeout(() => onDone(item.id), 200));
     } else {
       ref.current.style.transition = 'transform 0.2s, opacity 0.2s';

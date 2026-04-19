@@ -4,6 +4,7 @@ import type { Session } from '../types/chat';
 import { formatRelativeTime } from '../lib/formatTime';
 import { useLongPress } from '../hooks/useLongPress';
 import { computeSwipeState, REVEAL_WIDTH } from '../lib/swipe-reveal';
+import { selectionChanged } from '../lib/haptics';
 import { EmptyState } from '../components/EmptyState';
 import { useSessionList } from '../hooks/useSessionList';
 import type { QuickAction } from '../hooks/useSessionList';
@@ -195,7 +196,7 @@ async function refreshUI() {
     const keys = await caches.keys();
     await Promise.all(keys.map((k) => caches.delete(k)));
   }
-  window.location.reload();
+  location.reload();
 }
 
 export function SessionList() {
@@ -255,7 +256,13 @@ export function SessionList() {
         </button>
       )}
 
-      <button className="hero-chat-btn" onClick={() => navigate('/chat')}>
+      <button
+        className="hero-chat-btn"
+        onClick={() => {
+          selectionChanged();
+          navigate('/chat');
+        }}
+      >
         New Chat
       </button>
 
@@ -295,7 +302,10 @@ export function SessionList() {
               key={s.id}
               session={s}
               onDismiss={dismissSession}
-              onClick={(id) => navigate(`/chat/${id}`)}
+              onClick={(id) => {
+                selectionChanged();
+                navigate(`/chat/${id}`);
+              }}
               onRename={handleRename}
             />
           ))}

@@ -13,6 +13,7 @@ import { MAX_IMAGE_ATTACHMENTS } from '../lib/constants';
 import { SlashPicker } from './SlashPicker';
 import { ContextPicker } from './ContextPicker';
 import { MicButton } from './MicButton';
+import { impactMedium } from '../lib/haptics';
 import { TokenBar } from './TokenBar';
 import type { UseVoiceReturn } from '../hooks/useVoice';
 import type { TokensState as TokenState } from '@mitzo/client';
@@ -112,6 +113,7 @@ export function ChatInput({
       activeContextBlocks.length > 0 ? activeContextBlocks : undefined,
     );
     if (sent) {
+      impactMedium();
       setText('');
       setImages([]);
       if (!useExternal) setContextBlocks([]);
