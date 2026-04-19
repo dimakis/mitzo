@@ -6,6 +6,8 @@ frontend/dist/
 *.db-shm
 *.tsbuildinfo
 .env
+frontend/.env.ios
+frontend/ios/local.xcconfig
 mcp-server/build/
 certs/
 logs/
