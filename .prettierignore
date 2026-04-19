@@ -8,3 +8,5 @@ package-lock.json
 *.db-wal
 *.db-shm
 .claude/worktrees/
+frontend/ios/
+infra/

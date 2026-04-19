@@ -5,7 +5,7 @@ services:
   jaeger:
     image: jaegertracing/jaeger:latest
     ports:
-      - '4318:4318'   # OTLP HTTP receiver (server + browser)
+      - '4318:4318' # OTLP HTTP receiver (server + browser)
       - '16686:16686' # Jaeger UI
     environment:
       COLLECTOR_OTLP_ENABLED: 'true'
