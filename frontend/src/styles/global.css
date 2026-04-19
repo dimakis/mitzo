@@ -349,7 +349,6 @@ textarea:focus {
 }
 
 /* Pages with tab bar need bottom padding to clear fixed nav */
-.session-list-page,
 .inbox-page,
 .todo-page,
 .task-board-page,
@@ -366,6 +365,56 @@ textarea:focus {
   padding-top: env(safe-area-inset-top);
 }
 
+/* Pages with sticky headers: header padding includes safe area */
+
+.inbox-header {
+  padding-top: calc(var(--space-5) + env(safe-area-inset-top));
+}
+
+.cal-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) 0 var(--space-2);
+}
+
+.cal-back {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: var(--text-xl);
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.cal-header-center {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+}
+
+.cal-header-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+}
+
+.cal-nav-prev,
+.cal-nav-next {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: var(--text-lg);
+  cursor: pointer;
+  padding: var(--space-1);
+  -webkit-tap-highlight-color: transparent;
+}
 /* ===== Login ===== */
 
 .login-page {
@@ -397,21 +446,31 @@ textarea:focus {
 .session-list-page {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   max-width: 600px;
   margin: 0 auto;
   padding: 0 var(--space-4);
+  background: var(--bg);
+}
+
+.session-list-scroll {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 72px;
 }
 
 .session-list-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--space-5) 0 var(--space-4);
-  position: sticky;
-  top: env(safe-area-inset-top);
+  padding: env(safe-area-inset-top) 0 var(--space-2);
   background: var(--bg);
-  z-index: 10;
+  flex-shrink: 0;
 }
 
 .session-list-header h1 {
