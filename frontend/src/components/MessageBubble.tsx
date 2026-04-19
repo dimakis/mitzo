@@ -4,15 +4,11 @@ import remarkGfm from 'remark-gfm';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { FinishedMessage } from '../types/chat';
 import { linkifyFilePaths, FILE_SCHEME } from '../lib/file-paths';
+import { formatTime } from '../lib/formatTime';
 import { CopyButton } from './CopyButton';
 import { extractText } from '../lib/extractText';
 
 const COLLAPSE_HEIGHT = 300;
-
-function formatTime(ts?: number): string | null {
-  if (!ts) return null;
-  return new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-}
 
 interface UserBubbleProps {
   text?: string;
