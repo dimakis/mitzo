@@ -980,6 +980,35 @@ export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
 }
 
 /**
+ * Fast session listing from EventStore (SQLite) — no filesystem scan.
+ * Returns the same shape as getSessions() for API compatibility.
+ */
+export function getSessionsCached(offset = 0, limit = SESSION_PAGE_SIZE) {
+  const all = eventStore.listSessions();
+  const page = all.slice(offset, offset + limit);
+  const hasMore = all.length > offset + limit;
+  return {
+    sessions: page.map((m) => ({
+      id: m.sessionId,
+      summary: m.summary ?? '',
+      lastModified: m.updatedAt,
+      branch: m.branch ?? undefined,
+      cwd: m.cwd ?? undefined,
+    })),
+    hasMore,
+  };
+}
+
+/**
+ * Background reconciliation: scan filesystem for sessions the EventStore
+ * doesn't know about (e.g. created by external agents or after a restart).
+ * Call fire-and-forget after serving cached results.
+ */
+export function reconcileSessionsBackground(): void {
+  getSessions(0, 200).catch(() => {});
+}
+
+/**
  * Look up a single session by ID via the Claude SDK.
  * Used as a fallback when the EventStore doesn't have the session yet
  * (e.g. orphaned by a restart or created externally). If found, backfills
