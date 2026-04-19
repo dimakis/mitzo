@@ -1,0 +1,6 @@
+// Mitzo iOS build configuration — developer-specific values.
+// Copy to local.xcconfig and fill in your team ID.
+// DO NOT commit local.xcconfig (it's gitignored).
+
+// Find your Team ID: Xcode > Settings > Accounts > select team > Team ID
+// DEVELOPMENT_TEAM = XXXXXXXXXX
