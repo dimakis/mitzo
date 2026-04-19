@@ -108,122 +108,124 @@ export function TodoDetailView() {
         </button>
       </header>
 
-      <div className="todo-detail-summary">{item.summary}</div>
+      <div className="todo-detail-scroll">
+        <div className="todo-detail-summary">{item.summary}</div>
 
-      <div className="todo-detail-meta">
-        <span className={`todo-detail-status todo-detail-status--${item.status}`}>
-          {item.status}
-        </span>
-        <span className="todo-detail-urgency" title={`Urgency: ${item.urgency.toFixed(2)}`}>
-          {urgencyLabel(item.urgency)}
-        </span>
-        <span className="todo-detail-age">{ageLabel}</span>
-        <span className="todo-detail-profile">{item.profile}</span>
+        <div className="todo-detail-meta">
+          <span className={`todo-detail-status todo-detail-status--${item.status}`}>
+            {item.status}
+          </span>
+          <span className="todo-detail-urgency" title={`Urgency: ${item.urgency.toFixed(2)}`}>
+            {urgencyLabel(item.urgency)}
+          </span>
+          <span className="todo-detail-age">{ageLabel}</span>
+          <span className="todo-detail-profile">{item.profile}</span>
+        </div>
+
+        {item.sources.length > 0 && (
+          <section className="todo-detail-sources">
+            <h2>Sources</h2>
+            {item.sources.map((source, i) => (
+              <div
+                key={i}
+                className={`todo-detail-source-row${source.url ? '' : ' todo-detail-source-row--no-link'}`}
+                onClick={() => source.url && handleSourceClick(source.url)}
+              >
+                <span className="todo-detail-source-badge">{sourceIcon(source.type)}</span>
+                <div className="todo-detail-source-content">
+                  <div className="todo-detail-source-title">{source.title}</div>
+                  <div className="todo-detail-source-author">{source.author}</div>
+                  {source.snippet && (
+                    <div className="todo-detail-source-snippet">{source.snippet}</div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </section>
+        )}
+
+        {hints.taskHint && (
+          <section className="todo-detail-task-hint">
+            <h2>Task Hint</h2>
+            <p>{hints.taskHint}</p>
+          </section>
+        )}
+
+        {hasContext && (
+          <section className="todo-detail-context">
+            <h2>Context</h2>
+
+            {hints.paths.length > 0 && (
+              <div className="todo-detail-context-group">
+                <h3>Files</h3>
+                <div className="todo-detail-chips">
+                  {hints.paths.map((path) => (
+                    <button
+                      key={path}
+                      className="todo-detail-chip todo-detail-chip--path"
+                      onClick={() => handlePathClick(path)}
+                    >
+                      {path}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {hints.repos.length > 0 && (
+              <div className="todo-detail-context-group">
+                <h3>Repos</h3>
+                <div className="todo-detail-chips">
+                  {hints.repos.map((repo) => (
+                    <span key={repo} className="todo-detail-chip">
+                      {repo}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {hints.issues.length > 0 && (
+              <div className="todo-detail-context-group">
+                <h3>Issues</h3>
+                <div className="todo-detail-chips">
+                  {hints.issues.map((issue) => (
+                    <span key={issue} className="todo-detail-chip">
+                      {issue}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {hints.jiraKeys.length > 0 && (
+              <div className="todo-detail-context-group">
+                <h3>Jira</h3>
+                <div className="todo-detail-chips">
+                  {hints.jiraKeys.map((key) => (
+                    <span key={key} className="todo-detail-chip">
+                      {key}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {hints.keywords.length > 0 && (
+              <div className="todo-detail-context-group">
+                <h3>Keywords</h3>
+                <div className="todo-detail-chips">
+                  {hints.keywords.map((kw) => (
+                    <span key={kw} className="todo-detail-chip">
+                      {kw}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
       </div>
-
-      {item.sources.length > 0 && (
-        <section className="todo-detail-sources">
-          <h2>Sources</h2>
-          {item.sources.map((source, i) => (
-            <div
-              key={i}
-              className={`todo-detail-source-row${source.url ? '' : ' todo-detail-source-row--no-link'}`}
-              onClick={() => source.url && handleSourceClick(source.url)}
-            >
-              <span className="todo-detail-source-badge">{sourceIcon(source.type)}</span>
-              <div className="todo-detail-source-content">
-                <div className="todo-detail-source-title">{source.title}</div>
-                <div className="todo-detail-source-author">{source.author}</div>
-                {source.snippet && (
-                  <div className="todo-detail-source-snippet">{source.snippet}</div>
-                )}
-              </div>
-            </div>
-          ))}
-        </section>
-      )}
-
-      {hints.taskHint && (
-        <section className="todo-detail-task-hint">
-          <h2>Task Hint</h2>
-          <p>{hints.taskHint}</p>
-        </section>
-      )}
-
-      {hasContext && (
-        <section className="todo-detail-context">
-          <h2>Context</h2>
-
-          {hints.paths.length > 0 && (
-            <div className="todo-detail-context-group">
-              <h3>Files</h3>
-              <div className="todo-detail-chips">
-                {hints.paths.map((path) => (
-                  <button
-                    key={path}
-                    className="todo-detail-chip todo-detail-chip--path"
-                    onClick={() => handlePathClick(path)}
-                  >
-                    {path}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {hints.repos.length > 0 && (
-            <div className="todo-detail-context-group">
-              <h3>Repos</h3>
-              <div className="todo-detail-chips">
-                {hints.repos.map((repo) => (
-                  <span key={repo} className="todo-detail-chip">
-                    {repo}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {hints.issues.length > 0 && (
-            <div className="todo-detail-context-group">
-              <h3>Issues</h3>
-              <div className="todo-detail-chips">
-                {hints.issues.map((issue) => (
-                  <span key={issue} className="todo-detail-chip">
-                    {issue}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {hints.jiraKeys.length > 0 && (
-            <div className="todo-detail-context-group">
-              <h3>Jira</h3>
-              <div className="todo-detail-chips">
-                {hints.jiraKeys.map((key) => (
-                  <span key={key} className="todo-detail-chip">
-                    {key}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {hints.keywords.length > 0 && (
-            <div className="todo-detail-context-group">
-              <h3>Keywords</h3>
-              <div className="todo-detail-chips">
-                {hints.keywords.map((kw) => (
-                  <span key={kw} className="todo-detail-chip">
-                    {kw}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-        </section>
-      )}
     </div>
   );
 }

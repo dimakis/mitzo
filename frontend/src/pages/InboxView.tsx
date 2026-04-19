@@ -239,46 +239,48 @@ export function InboxView() {
         <h1>Inbox {items.length > 0 && <span className="inbox-count">{items.length}</span>}</h1>
       </header>
 
-      {loading && <p className="inbox-empty">Loading...</p>}
+      <div className="inbox-scroll">
+        {loading && <p className="inbox-empty">Loading...</p>}
 
-      {!loading && items.length === 0 && <EmptyState icon={'\u2713'} title="No pending items" />}
+        {!loading && items.length === 0 && <EmptyState icon={'\u2713'} title="No pending items" />}
 
-      {sources.length > 1 && (
-        <div className="inbox-filters">
-          <button
-            className={`inbox-filter-pill${activeFilter === null ? ' inbox-filter-pill--active' : ''}`}
-            onClick={() => setActiveFilter(null)}
-          >
-            All
-          </button>
-          {sources.map((src) => (
+        {sources.length > 1 && (
+          <div className="inbox-filters">
             <button
-              key={src}
-              className={`inbox-filter-pill${activeFilter === src ? ' inbox-filter-pill--active' : ''}`}
-              onClick={() => setActiveFilter(activeFilter === src ? null : src)}
+              className={`inbox-filter-pill${activeFilter === null ? ' inbox-filter-pill--active' : ''}`}
+              onClick={() => setActiveFilter(null)}
             >
-              {src}
-              <span className="inbox-filter-count">
-                {items.filter((i) => i.agent === src).length}
-              </span>
+              All
             </button>
+            {sources.map((src) => (
+              <button
+                key={src}
+                className={`inbox-filter-pill${activeFilter === src ? ' inbox-filter-pill--active' : ''}`}
+                onClick={() => setActiveFilter(activeFilter === src ? null : src)}
+              >
+                {src}
+                <span className="inbox-filter-count">
+                  {items.filter((i) => i.agent === src).length}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="inbox-hint">
+          {filtered.length > 0 && <span>Swipe right to approve, left to discard</span>}
+        </div>
+
+        <div className="inbox-list">
+          {filtered.map((item) => (
+            <InboxCard
+              key={item.filename}
+              item={item}
+              onApprove={handleApprove}
+              onDiscard={handleDiscard}
+            />
           ))}
         </div>
-      )}
-
-      <div className="inbox-hint">
-        {filtered.length > 0 && <span>Swipe right to approve, left to discard</span>}
-      </div>
-
-      <div className="inbox-list">
-        {filtered.map((item) => (
-          <InboxCard
-            key={item.filename}
-            item={item}
-            onApprove={handleApprove}
-            onDiscard={handleDiscard}
-          />
-        ))}
       </div>
     </div>
   );

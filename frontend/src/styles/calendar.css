@@ -5,7 +5,11 @@
 .cal-page {
   display: flex;
   flex-direction: column;
-  height: 100dvh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   background: var(--bg);
   color: var(--text);
 }
@@ -13,7 +17,7 @@
 .cal-header {
   display: flex;
   align-items: center;
-  padding: var(--space-3) var(--space-4);
+  padding: calc(env(safe-area-inset-top) + 0.35rem) var(--space-4) var(--space-3);
   gap: var(--space-2);
   border-bottom: 1px solid var(--border);
   background: var(--surface);

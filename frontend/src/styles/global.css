@@ -144,8 +144,8 @@ textarea:focus {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 2rem;
-  height: 2rem;
+  width: 2.25rem;
+  height: 2.25rem;
   border-radius: 8px;
   background: transparent;
   flex-shrink: 0;
@@ -179,10 +179,9 @@ textarea:focus {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-4) 0 var(--space-2);
-  position: sticky;
-  top: env(safe-area-inset-top);
+  padding: env(safe-area-inset-top) 0 var(--space-2);
   background: var(--bg);
+  flex-shrink: 0;
   z-index: 10;
 }
 
@@ -348,73 +347,6 @@ textarea:focus {
   opacity: 0.7;
 }
 
-/* Pages with tab bar need bottom padding to clear fixed nav */
-.inbox-page,
-.todo-page,
-.task-board-page,
-.cal-page,
-.viewer-page {
-  padding-bottom: 72px;
-}
-
-/* Pages without sticky headers need top padding for the notch / Dynamic Island */
-.todo-page,
-.todo-detail-page,
-.task-board-page,
-.cal-page {
-  padding-top: env(safe-area-inset-top);
-}
-
-/* Pages with sticky headers: header padding includes safe area */
-
-.inbox-header {
-  padding-top: calc(var(--space-5) + env(safe-area-inset-top));
-}
-
-.cal-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-3) 0 var(--space-2);
-}
-
-.cal-back {
-  background: none;
-  border: none;
-  color: var(--accent);
-  font-size: var(--text-xl);
-  cursor: pointer;
-  padding: var(--space-1) var(--space-2);
-  -webkit-tap-highlight-color: transparent;
-}
-
-.cal-header-center {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex: 1;
-}
-
-.cal-header-title {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  background: none;
-  border: none;
-  color: var(--text);
-  cursor: pointer;
-  padding: var(--space-1) var(--space-2);
-}
-
-.cal-nav-prev,
-.cal-nav-next {
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  font-size: var(--text-lg);
-  cursor: pointer;
-  padding: var(--space-1);
-  -webkit-tap-highlight-color: transparent;
-}
 /* ===== Login ===== */
 
 .login-page {
@@ -846,21 +778,33 @@ textarea:focus {
 .inbox-page {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   max-width: 600px;
   margin: 0 auto;
   padding: 0 var(--space-4);
+  background: var(--bg);
+  overflow: hidden;
 }
 
 .inbox-header {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-5) 0 var(--space-4);
-  position: sticky;
-  top: env(safe-area-inset-top);
+  padding: env(safe-area-inset-top) 0 var(--space-2);
   background: var(--bg);
+  flex-shrink: 0;
   z-index: 10;
+}
+
+.inbox-scroll {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 72px;
 }
 
 .inbox-header h1 {
@@ -1105,7 +1049,7 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   position: fixed;
-  top: env(safe-area-inset-top);
+  top: 0;
   left: 0;
   right: 0;
   bottom: 0;
@@ -1117,7 +1061,7 @@ textarea:focus {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: 0.35rem 0.75rem;
+  padding: calc(env(safe-area-inset-top) + 0.35rem) 0.75rem 0.35rem;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -1129,7 +1073,7 @@ textarea:focus {
 }
 
 .keyboard-open .chat-header {
-  padding: 0.25rem 0.75rem;
+  padding: calc(env(safe-area-inset-top) + 0.25rem) 0.75rem 0.25rem;
   gap: var(--space-2);
 }
 
@@ -2833,7 +2777,7 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   position: fixed;
-  top: env(safe-area-inset-top);
+  top: 0;
   left: 0;
   right: 0;
   bottom: 0;
@@ -2845,7 +2789,7 @@ textarea:focus {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: 0.6rem 0.75rem;
+  padding: calc(0.6rem + env(safe-area-inset-top)) 0.75rem 0.6rem;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -3302,19 +3246,32 @@ textarea:focus {
 .todo-page {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   max-width: 600px;
   margin: 0 auto;
-  padding: 0 var(--space-4) var(--space-6);
+  padding: 0 var(--space-4);
   background: var(--bg);
   color: var(--text);
+  overflow: hidden;
 }
 
 .todo-header {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-4) 0 var(--space-2);
+  padding: env(safe-area-inset-top) 0 var(--space-2);
+  flex-shrink: 0;
+}
+
+.todo-scroll {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 72px;
 }
 
 .todo-header h1 {
@@ -3631,19 +3588,32 @@ textarea:focus {
 .todo-detail-page {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   max-width: 600px;
   margin: 0 auto;
-  padding: 0 var(--space-4) var(--space-6);
+  padding: 0 var(--space-4);
   background: var(--bg);
   color: var(--text);
+  overflow: hidden;
 }
 
 .todo-detail-header {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-4) 0 var(--space-2);
+  padding: env(safe-area-inset-top) 0 var(--space-2);
+  flex-shrink: 0;
+}
+
+.todo-detail-scroll {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 72px;
 }
 
 .todo-detail-header h1 {
@@ -3877,19 +3847,32 @@ textarea:focus {
 .task-board-page {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   max-width: 600px;
   margin: 0 auto;
-  padding: 0 var(--space-4) var(--space-6);
+  padding: 0 var(--space-4);
   background: var(--bg);
   color: var(--text);
+  overflow: hidden;
 }
 
 .task-board-header {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-4) 0 var(--space-2);
+  padding: env(safe-area-inset-top) 0 var(--space-2);
+  flex-shrink: 0;
+}
+
+.task-board-scroll {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 72px;
 }
 
 .task-board-header h1 {
