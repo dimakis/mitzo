@@ -349,7 +349,6 @@ textarea:focus {
 }
 
 /* Pages with tab bar need bottom padding to clear fixed nav */
-.session-list-page,
 .inbox-page,
 .todo-page,
 .task-board-page,
@@ -367,9 +366,6 @@ textarea:focus {
 }
 
 /* Pages with sticky headers: header padding includes safe area */
-.session-list-header {
-  padding-top: calc(var(--space-3) + env(safe-area-inset-top));
-}
 
 .inbox-header {
   padding-top: calc(var(--space-5) + env(safe-area-inset-top));
@@ -451,21 +447,31 @@ textarea:focus {
 .session-list-page {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   max-width: 600px;
   margin: 0 auto;
   padding: 0 var(--space-4);
+  background: var(--bg);
+}
+
+.session-list-scroll {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 72px;
 }
 
 .session-list-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--space-3) 0 var(--space-2);
-  position: sticky;
-  top: 0;
+  padding: env(safe-area-inset-top) 0 var(--space-2);
   background: var(--bg);
-  z-index: 10;
+  flex-shrink: 0;
 }
 
 .session-list-header h1 {
