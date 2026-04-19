@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { ChatArea } from '../components/ChatArea';
 import { ChatInput } from '../components/ChatInput';
-import { ScrollFab } from '../components/ScrollFab';
 import { VoiceSettings } from '../components/VoiceSettings';
 import { MitzoLogo } from '../components/MitzoLogo';
 import { useMessages, useConnection, useTokens, useMitzoStore } from '@mitzo/client/hooks';
@@ -10,9 +9,13 @@ import { LAST_SESSION_KEY } from '../lib/constants';
 import { getPreferredModel, setPreferredModel } from '../lib/model-preference';
 import { useVoice } from '../hooks/useVoice';
 import { useAutoSpeak } from '../hooks/useAutoSpeak';
+import { onKeyboardToggle } from '../lib/keyboard';
 import type { ImageAttachment } from '../types/chat';
 
 export function ChatView() {
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+
+  useEffect(() => onKeyboardToggle(setKeyboardOpen), []);
   const { sessionId } = useParams<{ sessionId?: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -160,7 +163,7 @@ export function ChatView() {
   const initialPrompt = searchParams.get('prompt') || undefined;
 
   return (
-    <div className="chat-page">
+    <div className={`chat-page${keyboardOpen ? ' keyboard-open' : ''}`}>
       <header className="chat-header">
         <MitzoLogo />
         {!connected && (
@@ -213,7 +216,6 @@ export function ChatView() {
         onPermissionRespond={handlePermission}
         scrollRef={scrollRef}
       />
-      <ScrollFab scrollRef={scrollRef} />
 
       <ChatInput
         onSend={handleSend}
