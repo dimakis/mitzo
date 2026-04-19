@@ -1064,6 +1064,19 @@ textarea:focus {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  transition:
+    max-height 0.2s,
+    padding 0.2s,
+    opacity 0.2s;
+  overflow: hidden;
+}
+
+.keyboard-open .chat-header {
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+  opacity: 0;
 }
 
 .chat-header-name {
