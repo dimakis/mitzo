@@ -1,3 +1,6 @@
+/** Dead zone — horizontal movement below this is ignored (prevents accidental swipes) */
+export const SWIPE_DEAD_ZONE = 20;
+
 /** Threshold in px — how far left you must swipe to reveal the delete button */
 export const REVEAL_THRESHOLD = 80;
 
