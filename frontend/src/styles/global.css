@@ -1756,10 +1756,10 @@ textarea:focus {
 
 @media (hover: none) {
   .msg-bubble-copy {
-    opacity: 0.5;
+    opacity: 0.85;
   }
   .code-block-copy {
-    opacity: 0.5;
+    opacity: 0.85;
   }
 }
 
