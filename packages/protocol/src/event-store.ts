@@ -254,15 +254,29 @@ export class EventStore {
         fields.push('wt_id = ?');
         values.push(meta.wtId);
       }
-      fields.push("updated_at = unixepoch('now', 'subsec') * 1000");
+      if (meta.updatedAt !== undefined) {
+        fields.push('updated_at = ?');
+        values.push(meta.updatedAt);
+      } else {
+        fields.push("updated_at = unixepoch('now', 'subsec') * 1000");
+      }
       values.push(meta.sessionId);
       this.db!.prepare(`UPDATE sessions SET ${fields.join(', ')} WHERE session_id = ?`).run(
         ...values,
       );
     } else {
-      this.db!.prepare(
-        'INSERT INTO sessions (session_id, summary, branch, cwd, mode, is_active, initial_prompt, wt_id, goal_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      ).run(
+      const cols = [
+        'session_id',
+        'summary',
+        'branch',
+        'cwd',
+        'mode',
+        'is_active',
+        'initial_prompt',
+        'wt_id',
+        'goal_id',
+      ];
+      const vals: unknown[] = [
         meta.sessionId,
         meta.summary ?? null,
         meta.branch ?? null,
@@ -272,6 +286,18 @@ export class EventStore {
         meta.initialPrompt ?? null,
         meta.wtId ?? null,
         meta.goalId ?? null,
+      ];
+      if (meta.updatedAt !== undefined) {
+        cols.push('updated_at');
+        vals.push(meta.updatedAt);
+      }
+      if (meta.createdAt !== undefined) {
+        cols.push('created_at');
+        vals.push(meta.createdAt);
+      }
+      const placeholders = cols.map(() => '?').join(', ');
+      this.db!.prepare(`INSERT INTO sessions (${cols.join(', ')}) VALUES (${placeholders})`).run(
+        ...vals,
       );
     }
   }

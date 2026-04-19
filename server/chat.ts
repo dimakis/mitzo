@@ -964,6 +964,8 @@ export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
         cwd: entry.cwd ?? (BASE_REPO || null),
         branch: entry.branch ?? null,
         isActive: false,
+        updatedAt: entry.lastModified,
+        createdAt: entry.lastModified,
       });
       reconciledCount++;
     }
@@ -977,6 +979,116 @@ export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
   const page = deduped.slice(offset, offset + limit);
   const hasMore = deduped.length > offset + limit;
   return { sessions: page, hasMore };
+}
+
+/**
+ * Fast session listing from EventStore (SQLite) — no filesystem scan.
+ * Returns the same shape as getSessions() for API compatibility.
+ */
+export function getSessionsCached(offset = 0, limit = SESSION_PAGE_SIZE) {
+  const all = eventStore.listSessions().filter((m) => {
+    // Hide sessions that were never used through Mitzo (e.g. automated
+    // code review sessions discovered from filesystem).  Active sessions
+    // always show regardless of turn count.
+    // Note: new sessions are created with is_active=1 by default (see EventStore
+    // schema), so a brand-new session will never be filtered out here.
+    if (m.numTurns === 0 && m.promptCount === 0 && !m.isActive) return false;
+    return true;
+  });
+  const page = all.slice(offset, offset + limit);
+  const hasMore = all.length > offset + limit;
+  return {
+    sessions: page.map((m) => ({
+      id: m.sessionId,
+      summary: m.summary ?? '',
+      lastModified: m.updatedAt,
+      branch: m.branch ?? undefined,
+      cwd: m.cwd ?? undefined,
+    })),
+    hasMore,
+  };
+}
+
+/**
+ * Background reconciliation: scan filesystem for sessions the EventStore
+ * doesn't know about and sync timestamps from the filesystem.
+ * Call fire-and-forget after serving cached results.
+ */
+// Guard against concurrent reconciliation runs. While `_reconciling` is true,
+// subsequent page-1 loads that call reconcileSessionsBackground() are no-ops.
+// This is safe because the in-flight sync will pick up any changes, and the
+// next page-1 request after it completes will trigger a fresh reconciliation.
+let _reconciling = false;
+export function reconcileSessionsBackground(): void {
+  if (_reconciling) return;
+  _reconciling = true;
+  syncSessionTimestamps()
+    .catch(() => {})
+    .finally(() => {
+      _reconciling = false;
+    });
+}
+
+/**
+ * Full timestamp sync: scan filesystem and update EventStore timestamps
+ * for all sessions to match their actual lastModified time.
+ */
+export async function syncSessionTimestamps(): Promise<void> {
+  const seen = new Map<
+    string,
+    { lastModified: number; summary: string; branch?: string; cwd?: string }
+  >();
+  const fetchLimit = 250;
+  for (const dir of getSessionDirs()) {
+    try {
+      const sessions = await listSessions({ dir, limit: fetchLimit, includeWorktrees: true });
+      for (const s of sessions) {
+        if (hiddenSessionIds.has(s.sessionId)) continue;
+        const existing = seen.get(s.sessionId);
+        if (!existing || s.lastModified > existing.lastModified) {
+          seen.set(s.sessionId, {
+            lastModified: s.lastModified,
+            summary: s.summary,
+            branch: s.gitBranch,
+            cwd: s.cwd || undefined,
+          });
+        }
+      }
+    } catch {
+      // Expected when session dir doesn't exist
+    }
+  }
+
+  let synced = 0;
+  for (const [sessionId, entry] of seen) {
+    const existing = eventStore.getSession(sessionId);
+    if (!existing) {
+      // New session — insert with correct timestamp
+      eventStore.upsertSession({
+        sessionId,
+        summary: entry.summary || null,
+        cwd: entry.cwd ?? (BASE_REPO || null),
+        branch: entry.branch ?? null,
+        isActive: false,
+        updatedAt: entry.lastModified,
+        createdAt: entry.lastModified,
+      });
+      synced++;
+    } else if (Math.abs(existing.updatedAt - entry.lastModified) > 60_000) {
+      // Timestamp drifted from filesystem — sync it back.
+      // Preserves summary from EventStore if it was manually renamed.
+      eventStore.upsertSession({
+        sessionId,
+        updatedAt: entry.lastModified,
+        summary: existing.manuallyRenamed ? undefined : entry.summary || undefined,
+        branch: entry.branch ?? undefined,
+      });
+      synced++;
+    }
+  }
+  if (synced > 0) {
+    log.info('reconciled session timestamps', { synced, total: seen.size });
+  }
 }
 
 /**
