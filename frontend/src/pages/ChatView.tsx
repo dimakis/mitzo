@@ -9,6 +9,7 @@ import { LAST_SESSION_KEY } from '../lib/constants';
 import { getPreferredModel, setPreferredModel } from '../lib/model-preference';
 import { useVoice } from '../hooks/useVoice';
 import { useAutoSpeak } from '../hooks/useAutoSpeak';
+import { ScrollFab } from '../components/ScrollFab';
 import { onKeyboardToggle } from '../lib/keyboard';
 import type { ImageAttachment } from '../types/chat';
 
@@ -220,6 +221,7 @@ export function ChatView() {
         onPermissionRespond={handlePermission}
         scrollRef={scrollRef}
       />
+      <ScrollFab scrollRef={scrollRef} />
 
       <ChatInput
         onSend={handleSend}

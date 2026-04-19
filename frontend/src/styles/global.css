@@ -1562,6 +1562,13 @@ textarea:focus {
   flex-shrink: 0;
 }
 
+.msg-bubble-group--user {
+  display: flex;
+  flex-direction: column;
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
 .msg-timestamp {
   color: var(--text-dim);
   font-size: var(--text-xs);

@@ -1224,7 +1224,7 @@ export function replayEventsToMessages(
         messages.push({
           messageId: p.messageId as string,
           role: 'user',
-          timestamp: (p.ts as number) ?? evt.createdAt,
+          timestamp: typeof p.ts === 'number' ? p.ts : evt.createdAt,
           blocks: [
             {
               blockId: `user-${p.messageId as string}`,
@@ -1242,7 +1242,7 @@ export function replayEventsToMessages(
         currentMsg = {
           messageId: p.messageId as string,
           role: 'assistant',
-          timestamp: (p.ts as number) ?? evt.createdAt,
+          timestamp: typeof p.ts === 'number' ? p.ts : evt.createdAt,
           blocks: [],
         };
         break;

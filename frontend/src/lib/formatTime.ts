@@ -1,3 +1,8 @@
+export function formatTime(ts?: number): string | null {
+  if (!ts) return null;
+  return new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
 export function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts;
   const mins = Math.floor(diff / 60000);
