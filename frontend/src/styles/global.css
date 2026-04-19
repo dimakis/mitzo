@@ -409,7 +409,7 @@ textarea:focus {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--space-5) 0 var(--space-4);
+  padding: var(--space-3) 0 var(--space-2);
   position: sticky;
   top: env(safe-area-inset-top);
   background: var(--bg);
@@ -483,10 +483,10 @@ textarea:focus {
 
 .hero-chat-btn {
   width: 100%;
-  padding: var(--space-4);
-  font-size: var(--text-base);
+  padding: var(--space-3);
+  font-size: var(--text-md);
   font-weight: 600;
-  border-radius: 14px;
+  border-radius: 10px;
   background: var(--accent);
   color: #fff;
   border: none;
@@ -504,16 +504,17 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   background: var(--surface);
-  border-radius: 12px;
+  border-radius: 10px;
   overflow: hidden;
-  margin-bottom: var(--space-5);
+  margin-top: var(--space-2);
+  margin-bottom: var(--space-4);
 }
 
 .quick-row {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: 0.9rem 1rem;
+  padding: 0.65rem 0.85rem;
   background: transparent;
   border: none;
   border-bottom: 1px solid var(--border);
