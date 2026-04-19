@@ -357,14 +357,21 @@ textarea:focus {
   padding-bottom: 72px;
 }
 
-/* All scrolling pages need top padding for the notch / Dynamic Island */
-.session-list-page,
-.inbox-page,
+/* Pages without sticky headers need top padding for the notch */
 .todo-page,
 .todo-detail-page,
 .task-board-page,
 .cal-page {
   padding-top: env(safe-area-inset-top);
+}
+
+/* Pages with sticky headers: header padding includes safe area */
+.session-list-header {
+  padding-top: calc(var(--space-3) + env(safe-area-inset-top));
+}
+
+.inbox-header {
+  padding-top: calc(var(--space-5) + env(safe-area-inset-top));
 }
 
 .cal-header {
