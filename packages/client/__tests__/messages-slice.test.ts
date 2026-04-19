@@ -992,6 +992,67 @@ describe('CLEAR', () => {
   });
 });
 
+// ─── Timestamps on synthesized messages ────────────────────────────────────
+
+describe('synthesized messages include numeric timestamp', () => {
+  it('finishCurrent() sets a numeric timestamp', () => {
+    let state = messagesReducer(INITIAL, { type: 'MESSAGE_START', messageId: 'msg-ts' });
+    state = messagesReducer(state, {
+      type: 'BLOCK_START',
+      messageId: 'msg-ts',
+      blockId: 'b1',
+      blockType: 'text',
+    });
+    state = messagesReducer(state, {
+      type: 'BLOCK_DELTA',
+      messageId: 'msg-ts',
+      blockId: 'b1',
+      blockType: 'text',
+      delta: 'content',
+    });
+    state = messagesReducer(state, { type: 'MESSAGE_END', messageId: 'msg-ts' });
+    expect(typeof state.messages[0].timestamp).toBe('number');
+  });
+
+  it('ERROR action produces a message with numeric timestamp', () => {
+    const state = messagesReducer(INITIAL, { type: 'ERROR', error: 'boom' });
+    const errMsg = state.messages[state.messages.length - 1];
+    expect(typeof errMsg.timestamp).toBe('number');
+  });
+
+  it('NATIVE_COMMAND_RESULT produces a message with numeric timestamp', () => {
+    const state = messagesReducer(INITIAL, {
+      type: 'NATIVE_COMMAND_RESULT',
+      command: 'test',
+      content: 'result',
+    });
+    expect(typeof state.messages[0].timestamp).toBe('number');
+  });
+
+  it('USER_SEND produces a message with numeric timestamp', () => {
+    const state = messagesReducer(INITIAL, {
+      type: 'USER_SEND',
+      text: 'hello',
+      clientMsgId: 'user-ts-1',
+    });
+    expect(typeof state.messages[0].timestamp).toBe('number');
+  });
+
+  it('USER_MESSAGE_RECEIVED produces a message with numeric timestamp', () => {
+    const state = messagesReducer(INITIAL, {
+      type: 'USER_MESSAGE_RECEIVED',
+      messageId: 'umsg-ts-1',
+      text: 'hi',
+    });
+    expect(typeof state.messages[0].timestamp).toBe('number');
+  });
+
+  it('CONNECTION_LOST produces a message with numeric timestamp', () => {
+    const state = messagesReducer(INITIAL, { type: 'CONNECTION_LOST' });
+    expect(typeof state.messages[0].timestamp).toBe('number');
+  });
+});
+
 // ─── Full turn sequence ──────────────────────────────────────────────────────
 
 describe('full turn sequence', () => {

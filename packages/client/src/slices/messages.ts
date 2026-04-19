@@ -114,7 +114,7 @@ export function finishCurrent(current: StreamingMessage): FinishedMessage {
       toolError: b.toolError,
     };
   });
-  return { messageId: current.messageId, role: 'assistant', blocks };
+  return { messageId: current.messageId, role: 'assistant', blocks, timestamp: Date.now() };
 }
 
 export function patchToolResult(
@@ -279,6 +279,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
           {
             messageId: `err-${Date.now()}`,
             role: 'assistant',
+            timestamp: Date.now(),
             blocks: [
               {
                 blockId: `err-${Date.now()}`,
@@ -316,6 +317,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
       const cmdMsg: FinishedMessage = {
         messageId: `native-${Date.now()}`,
         role: 'assistant',
+        timestamp: Date.now(),
         blocks: [
           {
             blockId: `native-b-${Date.now()}`,
@@ -353,6 +355,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
         const notice: FinishedMessage = {
           messageId: `notice-${Date.now()}`,
           role: 'assistant',
+          timestamp: Date.now(),
           blocks: [
             {
               blockId: `notice-text-${Date.now()}`,
@@ -393,6 +396,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
           {
             messageId: action.messageId,
             role: 'user',
+            timestamp: Date.now(),
             blocks: [
               {
                 blockId: `user-text-${action.messageId}`,
@@ -413,6 +417,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
           {
             messageId: action.clientMsgId,
             role: 'user',
+            timestamp: Date.now(),
             blocks: [],
             images: action.images,
             contextBlocks: action.contextBlocks,
@@ -443,6 +448,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
           {
             messageId: `conn-${Date.now()}`,
             role: 'assistant',
+            timestamp: Date.now(),
             blocks: [
               {
                 blockId: `conn-text-${Date.now()}`,
