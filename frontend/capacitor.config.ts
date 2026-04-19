@@ -5,7 +5,7 @@ const config: CapacitorConfig = {
   appName: 'Mitzo',
   webDir: 'dist',
   ios: {
-    contentInset: 'always',
+    contentInset: 'never',
   },
   plugins: {
     SplashScreen: {
