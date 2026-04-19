@@ -32,6 +32,7 @@ type StopMsg = z.infer<typeof V2StopMessage>;
 type InterruptMsg = z.infer<typeof V2InterruptMessage>;
 type PermissionMsg = z.infer<typeof V2PermissionResponseMessage>;
 type SetModeMsg = z.infer<typeof V2SetModeMessage>;
+import { randomUUID } from 'crypto';
 import { tracer } from './tracing.js';
 import { SpanStatusCode } from '@opentelemetry/api';
 import { resolvePending } from './permissions.js';
@@ -368,13 +369,13 @@ export function handleSendV2(
     } else {
       // null sessionId — new session. Use a unique clientId so concurrent
       // new-session starts don't collide in the registry.
-      const newClientId = `${connectionId}:new-${Date.now()}`;
+      const sessionClientId = `${connectionId}:new-${randomUUID().slice(0, 8)}`;
       span.setAttribute('routing.decision', 'create');
       const onSessionResolved = (resolvedId: string) => {
         ctx.connRegistry.watch(connectionId, resolvedId);
         ctx.connRegistry.setActive(connectionId, resolvedId);
       };
-      startChat(transport, newClientId, prompt, {
+      startChat(transport, sessionClientId, prompt, {
         cwd: msg.cwd,
         model: msg.model,
         extraTools: msg.extraTools,
@@ -384,7 +385,7 @@ export function handleSendV2(
         clientMsgId: msg.clientMsgId,
         onSessionResolved,
       });
-      applySkillPolicy(newClientId);
+      applySkillPolicy(sessionClientId);
     }
 
     span.setStatus({ code: SpanStatusCode.OK });
