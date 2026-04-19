@@ -746,7 +746,7 @@ app.get('/api/sessions', async (req, res) => {
     const { sessions, hasMore } = await getSessions(offset, limit);
     res.json({ sessions: annotate(sessions), hasMore });
   } catch (err) {
-    console.error('GET /api/sessions failed:', err);
+    log.error('GET /api/sessions failed', { error: err });
     res.status(500).json({ error: 'Failed to list sessions' });
   }
 });
