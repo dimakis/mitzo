@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import type { Session } from '../types/chat';
 import { formatRelativeTime } from '../lib/formatTime';
 import { useLongPress } from '../hooks/useLongPress';
-import { computeSwipeState, REVEAL_WIDTH } from '../lib/swipe-reveal';
+import { computeSwipeState, REVEAL_WIDTH, SWIPE_DEAD_ZONE } from '../lib/swipe-reveal';
 import { selectionChanged } from '../lib/haptics';
 import { EmptyState } from '../components/EmptyState';
 import { useSessionList } from '../hooks/useSessionList';
@@ -95,16 +95,13 @@ function SwipeableSession({
     if (!swiping.current || !ref.current) return;
     currentX.current = e.touches[0].clientX;
     const dx = currentX.current - startX.current;
-    // Cancel long-press on horizontal movement
     if (Math.abs(dx) > 10) longPress.cancel();
 
     if (revealed) {
-      // When revealed, allow swiping back to close
       const offset = Math.min(0, -REVEAL_WIDTH + dx);
       ref.current.style.transform = `translateX(${offset}px)`;
-    } else if (dx < 0) {
-      // Clamp drag to reveal width
-      const clamped = Math.max(dx, -REVEAL_WIDTH);
+    } else if (dx < -SWIPE_DEAD_ZONE) {
+      const clamped = Math.max(dx + SWIPE_DEAD_ZONE, -REVEAL_WIDTH);
       ref.current.style.transform = `translateX(${clamped}px)`;
     }
   }
