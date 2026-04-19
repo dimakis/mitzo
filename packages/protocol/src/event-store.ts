@@ -265,7 +265,17 @@ export class EventStore {
         ...values,
       );
     } else {
-      const cols = ['session_id', 'summary', 'branch', 'cwd', 'mode', 'is_active', 'initial_prompt', 'wt_id', 'goal_id'];
+      const cols = [
+        'session_id',
+        'summary',
+        'branch',
+        'cwd',
+        'mode',
+        'is_active',
+        'initial_prompt',
+        'wt_id',
+        'goal_id',
+      ];
       const vals: unknown[] = [
         meta.sessionId,
         meta.summary ?? null,
@@ -286,7 +296,9 @@ export class EventStore {
         vals.push(meta.createdAt);
       }
       const placeholders = cols.map(() => '?').join(', ');
-      this.db!.prepare(`INSERT INTO sessions (${cols.join(', ')}) VALUES (${placeholders})`).run(...vals);
+      this.db!.prepare(`INSERT INTO sessions (${cols.join(', ')}) VALUES (${placeholders})`).run(
+        ...vals,
+      );
     }
   }
 
