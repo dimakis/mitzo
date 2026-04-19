@@ -51,6 +51,10 @@
 	<string>Unlock Mitzo with Face ID instead of entering your passphrase</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Mitzo uses the microphone for voice input</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Attach images to your messages</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Take photos to attach to your messages</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
