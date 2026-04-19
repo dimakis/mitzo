@@ -186,26 +186,30 @@ export function ChatView() {
           <option value="claude-sonnet-4-6">Sonnet 4.6</option>
           <option value="claude-haiku-4-5">Haiku 4.5</option>
         </select>
-        <div className="mode-pills">
-          {(['ask', 'agent', 'auto'] as const).map((m) => (
-            <button
-              key={m}
-              className={`mode-pill${mode === m ? ' mode-pill--active' : ''}`}
-              onClick={() => handleModeChange(m)}
-            >
-              {m.charAt(0).toUpperCase() + m.slice(1)}
-            </button>
-          ))}
-        </div>
-        <VoiceSettings
-          ttsAvailable={voice.ttsAvailable}
-          ttsEnabled={voice.ttsEnabled}
-          speaking={voice.speaking}
-          voices={voice.voices}
-          selectedVoice={voice.selectedVoice}
-          onToggle={() => voice.setTtsEnabled(!voice.ttsEnabled)}
-          onVoiceChange={voice.setVoice}
-        />
+        {!keyboardOpen && (
+          <>
+            <div className="mode-pills">
+              {(['ask', 'agent', 'auto'] as const).map((m) => (
+                <button
+                  key={m}
+                  className={`mode-pill${mode === m ? ' mode-pill--active' : ''}`}
+                  onClick={() => handleModeChange(m)}
+                >
+                  {m.charAt(0).toUpperCase() + m.slice(1)}
+                </button>
+              ))}
+            </div>
+            <VoiceSettings
+              ttsAvailable={voice.ttsAvailable}
+              ttsEnabled={voice.ttsEnabled}
+              speaking={voice.speaking}
+              voices={voice.voices}
+              selectedVoice={voice.selectedVoice}
+              onToggle={() => voice.setTtsEnabled(!voice.ttsEnabled)}
+              onVoiceChange={voice.setVoice}
+            />
+          </>
+        )}
       </header>
 
       <ChatArea
