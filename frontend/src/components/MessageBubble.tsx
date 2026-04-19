@@ -9,42 +9,53 @@ import { extractText } from '../lib/extractText';
 
 const COLLAPSE_HEIGHT = 300;
 
+function formatTime(ts?: number): string | null {
+  if (!ts) return null;
+  return new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
 interface UserBubbleProps {
   text?: string;
   images?: string[];
   contextBlocks?: string[];
   onEdit?: (text: string) => void;
+  timestamp?: number;
 }
 
-export function UserBubble({ text, images, contextBlocks, onEdit }: UserBubbleProps) {
+export function UserBubble({ text, images, contextBlocks, onEdit, timestamp }: UserBubbleProps) {
+  const time = formatTime(timestamp);
   return (
-    <div
-      className={`msg-bubble msg-bubble--user${onEdit ? ' msg-bubble--editable' : ''}`}
-      onClick={() => text && onEdit?.(text)}
-      role={onEdit ? 'button' : undefined}
-      tabIndex={onEdit ? 0 : undefined}
-    >
-      {contextBlocks && contextBlocks.length > 0 && (
-        <div className="msg-bubble-context">@ {contextBlocks.join(', ')}</div>
-      )}
-      {images && images.length > 0 && (
-        <div className="msg-bubble-images">
-          {images.map((src, i) => (
-            <img key={i} src={src} alt={`Attachment ${i + 1}`} className="msg-bubble-img" />
-          ))}
-        </div>
-      )}
-      {text && <div className="msg-bubble-content">{text}</div>}
-    </div>
+    <>
+      <div
+        className={`msg-bubble msg-bubble--user${onEdit ? ' msg-bubble--editable' : ''}`}
+        onClick={() => text && onEdit?.(text)}
+        role={onEdit ? 'button' : undefined}
+        tabIndex={onEdit ? 0 : undefined}
+      >
+        {contextBlocks && contextBlocks.length > 0 && (
+          <div className="msg-bubble-context">@ {contextBlocks.join(', ')}</div>
+        )}
+        {images && images.length > 0 && (
+          <div className="msg-bubble-images">
+            {images.map((src, i) => (
+              <img key={i} src={src} alt={`Attachment ${i + 1}`} className="msg-bubble-img" />
+            ))}
+          </div>
+        )}
+        {text && <div className="msg-bubble-content">{text}</div>}
+      </div>
+      {time && <span className="msg-timestamp msg-timestamp--user">{time}</span>}
+    </>
   );
 }
 
 interface TextBubbleProps {
   content: string;
   streaming?: boolean;
+  timestamp?: number;
 }
 
-export function TextBubble({ content, streaming = false }: TextBubbleProps) {
+export function TextBubble({ content, streaming = false, timestamp }: TextBubbleProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const processed = streaming ? content : linkifyFilePaths(content);
@@ -117,7 +128,12 @@ export function TextBubble({ content, streaming = false }: TextBubbleProps) {
           {collapsed ? 'Show more' : 'Show less'}
         </button>
       )}
-      {!streaming && <CopyButton text={content} className="msg-bubble-copy" />}
+      {!streaming && (
+        <div className="msg-bubble-footer">
+          {timestamp && <span className="msg-timestamp">{formatTime(timestamp)}</span>}
+          <CopyButton text={content} className="msg-bubble-copy" />
+        </div>
+      )}
     </div>
   );
 }
