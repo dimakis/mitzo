@@ -441,6 +441,10 @@ function handleChatWs(
         );
         const found = registry.findBySessionId(msg.sessionId);
         if (found && !registry.isAttached(found.clientId)) {
+          // Driver WS is dead (session detached). Promote this subscriber
+          // to the session driver so it receives direct query-loop events.
+          // Typical iOS Safari reconnect path: socket drops every 30-90s
+          // and the pool reconnects with a subscribe carrying the session ID.
           const ok = reattachChat(found.clientId, transport);
           if (ok) {
             span.setAttribute('ws.subscribe.outcome', 'promoted_to_reattach');

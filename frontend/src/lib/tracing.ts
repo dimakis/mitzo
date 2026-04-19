@@ -34,7 +34,9 @@ if (endpoint) {
       ],
     });
     provider.register();
-  })();
+  })().catch((err) => {
+    console.warn('[mitzo] browser tracing init failed', err);
+  });
 }
 
 /**

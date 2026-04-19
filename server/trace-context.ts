@@ -8,6 +8,7 @@
 
 import { trace, context, SpanContext, TraceFlags, ROOT_CONTEXT } from '@opentelemetry/api';
 
+// TODO: W3C spec says receivers SHOULD accept unknown versions (not just 00)
 const TRACEPARENT_RE = /^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/;
 
 /**
