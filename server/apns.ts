@@ -109,7 +109,7 @@ export async function sendPush(
 
     // Remove any invalid tokens
     for (const failure of result.failed) {
-      if (failure.status === '410' || failure.response?.reason === 'Unregistered') {
+      if (String(failure.status) === '410' || failure.response?.reason === 'Unregistered') {
         removeToken(failure.device);
         log.info('removed unregistered device token', { device: failure.device });
       }

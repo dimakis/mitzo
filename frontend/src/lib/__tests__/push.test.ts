@@ -29,20 +29,22 @@ vi.mock('../api-fetch', () => ({
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { apiFetch } from '../api-fetch';
-import { initPushNotifications } from '../push';
+import { initPushNotifications, _resetForTest } from '../push';
 
 beforeEach(() => {
   vi.clearAllMocks();
+  _resetForTest();
   Object.keys(pushListeners).forEach((k) => delete pushListeners[k]);
   // Restore default mock returns after clearAllMocks resets them
   vi.mocked(PushNotifications.requestPermissions).mockResolvedValue({ receive: 'granted' });
   vi.mocked(PushNotifications.register).mockResolvedValue(undefined);
-  vi.mocked(PushNotifications.addListener).mockImplementation(
-    (event: string, cb: (data: unknown) => void) => {
-      pushListeners[event] = cb;
-      return Promise.resolve() as ReturnType<typeof PushNotifications.addListener>;
-    },
-  );
+  vi.mocked(PushNotifications.addListener).mockImplementation(((
+    event: string,
+    cb: (data: unknown) => void,
+  ) => {
+    pushListeners[event] = cb;
+    return Promise.resolve({ remove: vi.fn() });
+  }) as typeof PushNotifications.addListener);
 });
 
 describe('initPushNotifications', () => {

@@ -6,6 +6,11 @@ import { apiFetch } from './api-fetch';
 
 let initialized = false;
 
+/** @internal test-only — reset the init guard */
+export function _resetForTest(): void {
+  initialized = false;
+}
+
 export async function initPushNotifications(): Promise<void> {
   if (!Capacitor.isNativePlatform() || initialized) return;
   initialized = true;
