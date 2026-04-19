@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { apiFetch } from './lib/api-fetch';
+import { hideSplash } from './lib/splash';
 import { Login } from './pages/Login';
 import { SessionList } from './pages/SessionList';
 import { ChatView } from './pages/ChatView';
@@ -20,7 +21,8 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     apiFetch('/api/auth/check')
       .then((r) => setAuth(r.ok ? 'ok' : 'denied'))
-      .catch(() => setAuth('denied'));
+      .catch(() => setAuth('denied'))
+      .finally(() => hideSplash());
   }, []);
   if (auth === 'denied') return <Navigate to="/login" replace />;
   if (auth === 'loading') {

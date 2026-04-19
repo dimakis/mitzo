@@ -7,9 +7,14 @@ const config: CapacitorConfig = {
   ios: {
     contentInset: 'automatic',
   },
+  plugins: {
+    SplashScreen: {
+      launchAutoHide: false,
+      backgroundColor: '#0f0f1a',
+      showSpinner: false,
+    },
+  },
   server: {
-    // Allow navigation to Tailscale MagicDNS hostnames. The app is
-    // passphrase-authenticated so the blast radius is limited.
     allowNavigation: ['*.ts.net'],
   },
 };
