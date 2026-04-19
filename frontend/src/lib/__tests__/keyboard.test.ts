@@ -28,21 +28,15 @@ describe('configureKeyboard', () => {
     expect(Keyboard.setResizeMode).not.toHaveBeenCalled();
   });
 
-  it('configures resize mode on native platform', async () => {
+  it('configures native resize mode on native platform', async () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
     await configureKeyboard();
-    expect(Keyboard.setResizeMode).toHaveBeenCalledWith({ mode: KeyboardResize.Ionic });
+    expect(Keyboard.setResizeMode).toHaveBeenCalledWith({ mode: KeyboardResize.Native });
   });
 
   it('hides accessory bar on native platform', async () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
     await configureKeyboard();
     expect(Keyboard.setAccessoryBarVisible).toHaveBeenCalledWith({ isVisible: false });
-  });
-
-  it('disables scroll on native platform', async () => {
-    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
-    await configureKeyboard();
-    expect(Keyboard.setScroll).toHaveBeenCalledWith({ isDisabled: true });
   });
 });

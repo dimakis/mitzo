@@ -5,7 +5,7 @@ export function MitzoLogo() {
 
   return (
     <button className="mitzo-logo" onClick={() => navigate('/')} aria-label="Home">
-      M
+      <img src="/mitzo-icon.png" alt="Mitzo" width={20} height={20} />
     </button>
   );
 }

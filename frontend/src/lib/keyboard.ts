@@ -5,7 +5,6 @@ import { Keyboard, KeyboardResize } from '@capacitor/keyboard';
 export async function configureKeyboard(): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
 
-  await Keyboard.setResizeMode({ mode: KeyboardResize.Ionic });
+  await Keyboard.setResizeMode({ mode: KeyboardResize.Native });
   await Keyboard.setAccessoryBarVisible({ isVisible: false });
-  await Keyboard.setScroll({ isDisabled: true });
 }

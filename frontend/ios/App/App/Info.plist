@@ -49,6 +49,8 @@
 	<true/>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Unlock Mitzo with Face ID instead of entering your passphrase</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Mitzo uses the microphone for voice input</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
