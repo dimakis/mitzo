@@ -10,7 +10,7 @@ vi.mock('@capacitor/keyboard', () => ({
     setAccessoryBarVisible: vi.fn(),
     setScroll: vi.fn(),
   },
-  KeyboardResize: { Ionic: 'ionic' },
+  KeyboardResize: { Ionic: 'ionic', Native: 'native' },
 }));
 
 import { Capacitor } from '@capacitor/core';
