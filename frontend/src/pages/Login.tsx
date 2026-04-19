@@ -1,18 +1,42 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../lib/api-fetch';
+import { isBiometricAvailable, biometricLogin, saveCredentials } from '../lib/biometric';
+import { notifySuccess } from '../lib/haptics';
 
 export function Login() {
   const [passphrase, setPassphrase] = useState('');
   const [error, setError] = useState('');
+  const [biometricReady, setBiometricReady] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    isBiometricAvailable().then((available) => {
+      setBiometricReady(available);
+      if (available) {
+        biometricLogin().then((token) => {
+          if (token) {
+            notifySuccess();
+            navigate('/');
+          }
+        });
+      }
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleBiometric() {
+    const token = await biometricLogin();
+    if (token) {
+      notifySuccess();
+      navigate('/');
+    } else {
+      setError('Biometric authentication failed');
+    }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError('');
-
-    // Clear any stale token before attempting login
-    localStorage.removeItem('mitzo_auth_token');
 
     const res = await apiFetch('/api/auth/login', {
       method: 'POST',
@@ -21,10 +45,10 @@ export function Login() {
     });
 
     if (res.ok) {
-      // Store JWT for Capacitor (non-cookie) auth. Browser ignores this.
-      const data = await res.json().catch(() => ({}));
+      const data = (await res.json()) as { token?: string };
       if (data.token) {
         localStorage.setItem('mitzo_auth_token', data.token);
+        await saveCredentials(data.token);
       }
       navigate('/');
     } else {
@@ -46,6 +70,11 @@ export function Login() {
         <button type="submit" className="btn-primary">
           Login
         </button>
+        {biometricReady && (
+          <button type="button" className="btn-biometric" onClick={handleBiometric}>
+            Unlock with Face ID
+          </button>
+        )}
         {error && <p className="error">{error}</p>}
       </form>
     </div>

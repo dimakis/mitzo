@@ -47,6 +47,8 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Unlock Mitzo with Face ID instead of entering your passphrase</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
