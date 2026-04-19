@@ -78,4 +78,24 @@ describe('useDraft', () => {
     const { result } = renderHook(() => useDraft(undefined));
     expect(result.current[0]).toBe('unsent prompt');
   });
+
+  it('migrates draft when sessionId changes from undefined to a real ID', () => {
+    vi.useFakeTimers();
+    localStorage.setItem('mitzo-draft-new', 'draft in progress');
+    const { result, rerender } = renderHook(({ id }: { id: string | undefined }) => useDraft(id), {
+      initialProps: { id: undefined as string | undefined },
+    });
+
+    expect(result.current[0]).toBe('draft in progress');
+
+    // Simulate the session getting assigned a real ID
+    rerender({ id: 'sess-real' });
+
+    // Draft should have migrated to the new key
+    expect(localStorage.getItem('mitzo-draft-sess-real')).toBe('draft in progress');
+    // Old key should be removed
+    expect(localStorage.getItem('mitzo-draft-new')).toBeNull();
+
+    vi.useRealTimers();
+  });
 });

@@ -209,6 +209,36 @@ describe('EventStore', () => {
       expect(session!.wtId).toBe('wt-session-123');
       expect(session!.mode).toBe('agent');
     });
+
+    it('uses explicit updatedAt on UPDATE instead of auto-generated', () => {
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Initial' });
+      const explicitTs = 1700000000000;
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Updated', updatedAt: explicitTs });
+
+      const session = store.getSession('sess-1');
+      expect(session!.updatedAt).toBe(explicitTs);
+    });
+
+    it('uses explicit createdAt on INSERT', () => {
+      const explicitTs = 1600000000000;
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Backdated', createdAt: explicitTs });
+
+      const session = store.getSession('sess-1');
+      expect(session!.createdAt).toBe(explicitTs);
+    });
+
+    it('auto-generates timestamps when explicit values are omitted', () => {
+      const before = Date.now();
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Auto' });
+      const after = Date.now();
+
+      const session = store.getSession('sess-1');
+      // createdAt and updatedAt should be auto-generated within a reasonable range
+      expect(session!.createdAt).toBeGreaterThanOrEqual(before - 1000);
+      expect(session!.createdAt).toBeLessThanOrEqual(after + 1000);
+      expect(session!.updatedAt).toBeGreaterThanOrEqual(before - 1000);
+      expect(session!.updatedAt).toBeLessThanOrEqual(after + 1000);
+    });
   });
 
   describe('getSession', () => {

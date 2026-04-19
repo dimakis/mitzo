@@ -1012,6 +1012,10 @@ export function getSessionsCached(offset = 0, limit = SESSION_PAGE_SIZE) {
  * doesn't know about and sync timestamps from the filesystem.
  * Call fire-and-forget after serving cached results.
  */
+// Guard against concurrent reconciliation runs. While `_reconciling` is true,
+// subsequent page-1 loads that call reconcileSessionsBackground() are no-ops.
+// This is safe because the in-flight sync will pick up any changes, and the
+// next page-1 request after it completes will trigger a fresh reconciliation.
 let _reconciling = false;
 export function reconcileSessionsBackground(): void {
   if (_reconciling) return;
