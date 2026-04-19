@@ -850,3 +850,112 @@ describe('task CRUD actions', () => {
     );
   });
 });
+
+describe('foreground recovery', () => {
+  it('re-fetches messages when store has active session but no messages', async () => {
+    const transport = mockTransport();
+    const restoredMessages = [
+      { messageId: 'msg-1', role: 'assistant', blocks: [], isStreaming: false },
+    ];
+    // Mock all fetch calls to return messages for /messages endpoints
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(restoredMessages),
+        text: () => Promise.resolve(''),
+      }),
+    );
+    const store = createReadyStore(transport);
+
+    // Set an active session with no messages (simulates iOS page eviction)
+    store.setState((s) => ({
+      sessions: { ...s.sessions, active: 'sess-1' },
+    }));
+
+    // Simulate _foreground event
+    lastWs.simulateMessage({ type: '_foreground' });
+
+    // Wait for the async fetch to resolve
+    await vi.waitFor(() => {
+      expect(store.getState().messages.messages.length).toBeGreaterThan(0);
+    });
+  });
+
+  it('skips re-fetch when messages already exist', async () => {
+    const transport = mockTransport();
+    const store = createReadyStore(transport);
+
+    // Set active session AND existing messages
+    store.setState((s) => ({
+      sessions: { ...s.sessions, active: 'sess-1' },
+      messages: {
+        ...s.messages,
+        messages: [{ role: 'assistant', blocks: [], isStreaming: false } as never],
+      },
+    }));
+
+    // Clear fetch call count from handshake
+    (transport.fetch as ReturnType<typeof vi.fn>).mockClear();
+
+    lastWs.simulateMessage({ type: '_foreground' });
+
+    // Give any potential async a chance to fire
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Should NOT have fetched session messages
+    const fetchCalls = (transport.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    const sessionMsgCalls = fetchCalls.filter(
+      (c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).includes('/messages'),
+    );
+    expect(sessionMsgCalls).toHaveLength(0);
+  });
+
+  it('does not clobber messages that arrived between fetch start and resolve', async () => {
+    const transport = mockTransport();
+    let resolveFetch!: (v: unknown) => void;
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (typeof url === 'string' && url.includes('/messages')) {
+        return new Promise((r) => {
+          resolveFetch = r;
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve([]),
+        text: () => Promise.resolve(''),
+      });
+    });
+    const store = createReadyStore(transport);
+
+    store.setState((s) => ({
+      sessions: { ...s.sessions, active: 'sess-1' },
+    }));
+
+    // Trigger foreground — fetch starts but hasn't resolved yet
+    lastWs.simulateMessage({ type: '_foreground' });
+
+    // Meanwhile, live data arrives and populates the store
+    store.setState((s) => ({
+      messages: {
+        ...s.messages,
+        messages: [{ role: 'assistant', blocks: [], isStreaming: false } as never],
+      },
+    }));
+
+    // Now the fetch resolves with stale data
+    resolveFetch({
+      ok: true,
+      json: () =>
+        Promise.resolve([
+          { role: 'assistant', blocks: [{ type: 'text', text: 'stale' }], isStreaming: false },
+          { role: 'assistant', blocks: [{ type: 'text', text: 'stale2' }], isStreaming: false },
+        ]),
+      text: () => Promise.resolve(''),
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Store should still have the 1 live message, not the 2 stale ones
+    expect(store.getState().messages.messages).toHaveLength(1);
+  });
+});

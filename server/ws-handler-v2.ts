@@ -128,7 +128,7 @@ export function handleReconnect(
       if (found && running && !ctx.sessionRegistry.isAttached(found.clientId)) {
         const conn = ctx.connRegistry.get(connectionId);
         if (conn) {
-          ctx.sessionRegistry.reattach(found.clientId, conn.transport);
+          reattachChat(found.clientId, conn.transport);
           log.info('reattached detached session on reconnect', {
             connectionId,
             sessionId: entry.sessionId,

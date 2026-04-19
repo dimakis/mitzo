@@ -407,7 +407,10 @@ export async function runQueryLoop(
             resultSid,
             true,
           )) {
-            connRegistry.setActive(cid, null);
+            const conn = connRegistry.get(cid);
+            if (conn?.activeSession === resultSid) {
+              connRegistry.setActive(cid, null);
+            }
           }
         }
         if (!registry.isAttached(clientId)) {
@@ -685,9 +688,12 @@ export async function runQueryLoop(
           broadcastToObservers(finalSession.observers, endMsg);
         }
         if (sid && connRegistry?.hasOpenWatchers(sid)) {
-          // Clear active session on all watching connections
+          // Clear active session only on connections whose active is this session
           for (const { connectionId: cid } of connRegistry.getConnectionsWatching(sid, true)) {
-            connRegistry.setActive(cid, null);
+            const conn = connRegistry.get(cid);
+            if (conn?.activeSession === sid) {
+              connRegistry.setActive(cid, null);
+            }
           }
         }
       }

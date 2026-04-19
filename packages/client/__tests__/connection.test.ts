@@ -341,5 +341,36 @@ describe('MitzoConnection', () => {
       openWithHandshake(conn);
       conn.disconnect();
     });
+
+    it('defuses old WS handlers so delayed onclose does not trash new connection', () => {
+      vi.useFakeTimers();
+      const conn = createConnection();
+      const received: Record<string, unknown>[] = [];
+      conn.onMessage((msg) => received.push(msg));
+      const oldWs = openWithHandshake(conn);
+
+      // Simulate iOS silent death — heartbeat detects it
+      oldWs.readyState = 3;
+      vi.advanceTimersByTime(5_000);
+
+      // A new WS was created
+      const newWs = lastWs!;
+      expect(newWs).not.toBe(oldWs);
+
+      // Old WS handlers should be nulled (defused)
+      expect(oldWs.onclose).toBeNull();
+      expect(oldWs.onmessage).toBeNull();
+      expect(oldWs.onerror).toBeNull();
+
+      // Complete handshake on new WS
+      newWs.simulateOpen();
+      newWs.simulateMessage({ type: 'welcome', protocolVersion: 2, connectionId: 'conn-2' });
+      expect(conn.isConnected()).toBe(true);
+
+      // Connection should still be connected via new WS
+      expect(conn.getConnectionId()).toBe('conn-2');
+
+      vi.useRealTimers();
+    });
   });
 });

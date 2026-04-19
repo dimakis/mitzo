@@ -571,7 +571,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
               }
             }
           })
-          .catch(() => {});
+          .catch((err) => {
+            if (typeof console !== 'undefined') {
+              console.warn('[mitzo] foreground recovery fetch failed', err);
+            }
+          });
       }
       return;
     }
