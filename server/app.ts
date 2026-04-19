@@ -705,19 +705,18 @@ app.get('/api/sessions/active', (_req, res) => {
   res.json(registry.getActiveSessions());
 });
 
-app.get('/api/sessions', (req, res) => {
+app.get('/api/sessions', async (req, res) => {
   const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
   const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 20), 100);
   const full = req.query.full === '1';
 
-  // Fast path: serve from EventStore (SQLite, <1ms) unless ?full=1
-  if (!full) {
-    const { sessions, hasMore } = getSessionsCached(offset, limit);
+  /** Annotate raw session list with live-status and token metadata. */
+  function annotate(sessions: Array<{ id: string; [k: string]: unknown }>) {
     const activeMap = new Map<string, { attached: boolean }>();
     for (const s of registry.getActiveSessions()) {
       if (s.sessionId) activeMap.set(s.sessionId, { attached: s.attached });
     }
-    const annotated = sessions.map((s) => {
+    return sessions.map((s) => {
       const live = activeMap.get(s.id);
       const meta = eventStore.getSession(s.id);
       return {
@@ -730,34 +729,26 @@ app.get('/api/sessions', (req, res) => {
         numTurns: meta?.numTurns,
       };
     });
-    res.json({ sessions: annotated, hasMore });
-
-    // Background: reconcile with filesystem so EventStore stays fresh
-    if (offset === 0) reconcileSessionsBackground();
-    return;
   }
 
-  // Full path: filesystem scan (original behavior, for ?full=1)
-  getSessions(offset, limit).then(({ sessions, hasMore }) => {
-    const activeMap = new Map<string, { attached: boolean }>();
-    for (const s of registry.getActiveSessions()) {
-      if (s.sessionId) activeMap.set(s.sessionId, { attached: s.attached });
+  try {
+    if (!full) {
+      // Fast path: serve from EventStore (SQLite, <1ms)
+      const { sessions, hasMore } = getSessionsCached(offset, limit);
+      res.json({ sessions: annotate(sessions), hasMore });
+
+      // Background: reconcile with filesystem so EventStore stays fresh
+      if (offset === 0) reconcileSessionsBackground();
+      return;
     }
-    const annotated = sessions.map((s) => {
-      const live = activeMap.get(s.id);
-      const meta = eventStore.getSession(s.id);
-      return {
-        ...s,
-        isActive: !!live,
-        isAttached: live?.attached ?? false,
-        totalTokens: meta
-          ? meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens
-          : undefined,
-        numTurns: meta?.numTurns,
-      };
-    });
-    res.json({ sessions: annotated, hasMore });
-  });
+
+    // Full path: filesystem scan (original behavior, for ?full=1)
+    const { sessions, hasMore } = await getSessions(offset, limit);
+    res.json({ sessions: annotate(sessions), hasMore });
+  } catch (err) {
+    console.error('GET /api/sessions failed:', err);
+    res.status(500).json({ error: 'Failed to list sessions' });
+  }
 });
 
 app.get('/api/sessions/:id/messages', async (req, res) => {
