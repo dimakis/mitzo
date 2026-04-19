@@ -200,6 +200,7 @@ export function InboxView() {
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [pendingRemovals, setPendingRemovals] = useState<Set<string>>(new Set());
+  const [repoPath, setRepoPath] = useState('');
 
   // Sync from the store's inbox (updated via v2 WS inbox_updated events)
   const storeInbox = useMitzoStore((s) => s.inbox.items);
@@ -207,6 +208,12 @@ export function InboxView() {
 
   useEffect(() => {
     loadInbox().then(() => setLoading(false));
+    apiFetch('/api/config')
+      .then((r) => r.json())
+      .then((cfg) => {
+        if (cfg.repoPath) setRepoPath(cfg.repoPath);
+      })
+      .catch(() => {});
 
     const onVisible = () => {
       if (document.visibilityState === 'visible') loadInbox();
@@ -312,7 +319,10 @@ export function InboxView() {
               item={item}
               onApprove={handleApprove}
               onDiscard={handleDiscard}
-              onNavigateFile={(path) => navigate(`/files?path=${encodeURIComponent(path)}`)}
+              onNavigateFile={(path) => {
+                const absPath = path.startsWith('/') ? path : `${repoPath}/${path}`;
+                navigate(`/files?path=${encodeURIComponent(absPath)}`);
+              }}
             />
           ))}
         </div>
