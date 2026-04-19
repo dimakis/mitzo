@@ -358,9 +358,7 @@ textarea:focus {
   padding-bottom: 72px;
 }
 
-/* Scrolling pages need top padding to clear the notch / Dynamic Island */
-.session-list-page,
-.inbox-page,
+/* Pages without sticky headers need top padding for the notch / Dynamic Island */
 .todo-page,
 .todo-detail-page,
 .task-board-page,
