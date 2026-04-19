@@ -32,6 +32,7 @@ type StopMsg = z.infer<typeof V2StopMessage>;
 type InterruptMsg = z.infer<typeof V2InterruptMessage>;
 type PermissionMsg = z.infer<typeof V2PermissionResponseMessage>;
 type SetModeMsg = z.infer<typeof V2SetModeMessage>;
+import { randomUUID } from 'crypto';
 import { tracer } from './tracing.js';
 import { SpanStatusCode } from '@opentelemetry/api';
 import { resolvePending } from './permissions.js';
@@ -347,11 +348,14 @@ export function handleSendV2(
         return;
       }
 
-      // Session exists in store but no active driver — start with resume
+      // Session exists in store but no active driver — start with resume.
+      // Use a per-session clientId so multiple sessions from the same v2
+      // connection each get their own registry entry (prevents overwrites).
+      const sessionClientId = `${connectionId}:${sessionId}`;
       ctx.connRegistry.watch(connectionId, sessionId);
       ctx.connRegistry.setActive(connectionId, sessionId);
       span.setAttribute('routing.decision', 'resume');
-      startChat(transport, connectionId, prompt, {
+      startChat(transport, sessionClientId, prompt, {
         resume: sessionId,
         cwd: msg.cwd,
         model: msg.model,
@@ -361,17 +365,17 @@ export function handleSendV2(
         contextBlocks: msg.contextBlocks,
         clientMsgId: msg.clientMsgId,
       });
-      // startChat registers under connectionId — safe to apply now
-      applySkillPolicy(connectionId);
+      applySkillPolicy(sessionClientId);
     } else {
-      // null sessionId — new session. Supply onSessionResolved so the
-      // connection auto-watches once the SDK resolves the session ID.
+      // null sessionId — new session. Use a unique clientId so concurrent
+      // new-session starts don't collide in the registry.
+      const sessionClientId = `${connectionId}:new-${randomUUID().slice(0, 8)}`;
       span.setAttribute('routing.decision', 'create');
       const onSessionResolved = (resolvedId: string) => {
         ctx.connRegistry.watch(connectionId, resolvedId);
         ctx.connRegistry.setActive(connectionId, resolvedId);
       };
-      startChat(transport, connectionId, prompt, {
+      startChat(transport, sessionClientId, prompt, {
         cwd: msg.cwd,
         model: msg.model,
         extraTools: msg.extraTools,
@@ -381,8 +385,7 @@ export function handleSendV2(
         clientMsgId: msg.clientMsgId,
         onSessionResolved,
       });
-      // startChat registers under connectionId — safe to apply now
-      applySkillPolicy(connectionId);
+      applySkillPolicy(sessionClientId);
     }
 
     span.setStatus({ code: SpanStatusCode.OK });
