@@ -357,7 +357,7 @@ textarea:focus {
   padding-bottom: 72px;
 }
 
-/* Pages without sticky headers need top padding for the notch */
+/* Pages without sticky headers need top padding for the notch / Dynamic Island */
 .todo-page,
 .todo-detail-page,
 .task-board-page,
