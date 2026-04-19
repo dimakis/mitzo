@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { UserBubble, TextBubble } from './MessageBubble';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolPill } from './ToolPill';
@@ -70,12 +70,32 @@ export function ChatArea({
     [messages],
   );
 
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  }, []);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (!touchStart.current) return;
+    const dx = e.changedTouches[0].clientX - touchStart.current.x;
+    const dy = e.changedTouches[0].clientY - touchStart.current.y;
+    touchStart.current = null;
+    if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+      const target = e.target as HTMLElement;
+      if (!target.closest('button, a, select, input, textarea, [role="button"]')) {
+        (document.activeElement as HTMLElement)?.blur?.();
+      }
+    }
+  }, []);
+
   return (
     <>
       <div
         className="chat-messages"
         ref={scrollRef}
-        onTouchStart={() => (document.activeElement as HTMLElement)?.blur?.()}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
       >
         {messages.length === 0 && !current && !running && (
           <p className="chat-empty">Send a message to start</p>

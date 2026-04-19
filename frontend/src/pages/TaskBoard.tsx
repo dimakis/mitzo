@@ -69,45 +69,47 @@ export function TaskBoard() {
         </button>
       </header>
 
-      <LoopControls
-        loopStatus={loopStatus}
-        goals={goals}
-        onStart={startLoop}
-        onPause={pauseLoop}
-        onResume={resumeLoop}
-        onStop={stopLoop}
-        onApproveSpec={approveSpec}
-        onRejectSpec={rejectSpec}
-      />
-
-      {creating && (
-        <TaskCreateForm
-          parentId={creating.parentId}
-          onCreate={handleCreate}
-          onCancel={() => setCreating(null)}
+      <div className="task-board-scroll">
+        <LoopControls
+          loopStatus={loopStatus}
+          goals={goals}
+          onStart={startLoop}
+          onPause={pauseLoop}
+          onResume={resumeLoop}
+          onStop={stopLoop}
+          onApproveSpec={approveSpec}
+          onRejectSpec={rejectSpec}
         />
-      )}
 
-      {loading && <p className="task-board-empty">Loading...</p>}
-
-      {!loading && tasks.length === 0 && (
-        <EmptyState icon={'\u2610'} title="No tasks yet" subtitle="Add a task to get started" />
-      )}
-
-      <div className="task-board-list">
-        {tasks.map((task) => (
-          <TaskNode
-            key={task.id}
-            task={task}
-            depth={0}
-            activeTaskId={loopStatus.activeTaskId}
-            onStatusChange={handleStatusChange}
-            onDelete={handleDelete}
-            onAddChild={handleAddChild}
-            onApprove={approveTask}
-            onReject={rejectTask}
+        {creating && (
+          <TaskCreateForm
+            parentId={creating.parentId}
+            onCreate={handleCreate}
+            onCancel={() => setCreating(null)}
           />
-        ))}
+        )}
+
+        {loading && <p className="task-board-empty">Loading...</p>}
+
+        {!loading && tasks.length === 0 && (
+          <EmptyState icon={'\u2610'} title="No tasks yet" subtitle="Add a task to get started" />
+        )}
+
+        <div className="task-board-list">
+          {tasks.map((task) => (
+            <TaskNode
+              key={task.id}
+              task={task}
+              depth={0}
+              activeTaskId={loopStatus.activeTaskId}
+              onStatusChange={handleStatusChange}
+              onDelete={handleDelete}
+              onAddChild={handleAddChild}
+              onApprove={approveTask}
+              onReject={rejectTask}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );

@@ -15,7 +15,18 @@ import type { ImageAttachment } from '../types/chat';
 export function ChatView() {
   const [keyboardOpen, setKeyboardOpen] = useState(false);
 
-  useEffect(() => onKeyboardToggle(setKeyboardOpen), []);
+  useEffect(
+    () =>
+      onKeyboardToggle((visible) => {
+        setKeyboardOpen(visible);
+        if (visible) {
+          requestAnimationFrame(() => {
+            scrollRef.current?.scrollTo({ top: scrollRef.current!.scrollHeight });
+          });
+        }
+      }),
+    [],
+  );
   const { sessionId } = useParams<{ sessionId?: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();

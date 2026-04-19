@@ -105,66 +105,68 @@ export function TodoView() {
         </button>
       </header>
 
-      {profiles.length > 1 && (
-        <div className="todo-filters">
-          <button
-            className={`todo-filter-pill${activeProfile === undefined ? ' todo-filter-pill--active' : ''}`}
-            onClick={() => setActiveProfile(undefined)}
-          >
-            All
-          </button>
-          {profiles.map((p) => (
+      <div className="todo-scroll">
+        {profiles.length > 1 && (
+          <div className="todo-filters">
             <button
-              key={p}
-              className={`todo-filter-pill${activeProfile === p ? ' todo-filter-pill--active' : ''}`}
-              onClick={() => setActiveProfile(activeProfile === p ? undefined : p)}
+              className={`todo-filter-pill${activeProfile === undefined ? ' todo-filter-pill--active' : ''}`}
+              onClick={() => setActiveProfile(undefined)}
             >
-              {p}
+              All
             </button>
+            {profiles.map((p) => (
+              <button
+                key={p}
+                className={`todo-filter-pill${activeProfile === p ? ' todo-filter-pill--active' : ''}`}
+                onClick={() => setActiveProfile(activeProfile === p ? undefined : p)}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {creating && (
+          <TodoCreateForm
+            parentId={creating.parentId}
+            profile={activeProfile}
+            profiles={profiles}
+            onCreate={create}
+            onCancel={() => setCreating(null)}
+          />
+        )}
+
+        {loading && <p className="todo-empty">Loading...</p>}
+
+        {!loading && items.length === 0 && (
+          <EmptyState
+            icon={'\u2713'}
+            title="No active items"
+            subtitle={
+              <>
+                Run <code>./mgmt todo --refresh</code> to fetch from sources
+              </>
+            }
+          />
+        )}
+
+        <div className="todo-hint">
+          {items.length > 0 && <span>Tap to start working. Swipe right = seen, left = done.</span>}
+        </div>
+
+        <div className="todo-list">
+          {items.map((item) => (
+            <TodoCard
+              key={item.id}
+              item={item}
+              onAck={ack}
+              onDone={done}
+              onStar={star}
+              onTap={handleTap}
+              onAddChild={handleAddChild}
+            />
           ))}
         </div>
-      )}
-
-      {creating && (
-        <TodoCreateForm
-          parentId={creating.parentId}
-          profile={activeProfile}
-          profiles={profiles}
-          onCreate={create}
-          onCancel={() => setCreating(null)}
-        />
-      )}
-
-      {loading && <p className="todo-empty">Loading...</p>}
-
-      {!loading && items.length === 0 && (
-        <EmptyState
-          icon={'\u2713'}
-          title="No active items"
-          subtitle={
-            <>
-              Run <code>./mgmt todo --refresh</code> to fetch from sources
-            </>
-          }
-        />
-      )}
-
-      <div className="todo-hint">
-        {items.length > 0 && <span>Tap to start working. Swipe right = seen, left = done.</span>}
-      </div>
-
-      <div className="todo-list">
-        {items.map((item) => (
-          <TodoCard
-            key={item.id}
-            item={item}
-            onAck={ack}
-            onDone={done}
-            onStar={star}
-            onTap={handleTap}
-            onAddChild={handleAddChild}
-          />
-        ))}
       </div>
     </div>
   );
