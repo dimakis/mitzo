@@ -35,6 +35,7 @@ export function UserBubble({ text, images, contextBlocks, onEdit }: UserBubblePr
         </div>
       )}
       {text && <div className="msg-bubble-content">{text}</div>}
+      {text && <CopyButton text={text} className="msg-bubble-copy" />}
     </div>
   );
 }

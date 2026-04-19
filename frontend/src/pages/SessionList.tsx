@@ -6,6 +6,7 @@ import { useLongPress } from '../hooks/useLongPress';
 import { computeSwipeState, REVEAL_WIDTH } from '../lib/swipe-reveal';
 import { selectionChanged } from '../lib/haptics';
 import { EmptyState } from '../components/EmptyState';
+import { BriefingCard } from '../components/BriefingCard';
 import { useSessionList } from '../hooks/useSessionList';
 import type { QuickAction } from '../hooks/useSessionList';
 import { formatTokens } from '../lib/formatTokens';
@@ -209,8 +210,11 @@ async function refreshUI() {
   location.reload();
 }
 
+const NAV_PATHS = new Set(['/', '/chat', '/calendar', '/files', '/tasks', '/inbox', '/todos']);
+
 export function SessionList() {
   const navigate = useNavigate();
+  const [actionsExpanded, setActionsExpanded] = useState(false);
   const {
     sessions,
     quickActions,
@@ -225,6 +229,8 @@ export function SessionList() {
     checkForUpdates,
     loadMore,
   } = useSessionList();
+
+  const filteredActions = quickActions.filter((a) => !a.path || !NAV_PATHS.has(a.path));
 
   function handleDeployAction() {
     const deploy = quickActions.find((a) => a.label === 'Deploy Mitzo');
@@ -277,20 +283,40 @@ export function SessionList() {
           New Chat
         </button>
 
-        {quickActions.length > 0 && (
-          <div className="quick-list">
-            {quickActions.map((action) => (
-              <button
-                key={action.label}
-                type="button"
-                className="quick-row"
-                onClick={() => handleQuickAction(action)}
+        <BriefingCard />
+
+        {filteredActions.length > 0 && (
+          <div className="quick-actions-section">
+            <button
+              className={`quick-actions-toggle${actionsExpanded ? ' quick-actions-toggle--open' : ''}`}
+              onClick={() => setActionsExpanded((v) => !v)}
+            >
+              <span className="quick-actions-toggle-label">
+                Quick Actions
+                <span className="quick-actions-count">{filteredActions.length}</span>
+              </span>
+              <span
+                className={`quick-actions-chevron${actionsExpanded ? ' quick-actions-chevron--open' : ''}`}
               >
-                <span className="quick-row-label">{action.label}</span>
-                <span className="quick-row-desc">{action.desc}</span>
-                <span className="quick-row-chevron">&rsaquo;</span>
-              </button>
-            ))}
+                &rsaquo;
+              </span>
+            </button>
+            {actionsExpanded && (
+              <div className="quick-list">
+                {filteredActions.map((action) => (
+                  <button
+                    key={action.label}
+                    type="button"
+                    className="quick-row"
+                    onClick={() => handleQuickAction(action)}
+                  >
+                    <span className="quick-row-label">{action.label}</span>
+                    <span className="quick-row-desc">{action.desc}</span>
+                    <span className="quick-row-chevron">&rsaquo;</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

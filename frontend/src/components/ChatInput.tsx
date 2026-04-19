@@ -261,7 +261,14 @@ export function ChatInput({
       {voice?.recording && voice.partialTranscript && (
         <div className="voice-partial">{voice.partialTranscript}</div>
       )}
-      <div className="chat-input-command-strip">
+      <div
+        className="chat-input-command-strip"
+        onPointerDown={(e) => {
+          if ((e.target as HTMLElement).closest('button, a, select')) {
+            e.preventDefault();
+          }
+        }}
+      >
         <button
           className="chat-input-btn chat-input-btn--skills"
           onClick={() => {
