@@ -990,6 +990,8 @@ export function getSessionsCached(offset = 0, limit = SESSION_PAGE_SIZE) {
     // Hide sessions that were never used through Mitzo (e.g. automated
     // code review sessions discovered from filesystem).  Active sessions
     // always show regardless of turn count.
+    // Note: new sessions are created with is_active=1 by default (see EventStore
+    // schema), so a brand-new session will never be filtered out here.
     if (m.numTurns === 0 && m.promptCount === 0 && !m.isActive) return false;
     return true;
   });
@@ -1031,7 +1033,7 @@ export function reconcileSessionsBackground(): void {
  * Full timestamp sync: scan filesystem and update EventStore timestamps
  * for all sessions to match their actual lastModified time.
  */
-async function syncSessionTimestamps(): Promise<void> {
+export async function syncSessionTimestamps(): Promise<void> {
   const seen = new Map<
     string,
     { lastModified: number; summary: string; branch?: string; cwd?: string }

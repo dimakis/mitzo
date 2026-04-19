@@ -14,10 +14,7 @@ function draftKey(sessionId: string | undefined): string {
   return `${KEY_PREFIX}${sessionId ?? 'new'}`;
 }
 
-/**
- * Persists draft prompt text to localStorage per session.
- * Returns [text, setText, clearDraft].
- */
+/** Persists draft prompt text to localStorage per session. */
 export function useDraft(
   sessionId: string | undefined,
   initialText?: string,
@@ -33,6 +30,7 @@ export function useDraft(
 
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const sessionRef = useRef(sessionId);
+  const mountedRef = useRef(false);
 
   // When sessionId changes (e.g. new session gets assigned an ID),
   // migrate draft from old key and load any existing draft for new key.
@@ -63,8 +61,12 @@ export function useDraft(
     }
   }, [sessionId]);
 
-  // Debounced save to localStorage on text change
+  // Debounced save to localStorage on text change (skip initial render)
   useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      return;
+    }
     clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       try {
