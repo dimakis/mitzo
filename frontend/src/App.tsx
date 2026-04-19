@@ -41,96 +41,111 @@ function ChatRoute() {
   return isDesktop ? <DesktopChatView /> : <ChatView />;
 }
 
+function dismissKeyboard(e: React.MouseEvent | React.TouchEvent) {
+  const target = e.target as HTMLElement;
+  const tag = target.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return;
+  if (
+    target.closest(
+      'button, a, select, [role="button"], .chat-input, .slash-picker, .context-picker',
+    )
+  )
+    return;
+  (document.activeElement as HTMLElement)?.blur?.();
+}
+
 export function App() {
   return (
     <ErrorBoundary>
-      <BrowserRouter>
-        <MobileShell>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute>
-                  <ErrorBoundary>
-                    <HomeRoute />
-                  </ErrorBoundary>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/chat"
-              element={
-                <ProtectedRoute>
-                  <ErrorBoundary>
-                    <ChatRoute />
-                  </ErrorBoundary>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/chat/:sessionId"
-              element={
-                <ProtectedRoute>
-                  <ErrorBoundary>
-                    <ChatRoute />
-                  </ErrorBoundary>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/inbox"
-              element={
-                <ProtectedRoute>
-                  <InboxView />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/calendar"
-              element={
-                <ProtectedRoute>
-                  <CalendarView />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/todos"
-              element={
-                <ProtectedRoute>
-                  <TodoView />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/todos/:id"
-              element={
-                <ProtectedRoute>
-                  <TodoDetailView />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/tasks"
-              element={
-                <ProtectedRoute>
-                  <TaskBoard />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/files"
-              element={
-                <ProtectedRoute>
-                  <ErrorBoundary>
-                    <FileViewer />
-                  </ErrorBoundary>
-                </ProtectedRoute>
-              }
-            />
-          </Routes>
-        </MobileShell>
-      </BrowserRouter>
+      <div onClick={dismissKeyboard}>
+        <BrowserRouter>
+          <MobileShell>
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route
+                path="/"
+                element={
+                  <ProtectedRoute>
+                    <ErrorBoundary>
+                      <HomeRoute />
+                    </ErrorBoundary>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/chat"
+                element={
+                  <ProtectedRoute>
+                    <ErrorBoundary>
+                      <ChatRoute />
+                    </ErrorBoundary>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/chat/:sessionId"
+                element={
+                  <ProtectedRoute>
+                    <ErrorBoundary>
+                      <ChatRoute />
+                    </ErrorBoundary>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/inbox"
+                element={
+                  <ProtectedRoute>
+                    <InboxView />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/calendar"
+                element={
+                  <ProtectedRoute>
+                    <CalendarView />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/todos"
+                element={
+                  <ProtectedRoute>
+                    <TodoView />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/todos/:id"
+                element={
+                  <ProtectedRoute>
+                    <TodoDetailView />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/tasks"
+                element={
+                  <ProtectedRoute>
+                    <TaskBoard />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/files"
+                element={
+                  <ProtectedRoute>
+                    <ErrorBoundary>
+                      <FileViewer />
+                    </ErrorBoundary>
+                  </ProtectedRoute>
+                }
+              />
+            </Routes>
+          </MobileShell>
+        </BrowserRouter>
+      </div>
     </ErrorBoundary>
   );
 }

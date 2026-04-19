@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { ChatArea } from '../components/ChatArea';
 import { ChatInput } from '../components/ChatInput';
-import { ScrollFab } from '../components/ScrollFab';
 import { VoiceSettings } from '../components/VoiceSettings';
 import { MitzoLogo } from '../components/MitzoLogo';
 import { useMessages, useConnection, useTokens, useMitzoStore } from '@mitzo/client/hooks';
@@ -10,9 +9,13 @@ import { LAST_SESSION_KEY } from '../lib/constants';
 import { getPreferredModel, setPreferredModel } from '../lib/model-preference';
 import { useVoice } from '../hooks/useVoice';
 import { useAutoSpeak } from '../hooks/useAutoSpeak';
+import { onKeyboardToggle } from '../lib/keyboard';
 import type { ImageAttachment } from '../types/chat';
 
 export function ChatView() {
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+
+  useEffect(() => onKeyboardToggle(setKeyboardOpen), []);
   const { sessionId } = useParams<{ sessionId?: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -160,7 +163,7 @@ export function ChatView() {
   const initialPrompt = searchParams.get('prompt') || undefined;
 
   return (
-    <div className="chat-page">
+    <div className={`chat-page${keyboardOpen ? ' keyboard-open' : ''}`}>
       <header className="chat-header">
         <MitzoLogo />
         {!connected && (
@@ -183,26 +186,30 @@ export function ChatView() {
           <option value="claude-sonnet-4-6">Sonnet 4.6</option>
           <option value="claude-haiku-4-5">Haiku 4.5</option>
         </select>
-        <div className="mode-pills">
-          {(['ask', 'agent', 'auto'] as const).map((m) => (
-            <button
-              key={m}
-              className={`mode-pill${mode === m ? ' mode-pill--active' : ''}`}
-              onClick={() => handleModeChange(m)}
-            >
-              {m.charAt(0).toUpperCase() + m.slice(1)}
-            </button>
-          ))}
-        </div>
-        <VoiceSettings
-          ttsAvailable={voice.ttsAvailable}
-          ttsEnabled={voice.ttsEnabled}
-          speaking={voice.speaking}
-          voices={voice.voices}
-          selectedVoice={voice.selectedVoice}
-          onToggle={() => voice.setTtsEnabled(!voice.ttsEnabled)}
-          onVoiceChange={voice.setVoice}
-        />
+        {!keyboardOpen && (
+          <>
+            <div className="mode-pills">
+              {(['ask', 'agent', 'auto'] as const).map((m) => (
+                <button
+                  key={m}
+                  className={`mode-pill${mode === m ? ' mode-pill--active' : ''}`}
+                  onClick={() => handleModeChange(m)}
+                >
+                  {m.charAt(0).toUpperCase() + m.slice(1)}
+                </button>
+              ))}
+            </div>
+            <VoiceSettings
+              ttsAvailable={voice.ttsAvailable}
+              ttsEnabled={voice.ttsEnabled}
+              speaking={voice.speaking}
+              voices={voice.voices}
+              selectedVoice={voice.selectedVoice}
+              onToggle={() => voice.setTtsEnabled(!voice.ttsEnabled)}
+              onVoiceChange={voice.setVoice}
+            />
+          </>
+        )}
       </header>
 
       <ChatArea
@@ -213,7 +220,6 @@ export function ChatView() {
         onPermissionRespond={handlePermission}
         scrollRef={scrollRef}
       />
-      <ScrollFab scrollRef={scrollRef} />
 
       <ChatInput
         onSend={handleSend}

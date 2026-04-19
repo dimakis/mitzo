@@ -1,18 +1,29 @@
+import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { FinishedMessage } from '../types/chat';
 import { linkifyFilePaths, FILE_SCHEME } from '../lib/file-paths';
+import { CopyButton } from './CopyButton';
+import { extractText } from '../lib/extractText';
+
+const COLLAPSE_HEIGHT = 300;
 
 interface UserBubbleProps {
   text?: string;
   images?: string[];
   contextBlocks?: string[];
+  onEdit?: (text: string) => void;
 }
 
-export function UserBubble({ text, images, contextBlocks }: UserBubbleProps) {
+export function UserBubble({ text, images, contextBlocks, onEdit }: UserBubbleProps) {
   return (
-    <div className="msg-bubble msg-bubble--user">
+    <div
+      className={`msg-bubble msg-bubble--user${onEdit ? ' msg-bubble--editable' : ''}`}
+      onClick={() => text && onEdit?.(text)}
+      role={onEdit ? 'button' : undefined}
+      tabIndex={onEdit ? 0 : undefined}
+    >
       {contextBlocks && contextBlocks.length > 0 && (
         <div className="msg-bubble-context">@ {contextBlocks.join(', ')}</div>
       )}
@@ -38,10 +49,23 @@ export function TextBubble({ content, streaming = false }: TextBubbleProps) {
   const location = useLocation();
   const processed = streaming ? content : linkifyFilePaths(content);
   const currentPath = location.pathname + location.search;
+  const [collapsed, setCollapsed] = useState(true);
+  const [isLong, setIsLong] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (contentRef.current && !streaming) {
+      setIsLong(contentRef.current.scrollHeight > COLLAPSE_HEIGHT);
+    }
+  }, [content, streaming]);
+
+  const showCollapsed = isLong && collapsed && !streaming;
 
   return (
-    <div className={`msg-bubble msg-bubble--assistant${streaming ? ' msg-bubble--streaming' : ''}`}>
-      <div className="msg-bubble-markdown">
+    <div
+      className={`msg-bubble msg-bubble--assistant${streaming ? ' msg-bubble--streaming' : ''}${showCollapsed ? ' msg-bubble--collapsed' : ''}`}
+    >
+      <div className="msg-bubble-markdown" ref={contentRef}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
@@ -50,6 +74,15 @@ export function TextBubble({ content, streaming = false }: TextBubbleProps) {
                 <table {...props}>{children}</table>
               </div>
             ),
+            pre: ({ children, ...props }) => {
+              const text = extractText(children);
+              return (
+                <div className="code-block-wrapper">
+                  <pre {...props}>{children}</pre>
+                  <CopyButton text={text} className="code-block-copy" label="Copy code" />
+                </div>
+              );
+            },
             a: ({ href, children }) => {
               if (href?.startsWith(FILE_SCHEME)) {
                 const filePath = decodeURIComponent(href.slice(FILE_SCHEME.length));
@@ -79,6 +112,12 @@ export function TextBubble({ content, streaming = false }: TextBubbleProps) {
           {processed}
         </ReactMarkdown>
       </div>
+      {isLong && !streaming && (
+        <button className="msg-bubble-collapse-toggle" onClick={() => setCollapsed((v) => !v)}>
+          {collapsed ? 'Show more' : 'Show less'}
+        </button>
+      )}
+      {!streaming && <CopyButton text={content} className="msg-bubble-copy" />}
     </div>
   );
 }

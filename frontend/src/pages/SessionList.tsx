@@ -23,8 +23,10 @@ function SwipeableSession({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const startX = useRef(0);
+  const startY = useRef(0);
   const currentX = useRef(0);
   const swiping = useRef(false);
+  const directionLocked = useRef<'horizontal' | 'vertical' | null>(null);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
   const [revealed, setRevealed] = useState(false);
@@ -86,8 +88,10 @@ function SwipeableSession({
 
   function handleTouchStart(e: React.TouchEvent) {
     startX.current = e.touches[0].clientX;
+    startY.current = e.touches[0].clientY;
     currentX.current = startX.current;
     swiping.current = true;
+    directionLocked.current = null;
     if (!editing) longPress.start();
   }
 
@@ -95,15 +99,19 @@ function SwipeableSession({
     if (!swiping.current || !ref.current) return;
     currentX.current = e.touches[0].clientX;
     const dx = currentX.current - startX.current;
-    // Cancel long-press on horizontal movement
-    if (Math.abs(dx) > 10) longPress.cancel();
+    const dy = e.touches[0].clientY - startY.current;
+
+    if (!directionLocked.current && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
+      directionLocked.current = Math.abs(dy) > Math.abs(dx) ? 'vertical' : 'horizontal';
+      longPress.cancel();
+    }
+
+    if (directionLocked.current === 'vertical') return;
 
     if (revealed) {
-      // When revealed, allow swiping back to close
       const offset = Math.min(0, -REVEAL_WIDTH + dx);
       ref.current.style.transform = `translateX(${offset}px)`;
     } else if (dx < 0) {
-      // Clamp drag to reveal width
       const clamped = Math.max(dx, -REVEAL_WIDTH);
       ref.current.style.transform = `translateX(${clamped}px)`;
     }
@@ -250,72 +258,74 @@ export function SessionList() {
         </div>
       </header>
 
-      {updateAvailable && (
-        <button className="update-banner" onClick={handleDeployAction}>
-          Update available — Deploy Mitzo
+      <div className="session-list-scroll">
+        {updateAvailable && (
+          <button className="update-banner" onClick={handleDeployAction}>
+            Update available — Deploy Mitzo
+          </button>
+        )}
+
+        <button
+          className="hero-chat-btn"
+          onClick={() => {
+            selectionChanged();
+            navigate('/chat');
+          }}
+        >
+          New Chat
         </button>
-      )}
 
-      <button
-        className="hero-chat-btn"
-        onClick={() => {
-          selectionChanged();
-          navigate('/chat');
-        }}
-      >
-        New Chat
-      </button>
-
-      {quickActions.length > 0 && (
-        <div className="quick-list">
-          {quickActions.map((action) => (
-            <button
-              key={action.label}
-              type="button"
-              className="quick-row"
-              onClick={() => handleQuickAction(action)}
-            >
-              <span className="quick-row-label">{action.label}</span>
-              <span className="quick-row-desc">{action.desc}</span>
-              <span className="quick-row-chevron">&rsaquo;</span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {loading && <p className="session-list-empty">Loading...</p>}
-
-      {!loading && sessions.length === 0 && (
-        <EmptyState icon={'\uD83D\uDCAC'} title="No past sessions" />
-      )}
-
-      {!loading && sessions.length > 0 && (
-        <div className="session-list">
-          <div className="session-list-section-header">
-            <span className="session-list-section-title">Recent</span>
-            <button className="session-list-clear" onClick={clearAll}>
-              Clear
-            </button>
+        {quickActions.length > 0 && (
+          <div className="quick-list">
+            {quickActions.map((action) => (
+              <button
+                key={action.label}
+                type="button"
+                className="quick-row"
+                onClick={() => handleQuickAction(action)}
+              >
+                <span className="quick-row-label">{action.label}</span>
+                <span className="quick-row-desc">{action.desc}</span>
+                <span className="quick-row-chevron">&rsaquo;</span>
+              </button>
+            ))}
           </div>
-          {sessions.map((s) => (
-            <SwipeableSession
-              key={s.id}
-              session={s}
-              onDismiss={dismissSession}
-              onClick={(id) => {
-                selectionChanged();
-                navigate(`/chat/${id}`);
-              }}
-              onRename={handleRename}
-            />
-          ))}
-          {hasMore && (
-            <button className="session-load-more" onClick={loadMore} disabled={loadingMore}>
-              {loadingMore ? 'Loading...' : 'Load More'}
-            </button>
-          )}
-        </div>
-      )}
+        )}
+
+        {loading && <p className="session-list-empty">Loading...</p>}
+
+        {!loading && sessions.length === 0 && (
+          <EmptyState icon={'\uD83D\uDCAC'} title="No past sessions" />
+        )}
+
+        {!loading && sessions.length > 0 && (
+          <div className="session-list">
+            <div className="session-list-section-header">
+              <span className="session-list-section-title">Recent</span>
+              <button className="session-list-clear" onClick={clearAll}>
+                Clear
+              </button>
+            </div>
+            {sessions.map((s) => (
+              <SwipeableSession
+                key={s.id}
+                session={s}
+                onDismiss={dismissSession}
+                onClick={(id) => {
+                  selectionChanged();
+                  navigate(`/chat/${id}`);
+                }}
+                onRename={handleRename}
+              />
+            ))}
+            {hasMore && (
+              <button className="session-load-more" onClick={loadMore} disabled={loadingMore}>
+                {loadingMore ? 'Loading...' : 'Load More'}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
