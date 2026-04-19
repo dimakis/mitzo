@@ -48,14 +48,14 @@ describe('TaskNode', () => {
   });
 
   it.each([
-    ['pending', '\u25CB'],
-    ['active', '\u25C9'],
-    ['done', '\u2713'],
-    ['pending_review', '\u25D4'],
-    ['blocked', '\u2298'],
-    ['skipped', '\u2014'],
-    ['failed', '\u2717'],
-  ] as const)('renders correct icon for status %s', (status, expectedIcon) => {
+    ['pending', 'Pending'],
+    ['active', 'Active'],
+    ['done', 'Done'],
+    ['pending_review', 'Review'],
+    ['blocked', 'Blocked'],
+    ['skipped', 'Skipped'],
+    ['failed', 'Failed'],
+  ] as const)('renders correct label for status %s', (status, expectedLabel) => {
     const { container } = render(
       <TaskNode
         task={makeTask({ status })}
@@ -65,8 +65,8 @@ describe('TaskNode', () => {
         onAddChild={vi.fn()}
       />,
     );
-    const statusBtn = container.querySelector('.task-node-status');
-    expect(statusBtn?.textContent).toBe(expectedIcon);
+    const statusBtn = container.querySelector('.task-card-chip');
+    expect(statusBtn?.textContent).toBe(expectedLabel);
   });
 
   it('toggles expand/collapse for tasks with children', () => {
@@ -87,7 +87,7 @@ describe('TaskNode', () => {
     expect(screen.getByText('Child task')).toBeTruthy();
 
     // Click collapse
-    const chevron = screen.getByText('\u25BC');
+    const chevron = screen.getByText('\u25BE');
     fireEvent.click(chevron);
 
     // Children should be hidden
@@ -150,7 +150,7 @@ describe('TaskNode', () => {
       />,
     );
 
-    const statusBtn = container.querySelector('.task-node-status')!;
+    const statusBtn = container.querySelector('.task-card-chip')!;
     fireEvent.click(statusBtn);
     expect(onStatusChange).toHaveBeenCalledWith('sc-1', expect.any(String));
   });
@@ -167,7 +167,7 @@ describe('TaskNode', () => {
       />,
     );
 
-    const deleteBtn = container.querySelector('.task-node-action--danger')!;
+    const deleteBtn = container.querySelector('.task-card-action--reject')!;
     fireEvent.click(deleteBtn);
     expect(onDelete).toHaveBeenCalledWith('del-1');
   });

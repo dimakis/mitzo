@@ -9,3 +9,5 @@ frontend/dist/
 mcp-server/build/
 certs/
 logs/
+.claude/worktrees/
+.cursor/worktrees/

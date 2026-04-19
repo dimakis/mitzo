@@ -16,7 +16,7 @@ export function TabBar() {
   const navigate = useNavigate();
   const { inboxCount, todoCount } = useTabBadges();
   const isDesktop = useIsDesktop();
-  const { resolved, setTheme } = useTheme();
+  const { preference, setTheme } = useTheme();
   const [moreOpen, setMoreOpen] = useState(false);
 
   if (isDesktop) return null;
@@ -65,9 +65,17 @@ export function TabBar() {
             <div className="tab-bar-more-divider" />
             <button
               className="tab-bar-more-item"
-              onClick={() => setTheme(resolved === 'dark' ? 'light' : 'dark')}
+              onClick={() => {
+                const next =
+                  preference === 'dark' ? 'light' : preference === 'light' ? 'system' : 'dark';
+                setTheme(next);
+              }}
             >
-              {resolved === 'dark' ? 'Light Mode' : 'Dark Mode'}
+              {preference === 'dark'
+                ? 'Light Mode'
+                : preference === 'light'
+                  ? 'System Mode'
+                  : 'Dark Mode'}
             </button>
           </div>
         </div>
