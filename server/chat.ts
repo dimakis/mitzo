@@ -1018,7 +1018,9 @@ export function reconcileSessionsBackground(): void {
   _reconciling = true;
   syncSessionTimestamps()
     .catch(() => {})
-    .finally(() => { _reconciling = false; });
+    .finally(() => {
+      _reconciling = false;
+    });
 }
 
 /**
@@ -1026,7 +1028,10 @@ export function reconcileSessionsBackground(): void {
  * for all sessions to match their actual lastModified time.
  */
 async function syncSessionTimestamps(): Promise<void> {
-  const seen = new Map<string, { lastModified: number; summary: string; branch?: string; cwd?: string }>();
+  const seen = new Map<
+    string,
+    { lastModified: number; summary: string; branch?: string; cwd?: string }
+  >();
   const fetchLimit = 250;
   for (const dir of getSessionDirs()) {
     try {
@@ -1069,7 +1074,7 @@ async function syncSessionTimestamps(): Promise<void> {
       eventStore.upsertSession({
         sessionId,
         updatedAt: entry.lastModified,
-        summary: existing.manuallyRenamed ? undefined : (entry.summary || undefined),
+        summary: existing.manuallyRenamed ? undefined : entry.summary || undefined,
         branch: entry.branch ?? undefined,
       });
       synced++;
