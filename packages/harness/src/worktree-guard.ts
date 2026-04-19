@@ -9,9 +9,19 @@ const PATH_FIELDS = ['file_path', 'path', 'target_notebook'];
  * explicit absolute paths but can't catch every indirect construction.
  */
 function extractAbsolutePaths(command: string): string[] {
-  const matches = command.match(/(?:^|\s|=|")(\/[\w/.@-]+)/g);
-  if (!matches) return [];
-  return matches.map((m) => m.trim().replace(/^["=]/, ''));
+  const results: string[] = [];
+  // Match quoted absolute paths (handles spaces)
+  const quotedRe = /["'](\/[^"']+)["']/g;
+  let m: RegExpExecArray | null;
+  while ((m = quotedRe.exec(command)) !== null) {
+    results.push(m[1]);
+  }
+  // Match unquoted absolute paths (supports tildes and broader char set)
+  const unquotedRe = /(?:^|\s|=)(\/[\w/.@~-]+)/g;
+  while ((m = unquotedRe.exec(command)) !== null) {
+    results.push(m[1]);
+  }
+  return results;
 }
 
 function findAllowedWorktree(
