@@ -33,8 +33,13 @@ export function UserBubble({ text, images, contextBlocks, timestamp }: UserBubbl
           </div>
         )}
         {text && <div className="msg-bubble-content">{text}</div>}
+        {text && (
+          <div className="msg-bubble-footer">
+            {time && <span className="msg-timestamp">{time}</span>}
+            <CopyButton text={text} className="msg-bubble-copy" />
+          </div>
+        )}
       </div>
-      {time && <span className="msg-timestamp msg-timestamp--user">{time}</span>}
     </div>
   );
 }
@@ -113,13 +118,13 @@ export function TextBubble({ content, streaming = false, timestamp }: TextBubble
           {processed}
         </ReactMarkdown>
       </div>
-      {isLong && !streaming && (
-        <button className="msg-bubble-collapse-toggle" onClick={() => setCollapsed((v) => !v)}>
-          {collapsed ? 'Show more' : 'Show less'}
-        </button>
-      )}
       {!streaming && (
         <div className="msg-bubble-footer">
+          {isLong && (
+            <button className="msg-bubble-collapse-toggle" onClick={() => setCollapsed((v) => !v)}>
+              {collapsed ? 'Show more' : 'Show less'}
+            </button>
+          )}
           {timestamp && <span className="msg-timestamp">{formatTime(timestamp)}</span>}
           <CopyButton text={content} className="msg-bubble-copy" />
         </div>

@@ -1547,19 +1547,20 @@ textarea:focus {
 .msg-bubble-footer {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--space-2);
   margin-top: var(--space-1);
   opacity: 0;
   transition: opacity 0.15s;
-  justify-content: flex-end;
 }
 
-.msg-bubble--assistant:hover .msg-bubble-footer {
+.msg-bubble--assistant:hover .msg-bubble-footer,
+.msg-bubble--user:hover .msg-bubble-footer {
   opacity: 1;
 }
 
 .msg-bubble-copy {
   flex-shrink: 0;
+  margin-left: auto;
 }
 
 .msg-bubble-group--user {
@@ -1635,8 +1636,7 @@ textarea:focus {
   cursor: pointer;
   font-size: var(--text-xs);
   padding: var(--space-1) 0;
-  text-align: center;
-  width: 100%;
+  flex-shrink: 0;
 }
 
 .msg-bubble-collapse-toggle:hover {
