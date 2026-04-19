@@ -69,7 +69,8 @@ describe('onKeyboardToggle', () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let showHandler: (...args: any[]) => void = () => {};
-    vi.mocked(Keyboard.addListener).mockImplementation((event, handler) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (vi.mocked(Keyboard.addListener) as any).mockImplementation((event: string, handler: any) => {
       if (event === 'keyboardWillShow') showHandler = handler;
       return Promise.resolve({ remove: vi.fn() });
     });
@@ -85,7 +86,8 @@ describe('onKeyboardToggle', () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let hideHandler: (...args: any[]) => void = () => {};
-    vi.mocked(Keyboard.addListener).mockImplementation((event, handler) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (vi.mocked(Keyboard.addListener) as any).mockImplementation((event: string, handler: any) => {
       if (event === 'keyboardWillHide') hideHandler = handler;
       return Promise.resolve({ remove: vi.fn() });
     });
