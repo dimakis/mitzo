@@ -29,16 +29,19 @@ Pre-commit hooks (husky + lint-staged) run lint and format on staged files. Conv
 To test frontend changes without restarting the production server:
 
 1. **Symlink `.env`** — worktrees don't have it (gitignored):
+
    ```bash
    ln -s ~/tools/mitzo/.env <worktree-path>/.env
    ```
 
 2. **Start Vite on a separate port** from the worktree:
+
    ```bash
    cd <worktree-path>/frontend && npx vite --port 3102 --host
    ```
 
 3. **HTTPS proxy** — the production server runs HTTPS. The default `vite.config.ts` proxies to `http://localhost:3100` which won't work against a TLS backend. Override locally (do not commit):
+
    ```ts
    '/api': { target: 'https://localhost:3100', secure: false },
    '/ws':  { target: 'wss://localhost:3100', ws: true, secure: false },
