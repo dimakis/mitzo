@@ -18,20 +18,14 @@ interface UserBubbleProps {
   text?: string;
   images?: string[];
   contextBlocks?: string[];
-  onEdit?: (text: string) => void;
   timestamp?: number;
 }
 
-export function UserBubble({ text, images, contextBlocks, onEdit, timestamp }: UserBubbleProps) {
+export function UserBubble({ text, images, contextBlocks, timestamp }: UserBubbleProps) {
   const time = formatTime(timestamp);
   return (
-    <>
-      <div
-        className={`msg-bubble msg-bubble--user${onEdit ? ' msg-bubble--editable' : ''}`}
-        onClick={() => text && onEdit?.(text)}
-        role={onEdit ? 'button' : undefined}
-        tabIndex={onEdit ? 0 : undefined}
-      >
+    <div className="msg-bubble-group msg-bubble-group--user">
+      <div className="msg-bubble msg-bubble--user">
         {contextBlocks && contextBlocks.length > 0 && (
           <div className="msg-bubble-context">@ {contextBlocks.join(', ')}</div>
         )}
@@ -45,7 +39,7 @@ export function UserBubble({ text, images, contextBlocks, onEdit, timestamp }: U
         {text && <div className="msg-bubble-content">{text}</div>}
       </div>
       {time && <span className="msg-timestamp msg-timestamp--user">{time}</span>}
-    </>
+    </div>
   );
 }
 
@@ -146,8 +140,10 @@ interface MessageBubbleProps {
 export function MessageBubble({ message }: MessageBubbleProps) {
   if (message.role === 'user') {
     const textBlock = message.blocks.find((b) => b.blockType === 'text');
-    return <UserBubble text={textBlock?.content} images={message.images} />;
+    return (
+      <UserBubble text={textBlock?.content} images={message.images} timestamp={message.timestamp} />
+    );
   }
   const textBlock = message.blocks.find((b) => b.blockType === 'text');
-  return <TextBubble content={textBlock?.content || ''} />;
+  return <TextBubble content={textBlock?.content || ''} timestamp={message.timestamp} />;
 }

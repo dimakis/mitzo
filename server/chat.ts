@@ -1196,7 +1196,7 @@ export function replayEventsToMessages(
     messages.push({
       messageId: p.messageId as string,
       role: 'user',
-      timestamp: (p.ts as number) ?? legacyInitialPromptEvent.createdAt,
+      timestamp: typeof p.ts === 'number' ? p.ts : legacyInitialPromptEvent.createdAt,
       blocks: [
         {
           blockId: `user-${p.messageId as string}`,

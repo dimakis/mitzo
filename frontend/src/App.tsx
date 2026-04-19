@@ -41,7 +41,7 @@ function ChatRoute() {
   return isDesktop ? <DesktopChatView /> : <ChatView />;
 }
 
-function dismissKeyboard(e: React.MouseEvent | React.TouchEvent) {
+function dismissKeyboard(e: React.MouseEvent) {
   const target = e.target as HTMLElement;
   const tag = target.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return;
