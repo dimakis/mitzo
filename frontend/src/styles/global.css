@@ -367,12 +367,6 @@ textarea:focus {
   padding-top: env(safe-area-inset-top);
 }
 
-/* Pages with sticky headers: header padding includes safe area */
-
-.inbox-header {
-  padding-top: calc(var(--space-5) + env(safe-area-inset-top));
-}
-
 .cal-header {
   display: flex;
   align-items: center;
@@ -1123,7 +1117,8 @@ textarea:focus {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: env(safe-area-inset-top) 0.75rem 0.3rem;
+  padding: 0.35rem 0.75rem;
+  padding-top: calc(0.35rem + env(safe-area-inset-top));
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -1135,7 +1130,7 @@ textarea:focus {
 }
 
 .keyboard-open .chat-header {
-  padding: 0.25rem 0.75rem;
+  padding: 0.2rem 0.75rem;
   gap: var(--space-2);
 }
 
