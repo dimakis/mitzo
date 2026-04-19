@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { type Dispatch, type SetStateAction, useState, useEffect, useRef, useCallback } from 'react';
 
 const KEY_PREFIX = 'mitzo-draft-';
 const DEBOUNCE_MS = 400;
@@ -14,7 +14,7 @@ function draftKey(sessionId: string | undefined): string {
 export function useDraft(
   sessionId: string | undefined,
   initialText?: string,
-): [string, (val: string) => void, () => void] {
+): [string, Dispatch<SetStateAction<string>>, () => void] {
   const [text, setTextRaw] = useState(() => {
     if (initialText) return initialText;
     try {
@@ -24,7 +24,7 @@ export function useDraft(
     }
   });
 
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const sessionRef = useRef(sessionId);
 
   // When sessionId changes (e.g. new session gets assigned an ID),
