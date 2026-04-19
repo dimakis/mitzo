@@ -72,7 +72,11 @@ export function ChatArea({
 
   return (
     <>
-      <div className="chat-messages" ref={scrollRef}>
+      <div
+        className="chat-messages"
+        ref={scrollRef}
+        onTouchStart={() => (document.activeElement as HTMLElement)?.blur?.()}
+      >
         {messages.length === 0 && !current && !running && (
           <p className="chat-empty">Send a message to start</p>
         )}
