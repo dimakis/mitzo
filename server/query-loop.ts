@@ -144,6 +144,7 @@ export async function runQueryLoop(
   let agentContextTokens = 0; // full context window size (input + cached) from parent message_start
   let turnIndex = 0; // increments on each parent message_start (excludes sub-agents)
   let numCompactions = 0; // counts successful compaction events from SDK
+  let liveSessionTokens = 0; // running total across all API calls in this query
   const compactionFields = () => (numCompactions > 0 ? { numCompactions } : {});
 
   // Track last-reported cumulative usage to compute deltas (SDK reports cumulative totals).
@@ -341,16 +342,16 @@ export async function runQueryLoop(
           store.recordUsage(resolvedSessionId, usageData);
         }
 
-        // SDK reports cumulative totals — assign directly (not +=) to avoid double-counting
-        const callTokens =
+        const sdkTokens =
           usageData.inputTokens +
           usageData.outputTokens +
           usageData.cacheReadTokens +
           usageData.cacheCreationTokens;
-        currentSession.cumulativeSessionTokens = callTokens;
+        // Use the higher of SDK's reported total and our live tally
+        // (SDK may undercount if sub-agent tokens aren't included in result.usage)
+        currentSession.cumulativeSessionTokens = Math.max(sdkTokens, liveSessionTokens);
         currentSession.cumulativeCostUsd = usageData.totalCostUsd;
 
-        // Emit final token_update with accumulated session totals
         emit({
           type: 'token_update',
           agentContext: agentContextTokens,
@@ -447,11 +448,15 @@ export async function runQueryLoop(
           const msgUsage = (apiMsg as Record<string, unknown> | undefined)?.usage as
             | Record<string, number>
             | undefined;
+          const msgInput = msgUsage ? (msgUsage.input_tokens ?? 0) : 0;
+          const msgCacheRead = msgUsage ? (msgUsage.cache_read_input_tokens ?? 0) : 0;
+          const msgCacheCreation = msgUsage ? (msgUsage.cache_creation_input_tokens ?? 0) : 0;
+          const msgOutput = msgUsage ? (msgUsage.output_tokens ?? 0) : 0;
+          const msgTotal = msgInput + msgCacheRead + msgCacheCreation + msgOutput;
+          if (msgTotal > 0) liveSessionTokens += msgTotal;
+
           if (isParent && msgUsage) {
-            const input = msgUsage.input_tokens ?? 0;
-            const cacheRead = msgUsage.cache_read_input_tokens ?? 0;
-            const cacheCreation = msgUsage.cache_creation_input_tokens ?? 0;
-            const totalContext = input + cacheRead + cacheCreation;
+            const totalContext = msgInput + msgCacheRead + msgCacheCreation;
             if (totalContext > 0) {
               agentContextTokens = totalContext;
               turnIndex++;
@@ -459,6 +464,7 @@ export async function runQueryLoop(
                 type: 'token_update',
                 agentContext: agentContextTokens,
                 contextCeiling: CONTEXT_CEILING_TOKENS,
+                sessionTotal: liveSessionTokens,
                 turnIndex,
                 ...compactionFields(),
               });
