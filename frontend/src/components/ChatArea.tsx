@@ -107,7 +107,11 @@ export function ChatArea({
                   return <ToolPill key={block.blockId} block={block} />;
                 }
                 return (
-                  <TextBubble key={block.blockId || `text-${i}`} content={block.content ?? ''} timestamp={msg.timestamp} />
+                  <TextBubble
+                    key={block.blockId || `text-${i}`}
+                    content={block.content ?? ''}
+                    timestamp={msg.timestamp}
+                  />
                 );
               })}
             </div>

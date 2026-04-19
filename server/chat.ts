@@ -1239,7 +1239,12 @@ export function replayEventsToMessages(
         if (currentMsg && currentMsg.blocks.length > 0) {
           messages.push(currentMsg);
         }
-        currentMsg = { messageId: p.messageId as string, role: 'assistant', timestamp: (p.ts as number) ?? evt.createdAt, blocks: [] };
+        currentMsg = {
+          messageId: p.messageId as string,
+          role: 'assistant',
+          timestamp: (p.ts as number) ?? evt.createdAt,
+          blocks: [],
+        };
         break;
 
       case 'block_start':
