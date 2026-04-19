@@ -1,6 +1,6 @@
-import { useState, useEffect, type FormEvent } from 'react';
+import { useState, useEffect, useRef, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiFetch } from '../lib/api-fetch';
+import { apiFetch, getApiBaseUrl } from '../lib/api-fetch';
 import { isBiometricAvailable, biometricLogin, saveCredentials } from '../lib/biometric';
 import { notifySuccess } from '../lib/haptics';
 
@@ -8,13 +8,15 @@ export function Login() {
   const [passphrase, setPassphrase] = useState('');
   const [error, setError] = useState('');
   const [biometricReady, setBiometricReady] = useState(false);
+  const biometricAttempted = useRef(false);
   const navigate = useNavigate();
 
   useEffect(() => {
     isBiometricAvailable().then((available) => {
       setBiometricReady(available);
-      if (available) {
-        biometricLogin().then((token) => {
+      if (available && !biometricAttempted.current) {
+        biometricAttempted.current = true;
+        biometricLogin(getApiBaseUrl()).then((token) => {
           if (token) {
             notifySuccess();
             navigate('/');
@@ -25,12 +27,12 @@ export function Login() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleBiometric() {
-    const token = await biometricLogin();
+    const token = await biometricLogin(getApiBaseUrl());
     if (token) {
       notifySuccess();
       navigate('/');
     } else {
-      setError('Biometric authentication failed');
+      setError('Biometric authentication failed — try passphrase');
     }
   }
 
