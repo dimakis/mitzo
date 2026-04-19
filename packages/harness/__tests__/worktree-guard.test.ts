@@ -115,6 +115,46 @@ describe('checkWorktreePolicy', () => {
       });
       expect(result).toBeNull();
     });
+
+    it('catches single-quoted paths', () => {
+      const result = checkWorktreePolicy(session, 'Bash', {
+        command: "cat '/Users/me/redhat/mgmt/secret.env'",
+      });
+      expect(result).not.toBeNull();
+      expect(result).toContain('outside session worktrees');
+    });
+
+    it('catches redirect operators', () => {
+      const result = checkWorktreePolicy(session, 'Bash', {
+        command: 'echo secret >/Users/me/redhat/mgmt/file.txt',
+      });
+      expect(result).not.toBeNull();
+      expect(result).toContain('outside session worktrees');
+    });
+
+    it('catches append redirect operators', () => {
+      const result = checkWorktreePolicy(session, 'Bash', {
+        command: 'echo data >>/Users/me/tools/mitzo/log.txt',
+      });
+      expect(result).not.toBeNull();
+      expect(result).toContain('outside session worktrees');
+    });
+
+    it('denies paths outside all known repos', () => {
+      const result = checkWorktreePolicy(session, 'Bash', {
+        command: 'echo secret > /tmp/exfil.txt',
+      });
+      expect(result).not.toBeNull();
+      expect(result).toContain('outside session worktrees');
+    });
+
+    it('handles paths with + and ~ characters', () => {
+      const result = checkWorktreePolicy(session, 'Bash', {
+        command: 'ls /Users/me/redhat/mgmt/dir+name/file~backup.ts',
+      });
+      expect(result).not.toBeNull();
+      expect(result).toContain('outside session worktrees');
+    });
   });
 
   describe('EditNotebook tool', () => {

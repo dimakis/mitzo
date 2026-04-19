@@ -7,11 +7,12 @@ const PATH_FIELDS = ['file_path', 'path', 'target_notebook'];
 /**
  * Extract absolute paths from a shell command string. Heuristic — catches
  * explicit absolute paths but can't catch every indirect construction.
+ * Handles double/single-quoted paths and redirect operators (>, >>).
  */
 function extractAbsolutePaths(command: string): string[] {
-  const matches = command.match(/(?:^|\s|=|")(\/[\w/.@-]+)/g);
+  const matches = command.match(/(?:^|\s|=|"|'|>{1,2})(\/[\w/.@+~-]+)/g);
   if (!matches) return [];
-  return matches.map((m) => m.trim().replace(/^["=]/, ''));
+  return matches.map((m) => m.trim().replace(/^["'=>{]+/, ''));
 }
 
 function findAllowedWorktree(
@@ -91,6 +92,8 @@ export function checkWorktreePolicy(
           `Use ${suggestion} instead.`
         );
       }
+      // Path is outside all known repos — deny (matches Write tool behavior)
+      return `Shell command references ${p} which is outside session worktrees. Check $MITZO_REPO_* env vars for correct paths.`;
     }
   }
 

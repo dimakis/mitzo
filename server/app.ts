@@ -366,9 +366,10 @@ app.post('/api/sessions', (req, res) => {
     return;
   }
 
+  const VALID_SOURCES = new Set(['cursor', 'claude', 'mitzo']);
   const { source } = req.body || {};
-  if (!source || typeof source !== 'string') {
-    res.status(400).json({ error: 'source is required (cursor | claude | mitzo)' });
+  if (!source || typeof source !== 'string' || !VALID_SOURCES.has(source)) {
+    res.status(400).json({ error: `source must be one of: ${[...VALID_SOURCES].join(', ')}` });
     return;
   }
 
