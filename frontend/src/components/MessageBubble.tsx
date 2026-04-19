@@ -35,7 +35,11 @@ export function UserBubble({ text, images, contextBlocks, onEdit }: UserBubblePr
         </div>
       )}
       {text && <div className="msg-bubble-content">{text}</div>}
-      {text && <CopyButton text={text} className="msg-bubble-copy" />}
+      {text && (
+        <div className="msg-bubble-footer">
+          <CopyButton text={text} className="msg-bubble-copy" />
+        </div>
+      )}
     </div>
   );
 }
@@ -113,12 +117,16 @@ export function TextBubble({ content, streaming = false }: TextBubbleProps) {
           {processed}
         </ReactMarkdown>
       </div>
-      {isLong && !streaming && (
-        <button className="msg-bubble-collapse-toggle" onClick={() => setCollapsed((v) => !v)}>
-          {collapsed ? 'Show more' : 'Show less'}
-        </button>
+      {!streaming && (
+        <div className="msg-bubble-footer">
+          {isLong && (
+            <button className="msg-bubble-collapse-toggle" onClick={() => setCollapsed((v) => !v)}>
+              {collapsed ? 'Show more' : 'Show less'}
+            </button>
+          )}
+          <CopyButton text={content} className="msg-bubble-copy" />
+        </div>
       )}
-      {!streaming && <CopyButton text={content} className="msg-bubble-copy" />}
     </div>
   );
 }
