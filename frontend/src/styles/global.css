@@ -1124,7 +1124,7 @@ textarea:focus {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: calc(0.35rem + env(safe-area-inset-top)) 0.75rem 0.35rem;
+  padding: env(safe-area-inset-top) 0.75rem 0.3rem;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
