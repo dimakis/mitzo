@@ -18,6 +18,11 @@ vi.mock('../chat.js', () => {
       sessions: [{ id: 's1', summary: 'Test', lastModified: 1 }],
       hasMore: false,
     }),
+    getSessionsCached: vi.fn().mockReturnValue({
+      sessions: [{ id: 's1', summary: 'Test', lastModified: 1 }],
+      hasMore: false,
+    }),
+    reconcileSessionsBackground: vi.fn(),
     getMessages: vi.fn().mockResolvedValue([{ messageId: 'm1', role: 'assistant', blocks: [] }]),
     renameSessionById: vi.fn().mockResolvedValue(undefined),
     hideSession: vi.fn(),
@@ -344,21 +349,27 @@ describe('session routes', () => {
     expect(typeof res.body.hasMore).toBe('boolean');
   });
 
-  it('GET /api/sessions — passes offset and limit query params', async () => {
-    const { getSessions } = await import('../chat.js');
+  it('GET /api/sessions — uses cached path by default', async () => {
+    const { getSessionsCached } = await import('../chat.js');
     await request(app).get('/api/sessions?offset=5&limit=10').set('Cookie', authCookie);
-    expect(getSessions).toHaveBeenCalledWith(5, 10);
+    expect(getSessionsCached).toHaveBeenCalledWith(5, 10);
   });
 
   it('GET /api/sessions — clamps invalid offset and limit', async () => {
-    const { getSessions } = await import('../chat.js');
+    const { getSessionsCached } = await import('../chat.js');
     await request(app).get('/api/sessions?offset=-1&limit=999').set('Cookie', authCookie);
-    expect(getSessions).toHaveBeenCalledWith(0, 100);
+    expect(getSessionsCached).toHaveBeenCalledWith(0, 100);
   });
 
   it('GET /api/sessions — uses defaults when no params', async () => {
-    const { getSessions } = await import('../chat.js');
+    const { getSessionsCached } = await import('../chat.js');
     await request(app).get('/api/sessions').set('Cookie', authCookie);
+    expect(getSessionsCached).toHaveBeenCalledWith(0, 20);
+  });
+
+  it('GET /api/sessions?full=1 — uses filesystem scan', async () => {
+    const { getSessions } = await import('../chat.js');
+    await request(app).get('/api/sessions?full=1').set('Cookie', authCookie);
     expect(getSessions).toHaveBeenCalledWith(0, 20);
   });
 
