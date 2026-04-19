@@ -17,6 +17,7 @@ import { impactMedium } from '../lib/haptics';
 import { TokenBar } from './TokenBar';
 import type { UseVoiceReturn } from '../hooks/useVoice';
 import type { TokensState as TokenState } from '@mitzo/client';
+import { useDraft } from '../hooks/useDraft';
 
 interface Props {
   onSend: (text: string, images?: ImageAttachment[], contextBlocks?: string[]) => boolean;
@@ -50,7 +51,7 @@ export function ChatInput({
   externalContextBlocks,
   tokenState,
 }: Props) {
-  const [text, setText] = useState(initialText || '');
+  const [text, setText, clearDraft] = useDraft(sessionId, initialText);
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [showSlashPicker, setShowSlashPicker] = useState(false);
   const [showContextPicker, setShowContextPicker] = useState(false);
@@ -75,7 +76,6 @@ export function ChatInput({
   useEffect(() => {
     if (initialText && !initialApplied.current) {
       initialApplied.current = true;
-      setText(initialText);
       requestAnimationFrame(() => {
         autoResize();
         textareaRef.current?.focus();
@@ -114,7 +114,7 @@ export function ChatInput({
     );
     if (sent) {
       impactMedium();
-      setText('');
+      clearDraft();
       setImages([]);
       if (!useExternal) setContextBlocks([]);
       requestAnimationFrame(() => {
@@ -201,7 +201,7 @@ export function ChatInput({
       images.length > 0 ? images : undefined,
       activeContextBlocks.length > 0 ? activeContextBlocks : undefined,
     );
-    setText('');
+    clearDraft();
     setImages([]);
     if (!useExternal) setContextBlocks([]);
     requestAnimationFrame(() => {
