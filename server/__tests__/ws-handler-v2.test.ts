@@ -32,11 +32,12 @@ import {
   startChat,
   interruptChat,
   sendToChat,
+  stopChat,
   isActive,
   reattachChat,
   discoverSession,
 } from '../chat.js';
-import { setSkillPolicy } from '../skill-policy.js';
+import { setSkillPolicy, clearSkillPolicy } from '../skill-policy.js';
 import { resolveSlashCommand } from '../slash-commands.js';
 
 import {
@@ -51,6 +52,7 @@ import {
   handleStopV2,
   handlePermissionResponseV2,
   isHelloHandshake,
+  dispatchV2Message,
   type V2HandlerContext,
 } from '../ws-handler-v2.js';
 import { NativeCommandRegistry } from '../native-commands.js';
@@ -678,6 +680,21 @@ describe('handleStopV2', () => {
     const ctx = createContext();
     expect(() => handleStopV2('c1', { type: 'stop', sessionId: 'nope' }, ctx)).not.toThrow();
   });
+
+  it('calls stopChat with correct clientId when session is found', () => {
+    (stopChat as ReturnType<typeof vi.fn>).mockClear();
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+
+    handleStopV2('c1', { type: 'stop', sessionId: 'sess-1' }, ctx);
+
+    expect(stopChat).toHaveBeenCalledWith('driver-1');
+  });
 });
 
 // ─── handlePermissionResponseV2 ──────────────────────────────────────────────
@@ -685,7 +702,6 @@ describe('handleStopV2', () => {
 describe('handlePermissionResponseV2', () => {
   it('calls resolvePending with correct args', () => {
     const ctx = createContext();
-    // resolvePending is imported from permissions.js — we just verify no throw
     expect(() =>
       handlePermissionResponseV2(
         'c1',
@@ -693,5 +709,689 @@ describe('handlePermissionResponseV2', () => {
         ctx,
       ),
     ).not.toThrow();
+  });
+
+  it('defaults decision to deny when not provided', () => {
+    const ctx = createContext();
+    expect(() =>
+      handlePermissionResponseV2(
+        'c1',
+        {
+          type: 'permission_response',
+          sessionId: 'sess-1',
+          permId: 'p2',
+          decision: undefined as unknown as 'once',
+        },
+        ctx,
+      ),
+    ).not.toThrow();
+  });
+});
+
+// ─── handleReconnect — running status ───────────────────────────────────────
+
+describe('handleReconnect running status', () => {
+  it('reports running=true when session has an active driver', () => {
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1' });
+    sessionReg.isActive.mockReturnValue(true);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleReconnect(
+      'c1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
+      ctx,
+    );
+
+    const summary = transport.sent.find((m) => m.type === 'reconnected') as {
+      sessions: Array<{ sessionId: string; running: boolean }>;
+    };
+    expect(summary.sessions[0].running).toBe(true);
+  });
+
+  it('reports running=false when session has no active driver', () => {
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1' });
+    sessionReg.isActive.mockReturnValue(false);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleReconnect(
+      'c1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
+      ctx,
+    );
+
+    const summary = transport.sent.find((m) => m.type === 'reconnected') as {
+      sessions: Array<{ sessionId: string; running: boolean }>;
+    };
+    expect(summary.sessions[0].running).toBe(false);
+  });
+
+  it('reports running=false when session is not in registry', () => {
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleReconnect(
+      'c1',
+      { type: 'reconnect', sessions: [{ sessionId: 'unknown-sess', lastSeq: 0 }] },
+      ctx,
+    );
+
+    const summary = transport.sent.find((m) => m.type === 'reconnected') as {
+      sessions: Array<{ sessionId: string; running: boolean }>;
+    };
+    expect(summary.sessions[0].running).toBe(false);
+  });
+
+  it('handles mixed running states across multiple sessions', () => {
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId
+      .mockReturnValueOnce({ clientId: 'driver-1' })
+      .mockReturnValueOnce(null)
+      .mockReturnValueOnce({ clientId: 'driver-3' });
+    sessionReg.isActive.mockReturnValueOnce(true).mockReturnValueOnce(false);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleReconnect(
+      'c1',
+      {
+        type: 'reconnect',
+        sessions: [
+          { sessionId: 'sess-1', lastSeq: 0 },
+          { sessionId: 'sess-2', lastSeq: 0 },
+          { sessionId: 'sess-3', lastSeq: 0 },
+        ],
+      },
+      ctx,
+    );
+
+    const summary = transport.sent.find((m) => m.type === 'reconnected') as {
+      sessions: Array<{ sessionId: string; running: boolean }>;
+    };
+    expect(summary.sessions).toHaveLength(3);
+    expect(summary.sessions[0]).toEqual(
+      expect.objectContaining({ sessionId: 'sess-1', running: true }),
+    );
+    expect(summary.sessions[1]).toEqual(
+      expect.objectContaining({ sessionId: 'sess-2', running: false }),
+    );
+    expect(summary.sessions[2]).toEqual(
+      expect.objectContaining({ sessionId: 'sess-3', running: false }),
+    );
+  });
+
+  it('replays multiple events in sequence order', () => {
+    const eventStore = mockEventStore();
+    eventStore.getEventsAfter.mockReturnValue([
+      {
+        seq: 3,
+        sessionId: 'sess-1',
+        type: 'block_delta',
+        payload: { v: 2, type: 'block_delta', delta: 'first', sessionId: 'sess-1' },
+      },
+      {
+        seq: 4,
+        sessionId: 'sess-1',
+        type: 'block_delta',
+        payload: { v: 2, type: 'block_delta', delta: 'second', sessionId: 'sess-1' },
+      },
+      {
+        seq: 5,
+        sessionId: 'sess-1',
+        type: 'turn_end',
+        payload: { v: 2, type: 'turn_end', sessionId: 'sess-1' },
+      },
+    ]);
+
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleReconnect(
+      'c1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 2 }] },
+      ctx,
+    );
+
+    const replayed = transport.sent.filter((m) => m.seq !== undefined);
+    expect(replayed).toHaveLength(3);
+    expect(replayed[0].seq).toBe(3);
+    expect(replayed[1].seq).toBe(4);
+    expect(replayed[2].seq).toBe(5);
+  });
+});
+
+// ─── handleSendV2 — routing paths ──────────────────────────────────────────
+
+describe('handleSendV2 routing', () => {
+  it('sends to active driver on the active path', () => {
+    (sendToChat as ReturnType<typeof vi.fn>).mockClear();
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleSendV2(
+      'c1',
+      transport,
+      { type: 'send' as const, sessionId: 'sess-1', prompt: 'hello', clientMsgId: 'cmsg-1' },
+      ctx,
+    );
+
+    expect(sendToChat).toHaveBeenCalledWith('driver-1', 'hello', undefined, undefined, 'cmsg-1');
+    expect(ctx.connRegistry.get('c1')!.watchedSessions.has('sess-1')).toBe(true);
+    expect(ctx.connRegistry.get('c1')!.activeSession).toBe('sess-1');
+  });
+
+  it('sends error on resolution error', () => {
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
+    (resolveSlashCommand as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+      type: 'error',
+      message: 'Unknown command /foo',
+    });
+
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleSendV2(
+      'c1',
+      transport,
+      { type: 'send' as const, sessionId: null, prompt: '/foo', clientMsgId: 'e1' },
+      ctx,
+    );
+
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({ type: 'error', error: 'Unknown command /foo' }),
+    );
+    expect(startChat).not.toHaveBeenCalled();
+  });
+
+  it('returns early for native commands without calling startChat', () => {
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
+    (resolveSlashCommand as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+      type: 'native',
+      name: 'test-cmd',
+      arguments: '',
+    });
+
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleSendV2(
+      'c1',
+      transport,
+      { type: 'send' as const, sessionId: null, prompt: '/test-cmd', clientMsgId: 'h1' },
+      ctx,
+    );
+
+    // Native commands short-circuit — startChat should NOT be called
+    expect(startChat).not.toHaveBeenCalled();
+  });
+
+  it('sends skill_invoked event for skill commands', () => {
+    // Reset resolveSlashCommand to plain first, then set skill for this test
+    (resolveSlashCommand as ReturnType<typeof vi.fn>).mockReset();
+    (resolveSlashCommand as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+      type: 'skill',
+      name: 'commit',
+      renderedPrompt: 'Create a commit...',
+      allowedTools: ['Bash'],
+      arguments: '-m "test"',
+    });
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
+
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleSendV2(
+      'c1',
+      transport,
+      {
+        type: 'send' as const,
+        sessionId: null,
+        prompt: '/commit -m "test"',
+        clientMsgId: 's1',
+      },
+      ctx,
+    );
+
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'skill_invoked',
+        v: 2,
+        name: 'commit',
+        arguments: '-m "test"',
+      }),
+    );
+    expect(startChat).toHaveBeenCalledTimes(1);
+
+    // Restore default
+    (resolveSlashCommand as ReturnType<typeof vi.fn>).mockReturnValue({ type: 'plain' });
+  });
+
+  it('sends error message on exception', () => {
+    (resolveSlashCommand as ReturnType<typeof vi.fn>).mockReset();
+    (resolveSlashCommand as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+      throw new Error('Kaboom');
+    });
+
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleSendV2(
+      'c1',
+      transport,
+      { type: 'send' as const, sessionId: null, prompt: 'hi', clientMsgId: 'x1' },
+      ctx,
+    );
+
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({ type: 'error', error: 'Kaboom' }),
+    );
+
+    // Restore default
+    (resolveSlashCommand as ReturnType<typeof vi.fn>).mockReturnValue({ type: 'plain' });
+  });
+
+  it('validates cwd via isAllowedPath', () => {
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
+
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleSendV2(
+      'c1',
+      transport,
+      {
+        type: 'send' as const,
+        sessionId: null,
+        prompt: 'hi',
+        clientMsgId: 'cwd1',
+        cwd: '/some/valid/path',
+      },
+      ctx,
+    );
+
+    expect(startChat).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─── handleSendV2 — skill policy clearing ──────────────────────────────────
+
+describe('handleSendV2 skill policy clearing', () => {
+  it('calls clearSkillPolicy when no skill is invoked', () => {
+    (clearSkillPolicy as ReturnType<typeof vi.fn>).mockClear();
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
+
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleSendV2(
+      'c1',
+      transport,
+      { type: 'send' as const, sessionId: null, prompt: 'plain text', clientMsgId: 'cp1' },
+      ctx,
+    );
+
+    expect(clearSkillPolicy).toHaveBeenCalledWith(expect.anything(), expect.any(String));
+  });
+});
+
+// ─── handleSwitchSession — token fields ────────────────────────────────────
+
+describe('handleSwitchSession token fields', () => {
+  it('includes all token fields in session_switched response', async () => {
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({
+      sessionId: 'sess-tokens',
+      mode: 'code',
+      cwd: '/projects/bar',
+      branch: 'develop',
+      wtId: null,
+      inputTokens: 5000,
+      outputTokens: 2000,
+      cacheReadTokens: 1500,
+      cacheCreationTokens: 300,
+      totalCostUsd: 0.12,
+    });
+
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'sess-tokens' }, ctx);
+
+    const resp = transport.sent[0];
+    expect(resp).toHaveProperty('tokens');
+    const tokens = (resp as { tokens: Record<string, unknown> }).tokens;
+    expect(tokens).toEqual({
+      input: 5000,
+      output: 2000,
+      cacheRead: 1500,
+      cacheCreation: 300,
+      costUsd: 0.12,
+    });
+  });
+});
+
+// ─── handleSetModeV2 — broadcast to multiple watchers ──────────────────────
+
+describe('handleSetModeV2 broadcast', () => {
+  it('broadcasts mode_changed to multiple watchers', () => {
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport1 = mockTransport();
+    const transport2 = mockTransport();
+    ctx.connRegistry.register('c1', transport1);
+    ctx.connRegistry.register('c2', transport2);
+    ctx.connRegistry.watch('c1', 'sess-1');
+    ctx.connRegistry.watch('c2', 'sess-1');
+
+    handleSetModeV2('c1', { type: 'set_mode', sessionId: 'sess-1', mode: 'ask' }, ctx);
+
+    expect(transport1.sent.some((m) => m.type === 'mode_changed' && m.mode === 'ask')).toBe(true);
+    expect(transport2.sent.some((m) => m.type === 'mode_changed' && m.mode === 'ask')).toBe(true);
+  });
+});
+
+// ─── handleWatch / handleUnwatch — edge cases ──────────────────────────────
+
+describe('handleWatch edge cases', () => {
+  it('watching the same session twice is idempotent', () => {
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleWatch('c1', { type: 'watch', sessionId: 'sess-1' }, ctx);
+    handleWatch('c1', { type: 'watch', sessionId: 'sess-1' }, ctx);
+
+    expect(ctx.connRegistry.get('c1')!.watchedSessions.has('sess-1')).toBe(true);
+    expect(transport.sent.filter((m) => m.type === 'watched')).toHaveLength(2);
+  });
+
+  it('unwatching a session not watched is harmless', () => {
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleUnwatch('c1', { type: 'unwatch', sessionId: 'never-watched' }, ctx);
+
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({ type: 'unwatched', sessionId: 'never-watched' }),
+    );
+  });
+
+  it('can watch multiple sessions on the same connection', () => {
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleWatch('c1', { type: 'watch', sessionId: 'sess-1' }, ctx);
+    handleWatch('c1', { type: 'watch', sessionId: 'sess-2' }, ctx);
+    handleWatch('c1', { type: 'watch', sessionId: 'sess-3' }, ctx);
+
+    const conn = ctx.connRegistry.get('c1')!;
+    expect(conn.watchedSessions.has('sess-1')).toBe(true);
+    expect(conn.watchedSessions.has('sess-2')).toBe(true);
+    expect(conn.watchedSessions.has('sess-3')).toBe(true);
+  });
+});
+
+// ─── handleHello — edge cases ──────────────────────────────────────────────
+
+describe('handleHello edge cases', () => {
+  it('returns the provided connectionId', () => {
+    const ctx = createContext();
+    const transport = mockTransport();
+
+    const id = handleHello('unique-conn-42', transport, ctx);
+
+    expect(id).toBe('unique-conn-42');
+  });
+
+  it('welcome message includes protocolVersion 2', () => {
+    const ctx = createContext();
+    const transport = mockTransport();
+
+    handleHello('c1', transport, ctx);
+
+    expect(transport.sent[0]).toEqual(
+      expect.objectContaining({
+        type: 'welcome',
+        protocolVersion: 2,
+        connectionId: 'c1',
+      }),
+    );
+  });
+});
+
+// ─── dispatchV2Message ─────────────────────────────────────────────────────
+
+describe('dispatchV2Message', () => {
+  it('ignores malformed JSON', async () => {
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await dispatchV2Message('c1', transport, 'not json{{{', ctx);
+
+    expect(transport.sent).toHaveLength(0);
+  });
+
+  it('ignores unrecognized message types', async () => {
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await dispatchV2Message('c1', transport, JSON.stringify({ type: 'unknown_type' }), ctx);
+
+    expect(transport.sent).toHaveLength(0);
+  });
+
+  it('ignores duplicate hello messages', async () => {
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await dispatchV2Message(
+      'c1',
+      transport,
+      JSON.stringify({ type: 'hello', protocolVersion: 2 }),
+      ctx,
+    );
+
+    expect(transport.sent).toHaveLength(0);
+  });
+
+  it('routes watch messages correctly', async () => {
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await dispatchV2Message(
+      'c1',
+      transport,
+      JSON.stringify({ type: 'watch', sessionId: 'sess-1' }),
+      ctx,
+    );
+
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({ type: 'watched', sessionId: 'sess-1' }),
+    );
+  });
+
+  it('routes unwatch messages correctly', async () => {
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    ctx.connRegistry.watch('c1', 'sess-1');
+
+    await dispatchV2Message(
+      'c1',
+      transport,
+      JSON.stringify({ type: 'unwatch', sessionId: 'sess-1' }),
+      ctx,
+    );
+
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({ type: 'unwatched', sessionId: 'sess-1' }),
+    );
+  });
+
+  it('routes stop messages correctly', async () => {
+    (stopChat as ReturnType<typeof vi.fn>).mockClear();
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await dispatchV2Message(
+      'c1',
+      transport,
+      JSON.stringify({ type: 'stop', sessionId: 'sess-1' }),
+      ctx,
+    );
+
+    expect(stopChat).toHaveBeenCalledWith('driver-1');
+  });
+
+  it('routes reconnect messages and produces reconnected summary', async () => {
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await dispatchV2Message(
+      'c1',
+      transport,
+      JSON.stringify({
+        type: 'reconnect',
+        sessions: [{ sessionId: 'sess-1', lastSeq: 0 }],
+      }),
+      ctx,
+    );
+
+    expect(transport.sent).toContainEqual(expect.objectContaining({ type: 'reconnected' }));
+  });
+
+  it('routes set_mode messages correctly', async () => {
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    ctx.connRegistry.watch('c1', 'sess-1');
+
+    await dispatchV2Message(
+      'c1',
+      transport,
+      JSON.stringify({ type: 'set_mode', sessionId: 'sess-1', mode: 'agent' }),
+      ctx,
+    );
+
+    expect(sessionReg.setMode).toHaveBeenCalledWith('driver-1', 'agent');
+    expect(transport.sent.some((m) => m.type === 'mode_changed')).toBe(true);
+  });
+});
+
+// ─── handleInterruptV2 — images and contextBlocks forwarding ───────────────
+
+describe('handleInterruptV2 forwarding', () => {
+  it('forwards images and contextBlocks to interruptChat', () => {
+    (interruptChat as ReturnType<typeof vi.fn>).mockClear();
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    const images = [{ data: 'base64img', mediaType: 'image/png' as const }];
+    const contextBlocks = ['some context block'];
+
+    handleInterruptV2(
+      'c1',
+      transport,
+      {
+        type: 'interrupt',
+        sessionId: 'sess-1',
+        prompt: 'new direction',
+        clientMsgId: 'i3',
+        images,
+        contextBlocks,
+      },
+      ctx,
+    );
+
+    expect(interruptChat).toHaveBeenCalledWith(
+      'driver-1',
+      'new direction',
+      images,
+      contextBlocks,
+      'i3',
+    );
+  });
+
+  it('does not watch or activate when session is not found', () => {
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleInterruptV2(
+      'c1',
+      transport,
+      { type: 'interrupt', sessionId: 'ghost', prompt: 'x', clientMsgId: 'i4' },
+      ctx,
+    );
+
+    const conn = ctx.connRegistry.get('c1')!;
+    expect(conn.watchedSessions.size).toBe(0);
+    expect(conn.activeSession).toBeNull();
   });
 });
