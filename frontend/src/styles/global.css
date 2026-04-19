@@ -469,7 +469,9 @@ textarea:focus {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: env(safe-area-inset-top) 0 var(--space-2);
+  padding: var(--space-3) 0 var(--space-2);
+  position: sticky;
+  top: env(safe-area-inset-top);
   background: var(--bg);
   flex-shrink: 0;
 }
