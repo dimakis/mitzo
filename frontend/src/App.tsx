@@ -45,7 +45,12 @@ function dismissKeyboard(e: React.MouseEvent | React.TouchEvent) {
   const target = e.target as HTMLElement;
   const tag = target.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return;
-  if (target.closest('.chat-input, .slash-picker, .context-picker')) return;
+  if (
+    target.closest(
+      'button, a, select, [role="button"], .chat-input, .slash-picker, .context-picker',
+    )
+  )
+    return;
   (document.activeElement as HTMLElement)?.blur?.();
 }
 
