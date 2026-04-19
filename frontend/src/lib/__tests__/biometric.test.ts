@@ -14,13 +14,14 @@ vi.mock('@capgo/capacitor-native-biometric', () => ({
     deleteCredentials: vi.fn(),
   },
   BiometryType: {
-    FACE_ID: 1,
-    TOUCH_ID: 2,
+    NONE: 0,
+    TOUCH_ID: 1,
+    FACE_ID: 2,
     FINGERPRINT: 3,
     FACE_AUTHENTICATION: 4,
-    IRIS: 5,
+    IRIS_AUTHENTICATION: 5,
     MULTIPLE: 6,
-    NONE: 0,
+    DEVICE_CREDENTIAL: 7,
   },
 }));
 
@@ -48,9 +49,12 @@ describe('isBiometricAvailable', () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
     vi.mocked(NativeBiometric.isAvailable).mockResolvedValue({
       isAvailable: true,
-      biometryType: 1,
+      biometryType: 2,
       errorCode: 0,
-    });
+      strongBiometryIsAvailable: true,
+      deviceIsSecure: true,
+      authenticationStrength: 'strong',
+    } as never);
     expect(await isBiometricAvailable()).toBe(true);
   });
 

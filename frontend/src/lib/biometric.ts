@@ -24,7 +24,7 @@ export function biometryLabel(type: BiometryType): string {
       return 'Fingerprint';
     case BiometryType.FACE_AUTHENTICATION:
       return 'Face Authentication';
-    case BiometryType.IRIS:
+    case BiometryType.IRIS_AUTHENTICATION:
       return 'Iris';
     default:
       return 'Biometric';
