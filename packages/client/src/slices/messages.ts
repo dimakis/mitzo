@@ -355,6 +355,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
         const notice: FinishedMessage = {
           messageId: `notice-${Date.now()}`,
           role: 'assistant',
+          timestamp: Date.now(),
           blocks: [
             {
               blockId: `notice-text-${Date.now()}`,
