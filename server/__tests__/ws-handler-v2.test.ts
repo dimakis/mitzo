@@ -225,14 +225,16 @@ describe('handleReconnect', () => {
   it('reattaches detached session on reconnect', () => {
     (reattachChat as ReturnType<typeof vi.fn>).mockClear();
 
-    const ctx = createContext();
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-conn' });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(false);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
-
-    // Session is active but detached (WS died while query loop running)
-    ctx.sessionRegistry.findBySessionId.mockReturnValue({ clientId: 'old-conn' });
-    ctx.sessionRegistry.isActive.mockReturnValue(true);
-    ctx.sessionRegistry.isAttached.mockReturnValue(false);
 
     handleReconnect(
       'c1',
@@ -246,13 +248,16 @@ describe('handleReconnect', () => {
   it('does not reattach if session is already attached', () => {
     (reattachChat as ReturnType<typeof vi.fn>).mockClear();
 
-    const ctx = createContext();
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-conn' });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(true); // already attached
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
-
-    ctx.sessionRegistry.findBySessionId.mockReturnValue({ clientId: 'old-conn' });
-    ctx.sessionRegistry.isActive.mockReturnValue(true);
-    ctx.sessionRegistry.isAttached.mockReturnValue(true); // already attached
 
     handleReconnect(
       'c1',
