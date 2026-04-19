@@ -181,7 +181,7 @@ textarea:focus {
   gap: var(--space-2);
   padding: var(--space-4) 0 var(--space-2);
   position: sticky;
-  top: env(safe-area-inset-top);
+  top: 0;
   background: var(--bg);
   z-index: 10;
 }
@@ -349,7 +349,6 @@ textarea:focus {
 }
 
 /* Pages with tab bar need bottom padding to clear fixed nav */
-.session-list-page,
 .inbox-page,
 .todo-page,
 .task-board-page,
@@ -358,14 +357,63 @@ textarea:focus {
   padding-bottom: 72px;
 }
 
-/* Scrolling pages need top padding to clear the notch / Dynamic Island */
-.session-list-page,
-.inbox-page,
+/* Pages without sticky headers need top padding for the notch */
 .todo-page,
 .todo-detail-page,
 .task-board-page,
 .cal-page {
   padding-top: env(safe-area-inset-top);
+}
+
+/* Pages with sticky headers: header padding includes safe area */
+
+.inbox-header {
+  padding-top: calc(var(--space-5) + env(safe-area-inset-top));
+}
+
+.cal-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) 0 var(--space-2);
+}
+
+.cal-back {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: var(--text-xl);
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.cal-header-center {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+}
+
+.cal-header-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+}
+
+.cal-nav-prev,
+.cal-nav-next {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: var(--text-lg);
+  cursor: pointer;
+  padding: var(--space-1);
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* ===== Login ===== */
@@ -399,21 +447,31 @@ textarea:focus {
 .session-list-page {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   max-width: 600px;
   margin: 0 auto;
   padding: 0 var(--space-4);
+  background: var(--bg);
+}
+
+.session-list-scroll {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 72px;
 }
 
 .session-list-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--space-5) 0 var(--space-4);
-  position: sticky;
-  top: env(safe-area-inset-top);
+  padding: env(safe-area-inset-top) 0 var(--space-2);
   background: var(--bg);
-  z-index: 10;
+  flex-shrink: 0;
 }
 
 .session-list-header h1 {
@@ -483,10 +541,10 @@ textarea:focus {
 
 .hero-chat-btn {
   width: 100%;
-  padding: var(--space-4);
-  font-size: var(--text-base);
+  padding: var(--space-3);
+  font-size: var(--text-md);
   font-weight: 600;
-  border-radius: 14px;
+  border-radius: 10px;
   background: var(--accent);
   color: #fff;
   border: none;
@@ -504,16 +562,17 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   background: var(--surface);
-  border-radius: 12px;
+  border-radius: 10px;
   overflow: hidden;
-  margin-bottom: var(--space-5);
+  margin-top: var(--space-2);
+  margin-bottom: var(--space-4);
 }
 
 .quick-row {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: 0.9rem 1rem;
+  padding: 0.65rem 0.85rem;
   background: transparent;
   border: none;
   border-bottom: 1px solid var(--border);
@@ -801,7 +860,7 @@ textarea:focus {
   gap: var(--space-2);
   padding: var(--space-5) 0 var(--space-4);
   position: sticky;
-  top: env(safe-area-inset-top);
+  top: 0;
   background: var(--bg);
   z-index: 10;
 }
@@ -1048,11 +1107,11 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   position: fixed;
-  top: env(safe-area-inset-top);
+  top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background: var(--bg);
+  background: var(--surface);
   overflow: hidden;
 }
 
@@ -1060,10 +1119,20 @@ textarea:focus {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: 0.35rem 0.75rem;
+  padding: env(safe-area-inset-top) 0.75rem 0.3rem;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  transition:
+    max-height 0.2s,
+    padding 0.2s,
+    opacity 0.2s;
+  overflow: hidden;
+}
+
+.keyboard-open .chat-header {
+  padding: 0.2rem 0.75rem;
+  gap: var(--space-2);
 }
 
 .chat-header-name {
@@ -1209,6 +1278,7 @@ textarea:focus {
   flex-direction: column;
   gap: var(--space-3);
   min-height: 0;
+  background: var(--bg);
   overscroll-behavior-y: contain;
 }
 
@@ -1447,6 +1517,114 @@ textarea:focus {
   max-width: 100%;
   border-radius: 6px;
   margin: 0.5em 0;
+}
+
+/* ===== Copy Buttons ===== */
+
+.copy-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: var(--text-sm);
+  padding: var(--space-1);
+  border-radius: 4px;
+  transition:
+    color 0.15s,
+    background 0.15s;
+  line-height: 1;
+}
+
+.copy-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.copy-btn--copied {
+  color: var(--success);
+}
+
+.msg-bubble-copy {
+  opacity: 0;
+  transition: opacity 0.15s;
+  margin-top: var(--space-1);
+  align-self: flex-end;
+}
+
+.msg-bubble--assistant:hover .msg-bubble-copy {
+  opacity: 1;
+}
+
+.code-block-wrapper {
+  position: relative;
+}
+
+.code-block-copy {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 1;
+  font-size: var(--text-xs);
+}
+
+.code-block-wrapper:hover .code-block-copy {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .msg-bubble-copy {
+    opacity: 0.5;
+  }
+  .code-block-copy {
+    opacity: 0.5;
+  }
+}
+
+/* ===== Collapsible Messages ===== */
+
+.msg-bubble--collapsed .msg-bubble-markdown {
+  max-height: 300px;
+  overflow: hidden;
+  position: relative;
+}
+
+.msg-bubble--collapsed .msg-bubble-markdown::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: linear-gradient(transparent, var(--surface));
+  pointer-events: none;
+}
+
+.msg-bubble-collapse-toggle {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  padding: var(--space-1) 0;
+  text-align: center;
+  width: 100%;
+}
+
+.msg-bubble-collapse-toggle:hover {
+  text-decoration: underline;
+}
+
+/* ===== Editable User Bubbles ===== */
+
+.msg-bubble--editable {
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.msg-bubble--editable:active {
+  opacity: 0.8;
 }
 
 /* ===== Tool Pills ===== */
@@ -2658,7 +2836,7 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   position: fixed;
-  top: env(safe-area-inset-top);
+  top: 0;
   left: 0;
   right: 0;
   bottom: 0;
@@ -2671,6 +2849,7 @@ textarea:focus {
   align-items: center;
   gap: var(--space-3);
   padding: 0.6rem 0.75rem;
+  padding-top: calc(0.6rem + env(safe-area-inset-top));
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
