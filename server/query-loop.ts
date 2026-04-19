@@ -12,6 +12,7 @@ import type { EventStore } from './event-store.js';
 import { updateSessionSdkId } from './session-index.js';
 import { sendTurnCompleteNotification as ntfyTurnComplete } from './notify.js';
 import { sendTurnCompleteNotification as pushoverTurnComplete } from './pushover.js';
+import { sendTurnCompleteNotification as apnsTurnComplete } from './apns.js';
 import { extractSnippet } from './notification-helpers.js';
 import { NOTIFY_SNIPPET_MAX_CHARS } from './constants.js';
 import { createGoal, reportUsage, deriveGoalTitle } from './goal-client.js';
@@ -418,6 +419,7 @@ export async function runQueryLoop(
           const sid = (msg.session_id as string) || currentSession.sessionId;
           ntfyTurnComplete(sid, snippet).catch(() => {});
           pushoverTurnComplete(sid, snippet).catch(() => {});
+          apnsTurnComplete(sid, snippet).catch(() => {});
         }
       } else if (msg.type === 'stream_event') {
         const evt = msg.event as Record<string, unknown> | undefined;

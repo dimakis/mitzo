@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
+
+vi.mock('../../lib/api-fetch', () => ({
+  apiFetch: vi.fn(),
+}));
+
+import { apiFetch } from '../../lib/api-fetch';
 import { useTodoData } from '../useTodoData';
 
 const mockItems = [
@@ -44,7 +50,8 @@ const mockResponse = {
 };
 
 beforeEach(() => {
-  vi.spyOn(global, 'fetch').mockResolvedValue({
+  vi.clearAllMocks();
+  vi.mocked(apiFetch).mockResolvedValue({
     ok: true,
     json: () => Promise.resolve(mockResponse),
   } as Response);
@@ -64,7 +71,7 @@ describe('useTodoData', () => {
 
     expect(result.current.items).toHaveLength(1);
     expect(result.current.profiles).toEqual(['centaur', 'work', 'personal']);
-    expect(fetch).toHaveBeenCalledWith('/api/todos');
+    expect(apiFetch).toHaveBeenCalledWith('/api/todos');
   });
 
   it('fetches with profile filter', async () => {
@@ -72,11 +79,11 @@ describe('useTodoData', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    expect(fetch).toHaveBeenCalledWith('/api/todos?profile=centaur');
+    expect(apiFetch).toHaveBeenCalledWith('/api/todos?profile=centaur');
   });
 
   it('handles fetch errors gracefully', async () => {
-    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('Network error'));
+    vi.mocked(apiFetch).mockRejectedValue(new Error('Network error'));
 
     const { result } = renderHook(() => useTodoData());
 
@@ -91,7 +98,7 @@ describe('useTodoData', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+    vi.mocked(apiFetch).mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({ ok: true }),
     } as Response);
@@ -101,7 +108,7 @@ describe('useTodoData', () => {
     });
 
     expect(result.current.items).toHaveLength(0);
-    expect(fetch).toHaveBeenCalledWith('/api/todos/abc123/action', {
+    expect(apiFetch).toHaveBeenCalledWith('/api/todos/abc123/action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'ack' }),
@@ -113,7 +120,7 @@ describe('useTodoData', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+    vi.mocked(apiFetch).mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({ ok: true }),
     } as Response);
@@ -130,7 +137,7 @@ describe('useTodoData', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+    vi.mocked(apiFetch).mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({ ok: true }),
     } as Response);
@@ -140,7 +147,7 @@ describe('useTodoData', () => {
     });
 
     expect(result.current.items).toHaveLength(0);
-    expect(fetch).toHaveBeenCalledWith('/api/todos/abc123/action', {
+    expect(apiFetch).toHaveBeenCalledWith('/api/todos/abc123/action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'snooze', days: 5 }),
@@ -151,14 +158,14 @@ describe('useTodoData', () => {
     const { result } = renderHook(() => useTodoData());
 
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(apiFetch).toHaveBeenCalledTimes(1);
 
     act(() => {
       result.current.refresh();
     });
 
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(apiFetch).toHaveBeenCalledTimes(2);
   });
 
   it('handles network error in performAction gracefully', async () => {
@@ -166,7 +173,7 @@ describe('useTodoData', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    vi.spyOn(global, 'fetch').mockRejectedValueOnce(new Error('Network error'));
+    vi.mocked(apiFetch).mockRejectedValueOnce(new Error('Network error'));
 
     await act(async () => {
       await result.current.ack('abc123');
@@ -180,9 +187,9 @@ describe('useTodoData', () => {
     const { result } = renderHook(() => useTodoData());
 
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(apiFetch).toHaveBeenCalledTimes(1);
 
-    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+    vi.mocked(apiFetch).mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({ ok: true }),
     } as Response);
@@ -191,7 +198,7 @@ describe('useTodoData', () => {
       await result.current.create('New task', 'work');
     });
 
-    expect(fetch).toHaveBeenCalledWith('/api/todos', {
+    expect(apiFetch).toHaveBeenCalledWith('/api/todos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ summary: 'New task', profile: 'work' }),
@@ -203,7 +210,7 @@ describe('useTodoData', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+    vi.mocked(apiFetch).mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({ ok: true }),
     } as Response);
@@ -212,7 +219,7 @@ describe('useTodoData', () => {
       await result.current.create('Sub task', 'work', 'parent-123');
     });
 
-    expect(fetch).toHaveBeenCalledWith('/api/todos', {
+    expect(apiFetch).toHaveBeenCalledWith('/api/todos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ summary: 'Sub task', profile: 'work', parentId: 'parent-123' }),
@@ -224,7 +231,7 @@ describe('useTodoData', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    vi.spyOn(global, 'fetch').mockRejectedValueOnce(new Error('Network error'));
+    vi.mocked(apiFetch).mockRejectedValueOnce(new Error('Network error'));
 
     await act(async () => {
       await result.current.create('New task', 'work');
@@ -240,7 +247,7 @@ describe('useTodoData', () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.items[0].starred).toBe(false);
 
-    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+    vi.mocked(apiFetch).mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({ ok: true }),
     } as Response);
@@ -259,7 +266,7 @@ describe('useTodoData', () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     // First star: item is unstarred, so action should be 'star'
-    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+    vi.mocked(apiFetch).mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({ ok: true }),
     } as Response);
@@ -268,14 +275,14 @@ describe('useTodoData', () => {
       await result.current.star('abc123');
     });
 
-    expect(fetch).toHaveBeenCalledWith('/api/todos/abc123/action', {
+    expect(apiFetch).toHaveBeenCalledWith('/api/todos/abc123/action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'star' }),
     });
 
     // Second star: item is now starred, so action should be 'unstar'
-    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+    vi.mocked(apiFetch).mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({ ok: true }),
     } as Response);
@@ -284,7 +291,7 @@ describe('useTodoData', () => {
       await result.current.star('abc123');
     });
 
-    expect(fetch).toHaveBeenCalledWith('/api/todos/abc123/action', {
+    expect(apiFetch).toHaveBeenCalledWith('/api/todos/abc123/action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'unstar' }),
@@ -297,7 +304,7 @@ describe('useTodoData', () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.items[0].starred).toBe(false);
 
-    vi.spyOn(global, 'fetch').mockRejectedValueOnce(new Error('Network error'));
+    vi.mocked(apiFetch).mockRejectedValueOnce(new Error('Network error'));
 
     await act(async () => {
       await result.current.star('abc123');

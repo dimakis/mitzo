@@ -57,6 +57,7 @@ import {
   discardInboxItem,
   createInboxItem,
 } from './inbox.js';
+import { registerToken, removeToken, setTokenStorePath } from './apns.js';
 import { SkillRegistry } from './skills.js';
 
 import { mkdirSync } from 'fs';
@@ -202,6 +203,7 @@ try {
 }
 export const taskStore = new TaskStore(join(mitzoDir, 'tasks.db'));
 setTaskStore(taskStore);
+setTokenStorePath(join(mitzoDir, 'device-tokens.json'));
 
 export function setUpdateBroadcast(fn: () => void) {
   onUpdateAvailable = fn;
@@ -1024,6 +1026,28 @@ app.delete('/api/inbox/:filename', (req, res) => {
   }
   res.json({ ok: true });
   broadcastInboxUpdate();
+});
+
+// --- Push notification device token registration ---
+
+app.post('/api/push/register', (req, res) => {
+  const { token } = req.body || {};
+  if (!token || typeof token !== 'string') {
+    res.status(400).json({ error: 'token is required' });
+    return;
+  }
+  registerToken(token);
+  res.json({ ok: true });
+});
+
+app.delete('/api/push/register', (req, res) => {
+  const { token } = req.body || {};
+  if (!token || typeof token !== 'string') {
+    res.status(400).json({ error: 'token is required' });
+    return;
+  }
+  removeToken(token);
+  res.json({ ok: true });
 });
 
 // --- Calendar API ---
