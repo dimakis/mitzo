@@ -1,6 +1,8 @@
-# Local Jaeger instance for end-to-end tracing.
+# Local observability stack: Jaeger (traces) + Loki (logs) + Grafana (UI).
 # Start: npm run tracing:up   Stop: npm run tracing:down
-# UI: http://localhost:16686
+# Jaeger UI: http://localhost:16686
+# Grafana:   http://localhost:3001 (no login required)
+# Loki API:  http://localhost:3200
 services:
   jaeger:
     image: jaegertracing/jaeger:latest
@@ -9,3 +11,24 @@ services:
       - '16686:16686' # Jaeger UI
     environment:
       COLLECTOR_OTLP_ENABLED: 'true'
+
+  loki:
+    image: grafana/loki:3.4.2
+    ports:
+      - '3200:3100' # 3200 externally — 3100 conflicts with Mitzo server
+    volumes:
+      - ./infra/loki-config.yaml:/etc/loki/local-config.yaml
+    command: -config.file=/etc/loki/local-config.yaml
+
+  grafana:
+    image: grafana/grafana:12.4.1
+    ports:
+      - '3001:3000'
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: 'true'
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - loki
+      - jaeger

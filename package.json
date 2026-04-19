@@ -27,8 +27,8 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "tracing:up": "docker compose up -d jaeger",
-    "tracing:down": "docker compose down",
+    "tracing:up": "podman compose up -d",
+    "tracing:down": "podman compose down",
     "prepare": "husky || true"
   },
   "dependencies": {
@@ -54,6 +54,7 @@
     "js-yaml": "^4.1.1",
     "nanoid": "^5.0.9",
     "pino": "^10.3.1",
+    "pino-loki": "^3.0.0",
     "pino-roll": "^4.0.0",
     "ws": "^8.18.0",
     "zod": "^4.3.6"

@@ -55,6 +55,21 @@ function buildProductionDestination(level: LogLevel): DestinationStream {
     },
   ];
 
+  const lokiHost = process.env.LOKI_HOST;
+  if (lokiHost) {
+    targets.push({
+      target: 'pino-loki',
+      options: {
+        host: lokiHost,
+        labels: { app: 'mitzo' },
+        propsToLabels: ['module'],
+        batching: true,
+        interval: 5,
+      },
+      level,
+    });
+  }
+
   return pino.transport({ targets });
 }
 
