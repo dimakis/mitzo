@@ -1,0 +1,3 @@
+app_identifier("com.mitzo.app")
+apple_id(ENV["APPLE_ID"])
+team_id(ENV["DEVELOPMENT_TEAM"])
