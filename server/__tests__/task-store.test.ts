@@ -432,4 +432,119 @@ describe('TaskStore', () => {
     expect(roots[0].title).toBe('Persist me');
     store2.close();
   });
+
+  // --- Workflow fields ---
+
+  it('creates a task with workflow fields', () => {
+    const task = store.create({
+      title: 'Wait for CI',
+      stageType: 'wait_for_signal',
+      gateConfig: { type: 'gh_ci', repo: 'org/repo', pr: 42 },
+      maxRetries: 3,
+      templateId: 'pr-triage',
+    });
+    expect(task.stageType).toBe('wait_for_signal');
+    expect(task.gateConfig).toEqual({ type: 'gh_ci', repo: 'org/repo', pr: 42 });
+    expect(task.maxRetries).toBe(3);
+    expect(task.retryCount).toBe(0);
+    expect(task.templateId).toBe('pr-triage');
+    expect(task.artifacts).toBeNull();
+  });
+
+  it('defaults workflow fields to null/0 for legacy tasks', () => {
+    const task = store.create({ title: 'Plain task' });
+    expect(task.stageType).toBeNull();
+    expect(task.gateConfig).toBeNull();
+    expect(task.artifacts).toBeNull();
+    expect(task.retryCount).toBe(0);
+    expect(task.maxRetries).toBe(0);
+    expect(task.templateId).toBeNull();
+  });
+
+  it('updates workflow fields', () => {
+    const task = store.create({ title: 'Updatable' });
+    const updated = store.update(task.id, {
+      stageType: 'human_review',
+      artifacts: { design_doc: '/path/to/doc.md' },
+      retryCount: 2,
+      maxRetries: 5,
+    });
+    expect(updated!.stageType).toBe('human_review');
+    expect(updated!.artifacts).toEqual({ design_doc: '/path/to/doc.md' });
+    expect(updated!.retryCount).toBe(2);
+    expect(updated!.maxRetries).toBe(5);
+  });
+
+  it('updates gate_config via update', () => {
+    const task = store.create({
+      title: 'Signal task',
+      stageType: 'wait_for_signal',
+      gateConfig: { type: 'gh_ci', repo: 'org/repo', pr: 1 },
+    });
+    const updated = store.update(task.id, {
+      gateConfig: { type: 'gh_review', repo: 'org/repo', pr: 1 },
+    });
+    expect(updated!.gateConfig).toEqual({ type: 'gh_review', repo: 'org/repo', pr: 1 });
+  });
+
+  it('round-trips workflow fields through close and reopen', () => {
+    const dbPath = join(TEST_DIR, 'workflow-reopen.db');
+    const store1 = new TaskStore(dbPath);
+    store1.create({
+      title: 'Workflow task',
+      stageType: 'wait_for_signal',
+      gateConfig: { type: 'gh_ci', repo: 'org/repo', pr: 99 },
+      maxRetries: 2,
+      templateId: 'upstream-issue',
+    });
+    store1.close();
+
+    const store2 = new TaskStore(dbPath);
+    const roots = store2.listRoots();
+    expect(roots).toHaveLength(1);
+    expect(roots[0].stageType).toBe('wait_for_signal');
+    expect(roots[0].gateConfig).toEqual({ type: 'gh_ci', repo: 'org/repo', pr: 99 });
+    expect(roots[0].maxRetries).toBe(2);
+    expect(roots[0].templateId).toBe('upstream-issue');
+    store2.close();
+  });
+
+  it('migrates existing database to add workflow columns', () => {
+    // Create a DB without workflow columns, then reopen to trigger migration
+    const dbPath = join(TEST_DIR, 'migrate.db');
+    const store1 = new TaskStore(dbPath);
+    const t = store1.create({ title: 'Pre-migration task' });
+    store1.close();
+
+    // Reopen — migration should be idempotent
+    const store2 = new TaskStore(dbPath);
+    const task = store2.get(t.id);
+    expect(task!.stageType).toBeNull();
+    expect(task!.gateConfig).toBeNull();
+    expect(task!.retryCount).toBe(0);
+    expect(task!.maxRetries).toBe(0);
+    store2.close();
+  });
+
+  it('preserves workflow fields in tree assembly', () => {
+    const goal = store.create({ title: 'Goal', stageType: 'agent_work' });
+    store.create({
+      title: 'Wait step',
+      parentId: goal.id,
+      stageType: 'wait_for_signal',
+      gateConfig: { type: 'gh_ci', repo: 'test/repo', pr: 5 },
+    });
+    store.create({
+      title: 'Review step',
+      parentId: goal.id,
+      stageType: 'human_review',
+    });
+
+    const tree = store.getTree();
+    expect(tree).toHaveLength(1);
+    expect(tree[0].children).toHaveLength(2);
+    expect(tree[0].children[0].stageType).toBe('wait_for_signal');
+    expect(tree[0].children[0].gateConfig).toEqual({ type: 'gh_ci', repo: 'test/repo', pr: 5 });
+    expect(tree[0].children[1].stageType).toBe('human_review');
+  });
 });
