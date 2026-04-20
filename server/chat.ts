@@ -566,7 +566,7 @@ export async function startChat(
         connRegistry: _connRegistry ?? undefined,
         onSessionResolved: options.onSessionResolved,
         onInitialPrompt: (sessionId: string) => {
-          tryAutoRename(sessionId, clientId).catch(() => {});
+          tryAutoRename(sessionId, clientId).catch(() => { /* errors logged internally */ });
         },
       },
     );

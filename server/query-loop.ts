@@ -309,9 +309,7 @@ export async function runQueryLoop(
                 messageId: `umsg-${Date.now()}-init`,
                 text: initialPrompt,
               });
-              // Count the initial prompt for auto-rename tracking
-              store.incrementPromptCount(resolvedSessionId);
-              // Trigger auto-rename on prompt 1 (immediate naming)
+              // Trigger auto-rename — tryAutoRename handles the increment
               onInitialPrompt?.(resolvedSessionId);
             }
           }
