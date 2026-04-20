@@ -412,6 +412,42 @@ function makeUserMessage(
   };
 }
 
+/**
+ * Resolve the CWD for a session start. When resuming, looks up the original
+ * CWD from the event store and verifies it still exists on disk. Falls back
+ * to BASE_REPO if the stored CWD was cleaned up (e.g. worktree deleted).
+ *
+ * Dependencies are injectable for testability (ESM modules can't be spied on).
+ */
+export function resolveResumeCwd(
+  options: { cwd?: string; resume?: string },
+  deps: {
+    getSession: (id: string) => { cwd?: string } | null;
+    pathExists: (p: string) => boolean;
+  } = { getSession: (id) => eventStore.getSession(id), pathExists: existsSync },
+): string {
+  const baseCwd = options.cwd || BASE_REPO;
+  if (!options.resume || options.cwd) return baseCwd;
+
+  const sessionMeta = deps.getSession(options.resume);
+  if (!sessionMeta?.cwd) return baseCwd;
+
+  if (deps.pathExists(sessionMeta.cwd)) {
+    log.info('resume: using original session CWD', {
+      sessionId: options.resume,
+      cwd: sessionMeta.cwd,
+    });
+    return sessionMeta.cwd;
+  }
+
+  log.warn('resume: original CWD no longer exists, falling back to BASE_REPO', {
+    sessionId: options.resume,
+    originalCwd: sessionMeta.cwd,
+    fallback: BASE_REPO,
+  });
+  return BASE_REPO;
+}
+
 export async function startChat(
   transport: SessionTransport,
   clientId: string,
@@ -431,31 +467,8 @@ export async function startChat(
   const abortController = new AbortController();
   const mode = options.mode || 'agent';
 
-  // When resuming, look up the original session's CWD from the event store.
-  // The SDK stores conversation data under ~/.claude/projects/<encoded-cwd>/,
-  // so we must use the same CWD the session was created with — otherwise the
-  // SDK can't find the conversation and returns "No conversation found".
-  // If the original CWD was a worktree that's been cleaned up, fall back to
-  // BASE_REPO — the SDK will still find the conversation via the encoded path.
-  let baseCwd = options.cwd || BASE_REPO;
-  if (options.resume && !options.cwd) {
-    const sessionMeta = eventStore.getSession(options.resume);
-    if (sessionMeta?.cwd) {
-      if (existsSync(sessionMeta.cwd)) {
-        baseCwd = sessionMeta.cwd;
-        log.info('resume: using original session CWD', {
-          sessionId: options.resume,
-          cwd: baseCwd,
-        });
-      } else {
-        log.warn('resume: original CWD no longer exists, falling back to BASE_REPO', {
-          sessionId: options.resume,
-          originalCwd: sessionMeta.cwd,
-          fallback: BASE_REPO,
-        });
-      }
-    }
-  }
+  const baseCwd = resolveResumeCwd(options);
+
 
   // Generate session-scoped worktree ID and create worktrees in all repos
   const wtId = generateWtId();

@@ -75,6 +75,19 @@ export function isHelloHandshake(msg: unknown): boolean {
   );
 }
 
+/**
+ * Extract the owning connectionId from a composite clientId.
+ *
+ * ClientId format: `${connectionId}:${suffix}` where suffix is either a
+ * sessionId or `new-${uuid}`. ConnectionIds use the format
+ * `conn-${timestamp}-${random}` (see server/index.ts L196) and never
+ * contain colons, so the first colon is always the separator.
+ */
+function getOwnerConnection(clientId: string): string {
+  const colonIdx = clientId.indexOf(':');
+  return colonIdx === -1 ? clientId : clientId.slice(0, colonIdx);
+}
+
 // ─── Handlers ────────────────────────────────────────────────────────────────
 
 export function handleHello(
@@ -130,7 +143,7 @@ export function handleReconnect(
         // Only reattach if this connection owns the driver (or the driver
         // was started by a connection that is now gone). Prevents a
         // reconnecting phone from hijacking a session Theia is driving.
-        const ownerConnection = found.clientId.split(':')[0];
+        const ownerConnection = getOwnerConnection(found.clientId);
         const isOwner = ownerConnection === connectionId;
         if (isOwner) {
           const conn = ctx.connRegistry.get(connectionId);
@@ -207,6 +220,12 @@ export async function handleSwitchSession(
   try {
     // null sessionId = clear active session and stop watching it so
     // broadcast events from the old session don't leak into a new chat.
+    // Trade-off: background permission prompts for the old session will
+    // no longer reach this client. Push notifications (ntfy/Pushover)
+    // still fire, so the user is notified externally. The alternative
+    // (keeping the watch) caused session bleed when switching to a new
+    // chat — the old session's events leaked through the client-side
+    // filter during the window when currentSessionId is null.
     if (msg.sessionId === null) {
       const prev = ctx.connRegistry.get(connectionId)?.activeSession;
       if (prev) {
@@ -341,7 +360,7 @@ export function handleSendV2(
       const found = ctx.sessionRegistry.findBySessionId(sessionId);
       if (found && isActive(found.clientId)) {
         // Check connection ownership: does the driver belong to THIS connection?
-        const ownerConnection = found.clientId.split(':')[0];
+        const ownerConnection = getOwnerConnection(found.clientId);
         const isOwner = ownerConnection === connectionId;
         const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
 

@@ -1558,11 +1558,6 @@ textarea:focus {
   opacity: 1;
 }
 
-.msg-bubble-footer--user {
-  opacity: 0;
-  justify-content: flex-end;
-}
-
 .msg-bubble-group--user:hover .msg-bubble-footer--user {
   opacity: 1;
 }
