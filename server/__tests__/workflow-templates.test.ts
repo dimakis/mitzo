@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'path';
 import { mkdirSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
-import { WorkflowTemplateStore, instantiateTemplate } from '../workflow-templates.js';
+import { WorkflowTemplateStore, instantiateTemplate, seedBuiltInTemplates } from '../workflow-templates.js';
 import { TaskStore } from '../task-store.js';
 
 const TEST_DIR = join(tmpdir(), `mitzo-workflow-test-${process.pid}`);
@@ -174,5 +174,27 @@ describe('instantiateTemplate', () => {
     expect(goal.templateId).toBe(tmpl.id);
     expect(children[0].templateId).toBe(tmpl.id);
     expect(children[1].templateId).toBe(tmpl.id);
+  });
+});
+
+describe('seedBuiltInTemplates', () => {
+  it('creates pr-triage and upstream-issue templates', () => {
+    seedBuiltInTemplates(templateStore);
+    const templates = templateStore.list();
+    const names = templates.map((t) => t.name);
+    expect(names).toContain('pr-triage');
+    expect(names).toContain('upstream-issue');
+
+    const prTriage = templates.find((t) => t.name === 'pr-triage')!;
+    expect(prTriage.stages).toHaveLength(5);
+    expect(prTriage.variables).toHaveProperty('repo');
+    expect(prTriage.variables).toHaveProperty('pr');
+  });
+
+  it('is idempotent — second call does not duplicate', () => {
+    seedBuiltInTemplates(templateStore);
+    seedBuiltInTemplates(templateStore);
+    const count = templateStore.list().filter((t) => t.name === 'pr-triage').length;
+    expect(count).toBe(1);
   });
 });

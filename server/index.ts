@@ -42,7 +42,7 @@ import {
   yapperWsProxy,
   taskStore,
 } from './app.js';
-import { WorkflowTemplateStore } from './workflow-templates.js';
+import { WorkflowTemplateStore, seedBuiltInTemplates } from './workflow-templates.js';
 import { SignalProcessor } from './signal-processor.js';
 import { TaskOrchestrator } from './task-orchestrator.js';
 import { IncomingWsMessage } from './ws-schemas.js';
@@ -113,6 +113,7 @@ setTaskBroadcast((event) => {
 
 // --- Workflow layer ---
 const wfTemplateStore = new WorkflowTemplateStore(join(BASE_REPO, '.mitzo', 'tasks.db'));
+seedBuiltInTemplates(wfTemplateStore);
 setTemplateStore(wfTemplateStore);
 
 // SignalProcessor + orchestrator have a circular dep: signal resolution triggers tick(),

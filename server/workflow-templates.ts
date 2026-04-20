@@ -196,3 +196,90 @@ export function instantiateTemplate(
 
   return taskStore.get(goal.id)!;
 }
+
+/**
+ * Seed built-in workflow templates if they don't already exist.
+ * Idempotent — safe to call on every server start.
+ */
+export function seedBuiltInTemplates(store: WorkflowTemplateStore): void {
+  const existing = new Set(store.list().map((t) => t.name));
+
+  if (!existing.has('pr-triage')) {
+    store.create({
+      name: 'pr-triage',
+      description: 'Triage a pull request: CI check, code review, feedback loop, merge readiness.',
+      stages: [
+        {
+          title: 'Check CI status and conflicts for {{repo}}#{{pr}}',
+          stage_type: 'agent_work',
+        },
+        {
+          title: 'Wait for code review on {{repo}}#{{pr}}',
+          stage_type: 'wait_for_signal',
+          gate_config: { type: 'gh_review', repo: '{{repo}}', pr: '{{pr}}' },
+        },
+        {
+          title: 'Address review feedback on {{repo}}#{{pr}}',
+          stage_type: 'agent_work',
+          max_retries: 3,
+        },
+        {
+          title: 'Verify CI green on {{repo}}#{{pr}}',
+          stage_type: 'wait_for_signal',
+          gate_config: { type: 'gh_ci', repo: '{{repo}}', pr: '{{pr}}' },
+        },
+        {
+          title: 'Merge readiness report for {{repo}}#{{pr}}',
+          stage_type: 'agent_work',
+        },
+      ],
+      variables: {
+        repo: { description: 'Repository in org/name format (e.g., dimakis/mitzo)' },
+        pr: { description: 'Pull request number' },
+      },
+    });
+    log.info('seeded built-in template: pr-triage');
+  }
+
+  if (!existing.has('upstream-issue')) {
+    store.create({
+      name: 'upstream-issue',
+      description: 'End-to-end upstream issue: design, review, implement, CI/review cycles.',
+      stages: [
+        {
+          title: 'Design implementation for {{issue}}',
+          stage_type: 'agent_work',
+        },
+        {
+          title: 'Review design',
+          stage_type: 'human_review',
+        },
+        {
+          title: 'Implement {{issue}} in {{repo}}',
+          stage_type: 'agent_work',
+        },
+        {
+          title: 'Wait for CI on {{repo}}',
+          stage_type: 'wait_for_signal',
+          gate_config: { type: 'gh_ci', repo: '{{repo}}', pr: '{{pr}}' },
+        },
+        {
+          title: 'Address review feedback',
+          stage_type: 'agent_work',
+          max_retries: 3,
+        },
+        {
+          title: 'Wait for final approval on {{repo}}#{{pr}}',
+          stage_type: 'wait_for_signal',
+          gate_config: { type: 'gh_review', repo: '{{repo}}', pr: '{{pr}}' },
+        },
+      ],
+      variables: {
+        issue: { description: 'Issue reference (e.g., upstream/repo#456)' },
+        repo: { description: 'Target repository in org/name format' },
+        pr: { description: 'Pull request number (set after PR is created)', default: '' },
+      },
+    });
+    log.info('seeded built-in template: upstream-issue');
+  }
+}
