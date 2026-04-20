@@ -127,14 +127,21 @@ export function handleReconnect(
       const found = ctx.sessionRegistry.findBySessionId(entry.sessionId);
       const running = found ? ctx.sessionRegistry.isActive(found.clientId) : false;
       if (found && running && !ctx.sessionRegistry.isAttached(found.clientId)) {
-        const conn = ctx.connRegistry.get(connectionId);
-        if (conn) {
-          reattachChat(found.clientId, conn.transport);
-          log.info('reattached detached session on reconnect', {
-            connectionId,
-            sessionId: entry.sessionId,
-            clientId: found.clientId,
-          });
+        // Only reattach if this connection owns the driver (or the driver
+        // was started by a connection that is now gone). Prevents a
+        // reconnecting phone from hijacking a session Theia is driving.
+        const ownerConnection = found.clientId.split(':')[0];
+        const isOwner = ownerConnection === connectionId;
+        if (isOwner) {
+          const conn = ctx.connRegistry.get(connectionId);
+          if (conn) {
+            reattachChat(found.clientId, conn.transport);
+            log.info('reattached detached session on reconnect', {
+              connectionId,
+              sessionId: entry.sessionId,
+              clientId: found.clientId,
+            });
+          }
         }
       }
 
@@ -198,8 +205,13 @@ export async function handleSwitchSession(
   span.setAttribute('ws.sessionId', msg.sessionId ?? 'null');
 
   try {
-    // null sessionId = clear active session
+    // null sessionId = clear active session and stop watching it so
+    // broadcast events from the old session don't leak into a new chat.
     if (msg.sessionId === null) {
+      const prev = ctx.connRegistry.get(connectionId)?.activeSession;
+      if (prev) {
+        ctx.connRegistry.unwatch(connectionId, prev);
+      }
       ctx.connRegistry.setActive(connectionId, null);
       ctx.connRegistry.get(connectionId)?.transport.send({ type: 'session_cleared' });
       span.setStatus({ code: SpanStatusCode.OK });
@@ -328,10 +340,28 @@ export function handleSendV2(
       // Resume existing session
       const found = ctx.sessionRegistry.findBySessionId(sessionId);
       if (found && isActive(found.clientId)) {
+        // Check connection ownership: does the driver belong to THIS connection?
+        const ownerConnection = found.clientId.split(':')[0];
+        const isOwner = ownerConnection === connectionId;
+        const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
+
+        if (!isOwner && !isDetached) {
+          // Session is actively driven by another connection — reject.
+          transport.send({
+            type: 'error',
+            error: 'Session is active on another device',
+            code: 'active_elsewhere',
+            sessionId,
+          });
+          span.setAttribute('routing.decision', 'rejected_active_elsewhere');
+          span.setStatus({ code: SpanStatusCode.ERROR, message: 'active_elsewhere' });
+          return;
+        }
+
         // Reattach if session was detached by a previous WS disconnect.
         // This updates the session's transport to the current connection
         // so the v1 fallback path in sendOrBuffer can still deliver events.
-        if (!ctx.sessionRegistry.isAttached(found.clientId)) {
+        if (isDetached) {
           reattachChat(found.clientId, transport);
           log.info('reattached detached session on send', {
             connectionId,
@@ -343,7 +373,7 @@ export function handleSendV2(
         sendToChat(found.clientId, prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
         ctx.connRegistry.watch(connectionId, sessionId);
         ctx.connRegistry.setActive(connectionId, sessionId);
-        span.setAttribute('routing.decision', 'active');
+        span.setAttribute('routing.decision', isDetached ? 'takeover' : 'active');
         span.setStatus({ code: SpanStatusCode.OK });
         return;
       }
