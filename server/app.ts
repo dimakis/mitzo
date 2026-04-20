@@ -41,6 +41,7 @@ import {
   handleTaskComplete,
   handleTaskStatus,
   handleTaskBlock,
+  handleTaskArtifact,
 } from './task-tools.js';
 import { setTaskStore } from './chat.js';
 import {
@@ -55,8 +56,12 @@ import {
   TaskCreateBody,
   TaskUpdateBody,
   LoopStartBody,
+  WorkflowInstantiateBody,
+  SignalBody,
 } from './api-schemas.js';
 import type { TaskOrchestrator } from './task-orchestrator.js';
+import type { WorkflowTemplateStore } from './workflow-templates.js';
+import type { SignalProcessor } from './signal-processor.js';
 import {
   listInboxItems,
   readInboxItem,
@@ -195,9 +200,19 @@ let onUpdateAvailable: (() => void) | null = null;
 let onInboxUpdated: (() => void) | null = null;
 let onTaskBroadcast: ((event: Record<string, unknown>) => void) | null = null;
 let orchestrator: TaskOrchestrator | null = null;
+let templateStore: WorkflowTemplateStore | null = null;
+let signalProcessor: SignalProcessor | null = null;
 
 export function setOrchestrator(o: TaskOrchestrator): void {
   orchestrator = o;
+}
+
+export function setTemplateStore(ts: WorkflowTemplateStore): void {
+  templateStore = ts;
+}
+
+export function setSignalProcessor(sp: SignalProcessor): void {
+  signalProcessor = sp;
 }
 
 // --- Task store ---
@@ -532,6 +547,24 @@ app.post('/api/internal/task-tools/block', (req, res) => {
   });
 });
 
+app.post('/api/internal/task-tools/artifact', (req, res) => {
+  if (!verifyInternalToken(req)) {
+    res.status(401).json({ error: 'Internal token required' });
+    return;
+  }
+  const taskId = resolveTaskContext(req);
+  if (!taskId) {
+    res.status(400).json({ error: 'No active task context' });
+    return;
+  }
+  const result = handleTaskArtifact(taskStore, taskId, req.body.key ?? '', req.body.value ?? '');
+  res.json({ result });
+  onTaskBroadcast?.({
+    type: 'task_state',
+    tasks: taskStore.getTree(),
+  });
+});
+
 // --- Loop orchestrator API ---
 
 app.get('/api/loop/status', (req, res) => {
@@ -634,6 +667,94 @@ app.post('/api/loop/spec/reject', (_req, res) => {
     return;
   }
   res.json(orchestrator.rejectSpec());
+});
+
+// --- Workflow Templates ---
+
+app.get('/api/templates', (_req, res) => {
+  if (!templateStore) {
+    res.status(503).json({ error: 'Template store not initialized' });
+    return;
+  }
+  res.json({ templates: templateStore.list() });
+});
+
+app.get('/api/templates/:id', (req, res) => {
+  if (!templateStore) {
+    res.status(503).json({ error: 'Template store not initialized' });
+    return;
+  }
+  const tmpl = templateStore.get(req.params.id);
+  if (!tmpl) {
+    res.status(404).json({ error: 'Template not found' });
+    return;
+  }
+  res.json({ template: tmpl });
+});
+
+app.delete('/api/templates/:id', (req, res) => {
+  if (!templateStore) {
+    res.status(503).json({ error: 'Template store not initialized' });
+    return;
+  }
+  const ok = templateStore.delete(req.params.id);
+  if (!ok) {
+    res.status(404).json({ error: 'Template not found' });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+app.post('/api/workflows/instantiate', (req, res) => {
+  if (!templateStore) {
+    res.status(503).json({ error: 'Template store not initialized' });
+    return;
+  }
+  const body = WorkflowInstantiateBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.issues[0]?.message ?? 'Invalid input' });
+    return;
+  }
+  try {
+    const { instantiateTemplate } = require('./workflow-templates.js');
+    const goal = instantiateTemplate(
+      taskStore,
+      templateStore,
+      body.data.templateId,
+      body.data.title,
+      body.data.variables,
+    );
+    res.status(201).json({ task: goal });
+    onTaskBroadcast?.({ type: 'task_state', tasks: taskStore.getTree() });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(400).json({ error: message });
+  }
+});
+
+// --- Signal injection ---
+
+app.post('/api/tasks/:id/signal', (req, res) => {
+  if (!signalProcessor) {
+    res.status(503).json({ error: 'Signal processor not initialized' });
+    return;
+  }
+  const body = SignalBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.issues[0]?.message ?? 'Invalid input' });
+    return;
+  }
+  const task = taskStore.get(req.params.id);
+  if (!task) {
+    res.status(404).json({ error: 'Task not found' });
+    return;
+  }
+  signalProcessor.resolveSignal(req.params.id, {
+    status: body.data.status,
+    artifacts: body.data.artifacts,
+  });
+  res.json({ ok: true });
+  onTaskBroadcast?.({ type: 'task_state', tasks: taskStore.getTree() });
 });
 
 app.post('/api/auth/login', loginLimiter, async (req, res) => {

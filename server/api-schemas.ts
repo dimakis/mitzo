@@ -118,6 +118,10 @@ export const TaskCreateBody = z.object({
   priority: z.number().optional(),
   sessionPolicy: z.enum(['reuse', 'spawn', 'auto']).optional(),
   annotations: z.array(z.string()).optional(),
+  stageType: z.enum(['agent_work', 'wait_for_signal', 'human_review']).optional(),
+  gateConfig: z.record(z.unknown()).optional(),
+  maxRetries: z.number().min(0).optional(),
+  templateId: z.string().optional(),
 });
 
 export const TaskUpdateBody = z.object({
@@ -131,9 +135,25 @@ export const TaskUpdateBody = z.object({
   annotations: z.array(z.string()).optional(),
   summary: z.string().optional(),
   requiresApproval: z.boolean().optional(),
+  stageType: z.enum(['agent_work', 'wait_for_signal', 'human_review']).optional(),
+  gateConfig: z.record(z.unknown()).optional(),
+  artifacts: z.record(z.unknown()).optional(),
+  retryCount: z.number().min(0).optional(),
+  maxRetries: z.number().min(0).optional(),
 });
 
 export const LoopStartBody = z.object({
   goalId: z.string().min(1),
   specMode: z.boolean().optional(),
+});
+
+export const WorkflowInstantiateBody = z.object({
+  templateId: z.string().min(1),
+  title: z.string().min(1),
+  variables: z.record(z.string()).default({}),
+});
+
+export const SignalBody = z.object({
+  status: z.enum(['pass', 'fail']),
+  artifacts: z.record(z.unknown()).optional(),
 });

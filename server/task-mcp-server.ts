@@ -141,6 +141,31 @@ server.registerTool(
   },
 );
 
+server.registerTool(
+  'TaskArtifact',
+  {
+    description:
+      'Store a structured artifact (e.g., PR URL, file path) for later workflow stages. ' +
+      'Artifacts are visible to sibling tasks in the same workflow.',
+    inputSchema: {
+      key: z.string().min(1).describe('Artifact key (e.g., "pr_url", "design_doc")'),
+      value: z.string().describe('Artifact value'),
+    },
+  },
+  async ({ key, value }) => {
+    try {
+      const data = (await apiCall('POST', '/api/internal/task-tools/artifact', {
+        key,
+        value,
+      })) as { result: string };
+      return { content: [{ type: 'text' as const, text: data.result }] };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: 'text' as const, text: `Error: ${msg}` }] };
+    }
+  },
+);
+
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);

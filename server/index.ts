@@ -33,6 +33,8 @@ import {
   setInboxBroadcast,
   setTaskBroadcast,
   setOrchestrator,
+  setTemplateStore,
+  setSignalProcessor,
   runUpdateCheck,
   buildSkillRegistry,
   NATIVE_COMMAND_NAMES,
@@ -40,6 +42,8 @@ import {
   yapperWsProxy,
   taskStore,
 } from './app.js';
+import { WorkflowTemplateStore } from './workflow-templates.js';
+import { SignalProcessor } from './signal-processor.js';
 import { TaskOrchestrator } from './task-orchestrator.js';
 import { IncomingWsMessage } from './ws-schemas.js';
 import { resolvePending } from './permissions.js';
@@ -107,9 +111,22 @@ setTaskBroadcast((event) => {
   connRegistry.broadcastAll(event as Record<string, unknown>);
 });
 
+// --- Workflow layer ---
+const wfTemplateStore = new WorkflowTemplateStore(join(BASE_REPO, '.mitzo', 'tasks.db'));
+setTemplateStore(wfTemplateStore);
+
+// SignalProcessor + orchestrator have a circular dep: signal resolution triggers tick(),
+// tick() registers watches. Break the cycle with a late-bound callback.
+let orchestratorRef: TaskOrchestrator | null = null;
+const signalProc = new SignalProcessor(taskStore, () => {
+  orchestratorRef?.tick();
+});
+setSignalProcessor(signalProc);
+
 // --- Task Orchestrator ---
 const orchestrator = new TaskOrchestrator({
   store: taskStore,
+  watchSignal: (taskId, gateConfig) => signalProc.watch(taskId, gateConfig),
   getClientId: () => {
     // Find the first registered client (reuse-only for Phase 2)
     for (const [clientId] of registry.entries()) {
@@ -161,6 +178,7 @@ const orchestrator = new TaskOrchestrator({
     return ids;
   },
 });
+orchestratorRef = orchestrator;
 setOrchestrator(orchestrator);
 
 server.on('upgrade', async (req, socket, head) => {
@@ -743,6 +761,8 @@ function handleChatWs(
 function shutdown(signal: string) {
   log.info(`${signal} received — shutting down gracefully`);
   server.close();
+  signalProc.unwatchAll();
+  wfTemplateStore.close();
   registry.dispose();
   for (const client of wss.clients) {
     client.close(1001, 'Server shutting down');
