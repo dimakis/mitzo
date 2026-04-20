@@ -359,10 +359,7 @@ describe('hideSession persistence', () => {
 
 describe('hideAllSessions', () => {
   it('hides all visible sessions in EventStore', async () => {
-    mockListSessionsMeta.mockReturnValue([
-      { sessionId: 'sess-a' },
-      { sessionId: 'sess-b' },
-    ]);
+    mockListSessionsMeta.mockReturnValue([{ sessionId: 'sess-a' }, { sessionId: 'sess-b' }]);
 
     const { hideAllSessions } = await import('../chat.js');
     hideAllSessions();
