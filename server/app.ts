@@ -61,6 +61,7 @@ import {
 } from './api-schemas.js';
 import type { TaskOrchestrator } from './task-orchestrator.js';
 import type { WorkflowTemplateStore } from './workflow-templates.js';
+import { instantiateTemplate } from './workflow-templates.js';
 import type { SignalProcessor } from './signal-processor.js';
 import {
   listInboxItems,
@@ -74,7 +75,7 @@ import { SkillRegistry } from './skills.js';
 
 import { mkdirSync } from 'fs';
 import { homedir } from 'os';
-import { TaskStore } from './task-store.js';
+import { TaskStore, type TaskCreateInput, type TaskUpdateInput } from './task-store.js';
 
 const log = createLogger('server');
 
@@ -426,7 +427,7 @@ app.post('/api/tasks', (req, res) => {
     return;
   }
   try {
-    const task = taskStore.create(body.data);
+    const task = taskStore.create(body.data as TaskCreateInput);
     res.status(201).json({ task });
     // Broadcast full tree so child tasks appear correctly in all clients
     onTaskBroadcast?.({ type: 'task_state', tasks: taskStore.getTree() });
@@ -451,7 +452,7 @@ app.patch('/api/tasks/:id', (req, res) => {
     res.status(400).json({ error: body.error.issues[0]?.message ?? 'Invalid input' });
     return;
   }
-  const task = taskStore.update(req.params.id, body.data);
+  const task = taskStore.update(req.params.id, body.data as TaskUpdateInput);
   if (!task) {
     res.status(404).json({ error: 'Task not found' });
     return;
@@ -716,7 +717,6 @@ app.post('/api/workflows/instantiate', (req, res) => {
     return;
   }
   try {
-    const { instantiateTemplate } = require('./workflow-templates.js');
     const goal = instantiateTemplate(
       taskStore,
       templateStore,

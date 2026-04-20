@@ -162,17 +162,6 @@ export class SignalProcessor {
     if (!task.parentId) return;
 
     const siblings = this.store.getChildren(task.parentId);
-    // Siblings are sorted by priority DESC — find the one just before this task
-    let found = false;
-    for (const sibling of siblings) {
-      if (sibling.id === task.id) {
-        found = true;
-        continue;
-      }
-      // After finding our task in the list, look backwards. But since sorted by priority DESC,
-      // the sibling before us has higher priority. So we need to find the last agent_work
-      // sibling before our task in the ordered list.
-    }
 
     // Walk the list: find the agent_work sibling that comes right before this task
     // (i.e., has higher priority = appears earlier in priority-sorted list)

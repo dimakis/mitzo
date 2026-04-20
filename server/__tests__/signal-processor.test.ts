@@ -3,18 +3,18 @@ import { join } from 'path';
 import { mkdirSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { TaskStore } from '../task-store.js';
-import { SignalProcessor, type GateResult } from '../signal-processor.js';
+import { SignalProcessor } from '../signal-processor.js';
 
 const TEST_DIR = join(tmpdir(), `mitzo-signal-test-${process.pid}`);
 
 let store: TaskStore;
 let processor: SignalProcessor;
-let onResolved: ReturnType<typeof vi.fn>;
+let onResolved: ReturnType<typeof vi.fn<(taskId: string) => void>>;
 
 beforeEach(() => {
   mkdirSync(TEST_DIR, { recursive: true });
   store = new TaskStore(join(TEST_DIR, `tasks-${Date.now()}.db`));
-  onResolved = vi.fn();
+  onResolved = vi.fn<(taskId: string) => void>();
   processor = new SignalProcessor(store, onResolved);
 });
 
