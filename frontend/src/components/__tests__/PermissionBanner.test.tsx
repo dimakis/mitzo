@@ -75,15 +75,15 @@ describe('PermissionBanner', () => {
   });
 
   it('adds perm-banner--visible class after mount', () => {
-    // rAF fires synchronously in jsdom with fake timers
-    vi.useRealTimers();
     const rafSpy = vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((cb) => {
       cb(0);
       return 0;
     });
-    const { container } = render(<PermissionBanner {...defaultProps} />);
-    expect(container.querySelector('.perm-banner--visible')).toBeTruthy();
-    rafSpy.mockRestore();
-    vi.useFakeTimers();
+    try {
+      const { container } = render(<PermissionBanner {...defaultProps} />);
+      expect(container.querySelector('.perm-banner--visible')).toBeTruthy();
+    } finally {
+      rafSpy.mockRestore();
+    }
   });
 });

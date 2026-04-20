@@ -517,6 +517,32 @@ describe('respondToPermission', () => {
   });
 });
 
+describe('respondToPermission — disconnected', () => {
+  it('does not clear pending permission when WS send fails', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('test-session');
+
+    lastWs.simulateMessage({
+      type: 'permission_request',
+      permId: 'perm-1',
+      toolName: 'Bash',
+      toolInput: 'rm -rf /',
+      tier: 'elevated',
+      sessionId: 'test-session',
+    });
+    expect(store.getState().messages.permission).not.toBeNull();
+
+    // Disconnect — send() will return false
+    lastWs.simulateClose();
+
+    store.getState().respondToPermission('perm-1', 'once');
+
+    // Permission should remain pending so user can retry
+    expect(store.getState().messages.permission).not.toBeNull();
+    expect(store.getState().messages.permission!.permId).toBe('perm-1');
+  });
+});
+
 describe('respondToPermission — first turn edge case', () => {
   it('sends permission_response without sessionId when no session is active', () => {
     const store = createReadyStore();

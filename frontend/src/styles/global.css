@@ -2063,11 +2063,11 @@ textarea:focus {
 }
 
 .perm-banner-btn--always:hover {
-  background: rgba(76, 175, 80, 0.35);
+  background: rgba(76, 175, 80, 0.35); /* --success variants */
 }
 
 .perm-banner-btn--always:active {
-  background: rgba(76, 175, 80, 0.45);
+  background: rgba(76, 175, 80, 0.45); /* --success variants */
   transform: scale(0.97);
 }
 
