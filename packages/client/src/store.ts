@@ -284,16 +284,18 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     stopGeneration() {
+      if (!parserState.currentSessionId) return;
       connection.send({
         type: 'stop',
-        sessionId: parserState.currentSessionId ?? null,
+        sessionId: parserState.currentSessionId,
       });
     },
 
     respondToPermission(permId: string, decision: 'once' | 'always' | 'deny') {
+      if (!parserState.currentSessionId) return;
       connection.send({
         type: 'permission_response',
-        sessionId: parserState.currentSessionId ?? null,
+        sessionId: parserState.currentSessionId,
         permId,
         decision,
       });
@@ -393,14 +395,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
               ...s.tasks,
               loopStatus: {
                 state: (status.state ?? 'idle') as LoopStatus['state'],
-                goalId: ((status as Record<string, unknown>).goalId as string | null) ?? null,
-                activeTaskId:
-                  ((status as Record<string, unknown>).activeTaskId as string | null) ?? null,
-                progress:
-                  ((status as Record<string, unknown>).progress as LoopStatus['progress']) ?? null,
-                specMode: ((status as Record<string, unknown>).specMode as boolean) ?? false,
-                awaitingApproval:
-                  ((status as Record<string, unknown>).awaitingApproval as boolean) ?? false,
+                goalId: status.goalId ?? null,
+                activeTaskId: status.activeTaskId ?? null,
+                progress: (status.progress as LoopStatus['progress']) ?? null,
+                specMode: status.specMode ?? false,
+                awaitingApproval: status.awaitingApproval ?? false,
               },
             },
           }));
