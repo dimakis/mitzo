@@ -23,11 +23,16 @@ function worktreesDir(baseRepo: string): string {
  * Returns age in milliseconds, or null if the name doesn't match the convention.
  */
 export function parseWorktreeAge(entry: string): number | null {
-  const match = entry.match(/^(\d{4}-\d{2}-\d{2})-/);
+  const match = entry.match(/^(\d{4})-(\d{2})-(\d{2})-[a-f0-9]{6}$/);
   if (!match) return null;
-  const created = new Date(match[1] + 'T00:00:00Z').getTime();
-  if (isNaN(created)) return null;
-  return Date.now() - created;
+  const [, year, month, day] = match;
+  const created = new Date(`${year}-${month}-${day}T00:00:00Z`);
+  if (isNaN(created.getTime())) return null;
+  // Reject impossible dates that Date normalizes (e.g. Feb 31 → Mar 3)
+  if (created.getUTCMonth() + 1 !== Number(month) || created.getUTCDate() !== Number(day)) {
+    return null;
+  }
+  return Date.now() - created.getTime();
 }
 
 export interface CreateWorktreeOptions {
@@ -303,7 +308,13 @@ export function countWorktrees(baseRepo: string): number {
   const dir = worktreesDir(baseRepo);
   if (!existsSync(dir)) return 0;
   try {
-    return readdirSync(dir).length;
+    return readdirSync(dir).filter((e) => {
+      try {
+        return statSync(join(dir, e)).isDirectory();
+      } catch {
+        return false;
+      }
+    }).length;
   } catch {
     return 0;
   }

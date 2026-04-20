@@ -51,6 +51,18 @@ describe('parseWorktreeAge', () => {
   it('returns null for invalid dates', () => {
     expect(parseWorktreeAge('9999-99-99-abc123')).toBeNull();
   });
+
+  it('returns null for impossible calendar dates', () => {
+    expect(parseWorktreeAge('2026-02-31-abc123')).toBeNull();
+    expect(parseWorktreeAge('2026-13-01-abc123')).toBeNull();
+    expect(parseWorktreeAge('2026-04-31-abc123')).toBeNull();
+  });
+
+  it('returns null for names without 6-char hex suffix', () => {
+    expect(parseWorktreeAge('2026-04-20-ws-fix')).toBeNull();
+    expect(parseWorktreeAge('2026-04-20-')).toBeNull();
+    expect(parseWorktreeAge('2026-04-20')).toBeNull();
+  });
 });
 
 describe('countWorktrees', () => {
@@ -73,11 +85,13 @@ describe('countWorktrees', () => {
     expect(countWorktrees(baseRepo)).toBe(0);
   });
 
-  it('counts entries in worktrees directory', () => {
+  it('counts only directories in worktrees directory', () => {
     const dir = join(baseRepo, '.claude', 'worktrees');
     mkdirSync(dir, { recursive: true });
     mkdirSync(join(dir, '2026-04-20-aaa111'));
     mkdirSync(join(dir, '2026-04-20-bbb222'));
+    writeFileSync(join(dir, '.DS_Store'), '');
+    writeFileSync(join(dir, 'stray-file.txt'), '');
     expect(countWorktrees(baseRepo)).toBe(2);
   });
 });
@@ -187,7 +201,7 @@ describe('cleanupStaleWorktrees', () => {
     // Use a date 5 days ago in the name — even though mtime will be "now"
     const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
     const oldDate = fiveDaysAgo.toISOString().slice(0, 10);
-    const sessionId = `${oldDate}-nametest`;
+    const sessionId = `${oldDate}-a1b2c3`;
     const wtPath = join(wtDir, sessionId);
     execFileSync('git', ['-C', baseRepo, 'worktree', 'add', '-b', `session/${sessionId}`, wtPath], {
       stdio: 'pipe',
