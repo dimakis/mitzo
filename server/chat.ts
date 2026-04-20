@@ -72,10 +72,11 @@ export function getMcpServerNames(): string[] {
 export const BASE_REPO = process.env.REPO_PATH || '';
 
 /** Check whether worktree isolation is enabled.
- *  Per-session override > .mitzo.json config > WORKTREE_ENABLED env var. */
-function isIsolationEnabled(perSession?: boolean): boolean {
-  if (perSession !== undefined) return perSession;
+ *  WORKTREE_ENABLED=false is an absolute ceiling (always wins).
+ *  Otherwise: per-session override > .mitzo.json config > default true. */
+export function isIsolationEnabled(perSession?: boolean): boolean {
   if (process.env.WORKTREE_ENABLED === 'false') return false;
+  if (perSession !== undefined) return perSession;
   return getRepoConfig().isolation;
 }
 

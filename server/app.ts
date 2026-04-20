@@ -22,6 +22,7 @@ import {
   BASE_REPO,
   getMcpServerNames,
   getRepoConfig,
+  isIsolationEnabled,
   eventStore,
   registry,
   generateWtId,
@@ -391,13 +392,13 @@ app.post('/api/sessions', (req, res) => {
     return;
   }
 
-  const config = getRepoConfig();
-
-  if (!config.isolation) {
-    log.info('session isolation disabled via .mitzo.json', { source });
+  if (!isIsolationEnabled()) {
+    log.info('session isolation disabled', { source });
     res.json({ sessionId: null, worktrees: null, isolation: false });
     return;
   }
+
+  const config = getRepoConfig();
 
   const wtId = generateWtId();
 

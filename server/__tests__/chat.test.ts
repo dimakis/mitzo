@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ManagedSession } from '@mitzo/harness';
 
 vi.mock('../worktree.js', async (importOriginal) => {
@@ -122,6 +122,7 @@ describe('cleanupSessionWorktrees', () => {
     const { loadRepoConfig } = await import('../repo-config.js');
     (loadRepoConfig as ReturnType<typeof vi.fn>).mockReturnValue({
       repos: { mitzo: '/tools/mitzo', centaur: '/projects/centaur' },
+      isolation: true,
     });
 
     // Force getRepoConfig TTL cache to expire so our mock is picked up
@@ -159,6 +160,7 @@ describe('cleanupSessionWorktrees', () => {
     const { loadRepoConfig } = await import('../repo-config.js');
     (loadRepoConfig as ReturnType<typeof vi.fn>).mockReturnValue({
       repos: {},
+      isolation: true,
     });
 
     const realNow = Date.now;
@@ -190,5 +192,67 @@ describe('cleanupSessionWorktrees', () => {
     cleanupSessionWorktrees(session);
 
     expect(session.worktreePaths.size).toBe(0);
+  });
+});
+
+describe('isIsolationEnabled', () => {
+  let originalEnv: string | undefined;
+
+  let realNow: () => number;
+
+  beforeEach(async () => {
+    originalEnv = process.env.WORKTREE_ENABLED;
+    realNow = Date.now;
+    Date.now = () => realNow() + 10_000;
+    const { loadRepoConfig } = await import('../repo-config.js');
+    (loadRepoConfig as ReturnType<typeof vi.fn>).mockReturnValue({
+      isolation: true,
+      repos: {},
+      resolvedVenvPaths: [],
+      toolTierOverrides: {},
+    });
+  });
+
+  afterEach(() => {
+    Date.now = realNow;
+    if (originalEnv === undefined) {
+      delete process.env.WORKTREE_ENABLED;
+    } else {
+      process.env.WORKTREE_ENABLED = originalEnv;
+    }
+    vi.restoreAllMocks();
+  });
+
+  it('defaults to true with no overrides', async () => {
+    delete process.env.WORKTREE_ENABLED;
+    const { isIsolationEnabled, getRepoConfig } = await import('../chat.js');
+    getRepoConfig(); // prime cache with mock
+    expect(isIsolationEnabled()).toBe(true);
+  });
+
+  it('WORKTREE_ENABLED=false is an absolute ceiling', async () => {
+    process.env.WORKTREE_ENABLED = 'false';
+    const { isIsolationEnabled } = await import('../chat.js');
+    // Even with per-session true, env var wins
+    expect(isIsolationEnabled(true)).toBe(false);
+  });
+
+  it('per-session false overrides config true', async () => {
+    delete process.env.WORKTREE_ENABLED;
+    const { isIsolationEnabled } = await import('../chat.js');
+    expect(isIsolationEnabled(false)).toBe(false);
+  });
+
+  it('per-session true enables isolation', async () => {
+    delete process.env.WORKTREE_ENABLED;
+    const { isIsolationEnabled } = await import('../chat.js');
+    expect(isIsolationEnabled(true)).toBe(true);
+  });
+
+  it('undefined per-session falls through to config', async () => {
+    delete process.env.WORKTREE_ENABLED;
+    const { isIsolationEnabled, getRepoConfig } = await import('../chat.js');
+    getRepoConfig(); // prime cache with mock
+    expect(isIsolationEnabled(undefined)).toBe(true);
   });
 });
