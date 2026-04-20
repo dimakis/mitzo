@@ -69,6 +69,7 @@ export const V2SendMessage = z.object({
   mode: z.enum(['ask', 'agent', 'auto']).optional(),
   cwd: z.string().optional(),
   extraTools: z.string().optional(),
+  isolation: z.boolean().optional(),
   images: z.array(ImageSchema).optional(),
   contextBlocks: z.array(z.string()).optional(),
 });

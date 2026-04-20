@@ -31,6 +31,8 @@ export interface RepoConfig {
   resolvedInboxPath: string;
   repos: Record<string, string>;
   contextBlocks: Record<string, string>;
+  /** Whether session worktree isolation is enabled. Defaults to true. */
+  isolation: boolean;
 }
 
 const EMPTY_CONFIG: RepoConfig = {
@@ -44,6 +46,7 @@ const EMPTY_CONFIG: RepoConfig = {
   resolvedInboxPath: '',
   repos: {},
   contextBlocks: {},
+  isolation: true,
 };
 
 function isValidQuickAction(item: unknown): item is QuickAction {
@@ -130,6 +133,8 @@ export function loadRepoConfig(repoPath: string): RepoConfig {
     }
   }
 
+  const isolation = obj.isolation !== false; // default true
+
   const contextBlocks: Record<string, string> = {};
   if (
     obj.contextBlocks &&
@@ -153,5 +158,6 @@ export function loadRepoConfig(repoPath: string): RepoConfig {
     resolvedInboxPath,
     repos,
     contextBlocks,
+    isolation,
   };
 }

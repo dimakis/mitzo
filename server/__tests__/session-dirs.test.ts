@@ -19,6 +19,7 @@ const mockConfig: RepoConfig = {
   resolvedInboxPath: '',
   repos: {},
   contextBlocks: {},
+  isolation: true,
 };
 
 const mockLoadRepoConfig = vi.fn((_repoPath?: string) => ({ ...mockConfig }));

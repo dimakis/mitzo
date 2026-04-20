@@ -46,6 +46,7 @@ export interface SendMessageOptions {
   mode?: MitzoMode;
   cwd?: string;
   extraTools?: string;
+  isolation?: boolean;
 }
 
 export interface MitzoStoreState {
@@ -239,6 +240,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         }
         if (opts?.cwd) msg.cwd = opts.cwd;
         if (opts?.extraTools) msg.extraTools = opts.extraTools;
+        if (opts?.isolation !== undefined) msg.isolation = opts.isolation;
         return msg;
       };
 
