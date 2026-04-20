@@ -902,8 +902,11 @@ export function hideSession(sessionId: string) {
   hiddenSessionIds.add(sessionId);
   eventStore.hideSession(sessionId);
 }
-export function clearHiddenSessions() {
-  hiddenSessionIds.clear();
+export function hideAllSessions() {
+  for (const meta of eventStore.listSessions()) {
+    hiddenSessionIds.add(meta.sessionId);
+    eventStore.hideSession(meta.sessionId);
+  }
 }
 
 export async function renameSessionById(

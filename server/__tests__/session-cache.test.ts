@@ -347,3 +347,28 @@ describe('syncSessionTimestamps', () => {
     expect(mockUpsertSession).not.toHaveBeenCalled();
   });
 });
+
+describe('hideSession persistence', () => {
+  it('calls eventStore.hideSession to persist deletion', async () => {
+    const { hideSession } = await import('../chat.js');
+    hideSession('sess-to-delete');
+
+    expect(mockEventStore.hideSession).toHaveBeenCalledWith('sess-to-delete');
+  });
+});
+
+describe('hideAllSessions', () => {
+  it('hides all visible sessions in EventStore', async () => {
+    mockListSessionsMeta.mockReturnValue([
+      { sessionId: 'sess-a' },
+      { sessionId: 'sess-b' },
+    ]);
+
+    const { hideAllSessions } = await import('../chat.js');
+    hideAllSessions();
+
+    expect(mockEventStore.hideSession).toHaveBeenCalledWith('sess-a');
+    expect(mockEventStore.hideSession).toHaveBeenCalledWith('sess-b');
+    expect(mockEventStore.hideSession).toHaveBeenCalledTimes(2);
+  });
+});
