@@ -600,9 +600,7 @@ async function tryAutoRename(sessionId: string, clientId: string): Promise<void>
 
     log.info('auto-renaming session', { sessionId, promptCount, newName });
 
-    // Persist name to EventStore immediately — this is the source of truth
-    // for getSessionsCached(). Do this before the SDK call so the name
-    // survives even if the SDK rename fails (e.g. session dir not found).
+    // Persist to EventStore first — survives SDK rename failures.
     eventStore.upsertSession({ sessionId, summary: newName });
 
     // Update the SDK session name (best-effort, fire-and-forget)
@@ -897,14 +895,11 @@ export function getSessionDirs(options?: { claudeProjectsRoot?: string }): strin
   return dirs;
 }
 
-const hiddenSessionIds = new Set<string>();
 export function hideSession(sessionId: string) {
-  hiddenSessionIds.add(sessionId);
   eventStore.hideSession(sessionId);
 }
 export function hideAllSessions() {
   for (const meta of eventStore.listSessions()) {
-    hiddenSessionIds.add(meta.sessionId);
     eventStore.hideSession(meta.sessionId);
   }
 }
@@ -943,7 +938,7 @@ export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
     try {
       const sessions = await listSessions({ dir, limit: fetchLimit, includeWorktrees: true });
       for (const s of sessions) {
-        if (hiddenSessionIds.has(s.sessionId)) continue;
+        if (eventStore.getSession(s.sessionId)?.isHidden) continue;
         const existing = seen.get(s.sessionId);
         if (!existing || s.lastModified > existing.lastModified) {
           seen.set(s.sessionId, {
@@ -1052,7 +1047,7 @@ export async function syncSessionTimestamps(): Promise<void> {
     try {
       const sessions = await listSessions({ dir, limit: fetchLimit, includeWorktrees: true });
       for (const s of sessions) {
-        if (hiddenSessionIds.has(s.sessionId)) continue;
+        if (eventStore.getSession(s.sessionId)?.isHidden) continue;
         const existing = seen.get(s.sessionId);
         if (!existing || s.lastModified > existing.lastModified) {
           seen.set(s.sessionId, {

@@ -135,7 +135,7 @@ vi.mock('../chat.js', () => ({
   getSessions: vi.fn().mockResolvedValue([]),
   getMessages: vi.fn().mockResolvedValue([]),
   hideSession: vi.fn(),
-  clearHiddenSessions: vi.fn(),
+  hideAllSessions: vi.fn(),
   BASE_REPO: '/tmp/test-repo',
   repoConfig: { quickActions: [], allowedPaths: [], resolvedVenvPaths: [], toolTierOverrides: {} },
   getMcpServerNames: vi.fn().mockReturnValue([]),
@@ -170,13 +170,13 @@ vi.mock('../permissions.js', () => ({
 
 **Session routes (5 tests):**
 
-| Test              | Method | Path                        | Assert                            |
-| ----------------- | ------ | --------------------------- | --------------------------------- |
-| List sessions     | GET    | `/api/sessions`             | 200, array                        |
-| Unauthed sessions | GET    | `/api/sessions`             | 401                               |
-| Get messages      | GET    | `/api/sessions/s1/messages` | 200, array                        |
-| Hide session      | DELETE | `/api/sessions/s1`          | 200, `hideSession` called         |
-| Clear sessions    | DELETE | `/api/sessions`             | 200, `clearHiddenSessions` called |
+| Test              | Method | Path                        | Assert                        |
+| ----------------- | ------ | --------------------------- | ----------------------------- |
+| List sessions     | GET    | `/api/sessions`             | 200, array                    |
+| Unauthed sessions | GET    | `/api/sessions`             | 401                           |
+| Get messages      | GET    | `/api/sessions/s1/messages` | 200, array                    |
+| Hide session      | DELETE | `/api/sessions/s1`          | 200, `hideSession` called     |
+| Clear sessions    | DELETE | `/api/sessions`             | 200, `hideAllSessions` called |
 
 **File routes (8 tests):**
 

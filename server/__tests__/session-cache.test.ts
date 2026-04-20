@@ -338,10 +338,9 @@ describe('syncSessionTimestamps', () => {
         cwd: '/projects/foo',
       },
     ]);
-    mockGetSession.mockReturnValue(null);
+    mockGetSession.mockReturnValue({ isHidden: true });
 
-    const { hideSession, syncSessionTimestamps } = await import('../chat.js');
-    hideSession('sess-hidden');
+    const { syncSessionTimestamps } = await import('../chat.js');
     await syncSessionTimestamps();
 
     expect(mockUpsertSession).not.toHaveBeenCalled();
