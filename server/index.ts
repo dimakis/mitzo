@@ -1,4 +1,10 @@
 import 'dotenv/config';
+import dns from 'node:dns';
+
+// Force IPv4-first DNS resolution. Works around undici's broken happy-eyeballs
+// (RFC 8305) that fails to fall back from IPv6 on networks with Tailscale ULA.
+dns.setDefaultResultOrder('ipv4first');
+
 import './tracing.js';
 import { existsSync, readFileSync } from 'fs';
 import { createServer } from 'http';
