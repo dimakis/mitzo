@@ -68,6 +68,13 @@ jobs:
         run: npm audit --audit-level=high
         continue-on-error: true
 
+      - name: Secret scan
+        id: secret-scan
+        if: always()
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build MCP server
         id: build-mcp
         if: always()
@@ -105,6 +112,7 @@ jobs:
              [ "${{ steps.typecheck-frontend.outcome }}" = "failure" ] || \
              [ "${{ steps.test.outcome }}" = "failure" ] || \
              [ "${{ steps.test-count.outcome }}" = "failure" ] || \
+             [ "${{ steps.secret-scan.outcome }}" = "failure" ] || \
              [ "${{ steps.build-mcp.outcome }}" = "failure" ] || \
              [ "${{ steps.build.outcome }}" = "failure" ]; then
             echo "One or more CI steps failed."

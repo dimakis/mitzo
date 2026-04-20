@@ -4,4 +4,5 @@ title = "Mitzo gitleaks config"
 paths = [
   '''package-lock\.json''',
   '''\.claude/worktrees/''',
+  '''\.cursor/worktrees/''',
 ]

@@ -6,5 +6,9 @@ fi
 
 npx lint-staged
 
-# Scan staged changes for secrets
-gitleaks git --pre-commit --staged --verbose
+# Scan staged changes for secrets (skip if gitleaks not installed)
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks git --pre-commit --staged --verbose
+else
+  echo "WARNING: gitleaks not found — skipping secret scan. Install: brew install gitleaks"
+fi
