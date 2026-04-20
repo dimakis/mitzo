@@ -4102,6 +4102,48 @@ textarea:focus {
   border-left: 1px solid var(--border);
 }
 
+.task-node-stage {
+  font-size: 0.65rem;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-left: var(--space-1);
+}
+
+.task-node-stage--wait_for_signal {
+  background: color-mix(in srgb, var(--warning) 20%, transparent);
+  color: var(--warning);
+}
+
+.task-node-stage--human_review {
+  background: color-mix(in srgb, var(--info, #8b5cf6) 20%, transparent);
+  color: var(--info, #8b5cf6);
+}
+
+.task-node-retry {
+  font-size: 0.7rem;
+  color: var(--warning);
+  margin-left: var(--space-1);
+}
+
+.task-node-artifacts {
+  padding: var(--space-1) var(--space-2);
+  margin-left: var(--space-3);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.task-node-artifact {
+  margin-bottom: 2px;
+}
+
+.task-node-artifact-key {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
 /* ── Task Create Form ───────────────────────────────────── */
 
 .task-create-form {
