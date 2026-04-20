@@ -179,6 +179,19 @@ describe('checkWorktreePolicy', () => {
       expect(stats.denied).toBe(1);
     });
 
+    it('does not count read tools in stats', () => {
+      checkWorktreePolicy(session, 'Read', {
+        path: '/Users/me/redhat/mgmt/CONSTITUTION.md',
+      });
+      checkWorktreePolicy(session, 'Grep', {
+        pattern: 'foo',
+        path: '/Users/me/tools/mitzo/server',
+      });
+      const stats = getWorktreeGuardStats();
+      expect(stats.allowed).toBe(0);
+      expect(stats.denied).toBe(0);
+    });
+
     it('returns a copy, not a reference', () => {
       const s1 = getWorktreeGuardStats();
       checkWorktreePolicy(session, 'Write', {

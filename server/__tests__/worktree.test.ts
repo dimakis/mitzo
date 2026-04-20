@@ -22,7 +22,7 @@ vi.mock('../constants.js', () => ({
   WORKTREE_PRUNE_TIMEOUT_MS: 5_000,
 }));
 
-import { cleanupStaleWorktrees, parseWorktreeAge } from '../worktree.js';
+import { cleanupStaleWorktrees, parseWorktreeAge, countWorktrees } from '../worktree.js';
 
 describe('parseWorktreeAge', () => {
   it('parses age from standard YYYY-MM-DD-XXXXXX format', () => {
@@ -50,6 +50,35 @@ describe('parseWorktreeAge', () => {
 
   it('returns null for invalid dates', () => {
     expect(parseWorktreeAge('9999-99-99-abc123')).toBeNull();
+  });
+});
+
+describe('countWorktrees', () => {
+  let baseRepo: string;
+
+  beforeEach(() => {
+    baseRepo = mkdtempSync(join(tmpdir(), 'mitzo-count-test-'));
+  });
+
+  afterEach(() => {
+    rmSync(baseRepo, { recursive: true, force: true });
+  });
+
+  it('returns 0 when .claude/worktrees/ does not exist', () => {
+    expect(countWorktrees(baseRepo)).toBe(0);
+  });
+
+  it('returns 0 for empty worktrees directory', () => {
+    mkdirSync(join(baseRepo, '.claude', 'worktrees'), { recursive: true });
+    expect(countWorktrees(baseRepo)).toBe(0);
+  });
+
+  it('counts entries in worktrees directory', () => {
+    const dir = join(baseRepo, '.claude', 'worktrees');
+    mkdirSync(dir, { recursive: true });
+    mkdirSync(join(dir, '2026-04-20-aaa111'));
+    mkdirSync(join(dir, '2026-04-20-bbb222'));
+    expect(countWorktrees(baseRepo)).toBe(2);
   });
 });
 

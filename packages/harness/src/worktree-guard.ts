@@ -105,6 +105,9 @@ export function checkWorktreePolicy(
       });
       return message;
     }
+    stats.allowed++;
+    log.debug('worktree policy allowed', { toolName, sessionId: session.sessionId });
+    return null;
   }
 
   if (SHELL_TOOLS.has(toolName)) {
@@ -128,9 +131,9 @@ export function checkWorktreePolicy(
       });
       return message;
     }
+    stats.allowed++;
+    log.debug('worktree policy allowed', { toolName, sessionId: session.sessionId });
   }
 
-  stats.allowed++;
-  log.debug('worktree policy allowed', { toolName, sessionId: session.sessionId });
   return null;
 }
