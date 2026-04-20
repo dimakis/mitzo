@@ -600,6 +600,11 @@ async function tryAutoRename(sessionId: string, clientId: string): Promise<void>
 
     log.info('auto-renaming session', { sessionId, promptCount, newName });
 
+    // Persist name to EventStore immediately — this is the source of truth
+    // for getSessionsCached(). Do this before the SDK call so the name
+    // survives even if the SDK rename fails (e.g. session dir not found).
+    eventStore.upsertSession({ sessionId, summary: newName });
+
     // Update the SDK session name (best-effort, fire-and-forget)
     renameSessionById(sessionId, newName, false).catch((err: unknown) => {
       log.warn('auto-rename SDK call failed', {
@@ -895,6 +900,7 @@ export function getSessionDirs(options?: { claudeProjectsRoot?: string }): strin
 const hiddenSessionIds = new Set<string>();
 export function hideSession(sessionId: string) {
   hiddenSessionIds.add(sessionId);
+  eventStore.hideSession(sessionId);
 }
 export function clearHiddenSessions() {
   hiddenSessionIds.clear();
