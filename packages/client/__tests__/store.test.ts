@@ -506,6 +506,9 @@ describe('respondToPermission', () => {
 
     store.getState().respondToPermission('perm-1', 'once');
 
+    // Banner should be dismissed
+    expect(store.getState().messages.permission).toBeNull();
+
     const sent = lastWs.parsedSent();
     const response = sent.find((m) => m.type === 'permission_response');
     expect(response).toEqual({
@@ -514,6 +517,31 @@ describe('respondToPermission', () => {
       permId: 'perm-1',
       decision: 'once',
     });
+  });
+});
+
+describe('respondToPermission — queued on disconnect', () => {
+  it('clears permission and queues the message when WS is reconnecting', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('test-session');
+
+    lastWs.simulateMessage({
+      type: 'permission_request',
+      permId: 'perm-1',
+      toolName: 'Bash',
+      toolInput: 'rm -rf /',
+      tier: 'elevated',
+      sessionId: 'test-session',
+    });
+    expect(store.getState().messages.permission).not.toBeNull();
+
+    // Disconnect — send() queues the message (reconnect timer active)
+    lastWs.simulateClose();
+
+    store.getState().respondToPermission('perm-1', 'once');
+
+    // Banner should still clear — message is queued for delivery on reconnect
+    expect(store.getState().messages.permission).toBeNull();
   });
 });
 

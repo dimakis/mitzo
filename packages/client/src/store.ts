@@ -295,13 +295,19 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     respondToPermission(permId: string, decision: 'once' | 'always' | 'deny') {
-      connection.send({
+      const sent = connection.send({
         type: 'permission_response',
         ...(parserState.currentSessionId ? { sessionId: parserState.currentSessionId } : {}),
         permId,
         decision,
       });
-      set({ permissions: { pending: null } });
+      if (sent) {
+        set((s) => ({
+          permissions: { pending: null },
+          messages: { ...s.messages, permission: null },
+        }));
+      }
+      // If not sent, leave the banner visible so user can retry
     },
 
     setMode(mode: MitzoMode) {
