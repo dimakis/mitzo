@@ -22,7 +22,36 @@ vi.mock('../constants.js', () => ({
   WORKTREE_PRUNE_TIMEOUT_MS: 5_000,
 }));
 
-import { cleanupStaleWorktrees } from '../worktree.js';
+import { cleanupStaleWorktrees, parseWorktreeAge } from '../worktree.js';
+
+describe('parseWorktreeAge', () => {
+  it('parses age from standard YYYY-MM-DD-XXXXXX format', () => {
+    const today = new Date().toISOString().slice(0, 10); // e.g. 2026-04-20
+    const age = parseWorktreeAge(`${today}-abc123`);
+    expect(age).not.toBeNull();
+    // Created today, so age should be less than 24h
+    expect(age!).toBeLessThan(24 * 60 * 60 * 1000);
+    expect(age!).toBeGreaterThanOrEqual(0);
+  });
+
+  it('returns correct age for old worktrees', () => {
+    const age = parseWorktreeAge('2026-04-15-abc123');
+    expect(age).not.toBeNull();
+    // Should be at least 5 days old (test written 2026-04-20)
+    // Use a relative check: it should be more than 0
+    expect(age!).toBeGreaterThan(0);
+  });
+
+  it('returns null for non-standard names', () => {
+    expect(parseWorktreeAge('ws-fix')).toBeNull();
+    expect(parseWorktreeAge('session-worktrees')).toBeNull();
+    expect(parseWorktreeAge('random-name')).toBeNull();
+  });
+
+  it('returns null for invalid dates', () => {
+    expect(parseWorktreeAge('9999-99-99-abc123')).toBeNull();
+  });
+});
 
 describe('cleanupStaleWorktrees', () => {
   let baseRepo: string;
@@ -121,6 +150,25 @@ describe('cleanupStaleWorktrees', () => {
 
     const remaining = readdirSync(wtDir);
     expect(remaining).toContain(sessionId);
+  });
+
+  it('uses name-based age instead of mtime when name matches YYYY-MM-DD pattern', () => {
+    const wtDir = join(baseRepo, '.claude', 'worktrees');
+    mkdirSync(wtDir, { recursive: true });
+    // Use a date 5 days ago in the name — even though mtime will be "now"
+    const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+    const oldDate = fiveDaysAgo.toISOString().slice(0, 10);
+    const sessionId = `${oldDate}-nametest`;
+    const wtPath = join(wtDir, sessionId);
+    execFileSync('git', ['-C', baseRepo, 'worktree', 'add', '-b', `session/${sessionId}`, wtPath], {
+      stdio: 'pipe',
+    });
+    // Don't touch mtime — it stays at "now", but name-based age makes it stale
+
+    cleanupStaleWorktrees(baseRepo, inboxDir);
+
+    const remaining = readdirSync(wtDir);
+    expect(remaining).not.toContain(sessionId);
   });
 
   it('creates unique filenames for multiple dirty worktrees', () => {

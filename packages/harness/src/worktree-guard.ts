@@ -1,8 +1,22 @@
 import type { ManagedSession } from './session-registry.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('worktree-guard');
 
 const WRITE_TOOLS = new Set(['Write', 'Edit', 'StrReplace', 'EditNotebook', 'MultiEdit']);
 const SHELL_TOOLS = new Set(['Bash', 'Shell']);
 const PATH_FIELDS = ['file_path', 'path', 'target_notebook'];
+
+const stats = { allowed: 0, denied: 0 };
+
+export function getWorktreeGuardStats() {
+  return { ...stats };
+}
+
+export function resetWorktreeGuardStats() {
+  stats.allowed = 0;
+  stats.denied = 0;
+}
 
 /**
  * Extract absolute paths from a shell command string. Heuristic — catches
@@ -79,10 +93,17 @@ export function checkWorktreePolicy(
       if (allowed) continue;
 
       const suggestion = suggestWorktreePath(filePath, session.worktreePaths);
-      if (suggestion) {
-        return `Path ${filePath} is outside session worktrees. ` + `Use ${suggestion} instead.`;
-      }
-      return `Path ${filePath} is outside session worktrees. Check $MITZO_REPO_* env vars for correct paths.`;
+      const message = suggestion
+        ? `Path ${filePath} is outside session worktrees. Use ${suggestion} instead.`
+        : `Path ${filePath} is outside session worktrees. Check $MITZO_REPO_* env vars for correct paths.`;
+      stats.denied++;
+      log.warn('worktree policy denied', {
+        toolName,
+        attemptedPath: filePath,
+        suggestedPath: suggestion,
+        sessionId: session.sessionId,
+      });
+      return message;
     }
   }
 
@@ -95,14 +116,21 @@ export function checkWorktreePolicy(
       if (findAllowedWorktree(p, session.worktreePaths)) continue;
 
       const suggestion = suggestWorktreePath(p, session.worktreePaths);
-      if (suggestion) {
-        return (
-          `Shell command references ${p} which is outside session worktrees. ` +
-          `Use ${suggestion} instead.`
-        );
-      }
+      const message = suggestion
+        ? `Shell command references ${p} which is outside session worktrees. Use ${suggestion} instead.`
+        : `Shell command references ${p} which is outside session worktrees. Check $MITZO_REPO_* env vars for correct paths.`;
+      stats.denied++;
+      log.warn('worktree policy denied', {
+        toolName,
+        attemptedPath: p,
+        suggestedPath: suggestion,
+        sessionId: session.sessionId,
+      });
+      return message;
     }
   }
 
+  stats.allowed++;
+  log.debug('worktree policy allowed', { toolName, sessionId: session.sessionId });
   return null;
 }

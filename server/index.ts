@@ -24,7 +24,8 @@ import {
   setConnectionRegistry,
   reconcileSessionsBackground,
 } from './chat.js';
-import { cleanupStaleWorktrees } from './worktree.js';
+import { cleanupStaleWorktrees, countWorktrees } from './worktree.js';
+import { getWorktreeGuardStats, resetWorktreeGuardStats } from '@mitzo/harness';
 import { HEARTBEAT_INTERVAL_MS, PORT_DEFAULT, SHUTDOWN_GRACE_MS } from './constants.js';
 import { createLogger } from './logger.js';
 import {
@@ -791,5 +792,39 @@ checkPort(PORT).then((inUse) => {
 
     const UPDATE_CHECK_INTERVAL_MS = 2 * 60 * 1000;
     setInterval(runUpdateCheck, UPDATE_CHECK_INTERVAL_MS);
+
+    // --- Worktree observability ---
+
+    // Log worktree inventory at startup
+    for (const [label, repoPath] of repoEntries) {
+      const count = countWorktrees(repoPath);
+      if (count > 0) {
+        log.info('worktree inventory', { repo: label, count });
+      }
+    }
+
+    // Periodic worktree guard stats (every 5 minutes)
+    const GUARD_STATS_INTERVAL_MS = 5 * 60 * 1000;
+    setInterval(() => {
+      const stats = getWorktreeGuardStats();
+      if (stats.denied > 0 || stats.allowed > 0) {
+        log.info('worktree guard stats', stats);
+        resetWorktreeGuardStats();
+      }
+    }, GUARD_STATS_INTERVAL_MS);
+
+    // Periodic stale worktree cleanup (every 6 hours)
+    const WORKTREE_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
+    setInterval(() => {
+      for (const [label, repoPath] of repoEntries) {
+        try {
+          cleanupStaleWorktrees(repoPath, inboxDir);
+        } catch (err: unknown) {
+          log.warn(`periodic worktree cleanup failed for ${label}`, {
+            error: err instanceof Error ? err.message : 'unknown',
+          });
+        }
+      }
+    }, WORKTREE_CLEANUP_INTERVAL_MS);
   });
 });

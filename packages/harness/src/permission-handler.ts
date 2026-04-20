@@ -9,7 +9,10 @@ import { getToolTier, shouldAutoAllow } from './tool-tiers.js';
 import { summarizeToolInput } from '@mitzo/protocol';
 import { checkSkillPolicy } from './skill-policy.js';
 import { checkWorktreePolicy } from './worktree-guard.js';
+import { createLogger } from './logger.js';
 import { PERMISSION_TIMEOUT_MS, NTFY_NOTIFICATION_DELAY_MS } from './constants.js';
+
+const log = createLogger('permission-handler');
 import type { SessionRegistry } from './session-registry.js';
 import type { SessionTransport } from './session-transport.js';
 
@@ -66,6 +69,12 @@ export function buildPermissionHandler(clientId: string, registry: SessionRegist
 
     const worktreeViolation = checkWorktreePolicy(session, toolName, _toolInput);
     if (worktreeViolation) {
+      log.warn('worktree violation denied', {
+        clientId,
+        toolName,
+        violation: worktreeViolation,
+        sessionId: session.sessionId,
+      });
       return { behavior: 'deny', message: worktreeViolation };
     }
 

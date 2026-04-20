@@ -1,13 +1,19 @@
-import { describe, it, expect } from 'vitest';
-import { checkWorktreePolicy } from '../src/worktree-guard.js';
+import { describe, it, expect, beforeEach } from 'vitest';
+import {
+  checkWorktreePolicy,
+  getWorktreeGuardStats,
+  resetWorktreeGuardStats,
+} from '../src/worktree-guard.js';
 import type { ManagedSession } from '../src/session-registry.js';
 
-function makeSession(worktrees: Record<string, string>): Pick<ManagedSession, 'worktreePaths'> {
+function makeSession(
+  worktrees: Record<string, string>,
+): Pick<ManagedSession, 'worktreePaths' | 'sessionId'> {
   const map = new Map<string, { path: string; wtId: string }>();
   for (const [name, path] of Object.entries(worktrees)) {
     map.set(name, { path, wtId: '2026-04-18-abc123' });
   }
-  return { worktreePaths: map } as ManagedSession;
+  return { worktreePaths: map, sessionId: '2026-04-18-abc123' } as ManagedSession;
 }
 
 const session = makeSession({
@@ -124,6 +130,63 @@ describe('checkWorktreePolicy', () => {
       });
       expect(result).not.toBeNull();
       expect(result).toContain('outside session worktrees');
+    });
+  });
+
+  describe('stats tracking', () => {
+    beforeEach(() => {
+      resetWorktreeGuardStats();
+    });
+
+    it('increments denied on write violation', () => {
+      checkWorktreePolicy(session, 'Write', {
+        path: '/Users/me/redhat/mgmt/some/file.ts',
+      });
+      const stats = getWorktreeGuardStats();
+      expect(stats.denied).toBe(1);
+      expect(stats.allowed).toBe(0);
+    });
+
+    it('increments allowed on successful check', () => {
+      checkWorktreePolicy(session, 'Write', {
+        path: '/Users/me/redhat/mgmt/.claude/worktrees/2026-04-18-abc123/foo.ts',
+      });
+      const stats = getWorktreeGuardStats();
+      expect(stats.allowed).toBe(1);
+      expect(stats.denied).toBe(0);
+    });
+
+    it('increments denied on shell violation', () => {
+      checkWorktreePolicy(session, 'Bash', {
+        command: 'git -C /Users/me/tools/mitzo commit -m "fix"',
+      });
+      const stats = getWorktreeGuardStats();
+      expect(stats.denied).toBe(1);
+    });
+
+    it('tracks multiple operations', () => {
+      checkWorktreePolicy(session, 'Write', {
+        path: '/Users/me/redhat/mgmt/.claude/worktrees/2026-04-18-abc123/a.ts',
+      });
+      checkWorktreePolicy(session, 'Write', {
+        path: '/Users/me/redhat/mgmt/b.ts',
+      });
+      checkWorktreePolicy(session, 'Edit', {
+        file_path: '/Users/me/tools/mitzo/.claude/worktrees/2026-04-18-abc123/c.ts',
+      });
+      const stats = getWorktreeGuardStats();
+      expect(stats.allowed).toBe(2);
+      expect(stats.denied).toBe(1);
+    });
+
+    it('returns a copy, not a reference', () => {
+      const s1 = getWorktreeGuardStats();
+      checkWorktreePolicy(session, 'Write', {
+        path: '/Users/me/redhat/mgmt/file.ts',
+      });
+      const s2 = getWorktreeGuardStats();
+      expect(s1.denied).toBe(0);
+      expect(s2.denied).toBe(1);
     });
   });
 });

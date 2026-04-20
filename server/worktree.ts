@@ -18,6 +18,18 @@ function worktreesDir(baseRepo: string): string {
   return join(baseRepo, '.claude', 'worktrees');
 }
 
+/**
+ * Parse creation age from a worktree directory name (YYYY-MM-DD-XXXXXX format).
+ * Returns age in milliseconds, or null if the name doesn't match the convention.
+ */
+export function parseWorktreeAge(entry: string): number | null {
+  const match = entry.match(/^(\d{4}-\d{2}-\d{2})-/);
+  if (!match) return null;
+  const created = new Date(match[1] + 'T00:00:00Z').getTime();
+  if (isNaN(created)) return null;
+  return Date.now() - created;
+}
+
 export interface CreateWorktreeOptions {
   dir?: string;
   branch?: string;
@@ -236,8 +248,13 @@ export function cleanupStaleWorktrees(baseRepo: string, inboxDir?: string): void
   for (const entry of readdirSync(dir)) {
     const fullPath = join(dir, entry);
     try {
-      const stat = statSync(fullPath);
-      if (now - stat.mtimeMs > cutoff) {
+      // Prefer name-based age (immune to mtime being refreshed by git operations).
+      // Fall back to mtime for non-standard names (e.g. "ws-fix", "session-worktrees").
+      const nameAge = parseWorktreeAge(entry);
+      const isStale =
+        nameAge !== null ? nameAge > cutoff : now - statSync(fullPath).mtimeMs > cutoff;
+
+      if (isStale) {
         const dirty = hasUncommittedWork(fullPath);
         if (dirty && inboxDir) {
           const branch = `${WORKTREE_BRANCH_PREFIX}${entry}`;
@@ -254,7 +271,7 @@ export function cleanupStaleWorktrees(baseRepo: string, inboxDir?: string): void
         cleaned++;
       }
     } catch (err: unknown) {
-      log.warn('failed to stat worktree entry during cleanup', {
+      log.warn('failed to check worktree entry during cleanup', {
         repo: baseRepo,
         entry,
         error: err instanceof Error ? err.message : 'unknown',
@@ -278,6 +295,20 @@ export function cleanupStaleWorktrees(baseRepo: string, inboxDir?: string): void
   }
 }
 
+/**
+ * Count worktrees in a repo's .claude/worktrees/ directory.
+ * Used for inventory logging at startup and periodic health checks.
+ */
+export function countWorktrees(baseRepo: string): number {
+  const dir = worktreesDir(baseRepo);
+  if (!existsSync(dir)) return 0;
+  try {
+    return readdirSync(dir).length;
+  } catch {
+    return 0;
+  }
+}
+
 /** Also check legacy -sessions/ sibling dir for backward compat. */
 function legacySessionsDir(baseRepo: string): string {
   return `${baseRepo}-sessions`;
@@ -295,8 +326,9 @@ export function listWorktrees(
     for (const entry of readdirSync(dir)) {
       const fullPath = join(dir, entry);
       try {
-        const stat = statSync(fullPath);
-        const hours = Math.floor((now - stat.mtimeMs) / 3_600_000);
+        const nameAge = parseWorktreeAge(entry);
+        const ageMs = nameAge ?? now - statSync(fullPath).mtimeMs;
+        const hours = Math.floor(ageMs / 3_600_000);
         results.push({ name: entry, path: fullPath, age: hours < 1 ? '<1h' : `${hours}h` });
       } catch {
         results.push({ name: entry, path: fullPath, age: 'unknown' });
