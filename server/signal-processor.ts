@@ -122,10 +122,7 @@ export class SignalProcessor {
   }
 
   /** Handle a failed gate — retry or mark failed. */
-  private handleFailure(
-    taskId: string,
-    artifacts?: Record<string, unknown>,
-  ): void {
+  private handleFailure(taskId: string, artifacts?: Record<string, unknown>): void {
     const task = this.store.get(taskId);
     if (!task) return;
 
@@ -203,9 +200,13 @@ export async function checkGate(config: GateConfig): Promise<GateResult> {
 async function checkGhCi(config: { repo: string; pr: number | string }): Promise<GateResult> {
   try {
     const { stdout } = await execFileAsync('gh', [
-      'pr', 'checks', String(config.pr),
-      '--repo', config.repo,
-      '--json', 'state,name',
+      'pr',
+      'checks',
+      String(config.pr),
+      '--repo',
+      config.repo,
+      '--json',
+      'state,name',
     ]);
     const checks = JSON.parse(stdout) as Array<{ state: string; name: string }>;
     if (checks.length === 0) return { resolved: false, status: 'fail' };
@@ -218,7 +219,11 @@ async function checkGhCi(config: { repo: string; pr: number | string }): Promise
     }
     if (anyFailed) {
       const failed = checks.filter((c) => c.state === 'FAILURE' || c.state === 'ERROR');
-      return { resolved: true, status: 'fail', artifacts: { failed_checks: failed.map((c) => c.name) } };
+      return {
+        resolved: true,
+        status: 'fail',
+        artifacts: { failed_checks: failed.map((c) => c.name) },
+      };
     }
     // Still pending
     return { resolved: false, status: 'fail' };
@@ -231,9 +236,13 @@ async function checkGhCi(config: { repo: string; pr: number | string }): Promise
 async function checkGhReview(config: { repo: string; pr: number | string }): Promise<GateResult> {
   try {
     const { stdout } = await execFileAsync('gh', [
-      'pr', 'view', String(config.pr),
-      '--repo', config.repo,
-      '--json', 'reviewDecision',
+      'pr',
+      'view',
+      String(config.pr),
+      '--repo',
+      config.repo,
+      '--json',
+      'reviewDecision',
     ]);
     const data = JSON.parse(stdout) as { reviewDecision: string };
 

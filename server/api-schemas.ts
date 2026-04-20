@@ -156,19 +156,26 @@ export const WorkflowInstantiateBody = z.object({
 export const TemplateCreateBody = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
-  stages: z.array(
-    z.object({
-      title: z.string().min(1),
-      description: z.string().optional(),
-      stage_type: z.enum(['agent_work', 'wait_for_signal', 'human_review']),
-      gate_config: z.record(z.string(), z.unknown()).optional(),
-      max_retries: z.number().min(0).optional(),
-    }),
-  ).min(1),
-  variables: z.record(z.string(), z.object({
-    description: z.string().optional(),
-    default: z.string().optional(),
-  })).optional(),
+  stages: z
+    .array(
+      z.object({
+        title: z.string().min(1),
+        description: z.string().optional(),
+        stage_type: z.enum(['agent_work', 'wait_for_signal', 'human_review']),
+        gate_config: z.record(z.string(), z.unknown()).optional(),
+        max_retries: z.number().min(0).optional(),
+      }),
+    )
+    .min(1),
+  variables: z
+    .record(
+      z.string(),
+      z.object({
+        description: z.string().optional(),
+        default: z.string().optional(),
+      }),
+    )
+    .optional(),
 });
 
 export const SignalBody = z.object({

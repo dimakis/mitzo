@@ -122,9 +122,9 @@ export class WorkflowTemplateStore {
   }
 
   get(id: string): WorkflowTemplate | null {
-    const row = this.getDb()
-      .prepare('SELECT * FROM workflow_templates WHERE id = ?')
-      .get(id) as TemplateRow | undefined;
+    const row = this.getDb().prepare('SELECT * FROM workflow_templates WHERE id = ?').get(id) as
+      | TemplateRow
+      | undefined;
     return row ? rowToTemplate(row) : null;
   }
 
@@ -136,9 +136,7 @@ export class WorkflowTemplateStore {
   }
 
   delete(id: string): boolean {
-    const result = this.getDb()
-      .prepare('DELETE FROM workflow_templates WHERE id = ?')
-      .run(id);
+    const result = this.getDb().prepare('DELETE FROM workflow_templates WHERE id = ?').run(id);
     return result.changes > 0;
   }
 }
