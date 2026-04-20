@@ -391,7 +391,7 @@ describe('session routes', () => {
     expect(hideSession).toHaveBeenCalledWith('s1');
   });
 
-  it('DELETE /api/sessions — clears hidden sessions', async () => {
+  it('DELETE /api/sessions — hides all sessions', async () => {
     const res = await request(app).delete('/api/sessions').set('Cookie', authCookie);
     expect(res.status).toBe(200);
     expect(hideAllSessions).toHaveBeenCalled();
