@@ -73,20 +73,27 @@ function rowToTemplate(row: TemplateRow): WorkflowTemplate {
 
 export class WorkflowTemplateStore {
   private db: Database.Database | null;
+  private ownsDb: boolean;
 
-  constructor(dbPath: string) {
-    const db = new Database(dbPath);
-    this.db = db;
-    db.pragma('journal_mode = WAL');
-    db.exec(TEMPLATE_SCHEMA);
-    log.info('WorkflowTemplateStore initialized', { dbPath });
+  constructor(dbOrPath: string | Database.Database) {
+    if (typeof dbOrPath === 'string') {
+      const db = new Database(dbOrPath);
+      this.db = db;
+      this.ownsDb = true;
+      db.pragma('journal_mode = WAL');
+    } else {
+      this.db = dbOrPath;
+      this.ownsDb = false;
+    }
+    this.db.exec(TEMPLATE_SCHEMA);
+    log.info('WorkflowTemplateStore initialized');
   }
 
   close(): void {
-    if (this.db) {
+    if (this.db && this.ownsDb) {
       this.db.close();
-      this.db = null;
     }
+    this.db = null;
   }
 
   private getDb(): Database.Database {

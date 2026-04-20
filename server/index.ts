@@ -112,7 +112,7 @@ setTaskBroadcast((event) => {
 });
 
 // --- Workflow layer ---
-const wfTemplateStore = new WorkflowTemplateStore(join(BASE_REPO, '.mitzo', 'tasks.db'));
+const wfTemplateStore = new WorkflowTemplateStore(taskStore.getDatabase());
 seedBuiltInTemplates(wfTemplateStore);
 setTemplateStore(wfTemplateStore);
 

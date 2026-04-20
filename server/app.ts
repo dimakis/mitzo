@@ -57,10 +57,11 @@ import {
   TaskUpdateBody,
   LoopStartBody,
   WorkflowInstantiateBody,
+  TemplateCreateBody,
   SignalBody,
 } from './api-schemas.js';
 import type { TaskOrchestrator } from './task-orchestrator.js';
-import type { WorkflowTemplateStore } from './workflow-templates.js';
+import type { WorkflowTemplateStore, TemplateCreateInput } from './workflow-templates.js';
 import { instantiateTemplate } from './workflow-templates.js';
 import type { SignalProcessor } from './signal-processor.js';
 import {
@@ -677,7 +678,7 @@ app.get('/api/templates', (_req, res) => {
     res.status(503).json({ error: 'Template store not initialized' });
     return;
   }
-  res.json({ templates: templateStore.list() });
+  res.json(templateStore.list());
 });
 
 app.get('/api/templates/:id', (req, res) => {
@@ -691,6 +692,20 @@ app.get('/api/templates/:id', (req, res) => {
     return;
   }
   res.json({ template: tmpl });
+});
+
+app.post('/api/templates', (req, res) => {
+  if (!templateStore) {
+    res.status(503).json({ error: 'Template store not initialized' });
+    return;
+  }
+  const body = TemplateCreateBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.issues[0]?.message ?? 'Invalid input' });
+    return;
+  }
+  const tmpl = templateStore.create(body.data as TemplateCreateInput);
+  res.status(201).json(tmpl);
 });
 
 app.delete('/api/templates/:id', (req, res) => {
@@ -747,6 +762,14 @@ app.post('/api/tasks/:id/signal', (req, res) => {
   const task = taskStore.get(req.params.id);
   if (!task) {
     res.status(404).json({ error: 'Task not found' });
+    return;
+  }
+  if (task.stageType !== 'wait_for_signal') {
+    res.status(400).json({ error: 'Task is not a wait_for_signal stage' });
+    return;
+  }
+  if (task.status !== 'active') {
+    res.status(400).json({ error: `Task is ${task.status}, not active` });
     return;
   }
   signalProcessor.resolveSignal(req.params.id, {

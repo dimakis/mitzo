@@ -201,6 +201,12 @@ function rowToTask(row: TaskRow): Task {
 export class TaskStore {
   private db: Database.Database | null;
 
+  /** Expose the underlying database for shared-connection use (e.g. WorkflowTemplateStore). */
+  getDatabase(): Database.Database {
+    if (!this.db) throw new Error('TaskStore is closed');
+    return this.db;
+  }
+
   constructor(dbPath: string) {
     const db = new Database(dbPath);
     this.db = db;
