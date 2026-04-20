@@ -26,7 +26,7 @@ vi.mock('../chat.js', () => {
     getMessages: vi.fn().mockResolvedValue([{ messageId: 'm1', role: 'assistant', blocks: [] }]),
     renameSessionById: vi.fn().mockResolvedValue(undefined),
     hideSession: vi.fn(),
-    clearHiddenSessions: vi.fn(),
+    hideAllSessions: vi.fn(),
     BASE_REPO: repo,
     getRepoConfig: vi.fn(() => ({
       quickActions: [],
@@ -112,7 +112,7 @@ vi.mock('../git-version.js', () => ({
   isUpdateAvailable: vi.fn().mockReturnValue(false),
 }));
 
-import { hideSession, clearHiddenSessions, renameSessionById } from '../chat.js';
+import { hideSession, hideAllSessions, renameSessionById } from '../chat.js';
 import { resolvePending } from '../permissions.js';
 
 let app: Express;
@@ -158,7 +158,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   vi.mocked(hideSession).mockClear();
-  vi.mocked(clearHiddenSessions).mockClear();
+  vi.mocked(hideAllSessions).mockClear();
 });
 
 // --- Auth Routes ---
@@ -391,10 +391,10 @@ describe('session routes', () => {
     expect(hideSession).toHaveBeenCalledWith('s1');
   });
 
-  it('DELETE /api/sessions — clears hidden sessions', async () => {
+  it('DELETE /api/sessions — hides all sessions', async () => {
     const res = await request(app).delete('/api/sessions').set('Cookie', authCookie);
     expect(res.status).toBe(200);
-    expect(clearHiddenSessions).toHaveBeenCalled();
+    expect(hideAllSessions).toHaveBeenCalled();
   });
 
   it('PUT /api/sessions/:id/rename — renames session', async () => {

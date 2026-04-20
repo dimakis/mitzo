@@ -22,7 +22,7 @@ vi.mock('../chat.js', () => {
     getMessages: vi.fn().mockResolvedValue([]),
     renameSessionById: vi.fn().mockResolvedValue(undefined),
     hideSession: vi.fn(),
-    clearHiddenSessions: vi.fn(),
+    hideAllSessions: vi.fn(),
     BASE_REPO: repo,
     repoConfig: {
       quickActions: [],

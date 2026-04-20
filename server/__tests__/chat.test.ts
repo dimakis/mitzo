@@ -11,7 +11,7 @@ describe('chat module exports', () => {
     expect(typeof chat.detachChat).toBe('function');
     expect(typeof chat.reattachChat).toBe('function');
     expect(typeof chat.hideSession).toBe('function');
-    expect(typeof chat.clearHiddenSessions).toBe('function');
+    expect(typeof chat.hideAllSessions).toBe('function');
   });
 
   it('isActive returns false for unknown client', async () => {
