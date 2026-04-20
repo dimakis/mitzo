@@ -1960,33 +1960,15 @@ textarea:focus {
   padding-bottom: max(1rem, env(safe-area-inset-bottom));
   z-index: 200;
   transform: translateY(100%);
-  animation: perm-slide-up 0.25s ease-out forwards;
+  transition: transform 0.25s ease-out;
   display: flex;
   flex-direction: column;
   max-height: 60vh;
   overflow: hidden;
 }
 
-@keyframes perm-slide-up {
-  from {
-    transform: translateY(100%);
-  }
-  to {
-    transform: translateY(0);
-  }
-}
-
-.perm-banner-dismiss {
-  animation: perm-slide-down 0.2s ease-in forwards;
-}
-
-@keyframes perm-slide-down {
-  from {
-    transform: translateY(0);
-  }
-  to {
-    transform: translateY(100%);
-  }
+.perm-banner--visible {
+  transform: translateY(0);
 }
 
 .perm-banner-title {
@@ -2052,24 +2034,55 @@ textarea:focus {
   font-weight: 600;
   border-radius: 10px;
   border: none;
+  cursor: pointer;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
+  transition:
+    background 0.12s,
+    transform 0.1s;
 }
 
 .perm-banner-btn--once {
-  background: #2e7d32;
+  background: var(--success);
   color: #fff;
 }
 
+.perm-banner-btn--once:hover {
+  background: #43a047;
+}
+
+.perm-banner-btn--once:active {
+  background: #388e3c;
+  transform: scale(0.97);
+}
+
 .perm-banner-btn--always {
-  background: #1b5e20;
+  background: rgba(76, 175, 80, 0.25);
   color: #fff;
-  border: 2px solid #4caf50;
+  border: 2px solid var(--success);
+}
+
+.perm-banner-btn--always:hover {
+  background: rgba(76, 175, 80, 0.35);
+}
+
+.perm-banner-btn--always:active {
+  background: rgba(76, 175, 80, 0.45);
+  transform: scale(0.97);
 }
 
 .perm-banner-btn--deny {
   background: var(--danger);
   color: #fff;
+}
+
+.perm-banner-btn--deny:hover {
+  background: #d32f2f;
+}
+
+.perm-banner-btn--deny:active {
+  background: #c62828;
+  transform: scale(0.97);
 }
 
 .perm-banner--elevated {
@@ -2105,7 +2118,7 @@ textarea:focus {
 
 .perm-banner-tier--standard {
   background: rgba(76, 175, 80, 0.15);
-  color: #4caf50;
+  color: var(--success);
 }
 
 /* ===== Chat Input ===== */
@@ -3285,13 +3298,8 @@ textarea:focus {
     border-bottom: none;
   }
 
-  @keyframes perm-slide-up {
-    from {
-      transform: translateX(-50%) translateY(100%);
-    }
-    to {
-      transform: translateX(-50%) translateY(0);
-    }
+  .perm-banner--visible {
+    transform: translateX(-50%) translateY(0);
   }
 }
 

@@ -66,4 +66,24 @@ describe('PermissionBanner', () => {
     });
     expect(onRespond).toHaveBeenCalledWith('p1', 'deny', 'Bash');
   });
+
+  it('renders all action buttons with correct CSS classes', () => {
+    const { container } = render(<PermissionBanner {...defaultProps} />);
+    expect(container.querySelector('.perm-banner-btn--once')).toBeTruthy();
+    expect(container.querySelector('.perm-banner-btn--always')).toBeTruthy();
+    expect(container.querySelector('.perm-banner-btn--deny')).toBeTruthy();
+  });
+
+  it('adds perm-banner--visible class after mount', () => {
+    // rAF fires synchronously in jsdom with fake timers
+    vi.useRealTimers();
+    const rafSpy = vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((cb) => {
+      cb(0);
+      return 0;
+    });
+    const { container } = render(<PermissionBanner {...defaultProps} />);
+    expect(container.querySelector('.perm-banner--visible')).toBeTruthy();
+    rafSpy.mockRestore();
+    vi.useFakeTimers();
+  });
 });
