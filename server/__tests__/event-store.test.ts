@@ -302,6 +302,89 @@ describe('EventStore', () => {
     });
   });
 
+  describe('searchSessions', () => {
+    it('finds sessions by user message text', () => {
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Deploy session' });
+      store.upsertSession({ sessionId: 'sess-2', summary: 'Refactor session' });
+      store.append('sess-1', 'user_message', { text: 'deploy the new widget to production' });
+      store.append('sess-2', 'user_message', { text: 'refactor the auth middleware' });
+
+      const results = store.searchSessions('widget');
+      expect(results).toHaveLength(1);
+      expect(results[0].sessionId).toBe('sess-1');
+      expect(results[0].summary).toBe('Deploy session');
+      expect(results[0].snippet).toContain('widget');
+    });
+
+    it('finds sessions by assistant block_delta text', () => {
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Test' });
+      store.append('sess-1', 'block_delta', { delta: 'The worktree cleanup timeout is 96 hours' });
+
+      const results = store.searchSessions('worktree cleanup');
+      expect(results).toHaveLength(1);
+      expect(results[0].snippet).toContain('worktree cleanup');
+    });
+
+    it('deduplicates multiple matches within same session', () => {
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Test' });
+      store.append('sess-1', 'user_message', { text: 'first mention of kubernetes' });
+      store.append('sess-1', 'user_message', { text: 'second mention of kubernetes' });
+
+      const results = store.searchSessions('kubernetes');
+      expect(results).toHaveLength(1);
+    });
+
+    it('excludes hidden sessions', () => {
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Visible' });
+      store.upsertSession({ sessionId: 'sess-2', summary: 'Hidden' });
+      store.append('sess-1', 'user_message', { text: 'search target text' });
+      store.append('sess-2', 'user_message', { text: 'search target text' });
+      store.hideSession('sess-2');
+
+      const results = store.searchSessions('target');
+      expect(results).toHaveLength(1);
+      expect(results[0].sessionId).toBe('sess-1');
+    });
+
+    it('returns empty for blank query', () => {
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Test' });
+      store.append('sess-1', 'user_message', { text: 'some content' });
+
+      expect(store.searchSessions('')).toEqual([]);
+      expect(store.searchSessions('   ')).toEqual([]);
+    });
+
+    it('respects limit parameter', () => {
+      for (let i = 0; i < 5; i++) {
+        store.upsertSession({ sessionId: `sess-${i}`, summary: `Session ${i}` });
+        store.append(`sess-${i}`, 'user_message', { text: `common search term ${i}` });
+      }
+
+      const results = store.searchSessions('common search', 2);
+      expect(results).toHaveLength(2);
+    });
+
+    it('provides contextual snippet around match', () => {
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Test' });
+      const longText = 'A'.repeat(100) + ' target keyword ' + 'B'.repeat(100);
+      store.append('sess-1', 'user_message', { text: longText });
+
+      const results = store.searchSessions('target keyword');
+      expect(results).toHaveLength(1);
+      expect(results[0].snippet).toContain('target keyword');
+      expect(results[0].snippet.length).toBeLessThan(longText.length);
+    });
+
+    it('is case-insensitive in LIKE matching', () => {
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Test' });
+      store.append('sess-1', 'user_message', { text: 'Deploy the Kubernetes cluster' });
+
+      // SQLite LIKE is case-insensitive for ASCII
+      const results = store.searchSessions('kubernetes');
+      expect(results).toHaveLength(1);
+    });
+  });
+
   describe('close', () => {
     it('is safe to call multiple times', () => {
       store.close();

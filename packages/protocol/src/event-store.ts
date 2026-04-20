@@ -1,8 +1,14 @@
 import Database from 'better-sqlite3';
-import type { MitzoMode, StoredEvent, SessionMeta, EventStoreLogger } from './types.js';
+import type {
+  MitzoMode,
+  StoredEvent,
+  SessionMeta,
+  SessionSearchResult,
+  EventStoreLogger,
+} from './types.js';
 
 // Re-export types for consumer convenience
-export type { StoredEvent, SessionMeta, EventStoreLogger };
+export type { StoredEvent, SessionMeta, SessionSearchResult, EventStoreLogger };
 
 const noopLogger: EventStoreLogger = { info() {} };
 
@@ -332,6 +338,57 @@ export class EventStore {
     return (rows as SessionRow[]).map(rowToSession);
   }
 
+  /**
+   * Search session content for a query string.
+   * Searches user messages and assistant text deltas, returns matching sessions
+   * with a snippet of the matched content.
+   */
+  searchSessions(query: string, limit = 20): SessionSearchResult[] {
+    if (!query.trim()) return [];
+    const pattern = `%${query}%`;
+    const rows = this.db!.prepare(
+      `SELECT DISTINCT
+        e.session_id,
+        s.summary,
+        e.payload,
+        e.created_at AS matched_at,
+        s.updated_at
+      FROM events e
+      JOIN sessions s ON s.session_id = e.session_id
+      WHERE s.is_hidden = 0
+        AND e.type IN ('user_message', 'block_delta')
+        AND e.payload LIKE ?
+      ORDER BY e.created_at DESC
+      LIMIT ?`,
+    ).all(pattern, limit * 3) as Array<{
+      session_id: string;
+      summary: string | null;
+      payload: string;
+      matched_at: number;
+      updated_at: number;
+    }>;
+
+    // Deduplicate by session, keep first (most recent) match per session
+    const seen = new Set<string>();
+    const results: SessionSearchResult[] = [];
+    for (const row of rows) {
+      if (seen.has(row.session_id)) continue;
+      seen.add(row.session_id);
+
+      // Extract snippet from payload
+      const snippet = extractSnippet(row.payload, query);
+      results.push({
+        sessionId: row.session_id,
+        summary: row.summary,
+        snippet,
+        matchedAt: row.matched_at,
+        updatedAt: row.updated_at,
+      });
+      if (results.length >= limit) break;
+    }
+    return results;
+  }
+
   markSessionInactive(sessionId: string): void {
     this.stmts.markInactive.run(sessionId);
   }
@@ -395,6 +452,30 @@ function rowToEvent(row: EventRow): StoredEvent {
     payload: JSON.parse(row.payload),
     createdAt: row.created_at,
   };
+}
+
+/** Extract a text snippet around the query match from a JSON payload string. */
+function extractSnippet(payloadStr: string, query: string, contextChars = 80): string {
+  // Try to pull the text/delta field from the payload
+  let text: string;
+  try {
+    const payload = JSON.parse(payloadStr);
+    text = (payload.text ?? payload.delta ?? '') as string;
+  } catch {
+    text = payloadStr;
+  }
+  if (!text) return '';
+
+  const lower = text.toLowerCase();
+  const idx = lower.indexOf(query.toLowerCase());
+  if (idx === -1) return text.slice(0, contextChars * 2);
+
+  const start = Math.max(0, idx - contextChars);
+  const end = Math.min(text.length, idx + query.length + contextChars);
+  let snippet = text.slice(start, end).trim();
+  if (start > 0) snippet = '...' + snippet;
+  if (end < text.length) snippet = snippet + '...';
+  return snippet;
 }
 
 function rowToSession(row: SessionRow): SessionMeta {
