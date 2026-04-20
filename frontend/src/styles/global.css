@@ -13,7 +13,11 @@
   --accent: #6c63ff;
   --accent-hover: #5a52e0;
   --danger: #f44336;
+  --danger-hover: #d32f2f;
+  --danger-active: #c62828;
   --success: #4caf50;
+  --success-hover: #43a047;
+  --success-active: #388e3c;
   --code-bg: #141425;
   --code-font: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
 
@@ -2048,11 +2052,11 @@ textarea:focus {
 }
 
 .perm-banner-btn--once:hover {
-  background: #43a047;
+  background: var(--success-hover);
 }
 
 .perm-banner-btn--once:active {
-  background: #388e3c;
+  background: var(--success-active);
   transform: scale(0.97);
 }
 
@@ -2063,11 +2067,11 @@ textarea:focus {
 }
 
 .perm-banner-btn--always:hover {
-  background: rgba(76, 175, 80, 0.35); /* --success variants */
+  background: rgba(76, 175, 80, 0.35);
 }
 
 .perm-banner-btn--always:active {
-  background: rgba(76, 175, 80, 0.45); /* --success variants */
+  background: rgba(76, 175, 80, 0.45);
   transform: scale(0.97);
 }
 
@@ -2077,11 +2081,11 @@ textarea:focus {
 }
 
 .perm-banner-btn--deny:hover {
-  background: #d32f2f;
+  background: var(--danger-hover);
 }
 
 .perm-banner-btn--deny:active {
-  background: #c62828;
+  background: var(--danger-active);
   transform: scale(0.97);
 }
 

@@ -302,7 +302,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         decision,
       });
       if (sent) {
-        set({ permissions: { pending: null } });
+        set((s) => ({
+          permissions: { pending: null },
+          messages: { ...s.messages, permission: null },
+        }));
       }
       // If not sent, leave the banner visible so user can retry
     },
