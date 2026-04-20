@@ -316,6 +316,23 @@ export function parseServerMessage(
 
     case 'error': {
       const errorMsg = msg.error as string;
+      const errorCode = msg.code as string | undefined;
+
+      // Session active on another device — rejection, unblock input but
+      // don't clear pendingSend or expire the session.
+      if (errorCode === 'active_elsewhere') {
+        callbacks.setWsRunning?.(poolKey, false);
+        result.messagesActions.push({
+          type: 'SET_RUNNING',
+          running: false,
+        });
+        result.messagesActions.push({
+          type: 'ERROR',
+          error: 'This session is active on another device. Switch to a different session or wait for it to finish.',
+        });
+        break;
+      }
+
       callbacks.setWsRunning?.(poolKey, false);
       state.pendingSend = null;
       if (errorMsg?.includes('No conversation found')) {
