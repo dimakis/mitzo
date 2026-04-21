@@ -65,17 +65,15 @@ vi.mock('../chat.js', () => {
     eventStore: {
       append: vi.fn(),
       getEventsAfter: vi.fn().mockReturnValue([]),
-      searchSessions: vi
-        .fn()
-        .mockReturnValue([
-          {
-            sessionId: 's1',
-            summary: 'Test',
-            snippet: '...matched text...',
-            matchedAt: 1000,
-            updatedAt: 2000,
-          },
-        ]),
+      searchSessions: vi.fn().mockReturnValue([
+        {
+          sessionId: 's1',
+          summary: 'Test',
+          snippet: '...matched text...',
+          matchedAt: 1000,
+          updatedAt: 2000,
+        },
+      ]),
       getSession: vi.fn().mockImplementation((id: string) => {
         if (id === 's1') {
           return {

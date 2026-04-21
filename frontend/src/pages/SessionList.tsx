@@ -210,14 +210,10 @@ function SearchResult({
   return (
     <div className="session-item search-result-item" onClick={() => onClick(result.sessionId)}>
       <div className="session-item-content">
-        <div className="session-item-summary">
-          {result.summary || 'Untitled session'}
-        </div>
+        <div className="session-item-summary">{result.summary || 'Untitled session'}</div>
         <div className="search-result-snippet">{result.snippet}</div>
         <div className="session-item-meta">
-          <span className="session-item-time">
-            {formatRelativeTime(result.updatedAt)}
-          </span>
+          <span className="session-item-time">{formatRelativeTime(result.updatedAt)}</span>
         </div>
       </div>
       <span className="session-item-chevron">&rsaquo;</span>
@@ -305,7 +301,9 @@ export function SessionList() {
           <div className="session-list">
             <div className="session-list-section-header">
               <span className="session-list-section-title">
-                {search.searching ? 'Searching...' : `${search.results.length} result${search.results.length !== 1 ? 's' : ''}`}
+                {search.searching
+                  ? 'Searching...'
+                  : `${search.results.length} result${search.results.length !== 1 ? 's' : ''}`}
               </span>
               <button className="session-list-clear" onClick={search.clear}>
                 Clear
