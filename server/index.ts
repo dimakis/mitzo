@@ -1,4 +1,10 @@
 import 'dotenv/config';
+import dns from 'node:dns';
+
+// Force IPv4-first DNS resolution. Works around undici's broken happy-eyeballs
+// (RFC 8305) that fails to fall back from IPv6 on networks with Tailscale ULA.
+dns.setDefaultResultOrder('ipv4first');
+
 import './tracing.js';
 import { existsSync, readFileSync } from 'fs';
 import { createServer } from 'http';
@@ -24,8 +30,15 @@ import {
   setConnectionRegistry,
   reconcileSessionsBackground,
 } from './chat.js';
-import { cleanupStaleWorktrees } from './worktree.js';
-import { HEARTBEAT_INTERVAL_MS, PORT_DEFAULT, SHUTDOWN_GRACE_MS } from './constants.js';
+import { cleanupStaleWorktrees, countWorktrees } from './worktree.js';
+import { getWorktreeGuardStats, resetWorktreeGuardStats } from '@mitzo/harness';
+import {
+  HEARTBEAT_INTERVAL_MS,
+  PORT_DEFAULT,
+  SHUTDOWN_GRACE_MS,
+  GUARD_STATS_INTERVAL_MS,
+  WORKTREE_CLEANUP_INTERVAL_MS,
+} from './constants.js';
 import { createLogger } from './logger.js';
 import {
   app,
@@ -812,5 +825,35 @@ checkPort(PORT).then((inUse) => {
 
     const UPDATE_CHECK_INTERVAL_MS = 2 * 60 * 1000;
     setInterval(runUpdateCheck, UPDATE_CHECK_INTERVAL_MS);
+
+    // --- Worktree observability ---
+
+    // Log worktree inventory at startup
+    for (const [label, repoPath] of repoEntries) {
+      const count = countWorktrees(repoPath);
+      if (count > 0) {
+        log.info('worktree inventory', { repo: label, count });
+      }
+    }
+
+    setInterval(() => {
+      const stats = getWorktreeGuardStats();
+      if (stats.denied > 0 || stats.allowed > 0) {
+        log.info('worktree guard stats', stats);
+      }
+      resetWorktreeGuardStats();
+    }, GUARD_STATS_INTERVAL_MS);
+
+    setInterval(() => {
+      for (const [label, repoPath] of repoEntries) {
+        try {
+          cleanupStaleWorktrees(repoPath, inboxDir);
+        } catch (err: unknown) {
+          log.warn(`periodic worktree cleanup failed for ${label}`, {
+            error: err instanceof Error ? err.message : 'unknown',
+          });
+        }
+      }
+    }, WORKTREE_CLEANUP_INTERVAL_MS);
   });
 });

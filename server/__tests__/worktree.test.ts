@@ -22,7 +22,84 @@ vi.mock('../constants.js', () => ({
   WORKTREE_PRUNE_TIMEOUT_MS: 5_000,
 }));
 
-import { cleanupStaleWorktrees } from '../worktree.js';
+import { cleanupStaleWorktrees, parseWorktreeAge, countWorktrees } from '../worktree.js';
+
+describe('parseWorktreeAge', () => {
+  it('parses age from standard YYYY-MM-DD-XXXXXX format', () => {
+    const today = new Date().toISOString().slice(0, 10); // e.g. 2026-04-20
+    const age = parseWorktreeAge(`${today}-abc123`);
+    expect(age).not.toBeNull();
+    // Created today, so age should be less than 24h
+    expect(age!).toBeLessThan(24 * 60 * 60 * 1000);
+    expect(age!).toBeGreaterThanOrEqual(0);
+  });
+
+  it('returns correct age for old worktrees', () => {
+    const age = parseWorktreeAge('2026-04-15-abc123');
+    expect(age).not.toBeNull();
+    // Should be at least 5 days old (test written 2026-04-20)
+    // Use a relative check: it should be more than 0
+    expect(age!).toBeGreaterThan(0);
+  });
+
+  it('returns null for non-standard names', () => {
+    expect(parseWorktreeAge('ws-fix')).toBeNull();
+    expect(parseWorktreeAge('session-worktrees')).toBeNull();
+    expect(parseWorktreeAge('random-name')).toBeNull();
+  });
+
+  it('returns null for invalid dates', () => {
+    expect(parseWorktreeAge('9999-99-99-abc123')).toBeNull();
+  });
+
+  it('returns null for impossible calendar dates', () => {
+    expect(parseWorktreeAge('2026-02-31-abc123')).toBeNull();
+    expect(parseWorktreeAge('2026-13-01-abc123')).toBeNull();
+    expect(parseWorktreeAge('2026-04-31-abc123')).toBeNull();
+  });
+
+  it('returns null for names without 6-char hex suffix', () => {
+    expect(parseWorktreeAge('2026-04-20-ws-fix')).toBeNull();
+    expect(parseWorktreeAge('2026-04-20-')).toBeNull();
+    expect(parseWorktreeAge('2026-04-20')).toBeNull();
+  });
+
+  it('returns null for future-dated names', () => {
+    expect(parseWorktreeAge('2099-01-01-abc123')).toBeNull();
+    expect(parseWorktreeAge('2030-12-15-f0f0f0')).toBeNull();
+  });
+});
+
+describe('countWorktrees', () => {
+  let baseRepo: string;
+
+  beforeEach(() => {
+    baseRepo = mkdtempSync(join(tmpdir(), 'mitzo-count-test-'));
+  });
+
+  afterEach(() => {
+    rmSync(baseRepo, { recursive: true, force: true });
+  });
+
+  it('returns 0 when .claude/worktrees/ does not exist', () => {
+    expect(countWorktrees(baseRepo)).toBe(0);
+  });
+
+  it('returns 0 for empty worktrees directory', () => {
+    mkdirSync(join(baseRepo, '.claude', 'worktrees'), { recursive: true });
+    expect(countWorktrees(baseRepo)).toBe(0);
+  });
+
+  it('counts only directories in worktrees directory', () => {
+    const dir = join(baseRepo, '.claude', 'worktrees');
+    mkdirSync(dir, { recursive: true });
+    mkdirSync(join(dir, '2026-04-20-aaa111'));
+    mkdirSync(join(dir, '2026-04-20-bbb222'));
+    writeFileSync(join(dir, '.DS_Store'), '');
+    writeFileSync(join(dir, 'stray-file.txt'), '');
+    expect(countWorktrees(baseRepo)).toBe(2);
+  });
+});
 
 describe('cleanupStaleWorktrees', () => {
   let baseRepo: string;
@@ -121,6 +198,44 @@ describe('cleanupStaleWorktrees', () => {
 
     const remaining = readdirSync(wtDir);
     expect(remaining).toContain(sessionId);
+  });
+
+  it('requires both name-age and mtime to be stale before cleanup', () => {
+    const wtDir = join(baseRepo, '.claude', 'worktrees');
+    mkdirSync(wtDir, { recursive: true });
+    // Use a date 5 days ago in the name — mtime is "now" (recently touched)
+    const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+    const oldDate = fiveDaysAgo.toISOString().slice(0, 10);
+    const sessionId = `${oldDate}-a1b2c3`;
+    const wtPath = join(wtDir, sessionId);
+    execFileSync('git', ['-C', baseRepo, 'worktree', 'add', '-b', `session/${sessionId}`, wtPath], {
+      stdio: 'pipe',
+    });
+    // Don't touch mtime — it stays at "now", so mtime safety net keeps it alive
+
+    cleanupStaleWorktrees(baseRepo, inboxDir);
+
+    const remaining = readdirSync(wtDir);
+    expect(remaining).toContain(sessionId);
+  });
+
+  it('cleans up worktree when both name-age and mtime are stale', () => {
+    const wtDir = join(baseRepo, '.claude', 'worktrees');
+    mkdirSync(wtDir, { recursive: true });
+    const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+    const oldDate = fiveDaysAgo.toISOString().slice(0, 10);
+    const sessionId = `${oldDate}-a1b2c3`;
+    const wtPath = join(wtDir, sessionId);
+    execFileSync('git', ['-C', baseRepo, 'worktree', 'add', '-b', `session/${sessionId}`, wtPath], {
+      stdio: 'pipe',
+    });
+    // Age the mtime as well so both name and mtime are past cutoff
+    utimesSync(wtPath, fiveDaysAgo, fiveDaysAgo);
+
+    cleanupStaleWorktrees(baseRepo, inboxDir);
+
+    const remaining = readdirSync(wtDir);
+    expect(remaining).not.toContain(sessionId);
   });
 
   it('creates unique filenames for multiple dirty worktrees', () => {

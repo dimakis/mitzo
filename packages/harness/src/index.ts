@@ -31,7 +31,11 @@ export {
 export { setSkillPolicy, clearSkillPolicy, checkSkillPolicy } from './skill-policy.js';
 
 // Worktree guard
-export { checkWorktreePolicy } from './worktree-guard.js';
+export {
+  checkWorktreePolicy,
+  getWorktreeGuardStats,
+  resetWorktreeGuardStats,
+} from './worktree-guard.js';
 
 // Notifications
 export * as ntfy from './notify.js';

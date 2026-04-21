@@ -828,15 +828,62 @@ describe('runQueryLoop', () => {
         'Hello, this is my first message',
       );
 
-      // Initial prompt is stored on session metadata, not as an event
+      // Initial prompt is stored on session metadata
       const session = store.getSession('sess-ip');
       expect(session).toBeTruthy();
       expect(session!.initialPrompt).toBe('Hello, this is my first message');
 
-      // No user_message event should be in the event stream
+      // Initial prompt is also stored as a user_message event for auto-rename
       const stored = store.getSessionEvents('sess-ip');
       const userMsgEvents = stored.filter((e) => e.type === 'user_message');
-      expect(userMsgEvents).toHaveLength(0);
+      expect(userMsgEvents).toHaveLength(1);
+      expect(userMsgEvents[0].payload.text).toBe('Hello, this is my first message');
+    });
+
+    it('calls onInitialPrompt callback when initial prompt is registered', async () => {
+      const events: Record<string, unknown>[] = [
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-cb' },
+        { type: 'result', session_id: 'sess-cb' },
+      ];
+
+      const onInitialPrompt = vi.fn();
+
+      await runQueryLoop(
+        eventStream(events),
+        clientId,
+        registry,
+        abortController,
+        store,
+        'trigger callback please',
+        { onInitialPrompt },
+      );
+
+      expect(onInitialPrompt).toHaveBeenCalledWith('sess-cb');
+      expect(onInitialPrompt).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not call onInitialPrompt when there is no initial prompt', async () => {
+      const session = registry.get(clientId)!;
+      session.sessionId = 'sess-no-ip';
+
+      const events: Record<string, unknown>[] = [
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-no-ip' },
+        { type: 'result', session_id: 'sess-no-ip' },
+      ];
+
+      const onInitialPrompt = vi.fn();
+
+      await runQueryLoop(
+        eventStream(events),
+        clientId,
+        registry,
+        abortController,
+        store,
+        undefined,
+        { onInitialPrompt },
+      );
+
+      expect(onInitialPrompt).not.toHaveBeenCalled();
     });
 
     it('persists follow-up user_message from sendToChat in the event store', async () => {

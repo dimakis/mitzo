@@ -1,5 +1,6 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'fs';
 import { join, dirname } from 'path';
+import { randomBytes } from 'crypto';
 import yaml from 'js-yaml';
 
 export interface SessionIndexRepo {
@@ -70,7 +71,10 @@ export function upsertEntry(
   }
 
   const out: IndexFile = { sessions: entries };
-  writeFileSync(path, yaml.dump(out, { lineWidth: 120, noRefs: true }));
+  const content = yaml.dump(out, { lineWidth: 120, noRefs: true });
+  const tmp = `${path}.${randomBytes(4).toString('hex')}.tmp`;
+  writeFileSync(tmp, content);
+  renameSync(tmp, path);
 }
 
 /**
@@ -86,8 +90,9 @@ export function registerSession(
   const existing = readIndex(repoPath);
   if (existing.some((e) => e.id === wtId)) return;
 
-  const sha = wtId.includes('-') ? wtId.split('-').pop()! : wtId;
-  const date = wtId.slice(0, 10); // YYYY-MM-DD prefix
+  const parts = wtId.split('-');
+  const sha = parts.length >= 4 ? parts[parts.length - 1] : wtId;
+  const date = /^\d{4}-\d{2}-\d{2}/.test(wtId) ? wtId.slice(0, 10) : undefined;
 
   const repos = Array.from(worktreePaths.entries()).map(([name, { path }]) => ({
     name,
@@ -113,11 +118,10 @@ export function updateSessionTitle(repoPath: string, wtId: string, title: string
   const entry = entries.find((e) => e.id === wtId);
   if (!entry) return;
 
-  if (!entry.initial_title) {
-    upsertEntry(repoPath, { id: wtId, initial_title: title });
-  } else {
-    upsertEntry(repoPath, { id: wtId, last_title: title });
-  }
+  const fields: Partial<SessionIndexEntry> = entry.initial_title
+    ? { last_title: title }
+    : { initial_title: title };
+  upsertEntry(repoPath, { id: wtId, ...fields });
 }
 
 /**
