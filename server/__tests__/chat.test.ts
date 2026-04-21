@@ -58,6 +58,48 @@ describe('getSessions', () => {
   });
 });
 
+describe('resolveResumeCwd', () => {
+  it('falls back to BASE_REPO when stored CWD no longer exists', async () => {
+    const chat = await import('../chat.js');
+
+    const result = chat.resolveResumeCwd(
+      { resume: 'sess-test' },
+      {
+        getSession: () => ({ cwd: '/tmp/deleted-worktree' }),
+        pathExists: () => false,
+      },
+    );
+
+    expect(result).toBe(chat.BASE_REPO);
+  });
+
+  it('uses stored CWD when it still exists', async () => {
+    const chat = await import('../chat.js');
+
+    const result = chat.resolveResumeCwd(
+      { resume: 'sess-test' },
+      {
+        getSession: () => ({ cwd: '/existing/path' }),
+        pathExists: () => true,
+      },
+    );
+
+    expect(result).toBe('/existing/path');
+  });
+
+  it('returns explicit cwd when provided (ignores resume)', async () => {
+    const chat = await import('../chat.js');
+    const result = chat.resolveResumeCwd({ cwd: '/explicit', resume: 'sess-test' });
+    expect(result).toBe('/explicit');
+  });
+
+  it('returns BASE_REPO when no resume or cwd', async () => {
+    const chat = await import('../chat.js');
+    const result = chat.resolveResumeCwd({});
+    expect(result).toBe(chat.BASE_REPO);
+  });
+});
+
 describe('getMessages', () => {
   it('returns an array for unknown session', async () => {
     const { getMessages } = await import('../chat.js');

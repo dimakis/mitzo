@@ -332,7 +332,6 @@ export async function runQueryLoop(
         log.info('result received', { clientId, sessionId: msg.session_id });
         // Capture snapshot blocks before flush (forceFlush nulls the snapshot).
         const snapshotBlocks = currentSession.currentSnapshot?.blocks ?? [];
-        if (msg.session_id) emit({ type: 'session_id', sessionId: msg.session_id });
         forceFlushPendingMessage(currentSession);
         doneSent = true;
 
