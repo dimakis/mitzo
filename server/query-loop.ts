@@ -147,7 +147,8 @@ export async function runQueryLoop(
   let agentContextTokens = 0; // full context window size (input + cached) from parent message_start
   let turnIndex = 0; // increments on each parent message_start (excludes sub-agents)
   let numCompactions = 0; // counts successful compaction events from SDK
-  let liveSessionTokens = 0; // running total across all API calls in this query
+  let liveSessionTokens = 0; // cumulative total across all API calls in this query
+  let cumulativeOutputTokens = 0; // accumulated output tokens (fresh per API call)
   const compactionFields = () => (numCompactions > 0 ? { numCompactions } : {});
 
   // Track last-reported cumulative usage to compute deltas (SDK reports cumulative totals).
@@ -465,8 +466,14 @@ export async function runQueryLoop(
           const msgCacheRead = msgUsage ? (msgUsage.cache_read_input_tokens ?? 0) : 0;
           const msgCacheCreation = msgUsage ? (msgUsage.cache_creation_input_tokens ?? 0) : 0;
           const msgOutput = msgUsage ? (msgUsage.output_tokens ?? 0) : 0;
-          const msgTotal = msgInput + msgCacheRead + msgCacheCreation + msgOutput;
-          if (msgTotal > 0) liveSessionTokens += msgTotal;
+          // Input/cache tokens are cumulative (each API call re-sends the full
+          // conversation), so take the latest value instead of summing.
+          // Output tokens are fresh per call, so accumulate them.
+          const msgContext = msgInput + msgCacheRead + msgCacheCreation;
+          if (msgOutput > 0) cumulativeOutputTokens += msgOutput;
+          if (msgContext > 0 || msgOutput > 0) {
+            liveSessionTokens = msgContext + cumulativeOutputTokens;
+          }
 
           if (isParent && msgUsage) {
             const totalContext = msgInput + msgCacheRead + msgCacheCreation;

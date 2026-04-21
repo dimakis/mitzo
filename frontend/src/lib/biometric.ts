@@ -92,6 +92,7 @@ export async function biometricLogin(apiBaseUrl = ''): Promise<string | null> {
     // Validate the token with the server before accepting it
     const res = await fetch(`${apiBaseUrl}/api/sessions`, {
       headers: { Authorization: `Bearer ${token}` },
+      credentials: 'include',
     });
     if (!res.ok) {
       // Token expired or invalid — clear stale credentials
