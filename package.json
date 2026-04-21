@@ -10,7 +10,7 @@
     "dev": "bash scripts/dev.sh",
     "dev:server": "tsx watch server/index.ts",
     "build": "cd frontend && npm run build",
-    "build:server": "tsc -b packages/protocol packages/harness packages/client && tsc -p tsconfig.build.json && cp server/ipv4-preload.cjs dist/",
+    "build:server": "tsc -b packages/protocol packages/harness packages/client && tsc -p tsconfig.build.json",
     "build:all": "npm run build:server && npm run build",
     "build:mcp": "cd mcp-server && npm run build",
     "setup-mcp": "bash scripts/setup-mcp.sh",
@@ -28,7 +28,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "tracing:up": "docker compose up -d jaeger",
-    "tracing:down": "docker compose down jaeger",
+    "tracing:down": "docker compose stop jaeger && docker compose rm -f jaeger",
     "observability:up": "docker compose up -d",
     "observability:down": "docker compose down",
     "prepare": "husky || true"
