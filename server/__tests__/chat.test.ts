@@ -56,7 +56,6 @@ describe('getMessages', () => {
 
 describe('cleanupSessionWorktrees', () => {
   it('skips primary worktree and only removes secondaries', async () => {
-    const { removeWorktree } = await import('../worktree.js');
     vi.spyOn(await import('../worktree.js'), 'removeWorktree').mockImplementation(() => {});
 
     const { cleanupSessionWorktrees } = await import('../chat.js');
