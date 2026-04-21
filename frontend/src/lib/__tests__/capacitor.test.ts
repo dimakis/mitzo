@@ -105,7 +105,7 @@ describe('configureStatusBar', () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
     await configureStatusBar();
     expect(StatusBar.setBackgroundColor).toHaveBeenCalledWith({
-      color: '#0f0f1a',
+      color: '#111113',
     });
   });
 });

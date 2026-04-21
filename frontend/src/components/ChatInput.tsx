@@ -56,11 +56,17 @@ export function ChatInput({
   const [showSlashPicker, setShowSlashPicker] = useState(false);
   const [showContextPicker, setShowContextPicker] = useState(false);
   const [contextBlocks, setContextBlocks] = useState<string[]>([]);
+  const [queuedMessage, setQueuedMessage] = useState<{
+    text: string;
+    images: ImageAttachment[];
+    contextBlocks: string[];
+  } | null>(null);
   const useExternal = externalContextBlocks !== undefined;
   const activeContextBlocks = useExternal ? externalContextBlocks : contextBlocks;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const initialApplied = useRef(false);
+  const prevRunning = useRef(running);
 
   const autoResize = useCallback(() => {
     const el = textareaRef.current;
@@ -86,6 +92,20 @@ export function ChatInput({
   useEffect(() => {
     autoResize();
   }, [text, autoResize]);
+
+  // Auto-send queued message when agent finishes its turn
+  useEffect(() => {
+    if (prevRunning.current && !running && queuedMessage) {
+      const q = queuedMessage;
+      setQueuedMessage(null);
+      onSend(
+        q.text,
+        q.images.length > 0 ? q.images : undefined,
+        q.contextBlocks.length > 0 ? q.contextBlocks : undefined,
+      );
+    }
+    prevRunning.current = running;
+  }, [running, queuedMessage, onSend]);
 
   // Show/hide slash picker based on input
   // TODO: Verify picker reopens correctly on backspace after space (e.g. "/simplify " → "/simplify")
@@ -192,6 +212,47 @@ export function ChatInput({
       }
     : null;
 
+  function handleQueue() {
+    const trimmed = text.trim();
+    if (!trimmed && images.length === 0) return;
+    impactMedium();
+    setQueuedMessage({
+      text: trimmed || 'What do you see in this image?',
+      images: [...images],
+      contextBlocks: [...activeContextBlocks],
+    });
+    setText('');
+    setImages([]);
+    if (!useExternal) setContextBlocks([]);
+    requestAnimationFrame(() => {
+      autoResize();
+      textareaRef.current?.focus();
+    });
+  }
+
+  function editQueuedMessage() {
+    if (!queuedMessage) return;
+    setText(queuedMessage.text);
+    setImages(queuedMessage.images);
+    if (!useExternal) setContextBlocks(queuedMessage.contextBlocks);
+    setQueuedMessage(null);
+    requestAnimationFrame(() => {
+      autoResize();
+      textareaRef.current?.focus();
+    });
+  }
+
+  function fireQueuedAsInterrupt() {
+    if (!queuedMessage || !onInterrupt) return;
+    const q = queuedMessage;
+    setQueuedMessage(null);
+    onInterrupt(
+      q.text,
+      q.images.length > 0 ? q.images : undefined,
+      q.contextBlocks.length > 0 ? q.contextBlocks : undefined,
+    );
+  }
+
   function handleInterrupt() {
     if (!onInterrupt) return;
     const trimmed = text.trim();
@@ -261,7 +322,38 @@ export function ChatInput({
       {voice?.recording && voice.partialTranscript && (
         <div className="voice-partial">{voice.partialTranscript}</div>
       )}
-      <div className="chat-input-command-strip">
+      {queuedMessage && (
+        <div className="chat-input-queued">
+          <span className="chat-input-queued-label">Queued</span>
+          <span className="chat-input-queued-text">{queuedMessage.text}</span>
+          {onInterrupt && (
+            <button
+              className="chat-input-queued-btn chat-input-queued-btn--fire"
+              onClick={fireQueuedAsInterrupt}
+              title="Send now (interrupt)"
+            >
+              Send Now
+            </button>
+          )}
+          <button className="chat-input-queued-btn" onClick={editQueuedMessage}>
+            Edit
+          </button>
+          <button
+            className="chat-input-queued-btn chat-input-queued-btn--clear"
+            onClick={() => setQueuedMessage(null)}
+          >
+            &times;
+          </button>
+        </div>
+      )}
+      <div
+        className="chat-input-command-strip"
+        onPointerDown={(e) => {
+          if ((e.target as HTMLElement).closest('button, a, select')) {
+            e.preventDefault();
+          }
+        }}
+      >
         <button
           className="chat-input-btn chat-input-btn--skills"
           onClick={() => {
@@ -338,8 +430,8 @@ export function ChatInput({
             )}
             {canSend && (
               <button
-                className="chat-input-btn chat-input-btn--send"
-                onClick={handleSend}
+                className="chat-input-btn chat-input-btn--queue"
+                onClick={handleQueue}
                 title="Queue — send after current turn"
               >
                 ↑

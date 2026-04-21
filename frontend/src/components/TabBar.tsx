@@ -1,6 +1,7 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTabBadges } from '../hooks/useTabBadges';
 import { useIsDesktop } from '../hooks/useMediaQuery';
+import { useTheme } from '../hooks/useTheme';
 import { useState } from 'react';
 
 interface Tab {
@@ -15,6 +16,7 @@ export function TabBar() {
   const navigate = useNavigate();
   const { inboxCount, todoCount } = useTabBadges();
   const isDesktop = useIsDesktop();
+  const { preference, setTheme } = useTheme();
   const [moreOpen, setMoreOpen] = useState(false);
 
   if (isDesktop) return null;
@@ -25,7 +27,7 @@ export function TabBar() {
       path: '/',
       match: (p) => p === '/' || p === '/chat' || p.startsWith('/chat/'),
     },
-    { label: 'Tasks', path: '/tasks', match: (p) => p === '/tasks' },
+    { label: 'Calendar', path: '/calendar', match: (p) => p.startsWith('/calendar') },
     { label: 'Inbox', path: '/inbox', match: (p) => p === '/inbox', badge: inboxCount },
     {
       label: 'Todos',
@@ -35,7 +37,7 @@ export function TabBar() {
     },
   ];
 
-  const isMoreActive = ['/calendar', '/files'].some((p) => location.pathname.startsWith(p));
+  const isMoreActive = ['/tasks', '/files'].some((p) => location.pathname.startsWith(p));
 
   return (
     <>
@@ -45,11 +47,11 @@ export function TabBar() {
             <button
               className="tab-bar-more-item"
               onClick={() => {
-                navigate('/calendar');
+                navigate('/tasks');
                 setMoreOpen(false);
               }}
             >
-              Calendar
+              Tasks
             </button>
             <button
               className="tab-bar-more-item"
@@ -59,6 +61,21 @@ export function TabBar() {
               }}
             >
               Files
+            </button>
+            <div className="tab-bar-more-divider" />
+            <button
+              className="tab-bar-more-item"
+              onClick={() => {
+                const next =
+                  preference === 'dark' ? 'light' : preference === 'light' ? 'system' : 'dark';
+                setTheme(next);
+              }}
+            >
+              {preference === 'dark'
+                ? 'Light Mode'
+                : preference === 'light'
+                  ? 'System Mode'
+                  : 'Dark Mode'}
             </button>
           </div>
         </div>

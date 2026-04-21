@@ -3,9 +3,12 @@ import { createRoot } from 'react-dom/client';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { App } from './App';
 import { clientStore } from './client-store';
+import { initTheme } from './hooks/useTheme';
 import './styles/global.css';
 import './styles/calendar.css';
 import './styles/desktop.css';
+
+initTheme();
 
 // Unregister any previously installed service workers — the SW was causing
 // WS disconnects (code 1001) via clients.claim() on activate. For a tool

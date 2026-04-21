@@ -17,10 +17,10 @@ export function registerCapacitorLifecycle(onResume: () => void): void {
   });
 }
 
-/** Configure native status bar — light text on dark background. No-op in browser. */
-export async function configureStatusBar(): Promise<void> {
+/** Configure native status bar to match theme. No-op in browser. */
+export async function configureStatusBar(theme: 'dark' | 'light' = 'dark'): Promise<void> {
   if (!isCapacitor()) return;
 
-  await StatusBar.setStyle({ style: Style.Dark });
-  await StatusBar.setBackgroundColor({ color: '#0f0f1a' });
+  await StatusBar.setStyle({ style: theme === 'dark' ? Style.Dark : Style.Light });
+  await StatusBar.setBackgroundColor({ color: theme === 'dark' ? '#111113' : '#f5f5f7' });
 }

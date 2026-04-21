@@ -68,10 +68,10 @@ export async function deleteCredentials(): Promise<void> {
 
 /**
  * Attempt biometric login: prompt Face ID / Touch ID, retrieve JWT from Keychain,
- * store in localStorage for apiFetch, and return the token.
- * Returns null if biometric auth fails or no credentials stored.
+ * validate with server, store in localStorage for apiFetch, and return the token.
+ * Returns null if biometric auth fails, no credentials stored, or token is expired.
  */
-export async function biometricLogin(): Promise<string | null> {
+export async function biometricLogin(apiBaseUrl = ''): Promise<string | null> {
   if (!Capacitor.isNativePlatform()) return null;
 
   try {
@@ -87,11 +87,22 @@ export async function biometricLogin(): Promise<string | null> {
     });
     const token = credentials.password;
 
-    if (token) {
-      localStorage.setItem(AUTH_TOKEN_KEY, token);
-      return token;
+    if (!token) return null;
+
+    // Validate the token with the server before accepting it
+    const res = await fetch(`${apiBaseUrl}/api/sessions`, {
+      headers: { Authorization: `Bearer ${token}` },
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      // Token expired or invalid — clear stale credentials
+      await deleteCredentials();
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+      return null;
     }
-    return null;
+
+    localStorage.setItem(AUTH_TOKEN_KEY, token);
+    return token;
   } catch {
     return null;
   }

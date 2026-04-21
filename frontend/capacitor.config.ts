@@ -5,12 +5,12 @@ const config: CapacitorConfig = {
   appName: 'Mitzo',
   webDir: 'dist',
   ios: {
-    contentInset: 'always',
+    contentInset: 'never',
   },
   plugins: {
     SplashScreen: {
       launchAutoHide: false,
-      backgroundColor: '#0f0f1a',
+      backgroundColor: '#111113',
       showSpinner: false,
     },
   },

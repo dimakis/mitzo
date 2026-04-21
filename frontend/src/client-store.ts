@@ -9,7 +9,7 @@
 
 import { createMitzoStore } from '@mitzo/client';
 import { apiFetch, getWsChatUrl } from './lib/api-fetch';
-import { registerCapacitorLifecycle, configureStatusBar } from './lib/capacitor';
+import { registerCapacitorLifecycle } from './lib/capacitor';
 import { configureKeyboard } from './lib/keyboard';
 import { initPushNotifications } from './lib/push';
 
@@ -26,9 +26,6 @@ export const clientStore = createMitzoStore({
 
 // Wire Capacitor app lifecycle → force WS reconnect on resume (no-op in browser)
 registerCapacitorLifecycle(() => clientStore.getState().forceReconnect());
-
-// Configure native status bar appearance (no-op in browser)
-configureStatusBar();
 
 // Configure native keyboard behavior (no-op in browser)
 configureKeyboard();

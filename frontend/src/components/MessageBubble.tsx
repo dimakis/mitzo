@@ -14,14 +14,20 @@ interface UserBubbleProps {
   text?: string;
   images?: string[];
   contextBlocks?: string[];
+  onEdit?: (text: string) => void;
   timestamp?: number;
 }
 
-export function UserBubble({ text, images, contextBlocks, timestamp }: UserBubbleProps) {
+export function UserBubble({ text, images, contextBlocks, onEdit, timestamp }: UserBubbleProps) {
   const time = formatTime(timestamp);
   return (
     <div className="msg-bubble-group msg-bubble-group--user">
-      <div className="msg-bubble msg-bubble--user">
+      <div
+        className={`msg-bubble msg-bubble--user${onEdit ? ' msg-bubble--editable' : ''}`}
+        onClick={() => text && onEdit?.(text)}
+        role={onEdit ? 'button' : undefined}
+        tabIndex={onEdit ? 0 : undefined}
+      >
         {contextBlocks && contextBlocks.length > 0 && (
           <div className="msg-bubble-context">@ {contextBlocks.join(', ')}</div>
         )}
@@ -118,13 +124,13 @@ export function TextBubble({ content, streaming = false, timestamp }: TextBubble
           {processed}
         </ReactMarkdown>
       </div>
-      {isLong && !streaming && (
-        <button className="msg-bubble-collapse-toggle" onClick={() => setCollapsed((v) => !v)}>
-          {collapsed ? 'Show more' : 'Show less'}
-        </button>
-      )}
       {!streaming && (
         <div className="msg-bubble-footer">
+          {isLong && (
+            <button className="msg-bubble-collapse-toggle" onClick={() => setCollapsed((v) => !v)}>
+              {collapsed ? 'Show more' : 'Show less'}
+            </button>
+          )}
           {timestamp && <span className="msg-timestamp">{formatTime(timestamp)}</span>}
           <CopyButton text={content} className="msg-bubble-copy" />
         </div>

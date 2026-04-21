@@ -33,7 +33,7 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <div
         style={{
-          background: '#0f0f1a',
+          background: 'var(--bg, #111113)',
           color: '#e0e0e0',
           minHeight: '100dvh',
           display: 'flex',
