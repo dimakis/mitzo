@@ -72,6 +72,39 @@ export function getMcpServerNames(): string[] {
 export const BASE_REPO = process.env.REPO_PATH || '';
 const WORKTREE_ENABLED = process.env.WORKTREE_ENABLED !== 'false';
 
+/**
+ * Resolve the CWD for a session, handling resume and worktree cleanup.
+ * Extracted for testability — injectable deps for event store and filesystem.
+ */
+export function resolveResumeCwd(
+  options: { resume?: string; cwd?: string },
+  deps?: {
+    getSession: (id: string) => { cwd?: string | null } | null;
+    pathExists: (p: string) => boolean;
+  },
+): string {
+  if (options.cwd) return options.cwd;
+  if (!options.resume) return BASE_REPO;
+
+  const store = deps ?? {
+    getSession: (id: string) => eventStore.getSession(id),
+    pathExists: (p: string) => existsSync(p),
+  };
+
+  const meta = store.getSession(options.resume);
+  if (meta?.cwd) {
+    if (store.pathExists(meta.cwd)) return meta.cwd;
+    if (deps) return BASE_REPO;
+    mkdirSync(meta.cwd, { recursive: true });
+    log.info('resume: re-created original CWD directory for SDK path encoding', {
+      sessionId: options.resume,
+      cwd: meta.cwd,
+    });
+    return meta.cwd;
+  }
+  return BASE_REPO;
+}
+
 /** Generate a session-scoped worktree ID: YYYY-MM-DD-<random-hex>. */
 export function generateWtId(): string {
   const date = new Date().toISOString().slice(0, 10);
@@ -431,35 +464,7 @@ export async function startChat(
   const abortController = new AbortController();
   const mode = options.mode || 'agent';
 
-  // When resuming, look up the original session's CWD from the event store.
-  // The SDK stores conversation data under ~/.claude/projects/<encoded-cwd>/,
-  // so we must use the same CWD the session was created with — otherwise the
-  // SDK can't find the conversation and returns "No conversation found".
-  // If the original CWD was a worktree that's been cleaned up, fall back to
-  // BASE_REPO — the SDK will still find the conversation via the encoded path.
-  let baseCwd = options.cwd || BASE_REPO;
-  if (options.resume && !options.cwd) {
-    const sessionMeta = eventStore.getSession(options.resume);
-    if (sessionMeta?.cwd) {
-      if (existsSync(sessionMeta.cwd)) {
-        baseCwd = sessionMeta.cwd;
-        log.info('resume: using original session CWD', {
-          sessionId: options.resume,
-          cwd: baseCwd,
-        });
-      } else {
-        // The worktree directory was cleaned up, but the SDK encodes
-        // conversation data by CWD path. Re-create the directory so
-        // the SDK can find the conversation using the original path.
-        mkdirSync(sessionMeta.cwd, { recursive: true });
-        baseCwd = sessionMeta.cwd;
-        log.info('resume: re-created original CWD directory for SDK path encoding', {
-          sessionId: options.resume,
-          cwd: baseCwd,
-        });
-      }
-    }
-  }
+  const baseCwd = resolveResumeCwd(options);
 
   // Generate session-scoped worktree ID and create worktrees in all repos
   const wtId = generateWtId();
