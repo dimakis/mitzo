@@ -22,6 +22,7 @@ import {
   BASE_REPO,
   getMcpServerNames,
   getRepoConfig,
+  isIsolationEnabled,
   eventStore,
   registry,
   generateWtId,
@@ -391,8 +392,15 @@ app.post('/api/sessions', (req, res) => {
     return;
   }
 
-  const wtId = generateWtId();
+  if (!isIsolationEnabled()) {
+    log.info('session isolation disabled', { source });
+    res.json({ sessionId: null, worktrees: null, isolation: false });
+    return;
+  }
+
   const config = getRepoConfig();
+
+  const wtId = generateWtId();
 
   try {
     const worktrees = createAllWorktrees(wtId, BASE_REPO, config.repos, {
@@ -405,7 +413,7 @@ app.post('/api/sessions', (req, res) => {
       repos: Object.keys(worktrees),
     });
 
-    res.json({ sessionId: wtId, worktrees });
+    res.json({ sessionId: wtId, worktrees, isolation: true });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     log.error('session creation failed', { source, error: message });

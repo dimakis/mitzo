@@ -70,7 +70,15 @@ export function getMcpServerNames(): string[] {
 }
 
 export const BASE_REPO = process.env.REPO_PATH || '';
-const WORKTREE_ENABLED = process.env.WORKTREE_ENABLED !== 'false';
+
+/** Check whether worktree isolation is enabled.
+ *  WORKTREE_ENABLED=false is an absolute ceiling (always wins).
+ *  Otherwise: per-session override > .mitzo.json config > default true. */
+export function isIsolationEnabled(perSession?: boolean): boolean {
+  if (process.env.WORKTREE_ENABLED === 'false') return false;
+  if (perSession !== undefined) return perSession;
+  return getRepoConfig().isolation;
+}
 
 /**
  * Resolve the CWD for a session, handling resume and worktree cleanup.
@@ -228,7 +236,7 @@ function createSessionWorktrees(
   transport: SessionTransport,
   baseCwd: string,
   wtId: string,
-  options: { resume?: string; cwd?: string },
+  options: { resume?: string; cwd?: string; isolation?: boolean },
 ): {
   cwd: string;
   wtId: string;
@@ -238,7 +246,7 @@ function createSessionWorktrees(
   const repoWorktrees = new Map<string, { path: string; wtId: string }>();
 
   // Skip worktree creation when resuming, using custom cwd, or disabled
-  if (!WORKTREE_ENABLED || options.resume || options.cwd || !BASE_REPO) {
+  if (!isIsolationEnabled(options.isolation) || options.resume || options.cwd || !BASE_REPO) {
     return { cwd: baseCwd, wtId, repoWorktrees };
   }
 
@@ -454,6 +462,7 @@ export async function startChat(
     cwd?: string;
     model?: string;
     extraTools?: string;
+    isolation?: boolean;
     mode?: MitzoMode;
     images?: Array<{ data: string; mediaType: string }>;
     contextBlocks?: string[];

@@ -28,6 +28,7 @@ export const SendMessage = z.object({
   resume: z.string().optional(),
   cwd: z.string().optional(),
   extraTools: z.string().optional(),
+  isolation: z.boolean().optional(),
   images: z.array(ImageSchema).optional(),
   contextBlocks: z.array(z.string()).optional(),
   traceparent,

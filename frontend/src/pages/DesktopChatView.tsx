@@ -84,6 +84,7 @@ export function DesktopChatView() {
   const [mode, setMode] = useState<'ask' | 'agent' | 'auto'>(
     searchParams.get('extraTools') ? 'auto' : 'agent',
   );
+  const [isolation, setIsolation] = useState(true);
 
   const voice = useVoice();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -162,6 +163,7 @@ export function DesktopChatView() {
       mode,
       cwd: searchParams.get('cwd') ?? undefined,
       extraTools: searchParams.get('extraTools') ?? undefined,
+      ...(!activeSessionId && !isolation ? { isolation: false } : {}),
     });
     forceScrollToBottom();
     return true;
@@ -243,6 +245,15 @@ export function DesktopChatView() {
                 </button>
               ))}
             </div>
+            {!activeSessionId && (
+              <button
+                className={`isolation-toggle${isolation ? ' isolation-toggle--active' : ''}`}
+                onClick={() => setIsolation((v) => !v)}
+                title={isolation ? 'Worktree isolation: ON' : 'Worktree isolation: OFF'}
+              >
+                {isolation ? '\u{1f512}' : '\u{1f513}'}
+              </button>
+            )}
             <VoiceSettings
               ttsAvailable={voice.ttsAvailable}
               ttsEnabled={voice.ttsEnabled}

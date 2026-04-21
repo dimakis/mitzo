@@ -256,6 +256,30 @@ describe('loadRepoConfig', () => {
     });
   });
 
+  it('defaults isolation to true when not specified', () => {
+    const data = { quickActions: [] };
+    writeFileSync(join(TMP_DIR, '.mitzo.json'), JSON.stringify(data));
+
+    const config = loadRepoConfig(TMP_DIR);
+    expect(config.isolation).toBe(true);
+  });
+
+  it('respects isolation: false', () => {
+    const data = { isolation: false };
+    writeFileSync(join(TMP_DIR, '.mitzo.json'), JSON.stringify(data));
+
+    const config = loadRepoConfig(TMP_DIR);
+    expect(config.isolation).toBe(false);
+  });
+
+  it('treats non-boolean isolation values as true', () => {
+    const data = { isolation: 'nope' };
+    writeFileSync(join(TMP_DIR, '.mitzo.json'), JSON.stringify(data));
+
+    const config = loadRepoConfig(TMP_DIR);
+    expect(config.isolation).toBe(true);
+  });
+
   it('filters out quickActions with missing required fields', () => {
     const data = {
       quickActions: [
