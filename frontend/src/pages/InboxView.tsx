@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import { EmptyState } from '../components/EmptyState';
+import { PageHeader } from '../components/PageHeader';
 import { apiFetch } from '../lib/api-fetch';
 
 interface InboxItem {
@@ -242,12 +243,7 @@ export function InboxView() {
 
   return (
     <div className="inbox-page">
-      <header className="inbox-header">
-        <button className="inbox-back" onClick={() => navigate('/')}>
-          &lsaquo;
-        </button>
-        <h1>Inbox {items.length > 0 && <span className="inbox-count">{items.length}</span>}</h1>
-      </header>
+      <PageHeader title="Inbox" badge={items.length || undefined} onBack={() => navigate('/')} />
 
       {loading && <p className="inbox-empty">Loading...</p>}
 

@@ -5,6 +5,7 @@ import { TaskCreateForm } from '../components/TaskCreateForm';
 import { WorkflowCreateForm } from '../components/WorkflowCreateForm';
 import { LoopControls } from '../components/LoopControls';
 import { EmptyState } from '../components/EmptyState';
+import { PageHeader } from '../components/PageHeader';
 import { useTaskBoard } from '../hooks/useTaskBoard';
 import type { TaskStatus } from '../types/task';
 
@@ -52,13 +53,7 @@ export function TaskBoard() {
 
   return (
     <div className="task-board-page">
-      <header className="task-board-header">
-        <button className="task-board-back" onClick={() => navigate('/')}>
-          &lsaquo;
-        </button>
-        <h1>
-          Tasks {tasks.length > 0 && <span className="task-board-count">{tasks.length}</span>}
-        </h1>
+      <PageHeader title="Tasks" badge={tasks.length || undefined} onBack={() => navigate('/')}>
         <button
           className="task-board-add-btn"
           onClick={() => setCreating({ parentId: undefined })}
@@ -76,7 +71,7 @@ export function TaskBoard() {
         <button className="task-board-refresh" onClick={refresh} title="Refresh">
           &#x21bb;
         </button>
-      </header>
+      </PageHeader>
 
       <LoopControls
         loopStatus={loopStatus}

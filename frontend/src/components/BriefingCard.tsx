@@ -5,21 +5,18 @@ export function BriefingCard() {
 
   function handleStartSession() {
     const params = new URLSearchParams();
-    params.set(
-      'prompt',
-      'Run my morning briefing — calendar, email highlights, Jira status, and Slack signals.',
-    );
+    params.set('prompt', 'Run my morning briefing — calendar, email highlights, and Jira status.');
     navigate(`/chat?${params.toString()}`);
   }
 
   return (
     <button className="briefing-btn" onClick={handleStartSession}>
-      <span className="briefing-btn-icon">☀</span>
+      <span className="briefing-btn-icon">&#x2600;</span>
       <span className="briefing-btn-text">
         <span className="briefing-btn-title">Morning Briefing</span>
-        <span className="briefing-btn-desc">Calendar, email, Jira, Slack</span>
+        <span className="briefing-btn-desc">Calendar, email, Jira</span>
       </span>
-      <span className="briefing-btn-arrow">›</span>
+      <span className="briefing-btn-arrow">&#x203A;</span>
     </button>
   );
 }

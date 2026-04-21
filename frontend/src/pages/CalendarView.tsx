@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useCalendarData, type CalendarEvent } from '../hooks/useCalendarData';
 import { EventCard } from '../components/EventCard';
 import { SprintBar } from '../components/SprintBar';
+import { PageHeader } from '../components/PageHeader';
 
 function toLocalDate(isoStr: string): string {
   if (isoStr.includes('T')) {
@@ -118,21 +119,23 @@ export function CalendarView() {
 
   return (
     <div className="cal-page">
-      <header className="cal-header">
-        <button className="cal-back" onClick={() => navigate('/')}>
-          &lsaquo;
-        </button>
-        <div className="cal-header-center">
-          <button className="cal-nav-prev" onClick={handlePrev}>
-            &lsaquo;
-          </button>
-          <button className="cal-header-title" onClick={handleToday}>
-            {startLabel} &ndash; {endLabel}
-          </button>
-          <button className="cal-nav-next" onClick={handleNext}>
-            &rsaquo;
-          </button>
-        </div>
+      <PageHeader
+        title="Calendar"
+        onBack={() => navigate('/')}
+        center={
+          <div className="cal-header-center">
+            <button className="cal-nav-prev" onClick={handlePrev}>
+              &lsaquo;
+            </button>
+            <button className="cal-header-title" onClick={handleToday}>
+              {startLabel} &ndash; {endLabel}
+            </button>
+            <button className="cal-nav-next" onClick={handleNext}>
+              &rsaquo;
+            </button>
+          </div>
+        }
+      >
         <div className="cal-view-toggle">
           <button
             className={`cal-view-btn${viewDays === 1 ? ' cal-view-btn--active' : ''}`}
@@ -163,7 +166,7 @@ export function CalendarView() {
             Releases
           </button>
         </div>
-      </header>
+      </PageHeader>
 
       {sprints.length > 0 && (
         <div className="cal-sprints">
