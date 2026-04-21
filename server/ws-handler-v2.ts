@@ -75,6 +75,19 @@ export function isHelloHandshake(msg: unknown): boolean {
   );
 }
 
+/**
+ * Extract the owning connectionId from a composite clientId.
+ *
+ * ClientId format: `${connectionId}:${suffix}` where suffix is either a
+ * sessionId or `new-${uuid}`. ConnectionIds use the format
+ * `conn-${timestamp}-${random}` (see server/index.ts L196) and never
+ * contain colons, so the first colon is always the separator.
+ */
+export function getOwnerConnection(clientId: string): string {
+  const colonIdx = clientId.indexOf(':');
+  return colonIdx === -1 ? clientId : clientId.slice(0, colonIdx);
+}
+
 // ─── Handlers ────────────────────────────────────────────────────────────────
 
 export function handleHello(
@@ -140,14 +153,26 @@ export function handleReconnect(
         }
       }
       if (found && running && !ctx.sessionRegistry.isAttached(found.clientId)) {
-        const conn = ctx.connRegistry.get(connectionId);
-        if (conn) {
-          reattachChat(found.clientId, conn.transport);
-          log.info('reattached detached session on reconnect', {
-            connectionId,
-            sessionId: entry.sessionId,
-            clientId: found.clientId,
-          });
+        // Reattach if the reconnecting client's connectionId matches the
+        // session's original owner, OR the original owner connection is no
+        // longer registered (meaning its WebSocket died — the normal
+        // reconnect path). This prevents a different device from hijacking
+        // a session that is still actively driven elsewhere, while allowing
+        // the same client to reclaim its session after a WS drop.
+        const ownerConnection = getOwnerConnection(found.clientId);
+        const ownerGone = !ctx.connRegistry.get(ownerConnection);
+        const isOwner = ownerConnection === connectionId;
+        if (isOwner || ownerGone) {
+          const conn = ctx.connRegistry.get(connectionId);
+          if (conn) {
+            reattachChat(found.clientId, conn.transport);
+            log.info('reattached detached session on reconnect', {
+              connectionId,
+              sessionId: entry.sessionId,
+              clientId: found.clientId,
+              ownerGone,
+            });
+          }
         }
       }
 
@@ -211,8 +236,19 @@ export async function handleSwitchSession(
   span.setAttribute('ws.sessionId', msg.sessionId ?? 'null');
 
   try {
-    // null sessionId = clear active session
+    // null sessionId = clear active session and stop watching it so
+    // broadcast events from the old session don't leak into a new chat.
+    // Trade-off: background permission prompts for the old session will
+    // no longer reach this client. Push notifications (ntfy/Pushover)
+    // still fire, so the user is notified externally. The alternative
+    // (keeping the watch) caused session bleed when switching to a new
+    // chat — the old session's events leaked through the client-side
+    // filter during the window when currentSessionId is null.
     if (msg.sessionId === null) {
+      const prev = ctx.connRegistry.get(connectionId)?.activeSession;
+      if (prev) {
+        ctx.connRegistry.unwatch(connectionId, prev);
+      }
       ctx.connRegistry.setActive(connectionId, null);
       ctx.connRegistry.get(connectionId)?.transport.send({ type: 'session_cleared' });
       span.setStatus({ code: SpanStatusCode.OK });
@@ -341,10 +377,28 @@ export function handleSendV2(
       // Resume existing session
       const found = ctx.sessionRegistry.findBySessionId(sessionId);
       if (found && isActive(found.clientId)) {
+        // Check connection ownership: does the driver belong to THIS connection?
+        const ownerConnection = getOwnerConnection(found.clientId);
+        const isOwner = ownerConnection === connectionId;
+        const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
+
+        if (!isOwner && !isDetached) {
+          // Session is actively driven by another connection — reject.
+          transport.send({
+            type: 'error',
+            error: 'Session is active on another device',
+            code: 'active_elsewhere',
+            sessionId,
+          });
+          span.setAttribute('routing.decision', 'rejected_active_elsewhere');
+          span.setStatus({ code: SpanStatusCode.ERROR, message: 'active_elsewhere' });
+          return;
+        }
+
         // Reattach if session was detached by a previous WS disconnect.
         // This updates the session's transport to the current connection
         // so the v1 fallback path in sendOrBuffer can still deliver events.
-        if (!ctx.sessionRegistry.isAttached(found.clientId)) {
+        if (isDetached) {
           reattachChat(found.clientId, transport);
           log.info('reattached detached session on send', {
             connectionId,
@@ -356,7 +410,7 @@ export function handleSendV2(
         sendToChat(found.clientId, prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
         ctx.connRegistry.watch(connectionId, sessionId);
         ctx.connRegistry.setActive(connectionId, sessionId);
-        span.setAttribute('routing.decision', 'active');
+        span.setAttribute('routing.decision', isDetached ? 'takeover' : 'active');
         span.setStatus({ code: SpanStatusCode.OK });
         return;
       }
@@ -432,12 +486,29 @@ export function handleInterruptV2(
   ctx: V2HandlerContext,
 ): void {
   const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
-  if (found) {
-    ctx.connRegistry.watch(connectionId, msg.sessionId);
-    ctx.connRegistry.setActive(connectionId, msg.sessionId);
-    interruptChat(found.clientId, msg.prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
-    log.info('interrupt', { connectionId, sessionId: msg.sessionId });
+  if (!found) return;
+
+  // Ownership guard: reject if another connection actively drives this session
+  if (isActive(found.clientId)) {
+    const ownerConnection = getOwnerConnection(found.clientId);
+    const isOwner = ownerConnection === connectionId;
+    const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
+
+    if (!isOwner && !isDetached) {
+      transport.send({
+        type: 'error',
+        error: 'Session is active on another device',
+        code: 'active_elsewhere',
+        sessionId: msg.sessionId,
+      });
+      return;
+    }
   }
+
+  ctx.connRegistry.watch(connectionId, msg.sessionId);
+  ctx.connRegistry.setActive(connectionId, msg.sessionId);
+  interruptChat(found.clientId, msg.prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
+  log.info('interrupt', { connectionId, sessionId: msg.sessionId });
 }
 
 export function handlePermissionResponseV2(

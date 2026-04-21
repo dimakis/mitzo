@@ -160,7 +160,7 @@ npm run lint         # eslint
 npm run format:check # prettier
 ```
 
-Pre-commit: husky + lint-staged + commitlint (conventional commits).
+Pre-commit: husky + lint-staged + commitlint (conventional commits). The hook also runs [gitleaks](https://github.com/gitleaks/gitleaks) if installed, scanning staged changes for secrets. gitleaks is **optional** — the hook skips it gracefully when not found. Install via `brew install gitleaks` (macOS) or see the [gitleaks docs](https://github.com/gitleaks/gitleaks#installing).
 
 ## Tech
 

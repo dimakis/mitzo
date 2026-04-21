@@ -1,0 +1,8 @@
+title = "Mitzo gitleaks config"
+
+[allowlist]
+paths = [
+  '''package-lock\.json''',
+  '''\.claude/worktrees/''',
+  '''\.cursor/worktrees/''',
+]

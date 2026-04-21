@@ -103,7 +103,7 @@ export function TaskSidebar({
                     key={s.id}
                     className={`task-sidebar-sibling${s.id === currentTask.id ? ' task-sidebar-sibling--active' : ''}`}
                   >
-                    <span className={`task-node-status task-node-status--${s.status}`}>
+                    <span className={`task-card-chip task-card-chip--${s.status}`}>
                       {STATUS_ICONS[s.status] || '\u25CB'}
                     </span>
                     {s.title}
