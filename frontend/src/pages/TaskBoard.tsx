@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TaskNode } from '../components/TaskNode';
 import { TaskCreateForm } from '../components/TaskCreateForm';
+import { WorkflowCreateForm } from '../components/WorkflowCreateForm';
 import { LoopControls } from '../components/LoopControls';
 import { EmptyState } from '../components/EmptyState';
 import { useTaskBoard } from '../hooks/useTaskBoard';
@@ -27,6 +28,7 @@ export function TaskBoard() {
     refresh,
   } = useTaskBoard();
   const [creating, setCreating] = useState<{ parentId?: string } | null>(null);
+  const [creatingWorkflow, setCreatingWorkflow] = useState(false);
 
   function handleStatusChange(id: string, status: TaskStatus) {
     updateTask(id, { status });
@@ -64,6 +66,13 @@ export function TaskBoard() {
         >
           +
         </button>
+        <button
+          className="task-board-add-btn"
+          onClick={() => setCreatingWorkflow(true)}
+          title="New workflow"
+        >
+          {'\u2699'}
+        </button>
         <button className="task-board-refresh" onClick={refresh} title="Refresh">
           &#x21bb;
         </button>
@@ -85,6 +94,16 @@ export function TaskBoard() {
           parentId={creating.parentId}
           onCreate={handleCreate}
           onCancel={() => setCreating(null)}
+        />
+      )}
+
+      {creatingWorkflow && (
+        <WorkflowCreateForm
+          onCreated={() => {
+            setCreatingWorkflow(false);
+            refresh();
+          }}
+          onCancel={() => setCreatingWorkflow(false)}
         />
       )}
 

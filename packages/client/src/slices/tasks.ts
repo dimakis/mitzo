@@ -9,6 +9,8 @@ export type TaskStatus =
 
 export type SessionPolicy = 'reuse' | 'spawn' | 'auto';
 
+export type StageType = 'agent_work' | 'wait_for_signal' | 'human_review';
+
 export interface Task {
   id: string;
   parentId: string | null;
@@ -28,6 +30,12 @@ export interface Task {
   createdAt: number;
   updatedAt: number;
   completedAt: number | null;
+  stageType: StageType | null;
+  gateConfig: Record<string, unknown> | null;
+  artifacts: Record<string, unknown> | null;
+  retryCount: number;
+  maxRetries: number;
+  templateId: string | null;
   children: Task[];
 }
 

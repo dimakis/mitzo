@@ -28,6 +28,12 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     createdAt: Date.now(),
     updatedAt: Date.now(),
     completedAt: null,
+    stageType: null,
+    gateConfig: null,
+    artifacts: null,
+    retryCount: 0,
+    maxRetries: 0,
+    templateId: null,
     children: [],
     ...overrides,
   };

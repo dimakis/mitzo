@@ -15,6 +15,13 @@ export type TaskStatus =
 
 export type SessionPolicy = 'reuse' | 'spawn' | 'auto';
 
+export type StageType = 'agent_work' | 'wait_for_signal' | 'human_review';
+
+export interface GateConfig {
+  type: 'gh_ci' | 'gh_review' | 'centaur_review' | 'human_approval' | 'compound';
+  [key: string]: unknown;
+}
+
 const TERMINAL_STATUSES: Set<TaskStatus> = new Set(['done', 'skipped', 'failed']);
 
 export interface Task {
@@ -36,6 +43,12 @@ export interface Task {
   createdAt: number;
   updatedAt: number;
   completedAt: number | null;
+  stageType: StageType | null;
+  gateConfig: GateConfig | null;
+  artifacts: Record<string, unknown> | null;
+  retryCount: number;
+  maxRetries: number;
+  templateId: string | null;
   children: Task[];
 }
 
@@ -46,6 +59,10 @@ export interface TaskCreateInput {
   priority?: number;
   sessionPolicy?: SessionPolicy;
   annotations?: string[];
+  stageType?: StageType;
+  gateConfig?: GateConfig;
+  maxRetries?: number;
+  templateId?: string;
 }
 
 export interface TaskUpdateInput {
@@ -57,6 +74,11 @@ export interface TaskUpdateInput {
   annotations?: string[];
   summary?: string;
   requiresApproval?: boolean;
+  stageType?: StageType;
+  gateConfig?: GateConfig;
+  artifacts?: Record<string, unknown>;
+  retryCount?: number;
+  maxRetries?: number;
 }
 
 interface TaskRow {
@@ -78,6 +100,12 @@ interface TaskRow {
   created_at: number;
   updated_at: number;
   completed_at: number | null;
+  stage_type: string | null;
+  gate_config: string | null;
+  artifacts: string | null;
+  retry_count: number;
+  max_retries: number;
+  template_id: string | null;
 }
 
 const SCHEMA = `
@@ -102,12 +130,35 @@ const SCHEMA = `
     claimed_at      REAL,
     created_at      REAL NOT NULL,
     updated_at      REAL NOT NULL,
-    completed_at    REAL
+    completed_at    REAL,
+    stage_type      TEXT DEFAULT NULL
+                    CHECK(stage_type IS NULL OR stage_type IN ('agent_work','wait_for_signal','human_review')),
+    gate_config     TEXT DEFAULT NULL,
+    artifacts       TEXT DEFAULT NULL,
+    retry_count     INTEGER NOT NULL DEFAULT 0,
+    max_retries     INTEGER NOT NULL DEFAULT 0,
+    template_id     TEXT DEFAULT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);
   CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
   CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);
 `;
+
+const MIGRATIONS = [
+  // Migration 1: Add workflow columns to existing tasks table
+  {
+    check: "SELECT COUNT(*) as cnt FROM pragma_table_info('tasks') WHERE name = 'stage_type'",
+    sql: `
+      ALTER TABLE tasks ADD COLUMN stage_type TEXT DEFAULT NULL
+        CHECK(stage_type IS NULL OR stage_type IN ('agent_work','wait_for_signal','human_review'));
+      ALTER TABLE tasks ADD COLUMN gate_config TEXT DEFAULT NULL;
+      ALTER TABLE tasks ADD COLUMN artifacts TEXT DEFAULT NULL;
+      ALTER TABLE tasks ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE tasks ADD COLUMN max_retries INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE tasks ADD COLUMN template_id TEXT DEFAULT NULL;
+    `,
+  },
+];
 
 function rowToTask(row: TaskRow): Task {
   let annotations: string[] = [];
@@ -137,6 +188,12 @@ function rowToTask(row: TaskRow): Task {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     completedAt: row.completed_at,
+    stageType: (row.stage_type as StageType) ?? null,
+    gateConfig: row.gate_config ? JSON.parse(row.gate_config) : null,
+    artifacts: row.artifacts ? JSON.parse(row.artifacts) : null,
+    retryCount: row.retry_count ?? 0,
+    maxRetries: row.max_retries ?? 0,
+    templateId: row.template_id ?? null,
     children: [],
   };
 }
@@ -144,12 +201,19 @@ function rowToTask(row: TaskRow): Task {
 export class TaskStore {
   private db: Database.Database | null;
 
+  /** Expose the underlying database for shared-connection use (e.g. WorkflowTemplateStore). */
+  getDatabase(): Database.Database {
+    if (!this.db) throw new Error('TaskStore is closed');
+    return this.db;
+  }
+
   constructor(dbPath: string) {
     const db = new Database(dbPath);
     this.db = db;
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
     db.exec(SCHEMA);
+    this.runMigrations(db);
     log.info('TaskStore initialized', { dbPath });
   }
 
@@ -163,6 +227,16 @@ export class TaskStore {
   private getDb(): Database.Database {
     if (!this.db) throw new Error('TaskStore is closed');
     return this.db;
+  }
+
+  private runMigrations(db: Database.Database): void {
+    for (const migration of MIGRATIONS) {
+      const row = db.prepare(migration.check).get() as { cnt: number };
+      if (row.cnt === 0) {
+        log.info('Running migration', { check: migration.check });
+        db.exec(migration.sql);
+      }
+    }
   }
 
   create(input: TaskCreateInput): Task {
@@ -182,10 +256,11 @@ export class TaskStore {
     }
 
     const annotations = input.annotations ? JSON.stringify(input.annotations) : null;
+    const gateConfig = input.gateConfig ? JSON.stringify(input.gateConfig) : null;
 
     db.prepare(
-      `INSERT INTO tasks (id, parent_id, title, description, status, session_policy, priority, depth, annotations, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, parent_id, title, description, status, session_policy, priority, depth, annotations, stage_type, gate_config, max_retries, template_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       input.parentId ?? null,
@@ -195,6 +270,10 @@ export class TaskStore {
       input.priority ?? 0,
       depth,
       annotations,
+      input.stageType ?? null,
+      gateConfig,
+      input.maxRetries ?? 0,
+      input.templateId ?? null,
       now,
       now,
     );
@@ -255,6 +334,26 @@ export class TaskStore {
     if (fields.requiresApproval !== undefined) {
       sets.push('requires_approval = ?');
       values.push(fields.requiresApproval ? 1 : 0);
+    }
+    if (fields.stageType !== undefined) {
+      sets.push('stage_type = ?');
+      values.push(fields.stageType);
+    }
+    if (fields.gateConfig !== undefined) {
+      sets.push('gate_config = ?');
+      values.push(JSON.stringify(fields.gateConfig));
+    }
+    if (fields.artifacts !== undefined) {
+      sets.push('artifacts = ?');
+      values.push(JSON.stringify(fields.artifacts));
+    }
+    if (fields.retryCount !== undefined) {
+      sets.push('retry_count = ?');
+      values.push(fields.retryCount);
+    }
+    if (fields.maxRetries !== undefined) {
+      sets.push('max_retries = ?');
+      values.push(fields.maxRetries);
     }
 
     if (sets.length === 0) return existing;
