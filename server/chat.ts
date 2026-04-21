@@ -412,48 +412,6 @@ function makeUserMessage(
   };
 }
 
-/**
- * Resolve the CWD for a session start. When resuming, looks up the original
- * CWD from the event store and verifies it still exists on disk. Falls back
- * to BASE_REPO if the stored CWD was cleaned up (e.g. worktree deleted).
- *
- * Dependencies are injectable for testability (ESM modules can't be spied on).
- */
-export function resolveResumeCwd(
-  options: { cwd?: string; resume?: string },
-  deps: {
-    getSession: (id: string) => { cwd?: string } | null;
-    pathExists: (p: string) => boolean;
-  } = {
-    getSession: (id) => {
-      const m = eventStore.getSession(id);
-      return m ? { cwd: m.cwd ?? undefined } : null;
-    },
-    pathExists: existsSync,
-  },
-): string {
-  const baseCwd = options.cwd || BASE_REPO;
-  if (!options.resume || options.cwd) return baseCwd;
-
-  const sessionMeta = deps.getSession(options.resume);
-  if (!sessionMeta?.cwd) return baseCwd;
-
-  if (deps.pathExists(sessionMeta.cwd)) {
-    log.info('resume: using original session CWD', {
-      sessionId: options.resume,
-      cwd: sessionMeta.cwd,
-    });
-    return sessionMeta.cwd;
-  }
-
-  log.warn('resume: original CWD no longer exists, falling back to BASE_REPO', {
-    sessionId: options.resume,
-    originalCwd: sessionMeta.cwd,
-    fallback: BASE_REPO,
-  });
-  return BASE_REPO;
-}
-
 export async function startChat(
   transport: SessionTransport,
   clientId: string,
@@ -473,7 +431,35 @@ export async function startChat(
   const abortController = new AbortController();
   const mode = options.mode || 'agent';
 
-  const baseCwd = resolveResumeCwd(options);
+  // When resuming, look up the original session's CWD from the event store.
+  // The SDK stores conversation data under ~/.claude/projects/<encoded-cwd>/,
+  // so we must use the same CWD the session was created with — otherwise the
+  // SDK can't find the conversation and returns "No conversation found".
+  // If the original CWD was a worktree that's been cleaned up, fall back to
+  // BASE_REPO — the SDK will still find the conversation via the encoded path.
+  let baseCwd = options.cwd || BASE_REPO;
+  if (options.resume && !options.cwd) {
+    const sessionMeta = eventStore.getSession(options.resume);
+    if (sessionMeta?.cwd) {
+      if (existsSync(sessionMeta.cwd)) {
+        baseCwd = sessionMeta.cwd;
+        log.info('resume: using original session CWD', {
+          sessionId: options.resume,
+          cwd: baseCwd,
+        });
+      } else {
+        // The worktree directory was cleaned up, but the SDK encodes
+        // conversation data by CWD path. Re-create the directory so
+        // the SDK can find the conversation using the original path.
+        mkdirSync(sessionMeta.cwd, { recursive: true });
+        baseCwd = sessionMeta.cwd;
+        log.info('resume: re-created original CWD directory for SDK path encoding', {
+          sessionId: options.resume,
+          cwd: baseCwd,
+        });
+      }
+    }
+  }
 
   // Generate session-scoped worktree ID and create worktrees in all repos
   const wtId = generateWtId();
@@ -621,8 +607,9 @@ export async function startChat(
     if (failedSession) cleanupSessionWorktrees(failedSession);
     registry.abort(clientId);
   } finally {
-    // Clean up secondary worktrees after query loop ends (session may already
-    // be removed from registry, so use the captured reference).
+    // Clean up secondary worktrees after query loop ends. Primary worktree is
+    // preserved for resume; stale GC handles its lifecycle. Session may already
+    // be removed from registry, so use the captured reference.
     cleanupSessionWorktrees(session);
   }
 }
@@ -744,14 +731,18 @@ export async function interruptChat(
 // --- Session management ---
 
 /**
- * Best-effort cleanup of all worktrees for a session (primary + secondary).
- * Worktree directories are removed but branches are preserved for PRs.
+ * Best-effort cleanup of secondary worktrees for a session.
+ * Primary worktree is preserved — the SDK encodes conversation data by CWD
+ * path, so removing it breaks resume. Stale GC handles primary lifecycle.
+ * Branches are always preserved for PRs.
  */
-function cleanupSessionWorktrees(session: import('./session-registry.js').ManagedSession): void {
+export function cleanupSessionWorktrees(
+  session: import('./session-registry.js').ManagedSession,
+): void {
   const config = getRepoConfig();
   for (const [repoName, { wtId }] of session.worktreePaths) {
-    // For 'primary', use BASE_REPO; for secondary repos, look up in config
-    const repoPath = repoName === 'primary' ? BASE_REPO : config.repos[repoName];
+    if (repoName === 'primary') continue;
+    const repoPath = config.repos[repoName];
     if (!repoPath) continue;
     try {
       removeWorktree(wtId, repoPath);
@@ -762,7 +753,9 @@ function cleanupSessionWorktrees(session: import('./session-registry.js').Manage
       });
     }
   }
+  const primary = session.worktreePaths.get('primary');
   session.worktreePaths.clear();
+  if (primary) session.worktreePaths.set('primary', primary);
 }
 
 const CLOSEOUT_PROMPT = `This session is closing in 10 minutes due to inactivity.
