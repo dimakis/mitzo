@@ -841,6 +841,37 @@ describe('handleReconnect running status', () => {
     expect(summary.sessions[0].running).toBe(false);
   });
 
+  it('reports running=false when registry says active but EventStore says inactive (zombie session)', () => {
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1' });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(false);
+
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ isActive: false });
+
+    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleReconnect(
+      'c1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-zombie', lastSeq: 0 }] },
+      ctx,
+    );
+
+    const summary = transport.sent.find((m) => m.type === 'reconnected') as {
+      sessions: Array<{ sessionId: string; running: boolean }>;
+    };
+    expect(summary.sessions[0].running).toBe(false);
+    expect(reattachChat).not.toHaveBeenCalled();
+  });
+
   it('handles mixed running states across multiple sessions', () => {
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId

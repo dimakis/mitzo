@@ -13,7 +13,11 @@
   --accent: #6c63ff;
   --accent-hover: #5a52e0;
   --danger: #f44336;
+  --danger-hover: #d32f2f;
+  --danger-active: #c62828;
   --success: #4caf50;
+  --success-hover: #43a047;
+  --success-active: #388e3c;
   --code-bg: #141425;
   --code-font: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
 
@@ -1558,7 +1562,16 @@ textarea:focus {
   opacity: 1;
 }
 
-.msg-bubble-group--user:hover .msg-bubble-footer--user {
+.msg-bubble-footer--user {
+  opacity: 1;
+}
+
+.msg-bubble-footer--user .msg-bubble-copy {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.msg-bubble-group--user:hover .msg-bubble-footer--user .msg-bubble-copy {
   opacity: 1;
 }
 
@@ -1617,6 +1630,9 @@ textarea:focus {
   .msg-bubble-footer,
   .msg-bubble-footer--user {
     opacity: 1;
+  }
+  .msg-bubble-footer--user .msg-bubble-copy {
+    opacity: 0.7;
   }
   .code-block-copy {
     opacity: 0.5;
@@ -1974,33 +1990,15 @@ textarea:focus {
   padding-bottom: max(1rem, env(safe-area-inset-bottom));
   z-index: 200;
   transform: translateY(100%);
-  animation: perm-slide-up 0.25s ease-out forwards;
+  transition: transform 0.25s ease-out;
   display: flex;
   flex-direction: column;
   max-height: 60vh;
   overflow: hidden;
 }
 
-@keyframes perm-slide-up {
-  from {
-    transform: translateY(100%);
-  }
-  to {
-    transform: translateY(0);
-  }
-}
-
-.perm-banner-dismiss {
-  animation: perm-slide-down 0.2s ease-in forwards;
-}
-
-@keyframes perm-slide-down {
-  from {
-    transform: translateY(0);
-  }
-  to {
-    transform: translateY(100%);
-  }
+.perm-banner--visible {
+  transform: translateY(0);
 }
 
 .perm-banner-title {
@@ -2066,24 +2064,55 @@ textarea:focus {
   font-weight: 600;
   border-radius: 10px;
   border: none;
+  cursor: pointer;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
+  transition:
+    background 0.12s,
+    transform 0.1s;
 }
 
 .perm-banner-btn--once {
-  background: #2e7d32;
+  background: var(--success);
   color: #fff;
 }
 
+.perm-banner-btn--once:hover {
+  background: var(--success-hover);
+}
+
+.perm-banner-btn--once:active {
+  background: var(--success-active);
+  transform: scale(0.97);
+}
+
 .perm-banner-btn--always {
-  background: #1b5e20;
+  background: rgba(76, 175, 80, 0.25);
   color: #fff;
-  border: 2px solid #4caf50;
+  border: 2px solid var(--success);
+}
+
+.perm-banner-btn--always:hover {
+  background: rgba(76, 175, 80, 0.35);
+}
+
+.perm-banner-btn--always:active {
+  background: rgba(76, 175, 80, 0.45);
+  transform: scale(0.97);
 }
 
 .perm-banner-btn--deny {
   background: var(--danger);
   color: #fff;
+}
+
+.perm-banner-btn--deny:hover {
+  background: var(--danger-hover);
+}
+
+.perm-banner-btn--deny:active {
+  background: var(--danger-active);
+  transform: scale(0.97);
 }
 
 .perm-banner--elevated {
@@ -2119,7 +2148,7 @@ textarea:focus {
 
 .perm-banner-tier--standard {
   background: rgba(76, 175, 80, 0.15);
-  color: #4caf50;
+  color: var(--success);
 }
 
 /* ===== Chat Input ===== */
@@ -3299,13 +3328,8 @@ textarea:focus {
     border-bottom: none;
   }
 
-  @keyframes perm-slide-up {
-    from {
-      transform: translateX(-50%) translateY(100%);
-    }
-    to {
-      transform: translateX(-50%) translateY(0);
-    }
+  .perm-banner--visible {
+    transform: translateX(-50%) translateY(0);
   }
 }
 

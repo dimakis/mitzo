@@ -133,12 +133,25 @@ export function handleReconnect(
         } as Record<string, unknown>);
       }
 
-      // Check if session has an active driver in the SessionRegistry.
-      // If the driver is still running but was detached by the old WS close,
-      // reattach it with the new connection's transport so future events
-      // from the query loop can be delivered via the v1 fallback path.
+      // Check if the session's query loop is truly running. The in-memory
+      // SessionRegistry keeps entries alive during the detach TTL window even
+      // after the query loop has ended (e.g. laptop sleep → wake hours later).
+      // Cross-reference with the durable EventStore: markSessionInactive() is
+      // called in the query loop's finally block, so isActive=false in the
+      // store is ground truth that the loop has ended.
       const found = ctx.sessionRegistry.findBySessionId(entry.sessionId);
-      const running = found ? ctx.sessionRegistry.isActive(found.clientId) : false;
+      let running = found ? ctx.sessionRegistry.isActive(found.clientId) : false;
+      if (running) {
+        const storeMeta = ctx.eventStore.getSession(entry.sessionId);
+        if (storeMeta && !storeMeta.isActive) {
+          running = false;
+          log.info('corrected stale running state from EventStore', {
+            connectionId,
+            sessionId: entry.sessionId,
+            clientId: found!.clientId,
+          });
+        }
+      }
       if (found && running && !ctx.sessionRegistry.isAttached(found.clientId)) {
         // Only reattach if this connection owns the driver (or the driver
         // was started by a connection that is now gone). Prevents a
