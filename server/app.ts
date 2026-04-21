@@ -705,6 +705,22 @@ app.get('/api/sessions/active', (_req, res) => {
   res.json(registry.getActiveSessions());
 });
 
+app.get('/api/sessions/search', (req, res) => {
+  const q = (req.query.q as string) || '';
+  const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 20), 50);
+  if (!q.trim()) {
+    res.json({ results: [] });
+    return;
+  }
+  try {
+    const results = eventStore.searchSessions(q, limit);
+    res.json({ results });
+  } catch (err: unknown) {
+    log.error('GET /api/sessions/search failed', { error: err });
+    res.status(500).json({ error: 'Search failed' });
+  }
+});
+
 app.get('/api/sessions', async (req, res) => {
   const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
   const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 20), 100);

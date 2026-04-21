@@ -17,6 +17,7 @@ export type {
   Session,
   StoredEvent,
   SessionMeta,
+  SessionSearchResult,
   EventStoreLogger,
 } from './types.js';
 
