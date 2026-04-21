@@ -381,8 +381,9 @@ export function handleSendV2(
         const ownerConnection = getOwnerConnection(found.clientId);
         const isOwner = ownerConnection === connectionId;
         const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
+        const ownerGone = !ctx.connRegistry.get(ownerConnection);
 
-        if (!isOwner && !isDetached) {
+        if (!isOwner && !isDetached && !ownerGone) {
           // Session is actively driven by another connection — reject.
           transport.send({
             type: 'error',
@@ -495,8 +496,9 @@ export function handleInterruptV2(
     const ownerConnection = getOwnerConnection(found.clientId);
     const isOwner = ownerConnection === connectionId;
     const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
+    const ownerGone = !ctx.connRegistry.get(ownerConnection);
 
-    if (!isOwner && !isDetached) {
+    if (!isOwner && !isDetached && !ownerGone) {
       transport.send({
         type: 'error',
         error: 'Session is active on another device',
