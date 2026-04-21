@@ -6,9 +6,11 @@ fi
 
 npx lint-staged
 
-# Scan staged changes for secrets (skip if gitleaks not installed)
+# Optional: scan staged changes for secrets with gitleaks.
+# gitleaks is not an npm dependency — install it separately if you want
+# pre-commit secret scanning. See README § Development for details.
 if command -v gitleaks >/dev/null 2>&1; then
   gitleaks git --pre-commit --staged --verbose
 else
-  echo "⚠ gitleaks not installed — skipping secret scan (install: https://github.com/gitleaks/gitleaks#installing)"
+  echo "note: gitleaks not found — skipping secret scan (https://github.com/gitleaks/gitleaks#installing)"
 fi
