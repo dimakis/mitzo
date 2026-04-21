@@ -16,7 +16,7 @@ import {
   reconcileSessionsBackground,
   getMessages,
   hideSession,
-  clearHiddenSessions,
+  hideAllSessions,
   renameSessionById,
   AVAILABLE_MODELS,
   BASE_REPO,
@@ -41,6 +41,7 @@ import {
   handleTaskComplete,
   handleTaskStatus,
   handleTaskBlock,
+  handleTaskArtifact,
 } from './task-tools.js';
 import { setTaskStore } from './chat.js';
 import {
@@ -55,8 +56,14 @@ import {
   TaskCreateBody,
   TaskUpdateBody,
   LoopStartBody,
+  WorkflowInstantiateBody,
+  TemplateCreateBody,
+  SignalBody,
 } from './api-schemas.js';
 import type { TaskOrchestrator } from './task-orchestrator.js';
+import type { WorkflowTemplateStore, TemplateCreateInput } from './workflow-templates.js';
+import { instantiateTemplate } from './workflow-templates.js';
+import type { SignalProcessor } from './signal-processor.js';
 import {
   listInboxItems,
   readInboxItem,
@@ -69,7 +76,7 @@ import { SkillRegistry } from './skills.js';
 
 import { mkdirSync } from 'fs';
 import { homedir } from 'os';
-import { TaskStore } from './task-store.js';
+import { TaskStore, type TaskCreateInput, type TaskUpdateInput } from './task-store.js';
 
 const log = createLogger('server');
 
@@ -195,9 +202,19 @@ let onUpdateAvailable: (() => void) | null = null;
 let onInboxUpdated: (() => void) | null = null;
 let onTaskBroadcast: ((event: Record<string, unknown>) => void) | null = null;
 let orchestrator: TaskOrchestrator | null = null;
+let templateStore: WorkflowTemplateStore | null = null;
+let signalProcessor: SignalProcessor | null = null;
 
 export function setOrchestrator(o: TaskOrchestrator): void {
   orchestrator = o;
+}
+
+export function setTemplateStore(ts: WorkflowTemplateStore): void {
+  templateStore = ts;
+}
+
+export function setSignalProcessor(sp: SignalProcessor): void {
+  signalProcessor = sp;
 }
 
 // --- Task store ---
@@ -411,7 +428,7 @@ app.post('/api/tasks', (req, res) => {
     return;
   }
   try {
-    const task = taskStore.create(body.data);
+    const task = taskStore.create(body.data as TaskCreateInput);
     res.status(201).json({ task });
     // Broadcast full tree so child tasks appear correctly in all clients
     onTaskBroadcast?.({ type: 'task_state', tasks: taskStore.getTree() });
@@ -436,7 +453,7 @@ app.patch('/api/tasks/:id', (req, res) => {
     res.status(400).json({ error: body.error.issues[0]?.message ?? 'Invalid input' });
     return;
   }
-  const task = taskStore.update(req.params.id, body.data);
+  const task = taskStore.update(req.params.id, body.data as TaskUpdateInput);
   if (!task) {
     res.status(404).json({ error: 'Task not found' });
     return;
@@ -525,6 +542,24 @@ app.post('/api/internal/task-tools/block', (req, res) => {
     return;
   }
   const result = handleTaskBlock(taskStore, taskId, req.body.reason ?? '');
+  res.json({ result });
+  onTaskBroadcast?.({
+    type: 'task_state',
+    tasks: taskStore.getTree(),
+  });
+});
+
+app.post('/api/internal/task-tools/artifact', (req, res) => {
+  if (!verifyInternalToken(req)) {
+    res.status(401).json({ error: 'Internal token required' });
+    return;
+  }
+  const taskId = resolveTaskContext(req);
+  if (!taskId) {
+    res.status(400).json({ error: 'No active task context' });
+    return;
+  }
+  const result = handleTaskArtifact(taskStore, taskId, req.body.key ?? '', req.body.value ?? '');
   res.json({ result });
   onTaskBroadcast?.({
     type: 'task_state',
@@ -636,6 +671,115 @@ app.post('/api/loop/spec/reject', (_req, res) => {
   res.json(orchestrator.rejectSpec());
 });
 
+// --- Workflow Templates ---
+
+app.get('/api/templates', (_req, res) => {
+  if (!templateStore) {
+    res.status(503).json({ error: 'Template store not initialized' });
+    return;
+  }
+  res.json(templateStore.list());
+});
+
+app.get('/api/templates/:id', (req, res) => {
+  if (!templateStore) {
+    res.status(503).json({ error: 'Template store not initialized' });
+    return;
+  }
+  const tmpl = templateStore.get(req.params.id);
+  if (!tmpl) {
+    res.status(404).json({ error: 'Template not found' });
+    return;
+  }
+  res.json({ template: tmpl });
+});
+
+app.post('/api/templates', (req, res) => {
+  if (!templateStore) {
+    res.status(503).json({ error: 'Template store not initialized' });
+    return;
+  }
+  const body = TemplateCreateBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.issues[0]?.message ?? 'Invalid input' });
+    return;
+  }
+  const tmpl = templateStore.create(body.data as TemplateCreateInput);
+  res.status(201).json(tmpl);
+});
+
+app.delete('/api/templates/:id', (req, res) => {
+  if (!templateStore) {
+    res.status(503).json({ error: 'Template store not initialized' });
+    return;
+  }
+  const ok = templateStore.delete(req.params.id);
+  if (!ok) {
+    res.status(404).json({ error: 'Template not found' });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+app.post('/api/workflows/instantiate', (req, res) => {
+  if (!templateStore) {
+    res.status(503).json({ error: 'Template store not initialized' });
+    return;
+  }
+  const body = WorkflowInstantiateBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.issues[0]?.message ?? 'Invalid input' });
+    return;
+  }
+  try {
+    const goal = instantiateTemplate(
+      taskStore,
+      templateStore,
+      body.data.templateId,
+      body.data.title,
+      body.data.variables,
+    );
+    res.status(201).json({ task: goal });
+    onTaskBroadcast?.({ type: 'task_state', tasks: taskStore.getTree() });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(400).json({ error: message });
+  }
+});
+
+// --- Signal injection ---
+
+app.post('/api/tasks/:id/signal', (req, res) => {
+  if (!signalProcessor) {
+    res.status(503).json({ error: 'Signal processor not initialized' });
+    return;
+  }
+  const body = SignalBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.issues[0]?.message ?? 'Invalid input' });
+    return;
+  }
+  const task = taskStore.get(req.params.id);
+  if (!task) {
+    res.status(404).json({ error: 'Task not found' });
+    return;
+  }
+  if (task.stageType !== 'wait_for_signal') {
+    res.status(400).json({ error: 'Task is not a wait_for_signal stage' });
+    return;
+  }
+  if (task.status !== 'active') {
+    res.status(400).json({ error: `Task is ${task.status}, not active` });
+    return;
+  }
+  signalProcessor.resolveSignal(req.params.id, {
+    status: body.data.status,
+    artifacts: body.data.artifacts,
+  });
+  res.json({ ok: true });
+  onTaskBroadcast?.({ type: 'task_state', tasks: taskStore.getTree() });
+});
+
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
   const body = LoginBody.safeParse(req.body);
   if (!body.success) {
@@ -703,6 +847,22 @@ app.get('/api/skills', (req, res) => {
 
 app.get('/api/sessions/active', (_req, res) => {
   res.json(registry.getActiveSessions());
+});
+
+app.get('/api/sessions/search', (req, res) => {
+  const q = (req.query.q as string) || '';
+  const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 20), 50);
+  if (!q.trim()) {
+    res.json({ results: [] });
+    return;
+  }
+  try {
+    const results = eventStore.searchSessions(q, limit);
+    res.json({ results });
+  } catch (err: unknown) {
+    log.error('GET /api/sessions/search failed', { error: err });
+    res.status(500).json({ error: 'Search failed' });
+  }
 });
 
 app.get('/api/sessions', async (req, res) => {
@@ -792,7 +952,7 @@ app.get('/api/sessions/:id/events', (req, res) => {
 });
 
 app.delete('/api/sessions', (_req, res) => {
-  clearHiddenSessions();
+  hideAllSessions();
   res.json({ ok: true });
 });
 

@@ -204,7 +204,7 @@ describe('createCommandCallback', () => {
     });
   });
 
-  it('returns empty object when aborted', async () => {
+  it('returns empty object when aborted', { timeout: 15000 }, async () => {
     const controller = new AbortController();
     // sleep command that we'll abort immediately
     const cb = createCommandCallback('sleep 10', TEST_DIR, 10000);

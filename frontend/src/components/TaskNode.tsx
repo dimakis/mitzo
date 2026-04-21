@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Task, TaskStatus } from '../types/task';
+import type { Task, TaskStatus, StageType } from '../types/task';
 
 const STATUS_ICONS: Record<TaskStatus, string> = {
   pending: '\u25CB', // ○
@@ -9,6 +9,12 @@ const STATUS_ICONS: Record<TaskStatus, string> = {
   blocked: '\u2298', // ⊘
   skipped: '\u2014', // —
   failed: '\u2717', // ✗
+};
+
+const STAGE_LABELS: Record<StageType, string> = {
+  agent_work: '',
+  wait_for_signal: 'signal',
+  human_review: 'review',
 };
 
 const NEXT_STATUS: Record<TaskStatus, TaskStatus> = {
@@ -69,6 +75,17 @@ export function TaskNode({
         >
           {task.title}
         </span>
+        {task.stageType && STAGE_LABELS[task.stageType] && (
+          <span className={`task-node-stage task-node-stage--${task.stageType}`}>
+            {STAGE_LABELS[task.stageType]}
+          </span>
+        )}
+        {task.retryCount > 0 && (
+          <span className="task-node-retry" title={`Retry ${task.retryCount}/${task.maxRetries}`}>
+            {'\u21BB'}
+            {task.retryCount}
+          </span>
+        )}
         <div className="task-node-actions">
           {task.status === 'pending_review' && onApprove && (
             <button
@@ -104,6 +121,16 @@ export function TaskNode({
           </button>
         </div>
       </div>
+      {task.artifacts && Object.keys(task.artifacts).length > 0 && expanded && (
+        <div className="task-node-artifacts">
+          {Object.entries(task.artifacts).map(([key, value]) => (
+            <div key={key} className="task-node-artifact">
+              <span className="task-node-artifact-key">{key}:</span>{' '}
+              <span className="task-node-artifact-value">{String(value)}</span>
+            </div>
+          ))}
+        </div>
+      )}
       {hasChildren && expanded && (
         <div className="task-node-children">
           {task.children.map((child) => (

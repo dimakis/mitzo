@@ -1,4 +1,10 @@
 import 'dotenv/config';
+import dns from 'node:dns';
+
+// Force IPv4-first DNS resolution. Works around undici's broken happy-eyeballs
+// (RFC 8305) that fails to fall back from IPv6 on networks with Tailscale ULA.
+dns.setDefaultResultOrder('ipv4first');
+
 import './tracing.js';
 import { existsSync, readFileSync } from 'fs';
 import { createServer } from 'http';
@@ -24,8 +30,15 @@ import {
   setConnectionRegistry,
   reconcileSessionsBackground,
 } from './chat.js';
-import { cleanupStaleWorktrees } from './worktree.js';
-import { HEARTBEAT_INTERVAL_MS, PORT_DEFAULT, SHUTDOWN_GRACE_MS } from './constants.js';
+import { cleanupStaleWorktrees, countWorktrees } from './worktree.js';
+import { getWorktreeGuardStats, resetWorktreeGuardStats } from '@mitzo/harness';
+import {
+  HEARTBEAT_INTERVAL_MS,
+  PORT_DEFAULT,
+  SHUTDOWN_GRACE_MS,
+  GUARD_STATS_INTERVAL_MS,
+  WORKTREE_CLEANUP_INTERVAL_MS,
+} from './constants.js';
 import { createLogger } from './logger.js';
 import {
   app,
@@ -33,6 +46,8 @@ import {
   setInboxBroadcast,
   setTaskBroadcast,
   setOrchestrator,
+  setTemplateStore,
+  setSignalProcessor,
   runUpdateCheck,
   buildSkillRegistry,
   NATIVE_COMMAND_NAMES,
@@ -40,6 +55,8 @@ import {
   yapperWsProxy,
   taskStore,
 } from './app.js';
+import { WorkflowTemplateStore, seedBuiltInTemplates } from './workflow-templates.js';
+import { SignalProcessor } from './signal-processor.js';
 import { TaskOrchestrator } from './task-orchestrator.js';
 import { IncomingWsMessage } from './ws-schemas.js';
 import { resolvePending } from './permissions.js';
@@ -107,9 +124,23 @@ setTaskBroadcast((event) => {
   connRegistry.broadcastAll(event as Record<string, unknown>);
 });
 
+// --- Workflow layer ---
+const wfTemplateStore = new WorkflowTemplateStore(taskStore.getDatabase());
+seedBuiltInTemplates(wfTemplateStore);
+setTemplateStore(wfTemplateStore);
+
+// SignalProcessor + orchestrator have a circular dep: signal resolution triggers tick(),
+// tick() registers watches. Break the cycle with a late-bound callback.
+let orchestratorRef: TaskOrchestrator | null = null;
+const signalProc = new SignalProcessor(taskStore, () => {
+  orchestratorRef?.tick();
+});
+setSignalProcessor(signalProc);
+
 // --- Task Orchestrator ---
 const orchestrator = new TaskOrchestrator({
   store: taskStore,
+  watchSignal: (taskId, gateConfig) => signalProc.watch(taskId, gateConfig),
   getClientId: () => {
     // Find the first registered client (reuse-only for Phase 2)
     for (const [clientId] of registry.entries()) {
@@ -161,6 +192,7 @@ const orchestrator = new TaskOrchestrator({
     return ids;
   },
 });
+orchestratorRef = orchestrator;
 setOrchestrator(orchestrator);
 
 server.on('upgrade', async (req, socket, head) => {
@@ -743,6 +775,8 @@ function handleChatWs(
 function shutdown(signal: string) {
   log.info(`${signal} received — shutting down gracefully`);
   server.close();
+  signalProc.unwatchAll();
+  wfTemplateStore.close();
   registry.dispose();
   for (const client of wss.clients) {
     client.close(1001, 'Server shutting down');
@@ -791,5 +825,35 @@ checkPort(PORT).then((inUse) => {
 
     const UPDATE_CHECK_INTERVAL_MS = 2 * 60 * 1000;
     setInterval(runUpdateCheck, UPDATE_CHECK_INTERVAL_MS);
+
+    // --- Worktree observability ---
+
+    // Log worktree inventory at startup
+    for (const [label, repoPath] of repoEntries) {
+      const count = countWorktrees(repoPath);
+      if (count > 0) {
+        log.info('worktree inventory', { repo: label, count });
+      }
+    }
+
+    setInterval(() => {
+      const stats = getWorktreeGuardStats();
+      if (stats.denied > 0 || stats.allowed > 0) {
+        log.info('worktree guard stats', stats);
+      }
+      resetWorktreeGuardStats();
+    }, GUARD_STATS_INTERVAL_MS);
+
+    setInterval(() => {
+      for (const [label, repoPath] of repoEntries) {
+        try {
+          cleanupStaleWorktrees(repoPath, inboxDir);
+        } catch (err: unknown) {
+          log.warn(`periodic worktree cleanup failed for ${label}`, {
+            error: err instanceof Error ? err.message : 'unknown',
+          });
+        }
+      }
+    }, WORKTREE_CLEANUP_INTERVAL_MS);
   });
 });

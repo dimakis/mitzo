@@ -100,6 +100,32 @@ describe('buildTaskContextPrompt', () => {
     expect(ctx).toContain('&amp;');
     expect(ctx).toContain('&quot;quotes&quot;');
   });
+
+  it('includes sibling artifacts in context', () => {
+    const goal = store.create({ title: 'Goal' });
+    const s1 = store.create({ title: 'Create PR', parentId: goal.id, priority: 2 });
+    store.update(s1.id, {
+      status: 'done',
+      summary: 'Created PR #42',
+      artifacts: { pr_url: 'https://github.com/org/repo/pull/42' },
+    });
+    const s2 = store.create({ title: 'Check CI', parentId: goal.id, priority: 1 });
+
+    const ctx = buildTaskContextPrompt(store, s2.id)!;
+    expect(ctx).toContain('<sibling-artifacts>');
+    expect(ctx).toContain('key="pr_url"');
+    expect(ctx).toContain('https://github.com/org/repo/pull/42');
+  });
+
+  it('omits sibling-artifacts when none exist', () => {
+    const goal = store.create({ title: 'Goal' });
+    const s1 = store.create({ title: 'Step 1', parentId: goal.id, priority: 2 });
+    store.update(s1.id, { status: 'done', summary: 'Done' });
+    const s2 = store.create({ title: 'Step 2', parentId: goal.id, priority: 1 });
+
+    const ctx = buildTaskContextPrompt(store, s2.id)!;
+    expect(ctx).not.toContain('<sibling-artifacts>');
+  });
 });
 
 describe('buildTaskSystemPrompt', () => {
@@ -110,6 +136,7 @@ describe('buildTaskSystemPrompt', () => {
     expect(prompt).toContain('Task Board');
     expect(prompt).toContain('TaskSet');
     expect(prompt).toContain('TaskComplete');
+    expect(prompt).toContain('TaskArtifact');
     expect(prompt).toContain('<task-context>');
   });
 

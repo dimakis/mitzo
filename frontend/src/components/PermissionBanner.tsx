@@ -35,6 +35,15 @@ export function PermissionBanner({
 }: Props) {
   const [remaining, setRemaining] = useState(TIMEOUT_SECONDS);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [visible, setVisible] = useState(false);
+
+  // Use state-driven transition instead of CSS animation to avoid
+  // iOS WebKit hit-test bug (position:fixed + animation:forwards keeps
+  // the touch target at the pre-animation position).
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setVisible(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
 
   const deny = useCallback(() => {
     onRespond(permId, 'deny', toolName);
@@ -68,7 +77,7 @@ export function PermissionBanner({
   const detail = description || truncate(toolInput, 200);
 
   return (
-    <div className={`perm-banner${tierClass}`}>
+    <div className={`perm-banner${tierClass}${visible ? ' perm-banner--visible' : ''}`}>
       <div className="perm-banner-info">
         {tier && (
           <span className={`perm-banner-tier perm-banner-tier--${tier}`}>{TIER_LABELS[tier]}</span>
