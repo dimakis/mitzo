@@ -82,7 +82,8 @@ export function TaskNode({
         )}
         {task.retryCount > 0 && (
           <span className="task-node-retry" title={`Retry ${task.retryCount}/${task.maxRetries}`}>
-            {'\u21BB'}{task.retryCount}
+            {'\u21BB'}
+            {task.retryCount}
           </span>
         )}
         <div className="task-node-actions">

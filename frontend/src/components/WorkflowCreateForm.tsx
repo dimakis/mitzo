@@ -102,9 +102,7 @@ export function WorkflowCreateForm({ onCreated, onCancel }: WorkflowCreateFormPr
         </select>
       </div>
 
-      {selected?.description && (
-        <p className="workflow-create-desc">{selected.description}</p>
-      )}
+      {selected?.description && <p className="workflow-create-desc">{selected.description}</p>}
 
       <div className="workflow-create-field">
         <label htmlFor="wf-title">Title</label>
