@@ -10,6 +10,7 @@ import type { SessionTransport, ConnectionRegistry } from '@mitzo/harness';
 import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
 import { join, resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { randomBytes } from 'crypto';
 import { homedir } from 'os';
 import { createWorktree, removeWorktree } from './worktree.js';
@@ -122,11 +123,23 @@ function send(transport: SessionTransport, data: Record<string, unknown>) {
   if (transport.isOpen()) transport.send(data);
 }
 
+const IPV4_PRELOAD = join(dirname(fileURLToPath(import.meta.url)), 'ipv4-preload.cjs');
+
 function sdkEnv(): Record<string, string> {
   const env = { ...process.env } as Record<string, string>;
   env.CLAUDE_CODE_USE_VERTEX = process.env.CLAUDE_CODE_USE_VERTEX || '1';
   env.ANTHROPIC_VERTEX_PROJECT_ID = process.env.ANTHROPIC_VERTEX_PROJECT_ID || '';
   env.CLOUD_ML_REGION = process.env.CLOUD_ML_REGION || 'us-east5';
+
+  // Force IPv4-only DNS in the spawned CLI process. Undici's bundled
+  // autoSelectFamily ignores --dns-result-order, so we patch dns.lookup
+  // via a preload script to always resolve IPv4.
+  const nodeOpts = env.NODE_OPTIONS || '';
+  if (!nodeOpts.includes('ipv4-preload')) {
+    env.NODE_OPTIONS = nodeOpts
+      ? `${nodeOpts} --require=${IPV4_PRELOAD}`
+      : `--require=${IPV4_PRELOAD}`;
+  }
 
   const existingPath = env.PATH || '/usr/bin:/bin:/usr/local/bin';
   const venvPaths = getRepoConfig().resolvedVenvPaths;
@@ -422,15 +435,25 @@ export async function startChat(
   // The SDK stores conversation data under ~/.claude/projects/<encoded-cwd>/,
   // so we must use the same CWD the session was created with — otherwise the
   // SDK can't find the conversation and returns "No conversation found".
+  // If the original CWD was a worktree that's been cleaned up, fall back to
+  // BASE_REPO — the SDK will still find the conversation via the encoded path.
   let baseCwd = options.cwd || BASE_REPO;
   if (options.resume && !options.cwd) {
     const sessionMeta = eventStore.getSession(options.resume);
     if (sessionMeta?.cwd) {
-      baseCwd = sessionMeta.cwd;
-      log.info('resume: using original session CWD', {
-        sessionId: options.resume,
-        cwd: baseCwd,
-      });
+      if (existsSync(sessionMeta.cwd)) {
+        baseCwd = sessionMeta.cwd;
+        log.info('resume: using original session CWD', {
+          sessionId: options.resume,
+          cwd: baseCwd,
+        });
+      } else {
+        log.warn('resume: original CWD no longer exists, falling back to BASE_REPO', {
+          sessionId: options.resume,
+          originalCwd: sessionMeta.cwd,
+          fallback: BASE_REPO,
+        });
+      }
     }
   }
 
@@ -565,6 +588,11 @@ export async function startChat(
       {
         connRegistry: _connRegistry ?? undefined,
         onSessionResolved: options.onSessionResolved,
+        onInitialPrompt: (sessionId: string) => {
+          tryAutoRename(sessionId, clientId).catch(() => {
+            /* errors logged internally */
+          });
+        },
       },
     );
   } catch (err: unknown) {
@@ -599,6 +627,9 @@ async function tryAutoRename(sessionId: string, clientId: string): Promise<void>
     if (!newName) return;
 
     log.info('auto-renaming session', { sessionId, promptCount, newName });
+
+    // Persist to EventStore first — survives SDK rename failures.
+    eventStore.upsertSession({ sessionId, summary: newName });
 
     // Update the SDK session name (best-effort, fire-and-forget)
     renameSessionById(sessionId, newName, false).catch((err: unknown) => {
@@ -892,12 +923,13 @@ export function getSessionDirs(options?: { claudeProjectsRoot?: string }): strin
   return dirs;
 }
 
-const hiddenSessionIds = new Set<string>();
 export function hideSession(sessionId: string) {
-  hiddenSessionIds.add(sessionId);
+  eventStore.hideSession(sessionId);
 }
-export function clearHiddenSessions() {
-  hiddenSessionIds.clear();
+export function hideAllSessions() {
+  for (const meta of eventStore.listSessions()) {
+    eventStore.hideSession(meta.sessionId);
+  }
 }
 
 export async function renameSessionById(
@@ -934,7 +966,7 @@ export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
     try {
       const sessions = await listSessions({ dir, limit: fetchLimit, includeWorktrees: true });
       for (const s of sessions) {
-        if (hiddenSessionIds.has(s.sessionId)) continue;
+        if (eventStore.getSession(s.sessionId)?.isHidden) continue;
         const existing = seen.get(s.sessionId);
         if (!existing || s.lastModified > existing.lastModified) {
           seen.set(s.sessionId, {
@@ -1043,7 +1075,7 @@ export async function syncSessionTimestamps(): Promise<void> {
     try {
       const sessions = await listSessions({ dir, limit: fetchLimit, includeWorktrees: true });
       for (const s of sessions) {
-        if (hiddenSessionIds.has(s.sessionId)) continue;
+        if (eventStore.getSession(s.sessionId)?.isHidden) continue;
         const existing = seen.get(s.sessionId);
         if (!existing || s.lastModified > existing.lastModified) {
           seen.set(s.sessionId, {

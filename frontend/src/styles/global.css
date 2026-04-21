@@ -13,7 +13,11 @@
   --accent: #6c63ff;
   --accent-hover: #5a52e0;
   --danger: #f44336;
+  --danger-hover: #d32f2f;
+  --danger-active: #c62828;
   --success: #4caf50;
+  --success-hover: #43a047;
+  --success-active: #388e3c;
   --code-bg: #141425;
   --code-font: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
 
@@ -520,6 +524,58 @@ textarea:focus {
 
 .update-banner:active {
   opacity: 0.85;
+}
+
+.session-search-bar {
+  position: relative;
+  padding: 0 0 var(--space-2);
+  flex-shrink: 0;
+}
+
+.session-search-input {
+  width: 100%;
+  padding: 0.5rem 2rem 0.5rem 0.75rem;
+  font-size: var(--text-sm);
+  background: var(--bg-secondary);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.session-search-input:focus {
+  border-color: var(--accent);
+}
+
+.session-search-input::placeholder {
+  color: var(--text-dim);
+}
+
+.session-search-clear {
+  position: absolute;
+  right: 0.5rem;
+  top: 50%;
+  transform: translateY(calc(-50% - var(--space-1)));
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+  line-height: 1;
+}
+
+.search-result-snippet {
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+  margin-top: 0.2rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
 }
 
 .refresh-ui-btn {
@@ -1558,9 +1614,31 @@ textarea:focus {
   opacity: 1;
 }
 
+.msg-bubble-footer--user {
+  opacity: 1;
+}
+
+.msg-bubble-footer--user .msg-bubble-copy {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.msg-bubble-group--user:hover .msg-bubble-footer--user .msg-bubble-copy {
+  opacity: 1;
+}
+
 .msg-bubble-copy {
   flex-shrink: 0;
   margin-left: auto;
+}
+
+.msg-bubble-copy--user {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.msg-bubble-copy--user:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .msg-bubble-group--user {
@@ -1602,8 +1680,12 @@ textarea:focus {
 }
 
 @media (hover: none) {
-  .msg-bubble-footer {
+  .msg-bubble-footer,
+  .msg-bubble-footer--user {
     opacity: 1;
+  }
+  .msg-bubble-footer--user .msg-bubble-copy {
+    opacity: 0.7;
   }
   .code-block-copy {
     opacity: 0.5;
@@ -1960,33 +2042,15 @@ textarea:focus {
   padding-bottom: max(1rem, env(safe-area-inset-bottom));
   z-index: 200;
   transform: translateY(100%);
-  animation: perm-slide-up 0.25s ease-out forwards;
+  transition: transform 0.25s ease-out;
   display: flex;
   flex-direction: column;
   max-height: 60vh;
   overflow: hidden;
 }
 
-@keyframes perm-slide-up {
-  from {
-    transform: translateY(100%);
-  }
-  to {
-    transform: translateY(0);
-  }
-}
-
-.perm-banner-dismiss {
-  animation: perm-slide-down 0.2s ease-in forwards;
-}
-
-@keyframes perm-slide-down {
-  from {
-    transform: translateY(0);
-  }
-  to {
-    transform: translateY(100%);
-  }
+.perm-banner--visible {
+  transform: translateY(0);
 }
 
 .perm-banner-title {
@@ -2052,24 +2116,55 @@ textarea:focus {
   font-weight: 600;
   border-radius: 10px;
   border: none;
+  cursor: pointer;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
+  transition:
+    background 0.12s,
+    transform 0.1s;
 }
 
 .perm-banner-btn--once {
-  background: #2e7d32;
+  background: var(--success);
   color: #fff;
 }
 
+.perm-banner-btn--once:hover {
+  background: var(--success-hover);
+}
+
+.perm-banner-btn--once:active {
+  background: var(--success-active);
+  transform: scale(0.97);
+}
+
 .perm-banner-btn--always {
-  background: #1b5e20;
+  background: rgba(76, 175, 80, 0.25);
   color: #fff;
-  border: 2px solid #4caf50;
+  border: 2px solid var(--success);
+}
+
+.perm-banner-btn--always:hover {
+  background: rgba(76, 175, 80, 0.35);
+}
+
+.perm-banner-btn--always:active {
+  background: rgba(76, 175, 80, 0.45);
+  transform: scale(0.97);
 }
 
 .perm-banner-btn--deny {
   background: var(--danger);
   color: #fff;
+}
+
+.perm-banner-btn--deny:hover {
+  background: var(--danger-hover);
+}
+
+.perm-banner-btn--deny:active {
+  background: var(--danger-active);
+  transform: scale(0.97);
 }
 
 .perm-banner--elevated {
@@ -2105,7 +2200,7 @@ textarea:focus {
 
 .perm-banner-tier--standard {
   background: rgba(76, 175, 80, 0.15);
-  color: #4caf50;
+  color: var(--success);
 }
 
 /* ===== Chat Input ===== */
@@ -3285,13 +3380,8 @@ textarea:focus {
     border-bottom: none;
   }
 
-  @keyframes perm-slide-up {
-    from {
-      transform: translateX(-50%) translateY(100%);
-    }
-    to {
-      transform: translateX(-50%) translateY(0);
-    }
+  .perm-banner--visible {
+    transform: translateX(-50%) translateY(0);
   }
 }
 
@@ -4102,6 +4192,48 @@ textarea:focus {
   border-left: 1px solid var(--border);
 }
 
+.task-node-stage {
+  font-size: 0.65rem;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-left: var(--space-1);
+}
+
+.task-node-stage--wait_for_signal {
+  background: color-mix(in srgb, var(--warning) 20%, transparent);
+  color: var(--warning);
+}
+
+.task-node-stage--human_review {
+  background: color-mix(in srgb, var(--info, #8b5cf6) 20%, transparent);
+  color: var(--info, #8b5cf6);
+}
+
+.task-node-retry {
+  font-size: 0.7rem;
+  color: var(--warning);
+  margin-left: var(--space-1);
+}
+
+.task-node-artifacts {
+  padding: var(--space-1) var(--space-2);
+  margin-left: var(--space-3);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.task-node-artifact {
+  margin-bottom: 2px;
+}
+
+.task-node-artifact-key {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
 /* ── Task Create Form ───────────────────────────────────── */
 
 .task-create-form {
@@ -4167,6 +4299,59 @@ textarea:focus {
 .task-create-cancel:hover {
   color: var(--text);
   border-color: var(--text-dim);
+}
+
+/* ── Workflow Create Form ────────────────────────────── */
+
+.workflow-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  margin: var(--space-2) 0;
+  background: var(--surface);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.workflow-create-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.workflow-create-field label {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.workflow-create-field select,
+.workflow-create-field input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: var(--space-2) var(--space-3);
+  color: var(--text);
+  font-size: var(--text-md);
+  outline: none;
+}
+
+.workflow-create-field select:focus,
+.workflow-create-field input:focus {
+  border-color: var(--accent);
+}
+
+.workflow-create-desc {
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+.workflow-create-error {
+  font-size: var(--text-sm);
+  color: var(--error);
 }
 
 /* ── Loop Controls ────────────────────────────────────── */

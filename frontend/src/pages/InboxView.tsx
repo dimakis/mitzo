@@ -186,7 +186,17 @@ export function InboxView() {
 
   // When the store's inbox updates (via WS), sync to local state — but
   // filter out items that were optimistically removed to prevent flicker.
+  // Prune pendingRemovals to items still present server-side so the set
+  // doesn't grow monotonically and hide legitimately re-added items.
   useEffect(() => {
+    const serverFilenames = new Set((storeInbox as InboxItem[]).map((i) => i.filename));
+    setPendingRemovals((prev) => {
+      const pruned = new Set<string>();
+      for (const f of prev) {
+        if (serverFilenames.has(f)) pruned.add(f);
+      }
+      return pruned.size === prev.size ? prev : pruned;
+    });
     const filtered = (storeInbox as InboxItem[]).filter(
       (item) => !pendingRemovals.has(item.filename),
     );
