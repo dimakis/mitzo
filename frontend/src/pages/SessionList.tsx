@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { Session } from '../types/chat';
+import type { Session, SessionSearchResult } from '../types/chat';
 import { formatRelativeTime } from '../lib/formatTime';
 import { useLongPress } from '../hooks/useLongPress';
 import { computeSwipeState, REVEAL_WIDTH } from '../lib/swipe-reveal';
 import { selectionChanged } from '../lib/haptics';
 import { EmptyState } from '../components/EmptyState';
 import { useSessionList } from '../hooks/useSessionList';
+import { useSessionSearch } from '../hooks/useSessionSearch';
 import type { QuickAction } from '../hooks/useSessionList';
 import { formatTokens } from '../lib/formatTokens';
 
@@ -201,6 +202,27 @@ function SwipeableSession({
   );
 }
 
+function SearchResult({
+  result,
+  onClick,
+}: {
+  result: SessionSearchResult;
+  onClick: (id: string) => void;
+}) {
+  return (
+    <div className="session-item search-result-item" onClick={() => onClick(result.sessionId)}>
+      <div className="session-item-content">
+        <div className="session-item-summary">{result.summary || 'Untitled session'}</div>
+        <div className="search-result-snippet">{result.snippet}</div>
+        <div className="session-item-meta">
+          <span className="session-item-time">{formatRelativeTime(result.updatedAt)}</span>
+        </div>
+      </div>
+      <span className="session-item-chevron">&rsaquo;</span>
+    </div>
+  );
+}
+
 async function refreshUI() {
   if ('caches' in window) {
     const keys = await caches.keys();
@@ -225,6 +247,7 @@ export function SessionList() {
     checkForUpdates,
     loadMore,
   } = useSessionList();
+  const search = useSessionSearch();
 
   function handleDeployAction() {
     const deploy = quickActions.find((a) => a.label === 'Deploy Mitzo');
@@ -260,72 +283,117 @@ export function SessionList() {
         </div>
       </header>
 
-      <div className="session-list-scroll">
-        {updateAvailable && (
-          <button className="update-banner" onClick={handleDeployAction}>
-            Update available — Deploy Mitzo
+      <div className="session-search-bar">
+        <input
+          className="session-search-input"
+          type="text"
+          placeholder="Search sessions..."
+          value={search.query}
+          onChange={(e) => search.setQuery(e.target.value)}
+        />
+        {search.active && (
+          <button className="session-search-clear" onClick={search.clear}>
+            &times;
           </button>
         )}
+      </div>
 
-        <button
-          className="hero-chat-btn"
-          onClick={() => {
-            selectionChanged();
-            navigate('/chat');
-          }}
-        >
-          New Chat
-        </button>
-
-        {quickActions.length > 0 && (
-          <div className="quick-list">
-            {quickActions.map((action) => (
-              <button
-                key={action.label}
-                type="button"
-                className="quick-row"
-                onClick={() => handleQuickAction(action)}
-              >
-                <span className="quick-row-label">{action.label}</span>
-                <span className="quick-row-desc">{action.desc}</span>
-                <span className="quick-row-chevron">&rsaquo;</span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        {loading && <p className="session-list-empty">Loading...</p>}
-
-        {!loading && sessions.length === 0 && (
-          <EmptyState icon={'\uD83D\uDCAC'} title="No past sessions" />
-        )}
-
-        {!loading && sessions.length > 0 && (
+      <div className="session-list-scroll">
+        {search.active ? (
           <div className="session-list">
             <div className="session-list-section-header">
-              <span className="session-list-section-title">Recent</span>
-              <button className="session-list-clear" onClick={clearAll}>
+              <span className="session-list-section-title">
+                {search.searching
+                  ? 'Searching...'
+                  : `${search.results.length} result${search.results.length !== 1 ? 's' : ''}`}
+              </span>
+              <button className="session-list-clear" onClick={search.clear}>
                 Clear
               </button>
             </div>
-            {sessions.map((s) => (
-              <SwipeableSession
-                key={s.id}
-                session={s}
-                onDismiss={dismissSession}
+            {!search.searching && search.results.length === 0 && (
+              <EmptyState icon={'\uD83D\uDD0D'} title="No matches" />
+            )}
+            {search.results.map((r) => (
+              <SearchResult
+                key={r.sessionId}
+                result={r}
                 onClick={(id) => {
                   selectionChanged();
                   navigate(`/chat/${id}`);
                 }}
-                onRename={handleRename}
               />
             ))}
-            {hasMore && (
-              <button className="session-load-more" onClick={loadMore} disabled={loadingMore}>
-                {loadingMore ? 'Loading...' : 'Load More'}
+          </div>
+        ) : (
+          <>
+            {updateAvailable && (
+              <button className="update-banner" onClick={handleDeployAction}>
+                Update available — Deploy Mitzo
               </button>
             )}
-          </div>
+
+            <button
+              className="hero-chat-btn"
+              onClick={() => {
+                selectionChanged();
+                navigate('/chat');
+              }}
+            >
+              New Chat
+            </button>
+
+            {quickActions.length > 0 && (
+              <div className="quick-list">
+                {quickActions.map((action) => (
+                  <button
+                    key={action.label}
+                    type="button"
+                    className="quick-row"
+                    onClick={() => handleQuickAction(action)}
+                  >
+                    <span className="quick-row-label">{action.label}</span>
+                    <span className="quick-row-desc">{action.desc}</span>
+                    <span className="quick-row-chevron">&rsaquo;</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {loading && <p className="session-list-empty">Loading...</p>}
+
+            {!loading && sessions.length === 0 && (
+              <EmptyState icon={'\uD83D\uDCAC'} title="No past sessions" />
+            )}
+
+            {!loading && sessions.length > 0 && (
+              <div className="session-list">
+                <div className="session-list-section-header">
+                  <span className="session-list-section-title">Recent</span>
+                  <button className="session-list-clear" onClick={clearAll}>
+                    Clear
+                  </button>
+                </div>
+                {sessions.map((s) => (
+                  <SwipeableSession
+                    key={s.id}
+                    session={s}
+                    onDismiss={dismissSession}
+                    onClick={(id) => {
+                      selectionChanged();
+                      navigate(`/chat/${id}`);
+                    }}
+                    onRename={handleRename}
+                  />
+                ))}
+                {hasMore && (
+                  <button className="session-load-more" onClick={loadMore} disabled={loadingMore}>
+                    {loadingMore ? 'Loading...' : 'Load More'}
+                  </button>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TaskNode } from '../components/TaskNode';
 import { TaskCreateForm } from '../components/TaskCreateForm';
+import { WorkflowCreateForm } from '../components/WorkflowCreateForm';
 import { LoopControls } from '../components/LoopControls';
 import { EmptyState } from '../components/EmptyState';
 import { useTaskBoard } from '../hooks/useTaskBoard';
@@ -27,6 +28,7 @@ export function TaskBoard() {
     refresh,
   } = useTaskBoard();
   const [creating, setCreating] = useState<{ parentId?: string } | null>(null);
+  const [creatingWorkflow, setCreatingWorkflow] = useState(false);
 
   function handleStatusChange(id: string, status: TaskStatus) {
     updateTask(id, { status });
@@ -64,52 +66,67 @@ export function TaskBoard() {
         >
           +
         </button>
+        <button
+          className="task-board-add-btn"
+          onClick={() => setCreatingWorkflow(true)}
+          title="New workflow"
+        >
+          {'\u2699'}
+        </button>
         <button className="task-board-refresh" onClick={refresh} title="Refresh">
           &#x21bb;
         </button>
       </header>
 
-      <div className="task-board-scroll">
-        <LoopControls
-          loopStatus={loopStatus}
-          goals={goals}
-          onStart={startLoop}
-          onPause={pauseLoop}
-          onResume={resumeLoop}
-          onStop={stopLoop}
-          onApproveSpec={approveSpec}
-          onRejectSpec={rejectSpec}
+      <LoopControls
+        loopStatus={loopStatus}
+        goals={goals}
+        onStart={startLoop}
+        onPause={pauseLoop}
+        onResume={resumeLoop}
+        onStop={stopLoop}
+        onApproveSpec={approveSpec}
+        onRejectSpec={rejectSpec}
+      />
+
+      {creating && (
+        <TaskCreateForm
+          parentId={creating.parentId}
+          onCreate={handleCreate}
+          onCancel={() => setCreating(null)}
         />
+      )}
 
-        {creating && (
-          <TaskCreateForm
-            parentId={creating.parentId}
-            onCreate={handleCreate}
-            onCancel={() => setCreating(null)}
+      {creatingWorkflow && (
+        <WorkflowCreateForm
+          onCreated={() => {
+            setCreatingWorkflow(false);
+            refresh();
+          }}
+          onCancel={() => setCreatingWorkflow(false)}
+        />
+      )}
+
+      {loading && <p className="task-board-empty">Loading...</p>}
+
+      {!loading && tasks.length === 0 && (
+        <EmptyState icon={'\u2610'} title="No tasks yet" subtitle="Add a task to get started" />
+      )}
+
+      <div className="task-board-list">
+        {tasks.map((task) => (
+          <TaskNode
+            key={task.id}
+            task={task}
+            depth={0}
+            activeTaskId={loopStatus.activeTaskId}
+            onStatusChange={handleStatusChange}
+            onDelete={handleDelete}
+            onAddChild={handleAddChild}
+            onApprove={approveTask}
+            onReject={rejectTask}
           />
-        )}
-
-        {loading && <p className="task-board-empty">Loading...</p>}
-
-        {!loading && tasks.length === 0 && (
-          <EmptyState icon={'\u2610'} title="No tasks yet" subtitle="Add a task to get started" />
-        )}
-
-        <div className="task-board-list">
-          {tasks.map((task) => (
-            <TaskNode
-              key={task.id}
-              task={task}
-              depth={0}
-              activeTaskId={loopStatus.activeTaskId}
-              onStatusChange={handleStatusChange}
-              onDelete={handleDelete}
-              onAddChild={handleAddChild}
-              onApprove={approveTask}
-              onReject={rejectTask}
-            />
-          ))}
-        </div>
+        ))}
       </div>
     </div>
   );
