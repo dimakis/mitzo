@@ -54,19 +54,38 @@ export function buildTaskContextPrompt(store: TaskStore, taskId: string): string
       }
       lines.push('  </siblings>');
 
-      // Completed sibling summaries
+      // Completed sibling summaries and artifacts
       const completed = siblings.filter(
-        (s) => s.id !== task.id && (s.status === 'done' || s.status === 'skipped') && s.summary,
+        (s) => s.id !== task.id && (s.status === 'done' || s.status === 'skipped'),
       );
       if (completed.length > 0) {
-        lines.push('  <completed-siblings>');
-        for (const s of completed) {
-          const summary = truncate(s.summary!, SUMMARY_MAX_CHARS);
-          lines.push(`    <summary task="${escapeXml(s.title)}">`);
-          lines.push(`      ${escapeXml(summary)}`);
-          lines.push('    </summary>');
+        const withSummaries = completed.filter((s) => s.summary);
+        if (withSummaries.length > 0) {
+          lines.push('  <completed-siblings>');
+          for (const s of withSummaries) {
+            const summary = truncate(s.summary!, SUMMARY_MAX_CHARS);
+            lines.push(`    <summary task="${escapeXml(s.title)}">`);
+            lines.push(`      ${escapeXml(summary)}`);
+            lines.push('    </summary>');
+          }
+          lines.push('  </completed-siblings>');
         }
-        lines.push('  </completed-siblings>');
+
+        // Artifacts from completed siblings — available for reference
+        const withArtifacts = completed.filter(
+          (s) => s.artifacts && Object.keys(s.artifacts).length > 0,
+        );
+        if (withArtifacts.length > 0) {
+          lines.push('  <sibling-artifacts>');
+          for (const s of withArtifacts) {
+            for (const [key, value] of Object.entries(s.artifacts!)) {
+              lines.push(
+                `    <artifact task="${escapeXml(s.title)}" key="${escapeXml(key)}">${escapeXml(String(value))}</artifact>`,
+              );
+            }
+          }
+          lines.push('  </sibling-artifacts>');
+        }
       }
     }
   }
@@ -87,12 +106,13 @@ export function buildTaskSystemPrompt(store: TaskStore, taskId: string): string 
   return (
     '\n\n## Task Board\n\n' +
     'You are working on a task from the task board. ' +
-    'Use the TaskSet, TaskComplete, TaskStatus, and TaskBlock tools ' +
+    'Use the TaskSet, TaskComplete, TaskStatus, TaskBlock, and TaskArtifact tools ' +
     'to manage your work.\n\n' +
     '- Call TaskSet to decompose your task into subtasks\n' +
     '- Call TaskComplete with a summary when done\n' +
     '- Call TaskStatus to check progress\n' +
-    '- Call TaskBlock if you encounter a blocker\n\n' +
+    '- Call TaskBlock if you encounter a blocker\n' +
+    '- Call TaskArtifact to store structured output (e.g., PR URLs, file paths) for later stages\n\n' +
     context
   );
 }

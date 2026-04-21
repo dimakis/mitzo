@@ -13,8 +13,10 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 - **Voice** — push-to-talk input (STT) and auto-speak output (TTS) via [Yapper](https://github.com/dimakis/yapper). Graceful degradation when offline.
 - **MCP tools** — reads `~/.cursor/mcp.json`, passes servers to every session
 - **File browser** — view and edit repo files, switch between worktree roots
-- **Worktree sandbox** — opt-in git worktree isolation per session
+- **Task board** — recursive multi-session task orchestration with spec mode, completion summaries, and verification hooks
+- **Worktree sandbox** — opt-in git worktree isolation per session, multi-repo support via `.mitzo.json`
 - **Session resilience** — phone sleeps, WS drops, session survives. Reattach on reconnect. Message snapshot recovery for iOS silent drops.
+- **iOS app** — native wrapper via Capacitor with push notifications and home-screen install
 - **Auto-rename sessions** — sessions get meaningful names via LLM summarization after every few prompts
 - **Quick actions** — one-tap commands via `.mitzo.json`
 - **Push notifications** — ntfy + Pushover (Apple Watch) when Claude needs approval
@@ -25,7 +27,7 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 
 ```bash
 git clone https://github.com/dimakis/mitzo.git && cd mitzo
-npm install && cd frontend && npm install && cd ..
+npm install
 cp .env.example .env  # set AUTH_PASSPHRASE, AUTH_SECRET, REPO_PATH
 npm run build && npm start
 # http://localhost:3100
@@ -50,7 +52,7 @@ Phone (Tailscale) ──┬── HTTP: REST API
 
 The server translates raw SDK stream events into a v2 block lifecycle protocol (`block_start` → `block_delta` → `block_end`). Explicit turn boundaries (`message_start`/`message_end`), deferred finalization, and message snapshots for reconnect recovery. See [docs/design/message-protocol-v2.md](docs/design/message-protocol-v2.md).
 
-### Backend (`server/`) — 34 modules
+### Backend (`server/`)
 
 | Core                    | Purpose                                                                             |
 | ----------------------- | ----------------------------------------------------------------------------------- |
@@ -91,7 +93,7 @@ The server translates raw SDK stream events into a v2 block lifecycle protocol (
 
 ### Frontend (`frontend/`) — React 19 + Vite
 
-Nine pages (`Login`, `SessionList`, `ChatView`, `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`), a `useReducer`-based message state machine (`useChatMessages`), module-level WebSocket pool with 500-message buffer, and components for thinking blocks, tool pills, tool groups, permission banners, and a slash-command picker.
+React 19 + Vite. Nine pages (`Login`, `SessionList`, `ChatView`, `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`), a `useReducer`-based message state machine (`useChatMessages`), module-level WebSocket pool with 500-message buffer, and components for thinking blocks, tool pills, tool groups, permission banners, and a slash-command picker. Capacitor wraps the frontend for iOS deployment via TestFlight.
 
 ## Environment
 
@@ -121,7 +123,7 @@ See `.env.example` for a starter template.
 
 ## `.mitzo.json`
 
-Drop this in your repo root for quick actions and Python venv support:
+Drop this in your repo root to customize the home screen, enable multi-repo sessions, and inject domain knowledge:
 
 ```json
 {
@@ -133,15 +135,27 @@ Drop this in your repo root for quick actions and Python venv support:
       "extraTools": "Bash"
     }
   ],
+  "repos": [{ "name": "sibling-repo", "path": "../sibling-repo" }],
+  "contextBlocks": {
+    "Architecture": "/path/to/architecture.md"
+  },
   "venvPaths": [".venv/bin"]
 }
 ```
+
+- **quickActions** — one-tap buttons on the home screen
+- **repos** — sibling repos for multi-repo worktree sessions (each gets its own isolated worktree)
+- **contextBlocks** — markdown files injected into every session as domain knowledge
+- **roots** — switchable repo roots in the file browser
+- **venvPaths** — Python venv paths added to `PATH`
+
+See [docs/onboarding.md](docs/onboarding.md) for a full configuration walkthrough.
 
 ## Development
 
 ```bash
 npm run dev          # backend + frontend concurrently
-npm test             # vitest (946 tests, 85 files)
+npm test             # vitest (1607 tests, 544 suites)
 npm run lint         # eslint
 npm run format:check # prettier
 ```
