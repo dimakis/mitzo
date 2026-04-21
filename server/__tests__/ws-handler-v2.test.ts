@@ -53,6 +53,7 @@ import {
   handlePermissionResponseV2,
   isHelloHandshake,
   dispatchV2Message,
+  getOwnerConnection,
   type V2HandlerContext,
 } from '../ws-handler-v2.js';
 import { NativeCommandRegistry } from '../native-commands.js';
@@ -1628,5 +1629,107 @@ describe('handleInterruptV2 forwarding', () => {
     const conn = ctx.connRegistry.get('c1')!;
     expect(conn.watchedSessions.size).toBe(0);
     expect(conn.activeSession).toBeNull();
+  });
+});
+
+// ─── getOwnerConnection ─────────────────────────────────────────────────────
+
+describe('getOwnerConnection', () => {
+  it('extracts connectionId before the first colon', () => {
+    expect(getOwnerConnection('conn-123:sess-abc')).toBe('conn-123');
+  });
+
+  it('handles composite suffix with multiple colons', () => {
+    expect(getOwnerConnection('conn-1:new-abcd1234:extra')).toBe('conn-1');
+  });
+
+  it('returns the full string when no colon present', () => {
+    expect(getOwnerConnection('legacy-client-id')).toBe('legacy-client-id');
+  });
+
+  it('handles empty string', () => {
+    expect(getOwnerConnection('')).toBe('');
+  });
+});
+
+// ─── handleInterruptV2 — connection ownership ───────────────────────────────
+
+describe('handleInterruptV2 connection ownership', () => {
+  it('rejects interrupt when session is active on another connection', () => {
+    (interruptChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'other-conn:sess-1', session: {} });
+    sessionReg.isAttached.mockReturnValue(true);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleInterruptV2(
+      'c1',
+      transport,
+      { type: 'interrupt', sessionId: 'sess-1', prompt: 'stop', clientMsgId: 'i5' },
+      ctx,
+    );
+
+    expect(interruptChat).not.toHaveBeenCalled();
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({ type: 'error', code: 'active_elsewhere' }),
+    );
+  });
+
+  it('allows interrupt from the owning connection', () => {
+    (interruptChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-1', session: {} });
+    sessionReg.isAttached.mockReturnValue(true);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleInterruptV2(
+      'c1',
+      transport,
+      { type: 'interrupt', sessionId: 'sess-1', prompt: 'redirect', clientMsgId: 'i6' },
+      ctx,
+    );
+
+    expect(interruptChat).toHaveBeenCalledWith('c1:sess-1', 'redirect', undefined, undefined, 'i6');
+  });
+
+  it('allows interrupt when session is detached (takeover)', () => {
+    (interruptChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'other-conn:sess-1', session: {} });
+    sessionReg.isAttached.mockReturnValue(false); // detached
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleInterruptV2(
+      'c1',
+      transport,
+      { type: 'interrupt', sessionId: 'sess-1', prompt: 'takeover', clientMsgId: 'i7' },
+      ctx,
+    );
+
+    expect(interruptChat).toHaveBeenCalled();
+    expect(transport.sent).not.toContainEqual(
+      expect.objectContaining({ code: 'active_elsewhere' }),
+    );
   });
 });

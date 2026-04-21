@@ -135,7 +135,7 @@ function sdkEnv(): Record<string, string> {
   // autoSelectFamily ignores --dns-result-order, so we patch dns.lookup
   // via a preload script to always resolve IPv4.
   const nodeOpts = env.NODE_OPTIONS || '';
-  if (!nodeOpts.includes('ipv4-preload')) {
+  if (!nodeOpts.includes(IPV4_PRELOAD)) {
     env.NODE_OPTIONS = nodeOpts
       ? `${nodeOpts} --require=${IPV4_PRELOAD}`
       : `--require=${IPV4_PRELOAD}`;
@@ -468,7 +468,6 @@ export async function startChat(
   const mode = options.mode || 'agent';
 
   const baseCwd = resolveResumeCwd(options);
-
 
   // Generate session-scoped worktree ID and create worktrees in all repos
   const wtId = generateWtId();

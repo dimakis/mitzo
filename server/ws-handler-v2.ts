@@ -83,7 +83,7 @@ export function isHelloHandshake(msg: unknown): boolean {
  * `conn-${timestamp}-${random}` (see server/index.ts L196) and never
  * contain colons, so the first colon is always the separator.
  */
-function getOwnerConnection(clientId: string): string {
+export function getOwnerConnection(clientId: string): string {
   const colonIdx = clientId.indexOf(':');
   return colonIdx === -1 ? clientId : clientId.slice(0, colonIdx);
 }
@@ -468,12 +468,29 @@ export function handleInterruptV2(
   ctx: V2HandlerContext,
 ): void {
   const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
-  if (found) {
-    ctx.connRegistry.watch(connectionId, msg.sessionId);
-    ctx.connRegistry.setActive(connectionId, msg.sessionId);
-    interruptChat(found.clientId, msg.prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
-    log.info('interrupt', { connectionId, sessionId: msg.sessionId });
+  if (!found) return;
+
+  // Ownership guard: reject if another connection actively drives this session
+  if (isActive(found.clientId)) {
+    const ownerConnection = getOwnerConnection(found.clientId);
+    const isOwner = ownerConnection === connectionId;
+    const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
+
+    if (!isOwner && !isDetached) {
+      transport.send({
+        type: 'error',
+        error: 'Session is active on another device',
+        code: 'active_elsewhere',
+        sessionId: msg.sessionId,
+      });
+      return;
+    }
   }
+
+  ctx.connRegistry.watch(connectionId, msg.sessionId);
+  ctx.connRegistry.setActive(connectionId, msg.sessionId);
+  interruptChat(found.clientId, msg.prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
+  log.info('interrupt', { connectionId, sessionId: msg.sessionId });
 }
 
 export function handlePermissionResponseV2(
