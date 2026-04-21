@@ -1,4 +1,4 @@
-import type { TaskStore, Task } from './task-store.js';
+import type { TaskStore, Task, GateConfig } from './task-store.js';
 import { sendToChat } from './chat.js';
 import { createLogger } from './logger.js';
 
@@ -33,6 +33,8 @@ export interface OrchestratorDeps {
   broadcastTasks: () => void;
   /** Get active session IDs for orphan detection */
   getActiveSessionIds?: () => Set<string>;
+  /** Register a signal watch for a wait_for_signal task */
+  watchSignal?: (taskId: string, gateConfig: GateConfig) => void;
 }
 
 export class TaskOrchestrator {
@@ -286,22 +288,56 @@ export class TaskOrchestrator {
       return;
     }
 
-    // Assign task
-    this.activeTaskId = next.id;
-    this.deps.store.update(next.id, { status: 'active' });
-    this.deps.store.cascadeStatus(next.id);
+    // Dispatch based on stage type
+    const stageType = next.stageType ?? 'agent_work';
 
-    // Set task context on session
-    this.deps.setTaskContext(next.id, this.goalId);
+    switch (stageType) {
+      case 'wait_for_signal': {
+        // Set active but don't assign to agent — register with SignalProcessor
+        this.activeTaskId = next.id;
+        this.deps.store.update(next.id, { status: 'active' });
+        this.deps.store.cascadeStatus(next.id);
+        this.deps.broadcastTasks();
+        this.deps.broadcastStatus(this.getStatus());
 
-    // Broadcast updates
-    this.deps.broadcastTasks();
-    this.deps.broadcastStatus(this.getStatus());
+        if (this.deps.watchSignal && next.gateConfig) {
+          this.deps.watchSignal(next.id, next.gateConfig);
+          log.info('registered signal watch', { taskId: next.id, type: next.gateConfig.type });
+        } else {
+          log.warn('wait_for_signal task has no gate config or watchSignal not wired', {
+            taskId: next.id,
+          });
+        }
+        break;
+      }
 
-    // Send prompt to pinned agent session
-    if (this.pinnedClientId) {
-      const prompt = this.buildTaskPrompt(next);
-      sendToChat(this.pinnedClientId, prompt);
+      case 'human_review': {
+        // Go straight to pending_review — reuse existing approval flow
+        this.activeTaskId = next.id;
+        this.deps.store.update(next.id, { status: 'pending_review' });
+        this.deps.store.cascadeStatus(next.id);
+        this.deps.broadcastTasks();
+        this.deps.broadcastStatus(this.getStatus());
+        log.info('human review task awaiting approval', { taskId: next.id });
+        break;
+      }
+
+      case 'agent_work':
+      default: {
+        // Original behavior: assign to session, send prompt
+        this.activeTaskId = next.id;
+        this.deps.store.update(next.id, { status: 'active' });
+        this.deps.store.cascadeStatus(next.id);
+        this.deps.setTaskContext(next.id, this.goalId);
+        this.deps.broadcastTasks();
+        this.deps.broadcastStatus(this.getStatus());
+
+        if (this.pinnedClientId) {
+          const prompt = this.buildTaskPrompt(next);
+          sendToChat(this.pinnedClientId, prompt);
+        }
+        break;
+      }
     }
   }
 

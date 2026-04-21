@@ -30,6 +30,14 @@ export default tseslint.config(
   },
 
   {
+    files: ['**/*.cjs'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+      'no-undef': 'off',
+    },
+  },
+
+  {
     files: ['frontend/src/**/*.{ts,tsx}'],
     plugins: {
       'react-hooks': reactHooks,

@@ -65,6 +65,15 @@ vi.mock('../chat.js', () => {
     eventStore: {
       append: vi.fn(),
       getEventsAfter: vi.fn().mockReturnValue([]),
+      searchSessions: vi.fn().mockReturnValue([
+        {
+          sessionId: 's1',
+          summary: 'Test',
+          snippet: '...matched text...',
+          matchedAt: 1000,
+          updatedAt: 2000,
+        },
+      ]),
       getSession: vi.fn().mockImplementation((id: string) => {
         if (id === 's1') {
           return {
@@ -112,7 +121,7 @@ vi.mock('../git-version.js', () => ({
   isUpdateAvailable: vi.fn().mockReturnValue(false),
 }));
 
-import { hideSession, hideAllSessions, renameSessionById } from '../chat.js';
+import { hideSession, hideAllSessions, renameSessionById, eventStore } from '../chat.js';
 import { resolvePending } from '../permissions.js';
 
 let app: Express;
@@ -452,6 +461,41 @@ describe('session routes', () => {
 
   it('GET /api/sessions/:id/meta — unauthenticated returns 401', async () => {
     const res = await request(app).get('/api/sessions/s1/meta');
+    expect(res.status).toBe(401);
+  });
+});
+
+// --- Session Search Routes ---
+
+describe('session search routes', () => {
+  it('GET /api/sessions/search?q=text — returns matching results', async () => {
+    const res = await request(app).get('/api/sessions/search?q=matched').set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(res.body.results).toHaveLength(1);
+    expect(res.body.results[0].sessionId).toBe('s1');
+    expect(res.body.results[0].snippet).toBe('...matched text...');
+    expect(vi.mocked(eventStore.searchSessions)).toHaveBeenCalledWith('matched', 20);
+  });
+
+  it('GET /api/sessions/search — empty query returns empty results', async () => {
+    const res = await request(app).get('/api/sessions/search?q=').set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(res.body.results).toEqual([]);
+  });
+
+  it('GET /api/sessions/search — missing q param returns empty results', async () => {
+    const res = await request(app).get('/api/sessions/search').set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(res.body.results).toEqual([]);
+  });
+
+  it('GET /api/sessions/search — clamps limit to 50', async () => {
+    await request(app).get('/api/sessions/search?q=test&limit=999').set('Cookie', authCookie);
+    expect(vi.mocked(eventStore.searchSessions)).toHaveBeenCalledWith('test', 50);
+  });
+
+  it('GET /api/sessions/search — unauthenticated returns 401', async () => {
+    const res = await request(app).get('/api/sessions/search?q=test');
     expect(res.status).toBe(401);
   });
 });

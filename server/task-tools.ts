@@ -121,3 +121,25 @@ export function handleTaskBlock(store: TaskStore, currentTaskId: string, reason:
 
   return `Task "${current.title}" blocked: ${reason}`;
 }
+
+/**
+ * Store a structured artifact on the current task.
+ * Artifacts are key-value pairs that persist across the workflow.
+ */
+export function handleTaskArtifact(
+  store: TaskStore,
+  currentTaskId: string,
+  key: string,
+  value: string,
+): string {
+  const current = store.get(currentTaskId);
+  if (!current) return `Error: task ${currentTaskId} not found`;
+
+  if (!key.trim()) return 'Error: artifact key is required';
+
+  const artifacts = current.artifacts ? { ...current.artifacts } : {};
+  artifacts[key] = value;
+  store.update(currentTaskId, { artifacts });
+
+  return `Artifact stored: ${key} = ${value}`;
+}

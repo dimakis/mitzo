@@ -415,4 +415,139 @@ describe('TaskOrchestrator', () => {
       expect(orchestrator.rejectTask(c1.id, 'nope')).toBe(false);
     });
   });
+
+  describe('stage type dispatch', () => {
+    it('wait_for_signal tasks register with signal watcher instead of agent', () => {
+      const watchSignal = vi.fn();
+      const deps = createTestDeps(store);
+      deps.watchSignal = watchSignal;
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Goal' });
+      store.create({
+        title: 'Wait for CI',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'gh_ci', repo: 'org/repo', pr: 42 },
+      });
+
+      orch.start(goal.id);
+
+      const task = store.getChildren(goal.id)[0];
+      expect(task.status).toBe('active');
+      expect(watchSignal).toHaveBeenCalledWith(task.id, {
+        type: 'gh_ci',
+        repo: 'org/repo',
+        pr: 42,
+      });
+      // Should NOT have set task context on session (no agent work)
+      expect(deps.setTaskContext).not.toHaveBeenCalled();
+    });
+
+    it('human_review tasks go to pending_review immediately', () => {
+      const deps = createTestDeps(store);
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Goal' });
+      store.create({
+        title: 'Review design',
+        parentId: goal.id,
+        stageType: 'human_review',
+      });
+
+      orch.start(goal.id);
+
+      const task = store.getChildren(goal.id)[0];
+      expect(task.status).toBe('pending_review');
+      expect(deps.setTaskContext).not.toHaveBeenCalled();
+    });
+
+    it('agent_work tasks behave as before (assign to session)', () => {
+      const deps = createTestDeps(store);
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Goal' });
+      store.create({
+        title: 'Do agent work',
+        parentId: goal.id,
+        stageType: 'agent_work',
+      });
+
+      orch.start(goal.id);
+
+      const task = store.getChildren(goal.id)[0];
+      expect(task.status).toBe('active');
+      expect(deps.setTaskContext).toHaveBeenCalledWith(task.id, goal.id);
+    });
+
+    it('null stageType tasks behave as agent_work (backwards compat)', () => {
+      const deps = createTestDeps(store);
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Goal' });
+      store.create({ title: 'Legacy task', parentId: goal.id });
+
+      orch.start(goal.id);
+
+      const task = store.getChildren(goal.id)[0];
+      expect(task.status).toBe('active');
+      expect(deps.setTaskContext).toHaveBeenCalled();
+    });
+
+    it('mixed workflow: agent_work → wait_for_signal → human_review', () => {
+      const watchSignal = vi.fn();
+      const deps = createTestDeps(store);
+      deps.watchSignal = watchSignal;
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Workflow Goal' });
+      const agent = store.create({
+        title: 'Agent step',
+        parentId: goal.id,
+        stageType: 'agent_work',
+        priority: 3,
+      });
+      const signal = store.create({
+        title: 'Signal step',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'gh_ci', repo: 'org/repo', pr: 1 },
+        priority: 2,
+      });
+      const review = store.create({
+        title: 'Review step',
+        parentId: goal.id,
+        stageType: 'human_review',
+        priority: 1,
+      });
+
+      // Start: should pick agent_work (highest priority)
+      orch.start(goal.id);
+      expect(orch.getStatus().activeTaskId).toBe(agent.id);
+      expect(store.get(agent.id)!.status).toBe('active');
+
+      // Complete agent work → should pick wait_for_signal
+      store.update(agent.id, { status: 'done' });
+      store.cascadeStatus(agent.id);
+      orch.onTaskCompleted(agent.id);
+      expect(orch.getStatus().activeTaskId).toBe(signal.id);
+      expect(store.get(signal.id)!.status).toBe('active');
+      expect(watchSignal).toHaveBeenCalledWith(signal.id, {
+        type: 'gh_ci',
+        repo: 'org/repo',
+        pr: 1,
+      });
+
+      // Simulate signal resolved → should pick human_review
+      store.update(signal.id, { status: 'done' });
+      store.cascadeStatus(signal.id);
+      orch.onTaskCompleted(signal.id);
+      expect(orch.getStatus().activeTaskId).toBe(review.id);
+      expect(store.get(review.id)!.status).toBe('pending_review');
+
+      // Approve human review → goal done
+      orch.approveTask(review.id);
+      expect(orch.getStatus().state).toBe('idle');
+    });
+  });
 });

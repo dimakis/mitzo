@@ -1,14 +1,20 @@
 import { useState } from 'react';
-import type { Task, TaskStatus } from '../types/task';
+import type { Task, TaskStatus, StageType } from '../types/task';
 
-const STATUS_LABELS: Record<TaskStatus, string> = {
-  pending: 'Pending',
-  active: 'Active',
-  done: 'Done',
-  pending_review: 'Review',
-  blocked: 'Blocked',
-  skipped: 'Skipped',
-  failed: 'Failed',
+const STATUS_ICONS: Record<TaskStatus, string> = {
+  pending: '\u25CB', // ○
+  active: '\u25C9', // ◉
+  done: '\u2713', // ✓
+  pending_review: '\u25D4', // ◔
+  blocked: '\u2298', // ⊘
+  skipped: '\u2014', // —
+  failed: '\u2717', // ✗
+};
+
+const STAGE_LABELS: Record<StageType, string> = {
+  agent_work: '',
+  wait_for_signal: 'signal',
+  human_review: 'review',
 };
 
 const NEXT_STATUS: Record<TaskStatus, TaskStatus> = {
@@ -44,62 +50,89 @@ export function TaskNode({
 }: TaskNodeProps) {
   const [expanded, setExpanded] = useState(true);
   const hasChildren = task.children.length > 0;
-  const isActive = activeTaskId === task.id;
 
   return (
-    <div className={`task-card${isActive ? ' task-card--active' : ''} task-card--${task.status}`}>
-      <div className="task-card-body">
-        <div className="task-card-top">
+    <div className={`task-node${activeTaskId === task.id ? ' task-node--active' : ''}`}>
+      <div className="task-node-row">
+        {hasChildren && (
           <button
-            className={`task-card-chip task-card-chip--${task.status}`}
-            onClick={() => onStatusChange(task.id, NEXT_STATUS[task.status])}
-            aria-label={`Status: ${task.status}`}
+            className="task-node-chevron"
+            onClick={() => setExpanded(!expanded)}
+            aria-label={expanded ? 'Collapse' : 'Expand'}
           >
-            {STATUS_LABELS[task.status]}
+            {expanded ? '\u25BC' : '\u25B6'}
           </button>
-          {hasChildren && (
-            <button
-              className="task-card-expand"
-              onClick={() => setExpanded(!expanded)}
-              aria-label={expanded ? 'Collapse' : 'Expand'}
-            >
-              {expanded ? '▾' : '▸'}
-            </button>
-          )}
-        </div>
-        <div className={`task-card-title${task.status === 'done' ? ' task-card-title--done' : ''}`}>
+        )}
+        <button
+          className={`task-node-status task-node-status--${task.status}`}
+          onClick={() => onStatusChange(task.id, NEXT_STATUS[task.status])}
+          aria-label={`Status: ${task.status}`}
+        >
+          {STATUS_ICONS[task.status]}
+        </button>
+        <span
+          className={`task-node-title${task.status === 'done' ? ' task-node-title--done' : ''}`}
+        >
           {task.title}
-        </div>
-        <div className="task-card-actions">
+        </span>
+        {task.stageType && STAGE_LABELS[task.stageType] && (
+          <span className={`task-node-stage task-node-stage--${task.stageType}`}>
+            {STAGE_LABELS[task.stageType]}
+          </span>
+        )}
+        {task.retryCount > 0 && (
+          <span className="task-node-retry" title={`Retry ${task.retryCount}/${task.maxRetries}`}>
+            {'\u21BB'}
+            {task.retryCount}
+          </span>
+        )}
+        <div className="task-node-actions">
           {task.status === 'pending_review' && onApprove && (
             <button
-              className="task-card-action task-card-action--approve"
+              className="task-node-action task-node-action--approve"
               onClick={() => onApprove(task.id)}
+              title="Approve"
             >
-              Approve
+              &#x2713;
             </button>
           )}
           {task.status === 'pending_review' && onReject && (
             <button
-              className="task-card-action task-card-action--reject"
+              className="task-node-action task-node-action--danger"
               onClick={() => onReject(task.id, '')}
+              title="Reject"
             >
-              Reject
+              &#x2717;
             </button>
           )}
-          <button className="task-card-action" onClick={() => onAddChild(task.id)}>
-            + Sub
+          <button
+            className="task-node-action"
+            onClick={() => onAddChild(task.id)}
+            title="Add sub-task"
+          >
+            +
           </button>
           <button
-            className="task-card-action task-card-action--reject"
+            className="task-node-action task-node-action--danger"
             onClick={() => onDelete(task.id)}
+            title="Delete task"
           >
-            Delete
+            &times;
           </button>
         </div>
       </div>
+      {task.artifacts && Object.keys(task.artifacts).length > 0 && expanded && (
+        <div className="task-node-artifacts">
+          {Object.entries(task.artifacts).map(([key, value]) => (
+            <div key={key} className="task-node-artifact">
+              <span className="task-node-artifact-key">{key}:</span>{' '}
+              <span className="task-node-artifact-value">{String(value)}</span>
+            </div>
+          ))}
+        </div>
+      )}
       {hasChildren && expanded && (
-        <div className="task-card-children">
+        <div className="task-node-children">
           {task.children.map((child) => (
             <TaskNode
               key={child.id}

@@ -129,6 +129,14 @@ export interface StoredEvent {
   createdAt: number;
 }
 
+export interface SessionSearchResult {
+  sessionId: string;
+  summary: string | null;
+  snippet: string;
+  matchedAt: number; // timestamp of the matching event
+  updatedAt: number;
+}
+
 export interface SessionMeta {
   sessionId: string;
   summary: string | null;
