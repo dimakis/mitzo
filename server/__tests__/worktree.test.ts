@@ -63,6 +63,11 @@ describe('parseWorktreeAge', () => {
     expect(parseWorktreeAge('2026-04-20-')).toBeNull();
     expect(parseWorktreeAge('2026-04-20')).toBeNull();
   });
+
+  it('returns null for future-dated names', () => {
+    expect(parseWorktreeAge('2099-01-01-abc123')).toBeNull();
+    expect(parseWorktreeAge('2030-12-15-f0f0f0')).toBeNull();
+  });
 });
 
 describe('countWorktrees', () => {
@@ -195,10 +200,10 @@ describe('cleanupStaleWorktrees', () => {
     expect(remaining).toContain(sessionId);
   });
 
-  it('uses name-based age instead of mtime when name matches YYYY-MM-DD pattern', () => {
+  it('requires both name-age and mtime to be stale before cleanup', () => {
     const wtDir = join(baseRepo, '.claude', 'worktrees');
     mkdirSync(wtDir, { recursive: true });
-    // Use a date 5 days ago in the name — even though mtime will be "now"
+    // Use a date 5 days ago in the name — mtime is "now" (recently touched)
     const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
     const oldDate = fiveDaysAgo.toISOString().slice(0, 10);
     const sessionId = `${oldDate}-a1b2c3`;
@@ -206,7 +211,26 @@ describe('cleanupStaleWorktrees', () => {
     execFileSync('git', ['-C', baseRepo, 'worktree', 'add', '-b', `session/${sessionId}`, wtPath], {
       stdio: 'pipe',
     });
-    // Don't touch mtime — it stays at "now", but name-based age makes it stale
+    // Don't touch mtime — it stays at "now", so mtime safety net keeps it alive
+
+    cleanupStaleWorktrees(baseRepo, inboxDir);
+
+    const remaining = readdirSync(wtDir);
+    expect(remaining).toContain(sessionId);
+  });
+
+  it('cleans up worktree when both name-age and mtime are stale', () => {
+    const wtDir = join(baseRepo, '.claude', 'worktrees');
+    mkdirSync(wtDir, { recursive: true });
+    const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+    const oldDate = fiveDaysAgo.toISOString().slice(0, 10);
+    const sessionId = `${oldDate}-a1b2c3`;
+    const wtPath = join(wtDir, sessionId);
+    execFileSync('git', ['-C', baseRepo, 'worktree', 'add', '-b', `session/${sessionId}`, wtPath], {
+      stdio: 'pipe',
+    });
+    // Age the mtime as well so both name and mtime are past cutoff
+    utimesSync(wtPath, fiveDaysAgo, fiveDaysAgo);
 
     cleanupStaleWorktrees(baseRepo, inboxDir);
 

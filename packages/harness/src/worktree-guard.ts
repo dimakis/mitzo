@@ -85,9 +85,11 @@ export function checkWorktreePolicy(
   if (session.worktreePaths.size === 0) return null;
 
   if (WRITE_TOOLS.has(toolName)) {
+    let checkedAnyPath = false;
     for (const field of PATH_FIELDS) {
       const filePath = toolInput[field];
       if (typeof filePath !== 'string' || !filePath.startsWith('/')) continue;
+      checkedAnyPath = true;
 
       const allowed = findAllowedWorktree(filePath, session.worktreePaths);
       if (allowed) continue;
@@ -105,8 +107,10 @@ export function checkWorktreePolicy(
       });
       return message;
     }
-    stats.allowed++;
-    log.debug('worktree policy allowed', { toolName, sessionId: session.sessionId });
+    if (checkedAnyPath) {
+      stats.allowed++;
+      log.debug('worktree policy allowed', { toolName, sessionId: session.sessionId });
+    }
     return null;
   }
 

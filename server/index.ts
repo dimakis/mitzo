@@ -26,7 +26,13 @@ import {
 } from './chat.js';
 import { cleanupStaleWorktrees, countWorktrees } from './worktree.js';
 import { getWorktreeGuardStats, resetWorktreeGuardStats } from '@mitzo/harness';
-import { HEARTBEAT_INTERVAL_MS, PORT_DEFAULT, SHUTDOWN_GRACE_MS } from './constants.js';
+import {
+  HEARTBEAT_INTERVAL_MS,
+  PORT_DEFAULT,
+  SHUTDOWN_GRACE_MS,
+  GUARD_STATS_INTERVAL_MS,
+  WORKTREE_CLEANUP_INTERVAL_MS,
+} from './constants.js';
 import { createLogger } from './logger.js';
 import {
   app,
@@ -803,18 +809,14 @@ checkPort(PORT).then((inUse) => {
       }
     }
 
-    // Periodic worktree guard stats (every 5 minutes)
-    const GUARD_STATS_INTERVAL_MS = 5 * 60 * 1000;
     setInterval(() => {
       const stats = getWorktreeGuardStats();
       if (stats.denied > 0 || stats.allowed > 0) {
         log.info('worktree guard stats', stats);
-        resetWorktreeGuardStats();
       }
+      resetWorktreeGuardStats();
     }, GUARD_STATS_INTERVAL_MS);
 
-    // Periodic stale worktree cleanup (every 6 hours)
-    const WORKTREE_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
     setInterval(() => {
       for (const [label, repoPath] of repoEntries) {
         try {

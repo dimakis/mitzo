@@ -32,7 +32,9 @@ export function parseWorktreeAge(entry: string): number | null {
   if (created.getUTCMonth() + 1 !== Number(month) || created.getUTCDate() !== Number(day)) {
     return null;
   }
-  return Date.now() - created.getTime();
+  const age = Date.now() - created.getTime();
+  if (age < 0) return null;
+  return age;
 }
 
 export interface CreateWorktreeOptions {
@@ -253,11 +255,12 @@ export function cleanupStaleWorktrees(baseRepo: string, inboxDir?: string): void
   for (const entry of readdirSync(dir)) {
     const fullPath = join(dir, entry);
     try {
-      // Prefer name-based age (immune to mtime being refreshed by git operations).
-      // Fall back to mtime for non-standard names (e.g. "ws-fix", "session-worktrees").
+      // Prefer name-based age (immune to mtime being refreshed by git operations),
+      // but also require mtime to be past cutoff as a safety net — a recently-touched
+      // worktree (e.g. active session) should never be cleaned up regardless of name age.
       const nameAge = parseWorktreeAge(entry);
-      const isStale =
-        nameAge !== null ? nameAge > cutoff : now - statSync(fullPath).mtimeMs > cutoff;
+      const mtimeAge = now - statSync(fullPath).mtimeMs;
+      const isStale = nameAge !== null ? nameAge > cutoff && mtimeAge > cutoff : mtimeAge > cutoff;
 
       if (isStale) {
         const dirty = hasUncommittedWork(fullPath);
