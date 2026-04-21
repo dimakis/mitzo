@@ -1620,9 +1620,7 @@ describe('handleSendV2 stale session via EventStore', () => {
       ctx,
     );
 
-    expect(transport.sent).toContainEqual(
-      expect.objectContaining({ code: 'active_elsewhere' }),
-    );
+    expect(transport.sent).toContainEqual(expect.objectContaining({ code: 'active_elsewhere' }));
 
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
