@@ -10,5 +10,5 @@ npx lint-staged
 if command -v gitleaks >/dev/null 2>&1; then
   gitleaks git --pre-commit --staged --verbose
 else
-  echo "WARNING: gitleaks not found — skipping secret scan. Install: brew install gitleaks"
+  echo "⚠ gitleaks not installed — skipping secret scan (install: https://github.com/gitleaks/gitleaks#installing)"
 fi
