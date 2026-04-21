@@ -100,7 +100,7 @@ export function TodoView() {
 
   return (
     <div className="todo-page">
-      <PageHeader title="Todos" badge={items.length || undefined} onBack={() => navigate('/')}>
+      <PageHeader title="Todos" badge={items.length || undefined}>
         <button
           className="todo-add-btn"
           onClick={() => setCreating({ parentId: undefined })}

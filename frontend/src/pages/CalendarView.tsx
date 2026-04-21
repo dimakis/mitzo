@@ -121,7 +121,6 @@ export function CalendarView() {
     <div className="cal-page">
       <PageHeader
         title="Calendar"
-        onBack={() => navigate('/')}
         center={
           <div className="cal-header-center">
             <button className="cal-nav-prev" onClick={handlePrev}>

@@ -99,7 +99,7 @@ export function TodoDetailView() {
 
   return (
     <div className="todo-detail-page">
-      <PageHeader title="Task" onBack={() => navigate('/todos')}>
+      <PageHeader title="Task">
         <button className="todo-detail-chat-btn" onClick={handleOpenChat}>
           Open in Chat
         </button>

@@ -264,7 +264,7 @@ export function InboxView() {
 
   return (
     <div className="inbox-page">
-      <PageHeader title="Inbox" badge={items.length || undefined} onBack={() => navigate('/')} />
+      <PageHeader title="Inbox" badge={items.length || undefined} />
 
       {loading && <p className="inbox-empty">Loading...</p>}
 

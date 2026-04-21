@@ -3,13 +3,12 @@ import { MitzoLogo } from './MitzoLogo';
 
 interface PageHeaderProps {
   title: string;
-  onBack?: () => void;
   badge?: number;
   center?: ReactNode;
   children?: ReactNode;
 }
 
-export function PageHeader({ title, onBack: _onBack, badge, center, children }: PageHeaderProps) {
+export function PageHeader({ title, badge, center, children }: PageHeaderProps) {
   return (
     <header className="page-header">
       <MitzoLogo />

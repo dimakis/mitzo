@@ -53,7 +53,7 @@ export function TaskBoard() {
 
   return (
     <div className="task-board-page">
-      <PageHeader title="Tasks" badge={tasks.length || undefined} onBack={() => navigate('/')}>
+      <PageHeader title="Tasks" badge={tasks.length || undefined}>
         <button
           className="task-board-add-btn"
           onClick={() => setCreating({ parentId: undefined })}
