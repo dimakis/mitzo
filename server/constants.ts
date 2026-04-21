@@ -38,6 +38,8 @@ export const GIT_BRANCH_TIMEOUT_MS = 5_000;
 export const HEARTBEAT_INTERVAL_MS = 15_000;
 export const PORT_DEFAULT = 3100;
 export const SHUTDOWN_GRACE_MS = 5_000;
+export const GUARD_STATS_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+export const WORKTREE_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 // --- Query loop ---
 // If the Agent SDK yields no events within this window, we treat the turn
