@@ -448,10 +448,14 @@ export async function startChat(
           cwd: baseCwd,
         });
       } else {
-        log.warn('resume: original CWD no longer exists, falling back to BASE_REPO', {
+        // The worktree directory was cleaned up, but the SDK encodes
+        // conversation data by CWD path. Re-create the directory so
+        // the SDK can find the conversation using the original path.
+        mkdirSync(sessionMeta.cwd, { recursive: true });
+        baseCwd = sessionMeta.cwd;
+        log.info('resume: re-created original CWD directory for SDK path encoding', {
           sessionId: options.resume,
-          originalCwd: sessionMeta.cwd,
-          fallback: BASE_REPO,
+          cwd: baseCwd,
         });
       }
     }
@@ -603,8 +607,9 @@ export async function startChat(
     if (failedSession) cleanupSessionWorktrees(failedSession);
     registry.abort(clientId);
   } finally {
-    // Clean up secondary worktrees after query loop ends (session may already
-    // be removed from registry, so use the captured reference).
+    // Clean up secondary worktrees after query loop ends. Primary worktree is
+    // preserved for resume; stale GC handles its lifecycle. Session may already
+    // be removed from registry, so use the captured reference.
     cleanupSessionWorktrees(session);
   }
 }
@@ -726,14 +731,18 @@ export async function interruptChat(
 // --- Session management ---
 
 /**
- * Best-effort cleanup of all worktrees for a session (primary + secondary).
- * Worktree directories are removed but branches are preserved for PRs.
+ * Best-effort cleanup of secondary worktrees for a session.
+ * Primary worktree is preserved — the SDK encodes conversation data by CWD
+ * path, so removing it breaks resume. Stale GC handles primary lifecycle.
+ * Branches are always preserved for PRs.
  */
-function cleanupSessionWorktrees(session: import('./session-registry.js').ManagedSession): void {
+export function cleanupSessionWorktrees(
+  session: import('./session-registry.js').ManagedSession,
+): void {
   const config = getRepoConfig();
   for (const [repoName, { wtId }] of session.worktreePaths) {
-    // For 'primary', use BASE_REPO; for secondary repos, look up in config
-    const repoPath = repoName === 'primary' ? BASE_REPO : config.repos[repoName];
+    if (repoName === 'primary') continue;
+    const repoPath = config.repos[repoName];
     if (!repoPath) continue;
     try {
       removeWorktree(wtId, repoPath);
@@ -744,7 +753,9 @@ function cleanupSessionWorktrees(session: import('./session-registry.js').Manage
       });
     }
   }
+  const primary = session.worktreePaths.get('primary');
   session.worktreePaths.clear();
+  if (primary) session.worktreePaths.set('primary', primary);
 }
 
 const CLOSEOUT_PROMPT = `This session is closing in 10 minutes due to inactivity.
