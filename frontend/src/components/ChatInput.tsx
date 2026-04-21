@@ -56,11 +56,10 @@ export function ChatInput({
   const [showSlashPicker, setShowSlashPicker] = useState(false);
   const [showContextPicker, setShowContextPicker] = useState(false);
   const [contextBlocks, setContextBlocks] = useState<string[]>([]);
-  const [queuedMessage, setQueuedMessage] = useState<{
-    text: string;
-    images: ImageAttachment[];
-    contextBlocks: string[];
-  } | null>(null);
+  const MAX_QUEUED = 5;
+  const [queuedMessages, setQueuedMessages] = useState<
+    { text: string; images: ImageAttachment[]; contextBlocks: string[] }[]
+  >([]);
   const useExternal = externalContextBlocks !== undefined;
   const activeContextBlocks = useExternal ? externalContextBlocks : contextBlocks;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -93,11 +92,11 @@ export function ChatInput({
     autoResize();
   }, [text, autoResize]);
 
-  // Auto-send queued message when agent finishes its turn
+  // Auto-send next queued message when agent finishes its turn
   useEffect(() => {
-    if (prevRunning.current && !running && queuedMessage) {
-      const q = queuedMessage;
-      setQueuedMessage(null);
+    if (prevRunning.current && !running && queuedMessages.length > 0) {
+      const [q, ...rest] = queuedMessages;
+      setQueuedMessages(rest);
       onSend(
         q.text,
         q.images.length > 0 ? q.images : undefined,
@@ -105,7 +104,7 @@ export function ChatInput({
       );
     }
     prevRunning.current = running;
-  }, [running, queuedMessage, onSend]);
+  }, [running, queuedMessages, onSend]);
 
   // Show/hide slash picker based on input
   // TODO: Verify picker reopens correctly on backspace after space (e.g. "/simplify " → "/simplify")
@@ -215,12 +214,16 @@ export function ChatInput({
   function handleQueue() {
     const trimmed = text.trim();
     if (!trimmed && images.length === 0) return;
+    if (queuedMessages.length >= MAX_QUEUED) return;
     impactMedium();
-    setQueuedMessage({
-      text: trimmed || 'What do you see in this image?',
-      images: [...images],
-      contextBlocks: [...activeContextBlocks],
-    });
+    setQueuedMessages((prev) => [
+      ...prev,
+      {
+        text: trimmed || 'What do you see in this image?',
+        images: [...images],
+        contextBlocks: [...activeContextBlocks],
+      },
+    ]);
     setText('');
     setImages([]);
     if (!useExternal) setContextBlocks([]);
@@ -230,22 +233,23 @@ export function ChatInput({
     });
   }
 
-  function editQueuedMessage() {
-    if (!queuedMessage) return;
-    setText(queuedMessage.text);
-    setImages(queuedMessage.images);
-    if (!useExternal) setContextBlocks(queuedMessage.contextBlocks);
-    setQueuedMessage(null);
+  function editQueuedMessage(index: number) {
+    const q = queuedMessages[index];
+    if (!q) return;
+    setText(q.text);
+    setImages(q.images);
+    if (!useExternal) setContextBlocks(q.contextBlocks);
+    setQueuedMessages((prev) => prev.filter((_, i) => i !== index));
     requestAnimationFrame(() => {
       autoResize();
       textareaRef.current?.focus();
     });
   }
 
-  function fireQueuedAsInterrupt() {
-    if (!queuedMessage || !onInterrupt) return;
-    const q = queuedMessage;
-    setQueuedMessage(null);
+  function fireQueuedAsInterrupt(index: number) {
+    if (!onInterrupt || !queuedMessages[index]) return;
+    const q = queuedMessages[index];
+    setQueuedMessages((prev) => prev.filter((_, i) => i !== index));
     onInterrupt(
       q.text,
       q.images.length > 0 ? q.images : undefined,
@@ -322,30 +326,30 @@ export function ChatInput({
       {voice?.recording && voice.partialTranscript && (
         <div className="voice-partial">{voice.partialTranscript}</div>
       )}
-      {queuedMessage && (
-        <div className="chat-input-queued">
-          <span className="chat-input-queued-label">Queued</span>
-          <span className="chat-input-queued-text">{queuedMessage.text}</span>
+      {queuedMessages.map((q, i) => (
+        <div key={i} className="chat-input-queued">
+          <span className="chat-input-queued-label">{i + 1}</span>
+          <span className="chat-input-queued-text">{q.text}</span>
           {onInterrupt && (
             <button
               className="chat-input-queued-btn chat-input-queued-btn--fire"
-              onClick={fireQueuedAsInterrupt}
+              onClick={() => fireQueuedAsInterrupt(i)}
               title="Send now (interrupt)"
             >
               Send Now
             </button>
           )}
-          <button className="chat-input-queued-btn" onClick={editQueuedMessage}>
+          <button className="chat-input-queued-btn" onClick={() => editQueuedMessage(i)}>
             Edit
           </button>
           <button
             className="chat-input-queued-btn chat-input-queued-btn--clear"
-            onClick={() => setQueuedMessage(null)}
+            onClick={() => setQueuedMessages((prev) => prev.filter((_, j) => j !== i))}
           >
             &times;
           </button>
         </div>
-      )}
+      ))}
       <div
         className="chat-input-command-strip"
         onPointerDown={(e) => {
