@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 describe('chat module exports', () => {
   it('exports expected functions', async () => {
@@ -48,10 +48,13 @@ describe('resolveResumeCwd', () => {
   it('falls back to BASE_REPO when stored CWD no longer exists', async () => {
     const chat = await import('../chat.js');
 
-    const result = chat.resolveResumeCwd({ resume: 'sess-test' }, {
-      getSession: () => ({ cwd: '/tmp/deleted-worktree' }),
-      pathExists: () => false,
-    });
+    const result = chat.resolveResumeCwd(
+      { resume: 'sess-test' },
+      {
+        getSession: () => ({ cwd: '/tmp/deleted-worktree' }),
+        pathExists: () => false,
+      },
+    );
 
     expect(result).toBe(chat.BASE_REPO);
   });
@@ -59,10 +62,13 @@ describe('resolveResumeCwd', () => {
   it('uses stored CWD when it still exists', async () => {
     const chat = await import('../chat.js');
 
-    const result = chat.resolveResumeCwd({ resume: 'sess-test' }, {
-      getSession: () => ({ cwd: '/existing/path' }),
-      pathExists: () => true,
-    });
+    const result = chat.resolveResumeCwd(
+      { resume: 'sess-test' },
+      {
+        getSession: () => ({ cwd: '/existing/path' }),
+        pathExists: () => true,
+      },
+    );
 
     expect(result).toBe('/existing/path');
   });

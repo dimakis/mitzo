@@ -424,7 +424,13 @@ export function resolveResumeCwd(
   deps: {
     getSession: (id: string) => { cwd?: string } | null;
     pathExists: (p: string) => boolean;
-  } = { getSession: (id) => eventStore.getSession(id), pathExists: existsSync },
+  } = {
+    getSession: (id) => {
+      const m = eventStore.getSession(id);
+      return m ? { cwd: m.cwd ?? undefined } : null;
+    },
+    pathExists: existsSync,
+  },
 ): string {
   const baseCwd = options.cwd || BASE_REPO;
   if (!options.resume || options.cwd) return baseCwd;
