@@ -27,8 +27,10 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "tracing:up": "podman compose up -d",
-    "tracing:down": "podman compose down",
+    "tracing:up": "docker compose up -d jaeger",
+    "tracing:down": "docker compose down jaeger",
+    "observability:up": "docker compose up -d",
+    "observability:down": "docker compose down",
     "prepare": "husky || true"
   },
   "dependencies": {

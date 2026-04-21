@@ -1,5 +1,6 @@
 # Local observability stack: Jaeger (traces) + Loki (logs) + Grafana (UI).
-# Start: npm run tracing:up   Stop: npm run tracing:down
+# Jaeger only:  npm run tracing:up / tracing:down
+# Full stack:   npm run observability:up / observability:down
 # Jaeger UI: http://localhost:16686
 # Grafana:   http://localhost:3001 (no login required)
 # Loki API:  http://localhost:3200
