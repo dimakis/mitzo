@@ -328,7 +328,8 @@ export function parseServerMessage(
         });
         result.messagesActions.push({
           type: 'ERROR',
-          error: 'This session is active on another device. Switch to a different session or wait for it to finish.',
+          error:
+            'This session is active on another device. Switch to a different session or wait for it to finish.',
         });
         break;
       }

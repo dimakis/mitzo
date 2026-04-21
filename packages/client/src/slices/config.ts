@@ -22,6 +22,6 @@ export interface ConfigState {
 export const INITIAL_CONFIG_STATE: ConfigState = {
   contextBlocks: {},
   skills: [],
-  mode: 'agent',
+  mode: 'auto',
   modelId: null,
 };

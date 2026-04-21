@@ -153,12 +153,16 @@ export function handleReconnect(
         }
       }
       if (found && running && !ctx.sessionRegistry.isAttached(found.clientId)) {
-        // Only reattach if this connection owns the driver (or the driver
-        // was started by a connection that is now gone). Prevents a
-        // reconnecting phone from hijacking a session Theia is driving.
+        // Reattach if the reconnecting client's connectionId matches the
+        // session's original owner, OR the original owner connection is no
+        // longer registered (meaning its WebSocket died — the normal
+        // reconnect path). This prevents a different device from hijacking
+        // a session that is still actively driven elsewhere, while allowing
+        // the same client to reclaim its session after a WS drop.
         const ownerConnection = getOwnerConnection(found.clientId);
+        const ownerGone = !ctx.connRegistry.get(ownerConnection);
         const isOwner = ownerConnection === connectionId;
-        if (isOwner) {
+        if (isOwner || ownerGone) {
           const conn = ctx.connRegistry.get(connectionId);
           if (conn) {
             reattachChat(found.clientId, conn.transport);
@@ -166,6 +170,7 @@ export function handleReconnect(
               connectionId,
               sessionId: entry.sessionId,
               clientId: found.clientId,
+              ownerGone,
             });
           }
         }

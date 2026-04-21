@@ -1557,7 +1557,7 @@ describe('handleSendV2 connection ownership', () => {
 // ─── handleReconnect — ownership guard ──────────────────────────────────────
 
 describe('handleReconnect ownership guard', () => {
-  it('does not reattach session driven by another connection', () => {
+  it('does not reattach session when original owner connection is still active', () => {
     (reattachChat as ReturnType<typeof vi.fn>).mockClear();
 
     const sessionReg = mockSessionRegistry();
@@ -1570,6 +1570,8 @@ describe('handleReconnect ownership guard', () => {
     });
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
+    // Register the original owner so it's still "alive"
+    ctx.connRegistry.register('other-conn', mockTransport());
 
     handleReconnect(
       'c1',
@@ -1578,6 +1580,30 @@ describe('handleReconnect ownership guard', () => {
     );
 
     expect(reattachChat).not.toHaveBeenCalled();
+  });
+
+  it('reattaches detached session when original owner connection is gone', () => {
+    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'other-conn:sess-1' });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(false); // detached
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    // other-conn is NOT registered — it disconnected
+
+    handleReconnect(
+      'c1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
+      ctx,
+    );
+
+    expect(reattachChat).toHaveBeenCalledWith('other-conn:sess-1', transport);
   });
 
   it('reattaches session driven by the same connection', () => {
