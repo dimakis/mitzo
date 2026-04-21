@@ -138,16 +138,27 @@ function removeTaskFromTree(tasks: Task[], id: string): Task[] {
     });
 }
 
+const PENDING_SEND_TIMEOUT_MS = 5_000;
+
 // ─── Factory ─────────────────────────────────────────────────────────────────
 
 export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStoreState> {
   const api = new MitzoApiClient(options.transport.fetch.bind(options.transport));
   const connection = new MitzoConnection(options.wsConfig);
 
-  const parserState: ProtocolParserState = {
+  const parserState: ProtocolParserState & {
+    pendingSendTimer?: ReturnType<typeof setTimeout>;
+  } = {
     currentSessionId: undefined,
     pendingSend: null,
   };
+
+  function clearPendingSendTimer() {
+    if (parserState.pendingSendTimer) {
+      clearTimeout(parserState.pendingSendTimer);
+      parserState.pendingSendTimer = undefined;
+    }
+  }
 
   const store = createStore<MitzoStoreState>((set, get) => ({
     // ── Initial state ────────────────────────────────────────────────────
@@ -198,6 +209,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     newSession() {
       parserState.currentSessionId = undefined;
       parserState.pendingSend = null;
+      clearPendingSendTimer();
       connection.send({ type: 'switch_session', sessionId: null });
       set({
         sessions: { ...get().sessions, active: null },
@@ -245,6 +257,19 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
       if (wasRunning) {
         parserState.pendingSend = msg;
+        // Safety net: if no session_end arrives within 5s (e.g. stale running
+        // state after reconnect), flush the pending message as a new session.
+        if (parserState.pendingSendTimer) clearTimeout(parserState.pendingSendTimer);
+        parserState.pendingSendTimer = setTimeout(() => {
+          const pending = parserState.pendingSend;
+          if (!pending) return;
+          parserState.pendingSend = null;
+          parserState.pendingSendTimer = undefined;
+          set((s) => ({
+            messages: messagesReducer(s.messages, { type: 'SET_RUNNING', running: true }),
+          }));
+          connection.send(pending);
+        }, PENDING_SEND_TIMEOUT_MS);
       } else {
         const sent = connection.send(msg);
         if (!sent) {
@@ -295,13 +320,19 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     respondToPermission(permId: string, decision: 'once' | 'always' | 'deny') {
-      connection.send({
+      const sent = connection.send({
         type: 'permission_response',
         ...(parserState.currentSessionId ? { sessionId: parserState.currentSessionId } : {}),
         permId,
         decision,
       });
-      set({ permissions: { pending: null } });
+      if (sent) {
+        set((s) => ({
+          permissions: { pending: null },
+          messages: { ...s.messages, permission: null },
+        }));
+      }
+      // If not sent, leave the banner visible so user can retry
     },
 
     setMode(mode: MitzoMode) {
@@ -501,6 +532,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     onSessionExpired() {
       parserState.currentSessionId = undefined;
       parserState.pendingSend = null;
+      clearPendingSendTimer();
       store.setState((s) => ({
         sessions: { ...s.sessions, active: null },
         messages: INITIAL_MESSAGES_STATE,
@@ -601,6 +633,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     const result = parseServerMessage(msg as WsMsg, parserState, callbacks, 'v2');
+
+    // If the parser consumed the pending send (session_end handler), cancel the
+    // safety-net timer — the normal flush path handled it.
+    if (!parserState.pendingSend && parserState.pendingSendTimer) {
+      clearPendingSendTimer();
+    }
 
     for (const action of result.messagesActions) {
       store.setState((s) => ({
