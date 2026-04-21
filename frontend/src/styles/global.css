@@ -1559,11 +1559,15 @@ textarea:focus {
 }
 
 .msg-bubble-footer--user {
-  opacity: 0;
-  justify-content: flex-end;
+  opacity: 1;
 }
 
-.msg-bubble-group--user:hover .msg-bubble-footer--user {
+.msg-bubble-footer--user .msg-bubble-copy {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.msg-bubble-group--user:hover .msg-bubble-footer--user .msg-bubble-copy {
   opacity: 1;
 }
 
