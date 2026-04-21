@@ -1593,6 +1593,39 @@ describe('handleSendV2 stale session via EventStore', () => {
 
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
+
+  it('still rejects when EventStore confirms session IS active', () => {
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'other-conn:sess-1', session: {} });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(true);
+
+    const eventStore = mockEventStore();
+    // EventStore ground truth: session IS active
+    eventStore.getSession.mockReturnValue({ sessionId: 'sess-1', isActive: true });
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleSendV2(
+      'c1',
+      transport,
+      { type: 'send' as const, sessionId: 'sess-1', prompt: 'hello', clientMsgId: 'cmsg-active' },
+      ctx,
+    );
+
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({ code: 'active_elsewhere' }),
+    );
+
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  });
 });
 
 describe('handleInterruptV2 stale session via EventStore', () => {
