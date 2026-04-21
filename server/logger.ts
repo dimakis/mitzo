@@ -55,6 +55,23 @@ function buildProductionDestination(level: LogLevel): DestinationStream {
     },
   ];
 
+  // pino-loki's `host` option is the base URL (e.g. http://localhost:3200);
+  // the library appends /loki/api/v1/push internally.
+  const lokiHost = process.env.LOKI_HOST;
+  if (lokiHost) {
+    targets.push({
+      target: 'pino-loki',
+      options: {
+        host: lokiHost,
+        labels: { app: 'mitzo' },
+        propsToLabels: ['module'],
+        batching: true,
+        interval: 5,
+      },
+      level,
+    });
+  }
+
   return pino.transport({ targets });
 }
 

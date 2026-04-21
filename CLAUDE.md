@@ -171,14 +171,16 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 - `FileViewer` fetches git info on mount, shows branch pill, worktree selector bar when worktrees exist.
 - Markdown files have an Edit button — toggles to a full-height textarea with Save/Cancel and unsaved-changes guards.
 
-**Observability (Jaeger):**
+**Observability:**
 
-- OpenTelemetry tracing via `server/tracing.ts`, opt-in when `OTEL_EXPORTER_OTLP_ENDPOINT` is set
-- Jaeger UI at http://localhost:16686, service name: "mitzo"
-- Currently instrumented: `ws.switch_session`, `ws.send`, `ws.reconnect` (all in `ws-handler-v2.ts`)
-- Query traces via Jaeger API: `curl http://localhost:16686/api/traces?service=mitzo&operation=<op>`
-- Deep instrumentation roadmap in `docs/design/otel-deep-instrumentation.md`
-- When debugging session/streaming issues, check Jaeger first — it shows routing decisions, timing, and errors
+- **Logging:** Pino structured JSON logger (`server/logger.ts`). Three transport targets: pino-roll (daily-rotated JSON files in `logs/`), stdout (JSON, or `pino-pretty` when `NODE_ENV=development`), and pino-loki (pushes to Grafana Loki when `LOKI_HOST` is set). Every log line includes `module`, `msg`, `level`, `time`. When an OTel span is active, `trace_id` and `span_id` are injected via the Pino mixin.
+- **Tracing:** OpenTelemetry via `server/tracing.ts`, opt-in when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. BatchSpanProcessor with OTLP HTTP exporter to Jaeger. Currently instrumented: `ws.switch_session`, `ws.send`, `ws.reconnect`. Deep instrumentation roadmap in `docs/design/otel-deep-instrumentation.md`.
+- **Infrastructure:** Three containers via `docker-compose.yml` (podman). Start with `npm run tracing:up`, stop with `npm run tracing:down`.
+  - Jaeger: http://localhost:16686 (trace viewer, OTLP receiver on :4318)
+  - Grafana: http://localhost:3001 (log viewer + dashboards, no login required)
+  - Loki: http://localhost:3200 (log aggregation backend)
+- **Env vars:** `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318`, `LOKI_HOST=http://localhost:3200`, `LOG_LEVEL=info` (default).
+- **Log-to-trace correlation:** Grafana Loki datasource parses `trace_id` from log lines and links to Jaeger traces. In Grafana Explore, query `{app="mitzo"}` for all logs, `{app="mitzo", module="query-loop"}` to filter by module.
 
 **MCP integration:**
 
