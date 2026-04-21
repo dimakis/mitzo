@@ -8,8 +8,10 @@
 'use strict';
 
 const dns = require('dns');
-const origLookup = dns.lookup;
 
+dns.setDefaultResultOrder('ipv4first');
+
+const origLookup = dns.lookup;
 dns.lookup = function patchedLookup(hostname, options, callback) {
   if (typeof options === 'function') {
     callback = options;
@@ -25,4 +27,18 @@ dns.lookup = function patchedLookup(hostname, options, callback) {
   }
 
   return origLookup.call(dns, hostname, options, callback);
+};
+
+const origPromiseLookup = dns.promises.lookup;
+dns.promises.lookup = function patchedPromiseLookup(hostname, options) {
+  if (typeof options === 'number') {
+    options = { family: options };
+  }
+  if (!options) options = {};
+
+  if (!options.family) {
+    options = { ...options, family: 4 };
+  }
+
+  return origPromiseLookup.call(dns.promises, hostname, options);
 };

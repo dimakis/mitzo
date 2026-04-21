@@ -10,7 +10,6 @@ import type { SessionTransport, ConnectionRegistry } from '@mitzo/harness';
 import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
 import { join, resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
 import { randomBytes } from 'crypto';
 import { homedir } from 'os';
 import { createWorktree, removeWorktree } from './worktree.js';
@@ -123,7 +122,7 @@ function send(transport: SessionTransport, data: Record<string, unknown>) {
   if (transport.isOpen()) transport.send(data);
 }
 
-const IPV4_PRELOAD = join(dirname(fileURLToPath(import.meta.url)), 'ipv4-preload.cjs');
+const IPV4_PRELOAD = join(process.cwd(), 'ipv4-preload.cjs');
 
 function sdkEnv(): Record<string, string> {
   const env = { ...process.env } as Record<string, string>;

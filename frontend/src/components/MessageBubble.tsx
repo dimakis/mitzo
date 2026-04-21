@@ -34,10 +34,12 @@ export function UserBubble({ text, images, contextBlocks, timestamp }: UserBubbl
         )}
         {text && <div className="msg-bubble-content">{text}</div>}
       </div>
-      <div className="msg-bubble-footer msg-bubble-footer--user">
-        {time && <span className="msg-timestamp msg-timestamp--user">{time}</span>}
-        {text && <CopyButton text={text} className="msg-bubble-copy msg-bubble-copy--user" />}
-      </div>
+      {(time || text) && (
+        <div className="msg-bubble-footer msg-bubble-footer--user">
+          {time && <span className="msg-timestamp msg-timestamp--user">{time}</span>}
+          {text && <CopyButton text={text} className="msg-bubble-copy msg-bubble-copy--user" />}
+        </div>
+      )}
     </div>
   );
 }
