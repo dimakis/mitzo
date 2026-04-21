@@ -302,11 +302,12 @@ export async function runQueryLoop(
             if (initialPrompt) {
               // Store the initial prompt as a user_message event so
               // extractRecentPrompts() can find it for auto-rename.
+              const now = Date.now();
               store.append(resolvedSessionId, 'user_message', {
                 v: 2,
                 type: 'user_message',
-                ts: Date.now(),
-                messageId: `umsg-${Date.now()}-init`,
+                ts: now,
+                messageId: `umsg-${now}-init`,
                 text: initialPrompt,
               });
               // Trigger auto-rename — tryAutoRename handles the increment
