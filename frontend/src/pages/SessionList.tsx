@@ -6,6 +6,7 @@ import { useLongPress } from '../hooks/useLongPress';
 import { computeSwipeState, REVEAL_WIDTH } from '../lib/swipe-reveal';
 import { selectionChanged } from '../lib/haptics';
 import { EmptyState } from '../components/EmptyState';
+import { MitzoLogo } from '../components/MitzoLogo';
 import { useSessionList } from '../hooks/useSessionList';
 import type { QuickAction } from '../hooks/useSessionList';
 import { formatTokens } from '../lib/formatTokens';
@@ -225,6 +226,17 @@ export function SessionList() {
     loadMore,
   } = useSessionList();
 
+  const [quickOpen, setQuickOpen] = useState(
+    () => localStorage.getItem('mitzo:quickActionsOpen') !== 'false',
+  );
+
+  function toggleQuickActions() {
+    setQuickOpen((prev) => {
+      localStorage.setItem('mitzo:quickActionsOpen', String(!prev));
+      return !prev;
+    });
+  }
+
   function handleDeployAction() {
     const deploy = quickActions.find((a) => a.label === 'Deploy Mitzo');
     if (deploy) handleQuickAction(deploy);
@@ -243,7 +255,10 @@ export function SessionList() {
   return (
     <div className="session-list-page">
       <header className="session-list-header">
-        <h1>Mitzo</h1>
+        <div className="session-list-header-title">
+          <MitzoLogo />
+          <h1>Mitzo</h1>
+        </div>
         <div className="session-list-header-actions">
           <button
             className="check-update-btn"
@@ -279,19 +294,31 @@ export function SessionList() {
         <BriefingCard />
 
         {quickActions.length > 0 && (
-          <div className="quick-list">
-            {quickActions.map((action) => (
-              <button
-                key={action.label}
-                type="button"
-                className="quick-row"
-                onClick={() => handleQuickAction(action)}
+          <div className="quick-section">
+            <button className="quick-section-toggle" onClick={toggleQuickActions}>
+              <span>Quick Actions</span>
+              <span
+                className={`quick-section-chevron${quickOpen ? ' quick-section-chevron--open' : ''}`}
               >
-                <span className="quick-row-label">{action.label}</span>
-                <span className="quick-row-desc">{action.desc}</span>
-                <span className="quick-row-chevron">&rsaquo;</span>
-              </button>
-            ))}
+                ›
+              </span>
+            </button>
+            {quickOpen && (
+              <div className="quick-list">
+                {quickActions.map((action) => (
+                  <button
+                    key={action.label}
+                    type="button"
+                    className="quick-row"
+                    onClick={() => handleQuickAction(action)}
+                  >
+                    <span className="quick-row-label">{action.label}</span>
+                    <span className="quick-row-desc">{action.desc}</span>
+                    <span className="quick-row-chevron">&rsaquo;</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
