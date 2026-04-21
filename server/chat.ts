@@ -741,9 +741,6 @@ export function cleanupSessionWorktrees(
 ): void {
   const config = getRepoConfig();
   for (const [repoName, { wtId }] of session.worktreePaths) {
-    // Skip the primary worktree — it must persist for session resume.
-    // The SDK encodes conversation data by CWD path, so removing the
-    // primary worktree breaks resume. Stale GC handles its lifecycle.
     if (repoName === 'primary') continue;
     const repoPath = config.repos[repoName];
     if (!repoPath) continue;
@@ -756,7 +753,6 @@ export function cleanupSessionWorktrees(
       });
     }
   }
-  // Remove only secondary entries; keep primary for resume.
   const primary = session.worktreePaths.get('primary');
   session.worktreePaths.clear();
   if (primary) session.worktreePaths.set('primary', primary);
