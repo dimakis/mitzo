@@ -1562,8 +1562,30 @@ textarea:focus {
   opacity: 1;
 }
 
+.msg-bubble-footer--user {
+  opacity: 1;
+}
+
+.msg-bubble-footer--user .msg-bubble-copy {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.msg-bubble-group--user:hover .msg-bubble-footer--user .msg-bubble-copy {
+  opacity: 1;
+}
+
 .msg-bubble-copy {
   flex-shrink: 0;
+}
+
+.msg-bubble-copy--user {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.msg-bubble-copy--user:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .msg-bubble-group--user {
@@ -1605,8 +1627,12 @@ textarea:focus {
 }
 
 @media (hover: none) {
-  .msg-bubble-footer {
+  .msg-bubble-footer,
+  .msg-bubble-footer--user {
     opacity: 1;
+  }
+  .msg-bubble-footer--user .msg-bubble-copy {
+    opacity: 0.7;
   }
   .code-block-copy {
     opacity: 0.5;
