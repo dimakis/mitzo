@@ -47,6 +47,7 @@ describe('TodoCard', () => {
         onTap={vi.fn()}
         onAddChild={vi.fn()}
         onStar={vi.fn()}
+        onStartSession={vi.fn()}
       />,
     );
     expect(screen.getByText('[dimakis/mitzo#1] Fix bug')).toBeTruthy();
@@ -61,6 +62,7 @@ describe('TodoCard', () => {
         onTap={vi.fn()}
         onAddChild={vi.fn()}
         onStar={vi.fn()}
+        onStartSession={vi.fn()}
       />,
     );
     expect(container.querySelector('.todo-card-source')?.textContent).toBe('GH');
@@ -76,6 +78,7 @@ describe('TodoCard', () => {
         onTap={vi.fn()}
         onAddChild={vi.fn()}
         onStar={vi.fn()}
+        onStartSession={vi.fn()}
       />,
     );
     expect(container.querySelector('.todo-card-author')?.textContent).toBe('dimakis');
@@ -90,6 +93,7 @@ describe('TodoCard', () => {
         onTap={vi.fn()}
         onAddChild={vi.fn()}
         onStar={vi.fn()}
+        onStartSession={vi.fn()}
       />,
     );
     const starBtn = container.querySelector('.todo-card-star');
@@ -107,6 +111,7 @@ describe('TodoCard', () => {
         onTap={vi.fn()}
         onAddChild={vi.fn()}
         onStar={vi.fn()}
+        onStartSession={vi.fn()}
       />,
     );
     const starBtn = container.querySelector('.todo-card-star');
@@ -123,6 +128,7 @@ describe('TodoCard', () => {
         onTap={vi.fn()}
         onAddChild={vi.fn()}
         onStar={onStar}
+        onStartSession={vi.fn()}
       />,
     );
     const starBtn = container.querySelector('.todo-card-star')!;
@@ -141,6 +147,7 @@ describe('TodoCard', () => {
         onTap={vi.fn()}
         onAddChild={vi.fn()}
         onStar={onStar}
+        onStartSession={vi.fn()}
       />,
     );
     const starBtn = container.querySelector('.todo-card-star')!;
@@ -158,6 +165,7 @@ describe('TodoCard', () => {
         onTap={onTap}
         onAddChild={vi.fn()}
         onStar={vi.fn()}
+        onStartSession={vi.fn()}
       />,
     );
     const card = container.querySelector('.todo-card')!;
@@ -176,6 +184,7 @@ describe('TodoCard', () => {
         onTap={onTap}
         onAddChild={vi.fn()}
         onStar={vi.fn()}
+        onStartSession={vi.fn()}
       />,
     );
     const card = container.querySelector('.todo-card')!;
@@ -195,6 +204,7 @@ describe('TodoCard', () => {
         onTap={onTap}
         onAddChild={vi.fn()}
         onStar={vi.fn()}
+        onStartSession={vi.fn()}
       />,
     );
     const card = container.querySelector('.todo-card')!;
@@ -214,6 +224,7 @@ describe('TodoCard', () => {
         onTap={vi.fn()}
         onAddChild={vi.fn()}
         onStar={vi.fn()}
+        onStartSession={vi.fn()}
       />,
     );
     expect(screen.getByText('new')).toBeTruthy();
@@ -229,6 +240,7 @@ describe('TodoCard', () => {
         onTap={vi.fn()}
         onAddChild={vi.fn()}
         onStar={vi.fn()}
+        onStartSession={vi.fn()}
       />,
     );
     expect(screen.getByText('\u25D0')).toBeTruthy();
@@ -245,6 +257,7 @@ describe('TodoCard', () => {
         onTap={vi.fn()}
         onAddChild={vi.fn()}
         onStar={vi.fn()}
+        onStartSession={vi.fn()}
       />,
     );
     const card = container.querySelector('.todo-card')!;
@@ -267,6 +280,7 @@ describe('TodoCard', () => {
         onTap={vi.fn()}
         onAddChild={vi.fn()}
         onStar={vi.fn()}
+        onStartSession={vi.fn()}
       />,
     );
     const card = container.querySelector('.todo-card')!;
@@ -289,6 +303,7 @@ describe('TodoCard', () => {
         onTap={vi.fn()}
         onAddChild={vi.fn()}
         onStar={vi.fn()}
+        onStartSession={vi.fn()}
       />,
     );
     const card = container.querySelector('.todo-card')!;
@@ -309,6 +324,7 @@ describe('TodoCard', () => {
         onTap={vi.fn()}
         onAddChild={vi.fn()}
         onStar={vi.fn()}
+        onStartSession={vi.fn()}
       />,
     );
     expect(container.querySelector('.todo-card-expand')).toBeNull();
@@ -338,6 +354,7 @@ describe('TodoCard', () => {
         onTap={vi.fn()}
         onAddChild={vi.fn()}
         onStar={vi.fn()}
+        onStartSession={vi.fn()}
       />,
     );
     const expandBtn = container.querySelector('.todo-card-expand')!;
@@ -367,6 +384,7 @@ describe('TodoCard', () => {
         onTap={vi.fn()}
         onAddChild={vi.fn()}
         onStar={vi.fn()}
+        onStartSession={vi.fn()}
       />,
     );
     const progress = container.querySelector('.todo-card-progress');
@@ -383,6 +401,7 @@ describe('TodoCard', () => {
         onTap={vi.fn()}
         onAddChild={onAddChild}
         onStar={vi.fn()}
+        onStartSession={vi.fn()}
       />,
     );
     const addBtn = container.querySelector('.todo-card-add-child')!;
@@ -400,6 +419,7 @@ describe('TodoCard', () => {
         onTap={vi.fn()}
         onAddChild={vi.fn()}
         onStar={vi.fn()}
+        onStartSession={vi.fn()}
       />,
     );
     const treeNode = container.querySelector('.todo-card-tree-node');
@@ -415,6 +435,7 @@ describe('TodoCard', () => {
         onTap={vi.fn()}
         onAddChild={vi.fn()}
         onStar={vi.fn()}
+        onStartSession={vi.fn()}
       />,
     );
     const treeNode = container.querySelector('.todo-card-tree-node');

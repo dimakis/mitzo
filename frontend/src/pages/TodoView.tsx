@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useMitzoStore } from '@mitzo/client/hooks';
 import { TodoCard } from '../components/TodoCard';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 import { useTodoData } from '../hooks/useTodoData';
+import { buildPrompt, buildTodoContext } from '../lib/todo-utils';
 import type { TodoItem } from '../types/todo';
 
 function TodoCreateForm({
@@ -78,6 +80,15 @@ export function TodoView() {
   const [activeProfile, setActiveProfile] = useState<string | undefined>(undefined);
   const { loading, items, profiles, ack, done, star, create, refresh } = useTodoData(activeProfile);
   const [creating, setCreating] = useState<{ parentId?: string } | null>(null);
+  const setPendingSession = useMitzoStore((s) => s.setPendingSession);
+
+  function handleStartSession(item: TodoItem) {
+    setPendingSession({
+      prompt: buildPrompt(item),
+      context: buildTodoContext(item),
+    });
+    navigate('/chat');
+  }
 
   function handleTap(item: TodoItem) {
     navigate(`/todos/${item.id}`, { state: { item } });
@@ -161,6 +172,7 @@ export function TodoView() {
               onStar={star}
               onTap={handleTap}
               onAddChild={handleAddChild}
+              onStartSession={handleStartSession}
             />
           ))}
         </div>

@@ -3,6 +3,7 @@ import { UserBubble, TextBubble } from './MessageBubble';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolPill } from './ToolPill';
 import { ToolGroup } from './ToolGroup';
+import { ContextBlock } from './ContextBlock';
 import { PermissionBanner } from './PermissionBanner';
 import { groupBlocks } from '../lib/groupMessages';
 import { SCROLL_NEAR_BOTTOM_PX } from '../lib/constants';
@@ -25,6 +26,8 @@ export interface ChatAreaProps {
   ) => void;
   /** External ref for scroll container — caller can use for forceScrollToBottom */
   scrollRef?: React.RefObject<HTMLDivElement | null>;
+  /** Boot context for sessions started from inbox/todo items */
+  sessionContext?: string | null;
 }
 
 export function ChatArea({
@@ -34,6 +37,7 @@ export function ChatArea({
   permission,
   onPermissionRespond,
   scrollRef: externalScrollRef,
+  sessionContext,
 }: ChatAreaProps) {
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
@@ -97,7 +101,9 @@ export function ChatArea({
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
-        {messages.length === 0 && !current && !running && (
+        {sessionContext && <ContextBlock content={sessionContext} />}
+
+        {messages.length === 0 && !current && !running && !sessionContext && (
           <p className="chat-empty">Send a message to start</p>
         )}
 

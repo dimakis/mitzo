@@ -11,6 +11,7 @@ interface TodoCardProps {
   onTap: (item: TodoItem) => void;
   onAddChild: (parentId: string) => void;
   onStar: (id: string) => void;
+  onStartSession: (item: TodoItem) => void;
 }
 
 function urgencyBar(urgency: number): string {
@@ -28,6 +29,7 @@ export function TodoCard({
   onTap,
   onAddChild,
   onStar,
+  onStartSession,
 }: TodoCardProps) {
   const ref = useRef<HTMLDivElement>(null);
   const startX = useRef(0);
@@ -159,15 +161,26 @@ export function TodoCard({
               <span className="todo-card-author">{source.author}</span>
             </div>
           )}
-          <button
-            className="todo-card-add-child"
-            onClick={(e) => {
-              e.stopPropagation();
-              onAddChild(item.id);
-            }}
-          >
-            + sub-task
-          </button>
+          <div className="todo-card-actions">
+            <button
+              className="todo-card-add-child"
+              onClick={(e) => {
+                e.stopPropagation();
+                onAddChild(item.id);
+              }}
+            >
+              + sub-task
+            </button>
+            <button
+              className="todo-card-session-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                onStartSession(item);
+              }}
+            >
+              Start Session
+            </button>
+          </div>
         </div>
       </div>
 
@@ -183,6 +196,7 @@ export function TodoCard({
               onTap={onTap}
               onAddChild={onAddChild}
               onStar={onStar}
+              onStartSession={onStartSession}
             />
           ))}
         </div>

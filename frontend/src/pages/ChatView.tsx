@@ -47,6 +47,9 @@ export function ChatView() {
   const storeSetModel = useMitzoStore((s) => s.setModel);
   const storeDispatchMessages = useMitzoStore((s) => s.dispatchMessages);
   const storeFetchSessionMeta = useMitzoStore((s) => s.fetchSessionMeta);
+  const pendingSession = useMitzoStore((s) => s.pendingSession);
+  const clearPendingSession = useMitzoStore((s) => s.clearPendingSession);
+  const sessionContext = useMitzoStore((s) => s.messages.sessionContext);
 
   const connected = connection.status === 'connected';
 
@@ -115,6 +118,19 @@ export function ChatView() {
       storeFetchSessionMeta(sessionId);
     }
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-send pending session (from "Start Session" on inbox/todo items)
+  const pendingConsumed = useRef(false);
+  useEffect(() => {
+    if (!pendingSession || pendingConsumed.current) return;
+    pendingConsumed.current = true;
+    // Set the context block for display
+    storeDispatchMessages({ type: 'SET_SESSION_CONTEXT', context: pendingSession.context });
+    // Auto-send the prompt
+    storeSendMessage(pendingSession.prompt, { model: modelState, mode });
+    clearPendingSession();
+    forceScrollToBottom();
+  }, [pendingSession]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useAutoSpeak({
     messages: messages.messages,
@@ -241,6 +257,7 @@ export function ChatView() {
         permission={messages.permission}
         onPermissionRespond={handlePermission}
         scrollRef={scrollRef}
+        sessionContext={sessionContext}
       />
 
       <ChatInput
