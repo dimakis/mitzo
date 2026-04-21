@@ -10,7 +10,7 @@
     "dev": "bash scripts/dev.sh",
     "dev:server": "tsx watch server/index.ts",
     "build": "cd frontend && npm run build",
-    "build:server": "tsc -b packages/protocol packages/harness packages/client && tsc -p tsconfig.build.json",
+    "build:server": "tsc -b packages/protocol packages/harness packages/client && tsc -p tsconfig.build.json && cp server/ipv4-preload.cjs dist/",
     "build:all": "npm run build:server && npm run build",
     "build:mcp": "cd mcp-server && npm run build",
     "setup-mcp": "bash scripts/setup-mcp.sh",
