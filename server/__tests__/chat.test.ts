@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import type { ManagedSession } from '@mitzo/harness';
 
 describe('chat module exports', () => {
   it('exports expected functions', async () => {
@@ -50,5 +51,66 @@ describe('getMessages', () => {
     const messages = await getMessages('nonexistent-session-id');
     expect(Array.isArray(messages)).toBe(true);
     expect(messages.length).toBe(0);
+  });
+});
+
+describe('cleanupSessionWorktrees', () => {
+  it('skips primary worktree and only removes secondaries', async () => {
+    const { removeWorktree } = await import('../worktree.js');
+    vi.spyOn(await import('../worktree.js'), 'removeWorktree').mockImplementation(() => {});
+
+    const { cleanupSessionWorktrees } = await import('../chat.js');
+
+    const session = {
+      worktreePaths: new Map([
+        ['primary', { path: '/repo/.claude/worktrees/abc', wtId: 'abc' }],
+        ['mitzo', { path: '/tools/mitzo/.claude/worktrees/abc', wtId: 'abc' }],
+        ['centaur', { path: '/projects/centaur/.claude/worktrees/abc', wtId: 'abc' }],
+      ]),
+    } as unknown as ManagedSession;
+
+    cleanupSessionWorktrees(session);
+
+    // Primary should be preserved in the map
+    expect(session.worktreePaths.has('primary')).toBe(true);
+    expect(session.worktreePaths.get('primary')?.wtId).toBe('abc');
+
+    // Secondary entries should be removed from the map
+    expect(session.worktreePaths.has('mitzo')).toBe(false);
+    expect(session.worktreePaths.has('centaur')).toBe(false);
+    expect(session.worktreePaths.size).toBe(1);
+
+    vi.restoreAllMocks();
+  });
+
+  it('handles session with only primary worktree', async () => {
+    vi.spyOn(await import('../worktree.js'), 'removeWorktree').mockImplementation(() => {});
+
+    const { cleanupSessionWorktrees } = await import('../chat.js');
+
+    const session = {
+      worktreePaths: new Map([
+        ['primary', { path: '/repo/.claude/worktrees/abc', wtId: 'abc' }],
+      ]),
+    } as unknown as ManagedSession;
+
+    cleanupSessionWorktrees(session);
+
+    expect(session.worktreePaths.has('primary')).toBe(true);
+    expect(session.worktreePaths.size).toBe(1);
+
+    vi.restoreAllMocks();
+  });
+
+  it('handles session with no worktrees', async () => {
+    const { cleanupSessionWorktrees } = await import('../chat.js');
+
+    const session = {
+      worktreePaths: new Map(),
+    } as unknown as ManagedSession;
+
+    cleanupSessionWorktrees(session);
+
+    expect(session.worktreePaths.size).toBe(0);
   });
 });
