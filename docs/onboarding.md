@@ -145,27 +145,26 @@ Skills are extensible — you can add your own (covered below).
 
 ## Step 6: Make it persistent (recommended)
 
-Right now Mitzo stops when you close the terminal. To keep it running across reboots:
+Right now Mitzo stops when you close the terminal. To keep it running across reboots using macOS launchd:
 
 ```bash
-# Install pm2 globally
-npm install -g pm2
-
-# Start Mitzo via pm2
 cd ~/tools/mitzo  # or wherever you cloned it
-npm run pm2:start
-
-# Persist across reboots
-pm2 save
-pm2 startup  # follow the printed instructions
+npm run deploy
 ```
 
-Now Mitzo survives terminal closes and system restarts. Manage it with:
+This builds the server and frontend, installs a launchd plist to `~/Library/LaunchAgents/`, and starts the service. Mitzo now survives terminal closes and system restarts.
+
+Manage it with:
 
 ```bash
-pm2 status          # check if it's running
-pm2 logs mitzo      # view logs
-pm2 restart mitzo   # restart after config changes
+# Check if it's running
+launchctl list | grep mitzo
+
+# View logs
+tail -f ~/tools/mitzo/logs/mitzo.log
+
+# Restart after config changes
+npm run deploy
 ```
 
 ## Configuring your repo (`.mitzo.json`)
@@ -332,16 +331,10 @@ When there's a new version:
 cd ~/tools/mitzo
 git pull --ff-only origin main
 npm install
-cd frontend && npm install && cd ..
-npm run build
-pm2 restart mitzo
+npm run deploy
 ```
 
-Or if you've set up pm2, use the deploy script:
-
-```bash
-bash ~/tools/mitzo/scripts/deploy.sh
-```
+The deploy script rebuilds everything and restarts the launchd service.
 
 ## Architecture (if you're curious)
 
@@ -363,7 +356,9 @@ The server translates Agent SDK stream events into a WebSocket protocol the Reac
 
 Once you're comfortable with the basics:
 
-- **Worktree isolation** — toggle "WT" in chat header to sandbox sessions into git worktrees
+- **Worktree isolation** — toggle "WT" in chat header to sandbox sessions into git worktrees. Add `repos` to `.mitzo.json` for multi-repo worktree sessions.
+- **Task board** — drop goals, let Claude decompose them into tasks, orchestrate across sessions. Spec mode for reviewing plans before execution.
 - **Voice** — push-to-talk input and auto-speak output (requires [Yapper](https://github.com/dimakis/yapper))
 - **Image attachments** — send screenshots and photos to Claude from your camera
 - **Session history** — swipe left on old sessions to dismiss, tap to resume
+- **iOS app** — build a native wrapper with `npm run build:ios` and deploy via TestFlight

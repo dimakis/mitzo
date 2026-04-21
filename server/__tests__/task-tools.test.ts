@@ -8,6 +8,7 @@ import {
   handleTaskComplete,
   handleTaskStatus,
   handleTaskBlock,
+  handleTaskArtifact,
 } from '../task-tools.js';
 
 const TEST_DIR = join(tmpdir(), `mitzo-task-tools-test-${process.pid}`);
@@ -160,6 +161,53 @@ describe('handleTaskBlock', () => {
   it('returns error for empty reason', () => {
     const task = store.create({ title: 'Task' });
     const result = handleTaskBlock(store, task.id, '  ');
+    expect(result).toContain('Error');
+  });
+});
+
+describe('handleTaskArtifact', () => {
+  it('stores an artifact on a task', () => {
+    const task = store.create({ title: 'Task' });
+    const result = handleTaskArtifact(
+      store,
+      task.id,
+      'pr_url',
+      'https://github.com/org/repo/pull/42',
+    );
+
+    expect(result).toContain('pr_url');
+    expect(result).toContain('https://github.com/org/repo/pull/42');
+
+    const updated = store.get(task.id)!;
+    expect(updated.artifacts).toEqual({ pr_url: 'https://github.com/org/repo/pull/42' });
+  });
+
+  it('merges with existing artifacts', () => {
+    const task = store.create({ title: 'Task' });
+    handleTaskArtifact(store, task.id, 'key1', 'val1');
+    handleTaskArtifact(store, task.id, 'key2', 'val2');
+
+    const updated = store.get(task.id)!;
+    expect(updated.artifacts).toEqual({ key1: 'val1', key2: 'val2' });
+  });
+
+  it('overwrites existing artifact key', () => {
+    const task = store.create({ title: 'Task' });
+    handleTaskArtifact(store, task.id, 'status', 'draft');
+    handleTaskArtifact(store, task.id, 'status', 'final');
+
+    const updated = store.get(task.id)!;
+    expect(updated.artifacts).toEqual({ status: 'final' });
+  });
+
+  it('returns error for nonexistent task', () => {
+    const result = handleTaskArtifact(store, 'nonexistent', 'key', 'val');
+    expect(result).toContain('Error');
+  });
+
+  it('returns error for empty key', () => {
+    const task = store.create({ title: 'Task' });
+    const result = handleTaskArtifact(store, task.id, '  ', 'val');
     expect(result).toContain('Error');
   });
 });

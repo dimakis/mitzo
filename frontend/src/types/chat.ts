@@ -10,6 +10,7 @@ export type {
   PermissionRequest,
   ImageAttachment,
   Session,
+  SessionSearchResult,
 } from '@mitzo/protocol';
 
 import type { FinishedBlock, RawToolInput } from '@mitzo/protocol';
