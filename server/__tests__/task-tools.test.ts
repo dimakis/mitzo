@@ -168,7 +168,12 @@ describe('handleTaskBlock', () => {
 describe('handleTaskArtifact', () => {
   it('stores an artifact on a task', () => {
     const task = store.create({ title: 'Task' });
-    const result = handleTaskArtifact(store, task.id, 'pr_url', 'https://github.com/org/repo/pull/42');
+    const result = handleTaskArtifact(
+      store,
+      task.id,
+      'pr_url',
+      'https://github.com/org/repo/pull/42',
+    );
 
     expect(result).toContain('pr_url');
     expect(result).toContain('https://github.com/org/repo/pull/42');

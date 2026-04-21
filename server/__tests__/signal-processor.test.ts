@@ -91,7 +91,10 @@ describe('SignalProcessor', () => {
     store.update(signalTask.id, { status: 'active' });
 
     processor.watch(signalTask.id, signalTask.gateConfig!);
-    processor.resolveSignal(signalTask.id, { status: 'fail', artifacts: { error: 'tests failed' } });
+    processor.resolveSignal(signalTask.id, {
+      status: 'fail',
+      artifacts: { error: 'tests failed' },
+    });
 
     const updatedSignal = store.get(signalTask.id);
     expect(updatedSignal!.status).toBe('pending');
@@ -142,8 +145,18 @@ describe('SignalProcessor', () => {
 
   it('unwatchAll clears everything', () => {
     const goal = store.create({ title: 'Goal' });
-    const t1 = store.create({ title: 'W1', parentId: goal.id, stageType: 'wait_for_signal', gateConfig: { type: 'human_approval' } });
-    const t2 = store.create({ title: 'W2', parentId: goal.id, stageType: 'wait_for_signal', gateConfig: { type: 'human_approval' } });
+    const t1 = store.create({
+      title: 'W1',
+      parentId: goal.id,
+      stageType: 'wait_for_signal',
+      gateConfig: { type: 'human_approval' },
+    });
+    const t2 = store.create({
+      title: 'W2',
+      parentId: goal.id,
+      stageType: 'wait_for_signal',
+      gateConfig: { type: 'human_approval' },
+    });
     store.update(t1.id, { status: 'active' });
     store.update(t2.id, { status: 'active' });
 
@@ -159,7 +172,12 @@ describe('SignalProcessor', () => {
 
   it('stores failure artifacts in annotations on retry', () => {
     const goal = store.create({ title: 'Goal' });
-    const agent = store.create({ title: 'Agent work', parentId: goal.id, stageType: 'agent_work', priority: 2 });
+    const agent = store.create({
+      title: 'Agent work',
+      parentId: goal.id,
+      stageType: 'agent_work',
+      priority: 2,
+    });
     store.update(agent.id, { status: 'done', summary: 'Done' });
 
     const signal = store.create({
@@ -173,7 +191,10 @@ describe('SignalProcessor', () => {
     store.update(signal.id, { status: 'active' });
 
     processor.watch(signal.id, signal.gateConfig!);
-    processor.resolveSignal(signal.id, { status: 'fail', artifacts: { failed_checks: ['lint', 'test'] } });
+    processor.resolveSignal(signal.id, {
+      status: 'fail',
+      artifacts: { failed_checks: ['lint', 'test'] },
+    });
 
     const updated = store.get(signal.id);
     expect(updated!.annotations).toHaveLength(1);

@@ -435,7 +435,11 @@ describe('TaskOrchestrator', () => {
 
       const task = store.getChildren(goal.id)[0];
       expect(task.status).toBe('active');
-      expect(watchSignal).toHaveBeenCalledWith(task.id, { type: 'gh_ci', repo: 'org/repo', pr: 42 });
+      expect(watchSignal).toHaveBeenCalledWith(task.id, {
+        type: 'gh_ci',
+        repo: 'org/repo',
+        pr: 42,
+      });
       // Should NOT have set task context on session (no agent work)
       expect(deps.setTaskContext).not.toHaveBeenCalled();
     });
@@ -497,9 +501,25 @@ describe('TaskOrchestrator', () => {
       const orch = new TaskOrchestrator(deps);
 
       const goal = store.create({ title: 'Workflow Goal' });
-      const agent = store.create({ title: 'Agent step', parentId: goal.id, stageType: 'agent_work', priority: 3 });
-      const signal = store.create({ title: 'Signal step', parentId: goal.id, stageType: 'wait_for_signal', gateConfig: { type: 'gh_ci', repo: 'org/repo', pr: 1 }, priority: 2 });
-      const review = store.create({ title: 'Review step', parentId: goal.id, stageType: 'human_review', priority: 1 });
+      const agent = store.create({
+        title: 'Agent step',
+        parentId: goal.id,
+        stageType: 'agent_work',
+        priority: 3,
+      });
+      const signal = store.create({
+        title: 'Signal step',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'gh_ci', repo: 'org/repo', pr: 1 },
+        priority: 2,
+      });
+      const review = store.create({
+        title: 'Review step',
+        parentId: goal.id,
+        stageType: 'human_review',
+        priority: 1,
+      });
 
       // Start: should pick agent_work (highest priority)
       orch.start(goal.id);
@@ -512,7 +532,11 @@ describe('TaskOrchestrator', () => {
       orch.onTaskCompleted(agent.id);
       expect(orch.getStatus().activeTaskId).toBe(signal.id);
       expect(store.get(signal.id)!.status).toBe('active');
-      expect(watchSignal).toHaveBeenCalledWith(signal.id, { type: 'gh_ci', repo: 'org/repo', pr: 1 });
+      expect(watchSignal).toHaveBeenCalledWith(signal.id, {
+        type: 'gh_ci',
+        repo: 'org/repo',
+        pr: 1,
+      });
 
       // Simulate signal resolved → should pick human_review
       store.update(signal.id, { status: 'done' });

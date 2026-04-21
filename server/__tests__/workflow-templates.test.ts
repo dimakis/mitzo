@@ -2,7 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'path';
 import { mkdirSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
-import { WorkflowTemplateStore, instantiateTemplate, seedBuiltInTemplates } from '../workflow-templates.js';
+import {
+  WorkflowTemplateStore,
+  instantiateTemplate,
+  seedBuiltInTemplates,
+} from '../workflow-templates.js';
 import { TaskStore } from '../task-store.js';
 
 const TEST_DIR = join(tmpdir(), `mitzo-workflow-test-${process.pid}`);
@@ -34,7 +38,11 @@ describe('WorkflowTemplateStore', () => {
       description: 'Triage a PR',
       stages: [
         { title: 'Check CI', stage_type: 'agent_work' },
-        { title: 'Wait for review', stage_type: 'wait_for_signal', gate_config: { type: 'gh_review', repo: '{{repo}}', pr: '{{pr}}' } },
+        {
+          title: 'Wait for review',
+          stage_type: 'wait_for_signal',
+          gate_config: { type: 'gh_review', repo: '{{repo}}', pr: '{{pr}}' },
+        },
       ],
       variables: { repo: { description: 'GitHub repo' }, pr: { description: 'PR number' } },
     });
@@ -52,7 +60,10 @@ describe('WorkflowTemplateStore', () => {
   });
 
   it('gets a template by id', () => {
-    const created = templateStore.create({ name: 'test', stages: [{ title: 'S1', stage_type: 'agent_work' }] });
+    const created = templateStore.create({
+      name: 'test',
+      stages: [{ title: 'S1', stage_type: 'agent_work' }],
+    });
     const found = templateStore.get(created.id);
     expect(found!.name).toBe('test');
   });
@@ -62,14 +73,19 @@ describe('WorkflowTemplateStore', () => {
   });
 
   it('deletes a template', () => {
-    const t = templateStore.create({ name: 'doomed', stages: [{ title: 'S', stage_type: 'agent_work' }] });
+    const t = templateStore.create({
+      name: 'doomed',
+      stages: [{ title: 'S', stage_type: 'agent_work' }],
+    });
     expect(templateStore.delete(t.id)).toBe(true);
     expect(templateStore.get(t.id)).toBeNull();
   });
 
   it('rejects duplicate names', () => {
     templateStore.create({ name: 'unique', stages: [{ title: 'S', stage_type: 'agent_work' }] });
-    expect(() => templateStore.create({ name: 'unique', stages: [{ title: 'S', stage_type: 'agent_work' }] })).toThrow();
+    expect(() =>
+      templateStore.create({ name: 'unique', stages: [{ title: 'S', stage_type: 'agent_work' }] }),
+    ).toThrow();
   });
 });
 
@@ -79,7 +95,11 @@ describe('instantiateTemplate', () => {
       name: 'simple',
       stages: [
         { title: 'Step 1', stage_type: 'agent_work', description: 'Do work' },
-        { title: 'Step 2', stage_type: 'wait_for_signal', gate_config: { type: 'gh_ci', repo: 'org/repo', pr: 1 } },
+        {
+          title: 'Step 2',
+          stage_type: 'wait_for_signal',
+          gate_config: { type: 'gh_ci', repo: 'org/repo', pr: 1 },
+        },
         { title: 'Step 3', stage_type: 'human_review' },
       ],
     });
@@ -146,9 +166,7 @@ describe('instantiateTemplate', () => {
   it('sets max_retries from template stage', () => {
     const tmpl = templateStore.create({
       name: 'retriable',
-      stages: [
-        { title: 'Flaky step', stage_type: 'agent_work', max_retries: 3 },
-      ],
+      stages: [{ title: 'Flaky step', stage_type: 'agent_work', max_retries: 3 }],
     });
 
     const goal = instantiateTemplate(taskStore, templateStore, tmpl.id, 'Retry Goal', {});
@@ -157,7 +175,9 @@ describe('instantiateTemplate', () => {
   });
 
   it('throws for nonexistent template', () => {
-    expect(() => instantiateTemplate(taskStore, templateStore, 'nonexistent', 'Goal', {})).toThrow();
+    expect(() =>
+      instantiateTemplate(taskStore, templateStore, 'nonexistent', 'Goal', {}),
+    ).toThrow();
   });
 
   it('sets templateId on all created tasks', () => {
