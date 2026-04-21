@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import { EmptyState } from '../components/EmptyState';
+import { PageHeader } from '../components/PageHeader';
 import { apiFetch } from '../lib/api-fetch';
 
 interface InboxItem {
@@ -242,55 +243,48 @@ export function InboxView() {
 
   return (
     <div className="inbox-page">
-      <header className="inbox-header">
-        <button className="inbox-back" onClick={() => navigate('/')}>
-          &lsaquo;
-        </button>
-        <h1>Inbox {items.length > 0 && <span className="inbox-count">{items.length}</span>}</h1>
-      </header>
+      <PageHeader title="Inbox" badge={items.length || undefined} onBack={() => navigate('/')} />
 
-      <div className="inbox-scroll">
-        {loading && <p className="inbox-empty">Loading...</p>}
+      {loading && <p className="inbox-empty">Loading...</p>}
 
-        {!loading && items.length === 0 && <EmptyState icon={'\u2713'} title="No pending items" />}
+      {!loading && items.length === 0 && <EmptyState icon={'\u2713'} title="No pending items" />}
 
-        {sources.length > 1 && (
-          <div className="inbox-filters">
+      {sources.length > 1 && (
+        <div className="inbox-filters">
+          <button
+            className={`inbox-filter-pill${activeFilter === null ? ' inbox-filter-pill--active' : ''}`}
+            onClick={() => setActiveFilter(null)}
+          >
+            All
+          </button>
+          {sources.map((src) => (
             <button
-              className={`inbox-filter-pill${activeFilter === null ? ' inbox-filter-pill--active' : ''}`}
-              onClick={() => setActiveFilter(null)}
+              key={src}
+              className={`inbox-filter-pill${activeFilter === src ? ' inbox-filter-pill--active' : ''}`}
+              onClick={() => setActiveFilter(activeFilter === src ? null : src)}
             >
-              All
+              {src}
+              <span className="inbox-filter-count">
+                {items.filter((i) => i.agent === src).length}
+              </span>
             </button>
-            {sources.map((src) => (
-              <button
-                key={src}
-                className={`inbox-filter-pill${activeFilter === src ? ' inbox-filter-pill--active' : ''}`}
-                onClick={() => setActiveFilter(activeFilter === src ? null : src)}
-              >
-                {src}
-                <span className="inbox-filter-count">
-                  {items.filter((i) => i.agent === src).length}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div className="inbox-hint">
-          {filtered.length > 0 && <span>Swipe right to approve, left to discard</span>}
-        </div>
-
-        <div className="inbox-list">
-          {filtered.map((item) => (
-            <InboxCard
-              key={item.filename}
-              item={item}
-              onApprove={handleApprove}
-              onDiscard={handleDiscard}
-            />
           ))}
         </div>
+      )}
+
+      <div className="inbox-hint">
+        {filtered.length > 0 && <span>Swipe right to approve, left to discard</span>}
+      </div>
+
+      <div className="inbox-list">
+        {filtered.map((item) => (
+          <InboxCard
+            key={item.filename}
+            item={item}
+            onApprove={handleApprove}
+            onDiscard={handleDiscard}
+          />
+        ))}
       </div>
     </div>
   );

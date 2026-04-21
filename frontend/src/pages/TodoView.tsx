@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TodoCard } from '../components/TodoCard';
 import { EmptyState } from '../components/EmptyState';
+import { PageHeader } from '../components/PageHeader';
 import { useTodoData } from '../hooks/useTodoData';
 import type { TodoItem } from '../types/todo';
 
@@ -88,11 +89,7 @@ export function TodoView() {
 
   return (
     <div className="todo-page">
-      <header className="todo-header">
-        <button className="todo-back" onClick={() => navigate('/')}>
-          &lsaquo;
-        </button>
-        <h1>Todos {items.length > 0 && <span className="todo-count">{items.length}</span>}</h1>
+      <PageHeader title="Todos" badge={items.length || undefined} onBack={() => navigate('/')}>
         <button
           className="todo-add-btn"
           onClick={() => setCreating({ parentId: undefined })}
@@ -103,7 +100,7 @@ export function TodoView() {
         <button className="todo-refresh" onClick={refresh}>
           &#x21bb;
         </button>
-      </header>
+      </PageHeader>
 
       <div className="todo-scroll">
         {profiles.length > 1 && (

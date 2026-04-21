@@ -2,6 +2,7 @@ import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import type { TodoItem, TodoData } from '../types/todo';
 import { sourceIcon, buildPrompt } from '../lib/todo-utils';
+import { PageHeader } from '../components/PageHeader';
 import { apiFetch } from '../lib/api-fetch';
 
 function urgencyLabel(urgency: number): string {
@@ -98,15 +99,11 @@ export function TodoDetailView() {
 
   return (
     <div className="todo-detail-page">
-      <header className="todo-detail-header">
-        <button className="todo-detail-back" onClick={() => navigate('/todos')}>
-          &lsaquo;
-        </button>
-        <h1>Task</h1>
+      <PageHeader title="Task" onBack={() => navigate('/todos')}>
         <button className="todo-detail-chat-btn" onClick={handleOpenChat}>
           Open in Chat
         </button>
-      </header>
+      </PageHeader>
 
       <div className="todo-detail-scroll">
         <div className="todo-detail-summary">{item.summary}</div>
