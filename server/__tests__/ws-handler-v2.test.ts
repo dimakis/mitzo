@@ -1655,6 +1655,8 @@ describe('handleInterruptV2 stale session via EventStore', () => {
     expect(transport.sent).not.toContainEqual(
       expect.objectContaining({ code: 'active_elsewhere' }),
     );
+    // Verify interruptChat was actually called (positive outcome)
+    expect(interruptChat).toHaveBeenCalled();
 
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });

@@ -120,10 +120,13 @@ export function ChatView() {
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-send pending session (from "Start Session" on inbox/todo items)
-  const pendingConsumed = useRef(false);
+  const pendingConsumed = useRef<string | null>(null);
   useEffect(() => {
-    if (!pendingSession || pendingConsumed.current) return;
-    pendingConsumed.current = true;
+    if (!pendingSession) return;
+    // Guard against double-consumption of the same pending session
+    const key = pendingSession.prompt;
+    if (pendingConsumed.current === key) return;
+    pendingConsumed.current = key;
     // Set the context block for display
     storeDispatchMessages({ type: 'SET_SESSION_CONTEXT', context: pendingSession.context });
     // Auto-send the prompt
