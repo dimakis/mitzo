@@ -375,6 +375,18 @@ describe('EventStore', () => {
       expect(results[0].snippet.length).toBeLessThan(longText.length);
     });
 
+    it('escapes LIKE wildcards in query', () => {
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Test' });
+      store.upsertSession({ sessionId: 'sess-2', summary: 'Other' });
+      store.append('sess-1', 'user_message', { text: 'progress is 50% done' });
+      store.append('sess-2', 'user_message', { text: 'unrelated content' });
+
+      // % in query should be treated as literal, not wildcard
+      const results = store.searchSessions('50%');
+      expect(results).toHaveLength(1);
+      expect(results[0].sessionId).toBe('sess-1');
+    });
+
     it('is case-insensitive in LIKE matching', () => {
       store.upsertSession({ sessionId: 'sess-1', summary: 'Test' });
       store.append('sess-1', 'user_message', { text: 'Deploy the Kubernetes cluster' });

@@ -326,74 +326,74 @@ export function SessionList() {
             ))}
           </div>
         ) : (
-        <>
-        {updateAvailable && (
-          <button className="update-banner" onClick={handleDeployAction}>
-            Update available — Deploy Mitzo
-          </button>
-        )}
-
-        <button
-          className="hero-chat-btn"
-          onClick={() => {
-            selectionChanged();
-            navigate('/chat');
-          }}
-        >
-          New Chat
-        </button>
-
-        {quickActions.length > 0 && (
-          <div className="quick-list">
-            {quickActions.map((action) => (
-              <button
-                key={action.label}
-                type="button"
-                className="quick-row"
-                onClick={() => handleQuickAction(action)}
-              >
-                <span className="quick-row-label">{action.label}</span>
-                <span className="quick-row-desc">{action.desc}</span>
-                <span className="quick-row-chevron">&rsaquo;</span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        {loading && <p className="session-list-empty">Loading...</p>}
-
-        {!loading && sessions.length === 0 && (
-          <EmptyState icon={'\uD83D\uDCAC'} title="No past sessions" />
-        )}
-
-        {!loading && sessions.length > 0 && (
-          <div className="session-list">
-            <div className="session-list-section-header">
-              <span className="session-list-section-title">Recent</span>
-              <button className="session-list-clear" onClick={clearAll}>
-                Clear
-              </button>
-            </div>
-            {sessions.map((s) => (
-              <SwipeableSession
-                key={s.id}
-                session={s}
-                onDismiss={dismissSession}
-                onClick={(id) => {
-                  selectionChanged();
-                  navigate(`/chat/${id}`);
-                }}
-                onRename={handleRename}
-              />
-            ))}
-            {hasMore && (
-              <button className="session-load-more" onClick={loadMore} disabled={loadingMore}>
-                {loadingMore ? 'Loading...' : 'Load More'}
+          <>
+            {updateAvailable && (
+              <button className="update-banner" onClick={handleDeployAction}>
+                Update available — Deploy Mitzo
               </button>
             )}
-          </div>
-        )}
-        </>
+
+            <button
+              className="hero-chat-btn"
+              onClick={() => {
+                selectionChanged();
+                navigate('/chat');
+              }}
+            >
+              New Chat
+            </button>
+
+            {quickActions.length > 0 && (
+              <div className="quick-list">
+                {quickActions.map((action) => (
+                  <button
+                    key={action.label}
+                    type="button"
+                    className="quick-row"
+                    onClick={() => handleQuickAction(action)}
+                  >
+                    <span className="quick-row-label">{action.label}</span>
+                    <span className="quick-row-desc">{action.desc}</span>
+                    <span className="quick-row-chevron">&rsaquo;</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {loading && <p className="session-list-empty">Loading...</p>}
+
+            {!loading && sessions.length === 0 && (
+              <EmptyState icon={'\uD83D\uDCAC'} title="No past sessions" />
+            )}
+
+            {!loading && sessions.length > 0 && (
+              <div className="session-list">
+                <div className="session-list-section-header">
+                  <span className="session-list-section-title">Recent</span>
+                  <button className="session-list-clear" onClick={clearAll}>
+                    Clear
+                  </button>
+                </div>
+                {sessions.map((s) => (
+                  <SwipeableSession
+                    key={s.id}
+                    session={s}
+                    onDismiss={dismissSession}
+                    onClick={(id) => {
+                      selectionChanged();
+                      navigate(`/chat/${id}`);
+                    }}
+                    onRename={handleRename}
+                  />
+                ))}
+                {hasMore && (
+                  <button className="session-load-more" onClick={loadMore} disabled={loadingMore}>
+                    {loadingMore ? 'Loading...' : 'Load More'}
+                  </button>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

@@ -345,7 +345,8 @@ export class EventStore {
    */
   searchSessions(query: string, limit = 20): SessionSearchResult[] {
     if (!query.trim()) return [];
-    const pattern = `%${query}%`;
+    const escaped = query.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+    const pattern = `%${escaped}%`;
     const rows = this.db!.prepare(
       `SELECT DISTINCT
         e.session_id,
@@ -357,7 +358,7 @@ export class EventStore {
       JOIN sessions s ON s.session_id = e.session_id
       WHERE s.is_hidden = 0
         AND e.type IN ('user_message', 'block_delta')
-        AND e.payload LIKE ?
+        AND e.payload LIKE ? ESCAPE '\\'
       ORDER BY e.created_at DESC
       LIMIT ?`,
     ).all(pattern, limit * 3) as Array<{

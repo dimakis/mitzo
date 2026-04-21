@@ -10,17 +10,8 @@ export type {
   PermissionRequest,
   ImageAttachment,
   Session,
+  SessionSearchResult,
 } from '@mitzo/protocol';
-
-// Defined here until @mitzo/protocol re-export resolves in worktrees.
-// Canonical type: packages/protocol/src/types.ts → SessionSearchResult
-export interface SessionSearchResult {
-  sessionId: string;
-  summary: string | null;
-  snippet: string;
-  matchedAt: number;
-  updatedAt: number;
-}
 
 import type { FinishedBlock, RawToolInput } from '@mitzo/protocol';
 
