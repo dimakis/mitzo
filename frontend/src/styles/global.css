@@ -1627,6 +1627,9 @@ textarea:focus {
   .msg-bubble-footer--user {
     opacity: 1;
   }
+  .msg-bubble-footer--user .msg-bubble-copy {
+    opacity: 0.7;
+  }
   .code-block-copy {
     opacity: 0.5;
   }
