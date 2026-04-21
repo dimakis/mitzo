@@ -15,6 +15,11 @@ vi.mock('../../hooks/useTodoData', () => ({
   useTodoData: (...args: unknown[]) => mockUseTodoData(...args),
 }));
 
+vi.mock('@mitzo/client/hooks', () => ({
+  useMitzoStore: (selector: (s: Record<string, unknown>) => unknown) =>
+    selector({ setPendingSession: vi.fn() }),
+}));
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -184,7 +189,7 @@ describe('TodoView', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/todos/abc', { state: { item } });
   });
 
-  it('navigates back on back button', () => {
+  it('renders MitzoLogo for home navigation', () => {
     mockUseTodoData.mockReturnValue({
       loading: false,
       items: [],
@@ -201,7 +206,6 @@ describe('TodoView', () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(container.querySelector('.todo-back')!);
-    expect(mockNavigate).toHaveBeenCalledWith('/');
+    expect(container.querySelector('.mitzo-logo')).toBeTruthy();
   });
 });

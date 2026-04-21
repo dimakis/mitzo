@@ -377,42 +377,58 @@ export function handleSendV2(
       // Resume existing session
       const found = ctx.sessionRegistry.findBySessionId(sessionId);
       if (found && isActive(found.clientId)) {
-        // Check connection ownership: does the driver belong to THIS connection?
-        const ownerConnection = getOwnerConnection(found.clientId);
-        const isOwner = ownerConnection === connectionId;
-        const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
+        // Cross-reference with durable EventStore: the in-memory registry
+        // keeps entries alive during the detach TTL window even after the
+        // query loop has ended. markSessionInactive() in the query loop's
+        // finally block is ground truth.
+        const storeMeta = ctx.eventStore.getSession(sessionId);
+        const staleInMemory = storeMeta && !storeMeta.isActive;
 
-        if (!isOwner && !isDetached) {
-          // Session is actively driven by another connection — reject.
-          transport.send({
-            type: 'error',
-            error: 'Session is active on another device',
-            code: 'active_elsewhere',
-            sessionId,
-          });
-          span.setAttribute('routing.decision', 'rejected_active_elsewhere');
-          span.setStatus({ code: SpanStatusCode.ERROR, message: 'active_elsewhere' });
-          return;
-        }
-
-        // Reattach if session was detached by a previous WS disconnect.
-        // This updates the session's transport to the current connection
-        // so the v1 fallback path in sendOrBuffer can still deliver events.
-        if (isDetached) {
-          reattachChat(found.clientId, transport);
-          log.info('reattached detached session on send', {
+        if (staleInMemory) {
+          log.info('corrected stale running state from EventStore (send)', {
             connectionId,
             sessionId,
             clientId: found.clientId,
           });
+          // Fall through to resume path below — session is not truly active.
+        } else {
+          // Check connection ownership: does the driver belong to THIS connection?
+          const ownerConnection = getOwnerConnection(found.clientId);
+          const isOwner = ownerConnection === connectionId;
+          const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
+
+          if (!isOwner && !isDetached) {
+            // Session is actively driven by another connection — reject.
+            transport.send({
+              type: 'error',
+              error: 'Session is active on another device',
+              code: 'active_elsewhere',
+              sessionId,
+            });
+            span.setAttribute('routing.decision', 'rejected_active_elsewhere');
+            span.setStatus({ code: SpanStatusCode.ERROR, message: 'active_elsewhere' });
+            return;
+          }
+
+          // Reattach if session was detached by a previous WS disconnect.
+          // This updates the session's transport to the current connection
+          // so the v1 fallback path in sendOrBuffer can still deliver events.
+          if (isDetached) {
+            reattachChat(found.clientId, transport);
+            log.info('reattached detached session on send', {
+              connectionId,
+              sessionId,
+              clientId: found.clientId,
+            });
+          }
+          applySkillPolicy(found.clientId);
+          sendToChat(found.clientId, prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
+          ctx.connRegistry.watch(connectionId, sessionId);
+          ctx.connRegistry.setActive(connectionId, sessionId);
+          span.setAttribute('routing.decision', isDetached ? 'takeover' : 'active');
+          span.setStatus({ code: SpanStatusCode.OK });
+          return;
         }
-        applySkillPolicy(found.clientId);
-        sendToChat(found.clientId, prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
-        ctx.connRegistry.watch(connectionId, sessionId);
-        ctx.connRegistry.setActive(connectionId, sessionId);
-        span.setAttribute('routing.decision', isDetached ? 'takeover' : 'active');
-        span.setStatus({ code: SpanStatusCode.OK });
-        return;
       }
 
       // Session exists in store but no active driver — start with resume.
@@ -492,18 +508,29 @@ export function handleInterruptV2(
 
   // Ownership guard: reject if another connection actively drives this session
   if (isActive(found.clientId)) {
-    const ownerConnection = getOwnerConnection(found.clientId);
-    const isOwner = ownerConnection === connectionId;
-    const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
-
-    if (!isOwner && !isDetached) {
-      transport.send({
-        type: 'error',
-        error: 'Session is active on another device',
-        code: 'active_elsewhere',
+    // Cross-reference with durable EventStore to catch stale in-memory state.
+    const storeMeta = ctx.eventStore.getSession(msg.sessionId);
+    if (storeMeta && !storeMeta.isActive) {
+      log.info('corrected stale running state from EventStore (interrupt)', {
+        connectionId,
         sessionId: msg.sessionId,
+        clientId: found.clientId,
       });
-      return;
+      // Session is not truly active — skip ownership guard.
+    } else {
+      const ownerConnection = getOwnerConnection(found.clientId);
+      const isOwner = ownerConnection === connectionId;
+      const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
+
+      if (!isOwner && !isDetached) {
+        transport.send({
+          type: 'error',
+          error: 'Session is active on another device',
+          code: 'active_elsewhere',
+          sessionId: msg.sessionId,
+        });
+        return;
+      }
     }
   }
 

@@ -1,0 +1,39 @@
+---
+description: Frontend deployment targets and cache troubleshooting
+globs: frontend/**
+alwaysApply: false
+---
+
+# Frontend Deployment
+
+Mitzo has two independent frontend deployment targets. Changes are not visible until the correct target is rebuilt.
+
+## Web (production server)
+
+Assets served by the Express backend from `frontend/dist/`.
+
+```bash
+npm run deploy          # builds everything + restarts launchd service
+```
+
+Vite produces hashed filenames (e.g. `index-Czvd3kWX.css`), so new deploys bust browser caches automatically. If users still see stale content, the old service worker may be caching — `main.tsx` auto-unregisters it, but a hard refresh or clearing site data fixes edge cases.
+
+## iOS (Capacitor)
+
+Assets are bundled into the native app binary via `npx cap sync ios`. The production server deploy does NOT update the iOS app.
+
+```bash
+cd frontend && npm run build:ios   # vite build --mode ios + cap sync
+```
+
+After `build:ios`, you must rebuild and run from Xcode to push new assets to the device. Clearing the Xcode build cache (`Cmd+Shift+K`) and re-running is the minimum; sometimes you need to delete the app from the device first.
+
+The iOS build uses `.env.ios` (not `.env`) — verify `VITE_API_BASE` points to the correct server URL before building.
+
+## Troubleshooting checklist
+
+1. **Verify built assets contain the change** — grep `frontend/dist/assets/*.css` or `*.js` for a unique string from your change.
+2. **Verify the server serves the new assets** — `curl -sk https://localhost:3100 | grep assets/` and confirm the hash matches.
+3. **Web users see stale content** — new asset hashes should bust cache. If not: clear site data, check for service worker in DevTools > Application.
+4. **iOS users see stale content** — `npm run build:ios` + Xcode rebuild. The web deploy alone is insufficient.
+5. **Asset hash unchanged after rebuild** — the source files in the working tree may not match the committed version (lint-staged stash/pop can cause this). Run `git diff HEAD -- frontend/` to check.

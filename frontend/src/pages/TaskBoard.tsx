@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { TaskNode } from '../components/TaskNode';
 import { TaskCreateForm } from '../components/TaskCreateForm';
 import { WorkflowCreateForm } from '../components/WorkflowCreateForm';
@@ -10,7 +9,6 @@ import { useTaskBoard } from '../hooks/useTaskBoard';
 import type { TaskStatus } from '../types/task';
 
 export function TaskBoard() {
-  const navigate = useNavigate();
   const {
     loading,
     tasks,
@@ -53,7 +51,7 @@ export function TaskBoard() {
 
   return (
     <div className="task-board-page">
-      <PageHeader title="Tasks" badge={tasks.length || undefined} onBack={() => navigate('/')}>
+      <PageHeader title="Tasks" badge={tasks.length || undefined}>
         <button
           className="task-board-add-btn"
           onClick={() => setCreating({ parentId: undefined })}

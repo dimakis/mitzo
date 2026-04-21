@@ -31,6 +31,7 @@ export interface MessagesState {
   isWorktree: boolean;
   wtId: string | null;
   activeWorktrees: ActiveWorktree[];
+  sessionContext: string | null;
 }
 
 export const INITIAL_MESSAGES_STATE: MessagesState = {
@@ -42,6 +43,7 @@ export const INITIAL_MESSAGES_STATE: MessagesState = {
   isWorktree: false,
   wtId: null,
   activeWorktrees: [],
+  sessionContext: null,
 };
 
 // ─── Actions ─────────────────────────────────────────────────────────────────
@@ -95,6 +97,7 @@ export type MessagesAction =
   | { type: 'USER_MESSAGE_RECEIVED'; messageId: string; text: string }
   | { type: 'WORKTREE_OPENED'; repoName: string; path: string }
   | { type: 'NATIVE_COMMAND_RESULT'; command: string; content: string }
+  | { type: 'SET_SESSION_CONTEXT'; context: string }
   | { type: 'CLEAR' };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -331,6 +334,9 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
         messages: [...state.messages, cmdMsg],
       };
     }
+
+    case 'SET_SESSION_CONTEXT':
+      return { ...state, sessionContext: action.context };
 
     case 'CLEAR':
       return { ...INITIAL_MESSAGES_STATE };

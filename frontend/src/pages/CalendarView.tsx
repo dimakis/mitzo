@@ -1,5 +1,4 @@
 import { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useCalendarData, type CalendarEvent } from '../hooks/useCalendarData';
 import { EventCard } from '../components/EventCard';
 import { SprintBar } from '../components/SprintBar';
@@ -44,7 +43,6 @@ function getToday(): string {
 const DEFAULT_VIEW_DAYS = 7;
 
 export function CalendarView() {
-  const navigate = useNavigate();
   const [baseDate, setBaseDate] = useState(getToday);
   const [viewDays, setViewDays] = useState(DEFAULT_VIEW_DAYS);
   const [filterMode, setFilterMode] = useState<'all' | 'releases'>('all');
@@ -121,7 +119,6 @@ export function CalendarView() {
     <div className="cal-page">
       <PageHeader
         title="Calendar"
-        onBack={() => navigate('/')}
         center={
           <div className="cal-header-center">
             <button className="cal-nav-prev" onClick={handlePrev}>

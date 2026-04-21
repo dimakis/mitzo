@@ -49,6 +49,11 @@ export interface SendMessageOptions {
   isolation?: boolean;
 }
 
+export interface PendingSession {
+  prompt: string;
+  context: string;
+}
+
 export interface MitzoStoreState {
   // Slices
   sessions: SessionsState;
@@ -64,6 +69,9 @@ export interface MitzoStoreState {
 
   // Error state
   sendError: string | null;
+
+  // Pending session (for "Start Session" from inbox/todo)
+  pendingSession: PendingSession | null;
 
   // Actions — chat
   dispatchMessages(action: MessagesAction): void;
@@ -100,6 +108,10 @@ export interface MitzoStoreState {
 
   // Actions — todos
   loadTodos(): Promise<void>;
+
+  // Actions — pending session
+  setPendingSession(ps: PendingSession): void;
+  clearPendingSession(): void;
 
   // Actions — lifecycle
   forceReconnect(): void;
@@ -175,6 +187,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     config: INITIAL_CONFIG_STATE,
     tokens: INITIAL_TOKENS_STATE,
     sendError: null,
+    pendingSession: null,
 
     // ── Actions ──────────────────────────────────────────────────────────
 
@@ -513,6 +526,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       } catch {
         // Graceful — keep existing todos
       }
+    },
+
+    // ── Pending session actions ────────────────────────────────────────
+
+    setPendingSession(ps: PendingSession) {
+      set({ pendingSession: ps });
+    },
+
+    clearPendingSession() {
+      set({ pendingSession: null });
     },
 
     forceReconnect() {

@@ -1554,6 +1554,114 @@ describe('handleSendV2 connection ownership', () => {
   });
 });
 
+// ─── stale session — EventStore cross-reference ─────────────────────────────
+
+describe('handleSendV2 stale session via EventStore', () => {
+  it('allows send when in-memory registry is stale but EventStore says inactive', () => {
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-conn:sess-1', session: {} });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(true); // would normally reject
+
+    const eventStore = mockEventStore();
+    // EventStore ground truth: session is NOT active (query loop ended)
+    eventStore.getSession.mockReturnValue({ sessionId: 'sess-1', isActive: false });
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleSendV2(
+      'c1',
+      transport,
+      { type: 'send' as const, sessionId: 'sess-1', prompt: 'hello', clientMsgId: 'cmsg-stale' },
+      ctx,
+    );
+
+    // Should NOT get active_elsewhere error
+    expect(transport.sent).not.toContainEqual(
+      expect.objectContaining({ code: 'active_elsewhere' }),
+    );
+    // Should fall through to resume path (startChat for resume)
+    expect(startChat).toHaveBeenCalled();
+
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  });
+
+  it('still rejects when EventStore confirms session IS active', () => {
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'other-conn:sess-1', session: {} });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(true);
+
+    const eventStore = mockEventStore();
+    // EventStore ground truth: session IS active
+    eventStore.getSession.mockReturnValue({ sessionId: 'sess-1', isActive: true });
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleSendV2(
+      'c1',
+      transport,
+      { type: 'send' as const, sessionId: 'sess-1', prompt: 'hello', clientMsgId: 'cmsg-active' },
+      ctx,
+    );
+
+    expect(transport.sent).toContainEqual(expect.objectContaining({ code: 'active_elsewhere' }));
+
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  });
+});
+
+describe('handleInterruptV2 stale session via EventStore', () => {
+  it('skips ownership guard when EventStore says session is inactive', () => {
+    (interruptChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-conn:sess-1', session: {} });
+    sessionReg.isAttached.mockReturnValue(true); // would normally reject
+
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ sessionId: 'sess-1', isActive: false });
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleInterruptV2(
+      'c1',
+      transport,
+      { type: 'interrupt', sessionId: 'sess-1', prompt: 'stop', clientMsgId: 'i-stale' },
+      ctx,
+    );
+
+    expect(transport.sent).not.toContainEqual(
+      expect.objectContaining({ code: 'active_elsewhere' }),
+    );
+    // Verify interruptChat was actually called (positive outcome)
+    expect(interruptChat).toHaveBeenCalled();
+
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  });
+});
+
 // ─── handleReconnect — ownership guard ──────────────────────────────────────
 
 describe('handleReconnect ownership guard', () => {

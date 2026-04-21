@@ -9,7 +9,12 @@ export { WS_READY_STATE } from './types.js';
 
 // Store
 export { createMitzoStore } from './store.js';
-export type { MitzoStoreState, MitzoStoreOptions, SendMessageOptions } from './store.js';
+export type {
+  MitzoStoreState,
+  MitzoStoreOptions,
+  SendMessageOptions,
+  PendingSession,
+} from './store.js';
 
 // Slices — state shapes and types
 export type { MessagesState, MessagesAction, ActiveWorktree } from './slices/messages.js';
