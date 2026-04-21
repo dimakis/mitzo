@@ -78,6 +78,7 @@ export interface FinishedMessage {
   blocks: FinishedBlock[];
   images?: string[];
   contextBlocks?: string[];
+  timestamp?: number;
 }
 
 // --- Permission ---
@@ -126,6 +127,14 @@ export interface StoredEvent {
   type: string;
   payload: Record<string, unknown>;
   createdAt: number;
+}
+
+export interface SessionSearchResult {
+  sessionId: string;
+  summary: string | null;
+  snippet: string;
+  matchedAt: number; // timestamp of the matching event
+  updatedAt: number;
 }
 
 export interface SessionMeta {

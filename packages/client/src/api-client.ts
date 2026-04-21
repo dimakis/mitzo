@@ -274,7 +274,14 @@ export class MitzoApiClient {
     );
   }
 
-  async getLoopStatus(): Promise<{ state: string; goalId: string | null }> {
+  async getLoopStatus(): Promise<{
+    state: string;
+    goalId: string | null;
+    activeTaskId?: string | null;
+    progress?: { completed: number; total: number } | null;
+    specMode?: boolean;
+    awaitingApproval?: boolean;
+  }> {
     const res = await this.assertOk(
       await this.fetch('/api/loop/status', { credentials: 'include' }),
     );

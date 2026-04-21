@@ -1,8 +1,14 @@
 import Database from 'better-sqlite3';
-import type { MitzoMode, StoredEvent, SessionMeta, EventStoreLogger } from './types.js';
+import type {
+  MitzoMode,
+  StoredEvent,
+  SessionMeta,
+  SessionSearchResult,
+  EventStoreLogger,
+} from './types.js';
 
 // Re-export types for consumer convenience
-export type { StoredEvent, SessionMeta, EventStoreLogger };
+export type { StoredEvent, SessionMeta, SessionSearchResult, EventStoreLogger };
 
 const noopLogger: EventStoreLogger = { info() {} };
 
@@ -254,15 +260,29 @@ export class EventStore {
         fields.push('wt_id = ?');
         values.push(meta.wtId);
       }
-      fields.push("updated_at = unixepoch('now', 'subsec') * 1000");
+      if (meta.updatedAt !== undefined) {
+        fields.push('updated_at = ?');
+        values.push(meta.updatedAt);
+      } else {
+        fields.push("updated_at = unixepoch('now', 'subsec') * 1000");
+      }
       values.push(meta.sessionId);
       this.db!.prepare(`UPDATE sessions SET ${fields.join(', ')} WHERE session_id = ?`).run(
         ...values,
       );
     } else {
-      this.db!.prepare(
-        'INSERT INTO sessions (session_id, summary, branch, cwd, mode, is_active, initial_prompt, wt_id, goal_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      ).run(
+      const cols = [
+        'session_id',
+        'summary',
+        'branch',
+        'cwd',
+        'mode',
+        'is_active',
+        'initial_prompt',
+        'wt_id',
+        'goal_id',
+      ];
+      const vals: unknown[] = [
         meta.sessionId,
         meta.summary ?? null,
         meta.branch ?? null,
@@ -272,6 +292,18 @@ export class EventStore {
         meta.initialPrompt ?? null,
         meta.wtId ?? null,
         meta.goalId ?? null,
+      ];
+      if (meta.updatedAt !== undefined) {
+        cols.push('updated_at');
+        vals.push(meta.updatedAt);
+      }
+      if (meta.createdAt !== undefined) {
+        cols.push('created_at');
+        vals.push(meta.createdAt);
+      }
+      const placeholders = cols.map(() => '?').join(', ');
+      this.db!.prepare(`INSERT INTO sessions (${cols.join(', ')}) VALUES (${placeholders})`).run(
+        ...vals,
       );
     }
   }
@@ -304,6 +336,61 @@ export class EventStore {
     const rows =
       limit != null ? this.stmts.listSessionsLimited.all(limit) : this.stmts.listSessions.all();
     return (rows as SessionRow[]).map(rowToSession);
+  }
+
+  /**
+   * Search session content for a query string.
+   * Searches user messages and assistant text deltas, returns matching sessions
+   * with a snippet of the matched content.
+   */
+  searchSessions(query: string, limit = 20): SessionSearchResult[] {
+    if (!query.trim()) return [];
+    const escaped = query.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+    const pattern = `%${escaped}%`;
+    const rows = this.db!.prepare(
+      `SELECT
+        e.session_id,
+        s.summary,
+        e.payload,
+        e.created_at AS matched_at,
+        s.updated_at
+      FROM events e
+      JOIN sessions s ON s.session_id = e.session_id
+      WHERE s.is_hidden = 0
+        AND e.type IN ('user_message', 'block_delta')
+        AND (
+          json_extract(e.payload, '$.text') LIKE ? ESCAPE '\\'
+          OR json_extract(e.payload, '$.delta') LIKE ? ESCAPE '\\'
+        )
+      ORDER BY e.created_at DESC
+      LIMIT ?`,
+    ).all(pattern, pattern, limit * 3) as Array<{
+      session_id: string;
+      summary: string | null;
+      payload: string;
+      matched_at: number;
+      updated_at: number;
+    }>;
+
+    // Deduplicate by session, keep first (most recent) match per session
+    const seen = new Set<string>();
+    const results: SessionSearchResult[] = [];
+    for (const row of rows) {
+      if (seen.has(row.session_id)) continue;
+      seen.add(row.session_id);
+
+      // Extract snippet from payload
+      const snippet = extractSnippet(row.payload, query);
+      results.push({
+        sessionId: row.session_id,
+        summary: row.summary,
+        snippet,
+        matchedAt: row.matched_at,
+        updatedAt: row.updated_at,
+      });
+      if (results.length >= limit) break;
+    }
+    return results;
   }
 
   markSessionInactive(sessionId: string): void {
@@ -369,6 +456,30 @@ function rowToEvent(row: EventRow): StoredEvent {
     payload: JSON.parse(row.payload),
     createdAt: row.created_at,
   };
+}
+
+/** Extract a text snippet around the query match from a JSON payload string. */
+function extractSnippet(payloadStr: string, query: string, contextChars = 80): string {
+  // Try to pull the text/delta field from the payload
+  let text: string;
+  try {
+    const payload = JSON.parse(payloadStr);
+    text = (payload.text ?? payload.delta ?? '') as string;
+  } catch {
+    text = payloadStr;
+  }
+  if (!text) return '';
+
+  const lower = text.toLowerCase();
+  const idx = lower.indexOf(query.toLowerCase());
+  if (idx === -1) return text.slice(0, contextChars * 2);
+
+  const start = Math.max(0, idx - contextChars);
+  const end = Math.min(text.length, idx + query.length + contextChars);
+  let snippet = text.slice(start, end).trim();
+  if (start > 0) snippet = '...' + snippet;
+  if (end < text.length) snippet = snippet + '...';
+  return snippet;
 }
 
 function rowToSession(row: SessionRow): SessionMeta {

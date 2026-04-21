@@ -10,6 +10,7 @@ import type { SessionTransport, ConnectionRegistry } from '@mitzo/harness';
 import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
 import { join, resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { randomBytes } from 'crypto';
 import { homedir } from 'os';
 import { createWorktree, removeWorktree } from './worktree.js';
@@ -122,11 +123,23 @@ function send(transport: SessionTransport, data: Record<string, unknown>) {
   if (transport.isOpen()) transport.send(data);
 }
 
+const IPV4_PRELOAD = join(dirname(fileURLToPath(import.meta.url)), 'ipv4-preload.cjs');
+
 function sdkEnv(): Record<string, string> {
   const env = { ...process.env } as Record<string, string>;
   env.CLAUDE_CODE_USE_VERTEX = process.env.CLAUDE_CODE_USE_VERTEX || '1';
   env.ANTHROPIC_VERTEX_PROJECT_ID = process.env.ANTHROPIC_VERTEX_PROJECT_ID || '';
   env.CLOUD_ML_REGION = process.env.CLOUD_ML_REGION || 'us-east5';
+
+  // Force IPv4-only DNS in the spawned CLI process. Undici's bundled
+  // autoSelectFamily ignores --dns-result-order, so we patch dns.lookup
+  // via a preload script to always resolve IPv4.
+  const nodeOpts = env.NODE_OPTIONS || '';
+  if (!nodeOpts.includes('ipv4-preload')) {
+    env.NODE_OPTIONS = nodeOpts
+      ? `${nodeOpts} --require=${IPV4_PRELOAD}`
+      : `--require=${IPV4_PRELOAD}`;
+  }
 
   const existingPath = env.PATH || '/usr/bin:/bin:/usr/local/bin';
   const venvPaths = getRepoConfig().resolvedVenvPaths;
@@ -422,15 +435,25 @@ export async function startChat(
   // The SDK stores conversation data under ~/.claude/projects/<encoded-cwd>/,
   // so we must use the same CWD the session was created with — otherwise the
   // SDK can't find the conversation and returns "No conversation found".
+  // If the original CWD was a worktree that's been cleaned up, fall back to
+  // BASE_REPO — the SDK will still find the conversation via the encoded path.
   let baseCwd = options.cwd || BASE_REPO;
   if (options.resume && !options.cwd) {
     const sessionMeta = eventStore.getSession(options.resume);
     if (sessionMeta?.cwd) {
-      baseCwd = sessionMeta.cwd;
-      log.info('resume: using original session CWD', {
-        sessionId: options.resume,
-        cwd: baseCwd,
-      });
+      if (existsSync(sessionMeta.cwd)) {
+        baseCwd = sessionMeta.cwd;
+        log.info('resume: using original session CWD', {
+          sessionId: options.resume,
+          cwd: baseCwd,
+        });
+      } else {
+        log.warn('resume: original CWD no longer exists, falling back to BASE_REPO', {
+          sessionId: options.resume,
+          originalCwd: sessionMeta.cwd,
+          fallback: BASE_REPO,
+        });
+      }
     }
   }
 
@@ -565,6 +588,11 @@ export async function startChat(
       {
         connRegistry: _connRegistry ?? undefined,
         onSessionResolved: options.onSessionResolved,
+        onInitialPrompt: (sessionId: string) => {
+          tryAutoRename(sessionId, clientId).catch(() => {
+            /* errors logged internally */
+          });
+        },
       },
     );
   } catch (err: unknown) {
@@ -599,6 +627,9 @@ async function tryAutoRename(sessionId: string, clientId: string): Promise<void>
     if (!newName) return;
 
     log.info('auto-renaming session', { sessionId, promptCount, newName });
+
+    // Persist to EventStore first — survives SDK rename failures.
+    eventStore.upsertSession({ sessionId, summary: newName });
 
     // Update the SDK session name (best-effort, fire-and-forget)
     renameSessionById(sessionId, newName, false).catch((err: unknown) => {
@@ -892,12 +923,13 @@ export function getSessionDirs(options?: { claudeProjectsRoot?: string }): strin
   return dirs;
 }
 
-const hiddenSessionIds = new Set<string>();
 export function hideSession(sessionId: string) {
-  hiddenSessionIds.add(sessionId);
+  eventStore.hideSession(sessionId);
 }
-export function clearHiddenSessions() {
-  hiddenSessionIds.clear();
+export function hideAllSessions() {
+  for (const meta of eventStore.listSessions()) {
+    eventStore.hideSession(meta.sessionId);
+  }
 }
 
 export async function renameSessionById(
@@ -934,7 +966,7 @@ export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
     try {
       const sessions = await listSessions({ dir, limit: fetchLimit, includeWorktrees: true });
       for (const s of sessions) {
-        if (hiddenSessionIds.has(s.sessionId)) continue;
+        if (eventStore.getSession(s.sessionId)?.isHidden) continue;
         const existing = seen.get(s.sessionId);
         if (!existing || s.lastModified > existing.lastModified) {
           seen.set(s.sessionId, {
@@ -964,6 +996,8 @@ export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
         cwd: entry.cwd ?? (BASE_REPO || null),
         branch: entry.branch ?? null,
         isActive: false,
+        updatedAt: entry.lastModified,
+        createdAt: entry.lastModified,
       });
       reconciledCount++;
     }
@@ -977,6 +1011,116 @@ export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
   const page = deduped.slice(offset, offset + limit);
   const hasMore = deduped.length > offset + limit;
   return { sessions: page, hasMore };
+}
+
+/**
+ * Fast session listing from EventStore (SQLite) — no filesystem scan.
+ * Returns the same shape as getSessions() for API compatibility.
+ */
+export function getSessionsCached(offset = 0, limit = SESSION_PAGE_SIZE) {
+  const all = eventStore.listSessions().filter((m) => {
+    // Hide sessions that were never used through Mitzo (e.g. automated
+    // code review sessions discovered from filesystem).  Active sessions
+    // always show regardless of turn count.
+    // Note: new sessions are created with is_active=1 by default (see EventStore
+    // schema), so a brand-new session will never be filtered out here.
+    if (m.numTurns === 0 && m.promptCount === 0 && !m.isActive) return false;
+    return true;
+  });
+  const page = all.slice(offset, offset + limit);
+  const hasMore = all.length > offset + limit;
+  return {
+    sessions: page.map((m) => ({
+      id: m.sessionId,
+      summary: m.summary ?? '',
+      lastModified: m.updatedAt,
+      branch: m.branch ?? undefined,
+      cwd: m.cwd ?? undefined,
+    })),
+    hasMore,
+  };
+}
+
+/**
+ * Background reconciliation: scan filesystem for sessions the EventStore
+ * doesn't know about and sync timestamps from the filesystem.
+ * Call fire-and-forget after serving cached results.
+ */
+// Guard against concurrent reconciliation runs. While `_reconciling` is true,
+// subsequent page-1 loads that call reconcileSessionsBackground() are no-ops.
+// This is safe because the in-flight sync will pick up any changes, and the
+// next page-1 request after it completes will trigger a fresh reconciliation.
+let _reconciling = false;
+export function reconcileSessionsBackground(): void {
+  if (_reconciling) return;
+  _reconciling = true;
+  syncSessionTimestamps()
+    .catch(() => {})
+    .finally(() => {
+      _reconciling = false;
+    });
+}
+
+/**
+ * Full timestamp sync: scan filesystem and update EventStore timestamps
+ * for all sessions to match their actual lastModified time.
+ */
+export async function syncSessionTimestamps(): Promise<void> {
+  const seen = new Map<
+    string,
+    { lastModified: number; summary: string; branch?: string; cwd?: string }
+  >();
+  const fetchLimit = 250;
+  for (const dir of getSessionDirs()) {
+    try {
+      const sessions = await listSessions({ dir, limit: fetchLimit, includeWorktrees: true });
+      for (const s of sessions) {
+        if (eventStore.getSession(s.sessionId)?.isHidden) continue;
+        const existing = seen.get(s.sessionId);
+        if (!existing || s.lastModified > existing.lastModified) {
+          seen.set(s.sessionId, {
+            lastModified: s.lastModified,
+            summary: s.summary,
+            branch: s.gitBranch,
+            cwd: s.cwd || undefined,
+          });
+        }
+      }
+    } catch {
+      // Expected when session dir doesn't exist
+    }
+  }
+
+  let synced = 0;
+  for (const [sessionId, entry] of seen) {
+    const existing = eventStore.getSession(sessionId);
+    if (!existing) {
+      // New session — insert with correct timestamp
+      eventStore.upsertSession({
+        sessionId,
+        summary: entry.summary || null,
+        cwd: entry.cwd ?? (BASE_REPO || null),
+        branch: entry.branch ?? null,
+        isActive: false,
+        updatedAt: entry.lastModified,
+        createdAt: entry.lastModified,
+      });
+      synced++;
+    } else if (Math.abs(existing.updatedAt - entry.lastModified) > 60_000) {
+      // Timestamp drifted from filesystem — sync it back.
+      // Preserves summary from EventStore if it was manually renamed.
+      eventStore.upsertSession({
+        sessionId,
+        updatedAt: entry.lastModified,
+        summary: existing.manuallyRenamed ? undefined : entry.summary || undefined,
+        branch: entry.branch ?? undefined,
+      });
+      synced++;
+    }
+  }
+  if (synced > 0) {
+    log.info('reconciled session timestamps', { synced, total: seen.size });
+  }
 }
 
 /**
@@ -1012,6 +1156,7 @@ export async function discoverSession(
 export interface RestoredMessage {
   messageId: string;
   role: string;
+  timestamp?: number;
   blocks: Array<{
     blockId: string;
     blockType: string;
@@ -1071,9 +1216,11 @@ export function replayEventsToMessages(
   // Inject the initial prompt as the first message.
   // Priority: initialPrompt param (from session metadata) > legacy out-of-order event
   if (initialPrompt) {
+    const firstTs = events[0]?.createdAt;
     messages.push({
       messageId: `umsg-initial-${Date.now()}`,
       role: 'user',
+      timestamp: firstTs,
       blocks: [{ blockId: 'user-initial', blockType: 'text', content: initialPrompt }],
     });
   } else if (legacyInitialPromptEvent) {
@@ -1081,6 +1228,7 @@ export function replayEventsToMessages(
     messages.push({
       messageId: p.messageId as string,
       role: 'user',
+      timestamp: typeof p.ts === 'number' ? p.ts : legacyInitialPromptEvent.createdAt,
       blocks: [
         {
           blockId: `user-${p.messageId as string}`,
@@ -1108,6 +1256,7 @@ export function replayEventsToMessages(
         messages.push({
           messageId: p.messageId as string,
           role: 'user',
+          timestamp: typeof p.ts === 'number' ? p.ts : evt.createdAt,
           blocks: [
             {
               blockId: `user-${p.messageId as string}`,
@@ -1122,7 +1271,12 @@ export function replayEventsToMessages(
         if (currentMsg && currentMsg.blocks.length > 0) {
           messages.push(currentMsg);
         }
-        currentMsg = { messageId: p.messageId as string, role: 'assistant', blocks: [] };
+        currentMsg = {
+          messageId: p.messageId as string,
+          role: 'assistant',
+          timestamp: typeof p.ts === 'number' ? p.ts : evt.createdAt,
+          blocks: [],
+        };
         break;
 
       case 'block_start':

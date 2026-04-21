@@ -18,10 +18,15 @@ vi.mock('../chat.js', () => {
       sessions: [{ id: 's1', summary: 'Test', lastModified: 1 }],
       hasMore: false,
     }),
+    getSessionsCached: vi.fn().mockReturnValue({
+      sessions: [{ id: 's1', summary: 'Test', lastModified: 1 }],
+      hasMore: false,
+    }),
+    reconcileSessionsBackground: vi.fn(),
     getMessages: vi.fn().mockResolvedValue([{ messageId: 'm1', role: 'assistant', blocks: [] }]),
     renameSessionById: vi.fn().mockResolvedValue(undefined),
     hideSession: vi.fn(),
-    clearHiddenSessions: vi.fn(),
+    hideAllSessions: vi.fn(),
     BASE_REPO: repo,
     getRepoConfig: vi.fn(() => ({
       quickActions: [],
@@ -60,6 +65,15 @@ vi.mock('../chat.js', () => {
     eventStore: {
       append: vi.fn(),
       getEventsAfter: vi.fn().mockReturnValue([]),
+      searchSessions: vi.fn().mockReturnValue([
+        {
+          sessionId: 's1',
+          summary: 'Test',
+          snippet: '...matched text...',
+          matchedAt: 1000,
+          updatedAt: 2000,
+        },
+      ]),
       getSession: vi.fn().mockImplementation((id: string) => {
         if (id === 's1') {
           return {
@@ -107,7 +121,7 @@ vi.mock('../git-version.js', () => ({
   isUpdateAvailable: vi.fn().mockReturnValue(false),
 }));
 
-import { hideSession, clearHiddenSessions, renameSessionById } from '../chat.js';
+import { hideSession, hideAllSessions, renameSessionById, eventStore } from '../chat.js';
 import { resolvePending } from '../permissions.js';
 
 let app: Express;
@@ -153,7 +167,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   vi.mocked(hideSession).mockClear();
-  vi.mocked(clearHiddenSessions).mockClear();
+  vi.mocked(hideAllSessions).mockClear();
 });
 
 // --- Auth Routes ---
@@ -344,21 +358,27 @@ describe('session routes', () => {
     expect(typeof res.body.hasMore).toBe('boolean');
   });
 
-  it('GET /api/sessions — passes offset and limit query params', async () => {
-    const { getSessions } = await import('../chat.js');
+  it('GET /api/sessions — uses cached path by default', async () => {
+    const { getSessionsCached } = await import('../chat.js');
     await request(app).get('/api/sessions?offset=5&limit=10').set('Cookie', authCookie);
-    expect(getSessions).toHaveBeenCalledWith(5, 10);
+    expect(getSessionsCached).toHaveBeenCalledWith(5, 10);
   });
 
   it('GET /api/sessions — clamps invalid offset and limit', async () => {
-    const { getSessions } = await import('../chat.js');
+    const { getSessionsCached } = await import('../chat.js');
     await request(app).get('/api/sessions?offset=-1&limit=999').set('Cookie', authCookie);
-    expect(getSessions).toHaveBeenCalledWith(0, 100);
+    expect(getSessionsCached).toHaveBeenCalledWith(0, 100);
   });
 
   it('GET /api/sessions — uses defaults when no params', async () => {
-    const { getSessions } = await import('../chat.js');
+    const { getSessionsCached } = await import('../chat.js');
     await request(app).get('/api/sessions').set('Cookie', authCookie);
+    expect(getSessionsCached).toHaveBeenCalledWith(0, 20);
+  });
+
+  it('GET /api/sessions?full=1 — uses filesystem scan', async () => {
+    const { getSessions } = await import('../chat.js');
+    await request(app).get('/api/sessions?full=1').set('Cookie', authCookie);
     expect(getSessions).toHaveBeenCalledWith(0, 20);
   });
 
@@ -380,10 +400,10 @@ describe('session routes', () => {
     expect(hideSession).toHaveBeenCalledWith('s1');
   });
 
-  it('DELETE /api/sessions — clears hidden sessions', async () => {
+  it('DELETE /api/sessions — hides all sessions', async () => {
     const res = await request(app).delete('/api/sessions').set('Cookie', authCookie);
     expect(res.status).toBe(200);
-    expect(clearHiddenSessions).toHaveBeenCalled();
+    expect(hideAllSessions).toHaveBeenCalled();
   });
 
   it('PUT /api/sessions/:id/rename — renames session', async () => {
@@ -441,6 +461,41 @@ describe('session routes', () => {
 
   it('GET /api/sessions/:id/meta — unauthenticated returns 401', async () => {
     const res = await request(app).get('/api/sessions/s1/meta');
+    expect(res.status).toBe(401);
+  });
+});
+
+// --- Session Search Routes ---
+
+describe('session search routes', () => {
+  it('GET /api/sessions/search?q=text — returns matching results', async () => {
+    const res = await request(app).get('/api/sessions/search?q=matched').set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(res.body.results).toHaveLength(1);
+    expect(res.body.results[0].sessionId).toBe('s1');
+    expect(res.body.results[0].snippet).toBe('...matched text...');
+    expect(vi.mocked(eventStore.searchSessions)).toHaveBeenCalledWith('matched', 20);
+  });
+
+  it('GET /api/sessions/search — empty query returns empty results', async () => {
+    const res = await request(app).get('/api/sessions/search?q=').set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(res.body.results).toEqual([]);
+  });
+
+  it('GET /api/sessions/search — missing q param returns empty results', async () => {
+    const res = await request(app).get('/api/sessions/search').set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(res.body.results).toEqual([]);
+  });
+
+  it('GET /api/sessions/search — clamps limit to 50', async () => {
+    await request(app).get('/api/sessions/search?q=test&limit=999').set('Cookie', authCookie);
+    expect(vi.mocked(eventStore.searchSessions)).toHaveBeenCalledWith('test', 50);
+  });
+
+  it('GET /api/sessions/search — unauthenticated returns 401', async () => {
+    const res = await request(app).get('/api/sessions/search?q=test');
     expect(res.status).toBe(401);
   });
 });
