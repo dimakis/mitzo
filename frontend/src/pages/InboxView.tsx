@@ -1,7 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import { EmptyState } from '../components/EmptyState';
 import { apiFetch } from '../lib/api-fetch';
@@ -19,12 +17,10 @@ function InboxCard({
   item,
   onApprove,
   onDiscard,
-  onNavigateFile,
 }: {
   item: InboxItem;
   onApprove: (filename: string) => void;
   onDiscard: (filename: string) => void;
-  onNavigateFile: (path: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const startX = useRef(0);
@@ -136,37 +132,7 @@ function InboxCard({
         {!expanded && <div className="inbox-card-preview">{item.preview}</div>}
         {expanded && (
           <div className="inbox-card-body">
-            <div className="inbox-card-body-markdown">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  a: ({ href, children }) => {
-                    if (href && !href.startsWith('http')) {
-                      return (
-                        <a
-                          href="#"
-                          className="inbox-file-link"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            onNavigateFile(href);
-                          }}
-                        >
-                          {children}
-                        </a>
-                      );
-                    }
-                    return (
-                      <a href={href} target="_blank" rel="noopener noreferrer">
-                        {children}
-                      </a>
-                    );
-                  },
-                }}
-              >
-                {bodyContent()}
-              </ReactMarkdown>
-            </div>
+            <pre className="inbox-card-body-text">{bodyContent()}</pre>
             <div className="inbox-card-buttons">
               <button
                 className="inbox-btn inbox-btn-approve"
@@ -200,7 +166,6 @@ export function InboxView() {
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [pendingRemovals, setPendingRemovals] = useState<Set<string>>(new Set());
-  const [repoPath, setRepoPath] = useState('');
 
   // Sync from the store's inbox (updated via v2 WS inbox_updated events)
   const storeInbox = useMitzoStore((s) => s.inbox.items);
@@ -208,12 +173,6 @@ export function InboxView() {
 
   useEffect(() => {
     loadInbox().then(() => setLoading(false));
-    apiFetch('/api/config')
-      .then((r) => r.json())
-      .then((cfg) => {
-        if (cfg.repoPath) setRepoPath(cfg.repoPath);
-      })
-      .catch(() => {});
 
     const onVisible = () => {
       if (document.visibilityState === 'visible') loadInbox();
@@ -329,10 +288,6 @@ export function InboxView() {
               item={item}
               onApprove={handleApprove}
               onDiscard={handleDiscard}
-              onNavigateFile={(path) => {
-                const absPath = path.startsWith('/') ? path : `${repoPath}/${path}`;
-                navigate(`/files?path=${encodeURIComponent(absPath)}`);
-              }}
             />
           ))}
         </div>
