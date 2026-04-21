@@ -9,6 +9,7 @@ import { LAST_SESSION_KEY } from '../lib/constants';
 import { getPreferredModel, setPreferredModel } from '../lib/model-preference';
 import { useVoice } from '../hooks/useVoice';
 import { useAutoSpeak } from '../hooks/useAutoSpeak';
+import { ScrollFab } from '../components/ScrollFab';
 import { onKeyboardToggle } from '../lib/keyboard';
 import type { ImageAttachment } from '../types/chat';
 
@@ -198,27 +199,29 @@ export function ChatView() {
           <option value="claude-haiku-4-5">Haiku 4.5</option>
         </select>
         {!keyboardOpen && (
-          <div className="mode-pills">
-            {(['ask', 'agent', 'auto'] as const).map((m) => (
-              <button
-                key={m}
-                className={`mode-pill${mode === m ? ' mode-pill--active' : ''}`}
-                onClick={() => handleModeChange(m)}
-              >
-                {m.charAt(0).toUpperCase() + m.slice(1)}
-              </button>
-            ))}
-          </div>
+          <>
+            <div className="mode-pills">
+              {(['ask', 'agent', 'auto'] as const).map((m) => (
+                <button
+                  key={m}
+                  className={`mode-pill${mode === m ? ' mode-pill--active' : ''}`}
+                  onClick={() => handleModeChange(m)}
+                >
+                  {m.charAt(0).toUpperCase() + m.slice(1)}
+                </button>
+              ))}
+            </div>
+            <VoiceSettings
+              ttsAvailable={voice.ttsAvailable}
+              ttsEnabled={voice.ttsEnabled}
+              speaking={voice.speaking}
+              voices={voice.voices}
+              selectedVoice={voice.selectedVoice}
+              onToggle={() => voice.setTtsEnabled(!voice.ttsEnabled)}
+              onVoiceChange={voice.setVoice}
+            />
+          </>
         )}
-        <VoiceSettings
-          ttsAvailable={voice.ttsAvailable}
-          ttsEnabled={voice.ttsEnabled}
-          speaking={voice.speaking}
-          voices={voice.voices}
-          selectedVoice={voice.selectedVoice}
-          onToggle={() => voice.setTtsEnabled(!voice.ttsEnabled)}
-          onVoiceChange={voice.setVoice}
-        />
       </header>
 
       <ChatArea
@@ -229,6 +232,7 @@ export function ChatView() {
         onPermissionRespond={handlePermission}
         scrollRef={scrollRef}
       />
+      <ScrollFab scrollRef={scrollRef} />
 
       <ChatInput
         onSend={handleSend}

@@ -78,6 +78,7 @@ export interface FinishedMessage {
   blocks: FinishedBlock[];
   images?: string[];
   contextBlocks?: string[];
+  timestamp?: number;
 }
 
 // --- Permission ---

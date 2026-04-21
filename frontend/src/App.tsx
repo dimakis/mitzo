@@ -57,7 +57,7 @@ function dismissKeyboard(e: React.MouseEvent | React.TouchEvent) {
 export function App() {
   return (
     <ErrorBoundary>
-      <div onClick={dismissKeyboard}>
+      <div onClick={dismissKeyboard} style={{ height: '100%' }}>
         <BrowserRouter>
           <MobileShell>
             <Routes>

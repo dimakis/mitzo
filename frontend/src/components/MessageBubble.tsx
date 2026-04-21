@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { FinishedMessage } from '../types/chat';
 import { linkifyFilePaths, FILE_SCHEME } from '../lib/file-paths';
+import { formatTime } from '../lib/formatTime';
 import { CopyButton } from './CopyButton';
 import { extractText } from '../lib/extractText';
 
@@ -14,30 +15,35 @@ interface UserBubbleProps {
   images?: string[];
   contextBlocks?: string[];
   onEdit?: (text: string) => void;
+  timestamp?: number;
 }
 
-export function UserBubble({ text, images, contextBlocks, onEdit }: UserBubbleProps) {
+export function UserBubble({ text, images, contextBlocks, onEdit, timestamp }: UserBubbleProps) {
+  const time = formatTime(timestamp);
   return (
-    <div
-      className={`msg-bubble msg-bubble--user${onEdit ? ' msg-bubble--editable' : ''}`}
-      onClick={() => text && onEdit?.(text)}
-      role={onEdit ? 'button' : undefined}
-      tabIndex={onEdit ? 0 : undefined}
-    >
-      {contextBlocks && contextBlocks.length > 0 && (
-        <div className="msg-bubble-context">@ {contextBlocks.join(', ')}</div>
-      )}
-      {images && images.length > 0 && (
-        <div className="msg-bubble-images">
-          {images.map((src, i) => (
-            <img key={i} src={src} alt={`Attachment ${i + 1}`} className="msg-bubble-img" />
-          ))}
-        </div>
-      )}
-      {text && <div className="msg-bubble-content">{text}</div>}
-      {text && (
-        <div className="msg-bubble-footer">
-          <CopyButton text={text} className="msg-bubble-copy" />
+    <div className="msg-bubble-group msg-bubble-group--user">
+      <div
+        className={`msg-bubble msg-bubble--user${onEdit ? ' msg-bubble--editable' : ''}`}
+        onClick={() => text && onEdit?.(text)}
+        role={onEdit ? 'button' : undefined}
+        tabIndex={onEdit ? 0 : undefined}
+      >
+        {contextBlocks && contextBlocks.length > 0 && (
+          <div className="msg-bubble-context">@ {contextBlocks.join(', ')}</div>
+        )}
+        {images && images.length > 0 && (
+          <div className="msg-bubble-images">
+            {images.map((src, i) => (
+              <img key={i} src={src} alt={`Attachment ${i + 1}`} className="msg-bubble-img" />
+            ))}
+          </div>
+        )}
+        {text && <div className="msg-bubble-content">{text}</div>}
+      </div>
+      {(time || text) && (
+        <div className="msg-bubble-footer msg-bubble-footer--user">
+          {time && <span className="msg-timestamp msg-timestamp--user">{time}</span>}
+          {text && <CopyButton text={text} className="msg-bubble-copy msg-bubble-copy--user" />}
         </div>
       )}
     </div>
@@ -47,9 +53,10 @@ export function UserBubble({ text, images, contextBlocks, onEdit }: UserBubblePr
 interface TextBubbleProps {
   content: string;
   streaming?: boolean;
+  timestamp?: number;
 }
 
-export function TextBubble({ content, streaming = false }: TextBubbleProps) {
+export function TextBubble({ content, streaming = false, timestamp }: TextBubbleProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const processed = streaming ? content : linkifyFilePaths(content);
@@ -124,6 +131,7 @@ export function TextBubble({ content, streaming = false }: TextBubbleProps) {
               {collapsed ? 'Show more' : 'Show less'}
             </button>
           )}
+          {timestamp && <span className="msg-timestamp">{formatTime(timestamp)}</span>}
           <CopyButton text={content} className="msg-bubble-copy" />
         </div>
       )}
@@ -139,8 +147,10 @@ interface MessageBubbleProps {
 export function MessageBubble({ message }: MessageBubbleProps) {
   if (message.role === 'user') {
     const textBlock = message.blocks.find((b) => b.blockType === 'text');
-    return <UserBubble text={textBlock?.content} images={message.images} />;
+    return (
+      <UserBubble text={textBlock?.content} images={message.images} timestamp={message.timestamp} />
+    );
   }
   const textBlock = message.blocks.find((b) => b.blockType === 'text');
-  return <TextBubble content={textBlock?.content || ''} />;
+  return <TextBubble content={textBlock?.content || ''} timestamp={message.timestamp} />;
 }

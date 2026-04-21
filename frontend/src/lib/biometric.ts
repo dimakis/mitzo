@@ -14,6 +14,17 @@ export async function isBiometricAvailable(): Promise<boolean> {
   }
 }
 
+/** Return a user-facing label for the device's biometric type (e.g. "Face ID", "Touch ID"). */
+export async function getBiometricLabel(): Promise<string> {
+  if (!Capacitor.isNativePlatform()) return 'Biometric';
+  try {
+    const result = await NativeBiometric.isAvailable();
+    return biometryLabel(result.biometryType);
+  } catch {
+    return 'Biometric';
+  }
+}
+
 export function biometryLabel(type: BiometryType): string {
   switch (type) {
     case BiometryType.FACE_ID:

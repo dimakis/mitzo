@@ -108,6 +108,8 @@ function v2(type: string, rest: Record<string, unknown> = {}): Record<string, un
 export interface QueryLoopOptions {
   connRegistry?: ConnectionRegistry;
   onSessionResolved?: (sessionId: string) => void;
+  /** Called after the initial prompt is registered, enabling auto-rename on prompt 1. */
+  onInitialPrompt?: (sessionId: string) => void;
 }
 
 export async function runQueryLoop(
@@ -121,6 +123,7 @@ export async function runQueryLoop(
 ) {
   const connRegistry = options?.connRegistry;
   const onSessionResolved = options?.onSessionResolved;
+  const onInitialPrompt = options?.onInitialPrompt;
   // Tool input buffers keyed by content block index (reset per message_start).
   const toolInputBuffers = new Map<
     number,
@@ -298,8 +301,18 @@ export async function runQueryLoop(
               ...(initialPrompt ? { initialPrompt } : {}),
             });
             if (initialPrompt) {
-              // Count the initial prompt for auto-rename tracking
-              store.incrementPromptCount(resolvedSessionId);
+              // Store the initial prompt as a user_message event so
+              // extractRecentPrompts() can find it for auto-rename.
+              const now = Date.now();
+              store.append(resolvedSessionId, 'user_message', {
+                v: 2,
+                type: 'user_message',
+                ts: now,
+                messageId: `umsg-${now}-init`,
+                text: initialPrompt,
+              });
+              // Trigger auto-rename — tryAutoRename handles the increment
+              onInitialPrompt?.(resolvedSessionId);
             }
           }
 

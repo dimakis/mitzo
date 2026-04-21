@@ -1,7 +1,12 @@
 import { useState, useEffect, useRef, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiFetch, getApiBaseUrl } from '../lib/api-fetch';
-import { isBiometricAvailable, biometricLogin, saveCredentials } from '../lib/biometric';
+import {
+  isBiometricAvailable,
+  getBiometricLabel,
+  biometricLogin,
+  saveCredentials,
+} from '../lib/biometric';
 import { notifySuccess } from '../lib/haptics';
 
 export function Login() {
@@ -9,6 +14,7 @@ export function Login() {
   const [error, setError] = useState('');
   const [biometricReady, setBiometricReady] = useState(false);
   const biometricAttempted = useRef(false);
+  const [bioLabel, setBioLabel] = useState('Biometric');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -16,6 +22,7 @@ export function Login() {
       setBiometricReady(available);
       if (available && !biometricAttempted.current) {
         biometricAttempted.current = true;
+        getBiometricLabel().then(setBioLabel);
         biometricLogin(getApiBaseUrl()).then((token) => {
           if (token) {
             notifySuccess();
@@ -40,6 +47,7 @@ export function Login() {
     e.preventDefault();
     setError('');
 
+    localStorage.removeItem('mitzo_auth_token');
     const res = await apiFetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -74,7 +82,7 @@ export function Login() {
         </button>
         {biometricReady && (
           <button type="button" className="btn-biometric" onClick={handleBiometric}>
-            Unlock with Face ID
+            Unlock with {bioLabel}
           </button>
         )}
         {error && <p className="error">{error}</p>}

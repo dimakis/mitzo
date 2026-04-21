@@ -110,11 +110,9 @@ function SwipeableSession({
     if (directionLocked.current === 'vertical') return;
 
     if (revealed) {
-      // When revealed, allow swiping back to close
       const offset = Math.min(0, -REVEAL_WIDTH + dx);
       ref.current.style.transform = `translateX(${offset}px)`;
     } else if (dx < 0) {
-      // Clamp drag to reveal width
       const clamped = Math.max(dx, -REVEAL_WIDTH);
       ref.current.style.transform = `translateX(${clamped}px)`;
     }

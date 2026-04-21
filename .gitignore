@@ -6,8 +6,13 @@ frontend/dist/
 *.db-shm
 *.tsbuildinfo
 .env
+frontend/.env.ios
+frontend/ios/local.xcconfig
 mcp-server/build/
 certs/
 logs/
+.DS_Store
 .claude/worktrees/
 .cursor/worktrees/
+frontend/ios/App/App.xcworkspace/
+**/xcshareddata/swiftpm/Package.resolved

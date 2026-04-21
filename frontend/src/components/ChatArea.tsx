@@ -111,6 +111,7 @@ export function ChatArea({
                 text={textBlock?.content}
                 images={msg.images}
                 contextBlocks={msg.contextBlocks}
+                timestamp={msg.timestamp}
               />
             );
           }
@@ -130,7 +131,11 @@ export function ChatArea({
                   return <ToolPill key={block.blockId} block={block} />;
                 }
                 return (
-                  <TextBubble key={block.blockId || `text-${i}`} content={block.content ?? ''} />
+                  <TextBubble
+                    key={block.blockId || `text-${i}`}
+                    content={block.content ?? ''}
+                    timestamp={msg.timestamp}
+                  />
                 );
               })}
             </div>
