@@ -16,7 +16,7 @@ import {
   reconcileSessionsBackground,
   getMessages,
   hideSession,
-  clearHiddenSessions,
+  hideAllSessions,
   renameSessionById,
   AVAILABLE_MODELS,
   BASE_REPO,
@@ -808,7 +808,7 @@ app.get('/api/sessions/:id/events', (req, res) => {
 });
 
 app.delete('/api/sessions', (_req, res) => {
-  clearHiddenSessions();
+  hideAllSessions();
   res.json({ ok: true });
 });
 

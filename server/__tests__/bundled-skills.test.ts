@@ -12,9 +12,16 @@ describe('bundled skills', () => {
   const registry = new SkillRegistry({ bundledDir: SKILLS_DIR });
   const skills = registry.list();
 
-  it('discovers all five bundled skills', () => {
+  it('discovers all six bundled skills', () => {
     const names = skills.map((s) => s.name).sort();
-    expect(names).toEqual(['person', 'pr-review', 'review-response', 'risk-scan', 'simplify']);
+    expect(names).toEqual([
+      'land-pr',
+      'person',
+      'pr-review',
+      'review-response',
+      'risk-scan',
+      'simplify',
+    ]);
   });
 
   it('has unique names', () => {
@@ -134,6 +141,31 @@ describe('bundled skills', () => {
     expect(body).toBeDefined();
     expect(body).toContain('$ARGUMENTS');
     expect(body).toContain('command_center/context/people');
+  });
+
+  it('/land-pr includes Bash for gh CLI and git access', () => {
+    const landPr = skills.find((s) => s.name === 'land-pr');
+    expect(landPr).toBeDefined();
+    expect(landPr!.allowedTools).toBeDefined();
+    expect(landPr!.allowedTools).toContain('Bash');
+    expect(landPr!.allowedTools).toContain('Read');
+    expect(landPr!.allowedTools).toContain('Grep');
+    expect(landPr!.allowedTools).toContain('Edit');
+  });
+
+  it('/land-pr is a mutating skill', () => {
+    const landPr = skills.find((s) => s.name === 'land-pr');
+    expect(landPr).toBeDefined();
+    expect(landPr!.mutating).toBe(true);
+  });
+
+  it('/land-pr body references the PR lifecycle phases', () => {
+    const body = registry.getBody('land-pr')!;
+    expect(body).toBeDefined();
+    expect(body).toContain('$ARGUMENTS');
+    expect(body.toLowerCase()).toContain('ci');
+    expect(body.toLowerCase()).toContain('review');
+    expect(body.toLowerCase()).toContain('merge');
   });
 
   it('all bundled skills are scoped as bundled', () => {

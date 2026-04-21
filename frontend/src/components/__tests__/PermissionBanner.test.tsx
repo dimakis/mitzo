@@ -66,4 +66,24 @@ describe('PermissionBanner', () => {
     });
     expect(onRespond).toHaveBeenCalledWith('p1', 'deny', 'Bash');
   });
+
+  it('renders all action buttons with correct CSS classes', () => {
+    const { container } = render(<PermissionBanner {...defaultProps} />);
+    expect(container.querySelector('.perm-banner-btn--once')).toBeTruthy();
+    expect(container.querySelector('.perm-banner-btn--always')).toBeTruthy();
+    expect(container.querySelector('.perm-banner-btn--deny')).toBeTruthy();
+  });
+
+  it('adds perm-banner--visible class after mount', () => {
+    const rafSpy = vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((cb) => {
+      cb(0);
+      return 0;
+    });
+    try {
+      const { container } = render(<PermissionBanner {...defaultProps} />);
+      expect(container.querySelector('.perm-banner--visible')).toBeTruthy();
+    } finally {
+      rafSpy.mockRestore();
+    }
+  });
 });
