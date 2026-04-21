@@ -715,7 +715,7 @@ app.get('/api/sessions/search', (req, res) => {
   try {
     const results = eventStore.searchSessions(q, limit);
     res.json({ results });
-  } catch (err) {
+  } catch (err: unknown) {
     log.error('GET /api/sessions/search failed', { error: err });
     res.status(500).json({ error: 'Search failed' });
   }

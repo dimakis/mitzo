@@ -375,6 +375,16 @@ describe('EventStore', () => {
       expect(results[0].snippet.length).toBeLessThan(longText.length);
     });
 
+    it('does not match JSON key names (no false positives)', () => {
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Test' });
+      store.append('sess-1', 'user_message', { text: 'hello world' });
+      store.append('sess-1', 'block_delta', { delta: 'some response' });
+
+      // "text" and "delta" are JSON keys in every payload — should not match
+      expect(store.searchSessions('text')).toHaveLength(0);
+      expect(store.searchSessions('delta')).toHaveLength(0);
+    });
+
     it('escapes LIKE wildcards in query', () => {
       store.upsertSession({ sessionId: 'sess-1', summary: 'Test' });
       store.upsertSession({ sessionId: 'sess-2', summary: 'Other' });

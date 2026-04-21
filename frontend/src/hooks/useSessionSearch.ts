@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import type { SessionSearchResult } from '../types/chat';
 import { apiFetch } from '../lib/api-fetch';
 
@@ -53,6 +53,13 @@ export function useSessionSearch(): UseSessionSearchReturn {
     },
     [doSearch],
   );
+
+  useEffect(() => {
+    return () => {
+      clearTimeout(timerRef.current);
+      abortRef.current?.abort();
+    };
+  }, []);
 
   const clear = useCallback(() => {
     setQueryState('');
