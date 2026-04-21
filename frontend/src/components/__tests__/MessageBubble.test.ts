@@ -27,14 +27,24 @@ vi.mock('react-router-dom', () => ({
 
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { MessageBubble, TextBubble } from '../MessageBubble';
+import { MessageBubble, TextBubble, UserBubble } from '../MessageBubble';
 import { FILE_SCHEME } from '../../lib/file-paths';
 import type { FinishedMessage } from '../../types/chat';
 
-function userMessage(text: string): FinishedMessage {
+function userMessage(text: string, timestamp?: number): FinishedMessage {
   return {
     messageId: 'test-msg',
     role: 'user',
+    timestamp,
+    blocks: [{ blockId: 'b1', blockType: 'text', content: text }],
+  };
+}
+
+function assistantMessage(text: string, timestamp?: number): FinishedMessage {
+  return {
+    messageId: 'test-msg-assistant',
+    role: 'assistant',
+    timestamp,
     blocks: [{ blockId: 'b1', blockType: 'text', content: text }],
   };
 }
@@ -124,5 +134,113 @@ describe('MessageBubble', () => {
     expect(html).toContain('href="https://example.com"');
     expect(html).toContain('target="_blank"');
     expect(html).not.toContain('file-path-link');
+  });
+});
+
+describe('UserBubble timestamp', () => {
+  it('renders timestamp when provided', () => {
+    const ts = new Date('2026-01-15T14:30:00').getTime();
+    const html = renderToStaticMarkup(createElement(UserBubble, { text: 'hello', timestamp: ts }));
+    expect(html).toContain('msg-timestamp');
+    expect(html).toContain('msg-timestamp--user');
+  });
+
+  it('omits timestamp when not provided', () => {
+    const html = renderToStaticMarkup(createElement(UserBubble, { text: 'hello' }));
+    expect(html).not.toContain('msg-timestamp');
+  });
+
+  it('wraps bubble and timestamp in a container div', () => {
+    const ts = Date.now();
+    const html = renderToStaticMarkup(createElement(UserBubble, { text: 'hello', timestamp: ts }));
+    expect(html).toContain('msg-bubble-group');
+    expect(html).toContain('msg-bubble-group--user');
+  });
+});
+
+describe('TextBubble timestamp', () => {
+  it('renders timestamp in footer when provided', () => {
+    const ts = new Date('2026-01-15T14:30:00').getTime();
+    const html = renderToStaticMarkup(
+      createElement(TextBubble, { content: 'hello', timestamp: ts }),
+    );
+    expect(html).toContain('msg-timestamp');
+    expect(html).toContain('msg-bubble-footer');
+  });
+
+  it('omits timestamp span when not provided', () => {
+    const html = renderToStaticMarkup(createElement(TextBubble, { content: 'hello' }));
+    expect(html).not.toContain('msg-timestamp');
+  });
+
+  it('hides footer during streaming', () => {
+    const ts = Date.now();
+    const html = renderToStaticMarkup(
+      createElement(TextBubble, { content: 'hello', streaming: true, timestamp: ts }),
+    );
+    expect(html).not.toContain('msg-bubble-footer');
+  });
+});
+
+describe('TextBubble collapse', () => {
+  it('does not render collapse toggle for short content', () => {
+    const html = renderToStaticMarkup(createElement(TextBubble, { content: 'short' }));
+    expect(html).not.toContain('msg-bubble-collapse-toggle');
+    expect(html).not.toContain('Show more');
+  });
+
+  it('does not add collapsed class for short content', () => {
+    const html = renderToStaticMarkup(createElement(TextBubble, { content: 'short' }));
+    expect(html).not.toContain('msg-bubble--collapsed');
+  });
+
+  it('does not render collapse toggle while streaming', () => {
+    const html = renderToStaticMarkup(
+      createElement(TextBubble, { content: 'streaming content', streaming: true }),
+    );
+    expect(html).not.toContain('msg-bubble-collapse-toggle');
+  });
+});
+
+describe('TextBubble code block CopyButton', () => {
+  it('provides a custom pre component to ReactMarkdown', () => {
+    renderToStaticMarkup(createElement(TextBubble, { content: '```\ncode\n```' }));
+    expect(capturedComponents).toBeDefined();
+    expect(capturedComponents!.pre).toBeDefined();
+  });
+
+  it('custom pre component wraps content with code-block-wrapper', () => {
+    renderToStaticMarkup(createElement(TextBubble, { content: 'test' }));
+    const pre = capturedComponents!.pre;
+    const html = renderToStaticMarkup(
+      pre({ children: createElement('code', null, 'const x = 1;') }),
+    );
+    expect(html).toContain('code-block-wrapper');
+    expect(html).toContain('code-block-copy');
+  });
+});
+
+describe('MessageBubble legacy adapter forwards timestamps', () => {
+  it('forwards timestamp to UserBubble for user messages', () => {
+    const ts = Date.now();
+    const html = renderToStaticMarkup(
+      createElement(MessageBubble, { message: userMessage('hello', ts) }),
+    );
+    expect(html).toContain('msg-timestamp');
+  });
+
+  it('forwards timestamp to TextBubble for assistant messages', () => {
+    const ts = Date.now();
+    const html = renderToStaticMarkup(
+      createElement(MessageBubble, { message: assistantMessage('hello', ts) }),
+    );
+    expect(html).toContain('msg-timestamp');
+  });
+
+  it('renders without timestamp when message has none', () => {
+    const html = renderToStaticMarkup(
+      createElement(MessageBubble, { message: userMessage('hello') }),
+    );
+    expect(html).not.toContain('msg-timestamp');
   });
 });
