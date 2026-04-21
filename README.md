@@ -135,9 +135,7 @@ Drop this in your repo root to customize the home screen, enable multi-repo sess
       "extraTools": "Bash"
     }
   ],
-  "repos": [
-    { "name": "sibling-repo", "path": "../sibling-repo" }
-  ],
+  "repos": [{ "name": "sibling-repo", "path": "../sibling-repo" }],
   "contextBlocks": {
     "Architecture": "/path/to/architecture.md"
   },
