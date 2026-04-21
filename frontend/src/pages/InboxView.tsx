@@ -4,6 +4,7 @@ import { useMitzoStore } from '@mitzo/client/hooks';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 import { apiFetch } from '../lib/api-fetch';
+import { buildInboxContext, buildInboxPrompt } from '../lib/inbox-utils';
 
 interface InboxItem {
   filename: string;
@@ -18,10 +19,12 @@ function InboxCard({
   item,
   onApprove,
   onDiscard,
+  onStartSession,
 }: {
   item: InboxItem;
   onApprove: (filename: string) => void;
   onDiscard: (filename: string) => void;
+  onStartSession: (item: InboxItem, body: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const startX = useRef(0);
@@ -153,6 +156,15 @@ function InboxCard({
               >
                 Discard
               </button>
+              <button
+                className="inbox-btn inbox-btn-session"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onStartSession(item, fullContent ?? item.preview);
+                }}
+              >
+                Start Session
+              </button>
             </div>
           </div>
         )}
@@ -167,6 +179,7 @@ export function InboxView() {
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [pendingRemovals, setPendingRemovals] = useState<Set<string>>(new Set());
+  const setPendingSession = useMitzoStore((s) => s.setPendingSession);
 
   // Sync from the store's inbox (updated via v2 WS inbox_updated events)
   const storeInbox = useMitzoStore((s) => s.inbox.items);
@@ -238,6 +251,14 @@ export function InboxView() {
       });
   }
 
+  function handleStartSession(item: InboxItem, body: string) {
+    setPendingSession({
+      prompt: buildInboxPrompt(item, body),
+      context: buildInboxContext(item, body),
+    });
+    navigate('/chat');
+  }
+
   const sources = [...new Set(items.map((i) => i.agent))].sort();
   const filtered = activeFilter ? items.filter((i) => i.agent === activeFilter) : items;
 
@@ -276,13 +297,14 @@ export function InboxView() {
         {filtered.length > 0 && <span>Swipe right to approve, left to discard</span>}
       </div>
 
-      <div className="inbox-list">
+      <div className="inbox-scroll">
         {filtered.map((item) => (
           <InboxCard
             key={item.filename}
             item={item}
             onApprove={handleApprove}
             onDiscard={handleDiscard}
+            onStartSession={handleStartSession}
           />
         ))}
       </div>

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { MitzoLogo } from './MitzoLogo';
 
 interface PageHeaderProps {
   title: string;
@@ -8,14 +9,10 @@ interface PageHeaderProps {
   children?: ReactNode;
 }
 
-export function PageHeader({ title, onBack, badge, center, children }: PageHeaderProps) {
+export function PageHeader({ title, onBack: _onBack, badge, center, children }: PageHeaderProps) {
   return (
     <header className="page-header">
-      {onBack && (
-        <button className="page-header-back" onClick={onBack} title="Back">
-          {'\u2039'}
-        </button>
-      )}
+      <MitzoLogo />
       {center ? (
         <div className="page-header-center">{center}</div>
       ) : (
