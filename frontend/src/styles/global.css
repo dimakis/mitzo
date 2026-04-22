@@ -476,6 +476,132 @@ textarea:focus {
   color: var(--text);
 }
 
+/* Session search */
+.session-search-toggle {
+  font-size: 1.1rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  line-height: 1;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.session-search-toggle:active {
+  color: var(--text);
+}
+
+.session-search-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  position: relative;
+}
+
+.session-search-input {
+  font-size: var(--text-sm);
+  padding: 0.35rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  outline: none;
+  width: 140px;
+}
+
+.session-search-input:focus {
+  border-color: var(--accent);
+}
+
+.session-search-close {
+  font-size: var(--text-sm);
+  padding: 0.3rem 0.45rem;
+  border-radius: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  line-height: 1;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.session-search-close:active {
+  color: var(--text);
+}
+
+.session-search-results {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  min-width: 320px;
+  margin-top: var(--space-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  max-height: 320px;
+  overflow-y: auto;
+  z-index: 50;
+  box-shadow: var(--shadow);
+  -webkit-overflow-scrolling: touch;
+}
+
+.session-search-status {
+  padding: var(--space-3);
+  text-align: center;
+  color: var(--text-dim);
+  font-size: var(--text-sm);
+}
+
+.session-search-result {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: var(--space-3);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.session-search-result:last-child {
+  border-bottom: none;
+}
+
+.session-search-result:active {
+  background: var(--active);
+}
+
+.session-search-result-summary {
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.session-search-result-snippet {
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-search-result-meta {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: 2px;
+}
+
+.session-search-result-time {
+  font-size: var(--text-2xs);
+  color: var(--text-dim);
+}
+
 .hero-chat-btn {
   width: 100%;
   padding: var(--space-3);

@@ -43,6 +43,7 @@ import {
   stopChat,
   isActive,
   reattachChat,
+  rekeyChat,
   BASE_REPO,
   discoverSession,
 } from './chat.js';
@@ -166,10 +167,24 @@ export function handleReconnect(
           const conn = ctx.connRegistry.get(connectionId);
           if (conn) {
             reattachChat(found.clientId, conn.transport);
+            // Transfer ownership: rekey the session so subsequent sends
+            // from this connection pass the ownership check. Without this,
+            // getOwnerConnection() still returns the dead connection's ID
+            // and handleSendV2 rejects with active_elsewhere.
+            const newClientId = `${connectionId}:${entry.sessionId}`;
+            if (found.clientId !== newClientId) {
+              rekeyChat(found.clientId, newClientId);
+              log.info('rekeyed session to new connection', {
+                connectionId,
+                sessionId: entry.sessionId,
+                oldClientId: found.clientId,
+                newClientId,
+              });
+            }
             log.info('reattached detached session on reconnect', {
               connectionId,
               sessionId: entry.sessionId,
-              clientId: found.clientId,
+              clientId: newClientId,
               ownerGone,
             });
           }
@@ -413,16 +428,30 @@ export function handleSendV2(
           // Reattach if session was detached by a previous WS disconnect.
           // This updates the session's transport to the current connection
           // so the v1 fallback path in sendOrBuffer can still deliver events.
+          let activeClientId = found.clientId;
           if (isDetached) {
             reattachChat(found.clientId, transport);
+            // Transfer ownership so subsequent sends from this connection
+            // pass the ownership check without hitting active_elsewhere.
+            const newClientId = `${connectionId}:${sessionId}`;
+            if (found.clientId !== newClientId) {
+              rekeyChat(found.clientId, newClientId);
+              activeClientId = newClientId;
+              log.info('rekeyed session to new connection on send', {
+                connectionId,
+                sessionId,
+                oldClientId: found.clientId,
+                newClientId,
+              });
+            }
             log.info('reattached detached session on send', {
               connectionId,
               sessionId,
-              clientId: found.clientId,
+              clientId: activeClientId,
             });
           }
-          applySkillPolicy(found.clientId);
-          sendToChat(found.clientId, prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
+          applySkillPolicy(activeClientId);
+          sendToChat(activeClientId, prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
           ctx.connRegistry.watch(connectionId, sessionId);
           ctx.connRegistry.setActive(connectionId, sessionId);
           span.setAttribute('routing.decision', isDetached ? 'takeover' : 'active');
@@ -506,17 +535,21 @@ export function handleInterruptV2(
   const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
   if (!found) return;
 
+  let activeClientId = found.clientId;
+
   // Ownership guard: reject if another connection actively drives this session
   if (isActive(found.clientId)) {
     // Cross-reference with durable EventStore to catch stale in-memory state.
     const storeMeta = ctx.eventStore.getSession(msg.sessionId);
-    if (storeMeta && !storeMeta.isActive) {
+    const staleInMemory = storeMeta && !storeMeta.isActive;
+
+    if (staleInMemory) {
       log.info('corrected stale running state from EventStore (interrupt)', {
         connectionId,
         sessionId: msg.sessionId,
         clientId: found.clientId,
       });
-      // Session is not truly active — skip ownership guard.
+      // Session is not truly active — fall through to resume path below.
     } else {
       const ownerConnection = getOwnerConnection(found.clientId);
       const isOwner = ownerConnection === connectionId;
@@ -531,13 +564,42 @@ export function handleInterruptV2(
         });
         return;
       }
+
+      // Transfer ownership if session was detached and we're reclaiming it
+      if (isDetached) {
+        reattachChat(found.clientId, transport);
+        const newClientId = `${connectionId}:${msg.sessionId}`;
+        if (found.clientId !== newClientId) {
+          rekeyChat(found.clientId, newClientId);
+          activeClientId = newClientId;
+          log.info('rekeyed session to new connection on interrupt', {
+            connectionId,
+            sessionId: msg.sessionId,
+            newClientId,
+          });
+        }
+      }
+
+      // Session is live and we own it — interrupt in place.
+      ctx.connRegistry.watch(connectionId, msg.sessionId);
+      ctx.connRegistry.setActive(connectionId, msg.sessionId);
+      interruptChat(activeClientId, msg.prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
+      log.info('interrupt', { connectionId, sessionId: msg.sessionId });
+      return;
     }
   }
 
+  // Session is either idle or stale — resume with a fresh driver.
+  const sessionClientId = `${connectionId}:${msg.sessionId}`;
   ctx.connRegistry.watch(connectionId, msg.sessionId);
   ctx.connRegistry.setActive(connectionId, msg.sessionId);
-  interruptChat(found.clientId, msg.prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
-  log.info('interrupt', { connectionId, sessionId: msg.sessionId });
+  startChat(transport, sessionClientId, msg.prompt, {
+    resume: msg.sessionId,
+    images: msg.images,
+    contextBlocks: msg.contextBlocks,
+    clientMsgId: msg.clientMsgId,
+  });
+  log.info('interrupt_resume', { connectionId, sessionId: msg.sessionId });
 }
 
 export function handlePermissionResponseV2(

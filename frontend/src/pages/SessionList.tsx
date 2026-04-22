@@ -11,6 +11,8 @@ import { useSessionList } from '../hooks/useSessionList';
 import type { QuickAction } from '../hooks/useSessionList';
 import { formatTokens } from '../lib/formatTokens';
 import { BriefingCard } from '../components/BriefingCard';
+import { SessionSearchBar } from '../components/SessionSearchBar';
+import { useSessionSearch } from '../hooks/useSessionSearch';
 
 function SwipeableSession({
   session,
@@ -225,6 +227,7 @@ export function SessionList() {
     checkForUpdates,
     loadMore,
   } = useSessionList();
+  const search = useSessionSearch();
 
   const [quickOpen, setQuickOpen] = useState(
     () => localStorage.getItem('mitzo:quickActionsOpen') !== 'false',
@@ -260,6 +263,18 @@ export function SessionList() {
           <h1>Mitzo</h1>
         </div>
         <div className="session-list-header-actions">
+          <SessionSearchBar
+            query={search.query}
+            setQuery={search.setQuery}
+            results={search.results}
+            searching={search.searching}
+            active={search.active}
+            clear={search.clear}
+            onSelectSession={(id) => {
+              selectionChanged();
+              navigate(`/chat/${id}`);
+            }}
+          />
           <button
             className="check-update-btn"
             onClick={checkForUpdates}
