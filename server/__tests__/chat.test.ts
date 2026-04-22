@@ -256,3 +256,43 @@ describe('isIsolationEnabled', () => {
     expect(isIsolationEnabled(undefined)).toBe(true);
   });
 });
+
+describe('validateResumable', () => {
+  it('returns valid for a CWD that passes git check', async () => {
+    const { validateResumable } = await import('../chat.js');
+    const result = validateResumable('/some/cwd', 'sess-1', {
+      isGitDir: () => true,
+      recreateWorktree: () => '',
+    });
+    expect(result).toEqual({ valid: true });
+  });
+
+  it('returns valid with recreated flag when worktree is rebuilt', async () => {
+    const { validateResumable } = await import('../chat.js');
+    const result = validateResumable('/repo/.claude/worktrees/2026-04-22-abc123', 'sess-1', {
+      isGitDir: () => false,
+      recreateWorktree: () => '/repo/.claude/worktrees/2026-04-22-abc123',
+    });
+    expect(result).toEqual({ valid: true, recreated: true });
+  });
+
+  it('returns invalid when CWD is not a git dir and not a worktree path', async () => {
+    const { validateResumable } = await import('../chat.js');
+    const result = validateResumable('/some/random/path', 'sess-1', {
+      isGitDir: () => false,
+      recreateWorktree: () => '',
+    });
+    expect(result).toEqual({ valid: false });
+  });
+
+  it('returns invalid when worktree recreation fails', async () => {
+    const { validateResumable } = await import('../chat.js');
+    const result = validateResumable('/repo/.claude/worktrees/2026-04-22-abc123', 'sess-1', {
+      isGitDir: () => false,
+      recreateWorktree: () => {
+        throw new Error('git failed');
+      },
+    });
+    expect(result).toEqual({ valid: false });
+  });
+});
