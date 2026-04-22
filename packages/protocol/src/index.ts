@@ -19,6 +19,9 @@ export type {
   SessionMeta,
   SessionSearchResult,
   EventStoreLogger,
+  ProgressItemStatus,
+  ProgressItem,
+  ProgressBlock,
 } from './types.js';
 
 // Constants

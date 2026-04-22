@@ -29,6 +29,8 @@ export type { TodosState, TodoItem, TodoSource, TodoContextHints } from './slice
 export type { ConfigState, ContextBlockEntry, SkillMetadata } from './slices/config.js';
 export type { TokensState } from './slices/tokens.js';
 export { INITIAL_TOKENS_STATE, DEFAULT_CONTEXT_CEILING } from './slices/tokens.js';
+export type { ProgressState, ProgressUpdate } from './slices/progress.js';
+export { INITIAL_PROGRESS_STATE, applyProgressUpdate } from './slices/progress.js';
 
 // Protocol parser
 export { parseServerMessage } from './protocol-parser.js';

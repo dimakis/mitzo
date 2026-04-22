@@ -161,3 +161,19 @@ export interface SessionMeta {
   createdAt: number;
   updatedAt: number;
 }
+
+// --- Progress tracking (in-session agent progress) ---
+
+export type ProgressItemStatus = 'pending' | 'in_progress' | 'done';
+
+export interface ProgressItem {
+  id: string;
+  title: string;
+  status: ProgressItemStatus;
+}
+
+export interface ProgressBlock {
+  progressId: string;
+  items: ProgressItem[];
+  sourceToolId?: string;
+}

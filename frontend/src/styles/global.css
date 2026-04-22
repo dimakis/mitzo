@@ -2167,6 +2167,150 @@ textarea:focus {
   flex-shrink: 0;
 }
 
+/* ===== Progress Widget ===== */
+
+.progress-widget {
+  align-self: flex-start;
+  width: 100%;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.progress-widget-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.6rem;
+  width: 100%;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  color: var(--text-dim);
+  font-size: var(--text-xs);
+  font-family: inherit;
+  min-width: 0;
+}
+
+.progress-widget-header:active {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.progress-widget-bar {
+  width: 40px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.progress-widget-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--success);
+  transition: width 0.3s ease;
+}
+
+.progress-widget-count {
+  font-weight: 600;
+  color: var(--text);
+  font-size: var(--text-xxs);
+  flex-shrink: 0;
+}
+
+.progress-widget-active {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-dim);
+  font-size: var(--text-xxs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.progress-widget-active--done {
+  color: var(--success);
+}
+
+.progress-widget-pulse {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  flex-shrink: 0;
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+.progress-widget-chevron {
+  color: var(--text-dim);
+  font-size: 0.6rem;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.progress-widget-list {
+  padding: 0 0.6rem 0.45rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.progress-widget-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: var(--text-xxs);
+  color: var(--text);
+}
+
+.progress-widget-item--done {
+  opacity: 0.5;
+}
+
+.progress-widget-item--done .progress-widget-title {
+  text-decoration: line-through;
+}
+
+.progress-widget-icon {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  width: 1rem;
+  text-align: center;
+}
+
+.progress-widget-item--done .progress-widget-icon {
+  color: var(--success);
+}
+
+.progress-widget-item--active .progress-widget-icon {
+  color: var(--text);
+}
+
+.progress-widget-icon--pulse {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+.progress-widget-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress-widget--done .progress-widget-header {
+  opacity: 0.6;
+}
+
+.progress-widget--done:hover .progress-widget-header,
+.progress-widget--done:active .progress-widget-header {
+  opacity: 1;
+}
+
 /* ===== Permission Banner ===== */
 
 .perm-banner {

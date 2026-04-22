@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { apiFetch } from '../lib/api-fetch';
 import { DesktopShell } from '../components/DesktopShell';
@@ -67,6 +67,17 @@ export function DesktopChatView() {
   const storeSetModel = useMitzoStore((s) => s.setModel);
   const storeDispatchMessages = useMitzoStore((s) => s.dispatchMessages);
   const storeFetchSessionMeta = useMitzoStore((s) => s.fetchSessionMeta);
+  const progressToolIndex = useMitzoStore((s) => s.progress.toolIndex);
+  const progressBlocks = useMitzoStore((s) => s.progress.blocks);
+
+  const progressByToolId = useMemo(() => {
+    const map: Record<string, (typeof progressBlocks)[string]> = {};
+    for (const [toolId, progressId] of Object.entries(progressToolIndex)) {
+      const block = progressBlocks[progressId];
+      if (block) map[toolId] = block;
+    }
+    return map;
+  }, [progressToolIndex, progressBlocks]);
 
   const connected = connection.status === 'connected';
 
@@ -271,6 +282,7 @@ export function DesktopChatView() {
             permission={messages.permission}
             onPermissionRespond={handlePermission}
             scrollRef={scrollRef}
+            progressByToolId={progressByToolId}
           />
           <ScrollFab scrollRef={scrollRef} />
           <ChatInput
