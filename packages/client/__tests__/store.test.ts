@@ -753,6 +753,38 @@ describe('session isolation via sessionId filtering', () => {
 
     expect(store.getState().tasks.tree).toHaveLength(1);
   });
+
+  it('drops session_end when no active session (null-session filter)', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('old-session');
+    store.getState().dispatchMessages({ type: 'SET_RUNNING', running: true });
+
+    store.getState().newSession();
+
+    lastWs.simulateMessage({
+      type: 'session_end',
+      sessionId: 'old-session',
+    });
+
+    // running should still be false from newSession reset, not from session_end
+    // The session_end event should have been dropped by the tightened filter
+    expect(store.getState().messages.running).toBe(false);
+  });
+
+  it('drops permission_request when no active session (null-session filter)', async () => {
+    const store = createReadyStore();
+
+    lastWs.simulateMessage({
+      type: 'permission_request',
+      permId: 'p1',
+      toolName: 'Write',
+      toolInput: {},
+      sessionId: 'foreign-session',
+    });
+
+    // No permission should be stored since we have no active session
+    expect(store.getState().messages.permission).toBeNull();
+  });
 });
 
 describe('setMode', () => {

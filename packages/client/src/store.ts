@@ -196,6 +196,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     async switchSession(id: string) {
+      const oldId = parserState.currentSessionId;
+      if (oldId) connection.clearSession(oldId);
       parserState.currentSessionId = id;
 
       set((s) => ({
@@ -221,6 +223,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     newSession() {
+      for (const sid of connection.getTrackedSessions()) {
+        connection.clearSession(sid);
+      }
       parserState.currentSessionId = undefined;
       parserState.pendingSend = null;
       clearPendingSendTimer();
@@ -645,15 +650,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       if (parserState.currentSessionId) {
         if (eventSessionId !== parserState.currentSessionId) return;
       } else {
-        // Allow session assignment, session end, and permission requests through
-        // before session_id arrives. Permission requests can arrive for brand-new
-        // sessions before the session_id event — dropping them blocks the user
-        // from answering tool prompts.
-        const isEarlySessionEvent =
-          msg.type === 'session_id' ||
-          msg.type === 'session_end' ||
-          msg.type === 'permission_request';
-        if (!isEarlySessionEvent) return;
+        // Only allow session_id through when no active session — this is the
+        // assignment event for a newly started session. All other session-scoped
+        // events (session_end, permission_request) are dropped to prevent
+        // foreign session bleed during the window between newSession() and
+        // receiving the new session_id.
+        if (msg.type !== 'session_id') return;
       }
     }
 

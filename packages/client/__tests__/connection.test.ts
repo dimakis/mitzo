@@ -373,4 +373,42 @@ describe('MitzoConnection', () => {
       vi.useRealTimers();
     });
   });
+
+  describe('getTrackedSessions', () => {
+    it('returns all session IDs tracked via seq numbers', () => {
+      const conn = createConnection();
+      openWithHandshake(conn);
+      const ws = lastWs!;
+
+      ws.simulateMessage({ type: 'message_start', sessionId: 'sess-a', seq: 1, messageId: 'm1' });
+      ws.simulateMessage({ type: 'message_start', sessionId: 'sess-b', seq: 2, messageId: 'm2' });
+
+      const tracked = conn.getTrackedSessions();
+      expect(tracked).toContain('sess-a');
+      expect(tracked).toContain('sess-b');
+      expect(tracked).toHaveLength(2);
+    });
+
+    it('returns empty array when no sessions tracked', () => {
+      const conn = createConnection();
+      openWithHandshake(conn);
+      expect(conn.getTrackedSessions()).toHaveLength(0);
+    });
+
+    it('excludes cleared sessions', () => {
+      const conn = createConnection();
+      openWithHandshake(conn);
+      const ws = lastWs!;
+
+      ws.simulateMessage({ type: 'message_start', sessionId: 'sess-a', seq: 1, messageId: 'm1' });
+      ws.simulateMessage({ type: 'message_start', sessionId: 'sess-b', seq: 2, messageId: 'm2' });
+
+      conn.clearSession('sess-a');
+
+      const tracked = conn.getTrackedSessions();
+      expect(tracked).toContain('sess-b');
+      expect(tracked).not.toContain('sess-a');
+      expect(tracked).toHaveLength(1);
+    });
+  });
 });

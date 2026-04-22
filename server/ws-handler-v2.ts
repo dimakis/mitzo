@@ -290,6 +290,10 @@ export async function handleSwitchSession(
       return;
     }
 
+    const prev = ctx.connRegistry.get(connectionId)?.activeSession;
+    if (prev && prev !== msg.sessionId) {
+      ctx.connRegistry.unwatch(connectionId, prev);
+    }
     ctx.connRegistry.setActive(connectionId, msg.sessionId);
 
     // Synchronous metadata delivery — design doc §2.2 "no zero-flash"

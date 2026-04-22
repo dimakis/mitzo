@@ -106,6 +106,10 @@ export class MitzoConnection {
     this.seqBySession.delete(sessionId);
   }
 
+  getTrackedSessions(): string[] {
+    return Array.from(this.seqBySession.keys());
+  }
+
   // ─── Internal ──────────────────────────────────────────────────────────────
 
   /**

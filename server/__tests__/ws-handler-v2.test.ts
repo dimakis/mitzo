@@ -1461,6 +1461,53 @@ describe('handleSwitchSession unwatch on clear', () => {
     expect(conn.watchedSessions.has('sess-a')).toBe(false);
     expect(conn.watchedSessions.has('sess-b')).toBe(true);
   });
+
+  it('unwatches the previous active session when switching to a different session', async () => {
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({
+      sessionId: 'sess-new',
+      isActive: false,
+      mode: 'agent',
+      cwd: '/tmp',
+    });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    ctx.connRegistry.watch('c1', 'sess-old');
+    ctx.connRegistry.setActive('c1', 'sess-old');
+
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'sess-new' }, ctx);
+
+    const conn = ctx.connRegistry.get('c1')!;
+    expect(conn.watchedSessions.has('sess-old')).toBe(false);
+    expect(conn.watchedSessions.has('sess-new')).toBe(true);
+    expect(conn.activeSession).toBe('sess-new');
+  });
+
+  it('does not unwatch when switching to the same session', async () => {
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({
+      sessionId: 'sess-a',
+      isActive: false,
+      mode: 'agent',
+      cwd: '/tmp',
+    });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    ctx.connRegistry.watch('c1', 'sess-a');
+    ctx.connRegistry.setActive('c1', 'sess-a');
+
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'sess-a' }, ctx);
+
+    const conn = ctx.connRegistry.get('c1')!;
+    expect(conn.watchedSessions.has('sess-a')).toBe(true);
+    expect(conn.activeSession).toBe('sess-a');
+  });
 });
 
 // ─── handleSendV2 — connection ownership ─────────────────────────────────────
