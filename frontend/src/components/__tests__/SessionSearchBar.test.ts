@@ -76,12 +76,14 @@ describe('SessionSearchBar', () => {
     expect(screen.getByText('...looking at the auth middleware...')).toBeTruthy();
   });
 
-  it('calls onSelectSession when result is clicked', async () => {
+  it('calls onSelectSession and clear when result is clicked', async () => {
     const onSelectSession = vi.fn();
+    const clear = vi.fn();
     const user = userEvent.setup();
-    renderBar({ active: true, query: 'auth', results: mockResults, onSelectSession });
+    renderBar({ active: true, query: 'auth', results: mockResults, onSelectSession, clear });
     await user.click(screen.getByText('Fix auth bug'));
     expect(onSelectSession).toHaveBeenCalledWith('abc123');
+    expect(clear).toHaveBeenCalled();
   });
 
   it('shows searching indicator', () => {
@@ -94,11 +96,23 @@ describe('SessionSearchBar', () => {
     expect(screen.getByText('No matches')).toBeTruthy();
   });
 
-  it('calls clear and hides input on close', async () => {
+  it('calls clear on close', async () => {
     const clear = vi.fn();
     const user = userEvent.setup();
     renderBar({ active: true, query: 'auth', results: mockResults, clear });
     await user.click(screen.getByTitle('Close search'));
     expect(clear).toHaveBeenCalled();
+  });
+
+  it('reverts to toggle button when closed with no active query', async () => {
+    const user = userEvent.setup();
+    renderBar();
+    // Open
+    await user.click(screen.getByTitle('Search sessions'));
+    expect(screen.getByPlaceholderText('Search sessions...')).toBeTruthy();
+    // Close (active=false, so visible becomes false)
+    await user.click(screen.getByTitle('Close search'));
+    expect(screen.queryByPlaceholderText('Search sessions...')).toBeNull();
+    expect(screen.getByTitle('Search sessions')).toBeTruthy();
   });
 });
