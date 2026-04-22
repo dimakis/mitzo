@@ -100,5 +100,6 @@ describe('SessionSearchBar', () => {
     renderBar({ active: true, query: 'auth', results: mockResults, clear });
     await user.click(screen.getByTitle('Close search'));
     expect(clear).toHaveBeenCalled();
+    expect(screen.queryByPlaceholderText('Search sessions...')).toBeNull();
   });
 });
