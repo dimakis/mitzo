@@ -850,6 +850,9 @@ export function detachChat(clientId: string) {
 export function reattachChat(clientId: string, transport: SessionTransport): boolean {
   return registry.reattach(clientId, transport);
 }
+export function rekeyChat(oldClientId: string, newClientId: string): boolean {
+  return registry.rekey(oldClientId, newClientId);
+}
 export function isActive(clientId: string): boolean {
   return registry.isActive(clientId);
 }

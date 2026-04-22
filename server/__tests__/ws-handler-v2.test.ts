@@ -9,6 +9,7 @@ vi.mock('../chat.js', () => ({
   stopChat: vi.fn(),
   isActive: vi.fn().mockReturnValue(false),
   reattachChat: vi.fn().mockReturnValue(true),
+  rekeyChat: vi.fn().mockReturnValue(true),
   BASE_REPO: '/tmp/test-repo',
   discoverSession: vi.fn().mockResolvedValue(null),
 }));
@@ -35,6 +36,7 @@ import {
   stopChat,
   isActive,
   reattachChat,
+  rekeyChat,
   discoverSession,
 } from '../chat.js';
 import { setSkillPolicy, clearSkillPolicy } from '../skill-policy.js';
@@ -1896,5 +1898,142 @@ describe('handleInterruptV2 connection ownership', () => {
     expect(transport.sent).not.toContainEqual(
       expect.objectContaining({ code: 'active_elsewhere' }),
     );
+  });
+});
+
+// ─── rekey after reattach — ownership transfer ────────────────────────────────
+
+describe('handleReconnect rekey after reattach', () => {
+  it('rekeys session to new connection after reattach so subsequent sends pass ownership', () => {
+    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
+    (rekeyChat as ReturnType<typeof vi.fn>).mockClear();
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-conn:sess-1' });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(false); // detached
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('new-conn', transport);
+    // old-conn is NOT registered — it disconnected
+
+    handleReconnect(
+      'new-conn',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
+      ctx,
+    );
+
+    expect(reattachChat).toHaveBeenCalledWith('old-conn:sess-1', transport);
+    expect(rekeyChat).toHaveBeenCalledWith('old-conn:sess-1', 'new-conn:sess-1');
+  });
+
+  it('skips rekey when connectionId already matches (same connection reconnects)', () => {
+    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
+    (rekeyChat as ReturnType<typeof vi.fn>).mockClear();
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-1' });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(false);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleReconnect(
+      'c1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
+      ctx,
+    );
+
+    expect(reattachChat).toHaveBeenCalled();
+    expect(rekeyChat).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleSendV2 rekey after detached reattach', () => {
+  it('rekeys and uses new clientId for sendToChat when taking over detached session', () => {
+    (sendToChat as ReturnType<typeof vi.fn>).mockClear();
+    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
+    (rekeyChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'dead-conn:sess-1', session: {} });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(false); // detached
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('new-conn', transport);
+
+    handleSendV2(
+      'new-conn',
+      transport,
+      { type: 'send' as const, sessionId: 'sess-1', prompt: 'hello', clientMsgId: 'cmsg-rk' },
+      ctx,
+    );
+
+    expect(reattachChat).toHaveBeenCalledWith('dead-conn:sess-1', transport);
+    expect(rekeyChat).toHaveBeenCalledWith('dead-conn:sess-1', 'new-conn:sess-1');
+    // sendToChat must use the NEW clientId, not the old one
+    expect(sendToChat).toHaveBeenCalledWith(
+      'new-conn:sess-1',
+      'hello',
+      undefined,
+      undefined,
+      'cmsg-rk',
+    );
+    expect(transport.sent).not.toContainEqual(
+      expect.objectContaining({ code: 'active_elsewhere' }),
+    );
+
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  });
+});
+
+describe('handleInterruptV2 rekey after detached reattach', () => {
+  it('rekeys and uses new clientId for interruptChat when taking over detached session', () => {
+    (interruptChat as ReturnType<typeof vi.fn>).mockClear();
+    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
+    (rekeyChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'dead-conn:sess-1', session: {} });
+    sessionReg.isAttached.mockReturnValue(false); // detached
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('new-conn', transport);
+
+    handleInterruptV2(
+      'new-conn',
+      transport,
+      { type: 'interrupt', sessionId: 'sess-1', prompt: 'redirect', clientMsgId: 'i-rk' },
+      ctx,
+    );
+
+    expect(reattachChat).toHaveBeenCalledWith('dead-conn:sess-1', transport);
+    expect(rekeyChat).toHaveBeenCalledWith('dead-conn:sess-1', 'new-conn:sess-1');
+    // interruptChat must use the NEW clientId
+    expect(interruptChat).toHaveBeenCalledWith(
+      'new-conn:sess-1',
+      'redirect',
+      undefined,
+      undefined,
+      'i-rk',
+    );
+
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 });
