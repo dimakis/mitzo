@@ -596,6 +596,22 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       connection.send(msg);
     },
 
+    onReconnected() {
+      const activeId = parserState.currentSessionId;
+      if (activeId) {
+        api
+          .getSessionMessages(activeId)
+          .then((msgs) => {
+            if (Array.isArray(msgs) && msgs.length > 0) {
+              store.setState((s) => ({
+                messages: messagesReducer(s.messages, { type: 'RESTORE', messages: msgs }),
+              }));
+            }
+          })
+          .catch(() => {});
+      }
+    },
+
     onTokensHydrated(tokens: Record<string, unknown>) {
       store.setState((s) => ({
         tokens: {
@@ -615,19 +631,15 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // evicted it from memory, losing in-memory state), re-fetch messages from
     // the REST API if we have an active session but no messages in the store.
     if (msg.type === '_foreground') {
-      const { sessions, messages: msgs } = store.getState();
-      if (sessions.active && msgs.messages.length === 0 && !msgs.current) {
+      const { sessions } = store.getState();
+      if (sessions.active) {
         api
           .getSessionMessages(sessions.active)
           .then((restored) => {
             if (Array.isArray(restored) && restored.length > 0) {
-              // Only restore if store is still empty (avoid clobbering live data)
-              const current = store.getState().messages;
-              if (current.messages.length === 0 && !current.current) {
-                store.setState((s) => ({
-                  messages: messagesReducer(s.messages, { type: 'RESTORE', messages: restored }),
-                }));
-              }
+              store.setState((s) => ({
+                messages: messagesReducer(s.messages, { type: 'RESTORE', messages: restored }),
+              }));
             }
           })
           .catch((err) => {

@@ -342,7 +342,7 @@ describe('permission events', () => {
 // ─── Error handling ──────────────────────────────────────────────────────────
 
 describe('error handling', () => {
-  it('error with "No conversation found" calls onSessionExpired', () => {
+  it('error with "No conversation found" shows error without calling onSessionExpired', () => {
     const cb = makeCallbacks();
     const r = parseServerMessage(
       { type: 'error', error: 'No conversation found' },
@@ -350,10 +350,10 @@ describe('error handling', () => {
       cb,
       POOL_KEY,
     );
-    expect(cb.onSessionExpired).toHaveBeenCalledWith('expired-sid');
+    expect(cb.onSessionExpired).not.toHaveBeenCalled();
     expect(r.messagesActions[0]).toMatchObject({
       type: 'ERROR',
-      error: 'Session expired. Send your message again to start fresh.',
+      error: 'No conversation found',
     });
     expect(cb.setWsRunning).toHaveBeenCalledWith(POOL_KEY, false);
   });
@@ -579,5 +579,51 @@ describe('misc', () => {
       POOL_KEY,
     );
     expect(r.messagesActions).toHaveLength(0);
+  });
+});
+
+// ─── session_takeover ────────────────────────────────────────────────────────
+
+describe('session_takeover', () => {
+  it('produces SET_RUNNING false and ERROR message', () => {
+    const cb = makeCallbacks();
+    const r = parseServerMessage(
+      { type: 'session_takeover', sessionId: 'sess-1' },
+      makeState({ currentSessionId: 'sess-1' }),
+      cb,
+      POOL_KEY,
+    );
+    expect(r.messagesActions).toContainEqual({ type: 'SET_RUNNING', running: false });
+    expect(r.messagesActions).toContainEqual(
+      expect.objectContaining({ type: 'ERROR', error: expect.stringContaining('another device') }),
+    );
+  });
+});
+
+// ─── reconnected callback ────────────────────────────────────────────────────
+
+describe('reconnected', () => {
+  it('calls onReconnected callback', () => {
+    const onReconnected = vi.fn();
+    const cb = makeCallbacks({ onReconnected });
+    parseServerMessage({ type: 'reconnected', sessions: [] }, makeState(), cb, POOL_KEY);
+    expect(onReconnected).toHaveBeenCalled();
+  });
+});
+
+// ─── error handling (session expired) ────────────────────────────────────────
+
+describe('error with No conversation found', () => {
+  it('does not call onSessionExpired — shows recoverable error instead', () => {
+    const cb = makeCallbacks();
+    const state = makeState({ currentSessionId: 'sess-1' });
+    const r = parseServerMessage(
+      { type: 'error', error: 'No conversation found for session' },
+      state,
+      cb,
+      POOL_KEY,
+    );
+    expect(cb.onSessionExpired).not.toHaveBeenCalled();
+    expect(r.messagesActions).toContainEqual(expect.objectContaining({ type: 'ERROR' }));
   });
 });
