@@ -678,8 +678,11 @@ export async function startChat(
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     if (message.includes('No conversation found') && options.resume) {
-      log.warn('SDK rejected resume, retrying without resume', { sessionId: options.resume, cwd });
-      send(transport, { type: 'error', error: 'Session expired. Starting fresh.' });
+      log.warn('SDK rejected resume, session expired', { sessionId: options.resume, cwd });
+      send(transport, {
+        type: 'error',
+        error: 'Session expired. Send your message again to start fresh.',
+      });
     } else {
       log.error('startChat failed after register, cleaning up', { clientId, error: message });
       send(transport, { type: 'error', error: message });

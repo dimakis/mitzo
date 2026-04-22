@@ -166,6 +166,30 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     pendingSend: null,
   };
 
+  let recoveryInFlight = false;
+
+  function fetchAndRestoreMessages(sessionId: string) {
+    if (recoveryInFlight) return;
+    recoveryInFlight = true;
+    api
+      .getSessionMessages(sessionId)
+      .then((msgs) => {
+        if (Array.isArray(msgs) && msgs.length > 0) {
+          store.setState((s) => ({
+            messages: messagesReducer(s.messages, { type: 'RESTORE', messages: msgs }),
+          }));
+        }
+      })
+      .catch((err) => {
+        if (typeof console !== 'undefined') {
+          console.warn('[mitzo] message recovery fetch failed', err);
+        }
+      })
+      .finally(() => {
+        recoveryInFlight = false;
+      });
+  }
+
   function clearPendingSendTimer() {
     if (parserState.pendingSendTimer) {
       clearTimeout(parserState.pendingSendTimer);
@@ -560,13 +584,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     onSessionExpired() {
-      parserState.currentSessionId = undefined;
-      parserState.pendingSend = null;
-      clearPendingSendTimer();
-      store.setState((s) => ({
-        sessions: { ...s.sessions, active: null },
-        messages: INITIAL_MESSAGES_STATE,
-      }));
+      // No-op: server-side resume validation handles expired sessions now.
+      // Kept to satisfy ProtocolCallbacks interface.
     },
 
     onSessionRenamed(name: string) {
@@ -598,18 +617,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     onReconnected() {
       const activeId = parserState.currentSessionId;
-      if (activeId) {
-        api
-          .getSessionMessages(activeId)
-          .then((msgs) => {
-            if (Array.isArray(msgs) && msgs.length > 0) {
-              store.setState((s) => ({
-                messages: messagesReducer(s.messages, { type: 'RESTORE', messages: msgs }),
-              }));
-            }
-          })
-          .catch(() => {});
-      }
+      if (activeId) fetchAndRestoreMessages(activeId);
     },
 
     onTokensHydrated(tokens: Record<string, unknown>) {
@@ -632,22 +640,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // the REST API if we have an active session but no messages in the store.
     if (msg.type === '_foreground') {
       const { sessions } = store.getState();
-      if (sessions.active) {
-        api
-          .getSessionMessages(sessions.active)
-          .then((restored) => {
-            if (Array.isArray(restored) && restored.length > 0) {
-              store.setState((s) => ({
-                messages: messagesReducer(s.messages, { type: 'RESTORE', messages: restored }),
-              }));
-            }
-          })
-          .catch((err) => {
-            if (typeof console !== 'undefined') {
-              console.warn('[mitzo] foreground recovery fetch failed', err);
-            }
-          });
-      }
+      if (sessions.active) fetchAndRestoreMessages(sessions.active);
       return;
     }
 

@@ -108,7 +108,7 @@ export function buildPermissionHandler(clientId: string, registry: SessionRegist
       };
       opts.signal.addEventListener('abort', onAbort, { once: true });
 
-      registerPending(permId, toolName, wrappedResolve, _toolInput, tier);
+      registerPending(permId, toolName, wrappedResolve, _toolInput, tier, session.sessionId);
 
       transportSend(session.transport, {
         type: 'permission_request',

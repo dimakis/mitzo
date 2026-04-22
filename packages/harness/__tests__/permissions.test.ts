@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { registerPending, resolvePending, removePending, hasPending } from '../src/permissions.js';
+import {
+  registerPending,
+  resolvePending,
+  removePending,
+  hasPending,
+  denyPendingBySession,
+} from '../src/permissions.js';
 
 describe('permissions module', () => {
   const permId = 'test-perm-001';
@@ -86,5 +92,49 @@ describe('permissions module', () => {
   it('registerPending accepts optional tier parameter', () => {
     registerPending(permId, 'Bash', () => {}, toolInput, 'elevated');
     expect(hasPending(permId)).toBe(true);
+  });
+});
+
+describe('denyPendingBySession', () => {
+  beforeEach(() => {
+    removePending('p1');
+    removePending('p2');
+    removePending('p3');
+  });
+
+  it('denies all pending entries matching the sessionId', () => {
+    const results: Record<string, unknown>[] = [];
+    registerPending('p1', 'Bash', (r) => results.push(r), { cmd: 'ls' }, undefined, 'sess-A');
+    registerPending('p2', 'Write', (r) => results.push(r), { path: '/f' }, undefined, 'sess-A');
+
+    const denied = denyPendingBySession('sess-A');
+    expect(denied).toBe(2);
+    expect(results).toHaveLength(2);
+    expect(results[0].behavior).toBe('deny');
+    expect(results[1].behavior).toBe('deny');
+    expect(hasPending('p1')).toBe(false);
+    expect(hasPending('p2')).toBe(false);
+  });
+
+  it('skips entries from other sessions', () => {
+    registerPending('p1', 'Bash', () => {}, {}, undefined, 'sess-A');
+    registerPending('p2', 'Write', () => {}, {}, undefined, 'sess-B');
+
+    const denied = denyPendingBySession('sess-A');
+    expect(denied).toBe(1);
+    expect(hasPending('p1')).toBe(false);
+    expect(hasPending('p2')).toBe(true);
+  });
+
+  it('returns 0 when no entries match', () => {
+    registerPending('p1', 'Bash', () => {}, {}, undefined, 'sess-A');
+    expect(denyPendingBySession('sess-Z')).toBe(0);
+    expect(hasPending('p1')).toBe(true);
+  });
+
+  it('skips entries without sessionId', () => {
+    registerPending('p1', 'Bash', () => {}, {});
+    expect(denyPendingBySession('sess-A')).toBe(0);
+    expect(hasPending('p1')).toBe(true);
   });
 });
