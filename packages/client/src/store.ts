@@ -174,9 +174,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     api
       .getSessionMessages(sessionId)
       .then((msgs) => {
-        if (Array.isArray(msgs) && msgs.length > 0) {
+        if (Array.isArray(msgs)) {
           store.setState((s) => ({
-            messages: messagesReducer(s.messages, { type: 'RESTORE', messages: msgs }),
+            messages:
+              msgs.length > 0
+                ? messagesReducer(s.messages, { type: 'RESTORE', messages: msgs })
+                : { ...s.messages, messages: [], current: null },
           }));
         }
       })
@@ -655,12 +658,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       if (parserState.currentSessionId) {
         if (eventSessionId !== parserState.currentSessionId) return;
       } else {
-        // Only allow session_id through when no active session — this is the
-        // assignment event for a newly started session. All other session-scoped
-        // events (session_end, permission_request) are dropped to prevent
-        // foreign session bleed during the window between newSession() and
-        // receiving the new session_id.
-        if (msg.type !== 'session_id') return;
+        // Allow session_id (new session assignment) and permission_request
+        // (can arrive before session_id on the first turn) through when no
+        // active session. Drop everything else (session_end, etc.) to prevent
+        // foreign session bleed.
+        const isFirstTurnEvent = msg.type === 'session_id' || msg.type === 'permission_request';
+        if (!isFirstTurnEvent) return;
       }
     }
 

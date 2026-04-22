@@ -800,19 +800,20 @@ describe('session isolation via sessionId filtering', () => {
     expect(store.getState().messages.running).toBe(false);
   });
 
-  it('drops permission_request when no active session (null-session filter)', async () => {
+  it('allows permission_request through when no active session (first-turn race)', async () => {
     const store = createReadyStore();
 
     lastWs.simulateMessage({
       type: 'permission_request',
       permId: 'p1',
       toolName: 'Write',
-      toolInput: {},
-      sessionId: 'foreign-session',
+      toolInput: '{}',
+      sessionId: 'new-session',
     });
 
-    // No permission should be stored since we have no active session
-    expect(store.getState().messages.permission).toBeNull();
+    // Permission should pass through — it can arrive before session_id
+    expect(store.getState().messages.permission).not.toBeNull();
+    expect(store.getState().messages.permission?.permId).toBe('p1');
   });
 });
 
