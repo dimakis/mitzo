@@ -16,7 +16,13 @@ export { ConnectionRegistry } from './connection-registry.js';
 export type { Connection } from './connection-registry.js';
 
 // Permissions
-export { registerPending, resolvePending, removePending, hasPending } from './permissions.js';
+export {
+  registerPending,
+  resolvePending,
+  removePending,
+  hasPending,
+  denyPendingBySession,
+} from './permissions.js';
 
 // Tool tiers
 export type { ToolTier } from './tool-tiers.js';

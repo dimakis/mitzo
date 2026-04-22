@@ -29,6 +29,11 @@ vi.mock('../skill-policy.js', () => ({
   clearSkillPolicy: vi.fn(),
 }));
 
+vi.mock('../permissions.js', () => ({
+  resolvePending: vi.fn(),
+  denyPendingBySession: vi.fn().mockReturnValue(0),
+}));
+
 import {
   startChat,
   interruptChat,
@@ -41,6 +46,7 @@ import {
 } from '../chat.js';
 import { setSkillPolicy, clearSkillPolicy } from '../skill-policy.js';
 import { resolveSlashCommand } from '../slash-commands.js';
+import { denyPendingBySession } from '../permissions.js';
 
 import {
   handleHello,
@@ -1513,23 +1519,29 @@ describe('handleSwitchSession unwatch on clear', () => {
 // ─── handleSendV2 — connection ownership ─────────────────────────────────────
 
 describe('handleSendV2 connection ownership', () => {
-  it('rejects send when session is active on another connection', () => {
+  it('takes over session from another connection on send', () => {
     (sendToChat as ReturnType<typeof vi.fn>).mockClear();
+    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
+    (rekeyChat as ReturnType<typeof vi.fn>).mockClear();
+    (denyPendingBySession as ReturnType<typeof vi.fn>).mockClear();
     (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
 
     const sessionReg = mockSessionRegistry();
-    // clientId starts with 'other-conn' — different from sender 'c1'
-    sessionReg.findBySessionId.mockReturnValue({ clientId: 'other-conn:sess-1', session: {} });
+    const oldTransport = mockTransport();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'other-conn:sess-1',
+      session: { transport: oldTransport },
+    });
     sessionReg.isActive.mockReturnValue(true);
-    sessionReg.isAttached.mockReturnValue(true); // attached to other connection
+    sessionReg.isAttached.mockReturnValue(true);
 
     const ctx = createContext({
       sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
     });
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
-    // Register the other connection so it's truly alive (not gone)
-    ctx.connRegistry.register('other-conn', mockTransport());
+    ctx.connRegistry.register('other-conn', oldTransport);
+    ctx.connRegistry.watch('other-conn', 'sess-1');
 
     handleSendV2(
       'c1',
@@ -1538,13 +1550,24 @@ describe('handleSendV2 connection ownership', () => {
       ctx,
     );
 
-    expect(sendToChat).not.toHaveBeenCalled();
-    expect(transport.sent).toContainEqual(
-      expect.objectContaining({
-        type: 'error',
-        code: 'active_elsewhere',
-      }),
+    // Old transport receives session_takeover
+    expect(oldTransport.sent).toContainEqual(
+      expect.objectContaining({ type: 'session_takeover', sessionId: 'sess-1' }),
     );
+    // Old connection unwatched
+    expect(ctx.connRegistry.get('other-conn')?.watchedSessions.has('sess-1')).toBe(false);
+    // Pending permissions denied
+    expect(denyPendingBySession).toHaveBeenCalledWith('sess-1');
+    // Session rekeyed and send proceeds
+    expect(reattachChat).toHaveBeenCalledWith('other-conn:sess-1', transport);
+    expect(rekeyChat).toHaveBeenCalledWith('other-conn:sess-1', 'c1:sess-1');
+    expect(sendToChat).toHaveBeenCalled();
+    // No active_elsewhere error
+    expect(transport.sent).not.toContainEqual(
+      expect.objectContaining({ code: 'active_elsewhere' }),
+    );
+
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 
   it('allows send when owner connection is gone (same device reconnect)', () => {
@@ -1681,16 +1704,21 @@ describe('handleSendV2 stale session via EventStore', () => {
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 
-  it('still rejects when EventStore confirms session IS active', () => {
+  it('takes over even when EventStore confirms session IS active', () => {
+    (sendToChat as ReturnType<typeof vi.fn>).mockClear();
+    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
     (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
 
     const sessionReg = mockSessionRegistry();
-    sessionReg.findBySessionId.mockReturnValue({ clientId: 'other-conn:sess-1', session: {} });
+    const oldTransport = mockTransport();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'other-conn:sess-1',
+      session: { transport: oldTransport },
+    });
     sessionReg.isActive.mockReturnValue(true);
     sessionReg.isAttached.mockReturnValue(true);
 
     const eventStore = mockEventStore();
-    // EventStore ground truth: session IS active
     eventStore.getSession.mockReturnValue({ sessionId: 'sess-1', isActive: true });
 
     const ctx = createContext({
@@ -1699,8 +1727,7 @@ describe('handleSendV2 stale session via EventStore', () => {
     });
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
-    // Register the other connection so it's truly alive (not gone)
-    ctx.connRegistry.register('other-conn', mockTransport());
+    ctx.connRegistry.register('other-conn', oldTransport);
 
     handleSendV2(
       'c1',
@@ -1709,7 +1736,11 @@ describe('handleSendV2 stale session via EventStore', () => {
       ctx,
     );
 
-    expect(transport.sent).toContainEqual(expect.objectContaining({ code: 'active_elsewhere' }));
+    expect(oldTransport.sent).toContainEqual(expect.objectContaining({ type: 'session_takeover' }));
+    expect(sendToChat).toHaveBeenCalled();
+    expect(transport.sent).not.toContainEqual(
+      expect.objectContaining({ code: 'active_elsewhere' }),
+    );
 
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
@@ -1956,12 +1987,19 @@ describe('getOwnerConnection', () => {
 // ─── handleInterruptV2 — connection ownership ───────────────────────────────
 
 describe('handleInterruptV2 connection ownership', () => {
-  it('rejects interrupt when session is active on another connection', () => {
+  it('takes over session from another connection on interrupt', () => {
     (interruptChat as ReturnType<typeof vi.fn>).mockClear();
+    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
+    (rekeyChat as ReturnType<typeof vi.fn>).mockClear();
+    (denyPendingBySession as ReturnType<typeof vi.fn>).mockClear();
     (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
 
     const sessionReg = mockSessionRegistry();
-    sessionReg.findBySessionId.mockReturnValue({ clientId: 'other-conn:sess-1', session: {} });
+    const oldTransport = mockTransport();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'other-conn:sess-1',
+      session: { transport: oldTransport },
+    });
     sessionReg.isAttached.mockReturnValue(true);
 
     const ctx = createContext({
@@ -1969,8 +2007,8 @@ describe('handleInterruptV2 connection ownership', () => {
     });
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
-    // Register the other connection so it's truly alive (not gone)
-    ctx.connRegistry.register('other-conn', mockTransport());
+    ctx.connRegistry.register('other-conn', oldTransport);
+    ctx.connRegistry.watch('other-conn', 'sess-1');
 
     handleInterruptV2(
       'c1',
@@ -1979,10 +2017,24 @@ describe('handleInterruptV2 connection ownership', () => {
       ctx,
     );
 
-    expect(interruptChat).not.toHaveBeenCalled();
-    expect(transport.sent).toContainEqual(
-      expect.objectContaining({ type: 'error', code: 'active_elsewhere' }),
+    // Old transport receives session_takeover
+    expect(oldTransport.sent).toContainEqual(
+      expect.objectContaining({ type: 'session_takeover', sessionId: 'sess-1' }),
     );
+    // Old connection unwatched
+    expect(ctx.connRegistry.get('other-conn')?.watchedSessions.has('sess-1')).toBe(false);
+    // Pending permissions denied
+    expect(denyPendingBySession).toHaveBeenCalledWith('sess-1');
+    // Session rekeyed and interrupt proceeds
+    expect(reattachChat).toHaveBeenCalledWith('other-conn:sess-1', transport);
+    expect(rekeyChat).toHaveBeenCalledWith('other-conn:sess-1', 'c1:sess-1');
+    expect(interruptChat).toHaveBeenCalled();
+    // No active_elsewhere error
+    expect(transport.sent).not.toContainEqual(
+      expect.objectContaining({ code: 'active_elsewhere' }),
+    );
+
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 
   it('allows interrupt when owner connection is gone (same device reconnect)', () => {

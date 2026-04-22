@@ -35,7 +35,7 @@ type SetModeMsg = z.infer<typeof V2SetModeMessage>;
 import { randomUUID } from 'crypto';
 import { tracer } from './tracing.js';
 import { SpanStatusCode } from '@opentelemetry/api';
-import { resolvePending } from './permissions.js';
+import { resolvePending, denyPendingBySession } from './permissions.js';
 import {
   startChat,
   sendToChat,
@@ -413,58 +413,46 @@ export function handleSendV2(
           ctx.sessionRegistry.remove(found.clientId);
           // Fall through to resume path below — session is not truly active.
         } else {
-          // Check connection ownership: does the driver belong to THIS connection?
           const ownerConnection = getOwnerConnection(found.clientId);
           const isOwner = ownerConnection === connectionId;
           const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
-          // The old connection's WS may have died but its onclose hasn't
-          // fired yet, so the session is still marked "attached". Check
-          // whether the owner connection is actually still registered.
-          const ownerGone = !isOwner && !ctx.connRegistry.get(ownerConnection);
 
-          if (!isOwner && !isDetached && !ownerGone) {
-            // Session is actively driven by another connection — reject.
-            transport.send({
-              type: 'error',
-              error: 'Session is active on another device',
-              code: 'active_elsewhere',
-              sessionId,
-            });
-            span.setAttribute('routing.decision', 'rejected_active_elsewhere');
-            span.setStatus({ code: SpanStatusCode.ERROR, message: 'active_elsewhere' });
-            return;
-          }
-
-          // Reattach if session was detached or the owner connection died.
-          // This updates the session's transport to the current connection
-          // so the v1 fallback path in sendOrBuffer can still deliver events.
+          // Takeover: transfer ownership regardless of whether the session is
+          // detached, the owner is gone, or actively attached elsewhere. Explicit
+          // user action (send) always wins — reconnect stays passive (R1).
           let activeClientId = found.clientId;
-          if (isDetached || ownerGone) {
+          if (!isOwner) {
+            const oldTransport = found.session?.transport;
+            if (oldTransport?.isOpen()) {
+              oldTransport.send({ type: 'session_takeover', sessionId });
+            }
+            ctx.connRegistry.unwatch(ownerConnection, sessionId);
+            denyPendingBySession(sessionId);
+
             reattachChat(found.clientId, transport);
-            // Transfer ownership so subsequent sends from this connection
-            // pass the ownership check without hitting active_elsewhere.
             const newClientId = `${connectionId}:${sessionId}`;
             if (found.clientId !== newClientId) {
               rekeyChat(found.clientId, newClientId);
               activeClientId = newClientId;
-              log.info('rekeyed session to new connection on send', {
-                connectionId,
-                sessionId,
-                oldClientId: found.clientId,
-                newClientId,
-              });
             }
-            log.info('reattached detached session on send', {
+            log.info('takeover on send', {
               connectionId,
               sessionId,
-              clientId: activeClientId,
+              oldOwner: ownerConnection,
+              newClientId: activeClientId,
+            });
+          } else if (isDetached) {
+            reattachChat(found.clientId, transport);
+            log.info('reattached own detached session on send', {
+              connectionId,
+              sessionId,
             });
           }
           applySkillPolicy(activeClientId);
           sendToChat(activeClientId, prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
           ctx.connRegistry.watch(connectionId, sessionId);
           ctx.connRegistry.setActive(connectionId, sessionId);
-          span.setAttribute('routing.decision', isDetached ? 'takeover' : 'active');
+          span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');
           span.setStatus({ code: SpanStatusCode.OK });
           return;
         }
@@ -565,34 +553,32 @@ export function handleInterruptV2(
       const ownerConnection = getOwnerConnection(found.clientId);
       const isOwner = ownerConnection === connectionId;
       const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
-      const ownerGone = !isOwner && !ctx.connRegistry.get(ownerConnection);
 
-      if (!isOwner && !isDetached && !ownerGone) {
-        transport.send({
-          type: 'error',
-          error: 'Session is active on another device',
-          code: 'active_elsewhere',
-          sessionId: msg.sessionId,
-        });
-        return;
-      }
+      // Takeover: explicit user action (interrupt) always wins — same as send.
+      if (!isOwner) {
+        const oldTransport = found.session?.transport;
+        if (oldTransport?.isOpen()) {
+          oldTransport.send({ type: 'session_takeover', sessionId: msg.sessionId });
+        }
+        ctx.connRegistry.unwatch(ownerConnection, msg.sessionId);
+        denyPendingBySession(msg.sessionId);
 
-      // Transfer ownership if session was detached or owner connection died
-      if (isDetached || ownerGone) {
         reattachChat(found.clientId, transport);
         const newClientId = `${connectionId}:${msg.sessionId}`;
         if (found.clientId !== newClientId) {
           rekeyChat(found.clientId, newClientId);
           activeClientId = newClientId;
-          log.info('rekeyed session to new connection on interrupt', {
-            connectionId,
-            sessionId: msg.sessionId,
-            newClientId,
-          });
         }
+        log.info('takeover on interrupt', {
+          connectionId,
+          sessionId: msg.sessionId,
+          oldOwner: ownerConnection,
+          newClientId: activeClientId,
+        });
+      } else if (isDetached) {
+        reattachChat(found.clientId, transport);
       }
 
-      // Session is live and we own it — interrupt in place.
       ctx.connRegistry.watch(connectionId, msg.sessionId);
       ctx.connRegistry.setActive(connectionId, msg.sessionId);
       interruptChat(activeClientId, msg.prompt, msg.images, msg.contextBlocks, msg.clientMsgId);

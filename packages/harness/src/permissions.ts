@@ -8,6 +8,7 @@ interface PendingEntry {
   toolName: string;
   toolInput: Record<string, unknown>;
   tier?: ToolTier;
+  sessionId?: string;
 }
 
 const pending = new Map<string, PendingEntry>();
@@ -18,8 +19,9 @@ export function registerPending(
   resolver: PermissionResolver,
   toolInput: Record<string, unknown>,
   tier?: ToolTier,
+  sessionId?: string,
 ) {
-  pending.set(permId, { resolver, toolName, toolInput, tier });
+  pending.set(permId, { resolver, toolName, toolInput, tier, sessionId });
 }
 
 export function resolvePending(permId: string, decision: 'once' | 'always' | 'deny'): boolean {
@@ -58,4 +60,24 @@ export function removePending(permId: string) {
 
 export function hasPending(permId: string): boolean {
   return pending.has(permId);
+}
+
+/**
+ * Deny all pending permission requests associated with a session.
+ * Used during session takeover to clean up stale prompts on the old device.
+ */
+export function denyPendingBySession(sessionId: string): number {
+  let denied = 0;
+  for (const [permId, entry] of pending) {
+    if (entry.sessionId === sessionId) {
+      pending.delete(permId);
+      entry.resolver({
+        behavior: 'deny',
+        message: 'Session taken over by another device',
+        decisionClassification: 'user_reject',
+      });
+      denied++;
+    }
+  }
+  return denied;
 }
