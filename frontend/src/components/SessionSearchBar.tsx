@@ -21,14 +21,15 @@ export function SessionSearchBar({
   clear,
   onSelectSession,
 }: SessionSearchBarProps) {
-  const [open, setOpen] = useState(active);
+  const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const visible = open || active;
 
   useEffect(() => {
-    if (open && inputRef.current) {
+    if (visible && inputRef.current) {
       inputRef.current.focus();
     }
-  }, [open]);
+  }, [visible]);
 
   function handleClose() {
     setOpen(false);
@@ -40,7 +41,7 @@ export function SessionSearchBar({
     onSelectSession(sessionId);
   }
 
-  if (!open) {
+  if (!visible) {
     return (
       <button
         className="session-search-toggle"

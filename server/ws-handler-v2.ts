@@ -541,13 +541,15 @@ export function handleInterruptV2(
   if (isActive(found.clientId)) {
     // Cross-reference with durable EventStore to catch stale in-memory state.
     const storeMeta = ctx.eventStore.getSession(msg.sessionId);
-    if (storeMeta && !storeMeta.isActive) {
+    const staleInMemory = storeMeta && !storeMeta.isActive;
+
+    if (staleInMemory) {
       log.info('corrected stale running state from EventStore (interrupt)', {
         connectionId,
         sessionId: msg.sessionId,
         clientId: found.clientId,
       });
-      // Session is not truly active — skip ownership guard.
+      // Session is not truly active — fall through to resume path below.
     } else {
       const ownerConnection = getOwnerConnection(found.clientId);
       const isOwner = ownerConnection === connectionId;
@@ -577,13 +579,27 @@ export function handleInterruptV2(
           });
         }
       }
+
+      // Session is live and we own it — interrupt in place.
+      ctx.connRegistry.watch(connectionId, msg.sessionId);
+      ctx.connRegistry.setActive(connectionId, msg.sessionId);
+      interruptChat(activeClientId, msg.prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
+      log.info('interrupt', { connectionId, sessionId: msg.sessionId });
+      return;
     }
   }
 
+  // Session is either idle or stale — resume with a fresh driver.
+  const sessionClientId = `${connectionId}:${msg.sessionId}`;
   ctx.connRegistry.watch(connectionId, msg.sessionId);
   ctx.connRegistry.setActive(connectionId, msg.sessionId);
-  interruptChat(activeClientId, msg.prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
-  log.info('interrupt', { connectionId, sessionId: msg.sessionId });
+  startChat(transport, sessionClientId, msg.prompt, {
+    resume: msg.sessionId,
+    images: msg.images,
+    contextBlocks: msg.contextBlocks,
+    clientMsgId: msg.clientMsgId,
+  });
+  log.info('interrupt_resume', { connectionId, sessionId: msg.sessionId });
 }
 
 export function handlePermissionResponseV2(

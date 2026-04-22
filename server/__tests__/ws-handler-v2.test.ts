@@ -677,7 +677,8 @@ describe('handleSendV2 skill policy', () => {
 // ─── handleInterruptV2 ──────────────────────────────────────────────────────
 
 describe('handleInterruptV2', () => {
-  it('watches, activates, and calls interruptChat with correct args', () => {
+  it('watches, activates, and resumes via startChat when session is idle', () => {
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
 
@@ -699,12 +700,12 @@ describe('handleInterruptV2', () => {
     expect(conn!.watchedSessions.has('sess-1')).toBe(true);
     expect(conn!.activeSession).toBe('sess-1');
 
-    expect(interruptChat).toHaveBeenCalledWith(
-      'driver-1',
+    // Session is idle (isActive=false) — resumes via startChat, not interruptChat
+    expect(startChat).toHaveBeenCalledWith(
+      transport,
+      'c1:sess-1',
       'stop and do this',
-      undefined,
-      undefined,
-      'i1',
+      expect.objectContaining({ resume: 'sess-1', clientMsgId: 'i1' }),
     );
   });
 
@@ -1629,7 +1630,8 @@ describe('handleSendV2 stale session via EventStore', () => {
 });
 
 describe('handleInterruptV2 stale session via EventStore', () => {
-  it('skips ownership guard when EventStore says session is inactive', () => {
+  it('resumes via startChat when EventStore says session is inactive', () => {
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
     (interruptChat as ReturnType<typeof vi.fn>).mockClear();
     (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
 
@@ -1657,8 +1659,15 @@ describe('handleInterruptV2 stale session via EventStore', () => {
     expect(transport.sent).not.toContainEqual(
       expect.objectContaining({ code: 'active_elsewhere' }),
     );
-    // Verify interruptChat was actually called (positive outcome)
-    expect(interruptChat).toHaveBeenCalled();
+    // Should NOT call interruptChat with dead key
+    expect(interruptChat).not.toHaveBeenCalled();
+    // Should resume via startChat with fresh sessionClientId
+    expect(startChat).toHaveBeenCalledWith(
+      transport,
+      'c1:sess-1',
+      'stop',
+      expect.objectContaining({ resume: 'sess-1', clientMsgId: 'i-stale' }),
+    );
 
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
@@ -1743,8 +1752,48 @@ describe('handleReconnect ownership guard', () => {
 // ─── handleInterruptV2 — images and contextBlocks forwarding ───────────────
 
 describe('handleInterruptV2 forwarding', () => {
-  it('forwards images and contextBlocks to interruptChat', () => {
+  it('forwards images and contextBlocks to interruptChat when session is active', () => {
     (interruptChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-1', session: {} });
+    sessionReg.isAttached.mockReturnValue(true);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    const images = [{ data: 'base64img', mediaType: 'image/png' as const }];
+    const contextBlocks = ['some context block'];
+
+    handleInterruptV2(
+      'c1',
+      transport,
+      {
+        type: 'interrupt',
+        sessionId: 'sess-1',
+        prompt: 'new direction',
+        clientMsgId: 'i3',
+        images,
+        contextBlocks,
+      },
+      ctx,
+    );
+
+    expect(interruptChat).toHaveBeenCalledWith(
+      'c1:sess-1',
+      'new direction',
+      images,
+      contextBlocks,
+      'i3',
+    );
+  });
+
+  it('forwards images and contextBlocks to startChat when session is idle', () => {
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
 
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
@@ -1772,12 +1821,11 @@ describe('handleInterruptV2 forwarding', () => {
       ctx,
     );
 
-    expect(interruptChat).toHaveBeenCalledWith(
-      'driver-1',
+    expect(startChat).toHaveBeenCalledWith(
+      transport,
+      'c1:sess-1',
       'new direction',
-      images,
-      contextBlocks,
-      'i3',
+      expect.objectContaining({ resume: 'sess-1', images, contextBlocks, clientMsgId: 'i3' }),
     );
   });
 
