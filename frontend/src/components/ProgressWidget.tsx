@@ -25,10 +25,7 @@ export function ProgressWidget({ items }: Props) {
     <div className={`progress-widget ${allDone ? 'progress-widget--done' : ''}`}>
       <button className="progress-widget-header" onClick={() => setExpanded((e) => !e)}>
         <div className="progress-widget-bar">
-          <div
-            className="progress-widget-bar-fill"
-            style={{ width: `${pct}%` }}
-          />
+          <div className="progress-widget-bar-fill" style={{ width: `${pct}%` }} />
         </div>
         <span className="progress-widget-count">
           {doneCount}/{total}

@@ -46,10 +46,7 @@ export type ProgressUpdate =
 
 // ─── Reducer ────────────────────────────────────────────────────────────────
 
-export function applyProgressUpdate(
-  state: ProgressState,
-  update: ProgressUpdate,
-): ProgressState {
+export function applyProgressUpdate(state: ProgressState, update: ProgressUpdate): ProgressState {
   switch (update.type) {
     case 'start': {
       const block: ProgressBlock = {

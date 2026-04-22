@@ -61,11 +61,7 @@ export class ProgressTracker {
    * Handle a TodoWrite tool call. Returns progress events to emit, or empty
    * array if the input is not a valid TodoWrite payload.
    */
-  handleTodoWrite(
-    messageId: string,
-    toolId: string,
-    inputBuf: string,
-  ): ProgressEvent[] {
+  handleTodoWrite(messageId: string, toolId: string, inputBuf: string): ProgressEvent[] {
     let input: TodoWriteInput;
     try {
       input = JSON.parse(inputBuf);
@@ -99,8 +95,7 @@ export class ProgressTracker {
     // If the list structure changed (different length or different IDs/titles),
     // emit a full replace.
     const structureChanged =
-      items.length !== prev.length ||
-      items.some((item, i) => item.title !== prev[i].title);
+      items.length !== prev.length || items.some((item, i) => item.title !== prev[i].title);
 
     if (structureChanged) {
       this.previousItems = items;
