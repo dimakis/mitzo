@@ -11,7 +11,7 @@ import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { randomBytes } from 'crypto';
+import { randomUUID } from 'crypto';
 import { homedir } from 'os';
 import { createWorktree, removeWorktree } from './worktree.js';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
@@ -156,10 +156,10 @@ export function validateResumable(
   }
 }
 
-/** Generate a session-scoped worktree ID: YYYY-MM-DD-<random-hex>. */
+/** Generate a session-scoped worktree ID: YYYY-MM-DD-<12 hex chars>. */
 export function generateWtId(): string {
   const date = new Date().toISOString().slice(0, 10);
-  const rand = randomBytes(3).toString('hex'); // 16M unique values, collision-safe
+  const rand = randomUUID().replace(/-/g, '').slice(0, 12);
   return `${date}-${rand}`;
 }
 
@@ -298,6 +298,10 @@ function createSessionWorktrees(
   try {
     primaryPath = createWorktree(wtId, BASE_REPO);
     repoWorktrees.set('primary', { path: primaryPath, wtId });
+    writeFileSync(
+      join(primaryPath, '.mitzo-session'),
+      JSON.stringify({ wtId, createdAt: new Date().toISOString() }) + '\n',
+    );
     send(transport, { type: 'worktree', path: primaryPath });
     log.info('primary worktree created', { wtId, path: primaryPath });
   } catch (err: unknown) {

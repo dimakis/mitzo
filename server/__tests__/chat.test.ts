@@ -100,6 +100,20 @@ describe('resolveResumeCwd', () => {
   });
 });
 
+describe('generateWtId', () => {
+  it('produces unique IDs across 100 calls', async () => {
+    const { generateWtId } = await import('../chat.js');
+    const ids = new Set(Array.from({ length: 100 }, () => generateWtId()));
+    expect(ids.size).toBe(100);
+  });
+
+  it('matches YYYY-MM-DD-<12 hex chars> format', async () => {
+    const { generateWtId } = await import('../chat.js');
+    const id = generateWtId();
+    expect(id).toMatch(/^\d{4}-\d{2}-\d{2}-[0-9a-f]{12}$/);
+  });
+});
+
 describe('getMessages', () => {
   it('returns an array for unknown session', async () => {
     const { getMessages } = await import('../chat.js');
