@@ -9,8 +9,22 @@ export interface QueuedMessage {
   contextBlocks: string[];
 }
 
+/** Stored shape omits images — base64 data is too large for localStorage. */
+interface StoredMessage {
+  text: string;
+  contextBlocks: string[];
+}
+
 function queueKey(sessionId: string | undefined): string {
   return `${KEY_PREFIX}${sessionId ?? 'new'}`;
+}
+
+function toStored(msgs: QueuedMessage[]): StoredMessage[] {
+  return msgs.map(({ text, contextBlocks }) => ({ text, contextBlocks }));
+}
+
+function fromStored(msgs: StoredMessage[]): QueuedMessage[] {
+  return msgs.map(({ text, contextBlocks }) => ({ text, contextBlocks, images: [] }));
 }
 
 function loadQueue(sessionId: string | undefined): QueuedMessage[] {
@@ -18,7 +32,7 @@ function loadQueue(sessionId: string | undefined): QueuedMessage[] {
     const raw = localStorage.getItem(queueKey(sessionId));
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) ? fromStored(parsed) : [];
   } catch {
     return [];
   }
@@ -30,7 +44,7 @@ function saveQueue(sessionId: string | undefined, queue: QueuedMessage[]): void 
     if (queue.length === 0) {
       localStorage.removeItem(key);
     } else {
-      localStorage.setItem(key, JSON.stringify(queue));
+      localStorage.setItem(key, JSON.stringify(toStored(queue)));
     }
   } catch {
     // localStorage full or unavailable — ignore
@@ -47,10 +61,15 @@ export function useQueuedMessages(
   dequeue: () => QueuedMessage | undefined;
   remove: (index: number) => void;
   edit: (index: number) => QueuedMessage | undefined;
-  clear: () => void;
 } {
   const [queue, setQueueRaw] = useState<QueuedMessage[]>(() => loadQueue(sessionId));
+  const queueRef = useRef(queue);
   const sessionRef = useRef(sessionId);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    queueRef.current = queue;
+  }, [queue]);
 
   // When sessionId changes, load queue for new session
   useEffect(() => {
@@ -64,7 +83,7 @@ export function useQueuedMessages(
     try {
       const existing = localStorage.getItem(newKey);
       if (existing) {
-        setQueueRaw(JSON.parse(existing));
+        setQueueRaw(fromStored(JSON.parse(existing)));
       } else {
         const old = localStorage.getItem(oldKey);
         if (old) {
@@ -85,24 +104,18 @@ export function useQueuedMessages(
 
   const enqueue = useCallback(
     (msg: QueuedMessage): boolean => {
-      let added = false;
-      setQueueRaw((prev) => {
-        if (prev.length >= maxQueued) return prev;
-        added = true;
-        return [...prev, msg];
-      });
-      return added;
+      if (queueRef.current.length >= maxQueued) return false;
+      setQueueRaw((prev) => [...prev, msg]);
+      return true;
     },
     [maxQueued],
   );
 
   const dequeue = useCallback((): QueuedMessage | undefined => {
-    let item: QueuedMessage | undefined;
-    setQueueRaw((prev) => {
-      if (prev.length === 0) return prev;
-      [item] = prev;
-      return prev.slice(1);
-    });
+    const current = queueRef.current;
+    if (current.length === 0) return undefined;
+    const item = current[0];
+    setQueueRaw((prev) => prev.slice(1));
     return item;
   }, []);
 
@@ -111,18 +124,11 @@ export function useQueuedMessages(
   }, []);
 
   const edit = useCallback((index: number): QueuedMessage | undefined => {
-    let item: QueuedMessage | undefined;
-    setQueueRaw((prev) => {
-      item = prev[index];
-      if (!item) return prev;
-      return prev.filter((_, i) => i !== index);
-    });
+    const item = queueRef.current[index];
+    if (!item) return undefined;
+    setQueueRaw((prev) => prev.filter((_, i) => i !== index));
     return item;
   }, []);
 
-  const clear = useCallback(() => {
-    setQueueRaw([]);
-  }, []);
-
-  return { queue, enqueue, dequeue, remove, edit, clear };
+  return { queue, enqueue, dequeue, remove, edit };
 }
