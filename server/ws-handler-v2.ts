@@ -411,8 +411,12 @@ export function handleSendV2(
           const ownerConnection = getOwnerConnection(found.clientId);
           const isOwner = ownerConnection === connectionId;
           const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
+          // The old connection's WS may have died but its onclose hasn't
+          // fired yet, so the session is still marked "attached". Check
+          // whether the owner connection is actually still registered.
+          const ownerGone = !isOwner && !ctx.connRegistry.get(ownerConnection);
 
-          if (!isOwner && !isDetached) {
+          if (!isOwner && !isDetached && !ownerGone) {
             // Session is actively driven by another connection — reject.
             transport.send({
               type: 'error',
@@ -425,11 +429,11 @@ export function handleSendV2(
             return;
           }
 
-          // Reattach if session was detached by a previous WS disconnect.
+          // Reattach if session was detached or the owner connection died.
           // This updates the session's transport to the current connection
           // so the v1 fallback path in sendOrBuffer can still deliver events.
           let activeClientId = found.clientId;
-          if (isDetached) {
+          if (isDetached || ownerGone) {
             reattachChat(found.clientId, transport);
             // Transfer ownership so subsequent sends from this connection
             // pass the ownership check without hitting active_elsewhere.
@@ -554,8 +558,9 @@ export function handleInterruptV2(
       const ownerConnection = getOwnerConnection(found.clientId);
       const isOwner = ownerConnection === connectionId;
       const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
+      const ownerGone = !isOwner && !ctx.connRegistry.get(ownerConnection);
 
-      if (!isOwner && !isDetached) {
+      if (!isOwner && !isDetached && !ownerGone) {
         transport.send({
           type: 'error',
           error: 'Session is active on another device',
@@ -565,8 +570,8 @@ export function handleInterruptV2(
         return;
       }
 
-      // Transfer ownership if session was detached and we're reclaiming it
-      if (isDetached) {
+      // Transfer ownership if session was detached or owner connection died
+      if (isDetached || ownerGone) {
         reattachChat(found.clientId, transport);
         const newClientId = `${connectionId}:${msg.sessionId}`;
         if (found.clientId !== newClientId) {
