@@ -1480,6 +1480,8 @@ describe('handleSendV2 connection ownership', () => {
     });
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
+    // Register the other connection so it's truly alive (not gone)
+    ctx.connRegistry.register('other-conn', mockTransport());
 
     handleSendV2(
       'c1',
@@ -1495,6 +1497,40 @@ describe('handleSendV2 connection ownership', () => {
         code: 'active_elsewhere',
       }),
     );
+  });
+
+  it('allows send when owner connection is gone (same device reconnect)', () => {
+    (sendToChat as ReturnType<typeof vi.fn>).mockClear();
+    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    // clientId owned by 'other-conn' which is NOT registered (dead WS)
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'other-conn:sess-1', session: {} });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(true); // not yet detached
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    // other-conn is NOT registered — simulates dead WS
+
+    handleSendV2(
+      'c1',
+      transport,
+      { type: 'send' as const, sessionId: 'sess-1', prompt: 'hi', clientMsgId: 'cmsg-1' },
+      ctx,
+    );
+
+    expect(reattachChat).toHaveBeenCalledWith('other-conn:sess-1', transport);
+    expect(sendToChat).toHaveBeenCalled();
+    expect(transport.sent).not.toContainEqual(
+      expect.objectContaining({ code: 'active_elsewhere' }),
+    );
+
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 
   it('allows send when session is detached even from another connection', () => {
@@ -1615,6 +1651,8 @@ describe('handleSendV2 stale session via EventStore', () => {
     });
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
+    // Register the other connection so it's truly alive (not gone)
+    ctx.connRegistry.register('other-conn', mockTransport());
 
     handleSendV2(
       'c1',
@@ -1883,6 +1921,8 @@ describe('handleInterruptV2 connection ownership', () => {
     });
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
+    // Register the other connection so it's truly alive (not gone)
+    ctx.connRegistry.register('other-conn', mockTransport());
 
     handleInterruptV2(
       'c1',
@@ -1895,6 +1935,38 @@ describe('handleInterruptV2 connection ownership', () => {
     expect(transport.sent).toContainEqual(
       expect.objectContaining({ type: 'error', code: 'active_elsewhere' }),
     );
+  });
+
+  it('allows interrupt when owner connection is gone (same device reconnect)', () => {
+    (interruptChat as ReturnType<typeof vi.fn>).mockClear();
+    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'other-conn:sess-1', session: {} });
+    sessionReg.isAttached.mockReturnValue(true); // not yet detached
+    // other-conn NOT registered — dead WS
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleInterruptV2(
+      'c1',
+      transport,
+      { type: 'interrupt', sessionId: 'sess-1', prompt: 'stop', clientMsgId: 'i5' },
+      ctx,
+    );
+
+    expect(reattachChat).toHaveBeenCalledWith('other-conn:sess-1', transport);
+    expect(interruptChat).toHaveBeenCalled();
+    expect(transport.sent).not.toContainEqual(
+      expect.objectContaining({ code: 'active_elsewhere' }),
+    );
+
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 
   it('allows interrupt from the owning connection', () => {

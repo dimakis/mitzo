@@ -55,6 +55,31 @@ export function createWorktree(
   const worktreePath = join(dir, sessionId);
   const branch = opts?.branch ?? `${WORKTREE_BRANCH_PREFIX}${sessionId}`;
 
+  // If the worktree path already exists (stale from a previous session),
+  // check whether it's a valid worktree we can reuse or a stale directory
+  // that needs to be cleaned up before we can create a fresh one.
+  if (existsSync(worktreePath)) {
+    try {
+      execFileSync('git', ['-C', worktreePath, 'rev-parse', '--git-dir'], {
+        stdio: 'pipe',
+        timeout: WORKTREE_GIT_TIMEOUT_MS,
+      });
+      // Valid worktree — reuse it.
+      log.info(`reusing existing worktree: ${worktreePath} (${branch})`);
+      return worktreePath;
+    } catch {
+      // Stale directory — remove it and prune git's worktree list.
+      log.info(`removing stale worktree path: ${worktreePath}`);
+      rmSync(worktreePath, { recursive: true, force: true });
+      try {
+        execFileSync('git', ['-C', baseRepo, 'worktree', 'prune'], {
+          stdio: 'pipe',
+          timeout: WORKTREE_PRUNE_TIMEOUT_MS,
+        });
+      } catch {}
+    }
+  }
+
   try {
     execFileSync('git', ['-C', baseRepo, 'worktree', 'add', '-b', branch, worktreePath], {
       stdio: 'pipe',
