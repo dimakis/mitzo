@@ -146,11 +146,12 @@ export function handleReconnect(
         const storeMeta = ctx.eventStore.getSession(entry.sessionId);
         if (storeMeta && !storeMeta.isActive) {
           running = false;
-          log.info('corrected stale running state from EventStore', {
+          log.info('removing stale session from registry', {
             connectionId,
             sessionId: entry.sessionId,
             clientId: found!.clientId,
           });
+          ctx.sessionRegistry.remove(found!.clientId);
         }
       }
       if (found && running && !ctx.sessionRegistry.isAttached(found.clientId)) {
@@ -400,11 +401,12 @@ export function handleSendV2(
         const staleInMemory = storeMeta && !storeMeta.isActive;
 
         if (staleInMemory) {
-          log.info('corrected stale running state from EventStore (send)', {
+          log.info('removing stale session from registry (send)', {
             connectionId,
             sessionId,
             clientId: found.clientId,
           });
+          ctx.sessionRegistry.remove(found.clientId);
           // Fall through to resume path below — session is not truly active.
         } else {
           // Check connection ownership: does the driver belong to THIS connection?
@@ -548,11 +550,12 @@ export function handleInterruptV2(
     const staleInMemory = storeMeta && !storeMeta.isActive;
 
     if (staleInMemory) {
-      log.info('corrected stale running state from EventStore (interrupt)', {
+      log.info('removing stale session from registry (interrupt)', {
         connectionId,
         sessionId: msg.sessionId,
         clientId: found.clientId,
       });
+      ctx.sessionRegistry.remove(found.clientId);
       // Session is not truly active — fall through to resume path below.
     } else {
       const ownerConnection = getOwnerConnection(found.clientId);
