@@ -16,6 +16,8 @@ import { sendTurnCompleteNotification as apnsTurnComplete } from './apns.js';
 import { extractSnippet } from './notification-helpers.js';
 import { NOTIFY_SNIPPET_MAX_CHARS } from './constants.js';
 import { createGoal, reportUsage, deriveGoalTitle } from './goal-client.js';
+import { tracer } from './tracing.js';
+import { SpanStatusCode } from '@opentelemetry/api';
 const log = createLogger('query-loop');
 
 /** Send data via transport, guarding on isOpen(). */
@@ -121,6 +123,9 @@ export async function runQueryLoop(
   initialPrompt?: string,
   options?: QueryLoopOptions,
 ) {
+  const span = tracer.startSpan('session');
+  span.setAttribute('session.clientId', clientId);
+
   const connRegistry = options?.connRegistry;
   const onSessionResolved = options?.onSessionResolved;
   const onInitialPrompt = options?.onInitialPrompt;
@@ -279,6 +284,7 @@ export async function runQueryLoop(
         // Capture session ID on first assistant event.
         if (!currentSession.sessionId && msg.session_id) {
           resolvedSessionId = msg.session_id as string;
+          span.setAttribute('session.id', resolvedSessionId);
           registry.setSessionId(clientId, resolvedSessionId);
           onSessionResolved?.(resolvedSessionId);
           emit({ type: 'session_id', sessionId: msg.session_id });
@@ -730,6 +736,8 @@ export async function runQueryLoop(
     if (store && resolvedSessionId) {
       store.markSessionInactive(resolvedSessionId);
     }
+    span.setStatus({ code: SpanStatusCode.OK });
+    span.end();
     log.info('query loop ended', { clientId, doneSent });
   }
 }

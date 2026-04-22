@@ -314,13 +314,17 @@ function handleChatWsV2(ws: WebSocket, connectionId: string) {
     transportMap.delete(ws);
     log.info('v2 disconnected', { connectionId, code, reason: reason?.toString() });
 
-    // Detach any session whose transport matches this connection's transport
     for (const sessionId of watchedSessions) {
       const found = registry.findBySessionId(sessionId);
       if (!found) continue;
       const session = registry.get(found.clientId);
       if (session && session.transport === transport && registry.isAttached(found.clientId)) {
+        const detachSpan = tracer.startSpan('session.detach');
+        detachSpan.setAttribute('session.sessionId', sessionId);
+        detachSpan.setAttribute('ws.connectionId', connectionId);
         detachChat(found.clientId);
+        detachSpan.setStatus({ code: SpanStatusCode.OK });
+        detachSpan.end();
         log.info('v2 session detached (surviving)', { connectionId, sessionId });
       }
     }
