@@ -11,7 +11,7 @@ import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { randomBytes } from 'crypto';
+import { randomUUID } from 'crypto';
 import { homedir } from 'os';
 import { createWorktree, removeWorktree } from './worktree.js';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
@@ -113,10 +113,53 @@ export function resolveResumeCwd(
   return BASE_REPO;
 }
 
-/** Generate a session-scoped worktree ID: YYYY-MM-DD-<random-hex>. */
+/**
+ * Check if a resume CWD is a valid git directory (worktree or repo).
+ * If invalid and the path looks like a worktree, attempt recreation.
+ */
+export function validateResumable(
+  cwd: string,
+  _resumeId: string,
+  deps?: {
+    isGitDir: (path: string) => boolean;
+    recreateWorktree: (wtId: string, repoRoot: string) => string;
+  },
+): { valid: boolean; recreated?: boolean } {
+  const isGitDir =
+    deps?.isGitDir ??
+    ((p: string) => {
+      try {
+        execFileSync('git', ['-C', p, 'rev-parse', '--git-dir'], { stdio: 'pipe', timeout: 5000 });
+        return true;
+      } catch {
+        return false;
+      }
+    });
+
+  if (isGitDir(cwd)) return { valid: true };
+
+  const wtMatch = cwd.match(/\/(\.claude|\.cursor)\/worktrees\/([^/]+)$/);
+  if (!wtMatch) return { valid: false };
+
+  const [, prefix, wtId] = wtMatch;
+  const repoRoot = cwd.slice(0, cwd.indexOf(`/${prefix}/worktrees/`));
+  const recreate =
+    deps?.recreateWorktree ??
+    ((id: string, repo: string) =>
+      createWorktree(id, repo, { prefix: prefix as '.claude' | '.cursor' }));
+
+  try {
+    recreate(wtId, repoRoot);
+    return { valid: true, recreated: true };
+  } catch {
+    return { valid: false };
+  }
+}
+
+/** Generate a session-scoped worktree ID: YYYY-MM-DD-<12 hex chars>. */
 export function generateWtId(): string {
   const date = new Date().toISOString().slice(0, 10);
-  const rand = randomBytes(3).toString('hex'); // 16M unique values, collision-safe
+  const rand = randomUUID().replace(/-/g, '').slice(0, 12);
   return `${date}-${rand}`;
 }
 
@@ -255,6 +298,10 @@ function createSessionWorktrees(
   try {
     primaryPath = createWorktree(wtId, BASE_REPO);
     repoWorktrees.set('primary', { path: primaryPath, wtId });
+    writeFileSync(
+      join(primaryPath, '.mitzo-session'),
+      JSON.stringify({ wtId, createdAt: new Date().toISOString() }) + '\n',
+    );
     send(transport, { type: 'worktree', path: primaryPath });
     log.info('primary worktree created', { wtId, path: primaryPath });
   } catch (err: unknown) {
@@ -475,6 +522,21 @@ export async function startChat(
 
   const baseCwd = resolveResumeCwd(options);
 
+  if (options.resume) {
+    const validation = validateResumable(baseCwd, options.resume);
+    if (!validation.valid) {
+      log.warn('session not resumable, starting fresh', {
+        sessionId: options.resume,
+        cwd: baseCwd,
+      });
+      send(transport, {
+        type: 'error',
+        error: 'Session workspace was cleaned up. Starting a new conversation.',
+      });
+      delete options.resume;
+    }
+  }
+
   // Generate session-scoped worktree ID and create worktrees in all repos
   const wtId = generateWtId();
   const { cwd, worktreePath, repoWorktrees } = createSessionWorktrees(
@@ -615,8 +677,16 @@ export async function startChat(
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    log.error('startChat failed after register, cleaning up', { clientId, error: message });
-    send(transport, { type: 'error', error: message });
+    if (message.includes('No conversation found') && options.resume) {
+      log.warn('SDK rejected resume, session expired', { sessionId: options.resume, cwd });
+      send(transport, {
+        type: 'error',
+        error: 'Session expired. Send your message again to start fresh.',
+      });
+    } else {
+      log.error('startChat failed after register, cleaning up', { clientId, error: message });
+      send(transport, { type: 'error', error: message });
+    }
     const failedSession = registry.get(clientId);
     if (failedSession) cleanupSessionWorktrees(failedSession);
     registry.abort(clientId);

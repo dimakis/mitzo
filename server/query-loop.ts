@@ -16,6 +16,8 @@ import { sendTurnCompleteNotification as apnsTurnComplete } from './apns.js';
 import { extractSnippet } from './notification-helpers.js';
 import { NOTIFY_SNIPPET_MAX_CHARS } from './constants.js';
 import { createGoal, reportUsage, deriveGoalTitle } from './goal-client.js';
+import { tracer } from './tracing.js';
+import { SpanStatusCode } from '@opentelemetry/api';
 const log = createLogger('query-loop');
 
 /** Send data via transport, guarding on isOpen(). */
@@ -121,6 +123,9 @@ export async function runQueryLoop(
   initialPrompt?: string,
   options?: QueryLoopOptions,
 ) {
+  const span = tracer.startSpan('session');
+  span.setAttribute('session.clientId', clientId);
+
   const connRegistry = options?.connRegistry;
   const onSessionResolved = options?.onSessionResolved;
   const onInitialPrompt = options?.onInitialPrompt;
@@ -243,493 +248,513 @@ export async function runQueryLoop(
   }, QUERY_FIRST_EVENT_TIMEOUT_MS);
 
   try {
-    for await (const msg of q) {
-      if (!firstEventReceived) {
-        firstEventReceived = true;
-        clearTimeout(firstEventTimer);
-      }
-      const currentSession = registry.get(clientId);
-      if (!currentSession) break;
-      if (!resolvedSessionId && currentSession.sessionId) {
-        resolvedSessionId = currentSession.sessionId;
-        // Resumed sessions: load goalId from store so usage reporting works
-        if (store && !resolvedGoalId) {
-          const existingSession = store.getSession(resolvedSessionId);
-          if (existingSession?.goalId) {
-            resolvedGoalId = existingSession.goalId;
-            log.info('resumed session goal', {
-              sessionId: resolvedSessionId,
-              goalId: resolvedGoalId,
-            });
-          }
+    // outer try ensures span.end() always fires
+    try {
+      for await (const msg of q) {
+        if (!firstEventReceived) {
+          firstEventReceived = true;
+          clearTimeout(firstEventTimer);
         }
-      }
-
-      log.debug('sdk event', { clientId, type: msg.type });
-
-      if (msg.type === 'assistant') {
-        // Turn complete — defer message_end until all blocks are closed.
-        if (currentMessageId) {
-          pendingMessageEnd = v2('message_end', {
-            messageId: currentMessageId,
-            ...(msg.session_id ? { sessionId: msg.session_id } : {}),
-          });
-          tryFlushMessageEnd(currentSession);
-        }
-        // Capture session ID on first assistant event.
-        if (!currentSession.sessionId && msg.session_id) {
-          resolvedSessionId = msg.session_id as string;
-          registry.setSessionId(clientId, resolvedSessionId);
-          onSessionResolved?.(resolvedSessionId);
-          emit({ type: 'session_id', sessionId: msg.session_id });
-          // Update session index with SDK session ID
-          if (currentSession.wtId) {
-            try {
-              const repoPath = process.env.REPO_PATH || '';
-              updateSessionSdkId(repoPath, currentSession.wtId, resolvedSessionId);
-            } catch {
-              // best-effort — session index write failure is non-fatal
-            }
-          }
-          // Persist session metadata (including initial prompt) to durable store
-          if (store) {
-            store.upsertSession({
-              sessionId: resolvedSessionId,
-              cwd: currentSession.cwd,
-              mode: currentSession.mode,
-              branch: currentSession.branch,
-              ...(currentSession.worktreePath ? { wtId: currentSession.wtId } : {}),
-              ...(initialPrompt ? { initialPrompt } : {}),
-            });
-            if (initialPrompt) {
-              // Store the initial prompt as a user_message event so
-              // extractRecentPrompts() can find it for auto-rename.
-              const now = Date.now();
-              store.append(resolvedSessionId, 'user_message', {
-                v: 2,
-                type: 'user_message',
-                ts: now,
-                messageId: `umsg-${now}-init`,
-                text: initialPrompt,
+        const currentSession = registry.get(clientId);
+        if (!currentSession) break;
+        if (!resolvedSessionId && currentSession.sessionId) {
+          resolvedSessionId = currentSession.sessionId;
+          // Resumed sessions: load goalId from store so usage reporting works
+          if (store && !resolvedGoalId) {
+            const existingSession = store.getSession(resolvedSessionId);
+            if (existingSession?.goalId) {
+              resolvedGoalId = existingSession.goalId;
+              log.info('resumed session goal', {
+                sessionId: resolvedSessionId,
+                goalId: resolvedGoalId,
               });
-              // Trigger auto-rename — tryAutoRename handles the increment
-              onInitialPrompt?.(resolvedSessionId);
             }
           }
+        }
 
-          // Auto-create goal in ContexGin Goal Registry (awaited at session end)
-          if (initialPrompt && resolvedSessionId) {
-            goalTitle = deriveGoalTitle(initialPrompt);
-            goalCreationPromise = createGoal(goalTitle, {
-              description: initialPrompt.length > 80 ? initialPrompt.slice(0, 500) : undefined,
-            }).catch((err: unknown) => {
-              log.warn('goal creation promise rejected', {
-                error: err instanceof Error ? err.message : String(err),
-              });
-              return null;
+        log.debug('sdk event', { clientId, type: msg.type });
+
+        if (msg.type === 'assistant') {
+          // Turn complete — defer message_end until all blocks are closed.
+          if (currentMessageId) {
+            pendingMessageEnd = v2('message_end', {
+              messageId: currentMessageId,
+              ...(msg.session_id ? { sessionId: msg.session_id } : {}),
             });
+            tryFlushMessageEnd(currentSession);
           }
-        }
-      } else if (msg.type === 'result') {
-        log.info('result received', { clientId, sessionId: msg.session_id });
-        // Capture snapshot blocks before flush (forceFlush nulls the snapshot).
-        const snapshotBlocks = currentSession.currentSnapshot?.blocks ?? [];
-        forceFlushPendingMessage(currentSession);
-        doneSent = true;
+          // Capture session ID on first assistant event.
+          if (!currentSession.sessionId && msg.session_id) {
+            resolvedSessionId = msg.session_id as string;
+            span.setAttribute('session.id', resolvedSessionId);
+            registry.setSessionId(clientId, resolvedSessionId);
+            onSessionResolved?.(resolvedSessionId);
+            emit({ type: 'session_id', sessionId: msg.session_id });
+            // Update session index with SDK session ID
+            if (currentSession.wtId) {
+              try {
+                const repoPath = process.env.REPO_PATH || '';
+                updateSessionSdkId(repoPath, currentSession.wtId, resolvedSessionId);
+              } catch {
+                // best-effort — session index write failure is non-fatal
+              }
+            }
+            // Persist session metadata (including initial prompt) to durable store
+            if (store) {
+              store.upsertSession({
+                sessionId: resolvedSessionId,
+                cwd: currentSession.cwd,
+                mode: currentSession.mode,
+                branch: currentSession.branch,
+                ...(currentSession.worktreePath ? { wtId: currentSession.wtId } : {}),
+                ...(initialPrompt ? { initialPrompt } : {}),
+              });
+              if (initialPrompt) {
+                // Store the initial prompt as a user_message event so
+                // extractRecentPrompts() can find it for auto-rename.
+                const now = Date.now();
+                store.append(resolvedSessionId, 'user_message', {
+                  v: 2,
+                  type: 'user_message',
+                  ts: now,
+                  messageId: `umsg-${now}-init`,
+                  text: initialPrompt,
+                });
+                // Trigger auto-rename — tryAutoRename handles the increment
+                onInitialPrompt?.(resolvedSessionId);
+              }
+            }
 
-        // Extract usage data from SDK result event
-        const result = msg as SdkResultEvent;
-        const usageData = {
-          inputTokens: result.usage?.input_tokens ?? 0,
-          outputTokens: result.usage?.output_tokens ?? 0,
-          cacheReadTokens: result.usage?.cache_read_input_tokens ?? 0,
-          cacheCreationTokens: result.usage?.cache_creation_input_tokens ?? 0,
-          totalCostUsd: result.total_cost_usd ?? 0,
-          numTurns: result.num_turns ?? 0,
-          durationMs: result.duration_ms ?? 0,
-          durationApiMs: result.duration_api_ms ?? 0,
-        };
-
-        // Persist usage to durable store
-        if (store && resolvedSessionId) {
-          store.recordUsage(resolvedSessionId, usageData);
-        }
-
-        const sdkTokens =
-          usageData.inputTokens +
-          usageData.outputTokens +
-          usageData.cacheReadTokens +
-          usageData.cacheCreationTokens;
-        // Use the higher of SDK's reported total and our live tally
-        // (SDK may undercount if sub-agent tokens aren't included in result.usage)
-        currentSession.cumulativeSessionTokens = Math.max(sdkTokens, liveSessionTokens);
-        currentSession.cumulativeCostUsd = usageData.totalCostUsd;
-
-        emit({
-          type: 'token_update',
-          agentContext: agentContextTokens,
-          contextCeiling: CONTEXT_CEILING_TOKENS,
-          sessionTotal: currentSession.cumulativeSessionTokens,
-          numTurns: usageData.numTurns,
-          turnIndex,
-          ...compactionFields(),
-        });
-
-        // Resolve goal creation (if pending) and report usage
-        if (goalCreationPromise && resolvedSessionId) {
-          const goalId = await goalCreationPromise;
-          if (goalId) {
-            resolvedGoalId = goalId;
-            store?.upsertSession({ sessionId: resolvedSessionId, goalId });
-            log.info('session linked to goal', { sessionId: resolvedSessionId, goalId });
-          }
-          goalCreationPromise = undefined;
-        }
-
-        if (resolvedGoalId && resolvedSessionId) {
-          // Compute deltas to avoid double-counting in multi-turn sessions
-          const deltaUsage = {
-            inputTokens: usageData.inputTokens - lastReportedUsage.inputTokens,
-            outputTokens: usageData.outputTokens - lastReportedUsage.outputTokens,
-            cacheReadTokens: usageData.cacheReadTokens - lastReportedUsage.cacheReadTokens,
-            cacheCreationTokens:
-              usageData.cacheCreationTokens - lastReportedUsage.cacheCreationTokens,
-            costUsd: usageData.totalCostUsd - lastReportedUsage.totalCostUsd,
-            turns: usageData.numTurns - lastReportedUsage.numTurns,
-            durationMs: usageData.durationMs - lastReportedUsage.durationMs,
-            durationApiMs: usageData.durationApiMs - lastReportedUsage.durationApiMs,
-          };
-          lastReportedUsage = { ...usageData };
-
-          reportUsage(resolvedGoalId, {
-            source: 'mitzo_session',
-            sourceId: resolvedSessionId,
-            sourceLabel: initialPrompt
-              ? `Mitzo: ${goalTitle ?? deriveGoalTitle(initialPrompt)}`
-              : `Mitzo session ${resolvedSessionId}`,
-            ...deltaUsage,
-            metadata: {
-              cwd: currentSession.cwd,
-              mode: currentSession.mode,
-            },
-          });
-        }
-
-        emit(v2('session_end', { sessionId: msg.session_id, usage: usageData }));
-        const resultSid = (msg.session_id as string) || currentSession.sessionId;
-        if (resultSid && connRegistry?.hasOpenWatchers(resultSid)) {
-          for (const { connectionId: cid } of connRegistry.getConnectionsWatching(
-            resultSid,
-            true,
-          )) {
-            const conn = connRegistry.get(cid);
-            if (conn?.activeSession === resultSid) {
-              connRegistry.setActive(cid, null);
+            // Auto-create goal in ContexGin Goal Registry (awaited at session end)
+            if (initialPrompt && resolvedSessionId) {
+              goalTitle = deriveGoalTitle(initialPrompt);
+              goalCreationPromise = createGoal(goalTitle, {
+                description: initialPrompt.length > 80 ? initialPrompt.slice(0, 500) : undefined,
+              }).catch((err: unknown) => {
+                log.warn('goal creation promise rejected', {
+                  error: err instanceof Error ? err.message : String(err),
+                });
+                return null;
+              });
             }
           }
-        }
-        if (!registry.isAttached(clientId)) {
-          const snippet = extractSnippet(snapshotBlocks, NOTIFY_SNIPPET_MAX_CHARS);
-          const sid = (msg.session_id as string) || currentSession.sessionId;
-          ntfyTurnComplete(sid, snippet).catch(() => {});
-          pushoverTurnComplete(sid, snippet).catch(() => {});
-          apnsTurnComplete(sid, snippet).catch(() => {});
-        }
-      } else if (msg.type === 'stream_event') {
-        const evt = msg.event as Record<string, unknown> | undefined;
-        log.debug('stream event', { clientId, evtType: evt?.type });
-
-        if (evt?.type === 'message_start') {
+        } else if (msg.type === 'result') {
+          log.info('result received', { clientId, sessionId: msg.session_id });
+          // Capture snapshot blocks before flush (forceFlush nulls the snapshot).
+          const snapshotBlocks = currentSession.currentSnapshot?.blocks ?? [];
           forceFlushPendingMessage(currentSession);
-          toolInputBuffers.clear();
-          blockIdByIndex.clear();
-          blockCounter = 0;
-          openBlockCount = 0;
-          // Use API message ID if available, otherwise generate one.
-          const apiMsg = evt.message as Record<string, unknown> | undefined;
-          currentMessageId = (apiMsg?.id as string | undefined) ?? `msg-${Date.now()}`;
-          // Init snapshot on the session.
-          currentSession.currentSnapshot = { messageId: currentMessageId, blocks: [] };
-          emit(v2('message_start', { messageId: currentMessageId }));
+          doneSent = true;
 
-          // Extract agent context from message_start usage.
-          // Only track parent agent (parent_tool_use_id === null) — sub-agent
-          // context windows are independent and shouldn't overwrite the parent gauge.
-          // Sum input + cache_read + cache_creation for the true context window size
-          // (with prompt caching, input_tokens alone can be as low as 1).
-          const isParent = msg.parent_tool_use_id === null || msg.parent_tool_use_id === undefined;
-          const msgUsage = (apiMsg as Record<string, unknown> | undefined)?.usage as
-            | Record<string, number>
-            | undefined;
-          const msgInput = msgUsage ? (msgUsage.input_tokens ?? 0) : 0;
-          const msgCacheRead = msgUsage ? (msgUsage.cache_read_input_tokens ?? 0) : 0;
-          const msgCacheCreation = msgUsage ? (msgUsage.cache_creation_input_tokens ?? 0) : 0;
-          const msgOutput = msgUsage ? (msgUsage.output_tokens ?? 0) : 0;
-          // Input/cache tokens are cumulative (each API call re-sends the full
-          // conversation), so take the latest value instead of summing.
-          // Output tokens are fresh per call, so accumulate them.
-          const msgContext = msgInput + msgCacheRead + msgCacheCreation;
-          if (msgOutput > 0) cumulativeOutputTokens += msgOutput;
-          if (msgContext > 0 || msgOutput > 0) {
-            liveSessionTokens = msgContext + cumulativeOutputTokens;
+          // Extract usage data from SDK result event
+          const result = msg as SdkResultEvent;
+          const usageData = {
+            inputTokens: result.usage?.input_tokens ?? 0,
+            outputTokens: result.usage?.output_tokens ?? 0,
+            cacheReadTokens: result.usage?.cache_read_input_tokens ?? 0,
+            cacheCreationTokens: result.usage?.cache_creation_input_tokens ?? 0,
+            totalCostUsd: result.total_cost_usd ?? 0,
+            numTurns: result.num_turns ?? 0,
+            durationMs: result.duration_ms ?? 0,
+            durationApiMs: result.duration_api_ms ?? 0,
+          };
+
+          // Persist usage to durable store
+          if (store && resolvedSessionId) {
+            store.recordUsage(resolvedSessionId, usageData);
           }
 
-          if (isParent && msgUsage) {
-            const totalContext = msgInput + msgCacheRead + msgCacheCreation;
-            if (totalContext > 0) {
-              agentContextTokens = totalContext;
-              turnIndex++;
-              emit({
-                type: 'token_update',
-                agentContext: agentContextTokens,
-                contextCeiling: CONTEXT_CEILING_TOKENS,
-                sessionTotal: liveSessionTokens,
-                turnIndex,
-                ...compactionFields(),
-              });
+          const sdkTokens =
+            usageData.inputTokens +
+            usageData.outputTokens +
+            usageData.cacheReadTokens +
+            usageData.cacheCreationTokens;
+          // Use the higher of SDK's reported total and our live tally
+          // (SDK may undercount if sub-agent tokens aren't included in result.usage)
+          currentSession.cumulativeSessionTokens = Math.max(sdkTokens, liveSessionTokens);
+          currentSession.cumulativeCostUsd = usageData.totalCostUsd;
+
+          emit({
+            type: 'token_update',
+            agentContext: agentContextTokens,
+            contextCeiling: CONTEXT_CEILING_TOKENS,
+            sessionTotal: currentSession.cumulativeSessionTokens,
+            numTurns: usageData.numTurns,
+            turnIndex,
+            ...compactionFields(),
+          });
+
+          // Resolve goal creation (if pending) and report usage
+          if (goalCreationPromise && resolvedSessionId) {
+            const goalId = await goalCreationPromise;
+            if (goalId) {
+              resolvedGoalId = goalId;
+              store?.upsertSession({ sessionId: resolvedSessionId, goalId });
+              log.info('session linked to goal', { sessionId: resolvedSessionId, goalId });
+            }
+            goalCreationPromise = undefined;
+          }
+
+          if (resolvedGoalId && resolvedSessionId) {
+            // Compute deltas to avoid double-counting in multi-turn sessions
+            const deltaUsage = {
+              inputTokens: usageData.inputTokens - lastReportedUsage.inputTokens,
+              outputTokens: usageData.outputTokens - lastReportedUsage.outputTokens,
+              cacheReadTokens: usageData.cacheReadTokens - lastReportedUsage.cacheReadTokens,
+              cacheCreationTokens:
+                usageData.cacheCreationTokens - lastReportedUsage.cacheCreationTokens,
+              costUsd: usageData.totalCostUsd - lastReportedUsage.totalCostUsd,
+              turns: usageData.numTurns - lastReportedUsage.numTurns,
+              durationMs: usageData.durationMs - lastReportedUsage.durationMs,
+              durationApiMs: usageData.durationApiMs - lastReportedUsage.durationApiMs,
+            };
+            lastReportedUsage = { ...usageData };
+
+            reportUsage(resolvedGoalId, {
+              source: 'mitzo_session',
+              sourceId: resolvedSessionId,
+              sourceLabel: initialPrompt
+                ? `Mitzo: ${goalTitle ?? deriveGoalTitle(initialPrompt)}`
+                : `Mitzo session ${resolvedSessionId}`,
+              ...deltaUsage,
+              metadata: {
+                cwd: currentSession.cwd,
+                mode: currentSession.mode,
+              },
+            });
+          }
+
+          emit(v2('session_end', { sessionId: msg.session_id, usage: usageData }));
+          const resultSid = (msg.session_id as string) || currentSession.sessionId;
+          if (resultSid && connRegistry?.hasOpenWatchers(resultSid)) {
+            for (const { connectionId: cid } of connRegistry.getConnectionsWatching(
+              resultSid,
+              true,
+            )) {
+              const conn = connRegistry.get(cid);
+              if (conn?.activeSession === resultSid) {
+                connRegistry.setActive(cid, null);
+              }
             }
           }
-        } else if (evt?.type === 'content_block_start') {
-          // Auto-init message context if SDK delivers blocks before message_start.
-          // On the first turn, AssistantMessage can win the async iterator race
-          // and the first content_block_start arrives before message_start.
-          if (!currentMessageId) {
-            currentMessageId = `msg-${Date.now()}`;
+          if (!registry.isAttached(clientId)) {
+            const snippet = extractSnippet(snapshotBlocks, NOTIFY_SNIPPET_MAX_CHARS);
+            const sid = (msg.session_id as string) || currentSession.sessionId;
+            ntfyTurnComplete(sid, snippet).catch(() => {});
+            pushoverTurnComplete(sid, snippet).catch(() => {});
+            apnsTurnComplete(sid, snippet).catch(() => {});
+          }
+        } else if (msg.type === 'stream_event') {
+          const evt = msg.event as Record<string, unknown> | undefined;
+          log.debug('stream event', { clientId, evtType: evt?.type });
+
+          if (evt?.type === 'message_start') {
+            forceFlushPendingMessage(currentSession);
+            toolInputBuffers.clear();
+            blockIdByIndex.clear();
+            blockCounter = 0;
+            openBlockCount = 0;
+            // Use API message ID if available, otherwise generate one.
+            const apiMsg = evt.message as Record<string, unknown> | undefined;
+            currentMessageId = (apiMsg?.id as string | undefined) ?? `msg-${Date.now()}`;
+            // Init snapshot on the session.
             currentSession.currentSnapshot = { messageId: currentMessageId, blocks: [] };
             emit(v2('message_start', { messageId: currentMessageId }));
-          }
-          const contentBlock = evt.content_block as Record<string, unknown> | undefined;
-          const index = evt.index as number;
-          const blockId = nextBlockId();
-          blockIdByIndex.set(index, blockId);
-          openBlockCount++;
 
-          const blockType = contentBlock?.type as string | undefined;
-          log.debug('content block start', { clientId, blockType });
+            // Extract agent context from message_start usage.
+            // Only track parent agent (parent_tool_use_id === null) — sub-agent
+            // context windows are independent and shouldn't overwrite the parent gauge.
+            // Sum input + cache_read + cache_creation for the true context window size
+            // (with prompt caching, input_tokens alone can be as low as 1).
+            const isParent =
+              msg.parent_tool_use_id === null || msg.parent_tool_use_id === undefined;
+            const msgUsage = (apiMsg as Record<string, unknown> | undefined)?.usage as
+              | Record<string, number>
+              | undefined;
+            const msgInput = msgUsage ? (msgUsage.input_tokens ?? 0) : 0;
+            const msgCacheRead = msgUsage ? (msgUsage.cache_read_input_tokens ?? 0) : 0;
+            const msgCacheCreation = msgUsage ? (msgUsage.cache_creation_input_tokens ?? 0) : 0;
+            const msgOutput = msgUsage ? (msgUsage.output_tokens ?? 0) : 0;
+            // Input/cache tokens are cumulative (each API call re-sends the full
+            // conversation), so take the latest value instead of summing.
+            // Output tokens are fresh per call, so accumulate them.
+            const msgContext = msgInput + msgCacheRead + msgCacheCreation;
+            if (msgOutput > 0) cumulativeOutputTokens += msgOutput;
+            if (msgContext > 0 || msgOutput > 0) {
+              liveSessionTokens = msgContext + cumulativeOutputTokens;
+            }
 
-          if (blockType === 'thinking' || blockType === 'redacted_thinking') {
-            log.info('thinking block detected', { clientId, blockType });
-            const snapshotBlock: SnapshotBlock = {
-              blockId,
-              blockType: blockType as 'thinking' | 'redacted_thinking',
-              content: '',
-              done: false,
-            };
-            currentSession.currentSnapshot?.blocks.push(snapshotBlock);
-            emit(
-              v2('block_start', {
-                messageId: currentMessageId,
+            if (isParent && msgUsage) {
+              const totalContext = msgInput + msgCacheRead + msgCacheCreation;
+              if (totalContext > 0) {
+                agentContextTokens = totalContext;
+                turnIndex++;
+                emit({
+                  type: 'token_update',
+                  agentContext: agentContextTokens,
+                  contextCeiling: CONTEXT_CEILING_TOKENS,
+                  sessionTotal: liveSessionTokens,
+                  turnIndex,
+                  ...compactionFields(),
+                });
+              }
+            }
+          } else if (evt?.type === 'content_block_start') {
+            // Auto-init message context if SDK delivers blocks before message_start.
+            // On the first turn, AssistantMessage can win the async iterator race
+            // and the first content_block_start arrives before message_start.
+            if (!currentMessageId) {
+              currentMessageId = `msg-${Date.now()}`;
+              currentSession.currentSnapshot = { messageId: currentMessageId, blocks: [] };
+              emit(v2('message_start', { messageId: currentMessageId }));
+            }
+            const contentBlock = evt.content_block as Record<string, unknown> | undefined;
+            const index = evt.index as number;
+            const blockId = nextBlockId();
+            blockIdByIndex.set(index, blockId);
+            openBlockCount++;
+
+            const blockType = contentBlock?.type as string | undefined;
+            log.debug('content block start', { clientId, blockType });
+
+            if (blockType === 'thinking' || blockType === 'redacted_thinking') {
+              log.info('thinking block detected', { clientId, blockType });
+              const snapshotBlock: SnapshotBlock = {
                 blockId,
-                blockType,
-              }),
-            );
-          } else if (blockType === 'tool_use') {
-            toolInputBuffers.set(index, {
-              name: contentBlock!.name as string,
-              id: contentBlock!.id as string,
-              inputBuf: '',
-              blockId,
-            });
-            const snapshotBlock: SnapshotBlock = {
-              blockId,
-              blockType: 'tool_use',
-              content: '',
-              done: false,
-              toolName: contentBlock!.name as string,
-              toolId: contentBlock!.id as string,
-            };
-            currentSession.currentSnapshot?.blocks.push(snapshotBlock);
-            emit(
-              v2('block_start', {
-                messageId: currentMessageId,
+                blockType: blockType as 'thinking' | 'redacted_thinking',
+                content: '',
+                done: false,
+              };
+              currentSession.currentSnapshot?.blocks.push(snapshotBlock);
+              emit(
+                v2('block_start', {
+                  messageId: currentMessageId,
+                  blockId,
+                  blockType,
+                }),
+              );
+            } else if (blockType === 'tool_use') {
+              toolInputBuffers.set(index, {
+                name: contentBlock!.name as string,
+                id: contentBlock!.id as string,
+                inputBuf: '',
+                blockId,
+              });
+              const snapshotBlock: SnapshotBlock = {
                 blockId,
                 blockType: 'tool_use',
+                content: '',
+                done: false,
                 toolName: contentBlock!.name as string,
-              }),
-            );
-          } else if (blockType === 'text') {
-            const snapshotBlock: SnapshotBlock = {
-              blockId,
-              blockType: 'text',
-              content: '',
-              done: false,
-            };
-            currentSession.currentSnapshot?.blocks.push(snapshotBlock);
-            emit(
-              v2('block_start', {
-                messageId: currentMessageId,
+                toolId: contentBlock!.id as string,
+              };
+              currentSession.currentSnapshot?.blocks.push(snapshotBlock);
+              emit(
+                v2('block_start', {
+                  messageId: currentMessageId,
+                  blockId,
+                  blockType: 'tool_use',
+                  toolName: contentBlock!.name as string,
+                }),
+              );
+            } else if (blockType === 'text') {
+              const snapshotBlock: SnapshotBlock = {
                 blockId,
                 blockType: 'text',
-              }),
-            );
-          }
-        } else if (evt?.type === 'content_block_delta') {
-          const delta = evt.delta as Record<string, unknown> | undefined;
-          const index = evt.index as number;
-          const blockId = blockIdByIndex.get(index);
-
-          if (delta?.type === 'text_delta' && blockId) {
-            const text = delta.text as string;
-            // Update snapshot
-            const block = currentSession.currentSnapshot?.blocks.find((b) => b.blockId === blockId);
-            if (block) block.content += text;
-            emit(
-              v2('block_delta', {
-                messageId: currentMessageId,
-                blockId,
-                blockType: 'text',
-                delta: text,
-              }),
-            );
-          } else if (delta?.type === 'thinking_delta' && blockId) {
-            log.debug('thinking delta', { clientId });
-            const text = delta.thinking as string;
-            const block = currentSession.currentSnapshot?.blocks.find((b) => b.blockId === blockId);
-            if (block) block.content += text;
-            emit(
-              v2('block_delta', {
-                messageId: currentMessageId,
-                blockId,
-                blockType: 'thinking',
-                delta: text,
-              }),
-            );
-          } else if (delta?.type === 'input_json_delta') {
-            const entry = toolInputBuffers.get(index);
-            if (entry) entry.inputBuf += delta.partial_json as string;
-          }
-        } else if (evt?.type === 'content_block_stop') {
-          const index = evt.index as number;
-          const blockId = blockIdByIndex.get(index);
-          const toolEntry = toolInputBuffers.get(index);
-
-          if (toolEntry && blockId) {
-            toolInputBuffers.delete(index);
-            let toolInput: Record<string, unknown> = {};
-            try {
-              toolInput = JSON.parse(toolEntry.inputBuf || '{}');
-            } catch {
-              // malformed JSON — use empty input
+                content: '',
+                done: false,
+              };
+              currentSession.currentSnapshot?.blocks.push(snapshotBlock);
+              emit(
+                v2('block_start', {
+                  messageId: currentMessageId,
+                  blockId,
+                  blockType: 'text',
+                }),
+              );
             }
-            const summarized = summarizeToolInput(toolEntry.name, toolInput);
-            const rawInput = getRawInput(toolEntry.name, toolInput);
+          } else if (evt?.type === 'content_block_delta') {
+            const delta = evt.delta as Record<string, unknown> | undefined;
+            const index = evt.index as number;
+            const blockId = blockIdByIndex.get(index);
 
-            log.info('tool call', { clientId, tool: toolEntry.name, toolId: toolEntry.id });
-
-            // Mark snapshot block done with tool metadata.
-            const block = currentSession.currentSnapshot?.blocks.find((b) => b.blockId === blockId);
-            if (block) {
-              block.done = true;
-              block.toolInput = summarized;
-              block.rawInput = rawInput;
+            if (delta?.type === 'text_delta' && blockId) {
+              const text = delta.text as string;
+              // Update snapshot
+              const block = currentSession.currentSnapshot?.blocks.find(
+                (b) => b.blockId === blockId,
+              );
+              if (block) block.content += text;
+              emit(
+                v2('block_delta', {
+                  messageId: currentMessageId,
+                  blockId,
+                  blockType: 'text',
+                  delta: text,
+                }),
+              );
+            } else if (delta?.type === 'thinking_delta' && blockId) {
+              log.debug('thinking delta', { clientId });
+              const text = delta.thinking as string;
+              const block = currentSession.currentSnapshot?.blocks.find(
+                (b) => b.blockId === blockId,
+              );
+              if (block) block.content += text;
+              emit(
+                v2('block_delta', {
+                  messageId: currentMessageId,
+                  blockId,
+                  blockType: 'thinking',
+                  delta: text,
+                }),
+              );
+            } else if (delta?.type === 'input_json_delta') {
+              const entry = toolInputBuffers.get(index);
+              if (entry) entry.inputBuf += delta.partial_json as string;
             }
+          } else if (evt?.type === 'content_block_stop') {
+            const index = evt.index as number;
+            const blockId = blockIdByIndex.get(index);
+            const toolEntry = toolInputBuffers.get(index);
 
-            emit(
-              v2('block_end', {
-                messageId: currentMessageId,
-                blockId,
-                blockType: 'tool_use',
-                toolName: toolEntry.name,
-                toolId: toolEntry.id,
-                input: summarized,
-                ...(rawInput ? { rawInput } : {}),
-              }),
-            );
-          } else if (blockId) {
-            // Text or thinking block — mark done in snapshot.
-            const block = currentSession.currentSnapshot?.blocks.find((b) => b.blockId === blockId);
-            if (block) {
-              const bt = block.blockType;
-              block.done = true;
+            if (toolEntry && blockId) {
+              toolInputBuffers.delete(index);
+              let toolInput: Record<string, unknown> = {};
+              try {
+                toolInput = JSON.parse(toolEntry.inputBuf || '{}');
+              } catch {
+                // malformed JSON — use empty input
+              }
+              const summarized = summarizeToolInput(toolEntry.name, toolInput);
+              const rawInput = getRawInput(toolEntry.name, toolInput);
+
+              log.info('tool call', { clientId, tool: toolEntry.name, toolId: toolEntry.id });
+
+              // Mark snapshot block done with tool metadata.
+              const block = currentSession.currentSnapshot?.blocks.find(
+                (b) => b.blockId === blockId,
+              );
+              if (block) {
+                block.done = true;
+                block.toolInput = summarized;
+                block.rawInput = rawInput;
+              }
+
               emit(
                 v2('block_end', {
                   messageId: currentMessageId,
                   blockId,
-                  blockType: bt,
+                  blockType: 'tool_use',
+                  toolName: toolEntry.name,
+                  toolId: toolEntry.id,
+                  input: summarized,
+                  ...(rawInput ? { rawInput } : {}),
                 }),
               );
+            } else if (blockId) {
+              // Text or thinking block — mark done in snapshot.
+              const block = currentSession.currentSnapshot?.blocks.find(
+                (b) => b.blockId === blockId,
+              );
+              if (block) {
+                const bt = block.blockType;
+                block.done = true;
+                emit(
+                  v2('block_end', {
+                    messageId: currentMessageId,
+                    blockId,
+                    blockType: bt,
+                  }),
+                );
+              }
             }
+            openBlockCount = Math.max(0, openBlockCount - 1);
+            tryFlushMessageEnd(currentSession);
           }
-          openBlockCount = Math.max(0, openBlockCount - 1);
-          tryFlushMessageEnd(currentSession);
-        }
-      } else if (msg.type === 'system') {
-        // Track compaction events from SDK system status messages
-        const subtype = (msg as Record<string, unknown>).subtype;
-        const compactResult = (msg as Record<string, unknown>).compact_result;
-        if (subtype === 'status' && compactResult === 'success') {
-          numCompactions++;
-          log.info('compaction completed', { clientId, numCompactions });
-        }
-      } else if (msg.type === 'user') {
-        // Only extract tool_result events from SDK user turns.
-        // Do NOT emit user_message here — human input is persisted at the
-        // entry points (startChat, sendToChat, interruptChat) via PR #100.
-        // Emitting user_message from the SDK stream would capture internal
-        // API conversation turns (agent sub-prompts, tool-result text) and
-        // replay them as user bubbles on session rejoin.
-        const content = (msg.message as unknown as Record<string, unknown>)?.content;
-        if (Array.isArray(content)) {
-          for (const block of content) {
-            if (block.type === 'tool_result') {
-              const resultText = extractToolResultText(block.content);
-              emit(
-                v2('tool_result', {
-                  messageId: currentMessageId,
-                  toolId: block.tool_use_id || '',
-                  result: resultText.slice(0, TOOL_RESULT_MAX_CHARS),
-                  isError: block.is_error === true,
-                }),
-              );
+        } else if (msg.type === 'system') {
+          // Track compaction events from SDK system status messages
+          const subtype = (msg as Record<string, unknown>).subtype;
+          const compactResult = (msg as Record<string, unknown>).compact_result;
+          if (subtype === 'status' && compactResult === 'success') {
+            numCompactions++;
+            log.info('compaction completed', { clientId, numCompactions });
+          }
+        } else if (msg.type === 'user') {
+          // Only extract tool_result events from SDK user turns.
+          // Do NOT emit user_message here — human input is persisted at the
+          // entry points (startChat, sendToChat, interruptChat) via PR #100.
+          // Emitting user_message from the SDK stream would capture internal
+          // API conversation turns (agent sub-prompts, tool-result text) and
+          // replay them as user bubbles on session rejoin.
+          const content = (msg.message as unknown as Record<string, unknown>)?.content;
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              if (block.type === 'tool_result') {
+                const resultText = extractToolResultText(block.content);
+                emit(
+                  v2('tool_result', {
+                    messageId: currentMessageId,
+                    toolId: block.tool_use_id || '',
+                    result: resultText.slice(0, TOOL_RESULT_MAX_CHARS),
+                    isError: block.is_error === true,
+                  }),
+                );
+              }
             }
           }
         }
       }
-    }
-  } catch (err: unknown) {
-    const currentSession = registry.get(clientId);
-    if (currentSession) {
-      if (timedOut) {
-        const seconds = Math.round(QUERY_FIRST_EVENT_TIMEOUT_MS / 1000);
-        const message = `Agent did not respond within ${seconds}s — the selected model may be unavailable on this provider.`;
-        log.warn('query loop timed out waiting for first event', { clientId, seconds });
-        send(currentSession.transport, { type: 'error', error: message });
-      } else if (!abortController.signal.aborted) {
-        const message = err instanceof Error ? err.message : 'Unknown error';
-        log.warn('query loop error', { clientId, error: message });
-        send(currentSession.transport, { type: 'error', error: message });
+    } catch (err: unknown) {
+      span.setStatus({
+        code: SpanStatusCode.ERROR,
+        message: err instanceof Error ? err.message : 'unknown',
+      });
+      const currentSession = registry.get(clientId);
+      if (currentSession) {
+        if (timedOut) {
+          const seconds = Math.round(QUERY_FIRST_EVENT_TIMEOUT_MS / 1000);
+          const message = `Agent did not respond within ${seconds}s — the selected model may be unavailable on this provider.`;
+          log.warn('query loop timed out waiting for first event', { clientId, seconds });
+          send(currentSession.transport, { type: 'error', error: message });
+        } else if (!abortController.signal.aborted) {
+          const message = err instanceof Error ? err.message : 'Unknown error';
+          log.warn('query loop error', { clientId, error: message });
+          send(currentSession.transport, { type: 'error', error: message });
+        }
       }
+    } finally {
+      clearTimeout(firstEventTimer);
+      const finalSession = registry.get(clientId);
+      if (finalSession) {
+        finalSession.currentSnapshot = null;
+        if (!doneSent) {
+          const endMsg = v2('session_end', { sessionId: finalSession.sessionId });
+          const sid = finalSession.sessionId;
+          if (sid && connRegistry?.hasOpenWatchers(sid)) {
+            connRegistry.broadcast(sid, endMsg);
+          } else {
+            send(finalSession.transport, endMsg);
+            broadcastToObservers(finalSession.observers, endMsg);
+          }
+          if (sid && connRegistry?.hasOpenWatchers(sid)) {
+            // Clear active session only on connections whose active is this session
+            for (const { connectionId: cid } of connRegistry.getConnectionsWatching(sid, true)) {
+              const conn = connRegistry.get(cid);
+              if (conn?.activeSession === sid) {
+                connRegistry.setActive(cid, null);
+              }
+            }
+          }
+        }
+        registry.remove(clientId);
+      }
+      // Mark session as inactive in durable store
+      if (store && resolvedSessionId) {
+        store.markSessionInactive(resolvedSessionId);
+      }
+      span.setStatus({ code: SpanStatusCode.OK });
+      log.info('query loop ended', { clientId, doneSent });
     }
   } finally {
-    clearTimeout(firstEventTimer);
-    const finalSession = registry.get(clientId);
-    if (finalSession) {
-      finalSession.currentSnapshot = null;
-      if (!doneSent) {
-        const endMsg = v2('session_end', { sessionId: finalSession.sessionId });
-        const sid = finalSession.sessionId;
-        if (sid && connRegistry?.hasOpenWatchers(sid)) {
-          connRegistry.broadcast(sid, endMsg);
-        } else {
-          send(finalSession.transport, endMsg);
-          broadcastToObservers(finalSession.observers, endMsg);
-        }
-        if (sid && connRegistry?.hasOpenWatchers(sid)) {
-          // Clear active session only on connections whose active is this session
-          for (const { connectionId: cid } of connRegistry.getConnectionsWatching(sid, true)) {
-            const conn = connRegistry.get(cid);
-            if (conn?.activeSession === sid) {
-              connRegistry.setActive(cid, null);
-            }
-          }
-        }
-      }
-      registry.remove(clientId);
-    }
-    // Mark session as inactive in durable store
-    if (store && resolvedSessionId) {
-      store.markSessionInactive(resolvedSessionId);
-    }
-    log.info('query loop ended', { clientId, doneSent });
+    span.end();
   }
 }

@@ -229,15 +229,18 @@ server.on('upgrade', async (req, socket, head) => {
  * Route a new WebSocket to v1 or v2 protocol based on the first message.
  * v2 clients send { type: 'hello', protocolVersion: 2 } immediately.
  * v1 clients send a regular message (send, reattach, etc.).
- * Timeout fallback: if no message within 5s, assume v1.
+ *
+ * Dead sockets (no message within 1s) and invalid JSON are closed
+ * immediately instead of falling through to v1. This prevents reconnect
+ * storms from stale/dead connections consuming resources.
  */
 function routeWsClient(ws: WebSocket, assignedId: string) {
-  const HANDSHAKE_TIMEOUT_MS = 5_000;
+  const HANDSHAKE_TIMEOUT_MS = 1_000;
 
   const timer = setTimeout(() => {
     ws.removeListener('message', onFirstMessage);
-    log.info('no hello received, routing to v1', { connectionId: assignedId });
-    handleChatWs(ws, assignedId);
+    log.info('no hello received, closing dead connection', { connectionId: assignedId });
+    ws.close(4000, 'No hello received');
   }, HANDSHAKE_TIMEOUT_MS);
 
   const onFirstMessage = (raw: Buffer | ArrayBuffer | Buffer[]) => {
@@ -248,7 +251,7 @@ function routeWsClient(ws: WebSocket, assignedId: string) {
     try {
       parsed = JSON.parse(raw.toString());
     } catch {
-      handleChatWs(ws, assignedId);
+      ws.close(4001, 'Invalid handshake');
       return;
     }
 
@@ -311,13 +314,17 @@ function handleChatWsV2(ws: WebSocket, connectionId: string) {
     transportMap.delete(ws);
     log.info('v2 disconnected', { connectionId, code, reason: reason?.toString() });
 
-    // Detach any session whose transport matches this connection's transport
     for (const sessionId of watchedSessions) {
       const found = registry.findBySessionId(sessionId);
       if (!found) continue;
       const session = registry.get(found.clientId);
       if (session && session.transport === transport && registry.isAttached(found.clientId)) {
+        const detachSpan = tracer.startSpan('session.detach');
+        detachSpan.setAttribute('session.sessionId', sessionId);
+        detachSpan.setAttribute('ws.connectionId', connectionId);
         detachChat(found.clientId);
+        detachSpan.setStatus({ code: SpanStatusCode.OK });
+        detachSpan.end();
         log.info('v2 session detached (surviving)', { connectionId, sessionId });
       }
     }

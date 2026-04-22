@@ -129,6 +129,11 @@ interface ErrorMsg {
   error: string;
 }
 
+interface SessionTakeoverMsg {
+  type: 'session_takeover';
+  sessionId: string;
+}
+
 interface ModeChangedMsg {
   type: 'mode_changed';
   mode: 'ask' | 'agent' | 'auto';
@@ -210,6 +215,7 @@ export type ServerMessage =
   | PermissionRequestMsg
   | PermissionTimeoutMsg
   | ErrorMsg
+  | SessionTakeoverMsg
   | ModeChangedMsg
   | UpdateAvailableMsg
   | WorktreeOpenedMsg

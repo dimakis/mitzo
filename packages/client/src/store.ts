@@ -166,6 +166,33 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     pendingSend: null,
   };
 
+  let recoveryInFlight = false;
+
+  function fetchAndRestoreMessages(sessionId: string) {
+    if (recoveryInFlight) return;
+    recoveryInFlight = true;
+    api
+      .getSessionMessages(sessionId)
+      .then((msgs) => {
+        if (Array.isArray(msgs)) {
+          store.setState((s) => ({
+            messages:
+              msgs.length > 0
+                ? messagesReducer(s.messages, { type: 'RESTORE', messages: msgs })
+                : { ...s.messages, messages: [], current: null },
+          }));
+        }
+      })
+      .catch((err) => {
+        if (typeof console !== 'undefined') {
+          console.warn('[mitzo] message recovery fetch failed', err);
+        }
+      })
+      .finally(() => {
+        recoveryInFlight = false;
+      });
+  }
+
   function clearPendingSendTimer() {
     if (parserState.pendingSendTimer) {
       clearTimeout(parserState.pendingSendTimer);
@@ -196,6 +223,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     async switchSession(id: string) {
+      const oldId = parserState.currentSessionId;
+      if (oldId) connection.clearSession(oldId);
       parserState.currentSessionId = id;
 
       set((s) => ({
@@ -221,6 +250,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     newSession() {
+      for (const sid of connection.getTrackedSessions()) {
+        connection.clearSession(sid);
+      }
       parserState.currentSessionId = undefined;
       parserState.pendingSend = null;
       clearPendingSendTimer();
@@ -555,13 +587,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     onSessionExpired() {
-      parserState.currentSessionId = undefined;
-      parserState.pendingSend = null;
-      clearPendingSendTimer();
-      store.setState((s) => ({
-        sessions: { ...s.sessions, active: null },
-        messages: INITIAL_MESSAGES_STATE,
-      }));
+      // No-op: server-side resume validation handles expired sessions now.
+      // Kept to satisfy ProtocolCallbacks interface.
     },
 
     onSessionRenamed(name: string) {
@@ -591,6 +618,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       connection.send(msg);
     },
 
+    onReconnected() {
+      const activeId = parserState.currentSessionId;
+      if (activeId) fetchAndRestoreMessages(activeId);
+    },
+
     onTokensHydrated(tokens: Record<string, unknown>) {
       store.setState((s) => ({
         tokens: {
@@ -610,27 +642,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // evicted it from memory, losing in-memory state), re-fetch messages from
     // the REST API if we have an active session but no messages in the store.
     if (msg.type === '_foreground') {
-      const { sessions, messages: msgs } = store.getState();
-      if (sessions.active && msgs.messages.length === 0 && !msgs.current) {
-        api
-          .getSessionMessages(sessions.active)
-          .then((restored) => {
-            if (Array.isArray(restored) && restored.length > 0) {
-              // Only restore if store is still empty (avoid clobbering live data)
-              const current = store.getState().messages;
-              if (current.messages.length === 0 && !current.current) {
-                store.setState((s) => ({
-                  messages: messagesReducer(s.messages, { type: 'RESTORE', messages: restored }),
-                }));
-              }
-            }
-          })
-          .catch((err) => {
-            if (typeof console !== 'undefined') {
-              console.warn('[mitzo] foreground recovery fetch failed', err);
-            }
-          });
-      }
+      const { sessions } = store.getState();
+      if (sessions.active) fetchAndRestoreMessages(sessions.active);
       return;
     }
 
@@ -645,15 +658,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       if (parserState.currentSessionId) {
         if (eventSessionId !== parserState.currentSessionId) return;
       } else {
-        // Allow session assignment, session end, and permission requests through
-        // before session_id arrives. Permission requests can arrive for brand-new
-        // sessions before the session_id event — dropping them blocks the user
-        // from answering tool prompts.
-        const isEarlySessionEvent =
-          msg.type === 'session_id' ||
-          msg.type === 'session_end' ||
-          msg.type === 'permission_request';
-        if (!isEarlySessionEvent) return;
+        // Allow session_id (new session assignment) and permission_request
+        // (can arrive before session_id on the first turn) through when no
+        // active session. Drop everything else (session_end, etc.) to prevent
+        // foreign session bleed.
+        const isFirstTurnEvent = msg.type === 'session_id' || msg.type === 'permission_request';
+        if (!isFirstTurnEvent) return;
       }
     }
 

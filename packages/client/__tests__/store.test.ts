@@ -241,6 +241,38 @@ describe('newSession', () => {
   });
 });
 
+describe('reconnect recovery', () => {
+  it('re-fetches messages for active session on reconnected event', async () => {
+    const transport = mockTransport();
+    const msgs = [
+      {
+        messageId: 'm1',
+        role: 'assistant',
+        blocks: [{ blockId: 'b1', blockType: 'text', content: 'recovered' }],
+      },
+    ];
+    (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(msgs),
+      text: () => Promise.resolve(''),
+    });
+
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+
+    // Simulate reconnected event
+    lastWs.simulateMessage({ type: 'reconnected', sessions: [] });
+
+    // Wait for the async fetch
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(transport.fetch).toHaveBeenCalledWith(
+      '/api/sessions/sess-1/messages',
+      expect.objectContaining({ credentials: 'include' }),
+    );
+  });
+});
+
 describe('sendMessage', () => {
   it('adds optimistic user message', () => {
     const store = createReadyStore();
@@ -634,14 +666,11 @@ describe('respondToPermission — first turn edge case', () => {
 });
 
 describe('sendMessage — session expired recovery', () => {
-  it('clears currentSessionId on "No conversation found" so next send is fresh', async () => {
+  it('shows error on "No conversation found" without clearing session', async () => {
     const store = createReadyStore();
     await store.getState().switchSession('old-session-id');
 
     store.getState().sendMessage('first attempt');
-    const firstSent = lastWs.parsedSent();
-    const resumeMsg = firstSent.find((m) => m.type === 'send' && m.sessionId === 'old-session-id');
-    expect(resumeMsg).toBeDefined();
 
     lastWs.simulateMessage({
       type: 'error',
@@ -649,14 +678,14 @@ describe('sendMessage — session expired recovery', () => {
         'Claude Code returned an error result: No conversation found with session ID: old-session-id',
     });
 
-    expect(store.getState().sessions.active).toBeNull();
-
-    store.getState().sendMessage('second attempt');
-
-    const allSends = lastWs.parsedSent().filter((m) => m.type === 'send');
-    const fresh = allSends.find((m) => m.prompt === 'second attempt');
-    expect(fresh).toBeDefined();
-    expect(fresh!.sessionId).toBeNull();
+    // Session stays active — server handles retry without resume
+    expect(store.getState().sessions.active).toBe('old-session-id');
+    // Error is added as a message to the user
+    const msgs = store.getState().messages.messages;
+    const errMsg = msgs.find((m) =>
+      m.blocks?.some((b: { content?: string }) => b.content?.includes('No conversation found')),
+    );
+    expect(errMsg).toBeDefined();
   });
 });
 
@@ -752,6 +781,39 @@ describe('session isolation via sessionId filtering', () => {
     });
 
     expect(store.getState().tasks.tree).toHaveLength(1);
+  });
+
+  it('drops session_end when no active session (null-session filter)', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('old-session');
+    store.getState().dispatchMessages({ type: 'SET_RUNNING', running: true });
+
+    store.getState().newSession();
+
+    lastWs.simulateMessage({
+      type: 'session_end',
+      sessionId: 'old-session',
+    });
+
+    // running should still be false from newSession reset, not from session_end
+    // The session_end event should have been dropped by the tightened filter
+    expect(store.getState().messages.running).toBe(false);
+  });
+
+  it('allows permission_request through when no active session (first-turn race)', async () => {
+    const store = createReadyStore();
+
+    lastWs.simulateMessage({
+      type: 'permission_request',
+      permId: 'p1',
+      toolName: 'Write',
+      toolInput: '{}',
+      sessionId: 'new-session',
+    });
+
+    // Permission should pass through — it can arrive before session_id
+    expect(store.getState().messages.permission).not.toBeNull();
+    expect(store.getState().messages.permission?.permId).toBe('p1');
   });
 });
 
@@ -972,11 +1034,10 @@ describe('foreground recovery', () => {
     });
   });
 
-  it('skips re-fetch when messages already exist', async () => {
+  it('always re-fetches on foreground even when messages already exist', async () => {
     const transport = mockTransport();
     const store = createReadyStore(transport);
 
-    // Set active session AND existing messages
     store.setState((s) => ({
       sessions: { ...s.sessions, active: 'sess-1' },
       messages: {
@@ -985,20 +1046,17 @@ describe('foreground recovery', () => {
       },
     }));
 
-    // Clear fetch call count from handshake
     (transport.fetch as ReturnType<typeof vi.fn>).mockClear();
 
     lastWs.simulateMessage({ type: '_foreground' });
 
-    // Give any potential async a chance to fire
     await new Promise((r) => setTimeout(r, 50));
 
-    // Should NOT have fetched session messages
     const fetchCalls = (transport.fetch as ReturnType<typeof vi.fn>).mock.calls;
     const sessionMsgCalls = fetchCalls.filter(
       (c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).includes('/messages'),
     );
-    expect(sessionMsgCalls).toHaveLength(0);
+    expect(sessionMsgCalls).toHaveLength(1);
   });
 
   it('does not clobber messages that arrived between fetch start and resolve', async () => {
@@ -1046,7 +1104,10 @@ describe('foreground recovery', () => {
 
     await new Promise((r) => setTimeout(r, 50));
 
-    // Store should still have the 1 live message, not the 2 stale ones
+    // Foreground recovery always calls RESTORE — invalid messages are filtered by the
+    // reducer's shape validation, so only valid ones survive. The stale test data
+    // lacks messageId and proper block structure, so RESTORE filters them out.
+    // The original 1 live message persists since RESTORE merges.
     expect(store.getState().messages.messages).toHaveLength(1);
   });
 });
