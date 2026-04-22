@@ -18,6 +18,7 @@ import { TokenBar } from './TokenBar';
 import type { UseVoiceReturn } from '../hooks/useVoice';
 import type { TokensState as TokenState } from '@mitzo/client';
 import { useDraft } from '../hooks/useDraft';
+import { useQueuedMessages } from '../hooks/useQueuedMessages';
 
 interface Props {
   onSend: (text: string, images?: ImageAttachment[], contextBlocks?: string[]) => boolean;
@@ -56,10 +57,13 @@ export function ChatInput({
   const [showSlashPicker, setShowSlashPicker] = useState(false);
   const [showContextPicker, setShowContextPicker] = useState(false);
   const [contextBlocks, setContextBlocks] = useState<string[]>([]);
-  const MAX_QUEUED = 5;
-  const [queuedMessages, setQueuedMessages] = useState<
-    { text: string; images: ImageAttachment[]; contextBlocks: string[] }[]
-  >([]);
+  const {
+    queue: queuedMessages,
+    enqueue,
+    dequeue,
+    remove: removeQueued,
+    edit: editQueued,
+  } = useQueuedMessages(sessionId);
   const useExternal = externalContextBlocks !== undefined;
   const activeContextBlocks = useExternal ? externalContextBlocks : contextBlocks;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -95,16 +99,17 @@ export function ChatInput({
   // Auto-send next queued message when agent finishes its turn
   useEffect(() => {
     if (prevRunning.current && !running && queuedMessages.length > 0) {
-      const [q, ...rest] = queuedMessages;
-      setQueuedMessages(rest);
-      onSend(
-        q.text,
-        q.images.length > 0 ? q.images : undefined,
-        q.contextBlocks.length > 0 ? q.contextBlocks : undefined,
-      );
+      const q = dequeue();
+      if (q) {
+        onSend(
+          q.text,
+          q.images.length > 0 ? q.images : undefined,
+          q.contextBlocks.length > 0 ? q.contextBlocks : undefined,
+        );
+      }
     }
     prevRunning.current = running;
-  }, [running, queuedMessages, onSend]);
+  }, [running, queuedMessages, onSend, dequeue]);
 
   // Show/hide slash picker based on input
   // TODO: Verify picker reopens correctly on backspace after space (e.g. "/simplify " → "/simplify")
@@ -214,16 +219,13 @@ export function ChatInput({
   function handleQueue() {
     const trimmed = text.trim();
     if (!trimmed && images.length === 0) return;
-    if (queuedMessages.length >= MAX_QUEUED) return;
+    const added = enqueue({
+      text: trimmed || 'What do you see in this image?',
+      images: [...images],
+      contextBlocks: [...activeContextBlocks],
+    });
+    if (!added) return;
     impactMedium();
-    setQueuedMessages((prev) => [
-      ...prev,
-      {
-        text: trimmed || 'What do you see in this image?',
-        images: [...images],
-        contextBlocks: [...activeContextBlocks],
-      },
-    ]);
     setText('');
     setImages([]);
     if (!useExternal) setContextBlocks([]);
@@ -234,12 +236,11 @@ export function ChatInput({
   }
 
   function editQueuedMessage(index: number) {
-    const q = queuedMessages[index];
+    const q = editQueued(index);
     if (!q) return;
     setText(q.text);
     setImages(q.images);
     if (!useExternal) setContextBlocks(q.contextBlocks);
-    setQueuedMessages((prev) => prev.filter((_, i) => i !== index));
     requestAnimationFrame(() => {
       autoResize();
       textareaRef.current?.focus();
@@ -247,9 +248,9 @@ export function ChatInput({
   }
 
   function fireQueuedAsInterrupt(index: number) {
-    if (!onInterrupt || !queuedMessages[index]) return;
     const q = queuedMessages[index];
-    setQueuedMessages((prev) => prev.filter((_, i) => i !== index));
+    if (!onInterrupt || !q) return;
+    removeQueued(index);
     onInterrupt(
       q.text,
       q.images.length > 0 ? q.images : undefined,
@@ -344,7 +345,7 @@ export function ChatInput({
           </button>
           <button
             className="chat-input-queued-btn chat-input-queued-btn--clear"
-            onClick={() => setQueuedMessages((prev) => prev.filter((_, j) => j !== i))}
+            onClick={() => removeQueued(i)}
           >
             &times;
           </button>
