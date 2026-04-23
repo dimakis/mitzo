@@ -676,10 +676,8 @@ export async function startChat(
     if (failedSession) cleanupSessionWorktrees(failedSession);
     registry.abort(clientId);
   } finally {
-    // Clean up secondary worktrees after query loop ends. Primary worktree is
-    // preserved for resume; stale GC handles its lifecycle. Session may already
-    // be removed from registry, so use the captured reference.
-    cleanupSessionWorktrees(session);
+    // Phase 2e: worktrees survive until explicit close or stale GC.
+    // Only failed sessions (caught above) clean up their worktrees.
   }
 }
 

@@ -265,6 +265,23 @@ describe('createSessionWorktrees — lazy secondary creation', () => {
   });
 });
 
+describe('startChat finally block does NOT clean up worktrees', () => {
+  it('cleanupSessionWorktrees is not called unconditionally after query loop', async () => {
+    // Phase 2e: worktrees survive until explicit close or stale GC.
+    // Verify by reading the source: the finally block should not call
+    // cleanupSessionWorktrees. This is a structural test — we grep the
+    // actual source to ensure the pattern is absent.
+    const { readFileSync } = await import('fs');
+    const { join } = await import('path');
+    const chatSource = readFileSync(join(import.meta.dirname, '..', 'chat.ts'), 'utf-8');
+
+    // The finally block should NOT contain cleanupSessionWorktrees
+    const finallyMatch = chatSource.match(/\} finally \{([^}]*)\}/s);
+    expect(finallyMatch).not.toBeNull();
+    expect(finallyMatch![1]).not.toContain('cleanupSessionWorktrees');
+  });
+});
+
 describe('isIsolationEnabled', () => {
   let originalEnv: string | undefined;
 
