@@ -2,7 +2,6 @@ import { useState } from 'react';
 import type { ProgressItem } from '@mitzo/protocol';
 
 interface Props {
-  progressId: string;
   items: ProgressItem[];
 }
 
@@ -18,7 +17,7 @@ export function ProgressWidget({ items }: Props) {
   const doneCount = items.filter((i) => i.status === 'done').length;
   const total = items.length;
   const activeItem = items.find((i) => i.status === 'in_progress');
-  const allDone = doneCount === total;
+  const allDone = total > 0 && doneCount === total;
   const pct = total > 0 ? (doneCount / total) * 100 : 0;
 
   return (

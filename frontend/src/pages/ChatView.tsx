@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { ChatArea } from '../components/ChatArea';
 import { ChatInput } from '../components/ChatInput';
@@ -9,6 +9,7 @@ import { LAST_SESSION_KEY } from '../lib/constants';
 import { getPreferredModel, setPreferredModel } from '../lib/model-preference';
 import { useVoice } from '../hooks/useVoice';
 import { useAutoSpeak } from '../hooks/useAutoSpeak';
+import { useProgressByToolId } from '../hooks/useProgress';
 import { onKeyboardToggle } from '../lib/keyboard';
 import type { ImageAttachment } from '../types/chat';
 
@@ -50,18 +51,7 @@ export function ChatView() {
   const pendingSession = useMitzoStore((s) => s.pendingSession);
   const clearPendingSession = useMitzoStore((s) => s.clearPendingSession);
   const sessionContext = useMitzoStore((s) => s.messages.sessionContext);
-  const progressToolIndex = useMitzoStore((s) => s.progress.toolIndex);
-  const progressBlocks = useMitzoStore((s) => s.progress.blocks);
-
-  // Derive toolId → ProgressBlock lookup for ChatArea
-  const progressByToolId = useMemo(() => {
-    const map: Record<string, (typeof progressBlocks)[string]> = {};
-    for (const [toolId, progressId] of Object.entries(progressToolIndex)) {
-      const block = progressBlocks[progressId];
-      if (block) map[toolId] = block;
-    }
-    return map;
-  }, [progressToolIndex, progressBlocks]);
+  const progressByToolId = useProgressByToolId();
 
   const connected = connection.status === 'connected';
 
