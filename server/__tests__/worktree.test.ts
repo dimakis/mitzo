@@ -7,6 +7,9 @@ import {
   readdirSync,
   utimesSync,
   existsSync,
+  lstatSync,
+  readlinkSync,
+  symlinkSync,
 } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -35,6 +38,7 @@ import {
   parseWorktreeAge,
   countWorktrees,
   createWorktreeAsync,
+  symlinkRuntimeDirs,
 } from '../worktree.js';
 
 describe('parseWorktreeAge', () => {
@@ -161,6 +165,70 @@ describe('createWorktreeAsync', () => {
     execFileSync('git', ['-C', baseRepo, 'branch', branch], { stdio: 'pipe' });
     const path = await createWorktreeAsync(sessionId, baseRepo);
     expect(existsSync(path)).toBe(true);
+  });
+});
+
+describe('symlinkRuntimeDirs', () => {
+  let repoPath: string;
+  let worktreePath: string;
+
+  beforeEach(() => {
+    repoPath = mkdtempSync(join(tmpdir(), 'mitzo-symlink-repo-'));
+    worktreePath = mkdtempSync(join(tmpdir(), 'mitzo-symlink-wt-'));
+  });
+
+  afterEach(() => {
+    rmSync(repoPath, { recursive: true, force: true });
+    rmSync(worktreePath, { recursive: true, force: true });
+  });
+
+  it('creates symlinks for dirs that exist in source repo', () => {
+    mkdirSync(join(repoPath, '.venv'));
+    mkdirSync(join(repoPath, 'node_modules'));
+
+    symlinkRuntimeDirs(repoPath, worktreePath, ['.venv', 'node_modules']);
+
+    expect(lstatSync(join(worktreePath, '.venv')).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(join(worktreePath, '.venv'))).toBe(join(repoPath, '.venv'));
+    expect(lstatSync(join(worktreePath, 'node_modules')).isSymbolicLink()).toBe(true);
+  });
+
+  it('skips dirs that do not exist in source repo', () => {
+    mkdirSync(join(repoPath, '.venv'));
+
+    symlinkRuntimeDirs(repoPath, worktreePath, ['.venv', 'node_modules']);
+
+    expect(lstatSync(join(worktreePath, '.venv')).isSymbolicLink()).toBe(true);
+    expect(existsSync(join(worktreePath, 'node_modules'))).toBe(false);
+  });
+
+  it('is idempotent — handles symlink-already-exists on resume', () => {
+    mkdirSync(join(repoPath, '.venv'));
+    symlinkSync(join(repoPath, '.venv'), join(worktreePath, '.venv'));
+
+    // Should not throw
+    symlinkRuntimeDirs(repoPath, worktreePath, ['.venv']);
+
+    expect(lstatSync(join(worktreePath, '.venv')).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(join(worktreePath, '.venv'))).toBe(join(repoPath, '.venv'));
+  });
+
+  it('handles dangling symlink (target was deleted)', () => {
+    mkdirSync(join(repoPath, '.venv'));
+    symlinkSync(join(repoPath, '.venv'), join(worktreePath, '.venv'));
+    rmSync(join(repoPath, '.venv'), { recursive: true });
+
+    // Source no longer exists — should skip without error
+    symlinkRuntimeDirs(repoPath, worktreePath, ['.venv']);
+
+    // Dangling symlink may remain from the previous creation
+    // The function shouldn't throw
+  });
+
+  it('handles empty dirs list', () => {
+    symlinkRuntimeDirs(repoPath, worktreePath, []);
+    // No symlinks created
+    expect(readdirSync(worktreePath).length).toBe(0);
   });
 });
 

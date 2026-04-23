@@ -13,7 +13,7 @@ import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { homedir } from 'os';
-import { createWorktree, removeWorktree } from './worktree.js';
+import { createWorktree, removeWorktree, symlinkRuntimeDirs } from './worktree.js';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
 import { parseContentBlocks } from './content-blocks.js';
 import { loadMcpServers, type McpServerConfig } from './mcp-config.js';
@@ -303,6 +303,10 @@ export function createSessionWorktrees(
       join(primaryPath, '.mitzo-session'),
       JSON.stringify({ wtId, createdAt: new Date().toISOString() }) + '\n',
     );
+    const config = getRepoConfig();
+    if (config.runtimeSymlinks.length > 0) {
+      symlinkRuntimeDirs(BASE_REPO, primaryPath, config.runtimeSymlinks);
+    }
     send(transport, { type: 'worktree', path: primaryPath });
     log.info('primary worktree created', { wtId, path: primaryPath });
   } catch (err: unknown) {
@@ -380,6 +384,17 @@ export function buildWorktreeSystemPrompt(
       'Env vars `$MITZO_REPO_<NAME>` hold worktree paths once created. ' +
       'Read operations from main worktrees are OK for reference.',
   );
+
+  const config = getRepoConfig();
+  if (config.runtimeSymlinks.length > 0) {
+    lines.push('');
+    lines.push(
+      `**Warning:** Runtime dirs (${config.runtimeSymlinks.join(', ')}) are symlinked from ` +
+        'the base repo — they are shared mutable state across sessions. ' +
+        'Do not install/upgrade packages in a worktree session.',
+    );
+  }
+
   return lines.join('\n');
 }
 

@@ -1,7 +1,16 @@
 /* eslint no-empty: ["error", { allowEmptyCatch: true }] */
 import { execFile as execFileCb, execFileSync } from 'child_process';
 import { promisify } from 'util';
-import { existsSync, mkdirSync, readdirSync, statSync, rmSync, writeFileSync } from 'fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  statSync,
+  rmSync,
+  writeFileSync,
+  symlinkSync,
+  lstatSync,
+} from 'fs';
 import { mkdir } from 'fs/promises';
 import { join, basename } from 'path';
 
@@ -156,6 +165,39 @@ export async function createWorktreeAsync(
 
   log.info(`created: ${worktreePath} (${branch})`);
   return worktreePath;
+}
+
+/**
+ * Create symlinks for runtime directories (e.g. .venv, node_modules) from the
+ * source repo into a worktree. Opt-in escape hatch for CWD-relative tool
+ * resolution. Symlinked dirs are shared mutable state across sessions.
+ *
+ * Idempotent: skips dirs that don't exist in the source, and handles
+ * already-existing symlinks (e.g. on resume).
+ */
+export function symlinkRuntimeDirs(repoPath: string, worktreePath: string, dirs: string[]): void {
+  for (const dir of dirs) {
+    const source = join(repoPath, dir);
+    const target = join(worktreePath, dir);
+
+    if (!existsSync(source)) continue;
+
+    try {
+      const stat = lstatSync(target);
+      if (stat.isSymbolicLink()) continue;
+    } catch {
+      // target doesn't exist — proceed to create
+    }
+
+    try {
+      symlinkSync(source, target);
+      log.info('runtime symlink created', { dir, source, target });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('EEXIST')) continue;
+      log.warn('failed to create runtime symlink', { dir, source, target, error: message });
+    }
+  }
 }
 
 /**
