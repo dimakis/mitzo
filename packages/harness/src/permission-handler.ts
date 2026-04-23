@@ -64,7 +64,7 @@ export function buildPermissionHandler(clientId: string, registry: SessionRegist
       return { behavior: 'deny', message: 'Tool not allowed by active skill policy' };
     }
 
-    const worktreeViolation = checkWorktreePolicy(session, toolName, _toolInput);
+    const worktreeViolation = await checkWorktreePolicy(session, toolName, _toolInput);
     if (worktreeViolation) {
       return { behavior: 'deny', message: worktreeViolation };
     }

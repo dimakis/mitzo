@@ -275,7 +275,7 @@ function buildMcpAllowedTools(clientId?: string): string[] {
  * All worktrees share the same session-scoped wtId. Returns the primary
  * worktree path as cwd, plus a map of all repo worktrees.
  */
-function createSessionWorktrees(
+export function createSessionWorktrees(
   transport: SessionTransport,
   baseCwd: string,
   wtId: string,
@@ -293,7 +293,8 @@ function createSessionWorktrees(
     return { cwd: baseCwd, wtId, repoWorktrees };
   }
 
-  // Create primary worktree
+  // Create primary worktree only — secondary repos are created on-demand
+  // by the worktree guard when an agent first writes to them (Phase 2a).
   let primaryPath: string | undefined;
   try {
     primaryPath = createWorktree(wtId, BASE_REPO);
@@ -312,23 +313,6 @@ function createSessionWorktrees(
       error: `Worktree creation failed (using base repo): ${message}`,
     });
     return { cwd: baseCwd, wtId, repoWorktrees };
-  }
-
-  // Create worktrees for all configured secondary repos
-  const config = getRepoConfig();
-  for (const [repoName, repoPath] of Object.entries(config.repos)) {
-    try {
-      const worktreePath = createWorktree(wtId, repoPath);
-      repoWorktrees.set(repoName, { path: worktreePath, wtId });
-      log.info('secondary worktree created', { repo: repoName, wtId, path: worktreePath });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      log.warn('secondary worktree creation failed', { repo: repoName, error: message });
-      send(transport, {
-        type: 'error',
-        error: `Worktree for ${repoName} failed: ${message}`,
-      });
-    }
   }
 
   return {
@@ -392,7 +376,8 @@ export function buildWorktreeSystemPrompt(
   }
   lines.push('');
   lines.push(
-    'Env vars `$MITZO_REPO_<NAME>` also hold these paths. ' +
+    'Worktrees for secondary repos are created on first write. ' +
+      'Env vars `$MITZO_REPO_<NAME>` hold worktree paths once created. ' +
       'Read operations from main worktrees are OK for reference.',
   );
   return lines.join('\n');
