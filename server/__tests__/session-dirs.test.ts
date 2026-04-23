@@ -20,6 +20,7 @@ const mockConfig: RepoConfig = {
   repos: {},
   contextBlocks: {},
   isolation: true,
+  runtimeSymlinks: [],
 };
 
 const mockLoadRepoConfig = vi.fn((_repoPath?: string) => ({ ...mockConfig }));
