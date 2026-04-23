@@ -1,0 +1,182 @@
+{
+  "uid": "mitzo-observability",
+  "title": "Mitzo Observability",
+  "tags": ["mitzo"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "module",
+        "type": "query",
+        "datasource": { "type": "loki", "uid": "" },
+        "query": { "label": "module", "stream": "{app=\"mitzo\"}", "type": 1 },
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" },
+        "refresh": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Live Log Stream",
+      "type": "logs",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "loki", "uid": "" },
+      "targets": [
+        {
+          "expr": "{app=\"mitzo\", module=~\"$module\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "wrapLogMessage": true
+      }
+    },
+    {
+      "id": 2,
+      "title": "Log Volume by Level",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 10 },
+      "datasource": { "type": "loki", "uid": "" },
+      "targets": [
+        {
+          "expr": "sum by (level) (count_over_time({app=\"mitzo\"} [$__interval]))",
+          "legendFormat": "{{level}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 30,
+            "stacking": { "mode": "normal" }
+          }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "error" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "warning" }, "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "info" }, "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "debug" }, "properties": [{ "id": "color", "value": { "fixedColor": "gray", "mode": "fixed" } }] }
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "title": "Log Volume by Module",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 10 },
+      "datasource": { "type": "loki", "uid": "" },
+      "targets": [
+        {
+          "expr": "sum by (module) (count_over_time({app=\"mitzo\"} [$__interval]))",
+          "legendFormat": "{{module}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 20, "stacking": { "mode": "normal" } }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Errors",
+      "type": "logs",
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 16 },
+      "datasource": { "type": "loki", "uid": "" },
+      "targets": [
+        {
+          "expr": "{app=\"mitzo\", level=~\"error|warning\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "wrapLogMessage": true
+      }
+    },
+    {
+      "id": 5,
+      "title": "WebSocket Operations",
+      "type": "logs",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 23 },
+      "datasource": { "type": "loki", "uid": "" },
+      "targets": [
+        {
+          "expr": "{app=\"mitzo\", module=\"ws-v2\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true
+      }
+    },
+    {
+      "id": 6,
+      "title": "Session Lifecycle",
+      "type": "logs",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 23 },
+      "datasource": { "type": "loki", "uid": "" },
+      "targets": [
+        {
+          "expr": "{app=\"mitzo\", module=\"query-loop\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true
+      }
+    },
+    {
+      "id": 7,
+      "title": "Traces — Recent Operations",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 30 },
+      "datasource": { "type": "jaeger", "uid": "jaeger" },
+      "targets": [
+        {
+          "queryType": "search",
+          "service": "mitzo",
+          "limit": 30,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Trace-Correlated Logs",
+      "description": "Log lines that carry a trace_id — click TraceID to jump to Jaeger",
+      "type": "logs",
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 38 },
+      "datasource": { "type": "loki", "uid": "" },
+      "targets": [
+        {
+          "expr": "{app=\"mitzo\"} |= \"trace_id\"",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "wrapLogMessage": true
+      }
+    }
+  ],
+  "schemaVersion": 39
+}
