@@ -147,13 +147,7 @@ export function ChatArea({
                 if (block.blockType === 'tool_use') {
                   const progress = block.toolId ? progressByToolId?.[block.toolId] : undefined;
                   if (progress) {
-                    return (
-                      <ProgressWidget
-                        key={block.blockId}
-                        progressId={progress.progressId}
-                        items={progress.items}
-                      />
-                    );
+                    return <ProgressWidget key={block.blockId} items={progress.items} />;
                   }
                   return <ToolPill key={block.blockId} block={block} />;
                 }
@@ -180,13 +174,7 @@ export function ChatArea({
               if (block.blockType === 'tool_use') {
                 const progress = block.toolId ? progressByToolId?.[block.toolId] : undefined;
                 if (progress) {
-                  return (
-                    <ProgressWidget
-                      key={block.blockId}
-                      progressId={progress.progressId}
-                      items={progress.items}
-                    />
-                  );
+                  return <ProgressWidget key={block.blockId} items={progress.items} />;
                 }
                 return <ToolPill key={block.blockId} block={block} />;
               }

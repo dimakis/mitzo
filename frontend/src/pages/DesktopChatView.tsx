@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { apiFetch } from '../lib/api-fetch';
 import { DesktopShell } from '../components/DesktopShell';
@@ -15,6 +15,7 @@ import { LAST_SESSION_KEY } from '../lib/constants';
 import { getPreferredModel, setPreferredModel } from '../lib/model-preference';
 import { useVoice } from '../hooks/useVoice';
 import { useAutoSpeak } from '../hooks/useAutoSpeak';
+import { useProgressByToolId } from '../hooks/useProgress';
 import type { FileRoot } from '../components/FileBrowserPanel';
 import type { ContextBlockEntry } from '../components/ContextPicker';
 import type { ImageAttachment } from '../types/chat';
@@ -67,17 +68,7 @@ export function DesktopChatView() {
   const storeSetModel = useMitzoStore((s) => s.setModel);
   const storeDispatchMessages = useMitzoStore((s) => s.dispatchMessages);
   const storeFetchSessionMeta = useMitzoStore((s) => s.fetchSessionMeta);
-  const progressToolIndex = useMitzoStore((s) => s.progress.toolIndex);
-  const progressBlocks = useMitzoStore((s) => s.progress.blocks);
-
-  const progressByToolId = useMemo(() => {
-    const map: Record<string, (typeof progressBlocks)[string]> = {};
-    for (const [toolId, progressId] of Object.entries(progressToolIndex)) {
-      const block = progressBlocks[progressId];
-      if (block) map[toolId] = block;
-    }
-    return map;
-  }, [progressToolIndex, progressBlocks]);
+  const progressByToolId = useProgressByToolId();
 
   const connected = connection.status === 'connected';
 

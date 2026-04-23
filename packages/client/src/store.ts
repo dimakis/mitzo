@@ -236,6 +236,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         messages: INITIAL_MESSAGES_STATE,
         permissions: INITIAL_PERMISSIONS_STATE,
         tokens: INITIAL_TOKENS_STATE,
+        progress: INITIAL_PROGRESS_STATE,
       }));
 
       // v2: send switch_session for token hydration + server-side active tracking
@@ -265,6 +266,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         sessions: { ...get().sessions, active: null },
         messages: INITIAL_MESSAGES_STATE,
         permissions: INITIAL_PERMISSIONS_STATE,
+        progress: INITIAL_PROGRESS_STATE,
       });
     },
 
