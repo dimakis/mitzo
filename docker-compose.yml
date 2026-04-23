@@ -7,6 +7,7 @@
 services:
   jaeger:
     image: jaegertracing/jaeger:latest
+    restart: always
     ports:
       - '4318:4318' # OTLP HTTP receiver (server + browser)
       - '16686:16686' # Jaeger UI
@@ -15,6 +16,7 @@ services:
 
   loki:
     image: grafana/loki:3.4.2
+    restart: always
     ports:
       - '3200:3100' # 3200 externally — 3100 conflicts with Mitzo server
     volumes:
@@ -23,6 +25,7 @@ services:
 
   grafana:
     image: grafana/grafana:12.4.1
+    restart: always
     ports:
       - '3001:3000'
     environment:
