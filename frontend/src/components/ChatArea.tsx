@@ -5,6 +5,7 @@ import { ToolPill } from './ToolPill';
 import { ToolGroup } from './ToolGroup';
 import { ContextBlock } from './ContextBlock';
 import { PermissionBanner } from './PermissionBanner';
+import { ProgressWidget } from './ProgressWidget';
 import { groupBlocks } from '../lib/groupMessages';
 import { SCROLL_NEAR_BOTTOM_PX } from '../lib/constants';
 import type {
@@ -13,6 +14,7 @@ import type {
   StreamingMessage,
   PermissionRequest,
 } from '../types/chat';
+import type { ProgressBlock } from '@mitzo/protocol';
 
 export interface ChatAreaProps {
   messages: FinishedMessage[];
@@ -28,6 +30,8 @@ export interface ChatAreaProps {
   scrollRef?: React.RefObject<HTMLDivElement | null>;
   /** Boot context for sessions started from inbox/todo items */
   sessionContext?: string | null;
+  /** Progress blocks indexed by toolId for rendering ProgressWidget on TodoWrite blocks */
+  progressByToolId?: Record<string, ProgressBlock>;
 }
 
 export function ChatArea({
@@ -38,6 +42,7 @@ export function ChatArea({
   onPermissionRespond,
   scrollRef: externalScrollRef,
   sessionContext,
+  progressByToolId,
 }: ChatAreaProps) {
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
@@ -64,14 +69,20 @@ export function ChatArea({
     }
   }, [messages, current, scrollRef]);
 
+  // Set of toolIds that have progress data (excluded from tool grouping).
+  const progressToolIds = useMemo(
+    () => new Set(Object.keys(progressByToolId ?? {})),
+    [progressByToolId],
+  );
+
   // Group blocks per finished assistant turn for tool collapsing.
   const groupedMessages = useMemo(
     () =>
       messages.map((msg) => ({
         msg,
-        grouped: msg.role === 'assistant' ? groupBlocks(msg.blocks) : null,
+        grouped: msg.role === 'assistant' ? groupBlocks(msg.blocks, progressToolIds) : null,
       })),
-    [messages],
+    [messages, progressToolIds],
   );
 
   const touchStart = useRef<{ x: number; y: number } | null>(null);
@@ -134,6 +145,16 @@ export function ChatArea({
                   return <ThinkingBlock key={block.blockId} block={block} />;
                 }
                 if (block.blockType === 'tool_use') {
+                  const progress = block.toolId ? progressByToolId?.[block.toolId] : undefined;
+                  if (progress) {
+                    return (
+                      <ProgressWidget
+                        key={block.blockId}
+                        progressId={progress.progressId}
+                        items={progress.items}
+                      />
+                    );
+                  }
                   return <ToolPill key={block.blockId} block={block} />;
                 }
                 return (
@@ -157,6 +178,16 @@ export function ChatArea({
                 return <ThinkingBlock key={block.blockId} block={block} streaming />;
               }
               if (block.blockType === 'tool_use') {
+                const progress = block.toolId ? progressByToolId?.[block.toolId] : undefined;
+                if (progress) {
+                  return (
+                    <ProgressWidget
+                      key={block.blockId}
+                      progressId={progress.progressId}
+                      items={progress.items}
+                    />
+                  );
+                }
                 return <ToolPill key={block.blockId} block={block} />;
               }
               return <TextBubble key={block.blockId} content={block.content ?? ''} streaming />;

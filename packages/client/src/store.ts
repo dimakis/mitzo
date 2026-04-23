@@ -30,6 +30,8 @@ import { INITIAL_CONFIG_STATE } from './slices/config.js';
 import type { ConfigState } from './slices/config.js';
 import { INITIAL_TOKENS_STATE } from './slices/tokens.js';
 import type { TokensState } from './slices/tokens.js';
+import { INITIAL_PROGRESS_STATE, applyProgressUpdate } from './slices/progress.js';
+import type { ProgressState } from './slices/progress.js';
 import { parseServerMessage } from './protocol-parser.js';
 import type { ProtocolParserState, ProtocolCallbacks } from './protocol-parser.js';
 import type { WsMsg } from './server-messages.js';
@@ -66,6 +68,7 @@ export interface MitzoStoreState {
   todos: TodosState;
   config: ConfigState;
   tokens: TokensState;
+  progress: ProgressState;
 
   // Error state
   sendError: string | null;
@@ -213,6 +216,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     todos: INITIAL_TODOS_STATE,
     config: INITIAL_CONFIG_STATE,
     tokens: INITIAL_TOKENS_STATE,
+    progress: INITIAL_PROGRESS_STATE,
     sendError: null,
     pendingSession: null,
 
@@ -711,6 +715,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           }));
           break;
       }
+    }
+
+    if (result.progressUpdate) {
+      store.setState((s) => ({
+        progress: applyProgressUpdate(s.progress, result.progressUpdate!),
+      }));
     }
 
     if (result.tokensUpdate) {

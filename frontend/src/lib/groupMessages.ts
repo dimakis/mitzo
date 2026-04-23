@@ -5,7 +5,15 @@ export type GroupedBlock =
   | { type: 'block'; block: FinishedBlock }
   | { type: 'tool-group'; tools: FinishedBlock[]; key: string };
 
-export function groupBlocks(blocks: FinishedBlock[]): GroupedBlock[] {
+/**
+ * Group consecutive tool_use blocks into collapsible ToolGroups.
+ * Blocks whose toolId appears in `progressToolIds` are excluded from grouping
+ * (they render as ProgressWidget and should always be visible).
+ */
+export function groupBlocks(
+  blocks: FinishedBlock[],
+  progressToolIds?: Set<string>,
+): GroupedBlock[] {
   if (!Array.isArray(blocks)) return [];
   const result: GroupedBlock[] = [];
   let toolBuffer: FinishedBlock[] = [];
@@ -26,7 +34,13 @@ export function groupBlocks(blocks: FinishedBlock[]): GroupedBlock[] {
 
   for (const block of blocks) {
     if (block.blockType === 'tool_use') {
-      toolBuffer.push(block);
+      // Progress-augmented blocks break the tool buffer (never grouped)
+      if (block.toolId && progressToolIds?.has(block.toolId)) {
+        flushTools();
+        result.push({ type: 'block', block });
+      } else {
+        toolBuffer.push(block);
+      }
     } else {
       flushTools();
       result.push({ type: 'block', block });

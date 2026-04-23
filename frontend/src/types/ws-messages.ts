@@ -1,5 +1,6 @@
 import type { BlockType, FinishedBlock, ToolTier, RawToolInput } from './chat';
 import type { Task } from './task';
+import type { ProgressItem, ProgressItemStatus } from '@mitzo/protocol';
 
 interface ClientIdMsg {
   type: 'client_id';
@@ -229,7 +230,35 @@ export type ServerMessage =
   | TaskUpdatedMsg
   | TaskDeletedMsg
   | TokenUpdateMsg
-  | LoopStatusMsg;
+  | LoopStatusMsg
+  | ProgressStartMsg
+  | ProgressUpdateMsg
+  | ProgressReplaceMsg;
+
+export interface ProgressStartMsg {
+  type: 'progress_start';
+  v: 2;
+  messageId: string;
+  progressId: string;
+  sourceToolId?: string;
+  items: ProgressItem[];
+}
+
+export interface ProgressUpdateMsg {
+  type: 'progress_update';
+  v: 2;
+  progressId: string;
+  itemId: string;
+  status: ProgressItemStatus;
+}
+
+export interface ProgressReplaceMsg {
+  type: 'progress_replace';
+  v: 2;
+  progressId: string;
+  sourceToolId?: string;
+  items: ProgressItem[];
+}
 
 export interface InboxUpdatedMsg {
   type: 'inbox_updated';

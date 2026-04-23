@@ -18,6 +18,7 @@ import { NOTIFY_SNIPPET_MAX_CHARS } from './constants.js';
 import { createGoal, reportUsage, deriveGoalTitle } from './goal-client.js';
 import { tracer } from './tracing.js';
 import { SpanStatusCode } from '@opentelemetry/api';
+import { ProgressTracker } from './progress-tracker.js';
 const log = createLogger('query-loop');
 
 /** Send data via transport, guarding on isOpen(). */
@@ -134,6 +135,9 @@ export async function runQueryLoop(
     number,
     { name: string; id: string; inputBuf: string; blockId: string }
   >();
+
+  // Progress tracker — intercepts TodoWrite calls, emits structured events.
+  const progressTracker = new ProgressTracker();
 
   // Map content block index → blockId for all block types.
   const blockIdByIndex = new Map<number, string>();
@@ -451,6 +455,7 @@ export async function runQueryLoop(
             forceFlushPendingMessage(currentSession);
             toolInputBuffers.clear();
             blockIdByIndex.clear();
+            progressTracker.reset();
             blockCounter = 0;
             openBlockCount = 0;
             // Use API message ID if available, otherwise generate one.
@@ -650,6 +655,18 @@ export async function runQueryLoop(
                   ...(rawInput ? { rawInput } : {}),
                 }),
               );
+
+              // Intercept TodoWrite — emit structured progress events
+              if (toolEntry.name === 'TodoWrite' && currentMessageId) {
+                const progressEvents = progressTracker.handleTodoWrite(
+                  currentMessageId,
+                  toolEntry.id,
+                  toolEntry.inputBuf,
+                );
+                for (const pe of progressEvents) {
+                  emit(pe);
+                }
+              }
             } else if (blockId) {
               // Text or thinking block — mark done in snapshot.
               const block = currentSession.currentSnapshot?.blocks.find(

@@ -20,6 +20,8 @@ import type { MessagesAction } from './slices/messages.js';
 import type { WsMsg } from './server-messages.js';
 import type { Task, LoopStatus } from './slices/tasks.js';
 import type { TokensState } from './slices/tokens.js';
+import type { ProgressUpdate } from './slices/progress.js';
+import type { ProgressItem, ProgressItemStatus } from '@mitzo/protocol';
 
 // ─── Callback interface ──────────────────────────────────────────────────────
 
@@ -83,6 +85,9 @@ export interface ParseResult {
 
   /** Token usage update, if any. */
   tokensUpdate?: Partial<TokensState>;
+
+  /** Progress tracking update, if any. */
+  progressUpdate?: ProgressUpdate;
 
   /** Inbox refresh signal. */
   inboxRefresh?: boolean;
@@ -379,6 +384,35 @@ export function parseServerMessage(
       result.tokensUpdate = tu;
       break;
     }
+
+    // Progress tracking messages
+    case 'progress_start':
+      result.progressUpdate = {
+        type: 'start',
+        progressId: msg.progressId as string,
+        messageId: msg.messageId as string,
+        sourceToolId: msg.sourceToolId as string | undefined,
+        items: msg.items as ProgressItem[],
+      };
+      break;
+
+    case 'progress_update':
+      result.progressUpdate = {
+        type: 'update',
+        progressId: msg.progressId as string,
+        itemId: msg.itemId as string,
+        status: msg.status as ProgressItemStatus,
+      };
+      break;
+
+    case 'progress_replace':
+      result.progressUpdate = {
+        type: 'replace',
+        progressId: msg.progressId as string,
+        sourceToolId: msg.sourceToolId as string | undefined,
+        items: msg.items as ProgressItem[],
+      };
+      break;
 
     case 'inbox_updated':
       result.inboxRefresh = true;
