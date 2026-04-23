@@ -17,7 +17,7 @@ import { extractSnippet } from './notification-helpers.js';
 import { NOTIFY_SNIPPET_MAX_CHARS } from './constants.js';
 import { createGoal, reportUsage, deriveGoalTitle } from './goal-client.js';
 import { tracer } from './tracing.js';
-import { SpanStatusCode } from '@opentelemetry/api';
+import { context, trace, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { ProgressTracker } from './progress-tracker.js';
 const log = createLogger('query-loop');
 
@@ -126,7 +126,26 @@ export async function runQueryLoop(
 ) {
   const span = tracer.startSpan('session');
   span.setAttribute('session.clientId', clientId);
+  const sessionContext = trace.setSpan(context.active(), span);
 
+  // Run the entire loop body inside the session span's context so that:
+  // - All log.info() calls inject trace_id/span_id via the pino OTel mixin
+  // - Child spans (turn, tool) inherit the session span as parent
+  return context.with(sessionContext, () =>
+    _runQueryLoopInner(q, clientId, registry, abortController, span, store, initialPrompt, options),
+  );
+}
+
+async function _runQueryLoopInner(
+  q: AsyncIterable<Record<string, unknown>>,
+  clientId: string,
+  registry: SessionRegistry,
+  abortController: AbortController,
+  span: Span,
+  store?: EventStore,
+  initialPrompt?: string,
+  options?: QueryLoopOptions,
+) {
   const connRegistry = options?.connRegistry;
   const onSessionResolved = options?.onSessionResolved;
   const onInitialPrompt = options?.onInitialPrompt;
@@ -149,6 +168,11 @@ export async function runQueryLoop(
   let pendingMessageEnd: Record<string, unknown> | null = null;
   let resolvedSessionId: string | undefined;
   let resolvedGoalId: string | undefined;
+
+  // Turn and tool span tracking (Steps 5-6 of OTel overhaul)
+  let currentTurnSpan: Span | null = null;
+  let turnBlockCount = 0;
+  const toolSpans = new Map<string, Span>(); // blockId → tool span
   let goalCreationPromise: Promise<string | null> | undefined;
   let goalTitle: string | undefined;
 
@@ -187,6 +211,13 @@ export async function runQueryLoop(
       pendingMessageEnd = null;
       currentMessageId = null;
       (session as { currentSnapshot: null }).currentSnapshot = null;
+      // End turn span when message is fully flushed
+      if (currentTurnSpan) {
+        currentTurnSpan.setAttribute('turn.block_count', turnBlockCount);
+        currentTurnSpan.setStatus({ code: SpanStatusCode.OK });
+        currentTurnSpan.end();
+        currentTurnSpan = null;
+      }
     }
   }
 
@@ -427,6 +458,10 @@ export async function runQueryLoop(
             });
           }
 
+          span.setAttribute('session.num_turns', usageData.numTurns);
+          span.setAttribute('session.total_tokens', currentSession.cumulativeSessionTokens);
+          span.setAttribute('session.duration_ms', usageData.durationMs);
+          span.setAttribute('session.cost_usd', usageData.totalCostUsd);
           emit(v2('session_end', { sessionId: msg.session_id, usage: usageData }));
           const resultSid = (msg.session_id as string) || currentSession.sessionId;
           if (resultSid && connRegistry?.hasOpenWatchers(resultSid)) {
@@ -452,17 +487,29 @@ export async function runQueryLoop(
           log.debug('stream event', { clientId, evtType: evt?.type });
 
           if (evt?.type === 'message_start') {
+            // End previous turn span if still open (e.g. deferred message_end)
+            if (currentTurnSpan) {
+              currentTurnSpan.setAttribute('turn.block_count', turnBlockCount);
+              currentTurnSpan.setStatus({ code: SpanStatusCode.OK });
+              currentTurnSpan.end();
+              currentTurnSpan = null;
+            }
             forceFlushPendingMessage(currentSession);
             toolInputBuffers.clear();
             blockIdByIndex.clear();
             progressTracker.reset();
             blockCounter = 0;
             openBlockCount = 0;
-            // Use API message ID if available, otherwise generate one.
+            turnBlockCount = 0;
             const apiMsg = evt.message as Record<string, unknown> | undefined;
             currentMessageId = (apiMsg?.id as string | undefined) ?? `msg-${Date.now()}`;
-            // Init snapshot on the session.
             currentSession.currentSnapshot = { messageId: currentMessageId, blocks: [] };
+
+            // Start turn child span under the session span
+            currentTurnSpan = tracer.startSpan('turn', {}, context.active());
+            currentTurnSpan.setAttribute('turn.index', turnIndex);
+            currentTurnSpan.setAttribute('turn.message_id', currentMessageId);
+
             emit(v2('message_start', { messageId: currentMessageId }));
 
             // Extract agent context from message_start usage.
@@ -538,27 +585,31 @@ export async function runQueryLoop(
                 }),
               );
             } else if (blockType === 'tool_use') {
-              toolInputBuffers.set(index, {
-                name: contentBlock!.name as string,
-                id: contentBlock!.id as string,
-                inputBuf: '',
-                blockId,
-              });
+              const toolName = contentBlock!.name as string;
+              const toolId = contentBlock!.id as string;
+              toolInputBuffers.set(index, { name: toolName, id: toolId, inputBuf: '', blockId });
               const snapshotBlock: SnapshotBlock = {
                 blockId,
                 blockType: 'tool_use',
                 content: '',
                 done: false,
-                toolName: contentBlock!.name as string,
-                toolId: contentBlock!.id as string,
+                toolName,
+                toolId,
               };
               currentSession.currentSnapshot?.blocks.push(snapshotBlock);
+
+              // Start tool child span under the current turn span
+              const toolSpan = tracer.startSpan(`tool.${toolName}`, {}, context.active());
+              toolSpan.setAttribute('tool.name', toolName);
+              toolSpan.setAttribute('tool.id', toolId);
+              toolSpans.set(blockId, toolSpan);
+
               emit(
                 v2('block_start', {
                   messageId: currentMessageId,
                   blockId,
                   blockType: 'tool_use',
-                  toolName: contentBlock!.name as string,
+                  toolName,
                 }),
               );
             } else if (blockType === 'text') {
@@ -634,6 +685,14 @@ export async function runQueryLoop(
 
               log.info('tool call', { clientId, tool: toolEntry.name, toolId: toolEntry.id });
 
+              // End tool span
+              const toolSpan = toolSpans.get(blockId);
+              if (toolSpan) {
+                toolSpan.setStatus({ code: SpanStatusCode.OK });
+                toolSpan.end();
+                toolSpans.delete(blockId);
+              }
+
               // Mark snapshot block done with tool metadata.
               const block = currentSession.currentSnapshot?.blocks.find(
                 (b) => b.blockId === blockId,
@@ -685,6 +744,7 @@ export async function runQueryLoop(
               }
             }
             openBlockCount = Math.max(0, openBlockCount - 1);
+            turnBlockCount++;
             tryFlushMessageEnd(currentSession);
           }
         } else if (msg.type === 'system') {
@@ -768,6 +828,20 @@ export async function runQueryLoop(
       if (store && resolvedSessionId) {
         store.markSessionInactive(resolvedSessionId);
       }
+      // Clean up any open tool spans
+      for (const [, ts] of toolSpans) {
+        ts.setStatus({ code: SpanStatusCode.OK });
+        ts.end();
+      }
+      toolSpans.clear();
+      // Clean up open turn span
+      if (currentTurnSpan) {
+        currentTurnSpan.setAttribute('turn.block_count', turnBlockCount);
+        currentTurnSpan.setStatus({ code: SpanStatusCode.OK });
+        currentTurnSpan.end();
+        currentTurnSpan = null;
+      }
+
       span.setStatus({ code: SpanStatusCode.OK });
       log.info('query loop ended', { clientId, doneSent });
     }

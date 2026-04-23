@@ -49,6 +49,7 @@ import { capturePromptComparison } from './prompt-compare.js';
 import { shouldAutoRename, extractRecentPrompts, generateSessionName } from './auto-rename.js';
 import { registerSession, updateSessionTitle, finalizeCloseout } from './session-index.js';
 import { createLogger } from './logger.js';
+import { withSpan, withSpanAsync } from './tracing.js';
 
 const log = createLogger('chat');
 
@@ -554,6 +555,34 @@ export async function startChat(
     onSessionResolved?: (sessionId: string) => void;
   },
 ) {
+  return withSpanAsync(
+    'chat.start',
+    {
+      'chat.clientId': clientId,
+      'chat.resume': options.resume ?? '',
+      'chat.mode': options.mode ?? 'agent',
+    },
+    async () => _startChatInner(transport, clientId, prompt, options),
+  );
+}
+
+async function _startChatInner(
+  transport: SessionTransport,
+  clientId: string,
+  prompt: string,
+  options: {
+    resume?: string;
+    cwd?: string;
+    model?: string;
+    extraTools?: string;
+    isolation?: boolean;
+    mode?: MitzoMode;
+    images?: Array<{ data: string; mediaType: string }>;
+    contextBlocks?: string[];
+    clientMsgId?: string;
+    onSessionResolved?: (sessionId: string) => void;
+  },
+) {
   const abortController = new AbortController();
   const mode = options.mode || 'agent';
 
@@ -818,27 +847,29 @@ export function sendToChat(
   contextBlocks?: string[],
   clientMsgId?: string,
 ): boolean {
-  const session = registry.get(clientId);
-  if (!session?.inputQueue) return false;
-  const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
-  const messageId = clientMsgId || `umsg-${Date.now()}-send`;
-  if (session.sessionId) {
-    eventStore.append(session.sessionId, 'user_message', {
-      v: 2,
-      type: 'user_message',
-      ts: Date.now(),
-      messageId,
-      text: fullPrompt,
-    });
-    tryAutoRename(session.sessionId, clientId).catch(() => {
-      /* errors logged internally */
-    });
-  }
-  const echo = { type: 'user_message', messageId, text: fullPrompt };
-  send(session.transport, echo);
-  broadcastToObservers(session.observers, echo);
-  session.inputQueue.push(makeUserMessage(fullPrompt, 'next'));
-  return true;
+  return withSpan('chat.send', { 'chat.clientId': clientId }, () => {
+    const session = registry.get(clientId);
+    if (!session?.inputQueue) return false;
+    const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
+    const messageId = clientMsgId || `umsg-${Date.now()}-send`;
+    if (session.sessionId) {
+      eventStore.append(session.sessionId, 'user_message', {
+        v: 2,
+        type: 'user_message',
+        ts: Date.now(),
+        messageId,
+        text: fullPrompt,
+      });
+      tryAutoRename(session.sessionId, clientId).catch(() => {
+        /* errors logged internally */
+      });
+    }
+    const echo = { type: 'user_message', messageId, text: fullPrompt };
+    send(session.transport, echo);
+    broadcastToObservers(session.observers, echo);
+    session.inputQueue.push(makeUserMessage(fullPrompt, 'next'));
+    return true;
+  });
 }
 
 /** Interrupt the current generation and inject a message the model sees immediately. */
@@ -849,25 +880,27 @@ export async function interruptChat(
   contextBlocks?: string[],
   clientMsgId?: string,
 ): Promise<boolean> {
-  const session = registry.get(clientId);
-  if (!session?.queryInstance || !session?.inputQueue) return false;
-  const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
-  const messageId = clientMsgId || `umsg-${Date.now()}-interrupt`;
-  if (session.sessionId) {
-    eventStore.append(session.sessionId, 'user_message', {
-      v: 2,
-      type: 'user_message',
-      ts: Date.now(),
-      messageId,
-      text: fullPrompt,
-    });
-  }
-  const echo = { type: 'user_message', messageId, text: fullPrompt };
-  send(session.transport, echo);
-  broadcastToObservers(session.observers, echo);
-  await session.queryInstance.interrupt();
-  session.inputQueue.push(makeUserMessage(fullPrompt, 'now'));
-  return true;
+  return withSpanAsync('chat.interrupt', { 'chat.clientId': clientId }, async () => {
+    const session = registry.get(clientId);
+    if (!session?.queryInstance || !session?.inputQueue) return false;
+    const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
+    const messageId = clientMsgId || `umsg-${Date.now()}-interrupt`;
+    if (session.sessionId) {
+      eventStore.append(session.sessionId, 'user_message', {
+        v: 2,
+        type: 'user_message',
+        ts: Date.now(),
+        messageId,
+        text: fullPrompt,
+      });
+    }
+    const echo = { type: 'user_message', messageId, text: fullPrompt };
+    send(session.transport, echo);
+    broadcastToObservers(session.observers, echo);
+    await session.queryInstance.interrupt();
+    session.inputQueue.push(makeUserMessage(fullPrompt, 'now'));
+    return true;
+  });
 }
 
 // --- Session management ---
@@ -915,6 +948,12 @@ Please perform session closeout:
  * still has full conversation context.
  */
 export function closeoutSession(clientId: string): void {
+  withSpan('session.closeout', { 'session.clientId': clientId }, () =>
+    _closeoutSessionInner(clientId),
+  );
+}
+
+function _closeoutSessionInner(clientId: string): void {
   const session = registry.get(clientId);
   if (!session?.inputQueue) {
     // No active session or input queue — just finalize as abandoned
@@ -964,22 +1003,34 @@ export function closeoutSession(clientId: string): void {
 registry.setCloseoutHandler(closeoutSession);
 
 export function stopChat(clientId: string) {
-  const session = registry.get(clientId);
-  if (session) {
-    cleanupSessionWorktrees(session);
-    session.inputQueue?.close();
-    session.queryInstance?.close();
-  }
-  registry.abort(clientId);
+  withSpan('session.stop', { 'session.clientId': clientId }, () => {
+    const session = registry.get(clientId);
+    if (session) {
+      cleanupSessionWorktrees(session);
+      session.inputQueue?.close();
+      session.queryInstance?.close();
+    }
+    registry.abort(clientId);
+  });
 }
 export function detachChat(clientId: string) {
-  registry.detach(clientId);
+  withSpan('session.detach', { 'session.clientId': clientId }, () => {
+    registry.detach(clientId);
+  });
 }
 export function reattachChat(clientId: string, transport: SessionTransport): boolean {
-  return registry.reattach(clientId, transport);
+  return withSpan('session.reattach', { 'session.clientId': clientId }, () => {
+    return registry.reattach(clientId, transport);
+  });
 }
 export function rekeyChat(oldClientId: string, newClientId: string): boolean {
-  return registry.rekey(oldClientId, newClientId);
+  return withSpan(
+    'session.rekey',
+    { 'session.oldClientId': oldClientId, 'session.newClientId': newClientId },
+    () => {
+      return registry.rekey(oldClientId, newClientId);
+    },
+  );
 }
 export function isActive(clientId: string): boolean {
   return registry.isActive(clientId);
