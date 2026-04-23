@@ -1,5 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, mkdtempSync, rmSync, readdirSync, utimesSync } from 'fs';
+import {
+  mkdirSync,
+  writeFileSync,
+  mkdtempSync,
+  rmSync,
+  readdirSync,
+  utimesSync,
+  existsSync,
+} from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { execFileSync } from 'child_process';
@@ -22,7 +30,12 @@ vi.mock('../constants.js', () => ({
   WORKTREE_PRUNE_TIMEOUT_MS: 5_000,
 }));
 
-import { cleanupStaleWorktrees, parseWorktreeAge, countWorktrees } from '../worktree.js';
+import {
+  cleanupStaleWorktrees,
+  parseWorktreeAge,
+  countWorktrees,
+  createWorktreeAsync,
+} from '../worktree.js';
 
 describe('parseWorktreeAge', () => {
   it('parses age from standard YYYY-MM-DD-XXXXXX format', () => {
@@ -98,6 +111,56 @@ describe('countWorktrees', () => {
     writeFileSync(join(dir, '.DS_Store'), '');
     writeFileSync(join(dir, 'stray-file.txt'), '');
     expect(countWorktrees(baseRepo)).toBe(2);
+  });
+});
+
+describe('createWorktreeAsync', () => {
+  let baseRepo: string;
+
+  beforeEach(() => {
+    baseRepo = mkdtempSync(join(tmpdir(), 'mitzo-async-wt-'));
+    execFileSync('git', ['-C', baseRepo, 'init'], { stdio: 'pipe' });
+    execFileSync('git', ['-C', baseRepo, 'config', 'user.email', 'test@test.com'], {
+      stdio: 'pipe',
+    });
+    execFileSync('git', ['-C', baseRepo, 'config', 'user.name', 'Test'], { stdio: 'pipe' });
+    execFileSync('git', ['-C', baseRepo, 'commit', '--allow-empty', '-m', 'init'], {
+      stdio: 'pipe',
+    });
+  });
+
+  afterEach(() => {
+    try {
+      execFileSync('git', ['-C', baseRepo, 'worktree', 'prune'], { stdio: 'pipe' });
+    } catch {
+      // ignore
+    }
+    rmSync(baseRepo, { recursive: true, force: true });
+  });
+
+  it('creates a worktree and returns its path', async () => {
+    const sessionId = 'async-test-session';
+    const path = await createWorktreeAsync(sessionId, baseRepo);
+    expect(path).toBe(join(baseRepo, '.claude', 'worktrees', sessionId));
+    expect(existsSync(path)).toBe(true);
+    // Verify it's a valid git worktree
+    execFileSync('git', ['-C', path, 'rev-parse', '--git-dir'], { stdio: 'pipe' });
+  });
+
+  it('reuses existing valid worktree', async () => {
+    const sessionId = 'async-reuse-session';
+    const first = await createWorktreeAsync(sessionId, baseRepo);
+    const second = await createWorktreeAsync(sessionId, baseRepo);
+    expect(first).toBe(second);
+  });
+
+  it('handles branch-already-exists fallback', async () => {
+    const sessionId = 'async-branch-exists';
+    const branch = `session/${sessionId}`;
+    // Pre-create the branch so the first `git worktree add -b` fails
+    execFileSync('git', ['-C', baseRepo, 'branch', branch], { stdio: 'pipe' });
+    const path = await createWorktreeAsync(sessionId, baseRepo);
+    expect(existsSync(path)).toBe(true);
   });
 });
 

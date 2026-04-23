@@ -1,7 +1,11 @@
 /* eslint no-empty: ["error", { allowEmptyCatch: true }] */
-import { execFileSync } from 'child_process';
+import { execFile as execFileCb, execFileSync } from 'child_process';
+import { promisify } from 'util';
 import { existsSync, mkdirSync, readdirSync, statSync, rmSync, writeFileSync } from 'fs';
+import { mkdir } from 'fs/promises';
 import { join, basename } from 'path';
+
+const execFileAsync = promisify(execFileCb);
 import {
   WORKTREE_BRANCH_PREFIX,
   WORKTREE_STALE_HOURS,
@@ -90,6 +94,59 @@ export function createWorktree(
     if (message.includes('already exists')) {
       execFileSync('git', ['-C', baseRepo, 'worktree', 'add', worktreePath, branch], {
         stdio: 'pipe',
+        timeout: WORKTREE_GIT_TIMEOUT_MS,
+      });
+    } else {
+      throw err;
+    }
+  }
+
+  log.info(`created: ${worktreePath} (${branch})`);
+  return worktreePath;
+}
+
+/**
+ * Async version of createWorktree — does not block the event loop.
+ * Used for on-demand secondary worktree creation in the permission handler.
+ */
+export async function createWorktreeAsync(
+  sessionId: string,
+  baseRepo: string,
+  opts?: CreateWorktreeOptions,
+): Promise<string> {
+  const prefix = opts?.prefix ?? '.claude';
+  const dir = opts?.dir ?? join(baseRepo, prefix, 'worktrees');
+  await mkdir(dir, { recursive: true });
+
+  const worktreePath = join(dir, sessionId);
+  const branch = opts?.branch ?? `${WORKTREE_BRANCH_PREFIX}${sessionId}`;
+
+  if (existsSync(worktreePath)) {
+    try {
+      await execFileAsync('git', ['-C', worktreePath, 'rev-parse', '--git-dir'], {
+        timeout: WORKTREE_GIT_TIMEOUT_MS,
+      });
+      log.info(`reusing existing worktree: ${worktreePath} (${branch})`);
+      return worktreePath;
+    } catch {
+      log.info(`removing stale worktree path: ${worktreePath}`);
+      rmSync(worktreePath, { recursive: true, force: true });
+      try {
+        await execFileAsync('git', ['-C', baseRepo, 'worktree', 'prune'], {
+          timeout: WORKTREE_PRUNE_TIMEOUT_MS,
+        });
+      } catch {}
+    }
+  }
+
+  try {
+    await execFileAsync('git', ['-C', baseRepo, 'worktree', 'add', '-b', branch, worktreePath], {
+      timeout: WORKTREE_GIT_TIMEOUT_MS,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('already exists')) {
+      await execFileAsync('git', ['-C', baseRepo, 'worktree', 'add', worktreePath, branch], {
         timeout: WORKTREE_GIT_TIMEOUT_MS,
       });
     } else {
