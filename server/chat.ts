@@ -13,7 +13,12 @@ import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { homedir } from 'os';
-import { createWorktree, removeWorktree, symlinkRuntimeDirs } from './worktree.js';
+import {
+  createWorktree,
+  removeWorktree,
+  symlinkRuntimeDirs,
+  discoverSessionWorktrees,
+} from './worktree.js';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
 import { parseContentBlocks } from './content-blocks.js';
 import { loadMcpServers, type McpServerConfig } from './mcp-config.js';
@@ -545,6 +550,25 @@ export async function startChat(
     wtId,
     options,
   );
+
+  // On resume, rebuild worktreePaths from disk so the system prompt and guard
+  // have the full map even after server restart (Phase 2d).
+  if (options.resume && repoWorktrees.size === 0 && BASE_REPO) {
+    const config = getRepoConfig();
+    const wtIdFromCwd = baseCwd.match(/\/(\.claude|\.cursor)\/worktrees\/([^/]+)$/)?.[2];
+    if (wtIdFromCwd) {
+      const discovered = discoverSessionWorktrees(wtIdFromCwd, BASE_REPO, config.repos);
+      for (const [name, entry] of discovered) {
+        repoWorktrees.set(name, entry);
+      }
+      if (discovered.size > 0) {
+        log.info('rebuilt worktree map from disk on resume', {
+          count: discovered.size,
+          wtId: wtIdFromCwd,
+        });
+      }
+    }
+  }
 
   const fullPrompt = assemblePrompt(prompt, cwd, options.images, options.contextBlocks);
 

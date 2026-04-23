@@ -168,6 +168,37 @@ export async function createWorktreeAsync(
 }
 
 /**
+ * Scan disk for existing worktrees matching a session ID across all configured repos.
+ * Used on resume to rebuild session.worktreePaths after server restart.
+ * Checks both .claude/worktrees/ and .cursor/worktrees/ prefixes.
+ */
+export function discoverSessionWorktrees(
+  wtId: string,
+  primaryRepo: string,
+  secondaryRepos: Record<string, string>,
+): Map<string, { path: string; wtId: string }> {
+  const result = new Map<string, { path: string; wtId: string }>();
+  const prefixes = ['.claude', '.cursor'] as const;
+
+  const allRepos: Array<[string, string]> = [['primary', primaryRepo]];
+  for (const [name, repoPath] of Object.entries(secondaryRepos)) {
+    allRepos.push([name, repoPath]);
+  }
+
+  for (const [name, repoPath] of allRepos) {
+    for (const prefix of prefixes) {
+      const candidate = join(repoPath, prefix, 'worktrees', wtId);
+      if (existsSync(candidate)) {
+        result.set(name, { path: candidate, wtId });
+        break;
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
  * Create symlinks for runtime directories (e.g. .venv, node_modules) from the
  * source repo into a worktree. Opt-in escape hatch for CWD-relative tool
  * resolution. Symlinked dirs are shared mutable state across sessions.

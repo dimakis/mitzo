@@ -39,6 +39,7 @@ import {
   countWorktrees,
   createWorktreeAsync,
   symlinkRuntimeDirs,
+  discoverSessionWorktrees,
 } from '../worktree.js';
 
 describe('parseWorktreeAge', () => {
@@ -229,6 +230,68 @@ describe('symlinkRuntimeDirs', () => {
     symlinkRuntimeDirs(repoPath, worktreePath, []);
     // No symlinks created
     expect(readdirSync(worktreePath).length).toBe(0);
+  });
+});
+
+describe('discoverSessionWorktrees', () => {
+  let primaryRepo: string;
+  let secondaryRepo: string;
+
+  beforeEach(() => {
+    primaryRepo = mkdtempSync(join(tmpdir(), 'mitzo-discover-primary-'));
+    secondaryRepo = mkdtempSync(join(tmpdir(), 'mitzo-discover-secondary-'));
+  });
+
+  afterEach(() => {
+    rmSync(primaryRepo, { recursive: true, force: true });
+    rmSync(secondaryRepo, { recursive: true, force: true });
+  });
+
+  it('finds worktrees across configured repos', () => {
+    const wtId = '2026-04-20-abc123def456';
+    // Create worktree dirs in both repos
+    mkdirSync(join(primaryRepo, '.claude', 'worktrees', wtId), { recursive: true });
+    mkdirSync(join(secondaryRepo, '.claude', 'worktrees', wtId), { recursive: true });
+
+    const repos = { secondary: secondaryRepo };
+    const result = discoverSessionWorktrees(wtId, primaryRepo, repos);
+
+    expect(result.size).toBe(2);
+    expect(result.has('primary')).toBe(true);
+    expect(result.get('primary')!.path).toBe(join(primaryRepo, '.claude', 'worktrees', wtId));
+    expect(result.has('secondary')).toBe(true);
+    expect(result.get('secondary')!.path).toBe(join(secondaryRepo, '.claude', 'worktrees', wtId));
+  });
+
+  it('finds worktrees in .cursor/worktrees/ too', () => {
+    const wtId = '2026-04-20-abc123def456';
+    mkdirSync(join(primaryRepo, '.cursor', 'worktrees', wtId), { recursive: true });
+
+    const result = discoverSessionWorktrees(wtId, primaryRepo, {});
+
+    expect(result.size).toBe(1);
+    expect(result.has('primary')).toBe(true);
+  });
+
+  it('returns empty map when no worktrees exist', () => {
+    const result = discoverSessionWorktrees('nonexistent', primaryRepo, {
+      secondary: secondaryRepo,
+    });
+    expect(result.size).toBe(0);
+  });
+
+  it('only includes repos that have a worktree', () => {
+    const wtId = '2026-04-20-abc123def456';
+    mkdirSync(join(primaryRepo, '.claude', 'worktrees', wtId), { recursive: true });
+    // Secondary has no worktree
+
+    const result = discoverSessionWorktrees(wtId, primaryRepo, {
+      secondary: secondaryRepo,
+    });
+
+    expect(result.size).toBe(1);
+    expect(result.has('primary')).toBe(true);
+    expect(result.has('secondary')).toBe(false);
   });
 });
 

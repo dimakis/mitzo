@@ -344,6 +344,33 @@ describe('isIsolationEnabled', () => {
   });
 });
 
+describe('discoverSessionWorktrees integration', () => {
+  it('finds worktrees created by the worktree module', async () => {
+    const { discoverSessionWorktrees } = await import('../worktree.js');
+    const { mkdtempSync, mkdirSync, rmSync } = await import('fs');
+    const { join } = await import('path');
+    const { tmpdir } = await import('os');
+
+    const primary = mkdtempSync(join(tmpdir(), 'mitzo-discover-chat-'));
+    const secondary = mkdtempSync(join(tmpdir(), 'mitzo-discover-chat2-'));
+    const wtId = '2026-04-20-abc123def456';
+
+    try {
+      mkdirSync(join(primary, '.claude', 'worktrees', wtId), { recursive: true });
+      mkdirSync(join(secondary, '.claude', 'worktrees', wtId), { recursive: true });
+
+      const result = discoverSessionWorktrees(wtId, primary, { secondary });
+
+      expect(result.size).toBe(2);
+      expect(result.has('primary')).toBe(true);
+      expect(result.has('secondary')).toBe(true);
+    } finally {
+      rmSync(primary, { recursive: true, force: true });
+      rmSync(secondary, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('validateResumable', () => {
   it('returns valid for a CWD that passes git check', async () => {
     const { validateResumable } = await import('../chat.js');
