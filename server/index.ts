@@ -70,9 +70,8 @@ import {
   dispatchV2Message,
   type V2HandlerContext,
 } from './ws-handler-v2.js';
-import { tracer } from './tracing.js';
+import { withSpan } from './tracing.js';
 import { contextFromTraceparent } from './trace-context.js';
-import { SpanStatusCode } from '@opentelemetry/api';
 
 const log = createLogger('server');
 
@@ -319,13 +318,14 @@ function handleChatWsV2(ws: WebSocket, connectionId: string) {
       if (!found) continue;
       const session = registry.get(found.clientId);
       if (session && session.transport === transport && registry.isAttached(found.clientId)) {
-        const detachSpan = tracer.startSpan('session.detach');
-        detachSpan.setAttribute('session.sessionId', sessionId);
-        detachSpan.setAttribute('ws.connectionId', connectionId);
-        detachChat(found.clientId);
-        detachSpan.setStatus({ code: SpanStatusCode.OK });
-        detachSpan.end();
-        log.info('v2 session detached (surviving)', { connectionId, sessionId });
+        withSpan(
+          'session.detach',
+          { 'session.sessionId': sessionId, 'ws.connectionId': connectionId },
+          () => {
+            detachChat(found.clientId);
+            log.info('v2 session detached (surviving)', { connectionId, sessionId });
+          },
+        );
       }
     }
   });
@@ -443,10 +443,6 @@ function handleChatWs(
   let clientId = initialClientId;
   const transport = getTransport(ws);
 
-  const connSpan = tracer.startSpan('ws.connection', {
-    attributes: { 'ws.client_id': clientId },
-  });
-
   transport.send({ type: 'client_id', clientId });
 
   // Hydrate task board state
@@ -474,273 +470,242 @@ function handleChatWs(
       const traceparent = (parsed as Record<string, unknown>).traceparent as string | undefined;
 
       if (msg.type === 'subscribe') {
-        const span = tracer.startSpan(
+        withSpan(
           'ws.subscribe',
-          {
-            attributes: { 'ws.client_id': clientId, 'ws.session_id': msg.sessionId },
-          },
-          contextFromTraceparent(traceparent),
-        );
-        const found = registry.findBySessionId(msg.sessionId);
-        if (found && !registry.isAttached(found.clientId)) {
-          // Driver WS is dead (session detached). Promote this subscriber
-          // to the session driver so it receives direct query-loop events.
-          // Typical iOS Safari reconnect path: socket drops every 30-90s
-          // and the pool reconnects with a subscribe carrying the session ID.
-          const ok = reattachChat(found.clientId, transport);
-          if (ok) {
-            span.setAttribute('ws.subscribe.outcome', 'promoted_to_reattach');
-            const session = registry.get(found.clientId);
-            transport.send({
-              type: 'reattached',
-              clientId: found.clientId,
-              sessionId: session?.sessionId,
-              running: true,
-            });
-            if (session) {
-              const count = replayMissedEvents(session, transport, msg.lastSeq);
-              sendSnapshot(session, transport);
-              if (count > 0) {
-                log.info('subscribe-reattach replayed events', {
+          { 'ws.client_id': clientId, 'ws.session_id': msg.sessionId },
+          (span) => {
+            const found = registry.findBySessionId(msg.sessionId);
+            if (found && !registry.isAttached(found.clientId)) {
+              const ok = reattachChat(found.clientId, transport);
+              if (ok) {
+                span.setAttribute('ws.subscribe.outcome', 'promoted_to_reattach');
+                const session = registry.get(found.clientId);
+                transport.send({
+                  type: 'reattached',
+                  clientId: found.clientId,
+                  sessionId: session?.sessionId,
+                  running: true,
+                });
+                if (session) {
+                  const count = replayMissedEvents(session, transport, msg.lastSeq);
+                  sendSnapshot(session, transport);
+                  if (count > 0) {
+                    log.info('subscribe-reattach replayed events', {
+                      driverClientId: found.clientId,
+                      sessionId: msg.sessionId,
+                      count,
+                    });
+                    span.setAttribute('ws.replay.count', count);
+                  }
+                }
+                log.info('subscribe promoted to reattach (detached session)', {
+                  wsClientId: clientId,
                   driverClientId: found.clientId,
                   sessionId: msg.sessionId,
-                  count,
                 });
+              } else {
+                span.setAttribute('ws.subscribe.outcome', 'observer_fallback');
+                registry.addObserver(msg.sessionId, transport);
+                transport.send({ type: 'subscribed', sessionId: msg.sessionId, running: true });
+              }
+            } else if (found) {
+              span.setAttribute('ws.subscribe.outcome', 'observer');
+              registry.addObserver(msg.sessionId, transport);
+              transport.send({ type: 'subscribed', sessionId: msg.sessionId, running: true });
+              sendSnapshot(found.session, transport);
+              log.info('client subscribed to active session', {
+                clientId,
+                sessionId: msg.sessionId,
+              });
+            } else {
+              span.setAttribute('ws.subscribe.outcome', 'not_found');
+              transport.send({ type: 'subscribed', sessionId: msg.sessionId, running: false });
+            }
+          },
+          contextFromTraceparent(traceparent),
+        );
+      } else if (msg.type === 'reattach') {
+        withSpan(
+          'ws.reattach',
+          { 'ws.client_id': clientId, 'ws.reattach.target_client_id': msg.clientId },
+          (span) => {
+            const ok = reattachChat(msg.clientId, transport);
+            if (ok) {
+              span.setAttribute('ws.reattach.success', true);
+              clientId = msg.clientId;
+              const session = registry.get(clientId);
+              transport.send({
+                type: 'reattached',
+                clientId: msg.clientId,
+                sessionId: session?.sessionId,
+                running: true,
+              });
+              if (session) {
+                const count = replayMissedEvents(session, transport, msg.lastSeq);
+                sendSnapshot(session, transport);
                 span.setAttribute('ws.replay.count', count);
               }
+              log.info('reattached', { oldClientId: msg.clientId, newClientId: initialClientId });
+            } else {
+              span.setAttribute('ws.reattach.success', false);
+              transport.send({
+                type: 'reattach_failed',
+                clientId: msg.clientId,
+                reason: 'Session not found or already finished',
+              });
             }
-            log.info('subscribe promoted to reattach (detached session)', {
-              wsClientId: clientId,
-              driverClientId: found.clientId,
-              sessionId: msg.sessionId,
-            });
-          } else {
-            span.setAttribute('ws.subscribe.outcome', 'observer_fallback');
-            registry.addObserver(msg.sessionId, transport);
-            transport.send({
-              type: 'subscribed',
-              sessionId: msg.sessionId,
-              running: true,
-            });
-          }
-        } else if (found) {
-          span.setAttribute('ws.subscribe.outcome', 'observer');
-          registry.addObserver(msg.sessionId, transport);
-          transport.send({
-            type: 'subscribed',
-            sessionId: msg.sessionId,
-            running: true,
-          });
-          sendSnapshot(found.session, transport);
-          log.info('client subscribed to active session', {
-            clientId,
-            sessionId: msg.sessionId,
-          });
-        } else {
-          span.setAttribute('ws.subscribe.outcome', 'not_found');
-          transport.send({
-            type: 'subscribed',
-            sessionId: msg.sessionId,
-            running: false,
-          });
-        }
-        span.end();
-      } else if (msg.type === 'reattach') {
-        const span = tracer.startSpan(
-          'ws.reattach',
-          {
-            attributes: { 'ws.client_id': clientId, 'ws.reattach.target_client_id': msg.clientId },
           },
           contextFromTraceparent(traceparent),
         );
-        const ok = reattachChat(msg.clientId, transport);
-        if (ok) {
-          span.setAttribute('ws.reattach.success', true);
-          clientId = msg.clientId;
-          const session = registry.get(clientId);
-          transport.send({
-            type: 'reattached',
-            clientId: msg.clientId,
-            sessionId: session?.sessionId,
-            running: true,
-          });
-          if (session) {
-            const count = replayMissedEvents(session, transport, msg.lastSeq);
-            sendSnapshot(session, transport);
-            span.setAttribute('ws.replay.count', count);
-          }
-          log.info('reattached', { oldClientId: msg.clientId, newClientId: initialClientId });
-        } else {
-          span.setAttribute('ws.reattach.success', false);
-          transport.send({
-            type: 'reattach_failed',
-            clientId: msg.clientId,
-            reason: 'Session not found or already finished',
-          });
-        }
-        span.end();
       } else if (msg.type === 'send') {
-        const span = tracer.startSpan(
+        withSpan(
           'ws.send',
           {
-            attributes: {
-              'ws.client_id': clientId,
-              'ws.client_msg_id': msg.clientMsgId,
-              'ws.has_resume': !!msg.resume,
-            },
+            'ws.client_id': clientId,
+            'ws.client_msg_id': msg.clientMsgId ?? '',
+            'ws.has_resume': !!msg.resume,
+          },
+          (span) => {
+            const rawCwd = msg.cwd || registry.get(clientId)?.cwd || BASE_REPO;
+            const cwd = rawCwd && isAllowedPath(rawCwd) ? rawCwd : BASE_REPO;
+            const skillRegistry = buildSkillRegistry(cwd);
+            const resolution = resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
+            span.setAttribute('ws.send.resolution', resolution.type);
+
+            if (resolution.type === 'native') {
+              const result = nativeCommands.execute(
+                resolution.name,
+                resolution.arguments,
+                skillRegistry,
+              );
+              if (result) {
+                transport.send({
+                  type: 'native_command_result',
+                  v: 2,
+                  command: result.command,
+                  content: result.content,
+                });
+              }
+            } else if (resolution.type === 'error') {
+              transport.send({ type: 'error', error: resolution.message });
+            } else if (resolution.type === 'skill') {
+              if (resolution.allowedTools) {
+                setSkillPolicy(registry, clientId, resolution.allowedTools);
+              } else {
+                clearSkillPolicy(registry, clientId);
+              }
+              transport.send({
+                type: 'skill_invoked',
+                v: 2,
+                name: resolution.name,
+                source: skillRegistry.get(resolution.name)?.scope || 'bundled',
+                arguments: resolution.arguments,
+                ...(resolution.collisions ? { collisions: resolution.collisions } : {}),
+              });
+              if (isActive(clientId)) {
+                sendToChat(
+                  clientId,
+                  resolution.renderedPrompt,
+                  msg.images,
+                  msg.contextBlocks,
+                  msg.clientMsgId,
+                );
+              } else if (
+                !tryRouteToActiveSession(
+                  ws,
+                  msg.resume,
+                  resolution.renderedPrompt,
+                  msg.images,
+                  msg.contextBlocks,
+                  msg.clientMsgId,
+                )
+              ) {
+                startChat(transport, clientId, resolution.renderedPrompt, {
+                  resume: msg.resume,
+                  cwd: msg.cwd,
+                  model: msg.model,
+                  extraTools: msg.extraTools,
+                  isolation: msg.isolation,
+                  mode: msg.mode,
+                  images: msg.images,
+                  contextBlocks: msg.contextBlocks,
+                  clientMsgId: msg.clientMsgId,
+                });
+              }
+            } else {
+              clearSkillPolicy(registry, clientId);
+              if (isActive(clientId)) {
+                sendToChat(clientId, msg.prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
+              } else if (
+                !tryRouteToActiveSession(
+                  ws,
+                  msg.resume,
+                  msg.prompt,
+                  msg.images,
+                  msg.contextBlocks,
+                  msg.clientMsgId,
+                )
+              ) {
+                startChat(transport, clientId, msg.prompt, {
+                  resume: msg.resume,
+                  cwd: msg.cwd,
+                  model: msg.model,
+                  extraTools: msg.extraTools,
+                  isolation: msg.isolation,
+                  mode: msg.mode,
+                  images: msg.images,
+                  contextBlocks: msg.contextBlocks,
+                  clientMsgId: msg.clientMsgId,
+                });
+              }
+            }
           },
           contextFromTraceparent(traceparent),
         );
-        // Resolve slash commands server-side before routing
-        const rawCwd = msg.cwd || registry.get(clientId)?.cwd || BASE_REPO;
-        const cwd = rawCwd && isAllowedPath(rawCwd) ? rawCwd : BASE_REPO;
-        const skillRegistry = buildSkillRegistry(cwd);
-        const resolution = resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
-        span.setAttribute('ws.send.resolution', resolution.type);
-
-        if (resolution.type === 'native') {
-          // Native commands execute directly — never touch the SDK
-          const result = nativeCommands.execute(
-            resolution.name,
-            resolution.arguments,
-            skillRegistry,
-          );
-          if (result) {
-            transport.send({
-              type: 'native_command_result',
-              v: 2,
-              command: result.command,
-              content: result.content,
-            });
-          }
-        } else if (resolution.type === 'error') {
-          transport.send({ type: 'error', error: resolution.message });
-        } else if (resolution.type === 'skill') {
-          // Set skill policy for tool restrictions
-          if (resolution.allowedTools) {
-            setSkillPolicy(registry, clientId, resolution.allowedTools);
-          } else {
-            clearSkillPolicy(registry, clientId);
-          }
-
-          // Emit skill_invoked event for frontend badging
-          transport.send({
-            type: 'skill_invoked',
-            v: 2,
-            name: resolution.name,
-            source: skillRegistry.get(resolution.name)?.scope || 'bundled',
-            arguments: resolution.arguments,
-            ...(resolution.collisions ? { collisions: resolution.collisions } : {}),
-          });
-
-          // Pass rendered prompt through to normal chat flow
-          if (isActive(clientId)) {
-            sendToChat(
-              clientId,
-              resolution.renderedPrompt,
-              msg.images,
-              msg.contextBlocks,
-              msg.clientMsgId,
-            );
-          } else if (
-            !tryRouteToActiveSession(
-              ws,
-              msg.resume,
-              resolution.renderedPrompt,
-              msg.images,
-              msg.contextBlocks,
-              msg.clientMsgId,
-            )
-          ) {
-            startChat(transport, clientId, resolution.renderedPrompt, {
-              resume: msg.resume,
-              cwd: msg.cwd,
-              model: msg.model,
-              extraTools: msg.extraTools,
-              isolation: msg.isolation,
-              mode: msg.mode,
-              images: msg.images,
-              contextBlocks: msg.contextBlocks,
-              clientMsgId: msg.clientMsgId,
-            });
-          }
-        } else {
-          // Passthrough — plain text, no slash command
-          clearSkillPolicy(registry, clientId);
-          if (isActive(clientId)) {
-            sendToChat(clientId, msg.prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
-          } else if (
-            !tryRouteToActiveSession(
-              ws,
-              msg.resume,
-              msg.prompt,
-              msg.images,
-              msg.contextBlocks,
-              msg.clientMsgId,
-            )
-          ) {
-            startChat(transport, clientId, msg.prompt, {
-              resume: msg.resume,
-              cwd: msg.cwd,
-              model: msg.model,
-              extraTools: msg.extraTools,
-              isolation: msg.isolation,
-              mode: msg.mode,
-              images: msg.images,
-              contextBlocks: msg.contextBlocks,
-              clientMsgId: msg.clientMsgId,
-            });
-          }
-        }
-        span.end();
       } else if (msg.type === 'permission_response') {
-        const span = tracer.startSpan(
+        withSpan(
           'ws.permission_response',
           {
-            attributes: {
-              'ws.client_id': clientId,
-              'ws.perm_id': msg.permId,
-              'ws.decision': msg.decision || 'deny',
-            },
+            'ws.client_id': clientId,
+            'ws.perm_id': msg.permId,
+            'ws.decision': msg.decision || 'deny',
+          },
+          () => {
+            resolvePending(msg.permId, msg.decision || 'deny');
           },
           contextFromTraceparent(traceparent),
         );
-        resolvePending(msg.permId, msg.decision || 'deny');
-        span.end();
       } else if (msg.type === 'set_mode') {
-        const span = tracer.startSpan(
+        withSpan(
           'ws.set_mode',
-          {
-            attributes: { 'ws.client_id': clientId, 'ws.mode': msg.mode },
+          { 'ws.client_id': clientId, 'ws.mode': msg.mode },
+          () => {
+            registry.setMode(clientId, msg.mode);
+            const session = registry.get(clientId);
+            if (session) {
+              transport.send({ type: 'mode_changed', mode: msg.mode });
+            }
           },
           contextFromTraceparent(traceparent),
         );
-        registry.setMode(clientId, msg.mode);
-        const session = registry.get(clientId);
-        if (session) {
-          transport.send({ type: 'mode_changed', mode: msg.mode });
-        }
-        span.end();
       } else if (msg.type === 'interrupt') {
-        const span = tracer.startSpan(
+        withSpan(
           'ws.interrupt',
-          {
-            attributes: { 'ws.client_id': clientId, 'ws.client_msg_id': msg.clientMsgId },
+          { 'ws.client_id': clientId, 'ws.client_msg_id': msg.clientMsgId ?? '' },
+          () => {
+            interruptChat(clientId, msg.prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
           },
           contextFromTraceparent(traceparent),
         );
-        interruptChat(clientId, msg.prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
-        span.end();
       } else if (msg.type === 'stop') {
-        const span = tracer.startSpan(
+        withSpan(
           'ws.stop',
-          {
-            attributes: { 'ws.client_id': clientId },
+          { 'ws.client_id': clientId },
+          () => {
+            stopChat(clientId);
           },
           contextFromTraceparent(traceparent),
         );
-        stopChat(clientId);
-        span.end();
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
@@ -758,25 +723,24 @@ function handleChatWs(
     transportMap.delete(ws);
     log.info('chat disconnected', { clientId, code, reason: reason?.toString() });
 
-    const span = tracer.startSpan('ws.disconnect', {
-      attributes: {
+    withSpan(
+      'ws.disconnect',
+      {
         'ws.client_id': clientId,
         'ws.close_code': code,
         'ws.close_reason': reason?.toString() || '',
       },
-    });
-
-    if (isActive(clientId)) {
-      detachChat(clientId);
-      span.setAttribute('ws.disconnect.detached', true);
-      log.info('session detached (surviving)', { clientId });
-    }
-    span.end();
-    connSpan.end();
+      (span) => {
+        if (isActive(clientId)) {
+          detachChat(clientId);
+          span.setAttribute('ws.disconnect.detached', true);
+          log.info('session detached (surviving)', { clientId });
+        }
+      },
+    );
   });
 
   ws.on('error', (err) => {
-    connSpan.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
     log.error('ws error', { clientId, error: err.message });
   });
 }
