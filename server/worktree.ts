@@ -419,10 +419,11 @@ export function cleanupStaleWorktrees(
   const cutoff = WORKTREE_STALE_HOURS * 60 * 60 * 1000;
   let cleaned = 0;
   let skipped = 0;
+  let protected_ = 0;
 
   for (const entry of readdirSync(dir)) {
     if (activeSessionIds?.has(entry)) {
-      log.info('skipped worktree owned by active session', { repo: baseRepo, session: entry });
+      protected_++;
       continue;
     }
 
@@ -475,10 +476,11 @@ export function cleanupStaleWorktrees(
     // Non-fatal
   }
 
-  if (cleaned > 0 || skipped > 0) {
-    log.info(`worktree cleanup: ${cleaned} removed, ${skipped} skipped (dirty)`, {
-      repo: baseRepo,
-    });
+  if (cleaned > 0 || skipped > 0 || protected_ > 0) {
+    log.info(
+      `worktree cleanup: ${cleaned} removed, ${skipped} skipped (dirty), ${protected_} active`,
+      { repo: baseRepo },
+    );
   }
 }
 
