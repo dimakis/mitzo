@@ -183,7 +183,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             messages:
               msgs.length > 0
                 ? messagesReducer(s.messages, { type: 'RESTORE', messages: msgs })
-                : { ...s.messages, messages: [], current: null },
+                : s.messages, // preserve state — empty REST response doesn't mean state is invalid
           }));
         }
       })

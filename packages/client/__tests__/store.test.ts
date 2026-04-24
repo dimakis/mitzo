@@ -1142,4 +1142,69 @@ describe('foreground recovery', () => {
     // The original 1 live message persists since RESTORE merges.
     expect(store.getState().messages.messages).toHaveLength(1);
   });
+
+  it('preserves streaming state when REST returns empty array', async () => {
+    const transport = mockTransport();
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (typeof url === 'string' && url.includes('/messages')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([]),
+          text: () => Promise.resolve(''),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve([]),
+        text: () => Promise.resolve(''),
+      });
+    });
+    const store = createReadyStore(transport);
+
+    store.setState((s) => ({
+      sessions: { ...s.sessions, active: 'sess-1' },
+    }));
+
+    // Simulate an in-progress streaming message
+    const streamingCurrent = {
+      messageId: 'msg-streaming',
+      blocks: new Map([
+        [
+          'b0',
+          {
+            blockId: 'b0',
+            blockType: 'text' as const,
+            content: 'Let me check the memory vault.',
+            done: false,
+          },
+        ],
+      ]),
+      blockOrder: ['b0'],
+    };
+    store.setState((s) => ({
+      messages: {
+        ...s.messages,
+        messages: [
+          {
+            messageId: 'user-1',
+            role: 'user' as const,
+            timestamp: Date.now(),
+            blocks: [{ blockId: 'u0', blockType: 'text' as const, content: 'hello' }],
+          },
+        ],
+        current: streamingCurrent,
+      },
+    }));
+
+    // Foreground fires — REST returns empty (timing gap)
+    lastWs.simulateMessage({ type: '_foreground' });
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Streaming state must survive — not wiped
+    const state = store.getState().messages;
+    expect(state.current).not.toBeNull();
+    expect(state.current?.messageId).toBe('msg-streaming');
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0].messageId).toBe('user-1');
+  });
 });
