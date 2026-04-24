@@ -421,6 +421,11 @@ export function cleanupStaleWorktrees(
   let skipped = 0;
 
   for (const entry of readdirSync(dir)) {
+    if (activeSessionIds?.has(entry)) {
+      log.info('skipped worktree owned by active session', { repo: baseRepo, session: entry });
+      continue;
+    }
+
     const fullPath = join(dir, entry);
     try {
       // Prefer name-based age (immune to mtime being refreshed by git operations),
@@ -429,11 +434,6 @@ export function cleanupStaleWorktrees(
       const nameAge = parseWorktreeAge(entry);
       const mtimeAge = now - statSync(fullPath).mtimeMs;
       const isStale = nameAge !== null ? nameAge > cutoff && mtimeAge > cutoff : mtimeAge > cutoff;
-
-      if (activeSessionIds?.has(entry)) {
-        log.info('skipped worktree owned by active session', { repo: baseRepo, session: entry });
-        continue;
-      }
 
       if (isStale) {
         const dirty = hasUncommittedWork(fullPath);

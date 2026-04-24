@@ -500,6 +500,25 @@ describe('cleanupStaleWorktrees', () => {
     expect(remaining).not.toContain(staleId);
   });
 
+  it('active-session guard takes priority over name-based age detection', () => {
+    const wtDir = join(baseRepo, '.claude', 'worktrees');
+    mkdirSync(wtDir, { recursive: true });
+    const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+    const oldDate = fiveDaysAgo.toISOString().slice(0, 10);
+    const sessionId = `${oldDate}-a1b2c3`;
+    const wtPath = join(wtDir, sessionId);
+    execFileSync('git', ['-C', baseRepo, 'worktree', 'add', '-b', `session/${sessionId}`, wtPath], {
+      stdio: 'pipe',
+    });
+    // Both name-age and mtime are stale — would normally be cleaned up
+    utimesSync(wtPath, fiveDaysAgo, fiveDaysAgo);
+
+    cleanupStaleWorktrees(baseRepo, inboxDir, new Set([sessionId]));
+
+    const remaining = readdirSync(wtDir);
+    expect(remaining).toContain(sessionId);
+  });
+
   it('creates unique filenames for multiple dirty worktrees', () => {
     const wtDir = join(baseRepo, '.claude', 'worktrees');
     mkdirSync(wtDir, { recursive: true });

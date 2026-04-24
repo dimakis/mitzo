@@ -803,9 +803,10 @@ checkPort(PORT).then((inUse) => {
       return ids;
     }
 
+    const startupActiveWtIds = collectActiveWtIds();
     for (const [label, repoPath] of repoEntries) {
       try {
-        cleanupStaleWorktrees(repoPath, inboxDir, collectActiveWtIds());
+        cleanupStaleWorktrees(repoPath, inboxDir, startupActiveWtIds);
       } catch (err: unknown) {
         log.warn(`stale worktree cleanup failed for ${label}`, {
           error: err instanceof Error ? err.message : 'unknown',
