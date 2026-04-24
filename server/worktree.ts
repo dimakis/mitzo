@@ -403,9 +403,15 @@ ${dirtyFiles}
 /**
  * Clean up stale worktrees in the given repo's .claude/worktrees/ directory.
  * Worktrees with uncommitted work are skipped and flagged in the mgmt inbox.
+ * Worktrees belonging to active sessions are never cleaned up.
  * @param inboxDir — path to the mgmt inbox directory for dirty worktree proposals.
+ * @param activeSessionIds — wtIds of sessions currently in the registry (always skipped).
  */
-export function cleanupStaleWorktrees(baseRepo: string, inboxDir?: string): void {
+export function cleanupStaleWorktrees(
+  baseRepo: string,
+  inboxDir?: string,
+  activeSessionIds?: ReadonlySet<string>,
+): void {
   const dir = worktreesDir(baseRepo);
   if (!existsSync(dir)) return;
 
@@ -423,6 +429,11 @@ export function cleanupStaleWorktrees(baseRepo: string, inboxDir?: string): void
       const nameAge = parseWorktreeAge(entry);
       const mtimeAge = now - statSync(fullPath).mtimeMs;
       const isStale = nameAge !== null ? nameAge > cutoff && mtimeAge > cutoff : mtimeAge > cutoff;
+
+      if (activeSessionIds?.has(entry)) {
+        log.info('skipped worktree owned by active session', { repo: baseRepo, session: entry });
+        continue;
+      }
 
       if (isStale) {
         const dirty = hasUncommittedWork(fullPath);

@@ -457,6 +457,49 @@ describe('cleanupStaleWorktrees', () => {
     expect(remaining).not.toContain(sessionId);
   });
 
+  it('skips worktrees whose names appear in activeSessionIds', () => {
+    const wtDir = join(baseRepo, '.claude', 'worktrees');
+    mkdirSync(wtDir, { recursive: true });
+    const sessionId = 'test-active-session';
+    const wtPath = join(wtDir, sessionId);
+    execFileSync('git', ['-C', baseRepo, 'worktree', 'add', '-b', `session/${sessionId}`, wtPath], {
+      stdio: 'pipe',
+    });
+
+    // Age the worktree past the cutoff
+    const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+    utimesSync(wtPath, fiveDaysAgo, fiveDaysAgo);
+
+    // Pass the session as active — should be protected from cleanup
+    cleanupStaleWorktrees(baseRepo, inboxDir, new Set([sessionId]));
+
+    const remaining = readdirSync(wtDir);
+    expect(remaining).toContain(sessionId);
+  });
+
+  it('still removes stale worktrees not in activeSessionIds', () => {
+    const wtDir = join(baseRepo, '.claude', 'worktrees');
+    mkdirSync(wtDir, { recursive: true });
+
+    const activeId = 'test-active';
+    const staleId = 'test-stale';
+
+    for (const id of [activeId, staleId]) {
+      const wtPath = join(wtDir, id);
+      execFileSync('git', ['-C', baseRepo, 'worktree', 'add', '-b', `session/${id}`, wtPath], {
+        stdio: 'pipe',
+      });
+      const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+      utimesSync(wtPath, fiveDaysAgo, fiveDaysAgo);
+    }
+
+    cleanupStaleWorktrees(baseRepo, inboxDir, new Set([activeId]));
+
+    const remaining = readdirSync(wtDir);
+    expect(remaining).toContain(activeId);
+    expect(remaining).not.toContain(staleId);
+  });
+
   it('creates unique filenames for multiple dirty worktrees', () => {
     const wtDir = join(baseRepo, '.claude', 'worktrees');
     mkdirSync(wtDir, { recursive: true });
