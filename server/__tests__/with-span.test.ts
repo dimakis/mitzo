@@ -173,3 +173,66 @@ describe('withSpanAsync', () => {
     expect(childTraceId).toBe(parentTraceId);
   });
 });
+
+describe('span hierarchy pattern', () => {
+  /** SDK stores parent as parentSpanContext, not parentSpanId. */
+  function parentId(span: { parentSpanContext?: { spanId?: string } }): string | undefined {
+    return span.parentSpanContext?.spanId;
+  }
+
+  it('tool spans parent to turn spans via explicit setSpan', async () => {
+    const { withSpan } = await import('../tracing.js');
+    exporter.reset();
+
+    // Mirrors query-loop: session span wraps turn, turn wraps tool
+    withSpan('session', { 'session.clientId': 'test' }, () => {
+      const tracer = trace.getTracer('mitzo', '1.0.0');
+
+      // Turn span created with context.active() (session is active)
+      const turnSpan = tracer.startSpan('turn', {}, context.active());
+
+      // Fix pattern: explicitly parent tool to turn via setSpan
+      const toolParent = trace.setSpan(context.active(), turnSpan);
+      const toolSpan = tracer.startSpan('tool.Read', {}, toolParent);
+      toolSpan.end();
+      turnSpan.end();
+    });
+
+    const spans = exporter.getFinishedSpans();
+    const session = spans.find((s) => s.name === 'session')!;
+    const turn = spans.find((s) => s.name === 'turn')!;
+    const tool = spans.find((s) => s.name === 'tool.Read')!;
+
+    expect(session).toBeDefined();
+    expect(turn).toBeDefined();
+    expect(tool).toBeDefined();
+
+    // session → turn → tool
+    expect(parentId(turn)).toBe(session.spanContext().spanId);
+    expect(parentId(tool)).toBe(turn.spanContext().spanId);
+  });
+
+  it('tool spans incorrectly parent to session without setSpan', async () => {
+    const { withSpan } = await import('../tracing.js');
+    exporter.reset();
+
+    withSpan('session', { 'session.clientId': 'test' }, () => {
+      const tracer = trace.getTracer('mitzo', '1.0.0');
+
+      // Turn created but NOT set as active context
+      const turnSpan = tracer.startSpan('turn', {}, context.active());
+      turnSpan.end();
+
+      // Without setSpan fix, context.active() still has session
+      const toolSpan = tracer.startSpan('tool.Read', {}, context.active());
+      toolSpan.end();
+    });
+
+    const spans = exporter.getFinishedSpans();
+    const session = spans.find((s) => s.name === 'session')!;
+    const tool = spans.find((s) => s.name === 'tool.Read')!;
+
+    // Bug case: tool lands under session, not turn
+    expect(parentId(tool)).toBe(session.spanContext().spanId);
+  });
+});

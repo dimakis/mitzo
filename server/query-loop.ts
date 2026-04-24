@@ -168,13 +168,13 @@ async function _runQueryLoopInner(
   let pendingMessageEnd: Record<string, unknown> | null = null;
   let resolvedSessionId: string | undefined;
   let resolvedGoalId: string | undefined;
+  let goalCreationPromise: Promise<string | null> | undefined;
+  let goalTitle: string | undefined;
 
-  // Turn and tool span tracking (Steps 5-6 of OTel overhaul)
+  // Turn and tool span tracking
   let currentTurnSpan: Span | null = null;
   let turnBlockCount = 0;
   const toolSpans = new Map<string, Span>(); // blockId → tool span
-  let goalCreationPromise: Promise<string | null> | undefined;
-  let goalTitle: string | undefined;
 
   // Token tracking state for live token_update events
   let agentContextTokens = 0; // full context window size (input + cached) from parent message_start

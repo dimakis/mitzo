@@ -435,6 +435,9 @@ function tryRouteToActiveSession(
   return found.clientId;
 }
 
+// v1 WS handler — no connection-level span. Per-handler spans (ws.send,
+// ws.interrupt, etc.) provide sufficient tracing. v2 handlers in
+// ws-handler-v2.ts are the primary path; this is legacy.
 function handleChatWs(
   ws: WebSocket,
   initialClientId: string,
