@@ -377,7 +377,14 @@ export class SessionRegistry {
     if (!this.suspended.has(clientId)) return false;
     const buffer = this.suspendBuffers.get(clientId);
     if (!buffer) return false;
-    if (buffer.length >= SUSPEND_BUFFER_MAX) return false;
+    if (buffer.length >= SUSPEND_BUFFER_MAX) {
+      log.warn('suspend buffer full, dropping event', {
+        clientId,
+        bufferSize: buffer.length,
+        droppedType: event.type,
+      });
+      return false;
+    }
     buffer.push(event);
     return true;
   }

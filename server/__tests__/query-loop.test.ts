@@ -40,6 +40,8 @@ function fakeRegistry(
     }),
     setMode: vi.fn(),
     isAttached: vi.fn(() => attached),
+    isSuspended: vi.fn(() => false),
+    bufferEvent: vi.fn(() => false),
     _setAttached: (v: boolean) => {
       attached = v;
     },

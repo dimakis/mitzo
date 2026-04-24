@@ -34,6 +34,8 @@ function fakeRegistry(transport: SessionTransport): SessionRegistry {
     }),
     setMode: vi.fn(),
     isAttached: vi.fn(() => true),
+    isSuspended: vi.fn(() => false),
+    bufferEvent: vi.fn(() => false),
   } as unknown as SessionRegistry;
 }
 

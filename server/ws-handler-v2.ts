@@ -613,49 +613,37 @@ export function handleSessionSuspend(
   msg: SessionSuspendMsg,
   ctx: V2HandlerContext,
 ): void {
-  const span = tracer.startSpan('ws.session_suspend');
-  span.setAttribute('ws.connectionId', connectionId);
-  span.setAttribute('ws.sessionCount', msg.sessions.length);
+  withSpan(
+    'ws.session_suspend',
+    { 'ws.connectionId': connectionId, 'ws.sessionCount': msg.sessions.length },
+    () => {
+      for (const entry of msg.sessions) {
+        const found = ctx.sessionRegistry.findBySessionId(entry.sessionId);
+        if (!found) {
+          log.warn('suspend: session not found', { connectionId, sessionId: entry.sessionId });
+          continue;
+        }
 
-  try {
-    for (const entry of msg.sessions) {
-      const found = ctx.sessionRegistry.findBySessionId(entry.sessionId);
-      if (!found) {
-        log.warn('suspend: session not found', { connectionId, sessionId: entry.sessionId });
-        continue;
-      }
+        const ownerConnection = getOwnerConnection(found.clientId);
+        if (ownerConnection !== connectionId) {
+          log.warn('suspend: not owner', {
+            connectionId,
+            sessionId: entry.sessionId,
+            owner: ownerConnection,
+          });
+          continue;
+        }
 
-      // Only the owning connection can suspend a session
-      const ownerConnection = getOwnerConnection(found.clientId);
-      if (ownerConnection !== connectionId) {
-        log.warn('suspend: not owner', {
+        ctx.sessionRegistry.suspend(found.clientId, entry.lastSeq);
+        log.info('session suspended', {
           connectionId,
           sessionId: entry.sessionId,
-          owner: ownerConnection,
+          clientId: found.clientId,
+          lastSeq: entry.lastSeq,
         });
-        continue;
       }
-
-      ctx.sessionRegistry.suspend(found.clientId, entry.lastSeq);
-      log.info('session suspended', {
-        connectionId,
-        sessionId: entry.sessionId,
-        clientId: found.clientId,
-        lastSeq: entry.lastSeq,
-      });
-    }
-
-    span.setStatus({ code: SpanStatusCode.OK });
-  } catch (err: unknown) {
-    span.setStatus({
-      code: SpanStatusCode.ERROR,
-      message: err instanceof Error ? err.message : 'unknown',
-    });
-    span.recordException(err instanceof Error ? err : new Error(String(err)));
-    throw err;
-  } finally {
-    span.end();
-  }
+    },
+  );
 }
 
 // ─── Dispatcher ──────────────────────────────────────────────────────────────

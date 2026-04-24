@@ -230,11 +230,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     async switchSession(id: string) {
       const oldId = parserState.currentSessionId;
       if (oldId) {
-        // Suspend the old session so agent responses buffer while we're away
-        connection.send({
-          type: 'session_suspend',
-          sessions: [{ sessionId: oldId, lastSeq: connection.getLastSeq(oldId) }],
-        });
+        const lastSeq = connection.getLastSeq(oldId);
+        if (lastSeq > 0) {
+          connection.send({
+            type: 'session_suspend',
+            sessions: [{ sessionId: oldId, lastSeq }],
+          });
+        }
         connection.clearSession(oldId);
       }
       parserState.currentSessionId = id;
@@ -662,6 +664,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     if (msg.type === '_foreground') {
       const { sessions } = store.getState();
       if (sessions.active) fetchAndRestoreMessages(sessions.active);
+      return;
+    }
+
+    if (msg.type === 'session_resumed') {
+      if (typeof console !== 'undefined') {
+        console.debug('[mitzo] session resumed', {
+          sessionId: msg.sessionId,
+          replayed: msg.replayed,
+        });
+      }
       return;
     }
 
