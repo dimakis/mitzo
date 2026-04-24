@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import type { ManagedSession } from '@mitzo/harness';
 
 vi.mock('../worktree.js', async (importOriginal) => {
@@ -282,18 +282,20 @@ describe('startChat finally block does NOT clean up worktrees', () => {
   });
 });
 
+// Structural tests: startChat requires the full Agent SDK query() pipeline,
+// making behavioral mocking impractical. Source-code assertions lock in the
+// key invariant (store + echo + broadcast before runQueryLoop) with minimal
+// coupling to the SDK internals.
 describe('startChat stores user message for resumed sessions', () => {
-  it('appends user_message to eventStore when options.resume is set', async () => {
-    // Structural test: verify that startChat stores the user message before
-    // starting the query loop when resuming. Without this, user messages are
-    // invisible after WS reconnect because sendOrBuffer only persists v2
-    // events emitted by the query loop — the user's prompt is never one of those.
+  let chatSource: string;
+
+  beforeAll(async () => {
     const { readFileSync } = await import('fs');
     const { join } = await import('path');
-    const chatSource = readFileSync(join(import.meta.dirname, '..', 'chat.ts'), 'utf-8');
+    chatSource = readFileSync(join(import.meta.dirname, '..', 'chat.ts'), 'utf-8');
+  });
 
-    // The pattern: eventStore.append(options.resume, 'user_message', ...)
-    // must appear BEFORE runQueryLoop in startChat
+  it('appends user_message to eventStore before runQueryLoop', () => {
     const appendIdx = chatSource.indexOf("eventStore.append(options.resume, 'user_message'");
     const queryLoopIdx = chatSource.indexOf('await runQueryLoop(');
     expect(appendIdx).toBeGreaterThan(-1);
@@ -301,20 +303,13 @@ describe('startChat stores user message for resumed sessions', () => {
     expect(appendIdx).toBeLessThan(queryLoopIdx);
   });
 
-  it('echoes user_message to transport on resume', async () => {
-    const { readFileSync } = await import('fs');
-    const { join } = await import('path');
-    const chatSource = readFileSync(join(import.meta.dirname, '..', 'chat.ts'), 'utf-8');
-
-    // Find the resume block near the eventStore.append call (not the earlier
-    // resumability validation block). Look for the block that contains both
-    // the append and the send.
+  it('echoes user_message to transport and broadcasts to observers', () => {
     const nearAppend = chatSource.indexOf("eventStore.append(options.resume, 'user_message'");
     expect(nearAppend).toBeGreaterThan(-1);
-    // The send(transport, ...) echo must be in the same code region
-    const regionAfterAppend = chatSource.slice(nearAppend, nearAppend + 500);
-    expect(regionAfterAppend).toContain('send(transport');
-    expect(regionAfterAppend).toContain("type: 'user_message'");
+    const region = chatSource.slice(nearAppend, nearAppend + 500);
+    expect(region).toContain('send(transport');
+    expect(region).toContain("type: 'user_message'");
+    expect(region).toContain('broadcastToObservers(session.observers');
   });
 });
 

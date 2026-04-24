@@ -759,7 +759,9 @@ async function _startChatInner(
         messageId,
         text: fullPrompt,
       });
-      send(transport, { type: 'user_message', messageId, text: fullPrompt });
+      const echo = { type: 'user_message', messageId, text: fullPrompt };
+      send(transport, echo);
+      broadcastToObservers(session.observers, echo);
     }
 
     await runQueryLoop(
