@@ -146,6 +146,7 @@ function createMockStore() {
     setPendingSession: vi.fn(),
     clearPendingSession: vi.fn(),
     forceReconnect: vi.fn(),
+    sendSuspend: vi.fn(),
   }));
 }
 

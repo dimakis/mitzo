@@ -118,6 +118,7 @@ export interface MitzoStoreState {
 
   // Actions — lifecycle
   forceReconnect(): void;
+  sendSuspend(): void;
 }
 
 // ─── Store options ───────────────────────────────────────────────────────────
@@ -228,7 +229,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     async switchSession(id: string) {
       const oldId = parserState.currentSessionId;
-      if (oldId) connection.clearSession(oldId);
+      if (oldId) {
+        // clearSession stops seq tracking. No suspend needed — session_suspend
+        // is for iOS backgrounding (imminent WS death), not session switching.
+        // Sending suspend here would leave the old session in suspended state
+        // with no resume path, causing it to buffer events until grace expiry.
+        connection.clearSession(oldId);
+      }
       parserState.currentSessionId = id;
 
       set((s) => ({
@@ -579,6 +586,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     forceReconnect() {
       connection.checkAndReconnect();
     },
+
+    sendSuspend() {
+      connection.sendSuspend();
+    },
   }));
 
   // ── WS → store wiring ──────────────────────────────────────────────────
@@ -650,6 +661,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     if (msg.type === '_foreground') {
       const { sessions } = store.getState();
       if (sessions.active) fetchAndRestoreMessages(sessions.active);
+      return;
+    }
+
+    if (msg.type === 'session_resumed') {
+      if (typeof console !== 'undefined') {
+        console.debug('[mitzo] session resumed', {
+          sessionId: msg.sessionId,
+          replayed: msg.replayed,
+        });
+      }
       return;
     }
 

@@ -218,7 +218,7 @@ server.on('upgrade', async (req, socket, head) => {
   }
 
   wss.handleUpgrade(req, socket, head, (ws) => {
-    const connId = `conn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const connId = `conn-${crypto.randomUUID()}`;
     log.info('chat connected', { connectionId: connId });
     routeWsClient(ws, connId);
   });
@@ -316,6 +316,15 @@ function handleChatWsV2(ws: WebSocket, connectionId: string) {
     for (const sessionId of watchedSessions) {
       const found = registry.findBySessionId(sessionId);
       if (!found) continue;
+
+      // If the session was proactively suspended (iOS backgrounding), the
+      // WS close is expected — don't transition to detach. The suspend
+      // grace timer manages the lifecycle instead.
+      if (registry.isSuspended(found.clientId)) {
+        log.info('v2 WS closed for suspended session (expected)', { connectionId, sessionId });
+        continue;
+      }
+
       const session = registry.get(found.clientId);
       if (session && session.transport === transport && registry.isAttached(found.clientId)) {
         withSpan(

@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { SessionRegistry } from '../src/session-registry.js';
-import { DETACHED_TTL_MS, CLOSEOUT_LEAD_MS, CLOSEOUT_TIMEOUT_MS } from '../src/constants.js';
+import {
+  DETACHED_TTL_MS,
+  CLOSEOUT_LEAD_MS,
+  CLOSEOUT_TIMEOUT_MS,
+  SUSPEND_GRACE_MS,
+  SUSPEND_BUFFER_MAX,
+} from '../src/constants.js';
 import type { SessionTransport } from '../src/session-transport.js';
 
 function fakeTransport(): SessionTransport {
@@ -768,6 +774,277 @@ describe('SessionRegistry', () => {
       expect(abort2.signal.aborted).toBe(true);
       expect(registry.isActive('client-1')).toBe(false);
       expect(registry.isActive('client-2')).toBe(false);
+    });
+  });
+
+  describe('suspend', () => {
+    it('marks session as suspended', () => {
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      registry.suspend('client-1', 42);
+      expect(registry.isSuspended('client-1')).toBe(true);
+    });
+
+    it('is idempotent — second suspend preserves buffer', () => {
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      registry.suspend('client-1', 0);
+      registry.bufferEvent('client-1', { type: 'block_delta', delta: 'hello' });
+      expect(registry.isSuspended('client-1')).toBe(true);
+
+      // Second suspend should NOT reset the buffer
+      registry.suspend('client-1', 5);
+      expect(registry.isSuspended('client-1')).toBe(true);
+      const buffer = registry.resume('client-1');
+      expect(buffer).toHaveLength(1);
+      expect(buffer[0]).toMatchObject({ type: 'block_delta', delta: 'hello' });
+    });
+
+    it('starts grace timer that transitions to detach on expiry', () => {
+      vi.useFakeTimers();
+
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      registry.suspend('client-1', 0);
+
+      // Still suspended before grace period
+      vi.advanceTimersByTime(SUSPEND_GRACE_MS - 1000);
+      expect(registry.isSuspended('client-1')).toBe(true);
+
+      // Grace expired — transitions to detach
+      vi.advanceTimersByTime(2000);
+      expect(registry.isSuspended('client-1')).toBe(false);
+      expect(registry.isAttached('client-1')).toBe(false);
+      expect(registry.isActive('client-1')).toBe(true); // detached, not aborted
+
+      vi.useRealTimers();
+    });
+
+    it('clears detach timer when suspending (suspend takes precedence)', () => {
+      vi.useFakeTimers();
+
+      const abort = new AbortController();
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: abort,
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      registry.detach('client-1');
+      registry.suspend('client-1', 0);
+
+      // Advance past the full detach TTL — session should still be alive
+      // because suspend cleared the detach timer and manages its own grace
+      vi.advanceTimersByTime(SUSPEND_GRACE_MS + 1000);
+      // Grace expired → detach fires, but session is still active (just detached)
+      expect(registry.isActive('client-1')).toBe(true);
+      expect(abort.signal.aborted).toBe(false);
+
+      vi.useRealTimers();
+    });
+
+    it('resume returns buffered events and clears suspend state', () => {
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      registry.suspend('client-1', 0);
+      registry.bufferEvent('client-1', { type: 'block_delta', delta: 'hello' });
+      registry.bufferEvent('client-1', { type: 'block_end' });
+
+      const buffer = registry.resume('client-1');
+      expect(buffer).toHaveLength(2);
+      expect(buffer[0]).toEqual({ type: 'block_delta', delta: 'hello' });
+      expect(buffer[1]).toEqual({ type: 'block_end' });
+      expect(registry.isSuspended('client-1')).toBe(false);
+    });
+
+    it('resume clears grace timer', () => {
+      vi.useFakeTimers();
+
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      registry.suspend('client-1', 0);
+      registry.resume('client-1');
+
+      // Advance past grace — should not transition to detach
+      vi.advanceTimersByTime(SUSPEND_GRACE_MS + 1000);
+      expect(registry.isAttached('client-1')).toBe(true);
+
+      vi.useRealTimers();
+    });
+
+    it('resume returns empty array when no events buffered', () => {
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      registry.suspend('client-1', 0);
+      const buffer = registry.resume('client-1');
+      expect(buffer).toEqual([]);
+    });
+
+    it('resume returns empty array for non-suspended session', () => {
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      const buffer = registry.resume('client-1');
+      expect(buffer).toEqual([]);
+    });
+
+    it('bufferEvent returns false when buffer is full', () => {
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      registry.suspend('client-1', 0);
+
+      // Fill buffer to capacity
+      for (let i = 0; i < SUSPEND_BUFFER_MAX; i++) {
+        expect(registry.bufferEvent('client-1', { type: 'event', i })).toBe(true);
+      }
+
+      // One more should fail
+      expect(registry.bufferEvent('client-1', { type: 'overflow' })).toBe(false);
+
+      // Buffer contains exactly SUSPEND_BUFFER_MAX items
+      const buffer = registry.resume('client-1');
+      expect(buffer).toHaveLength(SUSPEND_BUFFER_MAX);
+    });
+
+    it('bufferEvent returns false for non-suspended session', () => {
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      expect(registry.bufferEvent('client-1', { type: 'event' })).toBe(false);
+    });
+
+    it('reattach clears suspend state', () => {
+      vi.useFakeTimers();
+
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      registry.suspend('client-1', 0);
+      registry.bufferEvent('client-1', { type: 'event' });
+
+      registry.reattach('client-1', fakeTransport());
+      expect(registry.isSuspended('client-1')).toBe(false);
+
+      // Grace timer should be cancelled
+      vi.advanceTimersByTime(SUSPEND_GRACE_MS + 1000);
+      expect(registry.isAttached('client-1')).toBe(true);
+
+      vi.useRealTimers();
+    });
+
+    it('detach skips if already suspended', () => {
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      registry.suspend('client-1', 0);
+      registry.detach('client-1');
+
+      // Should still be suspended, not transitioned to detach
+      expect(registry.isSuspended('client-1')).toBe(true);
+    });
+
+    it('abort cleans up suspend state', () => {
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      registry.suspend('client-1', 0);
+      registry.bufferEvent('client-1', { type: 'event' });
+
+      registry.abort('client-1');
+      expect(registry.isSuspended('client-1')).toBe(false);
+    });
+
+    it('remove cleans up suspend state', () => {
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      registry.suspend('client-1', 0);
+      registry.remove('client-1');
+      expect(registry.isSuspended('client-1')).toBe(false);
+    });
+
+    it('dispose cleans up suspend state', () => {
+      vi.useFakeTimers();
+
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      registry.suspend('client-1', 0);
+      registry.dispose();
+
+      // Grace timer should not fire after dispose
+      vi.advanceTimersByTime(SUSPEND_GRACE_MS + 1000);
+      expect(registry.isSuspended('client-1')).toBe(false);
+
+      vi.useRealTimers();
+    });
+
+    it('isSuspended returns false for unknown clientId', () => {
+      expect(registry.isSuspended('nonexistent')).toBe(false);
     });
   });
 });

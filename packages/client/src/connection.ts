@@ -13,6 +13,8 @@ export interface MitzoConnectionConfig {
   buildUrl(): string;
   createWebSocket(url: string): WebSocketLike;
   reconnectDelayMs?: number;
+  /** URL for the sendBeacon suspend fallback (POST /api/sessions/suspend). */
+  suspendUrl?: string;
 }
 
 export type ConnectionListener = (msg: Record<string, unknown>) => void;
@@ -32,11 +34,13 @@ export class MitzoConnection {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private boundOnVisibility: (() => void) | null = null;
   private boundOnPageShow: ((e: PageTransitionEvent) => void) | null = null;
+  private boundOnPageHide: (() => void) | null = null;
   private config: Required<MitzoConnectionConfig>;
 
   constructor(config: MitzoConnectionConfig) {
     this.config = {
       reconnectDelayMs: 500,
+      suspendUrl: '',
       ...config,
     };
   }
@@ -108,6 +112,51 @@ export class MitzoConnection {
 
   getTrackedSessions(): string[] {
     return Array.from(this.seqBySession.keys());
+  }
+
+  /**
+   * Signal the server that this client is about to be backgrounded (iOS).
+   * Tries WS first; falls back to sendBeacon only if the WS send fails or
+   * the socket is already closed. This avoids double-sending (which would
+   * refresh the grace timer twice and keep sessions suspended longer than
+   * intended).
+   */
+  sendSuspend(): void {
+    if (this.seqBySession.size === 0) return;
+
+    const sessions = Array.from(this.seqBySession.entries()).map(([sessionId, lastSeq]) => ({
+      sessionId,
+      lastSeq,
+    }));
+
+    // Try WS first (may already be dying)
+    let wsSent = false;
+    if (this.ws?.readyState === WS_READY_STATE.OPEN) {
+      try {
+        this.ws.send(JSON.stringify({ type: 'session_suspend', sessions }));
+        wsSent = true;
+      } catch {
+        // Socket may be transitioning — fall through to sendBeacon
+      }
+    }
+
+    // sendBeacon fallback — only when WS send was unavailable or failed.
+    // Works even after visibilitychange:hidden when the socket is already gone.
+    if (
+      !wsSent &&
+      this.config.suspendUrl &&
+      this._connectionId &&
+      typeof globalThis.navigator?.sendBeacon === 'function'
+    ) {
+      const beaconPayload = JSON.stringify({
+        connectionId: this._connectionId,
+        sessions,
+      });
+      globalThis.navigator.sendBeacon(
+        this.config.suspendUrl,
+        new Blob([beaconPayload], { type: 'application/json' }),
+      );
+    }
   }
 
   // ─── Internal ──────────────────────────────────────────────────────────────
@@ -241,6 +290,9 @@ export class MitzoConnection {
         // Notify the store so it can re-hydrate messages if the page was
         // evicted from memory (iOS bfcache discard) and state was lost.
         this.listener?.({ type: '_foreground' });
+      } else if (document.visibilityState === 'hidden') {
+        // Proactive suspend: signal the server BEFORE iOS kills the WS
+        this.sendSuspend();
       }
     };
 
@@ -248,8 +300,13 @@ export class MitzoConnection {
       if (e.persisted) this.checkAndReconnect();
     };
 
+    this.boundOnPageHide = () => {
+      this.sendSuspend();
+    };
+
     document.addEventListener('visibilitychange', this.boundOnVisibility);
     globalThis.addEventListener('pageshow', this.boundOnPageShow);
+    globalThis.addEventListener('pagehide', this.boundOnPageHide);
   }
 
   private removeBrowserListeners(): void {
@@ -260,6 +317,10 @@ export class MitzoConnection {
     if (this.boundOnPageShow) {
       globalThis.removeEventListener('pageshow', this.boundOnPageShow);
       this.boundOnPageShow = null;
+    }
+    if (this.boundOnPageHide) {
+      globalThis.removeEventListener('pagehide', this.boundOnPageHide);
+      this.boundOnPageHide = null;
     }
   }
 

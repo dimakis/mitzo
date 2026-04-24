@@ -4,6 +4,8 @@ import {
   CLOSEOUT_LEAD_MS,
   CLOSEOUT_TIMEOUT_MS,
   MAX_OBSERVERS_PER_SESSION,
+  SUSPEND_GRACE_MS,
+  SUSPEND_BUFFER_MAX,
 } from './constants.js';
 import { createLogger } from './logger.js';
 
@@ -59,6 +61,9 @@ export class SessionRegistry {
   private closeoutTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private closingOut = new Set<string>();
   private closeoutHandler: CloseoutHandler | null = null;
+  private suspended = new Set<string>();
+  private suspendBuffers = new Map<string, Record<string, unknown>[]>();
+  private suspendTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   /** Register a handler called when a session enters closeout. */
   setCloseoutHandler(handler: CloseoutHandler): void {
@@ -126,6 +131,9 @@ export class SessionRegistry {
     const session = this.sessions.get(clientId);
     if (!session) return;
 
+    // Suspend takes precedence — don't transition to detach while suspended.
+    if (this.suspended.has(clientId)) return;
+
     this.attached.delete(clientId);
     this.clearDetachTimer(clientId);
     this.clearCloseoutTimer(clientId);
@@ -178,6 +186,7 @@ export class SessionRegistry {
     this.clearDetachTimer(clientId);
     this.clearCloseoutTimer(clientId);
     this.closingOut.delete(clientId);
+    this.clearSuspendState(clientId);
     return true;
   }
 
@@ -276,6 +285,7 @@ export class SessionRegistry {
 
     this.clearDetachTimer(clientId);
     this.clearCloseoutTimer(clientId);
+    this.clearSuspendState(clientId);
     // Fire abort signal BEFORE clearing closingOut — abort listeners
     // check isClosingOut() to distinguish 'abandoned' vs 'closed' status.
     session.abortController.abort();
@@ -294,6 +304,7 @@ export class SessionRegistry {
     if (session) session.observers.clear();
     this.clearDetachTimer(clientId);
     this.clearCloseoutTimer(clientId);
+    this.clearSuspendState(clientId);
     this.sessions.delete(clientId);
     this.attached.delete(clientId);
     this.closingOut.delete(clientId);
@@ -314,9 +325,87 @@ export class SessionRegistry {
     this.closeoutTimers.clear();
     this.closingOut.clear();
 
+    for (const timer of this.suspendTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.suspendTimers.clear();
+    this.suspended.clear();
+    this.suspendBuffers.clear();
+
     for (const [clientId] of this.sessions) {
       this.abort(clientId);
     }
+  }
+
+  // ─── Suspend (proactive iOS backgrounding) ───────────────────────────────
+
+  /**
+   * Suspend a session. The client signals this BEFORE iOS kills the WebSocket,
+   * enabling event buffering and instant resume. Starts a grace timer — if
+   * the client doesn't resume within SUSPEND_GRACE_MS, the session transitions
+   * to the normal detach flow.
+   *
+   * @param _lastClientSeq Reserved for future seq-based replay optimisation.
+   *   Currently unused — reconnect replays from EventStore using the client's
+   *   lastSeq, making this parameter redundant. Kept in the API so callers
+   *   don't need changing when the optimisation lands.
+   */
+  suspend(clientId: string, _lastClientSeq: number): void {
+    const session = this.sessions.get(clientId);
+    if (!session) return;
+
+    // Idempotent: if already suspended, only refresh the grace timer —
+    // don't reset the buffer (visibilitychange + pagehide can fire twice).
+    if (!this.suspended.has(clientId)) {
+      this.suspended.add(clientId);
+      this.suspendBuffers.set(clientId, []);
+    }
+    this.clearDetachTimer(clientId);
+    this.clearSuspendTimer(clientId);
+
+    const timer = setTimeout(() => {
+      this.suspendTimers.delete(clientId);
+      if (!this.sessions.has(clientId) || !this.suspended.has(clientId)) return;
+      log.info('suspend grace expired, transitioning to detach', { clientId });
+      this.suspended.delete(clientId);
+      this.suspendBuffers.delete(clientId);
+      this.detach(clientId);
+    }, SUSPEND_GRACE_MS);
+    this.suspendTimers.set(clientId, timer);
+  }
+
+  isSuspended(clientId: string): boolean {
+    return this.suspended.has(clientId);
+  }
+
+  /**
+   * Buffer an event for a suspended session. Returns false if the buffer
+   * is full or the session is not suspended.
+   */
+  bufferEvent(clientId: string, event: Record<string, unknown>): boolean {
+    if (!this.suspended.has(clientId)) return false;
+    const buffer = this.suspendBuffers.get(clientId);
+    if (!buffer) return false;
+    if (buffer.length >= SUSPEND_BUFFER_MAX) {
+      log.warn('suspend buffer full, dropping event', {
+        clientId,
+        bufferSize: buffer.length,
+        droppedType: event.type,
+      });
+      return false;
+    }
+    buffer.push(event);
+    return true;
+  }
+
+  /**
+   * Resume a suspended session. Returns buffered events and clears suspend state.
+   */
+  resume(clientId: string): Record<string, unknown>[] {
+    if (!this.suspended.has(clientId)) return [];
+    const buffer = this.suspendBuffers.get(clientId) ?? [];
+    this.clearSuspendState(clientId);
+    return buffer;
   }
 
   /**
@@ -339,6 +428,20 @@ export class SessionRegistry {
       });
     }
     return result;
+  }
+
+  private clearSuspendState(clientId: string): void {
+    this.suspended.delete(clientId);
+    this.suspendBuffers.delete(clientId);
+    this.clearSuspendTimer(clientId);
+  }
+
+  private clearSuspendTimer(clientId: string): void {
+    const existing = this.suspendTimers.get(clientId);
+    if (existing) {
+      clearTimeout(existing);
+      this.suspendTimers.delete(clientId);
+    }
   }
 
   private clearDetachTimer(clientId: string): void {

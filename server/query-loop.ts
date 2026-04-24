@@ -85,6 +85,19 @@ function sendOrBuffer(
     }
   }
 
+  // Suspend buffer: if the session is proactively suspended (iOS backgrounding),
+  // buffer events instead of delivering via the driver transport (which is
+  // dying). Still broadcast to other watchers — suspend is per-clientId, not
+  // per-session. The driver's dead WS will be skipped by broadcast's isOpen()
+  // check, and events are durable in EventStore regardless.
+  if (registry.isSuspended(clientId)) {
+    registry.bufferEvent(clientId, enriched);
+    if (sessionId && connRegistry?.hasOpenWatchers(sessionId)) {
+      connRegistry.broadcast(sessionId, enriched);
+    }
+    return;
+  }
+
   // v2 path: deliver via ConnectionRegistry when there are open connections
   // watching this session. Uses sessionId-based fan-out instead of checking
   // whether the originating clientId is still registered — after a WS

@@ -40,6 +40,8 @@ function fakeRegistry(
     }),
     setMode: vi.fn(),
     isAttached: vi.fn(() => attached),
+    isSuspended: vi.fn(() => false),
+    bufferEvent: vi.fn(() => false),
     _setAttached: (v: boolean) => {
       attached = v;
     },
@@ -448,6 +450,65 @@ describe('runQueryLoop', () => {
       (m: Record<string, unknown>) => m.type === 'block_delta' && m.delta === ' after detach',
     );
     expect(detachedDeltas).toHaveLength(0);
+  });
+
+  it('buffers events to registry when session is suspended', async () => {
+    let suspended = false;
+    const buffered: Record<string, unknown>[] = [];
+    registry = {
+      ...registry,
+      isSuspended: vi.fn(() => suspended),
+      bufferEvent: vi.fn((_cid: string, event: Record<string, unknown>) => {
+        buffered.push(event);
+        return true;
+      }),
+    } as unknown as typeof registry;
+
+    const events: Record<string, unknown>[] = [
+      { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-sus' } } },
+      {
+        type: 'stream_event',
+        event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+      },
+      {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: 'before suspend' },
+        },
+      },
+    ];
+
+    const suspendedEvents: Record<string, unknown>[] = [
+      {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: 'while suspended' },
+        },
+      },
+      { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+      { type: 'result', session_id: 'sess-sus' },
+    ];
+
+    async function* suspendingStream() {
+      for (const e of events) yield e;
+      suspended = true;
+      for (const e of suspendedEvents) yield e;
+    }
+
+    await runQueryLoop(suspendingStream(), clientId, registry, abortController);
+
+    expect(transport.sent.some((m: Record<string, unknown>) => m.delta === 'before suspend')).toBe(
+      true,
+    );
+    expect(transport.sent.some((m: Record<string, unknown>) => m.delta === 'while suspended')).toBe(
+      false,
+    );
+    expect(buffered.length).toBeGreaterThan(0);
+    expect(buffered.some((e) => e.type === 'block_delta')).toBe(true);
   });
 
   it('does not emit old-style text or text_delta events', async () => {

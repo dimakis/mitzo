@@ -59,6 +59,7 @@ import {
   handleSetModeV2,
   handleStopV2,
   handlePermissionResponseV2,
+  handleSessionSuspend,
   isHelloHandshake,
   dispatchV2Message,
   getOwnerConnection,
@@ -96,6 +97,9 @@ function mockSessionRegistry() {
     reattach: vi.fn().mockReturnValue(true),
     remove: vi.fn(),
     entries: vi.fn(() => new Map().entries()),
+    suspend: vi.fn(),
+    isSuspended: vi.fn().mockReturnValue(false),
+    resume: vi.fn().mockReturnValue([]),
   };
 }
 
@@ -2347,5 +2351,164 @@ describe('stale session cleanup removes registry entry', () => {
     expect(startChat).toHaveBeenCalled();
 
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  });
+});
+
+// ─── handleSessionSuspend ───────────────────────────────────────────────────
+
+describe('handleSessionSuspend', () => {
+  it('suspends sessions owned by the connection', () => {
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'conn-1:sess-1',
+      session: { sessionId: 'sess-1' },
+    });
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+
+    handleSessionSuspend(
+      'conn-1',
+      { type: 'session_suspend', sessions: [{ sessionId: 'sess-1', lastSeq: 42 }] },
+      ctx,
+    );
+
+    expect(sessionReg.suspend).toHaveBeenCalledWith('conn-1:sess-1', 42);
+  });
+
+  it('rejects suspend from non-owner connection', () => {
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'conn-other:sess-1',
+      session: { sessionId: 'sess-1' },
+    });
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+
+    handleSessionSuspend(
+      'conn-1',
+      { type: 'session_suspend', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
+      ctx,
+    );
+
+    expect(sessionReg.suspend).not.toHaveBeenCalled();
+  });
+
+  it('skips unknown sessions without error', () => {
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue(null);
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+
+    expect(() =>
+      handleSessionSuspend(
+        'conn-1',
+        { type: 'session_suspend', sessions: [{ sessionId: 'unknown', lastSeq: 0 }] },
+        ctx,
+      ),
+    ).not.toThrow();
+  });
+
+  it('suspends multiple sessions in a single message', () => {
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockImplementation((sid: string) => ({
+      clientId: `conn-1:${sid}`,
+      session: { sessionId: sid },
+    }));
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+
+    handleSessionSuspend(
+      'conn-1',
+      {
+        type: 'session_suspend',
+        sessions: [
+          { sessionId: 'sess-1', lastSeq: 10 },
+          { sessionId: 'sess-2', lastSeq: 20 },
+        ],
+      },
+      ctx,
+    );
+
+    expect(sessionReg.suspend).toHaveBeenCalledTimes(2);
+    expect(sessionReg.suspend).toHaveBeenCalledWith('conn-1:sess-1', 10);
+    expect(sessionReg.suspend).toHaveBeenCalledWith('conn-1:sess-2', 20);
+  });
+});
+
+// ─── handleReconnect — suspend resume ───────────────────────────────────────
+
+describe('handleReconnect suspend resume', () => {
+  it('replays buffered events for suspended sessions', () => {
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'conn-1:sess-1',
+      session: { sessionId: 'sess-1' },
+    });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(false);
+    sessionReg.isSuspended.mockReturnValue(true);
+    sessionReg.resume.mockReturnValue([
+      { v: 2, type: 'block_delta', delta: 'buffered-text', sessionId: 'sess-1' },
+    ]);
+
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ isActive: true });
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('conn-1', transport);
+
+    (reattachChat as ReturnType<typeof vi.fn>).mockReturnValue(true);
+
+    handleReconnect(
+      'conn-1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
+      ctx,
+    );
+
+    expect(sessionReg.resume).toHaveBeenCalledWith('conn-1:sess-1');
+    // Buffered events should NOT be replayed — EventStore replay covers them.
+    // resume() is called only to clear suspend state.
+    expect(
+      transport.sent.some((m) => m.type === 'block_delta' && m.delta === 'buffered-text'),
+    ).toBe(false);
+    // Should have sent session_resumed with total replayed count
+    expect(transport.sent.some((m) => m.type === 'session_resumed' && m.replayed === 1)).toBe(true);
+  });
+});
+
+// ─── dispatchV2Message — session_suspend ────────────────────────────────────
+
+describe('dispatchV2Message session_suspend', () => {
+  it('dispatches session_suspend to handleSessionSuspend', async () => {
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'conn-1:sess-1',
+      session: { sessionId: 'sess-1' },
+    });
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('conn-1', transport);
+
+    await dispatchV2Message(
+      'conn-1',
+      transport,
+      JSON.stringify({
+        type: 'session_suspend',
+        sessions: [{ sessionId: 'sess-1', lastSeq: 5 }],
+      }),
+      ctx,
+    );
+
+    expect(sessionReg.suspend).toHaveBeenCalledWith('conn-1:sess-1', 5);
   });
 });

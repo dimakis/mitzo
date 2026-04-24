@@ -8,7 +8,7 @@
  */
 
 import { createMitzoStore } from '@mitzo/client';
-import { apiFetch, getWsChatUrl } from './lib/api-fetch';
+import { apiFetch, getApiBaseUrl, getWsChatUrl } from './lib/api-fetch';
 import { registerCapacitorLifecycle } from './lib/capacitor';
 import { configureKeyboard } from './lib/keyboard';
 import { initPushNotifications } from './lib/push';
@@ -21,11 +21,15 @@ export const clientStore = createMitzoStore({
     buildUrl: () => getWsChatUrl(),
     createWebSocket: (url) => new WebSocket(url) as import('@mitzo/client').WebSocketLike,
     reconnectDelayMs: 500,
+    suspendUrl: `${getApiBaseUrl()}/api/sessions/suspend`,
   },
 });
 
-// Wire Capacitor app lifecycle → force WS reconnect on resume (no-op in browser)
-registerCapacitorLifecycle(() => clientStore.getState().forceReconnect());
+// Wire Capacitor app lifecycle → force WS reconnect on resume, send suspend on background
+registerCapacitorLifecycle(
+  () => clientStore.getState().forceReconnect(),
+  () => clientStore.getState().sendSuspend(),
+);
 
 // Configure native keyboard behavior (no-op in browser)
 configureKeyboard();
