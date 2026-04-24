@@ -8,12 +8,16 @@ export function isCapacitor(): boolean {
   return Capacitor.isNativePlatform();
 }
 
-/** Register app lifecycle events. Calls onResume on foreground return. No-op in browser. */
-export function registerCapacitorLifecycle(onResume: () => void): void {
+/** Register app lifecycle events. Calls onResume on foreground return, onPause on background. No-op in browser. */
+export function registerCapacitorLifecycle(onResume: () => void, onPause?: () => void): void {
   if (!isCapacitor()) return;
 
   App.addListener('appStateChange', ({ isActive }) => {
-    if (isActive) onResume();
+    if (isActive) {
+      onResume();
+    } else {
+      onPause?.();
+    }
   });
 }
 

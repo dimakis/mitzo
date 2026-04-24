@@ -118,6 +118,7 @@ export interface MitzoStoreState {
 
   // Actions — lifecycle
   forceReconnect(): void;
+  sendSuspend(): void;
 }
 
 // ─── Store options ───────────────────────────────────────────────────────────
@@ -228,7 +229,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     async switchSession(id: string) {
       const oldId = parserState.currentSessionId;
-      if (oldId) connection.clearSession(oldId);
+      if (oldId) {
+        // Suspend the old session so agent responses buffer while we're away
+        connection.send({
+          type: 'session_suspend',
+          sessions: [{ sessionId: oldId, lastSeq: connection.getLastSeq(oldId) }],
+        });
+        connection.clearSession(oldId);
+      }
       parserState.currentSessionId = id;
 
       set((s) => ({
@@ -578,6 +586,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     forceReconnect() {
       connection.checkAndReconnect();
+    },
+
+    sendSuspend() {
+      connection.sendSuspend();
     },
   }));
 
