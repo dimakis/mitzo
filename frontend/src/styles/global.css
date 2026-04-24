@@ -536,7 +536,7 @@ textarea:focus {
   position: absolute;
   top: 100%;
   right: 0;
-  left: -60px;
+  left: max(-60px, calc(-1 * (100vw - 100% - var(--space-4))));
   margin-top: var(--space-2);
   background: var(--surface);
   border: 1px solid var(--border);

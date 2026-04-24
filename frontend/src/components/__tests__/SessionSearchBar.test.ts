@@ -84,6 +84,8 @@ describe('SessionSearchBar', () => {
     await user.click(screen.getByText('Fix auth bug'));
     expect(onSelectSession).toHaveBeenCalledWith('abc123');
     expect(clear).toHaveBeenCalled();
+    expect(screen.queryByPlaceholderText('Search sessions...')).toBeNull();
+    expect(screen.getByTitle('Search sessions')).toBeTruthy();
   });
 
   it('shows searching indicator', () => {
@@ -96,12 +98,14 @@ describe('SessionSearchBar', () => {
     expect(screen.getByText('No matches')).toBeTruthy();
   });
 
-  it('calls clear on close', async () => {
+  it('calls clear on close and reverts to toggle', async () => {
     const clear = vi.fn();
     const user = userEvent.setup();
     renderBar({ active: true, query: 'auth', results: mockResults, clear });
     await user.click(screen.getByTitle('Close search'));
     expect(clear).toHaveBeenCalled();
+    expect(screen.queryByPlaceholderText('Search sessions...')).toBeNull();
+    expect(screen.getByTitle('Search sessions')).toBeTruthy();
   });
 
   it('reverts to toggle button when closed with no active query', async () => {
@@ -110,9 +114,58 @@ describe('SessionSearchBar', () => {
     // Open
     await user.click(screen.getByTitle('Search sessions'));
     expect(screen.getByPlaceholderText('Search sessions...')).toBeTruthy();
-    // Close (active=false, so visible becomes false)
+    // Close
     await user.click(screen.getByTitle('Close search'));
     expect(screen.queryByPlaceholderText('Search sessions...')).toBeNull();
     expect(screen.getByTitle('Search sessions')).toBeTruthy();
+  });
+
+  it('hides stale results while searching', () => {
+    renderBar({ active: true, query: 'auth', results: mockResults, searching: true });
+    expect(screen.getByText('Searching...')).toBeTruthy();
+    expect(screen.queryByText('Fix auth bug')).toBeNull();
+  });
+
+  it('dismisses on Escape key', async () => {
+    const clear = vi.fn();
+    const user = userEvent.setup();
+    renderBar({ active: true, query: 'auth', results: mockResults, clear });
+    const input = screen.getByPlaceholderText('Search sessions...');
+    await user.click(input);
+    await user.keyboard('{Escape}');
+    expect(clear).toHaveBeenCalled();
+    expect(screen.queryByPlaceholderText('Search sessions...')).toBeNull();
+    expect(screen.getByTitle('Search sessions')).toBeTruthy();
+  });
+
+  it('syncs open state when active prop transitions to true', async () => {
+    const { rerender } = render(
+      createElement(SessionSearchBar, {
+        query: '',
+        setQuery: vi.fn(),
+        results: [],
+        searching: false,
+        active: false,
+        clear: vi.fn(),
+        onSelectSession: vi.fn(),
+      }),
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByTitle('Search sessions'));
+    await user.click(screen.getByTitle('Close search'));
+    expect(screen.getByTitle('Search sessions')).toBeTruthy();
+
+    rerender(
+      createElement(SessionSearchBar, {
+        query: 'test',
+        setQuery: vi.fn(),
+        results: mockResults,
+        searching: false,
+        active: true,
+        clear: vi.fn(),
+        onSelectSession: vi.fn(),
+      }),
+    );
+    expect(screen.getByPlaceholderText('Search sessions...')).toBeTruthy();
   });
 });

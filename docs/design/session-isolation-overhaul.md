@@ -1,10 +1,10 @@
 # Session Isolation Overhaul — Design Doc
 
-**Status:** Approved (pending implementation)
+**Status:** Phase 1 implemented (PR #278, merged 2026-04-23). Phase 2 in progress (PR #280).
 **Date:** 2026-04-22
 **Author:** Claude Opus 4.6 + Dimitri
-**Reviewed by:** Cursor agent (see `canvases/session-isolation-overhaul-review.canvas.tsx` and `canvases/session-isolation-counter-proposal.canvas.tsx`)
-**Prior art:** `~/.claude/plans/linear-stirring-hopcroft.md` + its `-review.md`, `~/.cursor/plans/session_resilience_fix_480a9f51.plan.md`, `~/.cursor/plans/session_identity_redesign_173f16be.plan.md`, `~/.cursor/plans/ws_session_architecture_fix_7226b2c5.plan.md`
+**Reviewed by:** Cursor agent (review artifacts were generated as Cursor canvases during the design session, not committed to the repo)
+**Prior art:** Planning documents from earlier design sessions (local-only, not committed)
 
 ---
 
@@ -35,7 +35,7 @@ On the client side, `MitzoConnection.seqBySession` (`packages/client/src/connect
 
 ### P3. Worktree ID Collision
 
-`generateWtId()` in `server/chat.ts` L117-121 uses `randomBytes(3)` (16M values). Concurrent sessions race on the same date prefix. Confirmed in logs: "fatal: path already exists". The `createWorktree` function at `server/worktree.ts` L46-101 handles the "already exists" case by trying without `-b`, but when TWO sessions race for the same repo path, one gets a corrupt state.
+**[Fixed in Phase 1]** `generateWtId()` in `server/chat.ts` originally used `randomBytes(3)` (6 hex chars, 16M values). Concurrent sessions raced on the same date prefix. Fixed: now uses `randomUUID().replace(/-/g, '').slice(0, 12)` (12 hex chars, 4.8T values) with a `.mitzo-session` lockfile.
 
 ### P4. Missing Executables
 
@@ -43,7 +43,7 @@ Gitignored dirs (`.venv`, `node_modules`) don't exist in worktrees. Agents can't
 
 ### P5. Stale Registry Entries
 
-In `server/ws-handler-v2.ts`, `handleReconnect` (L145-154), `handleSendV2` (L398-408), and `handleInterruptV2` (L546-556) all detect when EventStore says `is_active=false` but SessionRegistry has an entry. They correct a local `running` variable but **never call `registry.remove()`**. The stale entry blocks subsequent operations until the 48h detach TTL fires (from `packages/harness/src/constants.ts` L15: `DETACHED_TTL_MS = 172_800_000`).
+**[Fixed in Phase 1]** In `server/ws-handler-v2.ts`, `handleReconnect`, `handleSendV2`, and `handleInterruptV2` originally detected when EventStore said `is_active=false` but SessionRegistry had an entry, correcting a local variable but never calling `registry.remove()`. Fixed: all three sites now call `ctx.sessionRegistry.remove(found.clientId)` to evict stale entries immediately.
 
 ### P6. Resume Breaks
 
@@ -104,10 +104,10 @@ This means executables are found via `PATH` (no shared state), and symlinks are 
 
 1. Send `session_takeover` to old transport
 2. **Unwatch the session from the old connection** in ConnectionRegistry (`connRegistry.unwatch(oldConnectionId, sessionId)`)
-3. Auto-deny pending permissions for the session (add `denyPendingBySession(sessionId)` to `server/permissions.ts` — the `pendingPermissions` Map at L15 already stores the toolName per permId; need to add sessionId tracking)
+3. **[Shipped in Phase 1]** Auto-deny pending permissions for the session via `denyPendingBySession(sessionId)` (already implemented in `packages/harness/src/permissions.ts`)
 4. Reattach transport to new connection
 
-**Impact on implementation**: The `permissions.ts` module needs a new `registerPending` overload or field that associates permissions with a sessionId. The `buildPermissionHandler` at `packages/harness/src/permission-handler.ts` L111 already receives `clientId` — pass the sessionId through.
+**Note**: `denyPendingBySession` and the session-scoped permission tracking are fully implemented in the harness package, not in `server/permissions.ts` (which is a thin re-export).
 
 ### R5. (MEDIUM) Shorter handshake timeout is only partial — accepted
 
@@ -458,9 +458,9 @@ try {
 
 ### 2b. Collision-Proof IDs
 
-**Where**: `server/chat.ts` `generateWtId()` L117-121
+**Where**: `server/chat.ts` `generateWtId()`
 
-Change from `randomBytes(3).toString('hex')` (6 hex chars) to `randomUUID().slice(0, 12)` (12 hex chars). Also add a `.mitzo-session` lockfile inside each worktree containing the wtId and creation timestamp.
+**[Shipped in Phase 1]** Changed from `randomBytes(3).toString('hex')` (6 hex chars) to `randomUUID().replace(/-/g, '').slice(0, 12)` (12 hex chars). Added `.mitzo-session` lockfile inside each worktree containing the wtId and creation timestamp.
 
 ### 2c. Runtime Symlinks (opt-in)
 
@@ -505,7 +505,7 @@ The on-demand path runs inside `canUseTool` which is async. `execFileSync` block
 | F3  | `packages/client/src/store.ts` `wsListener`                  | Add `onReconnected` callback that re-fetches messages                                                 | iOS eviction loses in-memory state                              |
 | F4  | `packages/client/src/store.ts` `_foreground` handler         | Remove `messages.length === 0 && !current` guard                                                      | Always re-fetch, not just when empty                            |
 | F5  | `packages/client/src/protocol-parser.ts`                     | Add `session_takeover` case → `SET_RUNNING: false` + `ERROR` with "Session resumed on another device" | Old device needs clean exit on takeover                         |
-| F6  | `packages/client/src/protocol-parser.ts`                     | Remove `active_elsewhere` case (L328-340)                                                             | Dead code after server-side takeover                            |
+| F6  | `packages/client/src/protocol-parser.ts`                     | ~~Remove `active_elsewhere` case~~ (no-op: case does not exist in current parser)                     | Already absent — no action needed                               |
 | F7  | `packages/client/src/store.ts` event filter (L644-658)       | When `currentSessionId` is null, only allow `session_id`                                              | Prevent foreign `session_end` from assigning wrong session      |
 | F8  | `packages/client/src/protocol-parser.ts` `error` case (L344) | Change "Session expired" from silent wipe to recoverable error message                                | Better UX — show "Start fresh?" button                          |
 | F9  | `packages/client/src/connection.ts`                          | Add `getTrackedSessions(): string[]` method                                                           | Needed by F2                                                    |
@@ -585,6 +585,6 @@ The on-demand path runs inside `canUseTool` which is async. `execFileSync` block
 
 ## Deferred
 
-- **Session identity decoupling** (registry key = sessionId instead of `${connectionId}:${sessionId}`) — correct per `linear-stirring-hopcroft.md` Phase 2, but Phase 1 fixes the user-facing bugs without it
-- **Session state machine** (ACTIVE/SUSPENDED/CLOSED in EventStore) — architectural improvement, not blocking
-- **Frontend session state UI** (dots, explicit close) — separate concern
+- **Session identity decoupling** (registry key = sessionId instead of `${connectionId}:${sessionId}`) — still deferred. Phase 1 auto-takeover with rekey addresses the user-facing bugs without it
+- **Session state machine** (ACTIVE/SUSPENDED/CLOSED in EventStore) — still deferred, architectural improvement
+- **Frontend session state UI** (dots, explicit close) — still deferred, separate concern

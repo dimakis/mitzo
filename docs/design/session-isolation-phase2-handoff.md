@@ -12,7 +12,7 @@
 
 These are done and deployed — don't re-implement:
 
-- **2b (Collision-proof IDs):** `generateWtId()` in `server/chat.ts` now uses `randomUUID().slice(0, 12)`. `.mitzo-session` lockfile written inside primary worktree at creation time.
+- **2b (Collision-proof IDs):** `generateWtId()` in `server/chat.ts` now uses `randomUUID().replace(/-/g, '').slice(0, 12)` (strips dashes first, then slices — result is 12 hex chars). `.mitzo-session` lockfile written inside primary worktree at creation time.
 - **Stale registry cleanup:** `registry.remove()` in all 3 handler stale-detection sites
 - **Session bleed fix:** server unwatches on switch, client clears `seqBySession`, null-session filter tightened (allows `session_id` + `permission_request` only)
 - **Auto-takeover:** send/interrupt from another device does full ownership transfer instead of `active_elsewhere` rejection
@@ -40,7 +40,8 @@ These are done and deployed — don't re-implement:
    - Call async `createWorktreeAsync(session.wtId, repoPath)` (new, see 2f)
    - Add to `session.worktreePaths` Map
    - Broadcast `worktree_opened` event to client
-   - Return deny with redirect message (existing behavior — agent retries with the worktree path)
+   - On success: return deny with redirect message (existing behavior — agent retries with the worktree path)
+   - On failure (disk full, git lock, branch conflict): hard deny with error — do NOT redirect, or the agent enters a retry loop
 
 3. `server/chat.ts` `buildWorktreeSystemPrompt()` (L380-402) — update text to note secondary repos are lazy: "Worktrees for secondary repos are created on first write. Use `$MITZO_REPO_<NAME>` env vars."
 
@@ -74,6 +75,9 @@ These are done and deployed — don't re-implement:
 **Test plan:**
 
 - `server/__tests__/worktree.test.ts`: `symlinkRuntimeDirs` creates symlinks for existing dirs, skips missing
+- `server/__tests__/worktree.test.ts`: `symlinkRuntimeDirs` idempotent on resume (symlink already exists)
+- `server/__tests__/worktree.test.ts`: `symlinkRuntimeDirs` handles dangling symlinks (target deleted)
+- `server/__tests__/chat.test.ts`: system prompt includes shared-mutable-state warning when symlinks active
 
 ### 2d. Resume-Aware Worktree Rebuild
 
@@ -94,7 +98,7 @@ These are done and deployed — don't re-implement:
 
 ### 2e. Cleanup Only on Close
 
-**Problem:** `cleanupSessionWorktrees(session)` in the `finally` block of `startChat()` (L694-697) destroys worktrees after every query loop, breaking resume.
+**Problem:** `cleanupSessionWorktrees(session)` in the `finally` block of `startChat()` destroys secondary worktrees after every query loop. The primary worktree is preserved (`if (repoName === 'primary') continue`), so resume itself is not broken today, but Phase 2 lazy-created secondaries would be lost on each turn boundary.
 
 **Files to modify:**
 
@@ -119,6 +123,8 @@ These are done and deployed — don't re-implement:
     // cleanupSessionWorktrees removed — see design doc 2e.
 }
 ```
+
+**Note:** Today both `catch` (conditionally via `if (failedSession)`) and `finally` call `cleanupSessionWorktrees`, resulting in a double-call. This is harmless (`removeWorktree` is idempotent) but worth knowing when removing only the `finally` call.
 
 **Test plan:**
 
@@ -154,19 +160,19 @@ Recommended sequence (dependencies noted):
 
 ## Key File Locations (post-Phase 1)
 
-| File                                         | What                          | Key lines                             |
-| -------------------------------------------- | ----------------------------- | ------------------------------------- |
-| `server/chat.ts`                             | `createSessionWorktrees()`    | L278-338 (secondary loop at L317-332) |
-| `server/chat.ts`                             | `buildWorktreeSystemPrompt()` | L380-402                              |
-| `server/chat.ts`                             | `startChat()` finally block   | L693-698                              |
-| `server/chat.ts`                             | `validateResumable()`         | L116-157                              |
-| `server/chat.ts`                             | `cleanupSessionWorktrees()`   | L803+                                 |
-| `server/worktree.ts`                         | `createWorktree()` (sync)     | L46-102                               |
-| `server/worktree.ts`                         | `cleanupStaleWorktrees()`     | L271+                                 |
-| `server/constants.ts`                        | `WORKTREE_STALE_HOURS`        | L29 (currently 96)                    |
-| `server/repo-config.ts`                      | `RepoConfig` interface        | L30-36 (`repos` field)                |
-| `packages/harness/src/worktree-guard.ts`     | `checkWorktreePolicy()`       | L80-143 (sync)                        |
-| `packages/harness/src/permission-handler.ts` | `buildPermissionHandler()`    | L44-146 (async `canUseTool`)          |
+| File                                         | Symbol / Function                               |
+| -------------------------------------------- | ----------------------------------------------- |
+| `server/chat.ts`                             | `createSessionWorktrees()` (secondary loop)     |
+| `server/chat.ts`                             | `buildWorktreeSystemPrompt()`                   |
+| `server/chat.ts`                             | `startChat()` finally block                     |
+| `server/chat.ts`                             | `validateResumable()`                           |
+| `server/chat.ts`                             | `cleanupSessionWorktrees()`                     |
+| `server/worktree.ts`                         | `createWorktree()` (sync)                       |
+| `server/worktree.ts`                         | `cleanupStaleWorktrees()`                       |
+| `server/constants.ts`                        | `WORKTREE_STALE_HOURS` (currently 96)           |
+| `server/repo-config.ts`                      | `RepoConfig` interface (`repos` field)          |
+| `packages/harness/src/worktree-guard.ts`     | `checkWorktreePolicy()` (sync)                  |
+| `packages/harness/src/permission-handler.ts` | `buildPermissionHandler()` (async `canUseTool`) |
 
 ---
 
@@ -215,6 +221,6 @@ Recommended sequence (dependencies noted):
 
 3. **`.mitzo-session` lockfile** was added in Phase 1 for primary worktrees. Extend it to secondary worktrees when they're created on-demand.
 
-4. **Review findings pattern:** Centaur + Codex caught a real bug in Phase 1 (missing sessionId passthrough). Add the `openai` label to the PR for Codex review. If the centaur webhook fails (ngrok tunnel at `beamily-operable-shenita.ngrok-free.dev`), push an empty commit to retrigger, or redeliver via `gh api repos/dimakis/mitzo/hooks/604995403/deliveries/<id>/attempts -X POST`.
+4. **Review findings pattern:** Centaur + Codex caught a real bug in Phase 1 (missing sessionId passthrough). Add the `openai` label to the PR for Codex review. If the centaur webhook fails, push an empty commit to retrigger, or redeliver via `gh api repos/{owner}/{repo}/hooks` to find the webhook ID, then `gh api repos/{owner}/{repo}/hooks/<id>/deliveries` to inspect and retry.
 
 5. **Never push to main.** Branch + PR + CI + merge. See CLAUDE.md.
