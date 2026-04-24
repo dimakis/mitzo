@@ -160,19 +160,19 @@ Recommended sequence (dependencies noted):
 
 ## Key File Locations (post-Phase 1)
 
-| File                                         | What                          | Key lines                                                 |
-| -------------------------------------------- | ----------------------------- | --------------------------------------------------------- |
-| `server/chat.ts`                             | `createSessionWorktrees()`    | L278-338 (secondary loop at L317-332)                     |
-| `server/chat.ts`                             | `buildWorktreeSystemPrompt()` | search for function name (line numbers shift between PRs) |
-| `server/chat.ts`                             | `startChat()` finally block   | search for `} finally {`                                  |
-| `server/chat.ts`                             | `validateResumable()`         | search for function name                                  |
-| `server/chat.ts`                             | `cleanupSessionWorktrees()`   | search for function name                                  |
-| `server/worktree.ts`                         | `createWorktree()` (sync)     | search for function name                                  |
-| `server/worktree.ts`                         | `cleanupStaleWorktrees()`     | search for function name                                  |
-| `server/constants.ts`                        | `WORKTREE_STALE_HOURS`        | search for constant name (currently 96)                   |
-| `server/repo-config.ts`                      | `RepoConfig` interface        | search for interface name (`repos` field)                 |
-| `packages/harness/src/worktree-guard.ts`     | `checkWorktreePolicy()`       | search for function name (sync)                           |
-| `packages/harness/src/permission-handler.ts` | `buildPermissionHandler()`    | search for function name (async `canUseTool`)             |
+| File                                         | Symbol / Function                               |
+| -------------------------------------------- | ----------------------------------------------- | ------------------------------------- |
+| `server/chat.ts`                             | `createSessionWorktrees()`                      | L278-338 (secondary loop at L317-332) |
+| `server/chat.ts`                             | `buildWorktreeSystemPrompt()`                   |
+| `server/chat.ts`                             | `startChat()` finally block                     |
+| `server/chat.ts`                             | `validateResumable()`                           |
+| `server/chat.ts`                             | `cleanupSessionWorktrees()`                     |
+| `server/worktree.ts`                         | `createWorktree()` (sync)                       |
+| `server/worktree.ts`                         | `cleanupStaleWorktrees()`                       |
+| `server/constants.ts`                        | `WORKTREE_STALE_HOURS` (currently 96)           |
+| `server/repo-config.ts`                      | `RepoConfig` interface (`repos` field)          |
+| `packages/harness/src/worktree-guard.ts`     | `checkWorktreePolicy()` (sync)                  |
+| `packages/harness/src/permission-handler.ts` | `buildPermissionHandler()` (async `canUseTool`) |
 
 ---
 
