@@ -26,7 +26,7 @@ export {
 
 // --- Worktree ---
 export const WORKTREE_BRANCH_PREFIX = 'session/';
-export const WORKTREE_STALE_HOURS = 24; // 1 day
+export const WORKTREE_STALE_HOURS = 96; // 4 days
 export const WORKTREE_GIT_TIMEOUT_MS = 30_000;
 export const WORKTREE_REMOVE_TIMEOUT_MS = 15_000;
 export const WORKTREE_PRUNE_TIMEOUT_MS = 5_000;

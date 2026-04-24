@@ -804,9 +804,18 @@ checkPort(PORT).then((inUse) => {
         error: err instanceof Error ? err.message : 'unknown',
       });
     }
+    function collectActiveWtIds(): Set<string> {
+      const ids = new Set<string>();
+      for (const [, session] of registry.entries()) {
+        if (session.wtId) ids.add(session.wtId);
+      }
+      return ids;
+    }
+
+    const startupActiveWtIds = collectActiveWtIds();
     for (const [label, repoPath] of repoEntries) {
       try {
-        cleanupStaleWorktrees(repoPath, inboxDir);
+        cleanupStaleWorktrees(repoPath, inboxDir, startupActiveWtIds);
       } catch (err: unknown) {
         log.warn(`stale worktree cleanup failed for ${label}`, {
           error: err instanceof Error ? err.message : 'unknown',
@@ -836,9 +845,10 @@ checkPort(PORT).then((inUse) => {
     }, GUARD_STATS_INTERVAL_MS);
 
     setInterval(() => {
+      const activeWtIds = collectActiveWtIds();
       for (const [label, repoPath] of repoEntries) {
         try {
-          cleanupStaleWorktrees(repoPath, inboxDir);
+          cleanupStaleWorktrees(repoPath, inboxDir, activeWtIds);
         } catch (err: unknown) {
           log.warn(`periodic worktree cleanup failed for ${label}`, {
             error: err instanceof Error ? err.message : 'unknown',

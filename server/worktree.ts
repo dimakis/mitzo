@@ -403,9 +403,15 @@ ${dirtyFiles}
 /**
  * Clean up stale worktrees in the given repo's .claude/worktrees/ directory.
  * Worktrees with uncommitted work are skipped and flagged in the mgmt inbox.
+ * Worktrees belonging to active sessions are never cleaned up.
  * @param inboxDir — path to the mgmt inbox directory for dirty worktree proposals.
+ * @param activeSessionIds — wtIds of sessions currently in the registry (always skipped).
  */
-export function cleanupStaleWorktrees(baseRepo: string, inboxDir?: string): void {
+export function cleanupStaleWorktrees(
+  baseRepo: string,
+  inboxDir?: string,
+  activeSessionIds?: ReadonlySet<string>,
+): void {
   const dir = worktreesDir(baseRepo);
   if (!existsSync(dir)) return;
 
@@ -413,8 +419,14 @@ export function cleanupStaleWorktrees(baseRepo: string, inboxDir?: string): void
   const cutoff = WORKTREE_STALE_HOURS * 60 * 60 * 1000;
   let cleaned = 0;
   let skipped = 0;
+  let protected_ = 0;
 
   for (const entry of readdirSync(dir)) {
+    if (activeSessionIds?.has(entry)) {
+      protected_++;
+      continue;
+    }
+
     const fullPath = join(dir, entry);
     try {
       // Prefer name-based age (immune to mtime being refreshed by git operations),
@@ -464,10 +476,11 @@ export function cleanupStaleWorktrees(baseRepo: string, inboxDir?: string): void
     // Non-fatal
   }
 
-  if (cleaned > 0 || skipped > 0) {
-    log.info(`worktree cleanup: ${cleaned} removed, ${skipped} skipped (dirty)`, {
-      repo: baseRepo,
-    });
+  if (cleaned > 0 || skipped > 0 || protected_ > 0) {
+    log.info(
+      `worktree cleanup: ${cleaned} removed, ${skipped} skipped (dirty), ${protected_} active`,
+      { repo: baseRepo },
+    );
   }
 }
 
