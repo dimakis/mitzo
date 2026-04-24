@@ -11,6 +11,11 @@ export default defineConfig({
       '@testing-library/react': resolve(__dirname, 'node_modules/@testing-library/react'),
       '@testing-library/jest-dom': resolve(__dirname, 'node_modules/@testing-library/jest-dom'),
       '@testing-library/user-event': resolve(__dirname, 'node_modules/@testing-library/user-event'),
+      // Workspace packages: worktrees resolve to main repo dist by default.
+      // Alias to worktree-local dist so tests use the current branch's code.
+      '@mitzo/protocol': resolve(__dirname, 'packages/protocol/dist/index.js'),
+      '@mitzo/harness': resolve(__dirname, 'packages/harness/dist/index.js'),
+      '@mitzo/client': resolve(__dirname, 'packages/client/dist/index.js'),
     },
   },
   test: {

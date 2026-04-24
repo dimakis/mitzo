@@ -421,6 +421,46 @@ app.post('/api/sessions', (req, res) => {
   }
 });
 
+// --- Suspend endpoint (sendBeacon — no auth, same-origin only) ---
+// This must be above authMiddleware because sendBeacon cannot set custom headers.
+// The connectionId in the body is sufficient — it's a cryptographically random
+// value known only to the client that established the WebSocket.
+
+app.post('/api/sessions/suspend', (req, res) => {
+  const { connectionId, sessions } = req.body || {};
+
+  if (!connectionId || typeof connectionId !== 'string') {
+    res.status(400).json({ error: 'connectionId is required' });
+    return;
+  }
+  if (!Array.isArray(sessions) || sessions.length === 0) {
+    res.status(400).json({ error: 'sessions array is required' });
+    return;
+  }
+
+  for (const entry of sessions) {
+    if (!entry.sessionId || typeof entry.sessionId !== 'string') continue;
+    const lastSeq = typeof entry.lastSeq === 'number' ? entry.lastSeq : 0;
+
+    const found = registry.findBySessionId(entry.sessionId);
+    if (!found) continue;
+
+    // Verify the connectionId owns this session (same check as WS handler)
+    const colonIdx = found.clientId.indexOf(':');
+    const ownerConnection = colonIdx === -1 ? found.clientId : found.clientId.slice(0, colonIdx);
+    if (ownerConnection !== connectionId) continue;
+
+    registry.suspend(found.clientId, lastSeq);
+    log.info('session suspended via REST', {
+      connectionId,
+      sessionId: entry.sessionId,
+      clientId: found.clientId,
+    });
+  }
+
+  res.status(204).end();
+});
+
 app.use('/api', authMiddleware);
 
 // --- Task Board API ---

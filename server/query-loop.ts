@@ -85,6 +85,13 @@ function sendOrBuffer(
     }
   }
 
+  // Suspend buffer: if the session is proactively suspended (iOS backgrounding),
+  // buffer events instead of delivering them. They'll be replayed on resume.
+  if (registry.isSuspended(clientId)) {
+    registry.bufferEvent(clientId, enriched);
+    return;
+  }
+
   // v2 path: deliver via ConnectionRegistry when there are open connections
   // watching this session. Uses sessionId-based fan-out instead of checking
   // whether the originating clientId is still registered — after a WS

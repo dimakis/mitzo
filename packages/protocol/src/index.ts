@@ -65,6 +65,7 @@ export {
   WatchMessage,
   UnwatchMessage,
   SwitchSessionMessage,
+  SessionSuspendMessage,
   V2SendMessage,
   V2InterruptMessage,
   V2StopMessage,

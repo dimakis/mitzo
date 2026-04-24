@@ -316,6 +316,15 @@ function handleChatWsV2(ws: WebSocket, connectionId: string) {
     for (const sessionId of watchedSessions) {
       const found = registry.findBySessionId(sessionId);
       if (!found) continue;
+
+      // If the session was proactively suspended (iOS backgrounding), the
+      // WS close is expected — don't transition to detach. The suspend
+      // grace timer manages the lifecycle instead.
+      if (registry.isSuspended(found.clientId)) {
+        log.info('v2 WS closed for suspended session (expected)', { connectionId, sessionId });
+        continue;
+      }
+
       const session = registry.get(found.clientId);
       if (session && session.transport === transport && registry.isAttached(found.clientId)) {
         withSpan(

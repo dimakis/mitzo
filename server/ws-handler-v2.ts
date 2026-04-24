@@ -16,6 +16,7 @@ import {
   WatchMessage,
   UnwatchMessage,
   SwitchSessionMessage,
+  SessionSuspendMessage,
   V2SendMessage,
   V2StopMessage,
   V2InterruptMessage,
@@ -27,6 +28,7 @@ import type { z } from 'zod';
 type WatchMsg = z.infer<typeof WatchMessage>;
 type UnwatchMsg = z.infer<typeof UnwatchMessage>;
 type SwitchSessionMsg = z.infer<typeof SwitchSessionMessage>;
+type SessionSuspendMsg = z.infer<typeof SessionSuspendMessage>;
 type SendMsg = z.infer<typeof V2SendMessage>;
 type StopMsg = z.infer<typeof V2StopMessage>;
 type InterruptMsg = z.infer<typeof V2InterruptMessage>;
@@ -178,9 +180,31 @@ export function handleReconnect(
           }
         }
 
+        // If the session was suspended, resume it and replay buffered events.
+        let suspendReplayed = 0;
+        if (found && running && ctx.sessionRegistry.isSuspended(found.clientId)) {
+          const buffered = ctx.sessionRegistry.resume(found.clientId);
+          for (const evt of buffered) {
+            ctx.connRegistry.get(connectionId)?.transport.send(evt);
+          }
+          suspendReplayed = buffered.length;
+
+          ctx.connRegistry.get(connectionId)?.transport.send({
+            type: 'session_resumed',
+            sessionId: entry.sessionId,
+            replayed: suspendReplayed,
+          });
+
+          log.info('resumed suspended session', {
+            connectionId,
+            sessionId: entry.sessionId,
+            replayed: suspendReplayed,
+          });
+        }
+
         summaries.push({
           sessionId: entry.sessionId,
-          replayed: events.length,
+          replayed: events.length + suspendReplayed,
           running,
         });
 
@@ -189,6 +213,7 @@ export function handleReconnect(
           sessionId: entry.sessionId,
           lastSeq: entry.lastSeq,
           replayed: events.length,
+          suspendReplayed,
         });
       }
 
@@ -583,6 +608,56 @@ export function handleSetModeV2(
   );
 }
 
+export function handleSessionSuspend(
+  connectionId: string,
+  msg: SessionSuspendMsg,
+  ctx: V2HandlerContext,
+): void {
+  const span = tracer.startSpan('ws.session_suspend');
+  span.setAttribute('ws.connectionId', connectionId);
+  span.setAttribute('ws.sessionCount', msg.sessions.length);
+
+  try {
+    for (const entry of msg.sessions) {
+      const found = ctx.sessionRegistry.findBySessionId(entry.sessionId);
+      if (!found) {
+        log.warn('suspend: session not found', { connectionId, sessionId: entry.sessionId });
+        continue;
+      }
+
+      // Only the owning connection can suspend a session
+      const ownerConnection = getOwnerConnection(found.clientId);
+      if (ownerConnection !== connectionId) {
+        log.warn('suspend: not owner', {
+          connectionId,
+          sessionId: entry.sessionId,
+          owner: ownerConnection,
+        });
+        continue;
+      }
+
+      ctx.sessionRegistry.suspend(found.clientId, entry.lastSeq);
+      log.info('session suspended', {
+        connectionId,
+        sessionId: entry.sessionId,
+        clientId: found.clientId,
+        lastSeq: entry.lastSeq,
+      });
+    }
+
+    span.setStatus({ code: SpanStatusCode.OK });
+  } catch (err: unknown) {
+    span.setStatus({
+      code: SpanStatusCode.ERROR,
+      message: err instanceof Error ? err.message : 'unknown',
+    });
+    span.recordException(err instanceof Error ? err : new Error(String(err)));
+    throw err;
+  } finally {
+    span.end();
+  }
+}
+
 // ─── Dispatcher ──────────────────────────────────────────────────────────────
 
 /**
@@ -629,6 +704,9 @@ export async function dispatchV2Message(
       break;
     case 'switch_session':
       await handleSwitchSession(connectionId, msg, ctx);
+      break;
+    case 'session_suspend':
+      handleSessionSuspend(connectionId, msg, ctx);
       break;
     case 'send':
       handleSendV2(connectionId, transport, msg, ctx);
