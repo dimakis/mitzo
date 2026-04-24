@@ -55,6 +55,16 @@ export const SwitchSessionMessage = z.object({
   sessionId: z.string().min(1).nullable(),
 });
 
+export const SessionSuspendMessage = z.object({
+  type: z.literal('session_suspend'),
+  sessions: z.array(
+    z.object({
+      sessionId: z.string().min(1),
+      lastSeq: z.number().int().min(0),
+    }),
+  ),
+});
+
 // ─── Chat messages (session-scoped) ─────────────────────────────────────────
 
 // sessionId is nullable on send (null = start new session) but required on
@@ -109,6 +119,7 @@ export const IncomingWsMessageV2 = z.discriminatedUnion('type', [
   WatchMessage,
   UnwatchMessage,
   SwitchSessionMessage,
+  SessionSuspendMessage,
   V2SendMessage,
   V2InterruptMessage,
   V2StopMessage,

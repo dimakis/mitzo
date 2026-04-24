@@ -17,3 +17,7 @@ export const CLOSEOUT_LEAD_MS = 600_000; // 10 minutes before TTL expiry, start 
 export const CLOSEOUT_TIMEOUT_MS = 600_000; // 10 minutes max for the agent to finish closeout
 export const PERMISSION_TIMEOUT_MS = 120_000; // 2 minutes
 export const NTFY_NOTIFICATION_DELAY_MS = 10_000; // 10 seconds
+
+// --- Suspend (proactive iOS backgrounding) ---
+export const SUSPEND_GRACE_MS = 120_000; // 2 minutes — max time to wait for resume before transitioning to detach
+export const SUSPEND_BUFFER_MAX = 1000; // max events to buffer per suspended session
