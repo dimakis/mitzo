@@ -9,7 +9,7 @@ import { promisify } from 'util';
 import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import { login, authMiddleware, COOKIE_NAME, MAX_AGE_HOURS } from './auth.js';
+import { login, authMiddleware, verifyToken, COOKIE_NAME, MAX_AGE_HOURS } from './auth.js';
 import {
   getSessions,
   getSessionsCached,
@@ -421,44 +421,57 @@ app.post('/api/sessions', (req, res) => {
   }
 });
 
-// --- Suspend endpoint (sendBeacon — no auth, same-origin only) ---
-// This must be above authMiddleware because sendBeacon cannot set custom headers.
-// The connectionId in the body is sufficient — it's a cryptographically random
-// value known only to the client that established the WebSocket.
+// --- Suspend endpoint (sendBeacon fallback) ---
+// Above authMiddleware because sendBeacon cannot set custom headers.
+// Auth is verified via the session cookie (sent automatically by sendBeacon
+// on same-origin requests). connectionId ownership is checked per-session.
 
 app.post('/api/sessions/suspend', (req, res) => {
-  const { connectionId, sessions } = req.body || {};
-
-  if (!connectionId || typeof connectionId !== 'string') {
-    res.status(400).json({ error: 'connectionId is required' });
-    return;
-  }
-  if (!Array.isArray(sessions) || sessions.length === 0) {
-    res.status(400).json({ error: 'sessions array is required' });
+  const token = req.cookies?.[COOKIE_NAME];
+  if (!token) {
+    res.status(401).json({ error: 'Not authenticated' });
     return;
   }
 
-  for (const entry of sessions) {
-    if (!entry.sessionId || typeof entry.sessionId !== 'string') continue;
-    const lastSeq = typeof entry.lastSeq === 'number' ? entry.lastSeq : 0;
+  verifyToken(token).then((valid) => {
+    if (!valid) {
+      res.status(401).json({ error: 'Invalid or expired token' });
+      return;
+    }
 
-    const found = registry.findBySessionId(entry.sessionId);
-    if (!found) continue;
+    const { connectionId, sessions } = req.body || {};
 
-    // Verify the connectionId owns this session (same check as WS handler)
-    const colonIdx = found.clientId.indexOf(':');
-    const ownerConnection = colonIdx === -1 ? found.clientId : found.clientId.slice(0, colonIdx);
-    if (ownerConnection !== connectionId) continue;
+    if (!connectionId || typeof connectionId !== 'string') {
+      res.status(400).json({ error: 'connectionId is required' });
+      return;
+    }
+    if (!Array.isArray(sessions) || sessions.length === 0) {
+      res.status(400).json({ error: 'sessions array is required' });
+      return;
+    }
 
-    registry.suspend(found.clientId, lastSeq);
-    log.info('session suspended via REST', {
-      connectionId,
-      sessionId: entry.sessionId,
-      clientId: found.clientId,
-    });
-  }
+    for (const entry of sessions) {
+      if (!entry.sessionId || typeof entry.sessionId !== 'string') continue;
+      const lastSeq = typeof entry.lastSeq === 'number' ? entry.lastSeq : 0;
 
-  res.status(204).end();
+      const found = registry.findBySessionId(entry.sessionId);
+      if (!found) continue;
+
+      // Verify the connectionId owns this session (same check as WS handler)
+      const colonIdx = found.clientId.indexOf(':');
+      const ownerConnection = colonIdx === -1 ? found.clientId : found.clientId.slice(0, colonIdx);
+      if (ownerConnection !== connectionId) continue;
+
+      registry.suspend(found.clientId, lastSeq);
+      log.info('session suspended via REST', {
+        connectionId,
+        sessionId: entry.sessionId,
+        clientId: found.clientId,
+      });
+    }
+
+    res.status(204).end();
+  });
 });
 
 app.use('/api', authMiddleware);

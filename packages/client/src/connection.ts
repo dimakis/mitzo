@@ -116,8 +116,10 @@ export class MitzoConnection {
 
   /**
    * Signal the server that this client is about to be backgrounded (iOS).
-   * Sends via WS if open, and also fires sendBeacon as a belt-and-suspenders
-   * fallback since iOS may kill the socket before the WS send completes.
+   * Tries WS first; falls back to sendBeacon only if the WS send fails or
+   * the socket is already closed. This avoids double-sending (which would
+   * refresh the grace timer twice and keep sessions suspended longer than
+   * intended).
    */
   sendSuspend(): void {
     if (this.seqBySession.size === 0) return;
@@ -127,19 +129,21 @@ export class MitzoConnection {
       lastSeq,
     }));
 
-    const wsPayload = { type: 'session_suspend', sessions };
-
     // Try WS first (may already be dying)
+    let wsSent = false;
     if (this.ws?.readyState === WS_READY_STATE.OPEN) {
       try {
-        this.ws.send(JSON.stringify(wsPayload));
+        this.ws.send(JSON.stringify({ type: 'session_suspend', sessions }));
+        wsSent = true;
       } catch {
-        // Socket may be transitioning — sendBeacon fallback below
+        // Socket may be transitioning — fall through to sendBeacon
       }
     }
 
-    // sendBeacon fallback — works even after visibilitychange:hidden
+    // sendBeacon fallback — only when WS send was unavailable or failed.
+    // Works even after visibilitychange:hidden when the socket is already gone.
     if (
+      !wsSent &&
       this.config.suspendUrl &&
       this._connectionId &&
       typeof globalThis.navigator?.sendBeacon === 'function'

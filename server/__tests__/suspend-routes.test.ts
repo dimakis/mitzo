@@ -60,6 +60,7 @@ vi.mock('../chat.js', () => {
 });
 
 let app: Express;
+let authCookie: string;
 
 beforeAll(async () => {
   mkdirSync(TEST_REPO, { recursive: true });
@@ -68,6 +69,13 @@ beforeAll(async () => {
 
   const mod = await import('../app.js');
   app = mod.app;
+
+  // Login to get auth cookie (sendBeacon sends cookies automatically)
+  const loginRes = await request(app)
+    .post('/api/auth/login')
+    .send({ passphrase: process.env.AUTH_PASSPHRASE });
+  const cookies = loginRes.headers['set-cookie'];
+  authCookie = Array.isArray(cookies) ? cookies[0] : cookies;
 });
 
 afterAll(() => {
@@ -80,6 +88,7 @@ describe('POST /api/sessions/suspend', () => {
 
     const res = await request(app)
       .post('/api/sessions/suspend')
+      .set('Cookie', authCookie)
       .send({
         connectionId: 'conn-owner',
         sessions: [{ sessionId: 'sess-known', lastSeq: 42 }],
@@ -89,8 +98,7 @@ describe('POST /api/sessions/suspend', () => {
     expect(mockSuspend).toHaveBeenCalledWith('conn-owner:sess-known', 42);
   });
 
-  it('does not require authentication (sendBeacon cannot set headers)', async () => {
-    // No auth cookie — should still work
+  it('requires authentication (cookie sent automatically by sendBeacon)', async () => {
     const res = await request(app)
       .post('/api/sessions/suspend')
       .send({
@@ -98,12 +106,13 @@ describe('POST /api/sessions/suspend', () => {
         sessions: [{ sessionId: 'sess-known', lastSeq: 0 }],
       });
 
-    expect(res.status).toBe(204);
+    expect(res.status).toBe(401);
   });
 
   it('rejects missing connectionId', async () => {
     const res = await request(app)
       .post('/api/sessions/suspend')
+      .set('Cookie', authCookie)
       .send({ sessions: [{ sessionId: 'sess-known', lastSeq: 0 }] });
 
     expect(res.status).toBe(400);
@@ -113,6 +122,7 @@ describe('POST /api/sessions/suspend', () => {
   it('rejects missing sessions array', async () => {
     const res = await request(app)
       .post('/api/sessions/suspend')
+      .set('Cookie', authCookie)
       .send({ connectionId: 'conn-owner' });
 
     expect(res.status).toBe(400);
@@ -122,6 +132,7 @@ describe('POST /api/sessions/suspend', () => {
   it('rejects empty sessions array', async () => {
     const res = await request(app)
       .post('/api/sessions/suspend')
+      .set('Cookie', authCookie)
       .send({ connectionId: 'conn-owner', sessions: [] });
 
     expect(res.status).toBe(400);
@@ -132,6 +143,7 @@ describe('POST /api/sessions/suspend', () => {
 
     const res = await request(app)
       .post('/api/sessions/suspend')
+      .set('Cookie', authCookie)
       .send({
         connectionId: 'conn-owner',
         sessions: [{ sessionId: 'sess-unknown', lastSeq: 0 }],
@@ -146,6 +158,7 @@ describe('POST /api/sessions/suspend', () => {
 
     const res = await request(app)
       .post('/api/sessions/suspend')
+      .set('Cookie', authCookie)
       .send({
         connectionId: 'conn-attacker',
         sessions: [{ sessionId: 'sess-known', lastSeq: 0 }],
@@ -168,6 +181,7 @@ describe('POST /api/sessions/suspend', () => {
 
     const res = await request(app)
       .post('/api/sessions/suspend')
+      .set('Cookie', authCookie)
       .send({
         connectionId: 'conn-owner',
         sessions: [
