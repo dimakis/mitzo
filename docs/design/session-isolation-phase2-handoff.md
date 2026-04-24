@@ -161,8 +161,8 @@ Recommended sequence (dependencies noted):
 ## Key File Locations (post-Phase 1)
 
 | File                                         | Symbol / Function                               |
-| -------------------------------------------- | ----------------------------------------------- | ------------------------------------- |
-| `server/chat.ts`                             | `createSessionWorktrees()`                      | L278-338 (secondary loop at L317-332) |
+| -------------------------------------------- | ----------------------------------------------- |
+| `server/chat.ts`                             | `createSessionWorktrees()` (secondary loop)     |
 | `server/chat.ts`                             | `buildWorktreeSystemPrompt()`                   |
 | `server/chat.ts`                             | `startChat()` finally block                     |
 | `server/chat.ts`                             | `validateResumable()`                           |
