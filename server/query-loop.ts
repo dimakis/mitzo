@@ -599,7 +599,10 @@ async function _runQueryLoopInner(
               currentSession.currentSnapshot?.blocks.push(snapshotBlock);
 
               // Start tool child span under the current turn span
-              const toolSpan = tracer.startSpan(`tool.${toolName}`, {}, context.active());
+              const toolParent = currentTurnSpan
+                ? trace.setSpan(context.active(), currentTurnSpan)
+                : context.active();
+              const toolSpan = tracer.startSpan(`tool.${toolName}`, {}, toolParent);
               toolSpan.setAttribute('tool.name', toolName);
               toolSpan.setAttribute('tool.id', toolId);
               toolSpans.set(blockId, toolSpan);

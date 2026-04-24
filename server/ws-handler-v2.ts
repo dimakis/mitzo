@@ -34,6 +34,7 @@ type PermissionMsg = z.infer<typeof V2PermissionResponseMessage>;
 type SetModeMsg = z.infer<typeof V2SetModeMessage>;
 import { randomUUID } from 'crypto';
 import { withSpan, withSpanAsync } from './tracing.js';
+import { SpanStatusCode } from '@opentelemetry/api';
 import { resolvePending, denyPendingBySession } from './permissions.js';
 import {
   startChat,
@@ -432,7 +433,9 @@ export function handleSendV2(
           applySkillPolicy(sessionClientId);
         }
       } catch (err: unknown) {
-        span.recordException(err instanceof Error ? err : new Error(String(err)));
+        const message = err instanceof Error ? err.message : String(err);
+        span.recordException(err instanceof Error ? err : new Error(message));
+        span.setStatus({ code: SpanStatusCode.ERROR, message });
         transport.send({
           type: 'error',
           error: err instanceof Error ? err.message : 'Send failed',

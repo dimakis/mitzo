@@ -70,7 +70,7 @@ import {
   dispatchV2Message,
   type V2HandlerContext,
 } from './ws-handler-v2.js';
-import { withSpan } from './tracing.js';
+import { withSpan, withSpanAsync } from './tracing.js';
 import { contextFromTraceparent } from './trace-context.js';
 
 const log = createLogger('server');
@@ -689,11 +689,17 @@ function handleChatWs(
           contextFromTraceparent(traceparent),
         );
       } else if (msg.type === 'interrupt') {
-        withSpan(
+        await withSpanAsync(
           'ws.interrupt',
           { 'ws.client_id': clientId, 'ws.client_msg_id': msg.clientMsgId ?? '' },
-          () => {
-            interruptChat(clientId, msg.prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
+          async () => {
+            await interruptChat(
+              clientId,
+              msg.prompt,
+              msg.images,
+              msg.contextBlocks,
+              msg.clientMsgId,
+            );
           },
           contextFromTraceparent(traceparent),
         );
