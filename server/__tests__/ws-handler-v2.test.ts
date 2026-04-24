@@ -2480,9 +2480,7 @@ describe('handleReconnect suspend resume', () => {
       transport.sent.some((m) => m.type === 'block_delta' && m.delta === 'buffered-text'),
     ).toBe(false);
     // Should have sent session_resumed with total replayed count
-    expect(
-      transport.sent.some((m) => m.type === 'session_resumed' && m.replayed === 1),
-    ).toBe(true);
+    expect(transport.sent.some((m) => m.type === 'session_resumed' && m.replayed === 1)).toBe(true);
   });
 });
 
