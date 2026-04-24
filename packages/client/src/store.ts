@@ -230,13 +230,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     async switchSession(id: string) {
       const oldId = parserState.currentSessionId;
       if (oldId) {
-        const lastSeq = connection.getLastSeq(oldId);
-        if (lastSeq > 0) {
-          connection.send({
-            type: 'session_suspend',
-            sessions: [{ sessionId: oldId, lastSeq }],
-          });
-        }
+        // clearSession stops seq tracking. No suspend needed — session_suspend
+        // is for iOS backgrounding (imminent WS death), not session switching.
+        // Sending suspend here would leave the old session in suspended state
+        // with no resume path, causing it to buffer events until grace expiry.
         connection.clearSession(oldId);
       }
       parserState.currentSessionId = id;

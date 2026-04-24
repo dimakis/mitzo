@@ -411,4 +411,65 @@ describe('MitzoConnection', () => {
       expect(tracked).toHaveLength(1);
     });
   });
+
+  describe('sendSuspend', () => {
+    it('sends session_suspend via WS with all tracked sessions', () => {
+      const conn = createConnection();
+      conn.onMessage(() => {});
+      const ws = openWithHandshake(conn);
+
+      // Track two sessions
+      ws.simulateMessage({ v: 2, type: 'block_delta', sessionId: 's1', seq: 5 });
+      ws.simulateMessage({ v: 2, type: 'block_delta', sessionId: 's2', seq: 3 });
+
+      conn.sendSuspend();
+
+      const calls = ws.send.mock.calls.map((c: string[]) => JSON.parse(c[0]));
+      const suspendMsg = calls.find((c: Record<string, unknown>) => c.type === 'session_suspend');
+      expect(suspendMsg).toBeDefined();
+      expect(suspendMsg.sessions).toEqual(
+        expect.arrayContaining([
+          { sessionId: 's1', lastSeq: 5 },
+          { sessionId: 's2', lastSeq: 3 },
+        ]),
+      );
+    });
+
+    it('is a no-op when no sessions are tracked', () => {
+      const conn = createConnection();
+      conn.onMessage(() => {});
+      const ws = openWithHandshake(conn);
+
+      const callsBefore = ws.send.mock.calls.length;
+      conn.sendSuspend();
+
+      // No additional sends
+      expect(ws.send.mock.calls.length).toBe(callsBefore);
+    });
+
+    it('does not throw when WS is closed', () => {
+      const conn = createConnection();
+      conn.onMessage(() => {});
+      const ws = openWithHandshake(conn);
+
+      ws.simulateMessage({ v: 2, type: 'block_delta', sessionId: 's1', seq: 1 });
+      ws.readyState = 3; // CLOSED
+
+      expect(() => conn.sendSuspend()).not.toThrow();
+    });
+
+    it('catches WS send errors gracefully', () => {
+      const conn = createConnection();
+      conn.onMessage(() => {});
+      const ws = openWithHandshake(conn);
+
+      ws.simulateMessage({ v: 2, type: 'block_delta', sessionId: 's1', seq: 1 });
+      ws.send.mockImplementation(() => {
+        throw new Error('Socket dying');
+      });
+
+      // Should not throw — sendBeacon fallback handles it
+      expect(() => conn.sendSuspend()).not.toThrow();
+    });
+  });
 });

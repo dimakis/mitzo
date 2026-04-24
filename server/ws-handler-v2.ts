@@ -180,25 +180,26 @@ export function handleReconnect(
           }
         }
 
-        // If the session was suspended, resume it and replay buffered events.
+        // If the session was suspended, clear suspend state. Don't replay
+        // buffered events — they were already replayed from EventStore above
+        // (sendOrBuffer appends to both stores, so EventStore covers the
+        // suspend period). resume() just clears the suspend flag + buffer.
         let suspendReplayed = 0;
         if (found && running && ctx.sessionRegistry.isSuspended(found.clientId)) {
           const buffered = ctx.sessionRegistry.resume(found.clientId);
-          for (const evt of buffered) {
-            ctx.connRegistry.get(connectionId)?.transport.send(evt);
-          }
           suspendReplayed = buffered.length;
 
           ctx.connRegistry.get(connectionId)?.transport.send({
             type: 'session_resumed',
             sessionId: entry.sessionId,
-            replayed: suspendReplayed,
+            replayed: events.length + suspendReplayed,
           });
 
           log.info('resumed suspended session', {
             connectionId,
             sessionId: entry.sessionId,
-            replayed: suspendReplayed,
+            eventsFromStore: events.length,
+            bufferedDuringSuspend: suspendReplayed,
           });
         }
 

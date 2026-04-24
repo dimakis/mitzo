@@ -2474,12 +2474,15 @@ describe('handleReconnect suspend resume', () => {
     );
 
     expect(sessionReg.resume).toHaveBeenCalledWith('conn-1:sess-1');
-    // Should have sent the buffered event
+    // Buffered events should NOT be replayed — EventStore replay covers them.
+    // resume() is called only to clear suspend state.
     expect(
       transport.sent.some((m) => m.type === 'block_delta' && m.delta === 'buffered-text'),
+    ).toBe(false);
+    // Should have sent session_resumed with total replayed count
+    expect(
+      transport.sent.some((m) => m.type === 'session_resumed' && m.replayed === 1),
     ).toBe(true);
-    // Should have sent session_resumed
-    expect(transport.sent.some((m) => m.type === 'session_resumed' && m.replayed === 1)).toBe(true);
   });
 });
 

@@ -344,6 +344,11 @@ export class SessionRegistry {
    * enabling event buffering and instant resume. Starts a grace timer — if
    * the client doesn't resume within SUSPEND_GRACE_MS, the session transitions
    * to the normal detach flow.
+   *
+   * @param _lastClientSeq Reserved for future seq-based replay optimisation.
+   *   Currently unused — reconnect replays from EventStore using the client's
+   *   lastSeq, making this parameter redundant. Kept in the API so callers
+   *   don't need changing when the optimisation lands.
    */
   suspend(clientId: string, _lastClientSeq: number): void {
     const session = this.sessions.get(clientId);
