@@ -218,7 +218,7 @@ server.on('upgrade', async (req, socket, head) => {
   }
 
   wss.handleUpgrade(req, socket, head, (ws) => {
-    const connId = `conn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const connId = `conn-${crypto.randomUUID()}`;
     log.info('chat connected', { connectionId: connId });
     routeWsClient(ws, connId);
   });

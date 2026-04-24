@@ -60,6 +60,11 @@ vi.mock('../chat.js', () => {
           observerCount: 0,
         },
       ]),
+      findBySessionId: vi.fn().mockImplementation((id: string) => {
+        if (id === 's1') return { clientId: 'conn-abc:s1', session: {} };
+        return null;
+      }),
+      suspend: vi.fn(),
     },
     setTaskStore: vi.fn(),
     eventStore: {
@@ -780,5 +785,53 @@ describe('skills routes', () => {
     expect(skill.allowedTools).toEqual(['Read', 'Glob']);
     // filePath should NOT be exposed to the client
     expect(skill.filePath).toBeUndefined();
+  });
+
+  describe('POST /api/sessions/suspend', () => {
+    it('returns 204 and calls registry.suspend for valid request', async () => {
+      const res = await request(app)
+        .post('/api/sessions/suspend')
+        .send({ connectionId: 'conn-abc', sessions: [{ sessionId: 's1', lastSeq: 5 }] });
+      expect(res.status).toBe(204);
+
+      const { registry } = (await import('../chat.js')) as unknown as {
+        registry: { suspend: ReturnType<typeof vi.fn> };
+      };
+      expect(registry.suspend).toHaveBeenCalledWith('conn-abc:s1', 5);
+    });
+
+    it('returns 400 when connectionId is missing', async () => {
+      const res = await request(app)
+        .post('/api/sessions/suspend')
+        .send({ sessions: [{ sessionId: 's1', lastSeq: 0 }] });
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 400 when sessions array is empty', async () => {
+      const res = await request(app)
+        .post('/api/sessions/suspend')
+        .send({ connectionId: 'conn-abc', sessions: [] });
+      expect(res.status).toBe(400);
+    });
+
+    it('skips sessions not owned by the connectionId', async () => {
+      const { registry } = (await import('../chat.js')) as unknown as {
+        registry: { suspend: ReturnType<typeof vi.fn> };
+      };
+      registry.suspend.mockClear();
+
+      const res = await request(app)
+        .post('/api/sessions/suspend')
+        .send({ connectionId: 'conn-other', sessions: [{ sessionId: 's1', lastSeq: 0 }] });
+      expect(res.status).toBe(204);
+      expect(registry.suspend).not.toHaveBeenCalled();
+    });
+
+    it('does not require auth cookie (sendBeacon cannot set headers)', async () => {
+      const res = await request(app)
+        .post('/api/sessions/suspend')
+        .send({ connectionId: 'conn-abc', sessions: [{ sessionId: 's1', lastSeq: 0 }] });
+      expect(res.status).toBe(204);
+    });
   });
 });

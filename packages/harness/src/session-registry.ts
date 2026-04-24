@@ -349,8 +349,12 @@ export class SessionRegistry {
     const session = this.sessions.get(clientId);
     if (!session) return;
 
-    this.suspended.add(clientId);
-    this.suspendBuffers.set(clientId, []);
+    // Idempotent: if already suspended, only refresh the grace timer —
+    // don't reset the buffer (visibilitychange + pagehide can fire twice).
+    if (!this.suspended.has(clientId)) {
+      this.suspended.add(clientId);
+      this.suspendBuffers.set(clientId, []);
+    }
     this.clearDetachTimer(clientId);
     this.clearSuspendTimer(clientId);
 

@@ -790,6 +790,26 @@ describe('SessionRegistry', () => {
       expect(registry.isSuspended('client-1')).toBe(true);
     });
 
+    it('is idempotent — second suspend preserves buffer', () => {
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+
+      registry.suspend('client-1', 0);
+      registry.bufferEvent('client-1', { type: 'block_delta', delta: 'hello' });
+      expect(registry.isSuspended('client-1')).toBe(true);
+
+      // Second suspend should NOT reset the buffer
+      registry.suspend('client-1', 5);
+      expect(registry.isSuspended('client-1')).toBe(true);
+      const buffer = registry.resume('client-1');
+      expect(buffer).toHaveLength(1);
+      expect(buffer[0]).toMatchObject({ type: 'block_delta', delta: 'hello' });
+    });
+
     it('starts grace timer that transitions to detach on expiry', () => {
       vi.useFakeTimers();
 
