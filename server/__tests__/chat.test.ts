@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import type { ManagedSession } from '@mitzo/harness';
 
 vi.mock('../worktree.js', async (importOriginal) => {
@@ -279,6 +279,56 @@ describe('startChat finally block does NOT clean up worktrees', () => {
     const finallyMatch = chatSource.match(/\} finally \{([^}]*)\}/s);
     expect(finallyMatch).not.toBeNull();
     expect(finallyMatch![1]).not.toContain('cleanupSessionWorktrees');
+  });
+});
+
+// Structural tests: startChat requires the full Agent SDK query() pipeline,
+// making behavioral mocking impractical. Source-code assertions lock in the
+// key invariant (store + echo + broadcast before runQueryLoop) with minimal
+// coupling to the SDK internals.
+describe('startChat stores user message for resumed sessions', () => {
+  let chatSource: string;
+
+  beforeAll(async () => {
+    const { readFileSync } = await import('fs');
+    const { join } = await import('path');
+    chatSource = readFileSync(join(import.meta.dirname, '..', 'chat.ts'), 'utf-8');
+  });
+
+  it('appends user_message to eventStore before runQueryLoop', () => {
+    const appendIdx = chatSource.indexOf("eventStore.append(options.resume, 'user_message'");
+    const queryLoopIdx = chatSource.indexOf('await runQueryLoop(');
+    expect(appendIdx).toBeGreaterThan(-1);
+    expect(queryLoopIdx).toBeGreaterThan(-1);
+    expect(appendIdx).toBeLessThan(queryLoopIdx);
+  });
+
+  it('echoes user_message to transport and broadcasts to observers', () => {
+    // Region between the resume guard and runQueryLoop — bounds the block
+    // without fragile brace-matching or magic byte offsets.
+    const start = chatSource.indexOf(
+      'if (options.resume) {',
+      chatSource.indexOf('session.queryInstance = q'),
+    );
+    const end = chatSource.indexOf('await runQueryLoop(', start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const region = chatSource.slice(start, end);
+    expect(region).toContain("eventStore.append(options.resume, 'user_message'");
+    expect(region).toContain('send(transport');
+    expect(region).toContain("type: 'user_message'");
+    expect(region).toContain('broadcastToObservers(session.observers');
+  });
+
+  it('uses clientMsgId with resume fallback for messageId', () => {
+    const start = chatSource.indexOf(
+      'if (options.resume) {',
+      chatSource.indexOf('session.queryInstance = q'),
+    );
+    const end = chatSource.indexOf('await runQueryLoop(', start);
+    const region = chatSource.slice(start, end);
+    expect(region).toContain('options.clientMsgId');
+    expect(region).toMatch(/umsg-.*-resume/);
   });
 });
 
