@@ -304,12 +304,31 @@ describe('startChat stores user message for resumed sessions', () => {
   });
 
   it('echoes user_message to transport and broadcasts to observers', () => {
-    const nearAppend = chatSource.indexOf("eventStore.append(options.resume, 'user_message'");
-    expect(nearAppend).toBeGreaterThan(-1);
-    const region = chatSource.slice(nearAppend, nearAppend + 500);
+    // Region between the resume guard and runQueryLoop — bounds the block
+    // without fragile brace-matching or magic byte offsets.
+    const start = chatSource.indexOf(
+      'if (options.resume) {',
+      chatSource.indexOf('session.queryInstance = q'),
+    );
+    const end = chatSource.indexOf('await runQueryLoop(', start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const region = chatSource.slice(start, end);
+    expect(region).toContain("eventStore.append(options.resume, 'user_message'");
     expect(region).toContain('send(transport');
     expect(region).toContain("type: 'user_message'");
     expect(region).toContain('broadcastToObservers(session.observers');
+  });
+
+  it('uses clientMsgId with resume fallback for messageId', () => {
+    const start = chatSource.indexOf(
+      'if (options.resume) {',
+      chatSource.indexOf('session.queryInstance = q'),
+    );
+    const end = chatSource.indexOf('await runQueryLoop(', start);
+    const region = chatSource.slice(start, end);
+    expect(region).toContain('options.clientMsgId');
+    expect(region).toMatch(/umsg-.*-resume/);
   });
 });
 
