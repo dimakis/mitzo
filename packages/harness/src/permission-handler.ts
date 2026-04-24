@@ -8,7 +8,7 @@ import {
 import { getToolTier, shouldAutoAllow } from './tool-tiers.js';
 import { summarizeToolInput } from '@mitzo/protocol';
 import { checkSkillPolicy } from './skill-policy.js';
-import { checkWorktreePolicy } from './worktree-guard.js';
+import { checkWorktreePolicy, type OnDemandCreateFn } from './worktree-guard.js';
 import { PERMISSION_TIMEOUT_MS, NTFY_NOTIFICATION_DELAY_MS } from './constants.js';
 import type { SessionRegistry } from './session-registry.js';
 import type { SessionTransport } from './session-transport.js';
@@ -41,7 +41,15 @@ function isAllowListed(allowList: Set<string>, toolName: string): boolean {
   return mcpPrefix !== null && allowList.has(mcpPrefix);
 }
 
-export function buildPermissionHandler(clientId: string, registry: SessionRegistry) {
+export interface PermissionHandlerOptions {
+  onDemandCreate?: OnDemandCreateFn;
+}
+
+export function buildPermissionHandler(
+  clientId: string,
+  registry: SessionRegistry,
+  handlerOpts?: PermissionHandlerOptions,
+) {
   return async (
     toolName: string,
     _toolInput: Record<string, unknown>,
@@ -64,7 +72,9 @@ export function buildPermissionHandler(clientId: string, registry: SessionRegist
       return { behavior: 'deny', message: 'Tool not allowed by active skill policy' };
     }
 
-    const worktreeViolation = await checkWorktreePolicy(session, toolName, _toolInput);
+    const worktreeViolation = await checkWorktreePolicy(session, toolName, _toolInput, {
+      onDemandCreate: handlerOpts?.onDemandCreate,
+    });
     if (worktreeViolation) {
       return { behavior: 'deny', message: worktreeViolation };
     }

@@ -10,6 +10,8 @@ import {
   writeFileSync,
   symlinkSync,
   lstatSync,
+  readlinkSync,
+  unlinkSync,
 } from 'fs';
 import { mkdir } from 'fs/promises';
 import { join, basename } from 'path';
@@ -215,7 +217,12 @@ export function symlinkRuntimeDirs(repoPath: string, worktreePath: string, dirs:
 
     try {
       const stat = lstatSync(target);
-      if (stat.isSymbolicLink()) continue;
+      if (stat.isSymbolicLink()) {
+        const existing = readlinkSync(target);
+        if (existing === source) continue;
+        log.warn('replacing stale runtime symlink', { dir, existing, expected: source });
+        unlinkSync(target);
+      }
     } catch {
       // target doesn't exist — proceed to create
     }

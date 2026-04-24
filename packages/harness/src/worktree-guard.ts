@@ -160,6 +160,24 @@ export async function checkWorktreePolicy(
     for (const p of paths) {
       if (findAllowedWorktree(p, session.worktreePaths)) continue;
 
+      if (opts?.onDemandCreate) {
+        const created = await opts.onDemandCreate(p);
+        if (created) {
+          session.worktreePaths.set(created.repoName, {
+            path: created.worktreePath,
+            wtId: session.wtId ?? '',
+          });
+          const suggestion = suggestWorktreePath(p, session.worktreePaths);
+          stats.denied++;
+          log.info('on-demand worktree created, redirecting', {
+            toolName,
+            repo: created.repoName,
+            sessionId: session.sessionId,
+          });
+          return denyMessage('Shell command references', p, suggestion);
+        }
+      }
+
       const suggestion = suggestWorktreePath(p, session.worktreePaths);
       stats.denied++;
       log.warn('worktree policy denied', {

@@ -15,10 +15,12 @@ import { randomUUID } from 'crypto';
 import { homedir } from 'os';
 import {
   createWorktree,
+  createWorktreeAsync,
   removeWorktree,
   symlinkRuntimeDirs,
   discoverSessionWorktrees,
 } from './worktree.js';
+import type { OnDemandCreateFn } from '@mitzo/harness';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
 import { parseContentBlocks } from './content-blocks.js';
 import { loadMcpServers, type McpServerConfig } from './mcp-config.js';
@@ -273,6 +275,36 @@ function buildMcpAllowedTools(clientId?: string): string[] {
     }
   }
   return patterns;
+}
+
+/**
+ * Build an on-demand worktree creation callback for the permission handler.
+ * Maps an absolute path to a configured repo and creates a worktree if needed.
+ */
+function buildOnDemandCreate(wtId: string): OnDemandCreateFn {
+  return async (absolutePath: string) => {
+    const config = getRepoConfig();
+    const allRepos: [string, string][] = [];
+    if (BASE_REPO) allRepos.push(['primary', BASE_REPO]);
+    for (const [name, repoPath] of Object.entries(config.repos)) {
+      allRepos.push([name, repoPath]);
+    }
+    for (const [name, repoPath] of allRepos) {
+      if (!absolutePath.startsWith(repoPath + '/') && absolutePath !== repoPath) continue;
+      try {
+        const worktreePath = await createWorktreeAsync(wtId, repoPath);
+        return { repoName: name, worktreePath };
+      } catch (err) {
+        log.error('on-demand worktree creation failed', {
+          repo: name,
+          wtId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return null;
+      }
+    }
+    return null;
+  };
 }
 
 /**
@@ -553,9 +585,11 @@ export async function startChat(
 
   // On resume, rebuild worktreePaths from disk so the system prompt and guard
   // have the full map even after server restart (Phase 2d).
-  if (options.resume && repoWorktrees.size === 0 && BASE_REPO) {
+  // Merge discovered entries — the map may already have the primary but be
+  // missing lazily-created secondaries after a restart.
+  if (options.resume && BASE_REPO) {
     const config = getRepoConfig();
-    const wtIdFromCwd = baseCwd.match(/\/(\.claude|\.cursor)\/worktrees\/([^/]+)$/)?.[2];
+    const wtIdFromCwd = baseCwd.match(/\/(\.claude|\.cursor)\/worktrees\/([^/]+)/)?.[2];
     if (wtIdFromCwd) {
       const discovered = discoverSessionWorktrees(wtIdFromCwd, BASE_REPO, config.repos);
       for (const [name, entry] of discovered) {
@@ -676,7 +710,9 @@ export async function startChat(
         ...(options.resume ? { resume: options.resume } : {}),
         ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
         ...(hooks ? { hooks } : {}),
-        canUseTool: buildPermissionHandler(clientId, registry),
+        canUseTool: buildPermissionHandler(clientId, registry, {
+          onDemandCreate: buildOnDemandCreate(wtId),
+        }),
       },
     });
 
