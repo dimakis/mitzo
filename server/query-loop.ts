@@ -557,7 +557,6 @@ async function _runQueryLoopInner(
                   type: 'token_update',
                   agentContext: agentContextTokens,
                   contextCeiling: CONTEXT_CEILING_TOKENS,
-                  sessionTotal: liveSessionTokens,
                   turnIndex,
                   ...compactionFields(),
                 });

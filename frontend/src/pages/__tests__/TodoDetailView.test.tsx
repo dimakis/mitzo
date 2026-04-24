@@ -149,16 +149,6 @@ describe('TodoDetailView', () => {
     ).toBeTruthy();
   });
 
-  it('navigates back to /todos on back button click', () => {
-    const { container } = render(
-      <MemoryRouter>
-        <TodoDetailView />
-      </MemoryRouter>,
-    );
-    fireEvent.click(container.querySelector('.todo-detail-back')!);
-    expect(mockNavigate).toHaveBeenCalledWith('/todos');
-  });
-
   it('navigates to chat with prompt on "Open in Chat" click', () => {
     const { container } = render(
       <MemoryRouter>

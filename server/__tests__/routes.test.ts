@@ -791,6 +791,7 @@ describe('skills routes', () => {
     it('returns 204 and calls registry.suspend for valid request', async () => {
       const res = await request(app)
         .post('/api/sessions/suspend')
+        .set('Cookie', authCookie)
         .send({ connectionId: 'conn-abc', sessions: [{ sessionId: 's1', lastSeq: 5 }] });
       expect(res.status).toBe(204);
 
@@ -803,6 +804,7 @@ describe('skills routes', () => {
     it('returns 400 when connectionId is missing', async () => {
       const res = await request(app)
         .post('/api/sessions/suspend')
+        .set('Cookie', authCookie)
         .send({ sessions: [{ sessionId: 's1', lastSeq: 0 }] });
       expect(res.status).toBe(400);
     });
@@ -810,6 +812,7 @@ describe('skills routes', () => {
     it('returns 400 when sessions array is empty', async () => {
       const res = await request(app)
         .post('/api/sessions/suspend')
+        .set('Cookie', authCookie)
         .send({ connectionId: 'conn-abc', sessions: [] });
       expect(res.status).toBe(400);
     });
@@ -822,14 +825,16 @@ describe('skills routes', () => {
 
       const res = await request(app)
         .post('/api/sessions/suspend')
+        .set('Cookie', authCookie)
         .send({ connectionId: 'conn-other', sessions: [{ sessionId: 's1', lastSeq: 0 }] });
       expect(res.status).toBe(204);
       expect(registry.suspend).not.toHaveBeenCalled();
     });
 
-    it('does not require auth cookie (sendBeacon cannot set headers)', async () => {
+    it('authenticates via cookie (sendBeacon sends cookies automatically)', async () => {
       const res = await request(app)
         .post('/api/sessions/suspend')
+        .set('Cookie', authCookie)
         .send({ connectionId: 'conn-abc', sessions: [{ sessionId: 's1', lastSeq: 0 }] });
       expect(res.status).toBe(204);
     });

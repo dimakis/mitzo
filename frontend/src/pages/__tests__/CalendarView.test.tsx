@@ -88,7 +88,7 @@ describe('CalendarView', () => {
       await new Promise((r) => setTimeout(r, 10));
     });
 
-    const header = container.querySelector('.cal-header');
+    const header = container.querySelector('.page-header');
     expect(header).not.toBeNull();
 
     const prevBtn = container.querySelector('.cal-nav-prev');
@@ -160,17 +160,6 @@ describe('CalendarView', () => {
 
     // Should have fetched again with a later date
     expect(fetch).toHaveBeenCalledTimes(2);
-  });
-
-  it('renders back button for navigation', async () => {
-    renderCalendar();
-
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 10));
-    });
-
-    const back = container.querySelector('.cal-back');
-    expect(back).not.toBeNull();
   });
 
   it('switches to day view on Day toggle click', async () => {
