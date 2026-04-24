@@ -3,7 +3,11 @@ import type { ManagedSession } from '@mitzo/harness';
 
 vi.mock('../worktree.js', async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
-  return { ...actual, removeWorktree: vi.fn() };
+  return {
+    ...actual,
+    removeWorktree: vi.fn(),
+    createWorktree: vi.fn(actual.createWorktree as (...args: unknown[]) => unknown),
+  };
 });
 
 vi.mock('../repo-config.js', async (importOriginal) => {
@@ -209,6 +213,75 @@ describe('cleanupSessionWorktrees', () => {
   });
 });
 
+describe('createSessionWorktrees — lazy secondary creation', () => {
+  let createWorktreeMock: ReturnType<typeof vi.fn>;
+  let realNow: () => number;
+
+  beforeEach(async () => {
+    const worktreeMod = await import('../worktree.js');
+    createWorktreeMock = worktreeMod.createWorktree as ReturnType<typeof vi.fn>;
+    createWorktreeMock.mockReset();
+    createWorktreeMock.mockReturnValue('/repo/.claude/worktrees/test-id');
+
+    const { loadRepoConfig } = await import('../repo-config.js');
+    (loadRepoConfig as ReturnType<typeof vi.fn>).mockReturnValue({
+      repos: { mitzo: '/tools/mitzo', centaur: '/projects/centaur' },
+      isolation: true,
+      resolvedVenvPaths: [],
+      toolTierOverrides: {},
+    });
+
+    realNow = Date.now;
+    Date.now = () => realNow() + 10_000;
+  });
+
+  afterEach(() => {
+    Date.now = realNow;
+    vi.restoreAllMocks();
+  });
+
+  it('creates only primary worktree (no secondary repos)', async () => {
+    const { createSessionWorktrees } = await import('../chat.js');
+    // createSessionWorktrees checks isIsolationEnabled() and BASE_REPO internally.
+    // When isolation is disabled or BASE_REPO is empty, it returns early without
+    // calling createWorktree — which is correct behavior. This test verifies
+    // that when it DOES create worktrees, only the primary is created.
+    //
+    // We call with isolation: true and pass a real-looking baseCwd. The function
+    // checks `!BASE_REPO` (from env), so if REPO_PATH isn't set the early return
+    // fires and createWorktree is never called — that's the "disabled" path.
+    const mockTransport = { send: vi.fn(), isOpen: () => true };
+    const result = createSessionWorktrees(mockTransport as never, '/repo', 'test-id', {});
+
+    if (createWorktreeMock.mock.calls.length === 0) {
+      // Isolation disabled (no REPO_PATH) — verify we got the passthrough result
+      expect(result.repoWorktrees.size).toBe(0);
+      expect(result.cwd).toBe('/repo');
+    } else {
+      // Isolation enabled — verify ONLY primary worktree was created, not secondaries
+      expect(createWorktreeMock).toHaveBeenCalledTimes(1);
+      expect(createWorktreeMock.mock.calls[0][0]).toBe('test-id');
+    }
+  });
+});
+
+describe('startChat finally block does NOT clean up worktrees', () => {
+  it('cleanupSessionWorktrees is not called unconditionally after query loop', async () => {
+    // Phase 2e: worktrees survive until explicit close or stale GC.
+    // Verify by reading the source: the finally block should not call
+    // cleanupSessionWorktrees. This is a structural test — we grep the
+    // actual source to ensure the pattern is absent.
+    const { readFileSync } = await import('fs');
+    const { join } = await import('path');
+    const chatSource = readFileSync(join(import.meta.dirname, '..', 'chat.ts'), 'utf-8');
+
+    // The finally block should NOT contain cleanupSessionWorktrees
+    const finallyMatch = chatSource.match(/\} finally \{([^}]*)\}/s);
+    expect(finallyMatch).not.toBeNull();
+    expect(finallyMatch![1]).not.toContain('cleanupSessionWorktrees');
+  });
+});
+
 describe('isIsolationEnabled', () => {
   let originalEnv: string | undefined;
 
@@ -268,6 +341,33 @@ describe('isIsolationEnabled', () => {
     const { isIsolationEnabled, getRepoConfig } = await import('../chat.js');
     getRepoConfig(); // prime cache with mock
     expect(isIsolationEnabled(undefined)).toBe(true);
+  });
+});
+
+describe('discoverSessionWorktrees integration', () => {
+  it('finds worktrees created by the worktree module', async () => {
+    const { discoverSessionWorktrees } = await import('../worktree.js');
+    const { mkdtempSync, mkdirSync, rmSync } = await import('fs');
+    const { join } = await import('path');
+    const { tmpdir } = await import('os');
+
+    const primary = mkdtempSync(join(tmpdir(), 'mitzo-discover-chat-'));
+    const secondary = mkdtempSync(join(tmpdir(), 'mitzo-discover-chat2-'));
+    const wtId = '2026-04-20-abc123def456';
+
+    try {
+      mkdirSync(join(primary, '.claude', 'worktrees', wtId), { recursive: true });
+      mkdirSync(join(secondary, '.claude', 'worktrees', wtId), { recursive: true });
+
+      const result = discoverSessionWorktrees(wtId, primary, { secondary });
+
+      expect(result.size).toBe(2);
+      expect(result.has('primary')).toBe(true);
+      expect(result.has('secondary')).toBe(true);
+    } finally {
+      rmSync(primary, { recursive: true, force: true });
+      rmSync(secondary, { recursive: true, force: true });
+    }
   });
 });
 

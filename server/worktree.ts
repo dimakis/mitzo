@@ -1,7 +1,22 @@
 /* eslint no-empty: ["error", { allowEmptyCatch: true }] */
-import { execFileSync } from 'child_process';
-import { existsSync, mkdirSync, readdirSync, statSync, rmSync, writeFileSync } from 'fs';
+import { execFile as execFileCb, execFileSync } from 'child_process';
+import { promisify } from 'util';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  statSync,
+  rmSync,
+  writeFileSync,
+  symlinkSync,
+  lstatSync,
+  readlinkSync,
+  unlinkSync,
+} from 'fs';
+import { mkdir } from 'fs/promises';
 import { join, basename } from 'path';
+
+const execFileAsync = promisify(execFileCb);
 import {
   WORKTREE_BRANCH_PREFIX,
   WORKTREE_STALE_HOURS,
@@ -99,6 +114,128 @@ export function createWorktree(
 
   log.info(`created: ${worktreePath} (${branch})`);
   return worktreePath;
+}
+
+/**
+ * Async version of createWorktree — does not block the event loop.
+ * Used for on-demand secondary worktree creation in the permission handler.
+ */
+export async function createWorktreeAsync(
+  sessionId: string,
+  baseRepo: string,
+  opts?: CreateWorktreeOptions,
+): Promise<string> {
+  const prefix = opts?.prefix ?? '.claude';
+  const dir = opts?.dir ?? join(baseRepo, prefix, 'worktrees');
+  await mkdir(dir, { recursive: true });
+
+  const worktreePath = join(dir, sessionId);
+  const branch = opts?.branch ?? `${WORKTREE_BRANCH_PREFIX}${sessionId}`;
+
+  if (existsSync(worktreePath)) {
+    try {
+      await execFileAsync('git', ['-C', worktreePath, 'rev-parse', '--git-dir'], {
+        timeout: WORKTREE_GIT_TIMEOUT_MS,
+      });
+      log.info(`reusing existing worktree: ${worktreePath} (${branch})`);
+      return worktreePath;
+    } catch {
+      log.info(`removing stale worktree path: ${worktreePath}`);
+      rmSync(worktreePath, { recursive: true, force: true });
+      try {
+        await execFileAsync('git', ['-C', baseRepo, 'worktree', 'prune'], {
+          timeout: WORKTREE_PRUNE_TIMEOUT_MS,
+        });
+      } catch {}
+    }
+  }
+
+  try {
+    await execFileAsync('git', ['-C', baseRepo, 'worktree', 'add', '-b', branch, worktreePath], {
+      timeout: WORKTREE_GIT_TIMEOUT_MS,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('already exists')) {
+      await execFileAsync('git', ['-C', baseRepo, 'worktree', 'add', worktreePath, branch], {
+        timeout: WORKTREE_GIT_TIMEOUT_MS,
+      });
+    } else {
+      throw err;
+    }
+  }
+
+  log.info(`created: ${worktreePath} (${branch})`);
+  return worktreePath;
+}
+
+/**
+ * Scan disk for existing worktrees matching a session ID across all configured repos.
+ * Used on resume to rebuild session.worktreePaths after server restart.
+ * Checks both .claude/worktrees/ and .cursor/worktrees/ prefixes.
+ */
+export function discoverSessionWorktrees(
+  wtId: string,
+  primaryRepo: string,
+  secondaryRepos: Record<string, string>,
+): Map<string, { path: string; wtId: string }> {
+  const result = new Map<string, { path: string; wtId: string }>();
+  const prefixes = ['.claude', '.cursor'] as const;
+
+  const allRepos: Array<[string, string]> = [['primary', primaryRepo]];
+  for (const [name, repoPath] of Object.entries(secondaryRepos)) {
+    allRepos.push([name, repoPath]);
+  }
+
+  for (const [name, repoPath] of allRepos) {
+    for (const prefix of prefixes) {
+      const candidate = join(repoPath, prefix, 'worktrees', wtId);
+      if (existsSync(candidate)) {
+        result.set(name, { path: candidate, wtId });
+        break;
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Create symlinks for runtime directories (e.g. .venv, node_modules) from the
+ * source repo into a worktree. Opt-in escape hatch for CWD-relative tool
+ * resolution. Symlinked dirs are shared mutable state across sessions.
+ *
+ * Idempotent: skips dirs that don't exist in the source, and handles
+ * already-existing symlinks (e.g. on resume).
+ */
+export function symlinkRuntimeDirs(repoPath: string, worktreePath: string, dirs: string[]): void {
+  for (const dir of dirs) {
+    const source = join(repoPath, dir);
+    const target = join(worktreePath, dir);
+
+    if (!existsSync(source)) continue;
+
+    try {
+      const stat = lstatSync(target);
+      if (stat.isSymbolicLink()) {
+        const existing = readlinkSync(target);
+        if (existing === source) continue;
+        log.warn('replacing stale runtime symlink', { dir, existing, expected: source });
+        unlinkSync(target);
+      }
+    } catch {
+      // target doesn't exist — proceed to create
+    }
+
+    try {
+      symlinkSync(source, target);
+      log.info('runtime symlink created', { dir, source, target });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('EEXIST')) continue;
+      log.warn('failed to create runtime symlink', { dir, source, target, error: message });
+    }
+  }
 }
 
 /**

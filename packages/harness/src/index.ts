@@ -42,6 +42,7 @@ export {
   getWorktreeGuardStats,
   resetWorktreeGuardStats,
 } from './worktree-guard.js';
+export type { OnDemandCreateFn, CheckWorktreePolicyOptions } from './worktree-guard.js';
 
 // Notifications
 export * as ntfy from './notify.js';

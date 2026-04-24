@@ -13,7 +13,14 @@ import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { homedir } from 'os';
-import { createWorktree, removeWorktree } from './worktree.js';
+import {
+  createWorktree,
+  createWorktreeAsync,
+  removeWorktree,
+  symlinkRuntimeDirs,
+  discoverSessionWorktrees,
+} from './worktree.js';
+import type { OnDemandCreateFn } from '@mitzo/harness';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
 import { parseContentBlocks } from './content-blocks.js';
 import { loadMcpServers, type McpServerConfig } from './mcp-config.js';
@@ -271,11 +278,41 @@ function buildMcpAllowedTools(clientId?: string): string[] {
 }
 
 /**
+ * Build an on-demand worktree creation callback for the permission handler.
+ * Maps an absolute path to a configured repo and creates a worktree if needed.
+ */
+function buildOnDemandCreate(wtId: string): OnDemandCreateFn {
+  return async (absolutePath: string) => {
+    const config = getRepoConfig();
+    const allRepos: [string, string][] = [];
+    if (BASE_REPO) allRepos.push(['primary', BASE_REPO]);
+    for (const [name, repoPath] of Object.entries(config.repos)) {
+      allRepos.push([name, repoPath]);
+    }
+    for (const [name, repoPath] of allRepos) {
+      if (!absolutePath.startsWith(repoPath + '/') && absolutePath !== repoPath) continue;
+      try {
+        const worktreePath = await createWorktreeAsync(wtId, repoPath);
+        return { repoName: name, worktreePath };
+      } catch (err) {
+        log.error('on-demand worktree creation failed', {
+          repo: name,
+          wtId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return null;
+      }
+    }
+    return null;
+  };
+}
+
+/**
  * Create worktrees for the primary repo and all configured secondary repos.
  * All worktrees share the same session-scoped wtId. Returns the primary
  * worktree path as cwd, plus a map of all repo worktrees.
  */
-function createSessionWorktrees(
+export function createSessionWorktrees(
   transport: SessionTransport,
   baseCwd: string,
   wtId: string,
@@ -293,7 +330,8 @@ function createSessionWorktrees(
     return { cwd: baseCwd, wtId, repoWorktrees };
   }
 
-  // Create primary worktree
+  // Create primary worktree only — secondary repos are created on-demand
+  // by the worktree guard when an agent first writes to them (Phase 2a).
   let primaryPath: string | undefined;
   try {
     primaryPath = createWorktree(wtId, BASE_REPO);
@@ -302,6 +340,10 @@ function createSessionWorktrees(
       join(primaryPath, '.mitzo-session'),
       JSON.stringify({ wtId, createdAt: new Date().toISOString() }) + '\n',
     );
+    const config = getRepoConfig();
+    if (config.runtimeSymlinks.length > 0) {
+      symlinkRuntimeDirs(BASE_REPO, primaryPath, config.runtimeSymlinks);
+    }
     send(transport, { type: 'worktree', path: primaryPath });
     log.info('primary worktree created', { wtId, path: primaryPath });
   } catch (err: unknown) {
@@ -312,23 +354,6 @@ function createSessionWorktrees(
       error: `Worktree creation failed (using base repo): ${message}`,
     });
     return { cwd: baseCwd, wtId, repoWorktrees };
-  }
-
-  // Create worktrees for all configured secondary repos
-  const config = getRepoConfig();
-  for (const [repoName, repoPath] of Object.entries(config.repos)) {
-    try {
-      const worktreePath = createWorktree(wtId, repoPath);
-      repoWorktrees.set(repoName, { path: worktreePath, wtId });
-      log.info('secondary worktree created', { repo: repoName, wtId, path: worktreePath });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      log.warn('secondary worktree creation failed', { repo: repoName, error: message });
-      send(transport, {
-        type: 'error',
-        error: `Worktree for ${repoName} failed: ${message}`,
-      });
-    }
   }
 
   return {
@@ -392,9 +417,21 @@ export function buildWorktreeSystemPrompt(
   }
   lines.push('');
   lines.push(
-    'Env vars `$MITZO_REPO_<NAME>` also hold these paths. ' +
+    'Worktrees for secondary repos are created on first write. ' +
+      'Env vars `$MITZO_REPO_<NAME>` hold worktree paths once created. ' +
       'Read operations from main worktrees are OK for reference.',
   );
+
+  const config = getRepoConfig();
+  if (config.runtimeSymlinks.length > 0) {
+    lines.push('');
+    lines.push(
+      `**Warning:** Runtime dirs (${config.runtimeSymlinks.join(', ')}) are symlinked from ` +
+        'the base repo — they are shared mutable state across sessions. ' +
+        'Do not install/upgrade packages in a worktree session.',
+    );
+  }
+
   return lines.join('\n');
 }
 
@@ -546,6 +583,27 @@ export async function startChat(
     options,
   );
 
+  // On resume, rebuild worktreePaths from disk so the system prompt and guard
+  // have the full map even after server restart (Phase 2d).
+  // Merge discovered entries — the map may already have the primary but be
+  // missing lazily-created secondaries after a restart.
+  if (options.resume && BASE_REPO) {
+    const config = getRepoConfig();
+    const wtIdFromCwd = baseCwd.match(/\/(\.claude|\.cursor)\/worktrees\/([^/]+)/)?.[2];
+    if (wtIdFromCwd) {
+      const discovered = discoverSessionWorktrees(wtIdFromCwd, BASE_REPO, config.repos);
+      for (const [name, entry] of discovered) {
+        repoWorktrees.set(name, entry);
+      }
+      if (discovered.size > 0) {
+        log.info('rebuilt worktree map from disk on resume', {
+          count: discovered.size,
+          wtId: wtIdFromCwd,
+        });
+      }
+    }
+  }
+
   const fullPrompt = assemblePrompt(prompt, cwd, options.images, options.contextBlocks);
 
   // Apply tier overrides from current .mitzo.json (re-read each session start).
@@ -652,7 +710,9 @@ export async function startChat(
         ...(options.resume ? { resume: options.resume } : {}),
         ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
         ...(hooks ? { hooks } : {}),
-        canUseTool: buildPermissionHandler(clientId, registry),
+        canUseTool: buildPermissionHandler(clientId, registry, {
+          onDemandCreate: buildOnDemandCreate(wtId),
+        }),
       },
     });
 
@@ -691,10 +751,8 @@ export async function startChat(
     if (failedSession) cleanupSessionWorktrees(failedSession);
     registry.abort(clientId);
   } finally {
-    // Clean up secondary worktrees after query loop ends. Primary worktree is
-    // preserved for resume; stale GC handles its lifecycle. Session may already
-    // be removed from registry, so use the captured reference.
-    cleanupSessionWorktrees(session);
+    // Phase 2e: worktrees survive until explicit close or stale GC.
+    // Only failed sessions (caught above) clean up their worktrees.
   }
 }
 

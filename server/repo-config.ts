@@ -33,6 +33,8 @@ export interface RepoConfig {
   contextBlocks: Record<string, string>;
   /** Whether session worktree isolation is enabled. Defaults to true. */
   isolation: boolean;
+  /** Dirs to symlink from source repo into worktrees (e.g. [".venv", "node_modules"]). Default: [] */
+  runtimeSymlinks: string[];
 }
 
 const EMPTY_CONFIG: RepoConfig = {
@@ -47,6 +49,7 @@ const EMPTY_CONFIG: RepoConfig = {
   repos: {},
   contextBlocks: {},
   isolation: true,
+  runtimeSymlinks: [],
 };
 
 function isValidQuickAction(item: unknown): item is QuickAction {
@@ -135,6 +138,10 @@ export function loadRepoConfig(repoPath: string): RepoConfig {
 
   const isolation = obj.isolation !== false; // default true
 
+  const runtimeSymlinks = Array.isArray(obj.runtimeSymlinks)
+    ? (obj.runtimeSymlinks as unknown[]).filter((p): p is string => typeof p === 'string')
+    : [];
+
   const contextBlocks: Record<string, string> = {};
   if (
     obj.contextBlocks &&
@@ -159,5 +166,6 @@ export function loadRepoConfig(repoPath: string): RepoConfig {
     repos,
     contextBlocks,
     isolation,
+    runtimeSymlinks,
   };
 }

@@ -1,5 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, mkdtempSync, rmSync, readdirSync, utimesSync } from 'fs';
+import {
+  mkdirSync,
+  writeFileSync,
+  mkdtempSync,
+  rmSync,
+  readdirSync,
+  utimesSync,
+  existsSync,
+  lstatSync,
+  readlinkSync,
+  symlinkSync,
+} from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { execFileSync } from 'child_process';
@@ -22,7 +33,14 @@ vi.mock('../constants.js', () => ({
   WORKTREE_PRUNE_TIMEOUT_MS: 5_000,
 }));
 
-import { cleanupStaleWorktrees, parseWorktreeAge, countWorktrees } from '../worktree.js';
+import {
+  cleanupStaleWorktrees,
+  parseWorktreeAge,
+  countWorktrees,
+  createWorktreeAsync,
+  symlinkRuntimeDirs,
+  discoverSessionWorktrees,
+} from '../worktree.js';
 
 describe('parseWorktreeAge', () => {
   it('parses age from standard YYYY-MM-DD-XXXXXX format', () => {
@@ -98,6 +116,182 @@ describe('countWorktrees', () => {
     writeFileSync(join(dir, '.DS_Store'), '');
     writeFileSync(join(dir, 'stray-file.txt'), '');
     expect(countWorktrees(baseRepo)).toBe(2);
+  });
+});
+
+describe('createWorktreeAsync', () => {
+  let baseRepo: string;
+
+  beforeEach(() => {
+    baseRepo = mkdtempSync(join(tmpdir(), 'mitzo-async-wt-'));
+    execFileSync('git', ['-C', baseRepo, 'init'], { stdio: 'pipe' });
+    execFileSync('git', ['-C', baseRepo, 'config', 'user.email', 'test@test.com'], {
+      stdio: 'pipe',
+    });
+    execFileSync('git', ['-C', baseRepo, 'config', 'user.name', 'Test'], { stdio: 'pipe' });
+    execFileSync('git', ['-C', baseRepo, 'commit', '--allow-empty', '-m', 'init'], {
+      stdio: 'pipe',
+    });
+  });
+
+  afterEach(() => {
+    try {
+      execFileSync('git', ['-C', baseRepo, 'worktree', 'prune'], { stdio: 'pipe' });
+    } catch {
+      // ignore
+    }
+    rmSync(baseRepo, { recursive: true, force: true });
+  });
+
+  it('creates a worktree and returns its path', async () => {
+    const sessionId = 'async-test-session';
+    const path = await createWorktreeAsync(sessionId, baseRepo);
+    expect(path).toBe(join(baseRepo, '.claude', 'worktrees', sessionId));
+    expect(existsSync(path)).toBe(true);
+    // Verify it's a valid git worktree
+    execFileSync('git', ['-C', path, 'rev-parse', '--git-dir'], { stdio: 'pipe' });
+  });
+
+  it('reuses existing valid worktree', async () => {
+    const sessionId = 'async-reuse-session';
+    const first = await createWorktreeAsync(sessionId, baseRepo);
+    const second = await createWorktreeAsync(sessionId, baseRepo);
+    expect(first).toBe(second);
+  });
+
+  it('handles branch-already-exists fallback', async () => {
+    const sessionId = 'async-branch-exists';
+    const branch = `session/${sessionId}`;
+    // Pre-create the branch so the first `git worktree add -b` fails
+    execFileSync('git', ['-C', baseRepo, 'branch', branch], { stdio: 'pipe' });
+    const path = await createWorktreeAsync(sessionId, baseRepo);
+    expect(existsSync(path)).toBe(true);
+  });
+});
+
+describe('symlinkRuntimeDirs', () => {
+  let repoPath: string;
+  let worktreePath: string;
+
+  beforeEach(() => {
+    repoPath = mkdtempSync(join(tmpdir(), 'mitzo-symlink-repo-'));
+    worktreePath = mkdtempSync(join(tmpdir(), 'mitzo-symlink-wt-'));
+  });
+
+  afterEach(() => {
+    rmSync(repoPath, { recursive: true, force: true });
+    rmSync(worktreePath, { recursive: true, force: true });
+  });
+
+  it('creates symlinks for dirs that exist in source repo', () => {
+    mkdirSync(join(repoPath, '.venv'));
+    mkdirSync(join(repoPath, 'node_modules'));
+
+    symlinkRuntimeDirs(repoPath, worktreePath, ['.venv', 'node_modules']);
+
+    expect(lstatSync(join(worktreePath, '.venv')).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(join(worktreePath, '.venv'))).toBe(join(repoPath, '.venv'));
+    expect(lstatSync(join(worktreePath, 'node_modules')).isSymbolicLink()).toBe(true);
+  });
+
+  it('skips dirs that do not exist in source repo', () => {
+    mkdirSync(join(repoPath, '.venv'));
+
+    symlinkRuntimeDirs(repoPath, worktreePath, ['.venv', 'node_modules']);
+
+    expect(lstatSync(join(worktreePath, '.venv')).isSymbolicLink()).toBe(true);
+    expect(existsSync(join(worktreePath, 'node_modules'))).toBe(false);
+  });
+
+  it('is idempotent — handles symlink-already-exists on resume', () => {
+    mkdirSync(join(repoPath, '.venv'));
+    symlinkSync(join(repoPath, '.venv'), join(worktreePath, '.venv'));
+
+    // Should not throw
+    symlinkRuntimeDirs(repoPath, worktreePath, ['.venv']);
+
+    expect(lstatSync(join(worktreePath, '.venv')).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(join(worktreePath, '.venv'))).toBe(join(repoPath, '.venv'));
+  });
+
+  it('handles dangling symlink (target was deleted)', () => {
+    mkdirSync(join(repoPath, '.venv'));
+    symlinkSync(join(repoPath, '.venv'), join(worktreePath, '.venv'));
+    rmSync(join(repoPath, '.venv'), { recursive: true });
+
+    // Source no longer exists — should skip without error
+    symlinkRuntimeDirs(repoPath, worktreePath, ['.venv']);
+
+    // Dangling symlink may remain from the previous creation
+    // The function shouldn't throw
+  });
+
+  it('handles empty dirs list', () => {
+    symlinkRuntimeDirs(repoPath, worktreePath, []);
+    // No symlinks created
+    expect(readdirSync(worktreePath).length).toBe(0);
+  });
+});
+
+describe('discoverSessionWorktrees', () => {
+  let primaryRepo: string;
+  let secondaryRepo: string;
+
+  beforeEach(() => {
+    primaryRepo = mkdtempSync(join(tmpdir(), 'mitzo-discover-primary-'));
+    secondaryRepo = mkdtempSync(join(tmpdir(), 'mitzo-discover-secondary-'));
+  });
+
+  afterEach(() => {
+    rmSync(primaryRepo, { recursive: true, force: true });
+    rmSync(secondaryRepo, { recursive: true, force: true });
+  });
+
+  it('finds worktrees across configured repos', () => {
+    const wtId = '2026-04-20-abc123def456';
+    // Create worktree dirs in both repos
+    mkdirSync(join(primaryRepo, '.claude', 'worktrees', wtId), { recursive: true });
+    mkdirSync(join(secondaryRepo, '.claude', 'worktrees', wtId), { recursive: true });
+
+    const repos = { secondary: secondaryRepo };
+    const result = discoverSessionWorktrees(wtId, primaryRepo, repos);
+
+    expect(result.size).toBe(2);
+    expect(result.has('primary')).toBe(true);
+    expect(result.get('primary')!.path).toBe(join(primaryRepo, '.claude', 'worktrees', wtId));
+    expect(result.has('secondary')).toBe(true);
+    expect(result.get('secondary')!.path).toBe(join(secondaryRepo, '.claude', 'worktrees', wtId));
+  });
+
+  it('finds worktrees in .cursor/worktrees/ too', () => {
+    const wtId = '2026-04-20-abc123def456';
+    mkdirSync(join(primaryRepo, '.cursor', 'worktrees', wtId), { recursive: true });
+
+    const result = discoverSessionWorktrees(wtId, primaryRepo, {});
+
+    expect(result.size).toBe(1);
+    expect(result.has('primary')).toBe(true);
+  });
+
+  it('returns empty map when no worktrees exist', () => {
+    const result = discoverSessionWorktrees('nonexistent', primaryRepo, {
+      secondary: secondaryRepo,
+    });
+    expect(result.size).toBe(0);
+  });
+
+  it('only includes repos that have a worktree', () => {
+    const wtId = '2026-04-20-abc123def456';
+    mkdirSync(join(primaryRepo, '.claude', 'worktrees', wtId), { recursive: true });
+    // Secondary has no worktree
+
+    const result = discoverSessionWorktrees(wtId, primaryRepo, {
+      secondary: secondaryRepo,
+    });
+
+    expect(result.size).toBe(1);
+    expect(result.has('primary')).toBe(true);
+    expect(result.has('secondary')).toBe(false);
   });
 });
 
