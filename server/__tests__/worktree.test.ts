@@ -378,6 +378,31 @@ describe('cleanupStaleWorktrees', () => {
     expect(inboxFiles[0]).toContain(sessionId);
   });
 
+  it('does not re-post inbox proposal for already-notified dirty worktree', () => {
+    const wtDir = join(baseRepo, '.claude', 'worktrees');
+    mkdirSync(wtDir, { recursive: true });
+    const sessionId = 'test-dedup-session';
+    const wtPath = join(wtDir, sessionId);
+    execFileSync('git', ['-C', baseRepo, 'worktree', 'add', '-b', `session/${sessionId}`, wtPath], {
+      stdio: 'pipe',
+    });
+    writeFileSync(join(wtPath, 'dirty-file.txt'), 'uncommitted work');
+    const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+    utimesSync(wtPath, fiveDaysAgo, fiveDaysAgo);
+
+    // First run — should create one inbox item
+    cleanupStaleWorktrees(baseRepo, inboxDir);
+    expect(readdirSync(inboxDir).length).toBe(1);
+
+    // Second run — should NOT create a duplicate
+    cleanupStaleWorktrees(baseRepo, inboxDir);
+    expect(readdirSync(inboxDir).length).toBe(1);
+
+    // Third run — still just one
+    cleanupStaleWorktrees(baseRepo, inboxDir);
+    expect(readdirSync(inboxDir).length).toBe(1);
+  });
+
   it('does not touch worktrees younger than cutoff', () => {
     const wtDir = join(baseRepo, '.claude', 'worktrees');
     mkdirSync(wtDir, { recursive: true });

@@ -427,9 +427,15 @@ export function cleanupStaleWorktrees(baseRepo: string, inboxDir?: string): void
       if (isStale) {
         const dirty = hasUncommittedWork(fullPath);
         if (dirty && inboxDir) {
-          const branch = `${WORKTREE_BRANCH_PREFIX}${entry}`;
-          const repoName = basename(baseRepo);
-          postDirtyWorktreeToInbox(entry, repoName, fullPath, branch, dirty, inboxDir);
+          // Only post once per session — check if an inbox item already exists
+          const alreadyNotified =
+            existsSync(inboxDir) &&
+            readdirSync(inboxDir).some((f) => f.endsWith(`_worktree_gc_${entry}.md`));
+          if (!alreadyNotified) {
+            const branch = `${WORKTREE_BRANCH_PREFIX}${entry}`;
+            const repoName = basename(baseRepo);
+            postDirtyWorktreeToInbox(entry, repoName, fullPath, branch, dirty, inboxDir);
+          }
           skipped++;
           log.info('skipped stale worktree with uncommitted work', {
             repo: baseRepo,
