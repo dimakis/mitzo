@@ -14,6 +14,7 @@ export default defineConfig({
     },
   },
   test: {
+    exclude: ['**/node_modules/**', '**/.claude/worktrees/**', '**/.cursor/worktrees/**'],
     env: {
       NODE_ENV: 'test',
       AUTH_PASSPHRASE: 'test-passphrase-for-vitest',

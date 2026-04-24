@@ -23,6 +23,12 @@ export function SessionSearchBar({
 }: SessionSearchBarProps) {
   const [open, setOpen] = useState(active);
   const inputRef = useRef<HTMLInputElement>(null);
+  const prevActiveRef = useRef(active);
+
+  useEffect(() => {
+    if (active && !prevActiveRef.current) setOpen(true);
+    prevActiveRef.current = active;
+  }, [active]);
 
   useEffect(() => {
     if (open && inputRef.current) {
@@ -61,6 +67,9 @@ export function SessionSearchBar({
         placeholder="Search sessions..."
         value={query}
         onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') handleClose();
+        }}
       />
       <button className="session-search-close" onClick={handleClose} title="Close search">
         ✕
@@ -71,21 +80,24 @@ export function SessionSearchBar({
           {!searching && results.length === 0 && (
             <div className="session-search-status">No matches</div>
           )}
-          {results.map((r) => (
-            <button
-              key={r.sessionId}
-              className="session-search-result"
-              onClick={() => handleSelect(r.sessionId)}
-            >
-              <div className="session-search-result-summary">{r.summary || 'Untitled session'}</div>
-              <div className="session-search-result-snippet">{r.snippet}</div>
-              <div className="session-search-result-meta">
-                <span className="session-search-result-time">
-                  {formatRelativeTime(r.updatedAt)}
-                </span>
-              </div>
-            </button>
-          ))}
+          {!searching &&
+            results.map((r) => (
+              <button
+                key={r.sessionId}
+                className="session-search-result"
+                onClick={() => handleSelect(r.sessionId)}
+              >
+                <div className="session-search-result-summary">
+                  {r.summary || 'Untitled session'}
+                </div>
+                <div className="session-search-result-snippet">{r.snippet}</div>
+                <div className="session-search-result-meta">
+                  <span className="session-search-result-time">
+                    {formatRelativeTime(r.updatedAt)}
+                  </span>
+                </div>
+              </button>
+            ))}
         </div>
       )}
     </div>

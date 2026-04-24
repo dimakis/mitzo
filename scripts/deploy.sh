@@ -21,8 +21,12 @@ sed "s|__MITZO_HOME__|${MITZO_HOME}|g" infra/com.mitzo.podman-machine.plist > "$
 launchctl bootout "gui/$(id -u)/com.mitzo.podman-machine" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PODMAN_PLIST_DEST"
 
-# Ensure podman machine is running before bringing up containers
+# Ensure podman machine exists and is running before bringing up containers
 if ! podman machine inspect --format '{{.State}}' 2>/dev/null | grep -q Running; then
+  if ! podman machine inspect 2>/dev/null >/dev/null; then
+    echo "Initializing podman machine..."
+    podman machine init
+  fi
   echo "Starting podman machine..."
   podman machine start
 fi

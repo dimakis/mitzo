@@ -1,6 +1,6 @@
 # Session Isolation Counter Proposal
 
-**Status:** Proposed
+**Status:** Proposed (Phase 1 of the overhaul has since shipped in PR #278, addressing several critiques below — see inline notes)
 **Date:** 2026-04-22
 **Author:** GPT-5.4 + Dimitri
 **Counter to:** `docs/design/session-isolation-overhaul.md`

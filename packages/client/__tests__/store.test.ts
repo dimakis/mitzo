@@ -183,6 +183,22 @@ describe('switchSession', () => {
     });
   });
 
+  it('resets progress state on session switch', async () => {
+    const store = createReadyStore();
+    store.setState({
+      progress: {
+        blocks: { 'tool-1': { done: 3, total: 5, label: 'Build' } },
+        toolIndex: { 'call-1': 'tool-1' },
+      },
+    });
+    expect(Object.keys(store.getState().progress.blocks)).toHaveLength(1);
+
+    await store.getState().switchSession('session-abc');
+
+    expect(store.getState().progress.blocks).toEqual({});
+    expect(store.getState().progress.toolIndex).toEqual({});
+  });
+
   it('filters events from non-active sessions after switch', async () => {
     const store = createReadyStore();
     await store.getState().switchSession('session-b');
@@ -220,6 +236,22 @@ describe('newSession', () => {
       type: 'switch_session',
       sessionId: null,
     });
+  });
+
+  it('resets progress state on new session', () => {
+    const store = createReadyStore();
+    store.setState({
+      progress: {
+        blocks: { 'tool-1': { done: 2, total: 4, label: 'Test' } },
+        toolIndex: { 'call-1': 'tool-1' },
+      },
+    });
+    expect(Object.keys(store.getState().progress.blocks)).toHaveLength(1);
+
+    store.getState().newSession();
+
+    expect(store.getState().progress.blocks).toEqual({});
+    expect(store.getState().progress.toolIndex).toEqual({});
   });
 
   it('isolates new session from old session messages via sessionId filter', async () => {
