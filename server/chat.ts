@@ -747,6 +747,21 @@ async function _startChatInner(
 
     session.queryInstance = q;
 
+    // For resumed sessions the prompt is sent to the SDK but was never stored
+    // in the event store — making user messages invisible after WS reconnect.
+    // Store and echo it here so the frontend can replay it.
+    if (options.resume) {
+      const messageId = options.clientMsgId || `umsg-${Date.now()}-resume`;
+      eventStore.append(options.resume, 'user_message', {
+        v: 2,
+        type: 'user_message',
+        ts: Date.now(),
+        messageId,
+        text: fullPrompt,
+      });
+      send(transport, { type: 'user_message', messageId, text: fullPrompt });
+    }
+
     await runQueryLoop(
       q as unknown as AsyncIterable<Record<string, unknown>>,
       clientId,
