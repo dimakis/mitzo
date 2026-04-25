@@ -519,6 +519,54 @@ describe('useVoice', () => {
       });
     });
 
+    it('registers interaction listener to unlock AudioContext when ttsEnabled is pre-set', async () => {
+      const { getOrCreateAudioContext, unlockAudioContext } = await import('../../lib/tts');
+      const mockCtx = getOrCreateAudioContext as ReturnType<typeof vi.fn>;
+      const mockUnlock = unlockAudioContext as ReturnType<typeof vi.fn>;
+      mockUnlock.mockClear();
+
+      // Simulate suspended AudioContext (page load, no user gesture yet)
+      mockCtx.mockReturnValue({ state: 'suspended' });
+
+      // Pre-set ttsEnabled in localStorage before render
+      localStorage.setItem('mitzo-tts-enabled', 'true');
+
+      mockHealthyWithTts();
+      renderHook(() => useVoice());
+      await waitFor(() => {});
+
+      // unlockAudioContext should NOT have been called yet (no user gesture)
+      expect(mockUnlock).not.toHaveBeenCalled();
+
+      // Simulate user click — should trigger the one-shot listener
+      document.dispatchEvent(new Event('click'));
+
+      expect(mockUnlock).toHaveBeenCalledTimes(1);
+
+      // Restore default mock
+      mockCtx.mockReturnValue({ state: 'running' });
+    });
+
+    it('skips interaction listener when AudioContext is already running', async () => {
+      const { getOrCreateAudioContext, unlockAudioContext } = await import('../../lib/tts');
+      const mockCtx = getOrCreateAudioContext as ReturnType<typeof vi.fn>;
+      const mockUnlock = unlockAudioContext as ReturnType<typeof vi.fn>;
+      mockUnlock.mockClear();
+
+      // AudioContext already running (not suspended)
+      mockCtx.mockReturnValue({ state: 'running' });
+
+      localStorage.setItem('mitzo-tts-enabled', 'true');
+
+      mockHealthyWithTts();
+      renderHook(() => useVoice());
+      await waitFor(() => {});
+
+      // No listener should be registered — click should NOT call unlock
+      document.dispatchEvent(new Event('click'));
+      expect(mockUnlock).not.toHaveBeenCalled();
+    });
+
     it('setTtsEnabled(true) calls unlockAudioContext for iOS Safari', async () => {
       const { unlockAudioContext } = await import('../../lib/tts');
       mockHealthyWithTts();

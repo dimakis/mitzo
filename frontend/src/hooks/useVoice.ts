@@ -21,6 +21,7 @@ import {
   chunkText,
   synthesize,
   playAudio,
+  getOrCreateAudioContext,
   unlockAudioContext,
   closeAudioContext,
 } from '../lib/tts';
@@ -110,6 +111,32 @@ export function useVoice(): UseVoiceReturn {
   const voicesFetchedRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const currentPlayRef = useRef<{ stop: () => void } | null>(null);
+
+  // --- Unlock AudioContext on first interaction when TTS is pre-enabled ---
+  // When ttsEnabled is restored from localStorage, unlockAudioContext() never runs
+  // because setTtsEnabled(true) isn't called on load. iOS Safari blocks playback
+  // from non-gesture contexts, so useAutoSpeak's speak() calls silently hang.
+  // Register a one-shot listener to unlock on the user's first tap/click.
+  useEffect(() => {
+    if (!ttsEnabled) return;
+
+    const ctx = getOrCreateAudioContext();
+    if (ctx.state !== 'suspended') return;
+
+    const unlock = () => {
+      unlockAudioContext().catch(() => {});
+      document.removeEventListener('click', unlock);
+      document.removeEventListener('touchstart', unlock);
+    };
+
+    document.addEventListener('click', unlock, { once: true });
+    document.addEventListener('touchstart', unlock, { once: true });
+
+    return () => {
+      document.removeEventListener('click', unlock);
+      document.removeEventListener('touchstart', unlock);
+    };
+  }, [ttsEnabled]);
 
   // --- Health polling ---
   useEffect(() => {

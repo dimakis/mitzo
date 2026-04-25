@@ -204,7 +204,10 @@ export function ChatInput({
         recording: voice.recording,
         transcribing: voice.transcribing,
         micBlocked: voice.micBlocked,
-        onRecordStart: voice.startRecording,
+        onRecordStart: () => {
+          voice.stopSpeaking();
+          return voice.startRecording();
+        },
         onRecordStop: async () => {
           const transcript = await voice.stopRecording();
           if (transcript) {
