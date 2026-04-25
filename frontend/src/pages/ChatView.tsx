@@ -264,6 +264,7 @@ export function ChatView() {
         scrollRef={scrollRef}
         sessionContext={sessionContext}
         progressByToolId={progressByToolId}
+        voice={voice}
       />
 
       <ChatInput

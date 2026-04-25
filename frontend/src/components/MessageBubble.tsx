@@ -6,9 +6,16 @@ import type { FinishedMessage } from '../types/chat';
 import { linkifyFilePaths, FILE_SCHEME } from '../lib/file-paths';
 import { formatTime } from '../lib/formatTime';
 import { CopyButton } from './CopyButton';
+import { ReadAloudButton } from './ReadAloudButton';
 import { extractText } from '../lib/extractText';
 
 const COLLAPSE_HEIGHT = 300;
+
+export interface ReadAloudProps {
+  active: boolean;
+  onSpeak: (text: string) => void;
+  onStop: () => void;
+}
 
 interface UserBubbleProps {
   text?: string;
@@ -16,9 +23,17 @@ interface UserBubbleProps {
   contextBlocks?: string[];
   onEdit?: (text: string) => void;
   timestamp?: number;
+  readAloud?: ReadAloudProps;
 }
 
-export function UserBubble({ text, images, contextBlocks, onEdit, timestamp }: UserBubbleProps) {
+export function UserBubble({
+  text,
+  images,
+  contextBlocks,
+  onEdit,
+  timestamp,
+  readAloud,
+}: UserBubbleProps) {
   const time = formatTime(timestamp);
   return (
     <div className="msg-bubble-group msg-bubble-group--user">
@@ -42,6 +57,15 @@ export function UserBubble({ text, images, contextBlocks, onEdit, timestamp }: U
         {(time || text) && (
           <div className="msg-bubble-footer msg-bubble-footer--user">
             {time && <span className="msg-timestamp msg-timestamp--user">{time}</span>}
+            {text && readAloud && (
+              <ReadAloudButton
+                text={text}
+                active={readAloud.active}
+                onSpeak={readAloud.onSpeak}
+                onStop={readAloud.onStop}
+                className="msg-bubble-read-aloud msg-bubble-read-aloud--user"
+              />
+            )}
             {text && <CopyButton text={text} className="msg-bubble-copy msg-bubble-copy--user" />}
           </div>
         )}
@@ -54,9 +78,10 @@ interface TextBubbleProps {
   content: string;
   streaming?: boolean;
   timestamp?: number;
+  readAloud?: ReadAloudProps;
 }
 
-export function TextBubble({ content, streaming = false, timestamp }: TextBubbleProps) {
+export function TextBubble({ content, streaming = false, timestamp, readAloud }: TextBubbleProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const processed = streaming ? content : linkifyFilePaths(content);
@@ -132,6 +157,15 @@ export function TextBubble({ content, streaming = false, timestamp }: TextBubble
             </button>
           )}
           {timestamp && <span className="msg-timestamp">{formatTime(timestamp)}</span>}
+          {readAloud && (
+            <ReadAloudButton
+              text={content}
+              active={readAloud.active}
+              onSpeak={readAloud.onSpeak}
+              onStop={readAloud.onStop}
+              className="msg-bubble-read-aloud"
+            />
+          )}
           <CopyButton text={content} className="msg-bubble-copy" />
         </div>
       )}
