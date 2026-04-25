@@ -182,3 +182,47 @@ export const SignalBody = z.object({
   status: z.enum(['pass', 'fail']),
   artifacts: z.record(z.string(), z.unknown()).optional(),
 });
+
+// -- Workload schemas --
+
+const WorkSignalContextHints = z.object({
+  repos: z.array(z.string()).optional(),
+  paths: z.array(z.string()).optional(),
+  issues: z.array(z.string()).optional(),
+  docIds: z.array(z.string()).optional(),
+  people: z.array(z.string()).optional(),
+  jiraKeys: z.array(z.string()).optional(),
+  keywords: z.array(z.string()).optional(),
+  taskHint: z.string().optional(),
+});
+
+export const WorkSignalBody = z.object({
+  sourceType: z.string().min(1),
+  sourceId: z.string().min(1),
+  url: z.string().min(1),
+  title: z.string().min(1),
+  snippet: z.string().default(''),
+  author: z.string().min(1),
+  timestamp: z.string().min(1), // ISO 8601
+  contextHints: WorkSignalContextHints.optional(),
+  urgencyHint: z.number().min(0).max(1).optional(),
+  profile: z.string().optional(),
+});
+
+export const WorkSignalBatchBody = z.object({
+  signals: z.array(WorkSignalBody).min(1).max(100),
+});
+
+export const WorkloadItemUpdateBody = z.object({
+  title: z.string().optional(),
+  status: z.enum(['active', 'acknowledged', 'snoozed', 'completed']).optional(),
+  starred: z.boolean().optional(),
+  snoozedUntil: z.string().nullable().optional(),
+  urgency: z.number().min(0).max(1).optional(),
+  contextHints: WorkSignalContextHints.optional(),
+});
+
+export const WorkloadPromoteBody = z.object({
+  description: z.string().optional(),
+  specMode: z.boolean().optional(),
+});

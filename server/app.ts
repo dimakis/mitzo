@@ -60,6 +60,10 @@ import {
   WorkflowInstantiateBody,
   TemplateCreateBody,
   SignalBody,
+  WorkSignalBody,
+  WorkSignalBatchBody,
+  WorkloadItemUpdateBody,
+  WorkloadPromoteBody,
 } from './api-schemas.js';
 import type { TaskOrchestrator } from './task-orchestrator.js';
 import type { WorkflowTemplateStore, TemplateCreateInput } from './workflow-templates.js';
@@ -78,6 +82,7 @@ import { SkillRegistry } from './skills.js';
 import { mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { TaskStore, type TaskCreateInput, type TaskUpdateInput } from './task-store.js';
+import { WorkloadStore, type WorkSignal, type TodoItemUpdateInput } from './workload-store.js';
 
 const log = createLogger('server');
 
@@ -228,6 +233,7 @@ try {
 }
 export const taskStore = new TaskStore(join(mitzoDir, 'tasks.db'));
 setTaskStore(taskStore);
+export const workloadStore = new WorkloadStore(taskStore.getDatabase());
 setTokenStorePath(join(mitzoDir, 'device-tokens.json'));
 
 export function setUpdateBroadcast(fn: () => void) {
@@ -1503,6 +1509,111 @@ app.post('/api/todos/:id/action', async (req, res) => {
     log.warn('todo action failed', { error: message });
     res.status(500).json({ ok: false, error: message });
   }
+});
+
+// --- Workload API ---
+
+app.post('/api/workload/signals', (req, res) => {
+  const body = WorkSignalBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.issues[0]?.message ?? 'Invalid signal' });
+    return;
+  }
+  const result = workloadStore.ingest(body.data as WorkSignal);
+  res.status(result.created ? 201 : 200).json({ item: result.item, created: result.created });
+});
+
+app.post('/api/workload/signals/batch', (req, res) => {
+  const body = WorkSignalBatchBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.issues[0]?.message ?? 'Invalid batch' });
+    return;
+  }
+  const result = workloadStore.ingestBatch(body.data.signals as WorkSignal[]);
+  res
+    .status(201)
+    .json({ items: result.items, created: result.created, total: result.items.length });
+});
+
+app.get('/api/workload/items', (req, res) => {
+  const profile = req.query.profile as string | undefined;
+  const status = req.query.status as string | undefined;
+  const starred = req.query.starred === 'true' ? true : undefined;
+  const items = workloadStore.list({
+    profile,
+    status: status as 'active' | 'acknowledged' | 'snoozed' | 'completed' | undefined,
+    starred,
+  });
+  const profiles = workloadStore.profiles();
+  res.json({ items, profiles });
+});
+
+app.get('/api/workload/items/:id', (req, res) => {
+  const item = workloadStore.get(req.params.id);
+  if (!item) {
+    res.status(404).json({ error: 'Item not found' });
+    return;
+  }
+  res.json({ item });
+});
+
+app.patch('/api/workload/items/:id', (req, res) => {
+  const body = WorkloadItemUpdateBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.issues[0]?.message ?? 'Invalid update' });
+    return;
+  }
+  const item = workloadStore.update(req.params.id, body.data as TodoItemUpdateInput);
+  if (!item) {
+    res.status(404).json({ error: 'Item not found' });
+    return;
+  }
+  res.json({ item });
+});
+
+app.delete('/api/workload/items/:id', (req, res) => {
+  const ok = workloadStore.delete(req.params.id);
+  if (!ok) {
+    res.status(404).json({ error: 'Item not found' });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+app.post('/api/workload/items/:id/promote', (req, res) => {
+  const body = WorkloadPromoteBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.issues[0]?.message ?? 'Invalid promote body' });
+    return;
+  }
+
+  const item = workloadStore.get(req.params.id);
+  if (!item) {
+    res.status(404).json({ error: 'Item not found' });
+    return;
+  }
+
+  // Build description from item context
+  const descParts: string[] = [];
+  if (body.data.description) descParts.push(body.data.description);
+  if (item.contextHints.taskHint) descParts.push(item.contextHints.taskHint);
+  const hintsWithValues = Object.entries(item.contextHints)
+    .filter(([k, v]) => k !== 'taskHint' && Array.isArray(v) && v.length > 0)
+    .map(([k, v]) => `${k}: ${(v as string[]).join(', ')}`);
+  if (hintsWithValues.length > 0) descParts.push(hintsWithValues.join('\n'));
+
+  // Create root task (goal) from item
+  const task = taskStore.create({
+    title: item.title,
+    description: descParts.join('\n\n') || undefined,
+    annotations: item.sources.map((s) => `Source: [${s.sourceType}] ${s.title} — ${s.url}`),
+  });
+
+  // Link item to goal
+  workloadStore.setGoalId(item.id, task.id);
+
+  res.status(201).json({ task, item: workloadStore.get(item.id) });
+  onTaskBroadcast?.({ type: 'task_state', tasks: taskStore.getTree() });
 });
 
 // --- Static files ---
