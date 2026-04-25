@@ -8,7 +8,7 @@ final class ChatViewModel: ObservableObject {
     @Published var messages: [ChatMessage] = []
     @Published var currentStream: StreamingMessage?
     @Published var isStreaming = false
-    @Published var permissionRequest: PermissionRequest?
+    @Published var permissionRequest: PermissionRequestParams?
     @Published var toolStatus: String?
 
     let sessionId: String?
@@ -26,6 +26,12 @@ final class ChatViewModel: ObservableObject {
     func configure(appState: AppState) {
         self.appState = appState
         self.wsClient = appState.getWSClient()
+        appState.setActiveChatVM(self)
+    }
+
+    deinit {
+        // Can't call appState methods from deinit in actor context,
+        // but weak reference means AppState won't retain us
     }
 
     // MARK: - Load History
@@ -164,6 +170,19 @@ final class ChatViewModel: ObservableObject {
         case .sessionEnd:
             isStreaming = false
             toolStatus = nil
+
+        case .permissionRequest(let params):
+            permissionRequest = params
+
+        case .toolResult(let params):
+            // Update the block with tool result if we're tracking it
+            if var stream = currentStream,
+               var block = stream.blocks.values.first(where: { $0.toolId == params.toolId }) {
+                block.toolResult = params.result
+                block.toolError = params.isError
+                stream.blocks[block.blockId] = block
+                currentStream = stream
+            }
 
         default:
             break

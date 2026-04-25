@@ -4,7 +4,7 @@ import SwiftUI
 import MitzoShared
 
 struct PermissionBanner: View {
-    let request: PermissionRequest
+    let request: PermissionRequestParams
     let onAllow: () -> Void
     let onDeny: () -> Void
 

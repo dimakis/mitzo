@@ -165,17 +165,37 @@ public struct ImageAttachment: Codable, Sendable {
     public let mediaType: String
 }
 
-// MARK: - Session
+// MARK: - Session (matches GET /api/sessions response)
 
-public struct Session: Codable, Sendable {
+public struct Session: Codable, Sendable, Identifiable {
     public let id: String
-    public let mode: MitzoMode
+    public let summary: String
+    public let lastModified: Int
+    public let branch: String?
     public let cwd: String?
+    public let isActive: Bool?
+    public let isAttached: Bool?
+    public let totalTokens: Int?
+    public let numTurns: Int?
+}
+
+public struct SessionsResponse: Codable, Sendable {
+    public let sessions: [Session]
+    public let hasMore: Bool
+}
+
+// MARK: - Session Metadata (matches GET /api/sessions/:id/meta)
+
+public struct SessionMeta: Codable, Sendable {
+    public let sessionId: String
     public let branch: String?
     public let wtId: String?
-    public let tokens: TokenUsage?
-    public let createdAt: Int?
-    public let updatedAt: Int?
+    public let cwd: String?
+    public let mode: MitzoMode
+    public let isActive: Bool
+    public let totalTokens: Int?
+    public let totalCostUsd: Double?
+    public let numTurns: Int?
 }
 
 public struct TokenUsage: Codable, Sendable {
@@ -184,11 +204,4 @@ public struct TokenUsage: Codable, Sendable {
     public let cacheRead: Int
     public let cacheCreation: Int
     public let costUsd: Double
-
-    enum CodingKeys: String, CodingKey {
-        case input, output
-        case cacheRead = "cache_read"
-        case cacheCreation = "cache_creation"
-        case costUsd = "cost_usd"
-    }
 }

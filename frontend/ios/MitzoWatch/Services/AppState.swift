@@ -7,17 +7,18 @@ import MitzoShared
 final class AppState: ObservableObject {
     @Published var isAuthenticated = false
     @Published var connectionState: MitzoWSClient.State = .disconnected
-    @Published var sessions: [SessionSummary] = []
+    @Published var sessions: [Session] = []
     @Published var error: String?
 
     private let authManager = AuthManager()
     private var wsClient: MitzoWSClient?
     private var apiClient: MitzoAPIClient?
+    private var activeChatVM: ChatViewModel?
 
-    // Server URL — configure per environment
+    // Configurable via UserDefaults; defaults to Tailscale hostname
     var serverURL: URL {
-        // Default to Tailscale hostname; override via environment or settings
-        URL(string: "https://mitzo.tail:3100")!
+        let stored = UserDefaults.standard.string(forKey: "mitzo_server_url")
+        return URL(string: stored ?? "https://mitzo.tail:3100")!
     }
 
     init() {
@@ -50,8 +51,10 @@ final class AppState: ObservableObject {
     func connect() async {
         guard let token = try? await authManager.getToken() else { return }
 
-        var components = URLComponents(url: serverURL.appendingPathComponent("/ws"), resolvingAgainstBaseURL: false)!
+        // WS path is /ws/chat, not /ws
+        var components = URLComponents(url: serverURL, resolvingAgainstBaseURL: false)!
         components.scheme = components.scheme == "https" ? "wss" : "ws"
+        components.path = "/ws/chat"
         components.queryItems = [URLQueryItem(name: "token", value: token)]
 
         guard let wsURL = components.url else { return }
@@ -78,19 +81,21 @@ final class AppState: ObservableObject {
         }
     }
 
-    func reconnect() async {
-        // Handled automatically by MitzoWSClient
-    }
-
     // MARK: - Sessions
 
     func loadSessions() async {
         do {
-            let fetched: [Session] = try await apiClient?.getSessions() ?? []
-            sessions = fetched.map { SessionSummary(from: $0) }
+            let response: SessionsResponse = try await apiClient?.getSessions() ?? SessionsResponse(sessions: [], hasMore: false)
+            sessions = response.sessions
         } catch {
             self.error = "Failed to load sessions"
         }
+    }
+
+    // MARK: - Active Chat
+
+    func setActiveChatVM(_ vm: ChatViewModel?) {
+        activeChatVM = vm
     }
 
     // MARK: - Event Handling
@@ -100,9 +105,9 @@ final class AppState: ObservableObject {
         case .stateChanged(let state):
             connectionState = state
 
-        case .message:
-            // Forwarded to active ChatViewModel
-            break
+        case .message(let msg):
+            // Forward to active ChatViewModel
+            activeChatVM?.handleMessage(msg)
 
         case .error(let err):
             error = err.localizedDescription
@@ -113,20 +118,4 @@ final class AppState: ObservableObject {
 
     func getWSClient() -> MitzoWSClient? { wsClient }
     func getAPIClient() -> MitzoAPIClient? { apiClient }
-}
-
-// MARK: - Session Summary
-
-struct SessionSummary: Identifiable {
-    let id: String
-    let mode: MitzoMode
-    let branch: String?
-    let updatedAt: Int?
-
-    init(from session: Session) {
-        self.id = session.id
-        self.mode = session.mode
-        self.branch = session.branch
-        self.updatedAt = session.updatedAt
-    }
 }

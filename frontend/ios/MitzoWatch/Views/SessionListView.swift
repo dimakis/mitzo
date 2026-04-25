@@ -61,28 +61,37 @@ struct SessionListView: View {
 // MARK: - Session Row
 
 struct SessionRow: View {
-    let session: SessionSummary
+    let session: Session
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(session.branch ?? session.id.prefix(8).description)
+            Text(session.summary)
                 .font(.caption)
                 .lineLimit(1)
 
             HStack {
-                Text(session.mode.rawValue)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 1)
-                    .background(.quaternary)
-                    .clipShape(Capsule())
+                if session.isActive == true {
+                    Text("active")
+                        .font(.caption2)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(.green)
+                        .clipShape(Capsule())
+                }
 
-                if let ts = session.updatedAt {
-                    Text(timeAgo(ts))
+                if let branch = session.branch {
+                    Text(branch)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
+
+                Spacer()
+
+                Text(timeAgo(session.lastModified))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
         }
     }

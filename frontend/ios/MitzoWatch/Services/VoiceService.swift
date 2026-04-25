@@ -14,9 +14,10 @@ final class VoiceService: ObservableObject {
     private var finalTranscript = ""
     private var completionHandler: ((String) -> Void)?
 
-    // Yapper URL — same Tailscale network
+    // Configurable via UserDefaults; defaults to Tailscale hostname
     var yapperURL: URL {
-        URL(string: "http://mitzo.tail:8700")!
+        let stored = UserDefaults.standard.string(forKey: "mitzo_yapper_url")
+        return URL(string: stored ?? "http://mitzo.tail:8700")!
     }
 
     init() {
@@ -122,17 +123,21 @@ final class VoiceService: ObservableObject {
         audioEngine?.stop()
         audioEngine = nil
 
-        // Signal end to Yapper
+        // Signal end to Yapper — final transcript arrives via handleTranscriptEvent
         Task {
             try? await yapperClient?.endStreaming()
 
-            // Wait a moment for final transcript, then deliver
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            // Short timeout fallback: if final transcript doesn't arrive within 3s,
+            // use whatever partial we have
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
 
-            let transcript = finalTranscript.isEmpty ? partialTranscript : finalTranscript
-            completionHandler?(transcript)
-            completionHandler = nil
-            partialTranscript = ""
+            if let handler = completionHandler {
+                // Final never arrived — use best-effort partial
+                let transcript = finalTranscript.isEmpty ? partialTranscript : finalTranscript
+                handler(transcript)
+                completionHandler = nil
+                partialTranscript = ""
+            }
         }
     }
 

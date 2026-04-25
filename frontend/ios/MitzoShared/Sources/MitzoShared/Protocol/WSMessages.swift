@@ -3,6 +3,28 @@
 
 import Foundation
 
+// MARK: - Flexible Coding Key
+
+struct AnyCodingKey: CodingKey {
+    var stringValue: String
+    var intValue: Int?
+
+    init(_ key: String) {
+        self.stringValue = key
+        self.intValue = nil
+    }
+
+    init?(stringValue: String) {
+        self.stringValue = stringValue
+        self.intValue = nil
+    }
+
+    init?(intValue: Int) {
+        self.stringValue = "\(intValue)"
+        self.intValue = intValue
+    }
+}
+
 // MARK: - Client → Server Messages
 
 public enum ClientMessage: Encodable, Sendable {
@@ -18,58 +40,54 @@ public enum ClientMessage: Encodable, Sendable {
     case permissionResponse(PermissionResponseParams)
     case setMode(sessionId: String, mode: MitzoMode)
 
-    private enum CodingKeys: String, CodingKey {
-        case type
-    }
-
     public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
+        var container = encoder.container(keyedBy: AnyCodingKey.self)
 
         switch self {
         case .hello(let version):
-            try container.encode("hello", forKey: .type)
-            try container.encode(version, forKey: CodingKeys(stringValue: "protocolVersion")!)
+            try container.encode("hello", forKey: AnyCodingKey("type"))
+            try container.encode(version, forKey: AnyCodingKey("protocolVersion"))
 
         case .reconnect(let sessions):
-            try container.encode("reconnect", forKey: .type)
-            try container.encode(sessions, forKey: CodingKeys(stringValue: "sessions")!)
+            try container.encode("reconnect", forKey: AnyCodingKey("type"))
+            try container.encode(sessions, forKey: AnyCodingKey("sessions"))
 
         case .watch(let sessionId):
-            try container.encode("watch", forKey: .type)
-            try container.encode(sessionId, forKey: CodingKeys(stringValue: "sessionId")!)
+            try container.encode("watch", forKey: AnyCodingKey("type"))
+            try container.encode(sessionId, forKey: AnyCodingKey("sessionId"))
 
         case .unwatch(let sessionId):
-            try container.encode("unwatch", forKey: .type)
-            try container.encode(sessionId, forKey: CodingKeys(stringValue: "sessionId")!)
+            try container.encode("unwatch", forKey: AnyCodingKey("type"))
+            try container.encode(sessionId, forKey: AnyCodingKey("sessionId"))
 
         case .switchSession(let sessionId):
-            try container.encode("switch_session", forKey: .type)
-            try container.encode(sessionId, forKey: CodingKeys(stringValue: "sessionId")!)
+            try container.encode("switch_session", forKey: AnyCodingKey("type"))
+            try container.encode(sessionId, forKey: AnyCodingKey("sessionId"))
 
         case .sessionSuspend(let sessions):
-            try container.encode("session_suspend", forKey: .type)
-            try container.encode(sessions, forKey: CodingKeys(stringValue: "sessions")!)
+            try container.encode("session_suspend", forKey: AnyCodingKey("type"))
+            try container.encode(sessions, forKey: AnyCodingKey("sessions"))
 
         case .send(let params):
-            try container.encode("send", forKey: .type)
-            try params.encode(to: encoder)
+            try container.encode("send", forKey: AnyCodingKey("type"))
+            try params.encodeFields(to: &container)
 
         case .interrupt(let params):
-            try container.encode("interrupt", forKey: .type)
-            try params.encode(to: encoder)
+            try container.encode("interrupt", forKey: AnyCodingKey("type"))
+            try params.encodeFields(to: &container)
 
         case .stop(let sessionId):
-            try container.encode("stop", forKey: .type)
-            try container.encode(sessionId, forKey: CodingKeys(stringValue: "sessionId")!)
+            try container.encode("stop", forKey: AnyCodingKey("type"))
+            try container.encode(sessionId, forKey: AnyCodingKey("sessionId"))
 
         case .permissionResponse(let params):
-            try container.encode("permission_response", forKey: .type)
-            try params.encode(to: encoder)
+            try container.encode("permission_response", forKey: AnyCodingKey("type"))
+            try params.encodeFields(to: &container)
 
         case .setMode(let sessionId, let mode):
-            try container.encode("set_mode", forKey: .type)
-            try container.encode(sessionId, forKey: CodingKeys(stringValue: "sessionId")!)
-            try container.encode(mode, forKey: CodingKeys(stringValue: "mode")!)
+            try container.encode("set_mode", forKey: AnyCodingKey("type"))
+            try container.encode(sessionId, forKey: AnyCodingKey("sessionId"))
+            try container.encode(mode, forKey: AnyCodingKey("mode"))
         }
     }
 }
@@ -94,7 +112,7 @@ public struct SuspendSession: Codable, Sendable {
     }
 }
 
-public struct SendParams: Encodable, Sendable {
+public struct SendParams: Sendable {
     public let sessionId: String?
     public let prompt: String
     public let clientMsgId: String
@@ -129,9 +147,22 @@ public struct SendParams: Encodable, Sendable {
         self.images = images
         self.contextBlocks = contextBlocks
     }
+
+    func encodeFields(to container: inout KeyedEncodingContainer<AnyCodingKey>) throws {
+        try container.encode(sessionId, forKey: AnyCodingKey("sessionId"))
+        try container.encode(prompt, forKey: AnyCodingKey("prompt"))
+        try container.encode(clientMsgId, forKey: AnyCodingKey("clientMsgId"))
+        try container.encodeIfPresent(model, forKey: AnyCodingKey("model"))
+        try container.encodeIfPresent(mode, forKey: AnyCodingKey("mode"))
+        try container.encodeIfPresent(cwd, forKey: AnyCodingKey("cwd"))
+        try container.encodeIfPresent(extraTools, forKey: AnyCodingKey("extraTools"))
+        try container.encodeIfPresent(isolation, forKey: AnyCodingKey("isolation"))
+        try container.encodeIfPresent(images, forKey: AnyCodingKey("images"))
+        try container.encodeIfPresent(contextBlocks, forKey: AnyCodingKey("contextBlocks"))
+    }
 }
 
-public struct InterruptParams: Encodable, Sendable {
+public struct InterruptParams: Sendable {
     public let sessionId: String
     public let prompt: String
     public let clientMsgId: String
@@ -151,9 +182,17 @@ public struct InterruptParams: Encodable, Sendable {
         self.images = images
         self.contextBlocks = contextBlocks
     }
+
+    func encodeFields(to container: inout KeyedEncodingContainer<AnyCodingKey>) throws {
+        try container.encode(sessionId, forKey: AnyCodingKey("sessionId"))
+        try container.encode(prompt, forKey: AnyCodingKey("prompt"))
+        try container.encode(clientMsgId, forKey: AnyCodingKey("clientMsgId"))
+        try container.encodeIfPresent(images, forKey: AnyCodingKey("images"))
+        try container.encodeIfPresent(contextBlocks, forKey: AnyCodingKey("contextBlocks"))
+    }
 }
 
-public struct PermissionResponseParams: Encodable, Sendable {
+public struct PermissionResponseParams: Sendable {
     public let sessionId: String?
     public let permId: String
     public let decision: PermissionDecision?
@@ -162,6 +201,12 @@ public struct PermissionResponseParams: Encodable, Sendable {
         self.sessionId = sessionId
         self.permId = permId
         self.decision = decision
+    }
+
+    func encodeFields(to container: inout KeyedEncodingContainer<AnyCodingKey>) throws {
+        try container.encodeIfPresent(sessionId, forKey: AnyCodingKey("sessionId"))
+        try container.encode(permId, forKey: AnyCodingKey("permId"))
+        try container.encodeIfPresent(decision, forKey: AnyCodingKey("decision"))
     }
 }
 
@@ -190,39 +235,32 @@ public enum ServerMessage: Decodable, Sendable {
     case blockEnd(BlockEndParams)
     case messageEnd(MessageEndParams)
     case tokenUpdate(TokenUpdateParams)
+    case permissionRequest(PermissionRequestParams)
+    case toolResult(ToolResultParams)
     case error(error: String)
     case modeChanged(sessionId: String, mode: MitzoMode)
     case unknown(type: String)
 
-    enum CodingKeys: String, CodingKey {
-        case type, v
-    }
-
     public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let type = try container.decode(String.self, forKey: .type)
+        let container = try decoder.container(keyedBy: AnyCodingKey.self)
+        let type = try container.decode(String.self, forKey: AnyCodingKey("type"))
 
         switch type {
         case "welcome":
-            let protocolVersion = try decoder.container(keyedBy: AnyCodingKey.self)
-                .decode(Int.self, forKey: AnyCodingKey(stringValue: "protocolVersion")!)
-            let connectionId = try decoder.container(keyedBy: AnyCodingKey.self)
-                .decode(String.self, forKey: AnyCodingKey(stringValue: "connectionId")!)
+            let protocolVersion = try container.decode(Int.self, forKey: AnyCodingKey("protocolVersion"))
+            let connectionId = try container.decode(String.self, forKey: AnyCodingKey("connectionId"))
             self = .welcome(protocolVersion: protocolVersion, connectionId: connectionId)
 
         case "reconnected":
-            let sessions = try decoder.container(keyedBy: AnyCodingKey.self)
-                .decode([ReconnectedSession].self, forKey: AnyCodingKey(stringValue: "sessions")!)
+            let sessions = try container.decode([ReconnectedSession].self, forKey: AnyCodingKey("sessions"))
             self = .reconnected(sessions: sessions)
 
         case "watched":
-            let sessionId = try decoder.container(keyedBy: AnyCodingKey.self)
-                .decode(String.self, forKey: AnyCodingKey(stringValue: "sessionId")!)
+            let sessionId = try container.decode(String.self, forKey: AnyCodingKey("sessionId"))
             self = .watched(sessionId: sessionId)
 
         case "unwatched":
-            let sessionId = try decoder.container(keyedBy: AnyCodingKey.self)
-                .decode(String.self, forKey: AnyCodingKey(stringValue: "sessionId")!)
+            let sessionId = try container.decode(String.self, forKey: AnyCodingKey("sessionId"))
             self = .unwatched(sessionId: sessionId)
 
         case "session_switched":
@@ -233,24 +271,18 @@ public enum ServerMessage: Decodable, Sendable {
             self = .sessionCleared
 
         case "session_id":
-            let sessionId = try decoder.container(keyedBy: AnyCodingKey.self)
-                .decode(String.self, forKey: AnyCodingKey(stringValue: "sessionId")!)
-            let seq = try? decoder.container(keyedBy: AnyCodingKey.self)
-                .decode(Int.self, forKey: AnyCodingKey(stringValue: "seq")!)
-            let ts = try? decoder.container(keyedBy: AnyCodingKey.self)
-                .decode(Int.self, forKey: AnyCodingKey(stringValue: "ts")!)
+            let sessionId = try container.decode(String.self, forKey: AnyCodingKey("sessionId"))
+            let seq = try container.decodeIfPresent(Int.self, forKey: AnyCodingKey("seq"))
+            let ts = try container.decodeIfPresent(Int.self, forKey: AnyCodingKey("ts"))
             self = .sessionId(sessionId: sessionId, seq: seq, ts: ts)
 
         case "session_resumed":
-            let sessionId = try decoder.container(keyedBy: AnyCodingKey.self)
-                .decode(String.self, forKey: AnyCodingKey(stringValue: "sessionId")!)
-            let replayed = try decoder.container(keyedBy: AnyCodingKey.self)
-                .decode(Int.self, forKey: AnyCodingKey(stringValue: "replayed")!)
+            let sessionId = try container.decode(String.self, forKey: AnyCodingKey("sessionId"))
+            let replayed = try container.decode(Int.self, forKey: AnyCodingKey("replayed"))
             self = .sessionResumed(sessionId: sessionId, replayed: replayed)
 
         case "session_takeover":
-            let sessionId = try decoder.container(keyedBy: AnyCodingKey.self)
-                .decode(String.self, forKey: AnyCodingKey(stringValue: "sessionId")!)
+            let sessionId = try container.decode(String.self, forKey: AnyCodingKey("sessionId"))
             self = .sessionTakeover(sessionId: sessionId)
 
         case "session_end":
@@ -281,16 +313,21 @@ public enum ServerMessage: Decodable, Sendable {
             let params = try TokenUpdateParams(from: decoder)
             self = .tokenUpdate(params)
 
+        case "permission_request":
+            let params = try PermissionRequestParams(from: decoder)
+            self = .permissionRequest(params)
+
+        case "tool_result":
+            let params = try ToolResultParams(from: decoder)
+            self = .toolResult(params)
+
         case "error":
-            let error = try decoder.container(keyedBy: AnyCodingKey.self)
-                .decode(String.self, forKey: AnyCodingKey(stringValue: "error")!)
+            let error = try container.decode(String.self, forKey: AnyCodingKey("error"))
             self = .error(error: error)
 
         case "mode_changed":
-            let sessionId = try decoder.container(keyedBy: AnyCodingKey.self)
-                .decode(String.self, forKey: AnyCodingKey(stringValue: "sessionId")!)
-            let mode = try decoder.container(keyedBy: AnyCodingKey.self)
-                .decode(MitzoMode.self, forKey: AnyCodingKey(stringValue: "mode")!)
+            let sessionId = try container.decode(String.self, forKey: AnyCodingKey("sessionId"))
+            let mode = try container.decode(MitzoMode.self, forKey: AnyCodingKey("mode"))
             self = .modeChanged(sessionId: sessionId, mode: mode)
 
         default:
@@ -389,19 +426,20 @@ public struct TokenUpdateParams: Decodable, Sendable {
     public let ts: Int?
 }
 
-// MARK: - Helper
+public struct PermissionRequestParams: Decodable, Sendable {
+    public let permId: String
+    public let toolName: String
+    public let toolInput: String
+    public let title: String?
+    public let description: String?
+    public let displayName: String?
+    public let decisionReason: String?
+    public let tier: ToolTier?
+}
 
-private struct AnyCodingKey: CodingKey {
-    var stringValue: String
-    var intValue: Int?
-
-    init?(stringValue: String) {
-        self.stringValue = stringValue
-        self.intValue = nil
-    }
-
-    init?(intValue: Int) {
-        self.stringValue = "\(intValue)"
-        self.intValue = intValue
-    }
+public struct ToolResultParams: Decodable, Sendable {
+    public let messageId: String
+    public let toolId: String
+    public let result: String
+    public let isError: Bool
 }

@@ -8,11 +8,13 @@ public actor AuthManager {
         case noToken
         case keychainError(OSStatus)
         case invalidResponse
+        case encodingError
     }
 
     private let keychainService = "com.mitzo.app"
     private let keychainAccount = "jwt"
-    private let accessGroup = "$(TeamIdentifierPrefix)com.mitzo.app"
+    // Team ID prefix for shared Keychain access group (iOS + watchOS)
+    private let accessGroup = "Y4QGXHYSY3.com.mitzo.app"
 
     private var cachedToken: String?
 
@@ -40,6 +42,9 @@ public actor AuthManager {
         guard status == errSecSuccess,
               let data = result as? Data,
               let token = String(data: data, encoding: .utf8) else {
+            if status == errSecItemNotFound {
+                throw AuthError.noToken
+            }
             throw AuthError.keychainError(status)
         }
 
@@ -50,7 +55,9 @@ public actor AuthManager {
     public func saveToken(_ token: String) throws {
         cachedToken = token
 
-        let data = token.data(using: .utf8)!
+        guard let data = token.data(using: .utf8) else {
+            throw AuthError.encodingError
+        }
 
         // Try to update first
         let query: [String: Any] = [
@@ -67,7 +74,6 @@ public actor AuthManager {
         var status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
 
         if status == errSecItemNotFound {
-            // Item doesn't exist, add it
             var addQuery = query
             addQuery[kSecValueData as String] = data
             addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
@@ -104,7 +110,10 @@ public actor AuthManager {
     // MARK: - Login
 
     public func login(passphrase: String, serverURL: URL) async throws -> String {
-        var request = URLRequest(url: serverURL.appendingPathComponent("/api/auth/login"))
+        var components = URLComponents(url: serverURL, resolvingAgainstBaseURL: false)!
+        components.path = "/api/auth/login"
+
+        var request = URLRequest(url: components.url!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
@@ -126,5 +135,6 @@ public actor AuthManager {
 }
 
 private struct LoginResponse: Decodable {
+    let ok: Bool
     let token: String
 }

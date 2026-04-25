@@ -6,6 +6,7 @@ public actor MitzoAPIClient {
     public enum APIError: Error {
         case invalidResponse
         case unauthorized
+        case notFound
         case networkError(Error)
     }
 
@@ -19,12 +20,15 @@ public actor MitzoAPIClient {
 
     // MARK: - Sessions
 
-    public func getSessions() async throws -> [Session] {
-        try await get(path: "/api/sessions")
+    public func getSessions(offset: Int = 0, limit: Int = 20) async throws -> SessionsResponse {
+        try await get(path: "/api/sessions", query: [
+            URLQueryItem(name: "offset", value: "\(offset)"),
+            URLQueryItem(name: "limit", value: "\(limit)")
+        ])
     }
 
-    public func getSession(id: String) async throws -> Session {
-        try await get(path: "/api/sessions/\(id)")
+    public func getSessionMeta(id: String) async throws -> SessionMeta {
+        try await get(path: "/api/sessions/\(id)/meta")
     }
 
     public func getMessages(sessionId: String) async throws -> [FinishedMessage] {
@@ -33,15 +37,19 @@ public actor MitzoAPIClient {
 
     // MARK: - Generic Request
 
-    private func get<T: Decodable>(path: String) async throws -> T {
-        let url = baseURL.appendingPathComponent(path)
+    private func get<T: Decodable>(path: String, query: [URLQueryItem]? = nil) async throws -> T {
+        var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
+        components.queryItems = query
+
+        guard let url = components.url else {
+            throw APIError.invalidResponse
+        }
+
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
 
-        // Add auth token
-        if let token = try? await authManager.getToken() {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
+        let token = try await authManager.getToken()
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
@@ -49,14 +57,15 @@ public actor MitzoAPIClient {
             throw APIError.invalidResponse
         }
 
-        if httpResponse.statusCode == 401 {
+        switch httpResponse.statusCode {
+        case 200...299:
+            return try JSONDecoder().decode(T.self, from: data)
+        case 401:
             throw APIError.unauthorized
-        }
-
-        guard (200...299).contains(httpResponse.statusCode) else {
+        case 404:
+            throw APIError.notFound
+        default:
             throw APIError.invalidResponse
         }
-
-        return try JSONDecoder().decode(T.self, from: data)
     }
 }
