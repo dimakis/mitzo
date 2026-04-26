@@ -320,14 +320,22 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         // Safety net: if no session_end arrives within 5s (e.g. stale running
         // state after reconnect), flush the first pending message as a new session.
         if (parserState.pendingSendTimer) clearTimeout(parserState.pendingSendTimer);
-        parserState.pendingSendTimer = setTimeout(() => {
+        parserState.pendingSendTimer = setTimeout(function drainOne() {
           const pending = parserState.pendingSend.shift();
-          if (!pending) return;
-          parserState.pendingSendTimer = undefined;
+          if (!pending) {
+            parserState.pendingSendTimer = undefined;
+            return;
+          }
           set((s) => ({
             messages: messagesReducer(s.messages, { type: 'SET_RUNNING', running: true }),
           }));
           connection.send(pending);
+          // Reschedule for remaining queued messages
+          if (parserState.pendingSend.length > 0) {
+            parserState.pendingSendTimer = setTimeout(drainOne, PENDING_SEND_TIMEOUT_MS);
+          } else {
+            parserState.pendingSendTimer = undefined;
+          }
         }, PENDING_SEND_TIMEOUT_MS);
       } else {
         const sent = connection.send(msg);
@@ -695,8 +703,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     const result = parseServerMessage(msg as WsMsg, parserState, callbacks, 'v2');
 
-    // If the parser consumed all pending sends (session_end handler), cancel the
-    // safety-net timer — the normal flush path handled it.
+    // If the queue is now empty, cancel the safety-net timer — the normal
+    // session_end flush path handled it.
     if (parserState.pendingSend.length === 0 && parserState.pendingSendTimer) {
       clearPendingSendTimer();
     }

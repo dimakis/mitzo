@@ -615,6 +615,56 @@ describe('reconnected', () => {
     parseServerMessage({ type: 'reconnected', sessions: [] }, makeState(), cb, POOL_KEY);
     expect(onReconnected).toHaveBeenCalled();
   });
+
+  it('dispatches SET_RUNNING false when active session reports not running', () => {
+    const state = makeState({ currentSessionId: 'sid-1' });
+    const r = parseServerMessage(
+      { type: 'reconnected', sessions: [{ sessionId: 'sid-1', replayed: 0, running: false }] },
+      state,
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.messagesActions).toContainEqual({ type: 'SET_RUNNING', running: false });
+  });
+
+  it('does not dispatch SET_RUNNING when active session is still running', () => {
+    const state = makeState({ currentSessionId: 'sid-1' });
+    const r = parseServerMessage(
+      { type: 'reconnected', sessions: [{ sessionId: 'sid-1', replayed: 0, running: true }] },
+      state,
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.messagesActions).not.toContainEqual(
+      expect.objectContaining({ type: 'SET_RUNNING' }),
+    );
+  });
+
+  it('no-ops when no currentSessionId', () => {
+    const state = makeState({ currentSessionId: undefined });
+    const r = parseServerMessage(
+      { type: 'reconnected', sessions: [{ sessionId: 'sid-1', replayed: 0, running: false }] },
+      state,
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.messagesActions).not.toContainEqual(
+      expect.objectContaining({ type: 'SET_RUNNING' }),
+    );
+  });
+
+  it('no-ops when sessions field is undefined (backward compat)', () => {
+    const state = makeState({ currentSessionId: 'sid-1' });
+    const r = parseServerMessage(
+      { type: 'reconnected' },
+      state,
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.messagesActions).not.toContainEqual(
+      expect.objectContaining({ type: 'SET_RUNNING' }),
+    );
+  });
 });
 
 // ─── error handling (session expired) ────────────────────────────────────────
