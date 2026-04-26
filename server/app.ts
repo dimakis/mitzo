@@ -207,6 +207,7 @@ let updateAvailable = false;
 let onUpdateAvailable: (() => void) | null = null;
 let onInboxUpdated: (() => void) | null = null;
 let onTaskBroadcast: ((event: Record<string, unknown>) => void) | null = null;
+let onWorkloadBroadcast: ((event: Record<string, unknown>) => void) | null = null;
 let orchestrator: TaskOrchestrator | null = null;
 let templateStore: WorkflowTemplateStore | null = null;
 let signalProcessor: SignalProcessor | null = null;
@@ -246,6 +247,10 @@ export function setInboxBroadcast(fn: () => void) {
 
 export function setTaskBroadcast(fn: (event: Record<string, unknown>) => void) {
   onTaskBroadcast = fn;
+}
+
+export function setWorkloadBroadcast(fn: (event: Record<string, unknown>) => void) {
+  onWorkloadBroadcast = fn;
 }
 
 /** Broadcast inbox_updated to all connected WS clients. */
@@ -1521,6 +1526,10 @@ app.post('/api/workload/signals', (req, res) => {
   }
   const result = workloadStore.ingest(body.data as WorkSignal);
   res.status(result.created ? 201 : 200).json({ item: result.item, created: result.created });
+
+  // Broadcast workload item change
+  const eventType = result.created ? 'workload_item_created' : 'workload_item_updated';
+  onWorkloadBroadcast?.({ type: eventType, item: result.item });
 });
 
 app.post('/api/workload/signals/batch', (req, res) => {
@@ -1533,6 +1542,15 @@ app.post('/api/workload/signals/batch', (req, res) => {
   res
     .status(201)
     .json({ items: result.items, created: result.created, total: result.items.length });
+
+  // Broadcast batch workload changes
+  if (result.items.length > 0) {
+    onWorkloadBroadcast?.({
+      type: 'workload_batch_updated',
+      items: result.items,
+      created: result.created,
+    });
+  }
 });
 
 app.get('/api/workload/items', (req, res) => {
@@ -1569,6 +1587,7 @@ app.patch('/api/workload/items/:id', (req, res) => {
     return;
   }
   res.json({ item });
+  onWorkloadBroadcast?.({ type: 'workload_item_updated', item });
 });
 
 app.delete('/api/workload/items/:id', (req, res) => {
@@ -1612,8 +1631,10 @@ app.post('/api/workload/items/:id/promote', (req, res) => {
   // Link item to goal
   workloadStore.setGoalId(item.id, task.id);
 
-  res.status(201).json({ task, item: workloadStore.get(item.id) });
+  const updatedItem = workloadStore.get(item.id);
+  res.status(201).json({ task, item: updatedItem });
   onTaskBroadcast?.({ type: 'task_state', tasks: taskStore.getTree() });
+  onWorkloadBroadcast?.({ type: 'workload_item_updated', item: updatedItem });
 });
 
 // --- Static files ---

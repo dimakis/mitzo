@@ -45,6 +45,7 @@ import {
   setUpdateBroadcast,
   setInboxBroadcast,
   setTaskBroadcast,
+  setWorkloadBroadcast,
   setOrchestrator,
   setTemplateStore,
   setSignalProcessor,
@@ -54,6 +55,7 @@ import {
   isAllowedPath,
   yapperWsProxy,
   taskStore,
+  workloadStore,
 } from './app.js';
 import { WorkflowTemplateStore, seedBuiltInTemplates } from './workflow-templates.js';
 import { SignalProcessor } from './signal-processor.js';
@@ -123,6 +125,15 @@ setTaskBroadcast((event) => {
   connRegistry.broadcastAll(event as Record<string, unknown>);
 });
 
+setWorkloadBroadcast((event) => {
+  const msg = JSON.stringify(event);
+  wss.clients.forEach((client) => {
+    if (v2Sockets.has(client)) return;
+    if (client.readyState === client.OPEN) client.send(msg);
+  });
+  connRegistry.broadcastAll(event as Record<string, unknown>);
+});
+
 // --- Workflow layer ---
 const wfTemplateStore = new WorkflowTemplateStore(taskStore.getDatabase());
 seedBuiltInTemplates(wfTemplateStore);
@@ -139,6 +150,7 @@ setSignalProcessor(signalProc);
 // --- Task Orchestrator ---
 const orchestrator = new TaskOrchestrator({
   store: taskStore,
+  workloadStore,
   watchSignal: (taskId, gateConfig) => signalProc.watch(taskId, gateConfig),
   getClientId: () => {
     // Find the first registered client (reuse-only for Phase 2)
