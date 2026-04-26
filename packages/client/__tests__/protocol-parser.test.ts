@@ -635,9 +635,7 @@ describe('reconnected', () => {
       makeCallbacks(),
       POOL_KEY,
     );
-    expect(r.messagesActions).not.toContainEqual(
-      expect.objectContaining({ type: 'SET_RUNNING' }),
-    );
+    expect(r.messagesActions).not.toContainEqual(expect.objectContaining({ type: 'SET_RUNNING' }));
   });
 
   it('no-ops when no currentSessionId', () => {
@@ -648,22 +646,13 @@ describe('reconnected', () => {
       makeCallbacks(),
       POOL_KEY,
     );
-    expect(r.messagesActions).not.toContainEqual(
-      expect.objectContaining({ type: 'SET_RUNNING' }),
-    );
+    expect(r.messagesActions).not.toContainEqual(expect.objectContaining({ type: 'SET_RUNNING' }));
   });
 
   it('no-ops when sessions field is undefined (backward compat)', () => {
     const state = makeState({ currentSessionId: 'sid-1' });
-    const r = parseServerMessage(
-      { type: 'reconnected' },
-      state,
-      makeCallbacks(),
-      POOL_KEY,
-    );
-    expect(r.messagesActions).not.toContainEqual(
-      expect.objectContaining({ type: 'SET_RUNNING' }),
-    );
+    const r = parseServerMessage({ type: 'reconnected' }, state, makeCallbacks(), POOL_KEY);
+    expect(r.messagesActions).not.toContainEqual(expect.objectContaining({ type: 'SET_RUNNING' }));
   });
 });
 
