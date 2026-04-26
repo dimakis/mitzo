@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { UserBubble, TextBubble } from './MessageBubble';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolPill } from './ToolPill';
@@ -15,6 +15,12 @@ import type {
   PermissionRequest,
 } from '../types/chat';
 import type { ProgressBlock } from '@mitzo/protocol';
+import type { UseVoiceReturn } from '../hooks/useVoice';
+
+export type ChatAreaVoice = Pick<
+  UseVoiceReturn,
+  'ttsAvailable' | 'speak' | 'stopSpeaking' | 'speaking'
+>;
 
 export interface ChatAreaProps {
   messages: FinishedMessage[];
@@ -32,6 +38,8 @@ export interface ChatAreaProps {
   sessionContext?: string | null;
   /** Progress blocks indexed by toolId for rendering ProgressWidget on TodoWrite blocks */
   progressByToolId?: Record<string, ProgressBlock>;
+  /** Voice capabilities for per-block read-aloud */
+  voice?: ChatAreaVoice;
 }
 
 export function ChatArea({
@@ -43,10 +51,37 @@ export function ChatArea({
   scrollRef: externalScrollRef,
   sessionContext,
   progressByToolId,
+  voice,
 }: ChatAreaProps) {
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
   const prevMessageCount = useRef(0);
+
+  // Track which block is currently being read aloud
+  const [speakingBlockId, setSpeakingBlockId] = useState<string | null>(null);
+
+  // Clear speakingBlockId when voice stops
+  useEffect(() => {
+    if (voice && !voice.speaking) {
+      setSpeakingBlockId(null);
+    }
+    // Only re-run when the speaking boolean changes, not when the voice object reference changes
+  }, [voice?.speaking]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const speakBlock = useCallback(
+    (blockId: string, text: string) => {
+      if (!voice) return;
+      setSpeakingBlockId(blockId);
+      voice.speak(text);
+    },
+    [voice],
+  );
+
+  const stopBlock = useCallback(() => {
+    if (!voice) return;
+    voice.stopSpeaking();
+    setSpeakingBlockId(null);
+  }, [voice]);
 
   // Scroll to bottom on session restore (messages jump from 0 to N)
   useEffect(() => {
@@ -129,6 +164,15 @@ export function ChatArea({
                 images={msg.images}
                 contextBlocks={msg.contextBlocks}
                 timestamp={msg.timestamp}
+                readAloud={
+                  voice?.ttsAvailable
+                    ? {
+                        active: speakingBlockId === msg.messageId,
+                        onSpeak: (text) => speakBlock(msg.messageId, text),
+                        onStop: stopBlock,
+                      }
+                    : undefined
+                }
               />
             );
           }
@@ -151,11 +195,21 @@ export function ChatArea({
                   }
                   return <ToolPill key={block.blockId} block={block} />;
                 }
+                const bid = block.blockId || `text-${i}`;
                 return (
                   <TextBubble
-                    key={block.blockId || `text-${i}`}
+                    key={bid}
                     content={block.content ?? ''}
                     timestamp={msg.timestamp}
+                    readAloud={
+                      voice?.ttsAvailable
+                        ? {
+                            active: speakingBlockId === bid,
+                            onSpeak: (text) => speakBlock(bid, text),
+                            onStop: stopBlock,
+                          }
+                        : undefined
+                    }
                   />
                 );
               })}

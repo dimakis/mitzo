@@ -1708,6 +1708,47 @@ textarea:focus {
   background: rgba(255, 255, 255, 0.12);
 }
 
+/* ===== Read Aloud Buttons ===== */
+
+.read-aloud-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: var(--text-sm);
+  padding: var(--space-1);
+  border-radius: 4px;
+  transition:
+    color 0.15s,
+    background 0.15s;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.read-aloud-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.read-aloud-btn--active {
+  color: var(--accent);
+}
+
+.msg-bubble-read-aloud--user {
+  color: rgba(255, 255, 255, 0.7);
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.msg-bubble-read-aloud--user:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.msg-bubble-group--user:hover .msg-bubble-read-aloud--user {
+  opacity: 1;
+}
+
 .msg-bubble-group--user {
   display: flex;
   flex-direction: column;
@@ -1756,7 +1797,8 @@ textarea:focus {
   .msg-bubble-footer--user {
     opacity: 1;
   }
-  .msg-bubble-footer--user .msg-bubble-copy {
+  .msg-bubble-footer--user .msg-bubble-copy,
+  .msg-bubble-footer--user .msg-bubble-read-aloud--user {
     opacity: 0.7;
   }
   .code-block-copy {

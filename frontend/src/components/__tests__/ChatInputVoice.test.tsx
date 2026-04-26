@@ -118,4 +118,12 @@ describe('ChatInput with voice', () => {
     );
     expect(container.querySelector('.voice-partial')).toBeNull();
   });
+
+  it('stops TTS playback when mic recording starts', () => {
+    const voice = makeVoice({ speaking: true });
+    render(<ChatInput onSend={noop} onStop={noopVoid} running={false} voice={voice} />);
+    fireEvent.click(screen.getByTitle('Tap to record'));
+    expect(voice.stopSpeaking).toHaveBeenCalledTimes(1);
+    expect(voice.startRecording).toHaveBeenCalledTimes(1);
+  });
 });

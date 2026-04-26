@@ -274,6 +274,7 @@ export function DesktopChatView() {
             onPermissionRespond={handlePermission}
             scrollRef={scrollRef}
             progressByToolId={progressByToolId}
+            voice={voice}
           />
           <ScrollFab scrollRef={scrollRef} />
           <ChatInput
