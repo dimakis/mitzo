@@ -163,6 +163,7 @@ public struct PermissionRequest: Codable, Sendable {
 public struct ImageAttachment: Codable, Sendable {
     public let data: String
     public let mediaType: String
+    public let preview: String?
 }
 
 // MARK: - Session (matches GET /api/sessions response)
