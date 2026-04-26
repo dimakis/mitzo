@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { ReadAloudButton } from '../ReadAloudButton';
+import { TextBubble, UserBubble } from '../MessageBubble';
 
 afterEach(() => cleanup());
 
@@ -48,5 +50,21 @@ describe('ReadAloudButton', () => {
     expect(btn?.classList.contains('read-aloud-btn')).toBe(true);
     expect(btn?.classList.contains('read-aloud-btn--active')).toBe(true);
     expect(btn?.classList.contains('custom-class')).toBe(true);
+  });
+});
+
+describe('graceful degradation — no readAloud prop', () => {
+  it('TextBubble does not render read-aloud button when readAloud is undefined', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <TextBubble content="Hello world" />
+      </MemoryRouter>,
+    );
+    expect(container.querySelector('.read-aloud-btn')).toBeNull();
+  });
+
+  it('UserBubble does not render read-aloud button when readAloud is undefined', () => {
+    const { container } = render(<UserBubble text="Hello world" />);
+    expect(container.querySelector('.read-aloud-btn')).toBeNull();
   });
 });

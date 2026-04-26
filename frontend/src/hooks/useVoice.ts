@@ -129,8 +129,8 @@ export function useVoice(): UseVoiceReturn {
       document.removeEventListener('touchstart', unlock);
     };
 
-    document.addEventListener('click', unlock, { once: true });
-    document.addEventListener('touchstart', unlock, { once: true });
+    document.addEventListener('click', unlock);
+    document.addEventListener('touchstart', unlock);
 
     return () => {
       document.removeEventListener('click', unlock);

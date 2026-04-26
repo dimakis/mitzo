@@ -547,6 +547,32 @@ describe('useVoice', () => {
       mockCtx.mockReturnValue({ state: 'running' });
     });
 
+    it('unlocks AudioContext on touchstart (iOS Safari primary path)', async () => {
+      const { getOrCreateAudioContext, unlockAudioContext } = await import('../../lib/tts');
+      const mockCtx = getOrCreateAudioContext as ReturnType<typeof vi.fn>;
+      const mockUnlock = unlockAudioContext as ReturnType<typeof vi.fn>;
+      mockUnlock.mockClear();
+
+      mockCtx.mockReturnValue({ state: 'suspended' });
+      localStorage.setItem('mitzo-tts-enabled', 'true');
+
+      mockHealthyWithTts();
+      renderHook(() => useVoice());
+      await waitFor(() => {});
+
+      // Simulate touch — the primary gesture on iOS Safari
+      document.dispatchEvent(new Event('touchstart'));
+
+      expect(mockUnlock).toHaveBeenCalledTimes(1);
+
+      // Second touch should NOT call again (listener removed)
+      mockUnlock.mockClear();
+      document.dispatchEvent(new Event('touchstart'));
+      expect(mockUnlock).not.toHaveBeenCalled();
+
+      mockCtx.mockReturnValue({ state: 'running' });
+    });
+
     it('skips interaction listener when AudioContext is already running', async () => {
       const { getOrCreateAudioContext, unlockAudioContext } = await import('../../lib/tts');
       const mockCtx = getOrCreateAudioContext as ReturnType<typeof vi.fn>;

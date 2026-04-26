@@ -15,13 +15,12 @@ import type {
   PermissionRequest,
 } from '../types/chat';
 import type { ProgressBlock } from '@mitzo/protocol';
+import type { UseVoiceReturn } from '../hooks/useVoice';
 
-export interface ChatAreaVoice {
-  ttsAvailable: boolean;
-  speak: (text: string) => Promise<void>;
-  stopSpeaking: () => void;
-  speaking: boolean;
-}
+export type ChatAreaVoice = Pick<
+  UseVoiceReturn,
+  'ttsAvailable' | 'speak' | 'stopSpeaking' | 'speaking'
+>;
 
 export interface ChatAreaProps {
   messages: FinishedMessage[];
@@ -66,6 +65,7 @@ export function ChatArea({
     if (voice && !voice.speaking) {
       setSpeakingBlockId(null);
     }
+    // Only re-run when the speaking boolean changes, not when the voice object reference changes
   }, [voice?.speaking]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const speakBlock = useCallback(
