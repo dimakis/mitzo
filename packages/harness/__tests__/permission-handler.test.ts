@@ -112,7 +112,6 @@ describe('buildPermissionHandler', () => {
   });
 
   it('sends permission_request for unknown tools and resolves on response', async () => {
-    vi.useFakeTimers();
     const transport = fakeTransport();
     registry.register('client-1', {
       transport,
@@ -131,6 +130,9 @@ describe('buildPermissionHandler', () => {
       },
     );
 
+    // Flush microtasks to allow async checkWorktreePolicy to complete
+    await Promise.resolve();
+
     // Should have sent a permission_request
     expect(transport.sent.length).toBe(1);
     expect(transport.sent[0].type).toBe('permission_request');
@@ -141,8 +143,6 @@ describe('buildPermissionHandler', () => {
     const result = await promise;
     expect(result.behavior).toBe('allow');
     expect(result.decisionClassification).toBe('user_temporary');
-
-    vi.useRealTimers();
   });
 
   it('denies when aborted', async () => {

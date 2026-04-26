@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeAll } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -18,6 +18,22 @@ vi.mock('react-router-dom', async () => {
 });
 
 import { TabBar } from '../TabBar';
+
+beforeAll(() => {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+});
 
 afterEach(() => {
   cleanup();
@@ -42,7 +58,7 @@ describe('TabBar', () => {
   it('shows tab labels', () => {
     renderAt('/');
     expect(screen.getByText('Chat')).toBeTruthy();
-    expect(screen.getByText('Tasks')).toBeTruthy();
+    expect(screen.getByText('Calendar')).toBeTruthy();
     expect(screen.getByText('Inbox')).toBeTruthy();
     expect(screen.getByText('Todos')).toBeTruthy();
     expect(screen.getByText('More')).toBeTruthy();
@@ -54,10 +70,10 @@ describe('TabBar', () => {
     expect(chatTab?.className).toContain('tab-bar-item--active');
   });
 
-  it('highlights Tasks tab on /tasks route', () => {
+  it('highlights More tab on /tasks route', () => {
     renderAt('/tasks');
-    const tasksTab = screen.getByText('Tasks').closest('button');
-    expect(tasksTab?.className).toContain('tab-bar-item--active');
+    const moreTab = screen.getByText('More').closest('button');
+    expect(moreTab?.className).toContain('tab-bar-item--active');
   });
 
   it('shows badge on Inbox tab when count > 0', () => {
@@ -74,8 +90,8 @@ describe('TabBar', () => {
 
   it('navigates when tab is clicked', () => {
     renderAt('/');
-    fireEvent.click(screen.getByText('Tasks'));
-    expect(mockNavigate).toHaveBeenCalledWith('/tasks');
+    fireEvent.click(screen.getByText('Calendar'));
+    expect(mockNavigate).toHaveBeenCalledWith('/calendar');
   });
 
   it('uses the tab-bar CSS class', () => {

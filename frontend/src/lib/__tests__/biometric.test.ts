@@ -105,6 +105,9 @@ describe('biometricLogin', () => {
       password: 'stored-jwt',
     });
 
+    // Mock fetch for server validation (vi.spyOn auto-restores on clearAllMocks)
+    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true } as Response);
+
     const token = await biometricLogin();
     expect(token).toBe('stored-jwt');
     expect(localStorage.getItem('mitzo_auth_token')).toBe('stored-jwt');
