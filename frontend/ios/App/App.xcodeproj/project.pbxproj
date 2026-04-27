@@ -326,6 +326,7 @@
 /* Begin XCBuildConfiguration section */
 		16EF91AC41A8DC5F7DE4223C /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 958DCC722DB07C7200EA8C5F /* debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "$(SRCROOT)/../MitzoWatch/MitzoWatch.entitlements";

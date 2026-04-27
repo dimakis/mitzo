@@ -450,3 +450,175 @@ import Foundation
     #expect(version == 2)
     #expect(connId == "conn-abc")
 }
+
+@Test func testReconnectedRoundTrip() throws {
+    let json = """
+    {"type":"reconnected","sessions":[{"sessionId":"s1","replayed":5,"running":true},{"sessionId":"s2","replayed":0,"running":false}]}
+    """.data(using: .utf8)!
+
+    let original = try JSONDecoder().decode(ServerMessage.self, from: json)
+    let encoded = try JSONEncoder().encode(original)
+    let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+
+    guard case .reconnected(let sessions) = decoded else {
+        Issue.record("Expected reconnected after round-trip")
+        return
+    }
+    #expect(sessions.count == 2)
+    #expect(sessions[0].sessionId == "s1")
+    #expect(sessions[0].replayed == 5)
+    #expect(sessions[0].running == true)
+    #expect(sessions[1].running == false)
+}
+
+@Test func testWatchedRoundTrip() throws {
+    let json = """
+    {"type":"watched","sessionId":"s1"}
+    """.data(using: .utf8)!
+
+    let original = try JSONDecoder().decode(ServerMessage.self, from: json)
+    let encoded = try JSONEncoder().encode(original)
+    let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+
+    guard case .watched(let sid) = decoded else {
+        Issue.record("Expected watched after round-trip")
+        return
+    }
+    #expect(sid == "s1")
+}
+
+@Test func testUnwatchedRoundTrip() throws {
+    let json = """
+    {"type":"unwatched","sessionId":"s1"}
+    """.data(using: .utf8)!
+
+    let original = try JSONDecoder().decode(ServerMessage.self, from: json)
+    let encoded = try JSONEncoder().encode(original)
+    let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+
+    guard case .unwatched(let sid) = decoded else {
+        Issue.record("Expected unwatched after round-trip")
+        return
+    }
+    #expect(sid == "s1")
+}
+
+@Test func testSessionSwitchedRoundTrip() throws {
+    let json = """
+    {"type":"session_switched","sessionId":"s1","mode":"agent","cwd":"/home/user","branch":"main","tokens":{"input":100,"output":50,"cacheRead":10,"cacheCreation":5,"costUsd":0.01}}
+    """.data(using: .utf8)!
+
+    let original = try JSONDecoder().decode(ServerMessage.self, from: json)
+    let encoded = try JSONEncoder().encode(original)
+    let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+
+    guard case .sessionSwitched(let params) = decoded else {
+        Issue.record("Expected session_switched after round-trip")
+        return
+    }
+    #expect(params.sessionId == "s1")
+    #expect(params.mode == .agent)
+    #expect(params.cwd == "/home/user")
+    #expect(params.branch == "main")
+    #expect(params.tokens.input == 100)
+    #expect(params.tokens.costUsd == 0.01)
+}
+
+@Test func testSessionClearedRoundTrip() throws {
+    let json = """
+    {"type":"session_cleared"}
+    """.data(using: .utf8)!
+
+    let original = try JSONDecoder().decode(ServerMessage.self, from: json)
+    let encoded = try JSONEncoder().encode(original)
+    let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+
+    guard case .sessionCleared = decoded else {
+        Issue.record("Expected session_cleared after round-trip")
+        return
+    }
+}
+
+@Test func testSessionResumedRoundTrip() throws {
+    let json = """
+    {"type":"session_resumed","sessionId":"s1","replayed":12}
+    """.data(using: .utf8)!
+
+    let original = try JSONDecoder().decode(ServerMessage.self, from: json)
+    let encoded = try JSONEncoder().encode(original)
+    let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+
+    guard case .sessionResumed(let sid, let replayed) = decoded else {
+        Issue.record("Expected session_resumed after round-trip")
+        return
+    }
+    #expect(sid == "s1")
+    #expect(replayed == 12)
+}
+
+@Test func testSessionTakeoverRoundTrip() throws {
+    let json = """
+    {"type":"session_takeover","sessionId":"s1"}
+    """.data(using: .utf8)!
+
+    let original = try JSONDecoder().decode(ServerMessage.self, from: json)
+    let encoded = try JSONEncoder().encode(original)
+    let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+
+    guard case .sessionTakeover(let sid) = decoded else {
+        Issue.record("Expected session_takeover after round-trip")
+        return
+    }
+    #expect(sid == "s1")
+}
+
+@Test func testSessionEndRoundTrip() throws {
+    let json = """
+    {"type":"session_end","sessionId":"s1","usage":{"inputTokens":1000,"outputTokens":500,"cacheReadTokens":200,"cacheCreationTokens":100,"totalCostUsd":0.05,"numTurns":3,"durationMs":60000,"durationApiMs":45000}}
+    """.data(using: .utf8)!
+
+    let original = try JSONDecoder().decode(ServerMessage.self, from: json)
+    let encoded = try JSONEncoder().encode(original)
+    let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+
+    guard case .sessionEnd(let params) = decoded else {
+        Issue.record("Expected session_end after round-trip")
+        return
+    }
+    #expect(params.sessionId == "s1")
+    #expect(params.usage.inputTokens == 1000)
+    #expect(params.usage.totalCostUsd == 0.05)
+    #expect(params.usage.durationMs == 60000)
+}
+
+@Test func testErrorRoundTrip() throws {
+    let json = """
+    {"type":"error","error":"something broke"}
+    """.data(using: .utf8)!
+
+    let original = try JSONDecoder().decode(ServerMessage.self, from: json)
+    let encoded = try JSONEncoder().encode(original)
+    let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+
+    guard case .error(let err) = decoded else {
+        Issue.record("Expected error after round-trip")
+        return
+    }
+    #expect(err == "something broke")
+}
+
+@Test func testUnknownRoundTrip() throws {
+    let json = """
+    {"type":"future_type","extra":"data"}
+    """.data(using: .utf8)!
+
+    let original = try JSONDecoder().decode(ServerMessage.self, from: json)
+    let encoded = try JSONEncoder().encode(original)
+    let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+
+    guard case .unknown(let type) = decoded else {
+        Issue.record("Expected unknown after round-trip")
+        return
+    }
+    #expect(type == "future_type")
+}

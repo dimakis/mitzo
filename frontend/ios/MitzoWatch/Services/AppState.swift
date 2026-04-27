@@ -23,6 +23,7 @@ final class AppState: ObservableObject {
     private var activeChatVM: ChatViewModel?
     private let relayClient = WatchRelayClient()
     private var reconnectAttempts = 0
+    private var isReconnecting = false
     private static let maxReconnectDelay: UInt64 = 30_000_000_000 // 30s
 
     // Configurable via UserDefaults; defaults to Tailscale hostname
@@ -188,8 +189,11 @@ final class AppState: ObservableObject {
             try await wsClient?.send(message)
 
         case .relay:
-            let dict = clientMessageToRelayDict(message)
-            _ = try await relayClient.send(action: dict["action"] as? String ?? "", params: dict)
+            let dict = try clientMessageToRelayDict(message)
+            let reply = try await relayClient.send(action: dict["action"] as? String ?? "", params: dict)
+            if let relayError = reply["error"] as? String {
+                throw RelayResponseError.serverRejected(relayError)
+            }
 
         case .none:
             throw ConnectionError.notConnected
@@ -217,6 +221,8 @@ final class AppState: ObservableObject {
     }
 
     private func reconnectWithBackoff() {
+        guard !isReconnecting else { return }
+        isReconnecting = true
         reconnectAttempts += 1
         let baseDelay: UInt64 = 1_000_000_000 // 1s
         let delay = min(baseDelay * UInt64(1 << min(reconnectAttempts - 1, 4)), Self.maxReconnectDelay)
@@ -224,20 +230,21 @@ final class AppState: ObservableObject {
         Task {
             try? await Task.sleep(nanoseconds: delay)
             await connect()
+            isReconnecting = false
         }
     }
 
     // MARK: - Helpers
 
-    private func clientMessageToRelayDict(_ message: ClientMessage) -> [String: Any] {
+    private func clientMessageToRelayDict(_ message: ClientMessage) throws -> [String: Any] {
         switch message {
         case .send(let params):
             var dict: [String: Any] = [
                 "action": "send",
-                "sessionId": params.sessionId as Any,
                 "prompt": params.prompt,
                 "clientMsgId": params.clientMsgId
             ]
+            if let sid = params.sessionId { dict["sessionId"] = sid }
             if let model = params.model { dict["model"] = model }
             if let mode = params.mode { dict["mode"] = mode.rawValue }
             if let images = params.images {
@@ -249,19 +256,64 @@ final class AppState: ObservableObject {
             }
             if let ctx = params.contextBlocks { dict["contextBlocks"] = ctx }
             return dict
+
         case .stop(let sessionId):
             return ["action": "stop", "sessionId": sessionId]
+
         case .watch(let sessionId):
             return ["action": "watch", "sessionId": sessionId]
+
+        case .unwatch(let sessionId):
+            return ["action": "unwatch", "sessionId": sessionId]
+
         case .permissionResponse(let params):
-            return [
+            var dict: [String: Any] = [
                 "action": "permission_response",
-                "sessionId": params.sessionId as Any,
-                "permId": params.permId,
-                "decision": params.decision?.rawValue as Any
+                "permId": params.permId
             ]
-        default:
-            return ["action": "unknown"]
+            if let sid = params.sessionId { dict["sessionId"] = sid }
+            if let decision = params.decision { dict["decision"] = decision.rawValue }
+            return dict
+
+        case .hello(let version):
+            return ["action": "hello", "protocolVersion": version]
+
+        case .switchSession(let sessionId):
+            var dict: [String: Any] = ["action": "switch_session"]
+            if let sid = sessionId { dict["sessionId"] = sid }
+            return dict
+
+        case .interrupt(let params):
+            var dict: [String: Any] = [
+                "action": "interrupt",
+                "sessionId": params.sessionId,
+                "prompt": params.prompt,
+                "clientMsgId": params.clientMsgId
+            ]
+            if let images = params.images {
+                dict["images"] = images.map { img in
+                    var d: [String: Any] = ["data": img.data, "mediaType": img.mediaType]
+                    if let preview = img.preview { d["preview"] = preview }
+                    return d
+                }
+            }
+            if let ctx = params.contextBlocks { dict["contextBlocks"] = ctx }
+            return dict
+
+        case .setMode(let sessionId, let mode):
+            return ["action": "set_mode", "sessionId": sessionId, "mode": mode.rawValue]
+
+        case .sessionSuspend(let sessions):
+            return [
+                "action": "session_suspend",
+                "sessions": sessions.map { ["sessionId": $0.sessionId, "lastSeq": $0.lastSeq] }
+            ]
+
+        case .reconnect(let sessions):
+            return [
+                "action": "reconnect",
+                "sessions": sessions.map { ["sessionId": $0.sessionId, "lastSeq": $0.lastSeq] }
+            ]
         }
     }
 
@@ -273,4 +325,8 @@ final class AppState: ObservableObject {
 
 enum ConnectionError: Error {
     case notConnected
+}
+
+enum RelayResponseError: Error {
+    case serverRejected(String)
 }
