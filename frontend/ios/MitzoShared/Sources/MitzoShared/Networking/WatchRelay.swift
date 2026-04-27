@@ -3,6 +3,14 @@
 // iPhone side: receives relay messages from watch, forwards to/from WS
 // Watch side: sends messages via WCSession when direct WS is unavailable
 
+/// Wraps a non-Sendable value for use across isolation boundaries.
+/// Safety: WCSession's replyHandler is called exactly once; we transfer
+/// ownership into the Task and never alias it.
+struct UnsafeSendable<T>: @unchecked Sendable {
+    let value: T
+    init(_ value: T) { self.value = value }
+}
+
 #if os(iOS)
 import WatchConnectivity
 import Foundation
@@ -41,26 +49,39 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
             return
         }
 
+        // Extract values before crossing the Task isolation boundary
+        // so we don't capture the non-Sendable [String: Any] dict.
+        let clientMsg: ClientMessage?
+        if type == "send" {
+            clientMsg = try? decodeClientMessage(from: message)
+        } else {
+            clientMsg = nil
+        }
+        let reply = UnsafeSendable(replyHandler)
+
         Task {
             do {
                 switch type {
                 case "send":
-                    let clientMsg = try decodeClientMessage(from: message)
+                    guard let clientMsg else {
+                        reply.value(["error": "invalid message"])
+                        return
+                    }
                     try await state.getWSClient()?.send(clientMsg)
-                    replyHandler(["ok": true])
+                    reply.value(["ok": true])
 
                 case "auth_token":
                     if let token = try? await authManager.getToken() {
-                        replyHandler(["token": token])
+                        reply.value(["token": token])
                     } else {
-                        replyHandler(["error": "no_token"])
+                        reply.value(["error": "no_token"])
                     }
 
                 default:
-                    replyHandler(["error": "unknown relay type: \(type)"])
+                    reply.value(["error": "unknown relay type: \(type)"])
                 }
             } catch {
-                replyHandler(["error": error.localizedDescription])
+                reply.value(["error": error.localizedDescription])
             }
         }
     }
@@ -77,7 +98,7 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
                 WCSession.default.sendMessage(
                     ["_relay": "server_event", "_payload": dict],
                     replyHandler: nil,
-                    errorHandler: { @Sendable _ in }
+                    errorHandler: { @Sendable _ in } // Non-fatal: watch recovers via seq replay
                 )
             }
         } catch {
@@ -215,10 +236,11 @@ public final class WatchRelayClient: NSObject, WCSessionDelegate, Sendable {
         message["action"] = action
 
         return try await withCheckedThrowingContinuation { continuation in
-            WCSession.default.sendMessage(message, replyHandler: { reply in
-                continuation.resume(returning: reply)
-            }, errorHandler: { error in
-                continuation.resume(throwing: error)
+            let cont = UnsafeSendable(continuation)
+            WCSession.default.sendMessage(message, replyHandler: { @Sendable reply in
+                cont.value.resume(returning: UnsafeSendable(reply).value)
+            }, errorHandler: { @Sendable error in
+                cont.value.resume(throwing: error)
             })
         }
     }
@@ -226,10 +248,11 @@ public final class WatchRelayClient: NSObject, WCSessionDelegate, Sendable {
     /// Request auth token from phone
     public func requestAuthToken() async throws -> String {
         let reply = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[String: Any], Error>) in
+            let cont = UnsafeSendable(continuation)
             WCSession.default.sendMessage(
                 ["_relay": "auth_token"],
-                replyHandler: { reply in continuation.resume(returning: reply) },
-                errorHandler: { error in continuation.resume(throwing: error) }
+                replyHandler: { @Sendable reply in cont.value.resume(returning: UnsafeSendable(reply).value) },
+                errorHandler: { @Sendable error in cont.value.resume(throwing: error) }
             )
         }
 
