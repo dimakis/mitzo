@@ -65,14 +65,23 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
         }
     }
 
-    /// Forward server messages to the watch
+    /// Forward server messages to the watch.
+    /// WCSession has an undocumented ~64 KB per-message limit; large payloads
+    /// (e.g. file-read block_delta) are silently dropped by the system.
     public func forwardToWatch(_ message: ServerMessage) {
         guard WCSession.default.isReachable else { return }
 
         do {
             let data = try JSONEncoder().encode(message)
             if let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                WCSession.default.sendMessage(["_relay": "server_event", "_payload": dict], replyHandler: nil)
+                WCSession.default.sendMessage(
+                    ["_relay": "server_event", "_payload": dict],
+                    replyHandler: nil,
+                    errorHandler: { _ in
+                        // WCSession delivery failure (payload too large, watch unreachable, etc.)
+                        // Non-fatal: the watch will recover via seq-based replay on reconnect.
+                    }
+                )
             }
         } catch {
             // Encoding failure — drop the message
