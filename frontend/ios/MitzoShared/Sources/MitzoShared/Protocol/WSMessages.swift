@@ -218,7 +218,7 @@ public enum PermissionDecision: String, Codable, Sendable {
 
 // MARK: - Server → Client Messages
 
-public enum ServerMessage: Decodable, Sendable {
+public enum ServerMessage: Codable, Sendable {
     case welcome(protocolVersion: Int, connectionId: String)
     case reconnected(sessions: [ReconnectedSession])
     case watched(sessionId: String)
@@ -334,17 +334,110 @@ public enum ServerMessage: Decodable, Sendable {
             self = .unknown(type: type)
         }
     }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: AnyCodingKey.self)
+
+        switch self {
+        case .welcome(let version, let connId):
+            try container.encode("welcome", forKey: AnyCodingKey("type"))
+            try container.encode(version, forKey: AnyCodingKey("protocolVersion"))
+            try container.encode(connId, forKey: AnyCodingKey("connectionId"))
+
+        case .reconnected(let sessions):
+            try container.encode("reconnected", forKey: AnyCodingKey("type"))
+            try container.encode(sessions, forKey: AnyCodingKey("sessions"))
+
+        case .watched(let sessionId):
+            try container.encode("watched", forKey: AnyCodingKey("type"))
+            try container.encode(sessionId, forKey: AnyCodingKey("sessionId"))
+
+        case .unwatched(let sessionId):
+            try container.encode("unwatched", forKey: AnyCodingKey("type"))
+            try container.encode(sessionId, forKey: AnyCodingKey("sessionId"))
+
+        case .sessionSwitched(let params):
+            try container.encode("session_switched", forKey: AnyCodingKey("type"))
+            try params.encode(to: encoder)
+
+        case .sessionCleared:
+            try container.encode("session_cleared", forKey: AnyCodingKey("type"))
+
+        case .sessionId(let sessionId, let seq, let ts):
+            try container.encode("session_id", forKey: AnyCodingKey("type"))
+            try container.encode(sessionId, forKey: AnyCodingKey("sessionId"))
+            try container.encodeIfPresent(seq, forKey: AnyCodingKey("seq"))
+            try container.encodeIfPresent(ts, forKey: AnyCodingKey("ts"))
+
+        case .sessionResumed(let sessionId, let replayed):
+            try container.encode("session_resumed", forKey: AnyCodingKey("type"))
+            try container.encode(sessionId, forKey: AnyCodingKey("sessionId"))
+            try container.encode(replayed, forKey: AnyCodingKey("replayed"))
+
+        case .sessionTakeover(let sessionId):
+            try container.encode("session_takeover", forKey: AnyCodingKey("type"))
+            try container.encode(sessionId, forKey: AnyCodingKey("sessionId"))
+
+        case .sessionEnd(let params):
+            try container.encode("session_end", forKey: AnyCodingKey("type"))
+            try params.encode(to: encoder)
+
+        case .messageStart(let params):
+            try container.encode("message_start", forKey: AnyCodingKey("type"))
+            try params.encode(to: encoder)
+
+        case .blockStart(let params):
+            try container.encode("block_start", forKey: AnyCodingKey("type"))
+            try params.encode(to: encoder)
+
+        case .blockDelta(let params):
+            try container.encode("block_delta", forKey: AnyCodingKey("type"))
+            try params.encode(to: encoder)
+
+        case .blockEnd(let params):
+            try container.encode("block_end", forKey: AnyCodingKey("type"))
+            try params.encode(to: encoder)
+
+        case .messageEnd(let params):
+            try container.encode("message_end", forKey: AnyCodingKey("type"))
+            try params.encode(to: encoder)
+
+        case .tokenUpdate(let params):
+            try container.encode("token_update", forKey: AnyCodingKey("type"))
+            try params.encode(to: encoder)
+
+        case .permissionRequest(let params):
+            try container.encode("permission_request", forKey: AnyCodingKey("type"))
+            try params.encode(to: encoder)
+
+        case .toolResult(let params):
+            try container.encode("tool_result", forKey: AnyCodingKey("type"))
+            try params.encode(to: encoder)
+
+        case .error(let err):
+            try container.encode("error", forKey: AnyCodingKey("type"))
+            try container.encode(err, forKey: AnyCodingKey("error"))
+
+        case .modeChanged(let sessionId, let mode):
+            try container.encode("mode_changed", forKey: AnyCodingKey("type"))
+            try container.encode(sessionId, forKey: AnyCodingKey("sessionId"))
+            try container.encode(mode, forKey: AnyCodingKey("mode"))
+
+        case .unknown(let type):
+            try container.encode(type, forKey: AnyCodingKey("type"))
+        }
+    }
 }
 
 // MARK: - Server Message Params
 
-public struct ReconnectedSession: Decodable, Sendable {
+public struct ReconnectedSession: Codable, Sendable {
     public let sessionId: String
     public let replayed: Int
     public let running: Bool
 }
 
-public struct SessionSwitchedParams: Decodable, Sendable {
+public struct SessionSwitchedParams: Codable, Sendable {
     public let sessionId: String
     public let mode: MitzoMode
     public let cwd: String
@@ -353,12 +446,12 @@ public struct SessionSwitchedParams: Decodable, Sendable {
     public let tokens: TokenUsage
 }
 
-public struct SessionEndParams: Decodable, Sendable {
+public struct SessionEndParams: Codable, Sendable {
     public let sessionId: String
     public let usage: UsageStats
 }
 
-public struct UsageStats: Decodable, Sendable {
+public struct UsageStats: Codable, Sendable {
     public let inputTokens: Int
     public let outputTokens: Int
     public let cacheReadTokens: Int
@@ -369,14 +462,14 @@ public struct UsageStats: Decodable, Sendable {
     public let durationApiMs: Int
 }
 
-public struct MessageStartParams: Decodable, Sendable {
+public struct MessageStartParams: Codable, Sendable {
     public let messageId: String
     public let sessionId: String
     public let seq: Int
     public let ts: Int
 }
 
-public struct BlockStartParams: Decodable, Sendable {
+public struct BlockStartParams: Codable, Sendable {
     public let messageId: String
     public let blockId: String
     public let blockType: BlockType
@@ -386,7 +479,7 @@ public struct BlockStartParams: Decodable, Sendable {
     public let toolName: String?
 }
 
-public struct BlockDeltaParams: Decodable, Sendable {
+public struct BlockDeltaParams: Codable, Sendable {
     public let messageId: String
     public let blockId: String
     public let blockType: BlockType
@@ -396,7 +489,7 @@ public struct BlockDeltaParams: Decodable, Sendable {
     public let ts: Int
 }
 
-public struct BlockEndParams: Decodable, Sendable {
+public struct BlockEndParams: Codable, Sendable {
     public let messageId: String
     public let blockId: String
     public let blockType: BlockType
@@ -408,14 +501,14 @@ public struct BlockEndParams: Decodable, Sendable {
     public let input: String?
 }
 
-public struct MessageEndParams: Decodable, Sendable {
+public struct MessageEndParams: Codable, Sendable {
     public let messageId: String
     public let sessionId: String
     public let seq: Int
     public let ts: Int
 }
 
-public struct TokenUpdateParams: Decodable, Sendable {
+public struct TokenUpdateParams: Codable, Sendable {
     public let agentContext: Int
     public let contextCeiling: Int
     public let sessionTotal: Int
@@ -426,7 +519,7 @@ public struct TokenUpdateParams: Decodable, Sendable {
     public let ts: Int?
 }
 
-public struct PermissionRequestParams: Decodable, Sendable {
+public struct PermissionRequestParams: Codable, Sendable {
     public let permId: String
     public let toolName: String
     public let toolInput: String
@@ -437,7 +530,7 @@ public struct PermissionRequestParams: Decodable, Sendable {
     public let tier: ToolTier?
 }
 
-public struct ToolResultParams: Decodable, Sendable {
+public struct ToolResultParams: Codable, Sendable {
     public let messageId: String
     public let toolId: String
     public let result: String

@@ -7,7 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		2C807BBEF27900A4B4C713F3 /* VoiceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E438A1E5CA844963819792C4 /* VoiceService.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
+		30271F81931105049A8D0BCA /* MitzoShared in Frameworks */ = {isa = PBXBuildFile; productRef = 2994CBB574BE2544F671F9BF /* MitzoShared */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
 		504EC3081FED79650016851F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504EC3071FED79650016851F /* AppDelegate.swift */; };
@@ -15,10 +17,22 @@
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
+		51C82AC7CC9D0CD9BB2B8A2D /* MitzoWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 729F6EAA7E6281CC8E027E58 /* MitzoWatchApp.swift */; };
+		87D5F3E4B2B79830BDC6F3CA /* VoiceInputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9D046593F17D7DF6E6056B /* VoiceInputBar.swift */; };
+		91D36789BA83D98F79CA5EA1 /* ChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE85EF8992F04F5159962BE4 /* ChatViewModel.swift */; };
+		943DEFDDFE001627EFF7273F /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4B96DE140138DEF5859CB897 /* Foundation.framework */; };
+		9A8EE45055EB9BF5AB711065 /* PermissionBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB84607485C9AAA4D695F477 /* PermissionBanner.swift */; };
+		B87D83BB43FD8D7A331D5C16 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A60979EA195F633EE664E716 /* LoginView.swift */; };
+		BDF94F63DBEDEAABE3DBA4B8 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF6B3AF931A2A562E89BCCA0 /* ChatView.swift */; };
+		E7C8020332FACEAD32C32377 /* MitzoShared in Frameworks */ = {isa = PBXBuildFile; productRef = A997DA8238CC43203EE0AD73 /* MitzoShared */; };
+		EB52F01B4D4DE944429DFFB7 /* SessionListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A3543D568BAEA16F3464C2D /* SessionListView.swift */; };
+		EBDB8718D00B3CAC47EFD6EC /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB2544C9BF33F98A575F8F9F /* AppState.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		264FB5577C8B9098BE816A36 /* MitzoWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MitzoWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
+		4B96DE140138DEF5859CB897 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS11.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		504EC3071FED79650016851F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -27,28 +41,59 @@
 		504EC3111FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
+		729F6EAA7E6281CC8E027E58 /* MitzoWatchApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MitzoWatchApp.swift; sourceTree = "<group>"; };
+		8B1680960E912FBEABF52962 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
+		9A3543D568BAEA16F3464C2D /* SessionListView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SessionListView.swift; sourceTree = "<group>"; };
 		A1B2C3D40000000000000001 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
+		A60979EA195F633EE664E716 /* LoginView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
+		AB84607485C9AAA4D695F477 /* PermissionBanner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PermissionBanner.swift; sourceTree = "<group>"; };
+		CE85EF8992F04F5159962BE4 /* ChatViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatViewModel.swift; sourceTree = "<group>"; };
+		CF9D046593F17D7DF6E6056B /* VoiceInputBar.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceInputBar.swift; sourceTree = "<group>"; };
+		E438A1E5CA844963819792C4 /* VoiceService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceService.swift; sourceTree = "<group>"; };
+		FA1E96663E02190E82402696 /* MitzoWatch.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = MitzoWatch.entitlements; sourceTree = "<group>"; };
+		FB2544C9BF33F98A575F8F9F /* AppState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		FF6B3AF931A2A562E89BCCA0 /* ChatView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		46CE6721E210798D5CF8813F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				943DEFDDFE001627EFF7273F /* Foundation.framework in Frameworks */,
+				E7C8020332FACEAD32C32377 /* MitzoShared in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		504EC3011FED79650016851F /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */,
+				30271F81931105049A8D0BCA /* MitzoShared in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		02582DED974ED772A6DA674B /* watchOS */ = {
+			isa = PBXGroup;
+			children = (
+				4B96DE140138DEF5859CB897 /* Foundation.framework */,
+			);
+			name = watchOS;
+			sourceTree = "<group>";
+		};
 		504EC2FB1FED79650016851F = {
 			isa = PBXGroup;
 			children = (
 				958DCC722DB07C7200EA8C5F /* debug.xcconfig */,
 				504EC3061FED79650016851F /* App */,
 				504EC3051FED79650016851F /* Products */,
+				F95D97920EBBC9B6E68A1EC4 /* Frameworks */,
+				CB66E8D7AD779656E2F7F467 /* MitzoWatch */,
 			);
 			sourceTree = "<group>";
 		};
@@ -56,6 +101,7 @@
 			isa = PBXGroup;
 			children = (
 				504EC3041FED79650016851F /* App.app */,
+				264FB5577C8B9098BE816A36 /* MitzoWatch.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -76,6 +122,51 @@
 			path = App;
 			sourceTree = "<group>";
 		};
+		AEA8C8B84D080C413486CD27 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				FB2544C9BF33F98A575F8F9F /* AppState.swift */,
+				CE85EF8992F04F5159962BE4 /* ChatViewModel.swift */,
+				E438A1E5CA844963819792C4 /* VoiceService.swift */,
+			);
+			name = Services;
+			path = Services;
+			sourceTree = "<group>";
+		};
+		CB66E8D7AD779656E2F7F467 /* MitzoWatch */ = {
+			isa = PBXGroup;
+			children = (
+				AEA8C8B84D080C413486CD27 /* Services */,
+				D71D2BBA9260C2CCD68E11B9 /* Views */,
+				729F6EAA7E6281CC8E027E58 /* MitzoWatchApp.swift */,
+				8B1680960E912FBEABF52962 /* Info.plist */,
+				FA1E96663E02190E82402696 /* MitzoWatch.entitlements */,
+			);
+			name = MitzoWatch;
+			path = ../MitzoWatch;
+			sourceTree = "<group>";
+		};
+		D71D2BBA9260C2CCD68E11B9 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				A60979EA195F633EE664E716 /* LoginView.swift */,
+				AB84607485C9AAA4D695F477 /* PermissionBanner.swift */,
+				CF9D046593F17D7DF6E6056B /* VoiceInputBar.swift */,
+				FF6B3AF931A2A562E89BCCA0 /* ChatView.swift */,
+				9A3543D568BAEA16F3464C2D /* SessionListView.swift */,
+			);
+			name = Views;
+			path = Views;
+			sourceTree = "<group>";
+		};
+		F95D97920EBBC9B6E68A1EC4 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				02582DED974ED772A6DA674B /* watchOS */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -94,10 +185,31 @@
 			name = App;
 			packageProductDependencies = (
 				4D22ABE82AF431CB00220026 /* CapApp-SPM */,
+				2994CBB574BE2544F671F9BF /* MitzoShared */,
 			);
 			productName = App;
 			productReference = 504EC3041FED79650016851F /* App.app */;
 			productType = "com.apple.product-type.application";
+		};
+		E33326562D8A9AEAE27478C4 /* MitzoWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 17799A0A07B59E02522C0708 /* Build configuration list for PBXNativeTarget "MitzoWatch" */;
+			buildPhases = (
+				5725474A2406FEEDAAE5DA62 /* Sources */,
+				46CE6721E210798D5CF8813F /* Frameworks */,
+				6BDF7BC07BBCE13962BEA325 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MitzoWatch;
+			packageProductDependencies = (
+				A997DA8238CC43203EE0AD73 /* MitzoShared */,
+			);
+			productName = MitzoWatch;
+			productReference = 264FB5577C8B9098BE816A36 /* MitzoWatch.app */;
+			productType = "com.apple.product-type.application.watchapp2";
 		};
 /* End PBXNativeTarget section */
 
@@ -113,6 +225,10 @@
 						LastSwiftMigration = 1100;
 						ProvisioningStyle = Automatic;
 					};
+					E33326562D8A9AEAE27478C4 = {
+						CreatedOnToolsVersion = 16.0;
+						ProvisioningStyle = Automatic;
+					};
 				};
 			};
 			buildConfigurationList = 504EC2FF1FED79650016851F /* Build configuration list for PBXProject "App" */;
@@ -126,12 +242,14 @@
 			mainGroup = 504EC2FB1FED79650016851F;
 			packageReferences = (
 				D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */,
+				F0C38DA10F17B4BECD2F4E09 /* XCLocalSwiftPackageReference "MitzoShared" */,
 			);
 			productRefGroup = 504EC3051FED79650016851F /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				504EC3031FED79650016851F /* App */,
+				E33326562D8A9AEAE27478C4 /* MitzoWatch */,
 			);
 		};
 /* End PBXProject section */
@@ -150,6 +268,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		6BDF7BC07BBCE13962BEA325 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -158,6 +283,22 @@
 			buildActionMask = 2147483647;
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5725474A2406FEEDAAE5DA62 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				51C82AC7CC9D0CD9BB2B8A2D /* MitzoWatchApp.swift in Sources */,
+				EBDB8718D00B3CAC47EFD6EC /* AppState.swift in Sources */,
+				91D36789BA83D98F79CA5EA1 /* ChatViewModel.swift in Sources */,
+				2C807BBEF27900A4B4C713F3 /* VoiceService.swift in Sources */,
+				B87D83BB43FD8D7A331D5C16 /* LoginView.swift in Sources */,
+				9A8EE45055EB9BF5AB711065 /* PermissionBanner.swift in Sources */,
+				87D5F3E4B2B79830BDC6F3CA /* VoiceInputBar.swift in Sources */,
+				BDF94F63DBEDEAABE3DBA4B8 /* ChatView.swift in Sources */,
+				EB52F01B4D4DE944429DFFB7 /* SessionListView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -183,6 +324,32 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
+		16EF91AC41A8DC5F7DE4223C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "$(SRCROOT)/../MitzoWatch/MitzoWatch.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = Y4QGXHYSY3;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "$(SRCROOT)/../MitzoWatch/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mitzo.app.watchkitapp;
+				SDKROOT = watchos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
+		};
 		504EC3141FED79650016851F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 958DCC722DB07C7200EA8C5F /* debug.xcconfig */;
@@ -340,9 +507,45 @@
 			};
 			name = Release;
 		};
+		95C9662613A48A0B722F099A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "$(SRCROOT)/../MitzoWatch/MitzoWatch.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = Y4QGXHYSY3;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "$(SRCROOT)/../MitzoWatch/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mitzo.app.watchkitapp;
+				SDKROOT = watchos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				VALIDATE_PRODUCT = YES;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		17799A0A07B59E02522C0708 /* Build configuration list for PBXNativeTarget "MitzoWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				95C9662613A48A0B722F099A /* Release */,
+				16EF91AC41A8DC5F7DE4223C /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		504EC2FF1FED79650016851F /* Build configuration list for PBXProject "App" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -368,13 +571,27 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = "CapApp-SPM";
 		};
+		F0C38DA10F17B4BECD2F4E09 /* XCLocalSwiftPackageReference "MitzoShared" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../MitzoShared;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		2994CBB574BE2544F671F9BF /* MitzoShared */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F0C38DA10F17B4BECD2F4E09 /* XCLocalSwiftPackageReference "MitzoShared" */;
+			productName = MitzoShared;
+		};
 		4D22ABE82AF431CB00220026 /* CapApp-SPM */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */;
 			productName = "CapApp-SPM";
+		};
+		A997DA8238CC43203EE0AD73 /* MitzoShared */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F0C38DA10F17B4BECD2F4E09 /* XCLocalSwiftPackageReference "MitzoShared" */;
+			productName = MitzoShared;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
