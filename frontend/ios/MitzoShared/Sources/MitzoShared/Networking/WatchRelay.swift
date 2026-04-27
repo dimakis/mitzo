@@ -77,10 +77,7 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
                 WCSession.default.sendMessage(
                     ["_relay": "server_event", "_payload": dict],
                     replyHandler: nil,
-                    errorHandler: { _ in
-                        // WCSession delivery failure (payload too large, watch unreachable, etc.)
-                        // Non-fatal: the watch will recover via seq-based replay on reconnect.
-                    }
+                    errorHandler: { @Sendable _ in }
                 )
             }
         } catch {
