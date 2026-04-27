@@ -9,8 +9,8 @@ import Foundation
 
 /// iPhone-side relay: bridges watch messages to the Mitzo WS connection.
 /// Add to AppDelegate or a long-lived coordinator.
-public final class WatchRelayHost: NSObject, WCSessionDelegate, @unchecked Sendable {
-    private var wsClient: MitzoWSClient?
+public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
+    private let state = WatchRelayHostState()
     private let authManager: AuthManager
 
     public init(authManager: AuthManager) {
@@ -19,7 +19,7 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, @unchecked Senda
     }
 
     public func activate(wsClient: MitzoWSClient) {
-        self.wsClient = wsClient
+        state.setWSClient(wsClient)
 
         guard WCSession.isSupported() else { return }
         WCSession.default.delegate = self
@@ -28,16 +28,13 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, @unchecked Senda
 
     // MARK: - WCSessionDelegate
 
-    public func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
-        // Ready to relay
-    }
+    public func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {}
 
     public func sessionDidBecomeInactive(_ session: WCSession) {}
     public func sessionDidDeactivate(_ session: WCSession) {
         WCSession.default.activate()
     }
 
-    /// Watch sends a message dict, we forward it as a ClientMessage to the WS
     public func session(_ session: WCSession, didReceiveMessage message: [String: Any], replyHandler: @escaping ([String: Any]) -> Void) {
         guard let type = message["_relay"] as? String else {
             replyHandler(["error": "missing _relay type"])
@@ -49,11 +46,10 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, @unchecked Senda
                 switch type {
                 case "send":
                     let clientMsg = try decodeClientMessage(from: message)
-                    try await wsClient?.send(clientMsg)
+                    try await state.getWSClient()?.send(clientMsg)
                     replyHandler(["ok": true])
 
                 case "auth_token":
-                    // Watch requests auth token from phone's keychain
                     if let token = try? await authManager.getToken() {
                         replyHandler(["token": token])
                     } else {
@@ -73,9 +69,8 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, @unchecked Senda
     public func forwardToWatch(_ message: ServerMessage) {
         guard WCSession.default.isReachable else { return }
 
-        // Encode server message to JSON dict for WCSession
         do {
-            let data = try JSONEncoder().encode(ServerMessageWrapper(message: message))
+            let data = try JSONEncoder().encode(message)
             if let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 WCSession.default.sendMessage(["_relay": "server_event", "_payload": dict], replyHandler: nil)
             }
@@ -99,7 +94,11 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, @unchecked Senda
             let params = SendParams(
                 sessionId: dict["sessionId"] as? String,
                 prompt: dict["prompt"] as? String ?? "",
-                clientMsgId: dict["clientMsgId"] as? String ?? UUID().uuidString
+                clientMsgId: dict["clientMsgId"] as? String ?? UUID().uuidString,
+                model: dict["model"] as? String,
+                mode: (dict["mode"] as? String).flatMap(MitzoMode.init(rawValue:)),
+                images: decodeImages(from: dict["images"]),
+                contextBlocks: dict["contextBlocks"] as? [String]
             )
             return .send(params)
 
@@ -124,7 +123,6 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, @unchecked Senda
             return .permissionResponse(params)
 
         case "session_suspend":
-            // Relay suspend from watch
             if let sessions = dict["sessions"] as? [[String: Any]] {
                 let suspendSessions = sessions.compactMap { s -> SuspendSession? in
                     guard let sid = s["sessionId"] as? String,
@@ -139,88 +137,41 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, @unchecked Senda
             throw RelayError.unknownAction(action)
         }
     }
+
+    private func decodeImages(from value: Any?) -> [ImageAttachment]? {
+        guard let arr = value as? [[String: Any]] else { return nil }
+        let images = arr.compactMap { dict -> ImageAttachment? in
+            guard let data = dict["data"] as? String,
+                  let mediaType = dict["mediaType"] as? String else { return nil }
+            return ImageAttachment(data: data, mediaType: mediaType, preview: dict["preview"] as? String)
+        }
+        return images.isEmpty ? nil : images
+    }
+}
+
+/// Thread-safe state container for WatchRelayHost. WCSession callbacks
+/// arrive on a background serial queue, so we need synchronization.
+private final class WatchRelayHostState: Sendable {
+    private nonisolated(unsafe) var _wsClient: MitzoWSClient?
+    private let lock = NSLock()
+
+    func setWSClient(_ client: MitzoWSClient) {
+        lock.lock()
+        _wsClient = client
+        lock.unlock()
+    }
+
+    func getWSClient() -> MitzoWSClient? {
+        lock.lock()
+        defer { lock.unlock() }
+        return _wsClient
+    }
 }
 
 enum RelayError: Error {
     case missingAction
     case missingSessionId
     case unknownAction(String)
-}
-
-/// Wrapper to make ServerMessage Encodable for relay
-struct ServerMessageWrapper: Encodable {
-    let message: ServerMessage
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: AnyCodingKey.self)
-
-        switch message {
-        case .welcome(let version, let connId):
-            try container.encode("welcome", forKey: AnyCodingKey("type"))
-            try container.encode(version, forKey: AnyCodingKey("protocolVersion"))
-            try container.encode(connId, forKey: AnyCodingKey("connectionId"))
-
-        case .blockDelta(let params):
-            try container.encode("block_delta", forKey: AnyCodingKey("type"))
-            try container.encode(params.messageId, forKey: AnyCodingKey("messageId"))
-            try container.encode(params.blockId, forKey: AnyCodingKey("blockId"))
-            try container.encode(params.blockType, forKey: AnyCodingKey("blockType"))
-            try container.encode(params.delta, forKey: AnyCodingKey("delta"))
-            try container.encode(params.sessionId, forKey: AnyCodingKey("sessionId"))
-            try container.encode(params.seq, forKey: AnyCodingKey("seq"))
-
-        case .messageStart(let params):
-            try container.encode("message_start", forKey: AnyCodingKey("type"))
-            try container.encode(params.messageId, forKey: AnyCodingKey("messageId"))
-            try container.encode(params.sessionId, forKey: AnyCodingKey("sessionId"))
-            try container.encode(params.seq, forKey: AnyCodingKey("seq"))
-
-        case .blockStart(let params):
-            try container.encode("block_start", forKey: AnyCodingKey("type"))
-            try container.encode(params.messageId, forKey: AnyCodingKey("messageId"))
-            try container.encode(params.blockId, forKey: AnyCodingKey("blockId"))
-            try container.encode(params.blockType, forKey: AnyCodingKey("blockType"))
-            try container.encode(params.sessionId, forKey: AnyCodingKey("sessionId"))
-            try container.encode(params.seq, forKey: AnyCodingKey("seq"))
-            try container.encodeIfPresent(params.toolName, forKey: AnyCodingKey("toolName"))
-
-        case .blockEnd(let params):
-            try container.encode("block_end", forKey: AnyCodingKey("type"))
-            try container.encode(params.messageId, forKey: AnyCodingKey("messageId"))
-            try container.encode(params.blockId, forKey: AnyCodingKey("blockId"))
-            try container.encode(params.blockType, forKey: AnyCodingKey("blockType"))
-            try container.encode(params.sessionId, forKey: AnyCodingKey("sessionId"))
-            try container.encode(params.seq, forKey: AnyCodingKey("seq"))
-            try container.encodeIfPresent(params.toolName, forKey: AnyCodingKey("toolName"))
-            try container.encodeIfPresent(params.toolId, forKey: AnyCodingKey("toolId"))
-
-        case .messageEnd(let params):
-            try container.encode("message_end", forKey: AnyCodingKey("type"))
-            try container.encode(params.messageId, forKey: AnyCodingKey("messageId"))
-            try container.encode(params.sessionId, forKey: AnyCodingKey("sessionId"))
-            try container.encode(params.seq, forKey: AnyCodingKey("seq"))
-
-        case .permissionRequest(let params):
-            try container.encode("permission_request", forKey: AnyCodingKey("type"))
-            try container.encode(params.permId, forKey: AnyCodingKey("permId"))
-            try container.encode(params.toolName, forKey: AnyCodingKey("toolName"))
-            try container.encode(params.toolInput, forKey: AnyCodingKey("toolInput"))
-            try container.encodeIfPresent(params.displayName, forKey: AnyCodingKey("displayName"))
-            try container.encodeIfPresent(params.tier, forKey: AnyCodingKey("tier"))
-
-        case .sessionEnd(let params):
-            try container.encode("session_end", forKey: AnyCodingKey("type"))
-            try container.encode(params.sessionId, forKey: AnyCodingKey("sessionId"))
-
-        case .error(let err):
-            try container.encode("error", forKey: AnyCodingKey("type"))
-            try container.encode(err, forKey: AnyCodingKey("error"))
-
-        default:
-            // For other message types, encode just the type
-            try container.encode("unknown", forKey: AnyCodingKey("type"))
-        }
-    }
 }
 
 #endif
@@ -232,12 +183,16 @@ import WatchConnectivity
 import Foundation
 
 /// Watch-side relay: sends messages through iPhone when direct WS is unavailable.
-public final class WatchRelayClient: NSObject, WCSessionDelegate, @unchecked Sendable {
-    public var onServerMessage: ((ServerMessage) -> Void)?
+public final class WatchRelayClient: NSObject, WCSessionDelegate, Sendable {
+    private let state = WatchRelayClientState()
     public var isPhoneReachable: Bool { WCSession.default.isReachable }
 
     public override init() {
         super.init()
+    }
+
+    public func setOnServerMessage(_ handler: @escaping @Sendable (ServerMessage) -> Void) {
+        state.setHandler(handler)
     }
 
     public func activate() {
@@ -282,19 +237,35 @@ public final class WatchRelayClient: NSObject, WCSessionDelegate, @unchecked Sen
 
     public func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {}
 
-    /// Receive relayed server messages from phone
     public func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
         guard message["_relay"] as? String == "server_event",
               let payload = message["_payload"] as? [String: Any] else { return }
 
-        // Decode the ServerMessage from the payload dict
         do {
             let data = try JSONSerialization.data(withJSONObject: payload)
             let serverMsg = try JSONDecoder().decode(ServerMessage.self, from: data)
-            onServerMessage?(serverMsg)
+            state.getHandler()?(serverMsg)
         } catch {
             // Decoding failure — drop the message
         }
+    }
+}
+
+/// Thread-safe state container for WatchRelayClient.
+private final class WatchRelayClientState: Sendable {
+    private nonisolated(unsafe) var _handler: (@Sendable (ServerMessage) -> Void)?
+    private let lock = NSLock()
+
+    func setHandler(_ handler: @escaping @Sendable (ServerMessage) -> Void) {
+        lock.lock()
+        _handler = handler
+        lock.unlock()
+    }
+
+    func getHandler() -> (@Sendable (ServerMessage) -> Void)? {
+        lock.lock()
+        defer { lock.unlock() }
+        return _handler
     }
 }
 

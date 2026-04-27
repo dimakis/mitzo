@@ -248,3 +248,205 @@ import Foundation
         #expect(decoded == expected)
     }
 }
+
+// MARK: - ServerMessage Encode → Decode Round-Trip (relay simulation)
+
+@Test func testBlockDeltaRoundTrip() throws {
+    let json = """
+    {"v":2,"type":"block_delta","messageId":"m1","blockId":"b1","blockType":"text","delta":"hello ","sessionId":"s1","seq":5,"ts":1714070400}
+    """.data(using: .utf8)!
+
+    let original = try JSONDecoder().decode(ServerMessage.self, from: json)
+    let encoded = try JSONEncoder().encode(original)
+    let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+
+    guard case .blockDelta(let params) = decoded else {
+        Issue.record("Expected block_delta after round-trip")
+        return
+    }
+    #expect(params.delta == "hello ")
+    #expect(params.ts == 1714070400)
+    #expect(params.seq == 5)
+    #expect(params.sessionId == "s1")
+    #expect(params.blockType == .text)
+}
+
+@Test func testMessageStartRoundTrip() throws {
+    let json = """
+    {"type":"message_start","messageId":"m1","sessionId":"s1","seq":1,"ts":1714070400}
+    """.data(using: .utf8)!
+
+    let original = try JSONDecoder().decode(ServerMessage.self, from: json)
+    let encoded = try JSONEncoder().encode(original)
+    let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+
+    guard case .messageStart(let params) = decoded else {
+        Issue.record("Expected message_start after round-trip")
+        return
+    }
+    #expect(params.messageId == "m1")
+    #expect(params.ts == 1714070400)
+    #expect(params.seq == 1)
+}
+
+@Test func testBlockStartRoundTrip() throws {
+    let json = """
+    {"type":"block_start","messageId":"m1","blockId":"b1","blockType":"tool_use","sessionId":"s1","seq":2,"ts":1714070401,"toolName":"Read"}
+    """.data(using: .utf8)!
+
+    let original = try JSONDecoder().decode(ServerMessage.self, from: json)
+    let encoded = try JSONEncoder().encode(original)
+    let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+
+    guard case .blockStart(let params) = decoded else {
+        Issue.record("Expected block_start after round-trip")
+        return
+    }
+    #expect(params.toolName == "Read")
+    #expect(params.ts == 1714070401)
+    #expect(params.blockType == .toolUse)
+}
+
+@Test func testBlockEndRoundTrip() throws {
+    let json = """
+    {"type":"block_end","messageId":"m1","blockId":"b1","blockType":"tool_use","sessionId":"s1","seq":3,"ts":1714070402,"toolName":"Read","toolId":"t1","input":"{\\"path\\":\\"/foo\\"}"}
+    """.data(using: .utf8)!
+
+    let original = try JSONDecoder().decode(ServerMessage.self, from: json)
+    let encoded = try JSONEncoder().encode(original)
+    let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+
+    guard case .blockEnd(let params) = decoded else {
+        Issue.record("Expected block_end after round-trip")
+        return
+    }
+    #expect(params.toolName == "Read")
+    #expect(params.toolId == "t1")
+    #expect(params.input == "{\"path\":\"/foo\"}")
+    #expect(params.ts == 1714070402)
+}
+
+@Test func testMessageEndRoundTrip() throws {
+    let json = """
+    {"type":"message_end","messageId":"m1","sessionId":"s1","seq":4,"ts":1714070403}
+    """.data(using: .utf8)!
+
+    let original = try JSONDecoder().decode(ServerMessage.self, from: json)
+    let encoded = try JSONEncoder().encode(original)
+    let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+
+    guard case .messageEnd(let params) = decoded else {
+        Issue.record("Expected message_end after round-trip")
+        return
+    }
+    #expect(params.ts == 1714070403)
+    #expect(params.seq == 4)
+}
+
+@Test func testToolResultRoundTrip() throws {
+    let json = """
+    {"type":"tool_result","messageId":"m1","toolId":"t1","result":"file contents","isError":false}
+    """.data(using: .utf8)!
+
+    let original = try JSONDecoder().decode(ServerMessage.self, from: json)
+    let encoded = try JSONEncoder().encode(original)
+    let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+
+    guard case .toolResult(let params) = decoded else {
+        Issue.record("Expected tool_result after round-trip")
+        return
+    }
+    #expect(params.toolId == "t1")
+    #expect(params.result == "file contents")
+    #expect(params.isError == false)
+}
+
+@Test func testSessionIdRoundTrip() throws {
+    let json = """
+    {"type":"session_id","sessionId":"s-new","seq":0,"ts":1714070400}
+    """.data(using: .utf8)!
+
+    let original = try JSONDecoder().decode(ServerMessage.self, from: json)
+    let encoded = try JSONEncoder().encode(original)
+    let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+
+    guard case .sessionId(let sid, let seq, let ts) = decoded else {
+        Issue.record("Expected session_id after round-trip")
+        return
+    }
+    #expect(sid == "s-new")
+    #expect(seq == 0)
+    #expect(ts == 1714070400)
+}
+
+@Test func testPermissionRequestRoundTrip() throws {
+    let json = """
+    {"type":"permission_request","permId":"p1","toolName":"Bash","toolInput":"npm test","title":"Run command","description":"Execute npm test","displayName":"Shell","decisionReason":"elevated tier","tier":"elevated"}
+    """.data(using: .utf8)!
+
+    let original = try JSONDecoder().decode(ServerMessage.self, from: json)
+    let encoded = try JSONEncoder().encode(original)
+    let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+
+    guard case .permissionRequest(let params) = decoded else {
+        Issue.record("Expected permission_request after round-trip")
+        return
+    }
+    #expect(params.permId == "p1")
+    #expect(params.title == "Run command")
+    #expect(params.description == "Execute npm test")
+    #expect(params.decisionReason == "elevated tier")
+    #expect(params.tier == .elevated)
+}
+
+@Test func testModeChangedRoundTrip() throws {
+    let json = """
+    {"type":"mode_changed","sessionId":"s1","mode":"auto"}
+    """.data(using: .utf8)!
+
+    let original = try JSONDecoder().decode(ServerMessage.self, from: json)
+    let encoded = try JSONEncoder().encode(original)
+    let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+
+    guard case .modeChanged(let sid, let mode) = decoded else {
+        Issue.record("Expected mode_changed after round-trip")
+        return
+    }
+    #expect(sid == "s1")
+    #expect(mode == .auto)
+}
+
+@Test func testTokenUpdateRoundTrip() throws {
+    let json = """
+    {"type":"token_update","agentContext":5000,"contextCeiling":200000,"sessionTotal":12000,"turnIndex":3,"sessionId":"s1","seq":10,"ts":1714070400}
+    """.data(using: .utf8)!
+
+    let original = try JSONDecoder().decode(ServerMessage.self, from: json)
+    let encoded = try JSONEncoder().encode(original)
+    let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+
+    guard case .tokenUpdate(let params) = decoded else {
+        Issue.record("Expected token_update after round-trip")
+        return
+    }
+    #expect(params.agentContext == 5000)
+    #expect(params.contextCeiling == 200000)
+    #expect(params.ts == 1714070400)
+}
+
+@Test func testWelcomeRoundTrip() throws {
+    let json = """
+    {"type":"welcome","protocolVersion":2,"connectionId":"conn-abc"}
+    """.data(using: .utf8)!
+
+    let original = try JSONDecoder().decode(ServerMessage.self, from: json)
+    let encoded = try JSONEncoder().encode(original)
+    let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+
+    guard case .welcome(let version, let connId) = decoded else {
+        Issue.record("Expected welcome after round-trip")
+        return
+    }
+    #expect(version == 2)
+    #expect(connId == "conn-abc")
+}

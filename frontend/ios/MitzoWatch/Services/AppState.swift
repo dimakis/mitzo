@@ -22,6 +22,8 @@ final class AppState: ObservableObject {
     private var apiClient: MitzoAPIClient?
     private var activeChatVM: ChatViewModel?
     private let relayClient = WatchRelayClient()
+    private var reconnectAttempts = 0
+    private static let maxReconnectDelay: UInt64 = 30_000_000_000 // 30s
 
     // Configurable via UserDefaults; defaults to Tailscale hostname
     var serverURL: URL {
@@ -30,9 +32,8 @@ final class AppState: ObservableObject {
     }
 
     init() {
-        // Activate WatchConnectivity relay
         relayClient.activate()
-        relayClient.onServerMessage = { [weak self] msg in
+        relayClient.setOnServerMessage { [weak self] msg in
             Task { @MainActor in
                 self?.activeChatVM?.handleMessage(msg)
             }
@@ -46,10 +47,8 @@ final class AppState: ObservableObject {
     // MARK: - Auth
 
     func checkAuth() async {
-        // Try shared Keychain first
         var authenticated = await authManager.isAuthenticated()
 
-        // If no local token, try getting it from the phone via relay
         if !authenticated && relayClient.isPhoneReachable {
             do {
                 let token = try await relayClient.requestAuthToken()
@@ -79,15 +78,16 @@ final class AppState: ObservableObject {
     // MARK: - Connection (waterfall: direct → relay)
 
     func connect() async {
-        // Try direct WS first
         let directSuccess = await connectDirect()
-        if directSuccess { return }
+        if directSuccess {
+            reconnectAttempts = 0
+            return
+        }
 
-        // Fall back to relay via iPhone
         if relayClient.isPhoneReachable {
             connectionMode = .relay
             connectionState = .connected(connectionId: "relay")
-            // In relay mode, messages go through WatchRelayClient
+            reconnectAttempts = 0
             await loadSessionsViaRelay()
         } else {
             connectionMode = .none
@@ -110,7 +110,6 @@ final class AppState: ObservableObject {
 
         apiClient = MitzoAPIClient(baseURL: serverURL, authManager: authManager)
 
-        // Try connecting with a timeout
         let connected = await withCheckedContinuation { continuation in
             var resolved = false
 
@@ -129,7 +128,6 @@ final class AppState: ObservableObject {
                 }
             }
 
-            // Timeout after 5 seconds
             Task {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 if !resolved {
@@ -170,10 +168,10 @@ final class AppState: ObservableObject {
     }
 
     private func loadSessionsViaRelay() async {
-        // In relay mode, we can't use the REST API directly.
-        // The phone handles the WS connection; we just send/receive messages.
-        // Session list would need a relay message type, or we accept
-        // that relay mode starts from existing sessions only.
+        // Relay mode can't use the REST API directly — the phone owns the
+        // WS connection and there's no relay message type for session listing.
+        // The watch shows an empty list with a hint to open on iPhone.
+        sessions = []
     }
 
     // MARK: - Active Chat
@@ -190,7 +188,6 @@ final class AppState: ObservableObject {
             try await wsClient?.send(message)
 
         case .relay:
-            // Convert ClientMessage to relay dict
             let dict = clientMessageToRelayDict(message)
             _ = try await relayClient.send(action: dict["action"] as? String ?? "", params: dict)
 
@@ -206,10 +203,9 @@ final class AppState: ObservableObject {
         case .stateChanged(let state):
             connectionState = state
 
-            // If direct connection drops, try relay
             if case .disconnected = state, connectionMode == .direct {
                 connectionMode = .none
-                Task { await connect() }
+                reconnectWithBackoff()
             }
 
         case .message(let msg):
@@ -220,17 +216,39 @@ final class AppState: ObservableObject {
         }
     }
 
+    private func reconnectWithBackoff() {
+        reconnectAttempts += 1
+        let baseDelay: UInt64 = 1_000_000_000 // 1s
+        let delay = min(baseDelay * UInt64(1 << min(reconnectAttempts - 1, 4)), Self.maxReconnectDelay)
+
+        Task {
+            try? await Task.sleep(nanoseconds: delay)
+            await connect()
+        }
+    }
+
     // MARK: - Helpers
 
     private func clientMessageToRelayDict(_ message: ClientMessage) -> [String: Any] {
         switch message {
         case .send(let params):
-            return [
+            var dict: [String: Any] = [
                 "action": "send",
                 "sessionId": params.sessionId as Any,
                 "prompt": params.prompt,
                 "clientMsgId": params.clientMsgId
             ]
+            if let model = params.model { dict["model"] = model }
+            if let mode = params.mode { dict["mode"] = mode.rawValue }
+            if let images = params.images {
+                dict["images"] = images.map { img in
+                    var d: [String: Any] = ["data": img.data, "mediaType": img.mediaType]
+                    if let preview = img.preview { d["preview"] = preview }
+                    return d
+                }
+            }
+            if let ctx = params.contextBlocks { dict["contextBlocks"] = ctx }
+            return dict
         case .stop(let sessionId):
             return ["action": "stop", "sessionId": sessionId]
         case .watch(let sessionId):
