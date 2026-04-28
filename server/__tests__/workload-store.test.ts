@@ -109,6 +109,11 @@ describe('WorkloadStore', () => {
       const { item } = store.ingest(signal);
       expect(item.profile).toBe('default');
     });
+
+    it('throws on invalid timestamp format', () => {
+      const signal = makeSignal({ timestamp: 'not-a-date' });
+      expect(() => store.ingest(signal)).toThrow('Invalid timestamp format');
+    });
   });
 
   describe('ingestBatch', () => {
