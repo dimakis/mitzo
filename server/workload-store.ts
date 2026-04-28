@@ -140,7 +140,8 @@ const SCHEMA = `
 
 // --- Helpers ---
 
-const EMPTY_HINTS: ContextHints = {
+/** Sentinel for missing context hints. Frozen to prevent accidental mutation via shallow copies. */
+const EMPTY_HINTS: ContextHints = Object.freeze({
   repos: [],
   paths: [],
   issues: [],
@@ -149,7 +150,7 @@ const EMPTY_HINTS: ContextHints = {
   jiraKeys: [],
   keywords: [],
   taskHint: '',
-};
+}) as ContextHints;
 
 function parseContextHints(raw: string | null): ContextHints {
   if (!raw) return { ...EMPTY_HINTS };
@@ -210,13 +211,12 @@ function rowToSource(row: TodoSourceRow): TodoSource {
 
 // --- Scoring ---
 
-function computeUrgency(signal: WorkSignal, existingSourceCount: number): number {
+function computeUrgency(signal: WorkSignal): number {
   const base = signal.urgencyHint ?? 0.3;
   const ageMs = Date.now() - new Date(signal.timestamp).getTime();
   const ageDays = ageMs / (1000 * 60 * 60 * 24);
   const ageBoost = ageDays > 7 ? 0.1 : 0;
-  const crossSourceBoost = existingSourceCount > 0 ? 0.15 : 0;
-  return Math.min(1.0, base + ageBoost + crossSourceBoost);
+  return Math.min(1.0, base + ageBoost);
 }
 
 // --- Store ---
@@ -242,14 +242,18 @@ export class WorkloadStore {
 
   /**
    * Ingest a WorkSignal. Deduplicates by (sourceType, sourceId).
-   * - New source for existing item: adds source, merges context hints, rescores.
-   * - New source, no matching item: creates item + source.
+   * - New source: creates a new item + source.
    * - Existing source: updates timestamp, returns existing item.
    */
   ingest(signal: WorkSignal): { item: TodoItem; created: boolean } {
     const db = this.getDb();
     const now = Date.now();
     const signalTs = new Date(signal.timestamp).getTime();
+
+    // Validate timestamp format
+    if (isNaN(signalTs)) {
+      throw new Error(`Invalid timestamp format: ${signal.timestamp}`);
+    }
 
     // Check if this exact source already exists
     const existingSource = db
@@ -269,11 +273,8 @@ export class WorkloadStore {
       return { item: this.get(existingSource.item_id)!, created: false };
     }
 
-    // New source — find if there's an existing item for this profile to attach to,
-    // or create a new item
+    // New source — create a new item
     const profile = signal.profile ?? 'default';
-
-    // Create new item
     const itemId = randomUUID();
     const hints = signal.contextHints
       ? mergeContextHints({ ...EMPTY_HINTS }, signal.contextHints)
@@ -287,7 +288,7 @@ export class WorkloadStore {
       signal.title,
       signal.snippet || null,
       profile,
-      computeUrgency(signal, 0),
+      computeUrgency(signal),
       JSON.stringify(hints),
       now,
       now,

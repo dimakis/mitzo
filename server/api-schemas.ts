@@ -199,11 +199,11 @@ const WorkSignalContextHints = z.object({
 export const WorkSignalBody = z.object({
   sourceType: z.string().min(1),
   sourceId: z.string().min(1),
-  url: z.string().min(1),
+  url: z.string().url(),
   title: z.string().min(1),
   snippet: z.string().default(''),
   author: z.string().min(1),
-  timestamp: z.string().min(1), // ISO 8601
+  timestamp: z.string().datetime({ offset: true }),
   contextHints: WorkSignalContextHints.optional(),
   urgencyHint: z.number().min(0).max(1).optional(),
   profile: z.string().optional(),
@@ -224,5 +224,4 @@ export const WorkloadItemUpdateBody = z.object({
 
 export const WorkloadPromoteBody = z.object({
   description: z.string().optional(),
-  specMode: z.boolean().optional(),
 });
