@@ -1405,6 +1405,34 @@ describe('runQueryLoop', () => {
       expect(v2Transport.sent.some((m) => m.type === 'session_end')).toBe(true);
     });
 
+    it('persists error-path session_end to EventStore via sendOrBuffer', async () => {
+      const store = new EventStore(':memory:');
+      const connRegistry = new ConnectionRegistry();
+      const v2Transport = fakeTransport();
+      connRegistry.register(clientId, v2Transport);
+      connRegistry.watch(clientId, 'sess-err');
+      connRegistry.setActive(clientId, 'sess-err');
+
+      const session = registry.get(clientId)!;
+      session.sessionId = 'sess-err';
+
+      async function* errorStream() {
+        yield {
+          type: 'stream_event',
+          event: { type: 'message_start', message: { id: 'msg-err' } },
+        };
+        throw new Error('simulated failure');
+      }
+
+      await runQueryLoop(errorStream(), clientId, registry, abortController, store, 'sess-err', {
+        connRegistry,
+      });
+
+      // session_end must be persisted to EventStore for reconnect replay
+      const events = store.getEventsAfter('sess-err', 0);
+      expect(events.some((e) => e.type === 'session_end')).toBe(true);
+    });
+
     it('delivers events to a NEW connection after WS reconnect (old connection gone)', async () => {
       const connRegistry = new ConnectionRegistry();
       const oldTransport = fakeTransport();

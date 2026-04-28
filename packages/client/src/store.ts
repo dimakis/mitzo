@@ -167,7 +167,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     pendingSendTimer?: ReturnType<typeof setTimeout>;
   } = {
     currentSessionId: undefined,
-    pendingSend: null,
+    pendingSend: [],
   };
 
   let recoveryInFlight = false;
@@ -183,7 +183,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             messages:
               msgs.length > 0
                 ? messagesReducer(s.messages, { type: 'RESTORE', messages: msgs })
-                : { ...s.messages, messages: [], current: null },
+                : s.messages, // preserve state — empty REST response doesn't mean state is invalid
           }));
         }
       })
@@ -266,7 +266,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         connection.clearSession(sid);
       }
       parserState.currentSessionId = undefined;
-      parserState.pendingSend = null;
+      parserState.pendingSend = [];
       clearPendingSendTimer();
       connection.send({ type: 'switch_session', sessionId: null });
       set({
@@ -316,19 +316,26 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       const msg = buildPayload();
 
       if (wasRunning) {
-        parserState.pendingSend = msg;
+        parserState.pendingSend.push(msg);
         // Safety net: if no session_end arrives within 5s (e.g. stale running
-        // state after reconnect), flush the pending message as a new session.
+        // state after reconnect), flush the first pending message as a new session.
         if (parserState.pendingSendTimer) clearTimeout(parserState.pendingSendTimer);
-        parserState.pendingSendTimer = setTimeout(() => {
-          const pending = parserState.pendingSend;
-          if (!pending) return;
-          parserState.pendingSend = null;
-          parserState.pendingSendTimer = undefined;
+        parserState.pendingSendTimer = setTimeout(function drainOne() {
+          const pending = parserState.pendingSend.shift();
+          if (!pending) {
+            parserState.pendingSendTimer = undefined;
+            return;
+          }
           set((s) => ({
             messages: messagesReducer(s.messages, { type: 'SET_RUNNING', running: true }),
           }));
           connection.send(pending);
+          // Reschedule for remaining queued messages
+          if (parserState.pendingSend.length > 0) {
+            parserState.pendingSendTimer = setTimeout(drainOne, PENDING_SEND_TIMEOUT_MS);
+          } else {
+            parserState.pendingSendTimer = undefined;
+          }
         }, PENDING_SEND_TIMEOUT_MS);
       } else {
         const sent = connection.send(msg);
@@ -696,9 +703,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     const result = parseServerMessage(msg as WsMsg, parserState, callbacks, 'v2');
 
-    // If the parser consumed the pending send (session_end handler), cancel the
-    // safety-net timer — the normal flush path handled it.
-    if (!parserState.pendingSend && parserState.pendingSendTimer) {
+    // If the queue is now empty, cancel the safety-net timer — the normal
+    // session_end flush path handled it.
+    if (parserState.pendingSend.length === 0 && parserState.pendingSendTimer) {
       clearPendingSendTimer();
     }
 
