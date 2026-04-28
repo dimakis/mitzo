@@ -63,8 +63,8 @@ export interface ProtocolParserState {
   /** Currently tracked session ID (used for expiry detection). */
   currentSessionId: string | undefined;
 
-  /** Queued message to send after current session ends. */
-  pendingSend: Record<string, unknown> | null;
+  /** Queued messages to send after current session ends (FIFO). */
+  pendingSend: Record<string, unknown>[];
 }
 
 // ─── Parser result ───────────────────────────────────────────────────────────
@@ -113,10 +113,19 @@ export function parseServerMessage(
 
     // ── v2 handshake events ────────────────────────────────────────────────
 
-    case 'reconnected':
+    case 'reconnected': {
       result.connectionUpdate = { status: 'connected' };
+      // Apply authoritative running state from the server for the active session
+      const sessions = msg.sessions as Array<{ sessionId: string; running: boolean }> | undefined;
+      if (sessions && state.currentSessionId) {
+        const active = sessions.find((s) => s.sessionId === state.currentSessionId);
+        if (active && !active.running) {
+          result.messagesActions.push({ type: 'SET_RUNNING', running: false });
+        }
+      }
       callbacks.onReconnected?.();
       break;
+    }
 
     case 'session_takeover':
       result.messagesActions.push({ type: 'SET_RUNNING', running: false });
@@ -267,9 +276,8 @@ export function parseServerMessage(
       if (msg.sessionId && !state.currentSessionId) {
         callbacks.onSessionAssigned(msg.sessionId as string);
       }
-      const pending = state.pendingSend;
+      const pending = state.pendingSend.shift();
       if (pending) {
-        state.pendingSend = null;
         result.messagesActions.push({ type: 'SET_RUNNING', running: true });
         // v2 path: use onSendQueued callback (no pool key needed)
         if (callbacks.onSendQueued) {
@@ -335,7 +343,7 @@ export function parseServerMessage(
       const errorMsg = msg.error as string;
 
       callbacks.setWsRunning?.(poolKey, false);
-      state.pendingSend = null;
+      state.pendingSend = [];
       result.messagesActions.push({
         type: 'ERROR',
         error: errorMsg || 'Unknown error',

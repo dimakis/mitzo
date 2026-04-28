@@ -819,14 +819,11 @@ async function _runQueryLoopInner(
       if (finalSession) {
         finalSession.currentSnapshot = null;
         if (!doneSent) {
-          const endMsg = v2('session_end', { sessionId: finalSession.sessionId });
-          const sid = finalSession.sessionId;
-          if (sid && connRegistry?.hasOpenWatchers(sid)) {
-            connRegistry.broadcast(sid, endMsg);
-          } else {
-            send(finalSession.transport, endMsg);
-            broadcastToObservers(finalSession.observers, endMsg);
-          }
+          // Use sendOrBuffer to persist to EventStore (not just send) so that
+          // reconnect replay includes session_end and clears stale running state.
+          const sid = finalSession.sessionId ?? resolvedSessionId;
+          const endMsg = v2('session_end', { sessionId: sid });
+          sendOrBuffer(endMsg, clientId, registry, store, sid, connRegistry);
           if (sid && connRegistry?.hasOpenWatchers(sid)) {
             // Clear active session only on connections whose active is this session
             for (const { connectionId: cid } of connRegistry.getConnectionsWatching(sid, true)) {

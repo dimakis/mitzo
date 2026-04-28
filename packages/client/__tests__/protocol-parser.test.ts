@@ -5,7 +5,7 @@ import type { ProtocolCallbacks, ProtocolParserState } from '../src/protocol-par
 function makeState(overrides?: Partial<ProtocolParserState>): ProtocolParserState {
   return {
     currentSessionId: undefined,
-    pendingSend: null,
+    pendingSend: [],
     ...overrides,
   };
 }
@@ -155,14 +155,20 @@ describe('session lifecycle', () => {
     ]);
   });
 
-  it('session_end clears pending send and queues it', () => {
-    const state = makeState({ pendingSend: { type: 'send', prompt: 'follow-up' } });
+  it('session_end dequeues first pending send and queues it', () => {
+    const state = makeState({
+      pendingSend: [
+        { type: 'send', prompt: 'follow-up' },
+        { type: 'send', prompt: 'second' },
+      ],
+    });
     const cb = makeCallbacks();
     const r = parseServerMessage({ type: 'session_end', sessionId: 'sid' }, state, cb, POOL_KEY);
     expect(r.messagesActions).toContainEqual({ type: 'SESSION_END', sessionId: 'sid' });
     expect(r.messagesActions).toContainEqual({ type: 'SET_RUNNING', running: true });
     expect(cb.sendQueued).toHaveBeenCalledWith(POOL_KEY, { type: 'send', prompt: 'follow-up' });
-    expect(state.pendingSend).toBeNull();
+    // Second message stays queued
+    expect(state.pendingSend).toEqual([{ type: 'send', prompt: 'second' }]);
   });
 });
 
@@ -369,10 +375,10 @@ describe('error handling', () => {
     expect(r.messagesActions).toEqual([{ type: 'ERROR', error: 'Something broke' }]);
   });
 
-  it('error clears pendingSend', () => {
-    const state = makeState({ pendingSend: { type: 'send', prompt: 'test' } });
+  it('error clears pendingSend queue', () => {
+    const state = makeState({ pendingSend: [{ type: 'send', prompt: 'test' }] });
     parseServerMessage({ type: 'error', error: 'fail' }, state, makeCallbacks(), POOL_KEY);
-    expect(state.pendingSend).toBeNull();
+    expect(state.pendingSend).toEqual([]);
   });
 });
 
@@ -608,6 +614,45 @@ describe('reconnected', () => {
     const cb = makeCallbacks({ onReconnected });
     parseServerMessage({ type: 'reconnected', sessions: [] }, makeState(), cb, POOL_KEY);
     expect(onReconnected).toHaveBeenCalled();
+  });
+
+  it('dispatches SET_RUNNING false when active session reports not running', () => {
+    const state = makeState({ currentSessionId: 'sid-1' });
+    const r = parseServerMessage(
+      { type: 'reconnected', sessions: [{ sessionId: 'sid-1', replayed: 0, running: false }] },
+      state,
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.messagesActions).toContainEqual({ type: 'SET_RUNNING', running: false });
+  });
+
+  it('does not dispatch SET_RUNNING when active session is still running', () => {
+    const state = makeState({ currentSessionId: 'sid-1' });
+    const r = parseServerMessage(
+      { type: 'reconnected', sessions: [{ sessionId: 'sid-1', replayed: 0, running: true }] },
+      state,
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.messagesActions).not.toContainEqual(expect.objectContaining({ type: 'SET_RUNNING' }));
+  });
+
+  it('no-ops when no currentSessionId', () => {
+    const state = makeState({ currentSessionId: undefined });
+    const r = parseServerMessage(
+      { type: 'reconnected', sessions: [{ sessionId: 'sid-1', replayed: 0, running: false }] },
+      state,
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.messagesActions).not.toContainEqual(expect.objectContaining({ type: 'SET_RUNNING' }));
+  });
+
+  it('no-ops when sessions field is undefined (backward compat)', () => {
+    const state = makeState({ currentSessionId: 'sid-1' });
+    const r = parseServerMessage({ type: 'reconnected' }, state, makeCallbacks(), POOL_KEY);
+    expect(r.messagesActions).not.toContainEqual(expect.objectContaining({ type: 'SET_RUNNING' }));
   });
 });
 
