@@ -183,6 +183,11 @@ public struct Session: Codable, Sendable, Identifiable {
 public struct SessionsResponse: Codable, Sendable {
     public let sessions: [Session]
     public let hasMore: Bool
+
+    public init(sessions: [Session], hasMore: Bool) {
+        self.sessions = sessions
+        self.hasMore = hasMore
+    }
 }
 
 // MARK: - Session Metadata (matches GET /api/sessions/:id/meta)
