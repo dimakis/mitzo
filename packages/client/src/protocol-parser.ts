@@ -115,11 +115,24 @@ export function parseServerMessage(
 
     case 'reconnected': {
       result.connectionUpdate = { status: 'connected' };
-      // Apply authoritative running state from the server for the active session
-      const sessions = msg.sessions as Array<{ sessionId: string; running: boolean }> | undefined;
-      if (sessions && state.currentSessionId) {
+      // Apply authoritative running state from the server for the active session.
+      // Validate runtime shape: sessions must be an array, and each entry must have
+      // sessionId (string) and running (boolean). Explicit running === false check
+      // guards against undefined/missing field.
+      const sessions = msg.sessions as unknown;
+      if (
+        Array.isArray(sessions) &&
+        state.currentSessionId &&
+        sessions.every(
+          (s): s is { sessionId: string; running: boolean } =>
+            typeof s === 'object' &&
+            s !== null &&
+            typeof s.sessionId === 'string' &&
+            typeof s.running === 'boolean',
+        )
+      ) {
         const active = sessions.find((s) => s.sessionId === state.currentSessionId);
-        if (active && !active.running) {
+        if (active && active.running === false) {
           result.messagesActions.push({ type: 'SET_RUNNING', running: false });
         }
       }
