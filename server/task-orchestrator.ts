@@ -1,4 +1,5 @@
 import type { TaskStore, Task, GateConfig } from './task-store.js';
+import type { WorkloadStore } from './workload-store.js';
 import { sendToChat } from './chat.js';
 import { createLogger } from './logger.js';
 
@@ -21,6 +22,7 @@ export interface StartOptions {
 
 export interface OrchestratorDeps {
   store: TaskStore;
+  workloadStore?: WorkloadStore;
   /** Resolve session's clientId for the reuse session */
   getClientId: () => string | null;
   /** Set task context on the session */
@@ -274,6 +276,13 @@ export class TaskOrchestrator {
         goalId: this.goalId,
         status: goalStatus,
       });
+
+      // Lifecycle sync: complete linked TodoItems when goal completes
+      if (goalStatus === 'done' && this.deps.workloadStore) {
+        this.deps.workloadStore.completeByGoal(this.goalId);
+        log.info('completed linked workload items', { goalId: this.goalId });
+      }
+
       this.stop();
       return;
     }
