@@ -24,5 +24,7 @@
 	<string>Mitzo uses the microphone for voice input to send messages.</string>
 	<key>WKApplication</key>
 	<true/>
+	<key>WKCompanionAppBundleIdentifier</key>
+	<string>com.mitzo.app</string>
 </dict>
 </plist>
