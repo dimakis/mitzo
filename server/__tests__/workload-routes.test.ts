@@ -457,7 +457,9 @@ describe('workload routes', () => {
     expect(res.body.ok).toBe(true);
 
     // Verify deletion
-    const getRes = await request(app).get(`/api/workload/items/${itemId}`).set('Cookie', authCookie);
+    const getRes = await request(app)
+      .get(`/api/workload/items/${itemId}`)
+      .set('Cookie', authCookie);
     expect(getRes.status).toBe(404);
   });
 
