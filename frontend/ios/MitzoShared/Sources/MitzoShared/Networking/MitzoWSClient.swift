@@ -108,8 +108,7 @@ public actor MitzoWSClient {
         state = .connecting
         eventHandler?(.stateChanged(.connecting))
 
-        let session = URLSession(configuration: .default)
-        wsTask = session.webSocketTask(with: url)
+        wsTask = tailscaleURLSession.webSocketTask(with: url)
         wsTask?.resume()
 
         // Send hello
