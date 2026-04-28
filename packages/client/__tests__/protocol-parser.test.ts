@@ -654,6 +654,36 @@ describe('reconnected', () => {
     const r = parseServerMessage({ type: 'reconnected' }, state, makeCallbacks(), POOL_KEY);
     expect(r.messagesActions).not.toContainEqual(expect.objectContaining({ type: 'SET_RUNNING' }));
   });
+
+  it('no-ops when sessions has invalid shape (runtime validation)', () => {
+    const state = makeState({ currentSessionId: 'sid-1' });
+    // Invalid: sessions is not an array
+    const r1 = parseServerMessage(
+      { type: 'reconnected', sessions: { invalid: 'shape' } },
+      state,
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r1.messagesActions).not.toContainEqual(expect.objectContaining({ type: 'SET_RUNNING' }));
+
+    // Invalid: array contains entries missing required fields
+    const r2 = parseServerMessage(
+      { type: 'reconnected', sessions: [{ sessionId: 'sid-1' }] }, // missing running field
+      state,
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r2.messagesActions).not.toContainEqual(expect.objectContaining({ type: 'SET_RUNNING' }));
+
+    // Invalid: running field has wrong type
+    const r3 = parseServerMessage(
+      { type: 'reconnected', sessions: [{ sessionId: 'sid-1', running: 'yes' }] },
+      state,
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r3.messagesActions).not.toContainEqual(expect.objectContaining({ type: 'SET_RUNNING' }));
+  });
 });
 
 // ─── error handling (session expired) ────────────────────────────────────────
