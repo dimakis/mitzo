@@ -149,6 +149,25 @@ describe('TodoDetailView', () => {
     ).toBeTruthy();
   });
 
+  it('renders a back button that navigates to /todos with preserved state', () => {
+    mockLocation.mockReturnValue({
+      state: { item: fullItem, activeProfile: 'centaur', scrollTop: 150 },
+    });
+
+    const { container } = render(
+      <MemoryRouter>
+        <TodoDetailView />
+      </MemoryRouter>,
+    );
+
+    const backBtn = container.querySelector('.page-header-back')!;
+    expect(backBtn).toBeTruthy();
+    fireEvent.click(backBtn);
+    expect(mockNavigate).toHaveBeenCalledWith('/todos', {
+      state: { activeProfile: 'centaur', scrollTop: 150 },
+    });
+  });
+
   it('navigates to chat with prompt on "Open in Chat" click', () => {
     const { container } = render(
       <MemoryRouter>
@@ -190,6 +209,80 @@ describe('TodoDetailView', () => {
       'noopener,noreferrer',
     );
     openSpy.mockRestore();
+  });
+
+  it('renders children as sub-tasks with progress count', () => {
+    const childItem: TodoItem = {
+      ...fullItem,
+      id: 'child1',
+      summary: 'Sub-task one',
+      status: 'active',
+      parentId: 'abc123',
+      children: [],
+      childCount: 0,
+      completedChildCount: 0,
+    };
+    const doneChild: TodoItem = {
+      ...childItem,
+      id: 'child2',
+      summary: 'Sub-task two (done)',
+      status: 'completed',
+    };
+    const parentWithChildren: TodoItem = {
+      ...fullItem,
+      children: [childItem, doneChild],
+      childCount: 2,
+      completedChildCount: 1,
+    };
+
+    mockLocation.mockReturnValue({ state: { item: parentWithChildren } });
+
+    const { container } = render(
+      <MemoryRouter>
+        <TodoDetailView />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Sub-tasks')).toBeTruthy();
+    expect(container.querySelector('.todo-detail-children-count')?.textContent).toBe('1/2');
+    expect(screen.getByText('Sub-task one')).toBeTruthy();
+    expect(screen.getByText('Sub-task two (done)')).toBeTruthy();
+
+    const doneRow = screen.getByText('Sub-task two (done)').closest('.todo-detail-child-row');
+    expect(doneRow?.className).toContain('todo-detail-child-row--done');
+  });
+
+  it('navigates to child detail view when child row is tapped', () => {
+    const childItem: TodoItem = {
+      ...fullItem,
+      id: 'child1',
+      summary: 'Sub-task one',
+      parentId: 'abc123',
+      children: [],
+      childCount: 0,
+      completedChildCount: 0,
+    };
+    const parentWithChildren: TodoItem = {
+      ...fullItem,
+      children: [childItem],
+      childCount: 1,
+      completedChildCount: 0,
+    };
+
+    mockLocation.mockReturnValue({
+      state: { item: parentWithChildren, activeProfile: 'centaur', scrollTop: 50 },
+    });
+
+    render(
+      <MemoryRouter>
+        <TodoDetailView />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByText('Sub-task one'));
+    expect(mockNavigate).toHaveBeenCalledWith('/todos/child1', {
+      state: { item: childItem, activeProfile: 'centaur', scrollTop: 50 },
+    });
   });
 
   it('renders gracefully with empty context hints', () => {

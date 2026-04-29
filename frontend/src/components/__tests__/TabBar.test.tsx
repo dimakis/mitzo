@@ -60,7 +60,7 @@ describe('TabBar', () => {
     expect(screen.getByText('Chat')).toBeTruthy();
     expect(screen.getByText('Calendar')).toBeTruthy();
     expect(screen.getByText('Inbox')).toBeTruthy();
-    expect(screen.getByText('Todos')).toBeTruthy();
+    expect(screen.getByText('Telos')).toBeTruthy();
     expect(screen.getByText('More')).toBeTruthy();
   });
 
@@ -82,9 +82,9 @@ describe('TabBar', () => {
     expect(badge.className).toContain('tab-bar-badge');
   });
 
-  it('does not show badge on Todos tab when count is 0', () => {
+  it('does not show badge on Telos tab when count is 0', () => {
     renderAt('/');
-    const todosTab = screen.getByText('Todos').closest('button');
+    const todosTab = screen.getByText('Telos').closest('button');
     expect(todosTab?.querySelector('.tab-bar-badge')).toBeNull();
   });
 

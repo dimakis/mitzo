@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import { TodoCard } from '../components/TodoCard';
 import { EmptyState } from '../components/EmptyState';
@@ -77,10 +77,25 @@ function TodoCreateForm({
 
 export function TodoView() {
   const navigate = useNavigate();
-  const [activeProfile, setActiveProfile] = useState<string | undefined>(undefined);
+  const location = useLocation();
+  const restoredProfile = (location.state as { activeProfile?: string } | null)?.activeProfile;
+  const [activeProfile, setActiveProfile] = useState<string | undefined>(restoredProfile);
   const { loading, items, profiles, ack, done, star, create, refresh } = useTodoData(activeProfile);
   const [creating, setCreating] = useState<{ parentId?: string } | null>(null);
   const setPendingSession = useMitzoStore((s) => s.setPendingSession);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Restore scroll position when returning from detail view
+  useEffect(() => {
+    const saved = (location.state as { scrollTop?: number } | null)?.scrollTop;
+    if (saved && scrollRef.current) {
+      scrollRef.current.scrollTop = saved;
+    }
+  }, [location.state]);
+
+  const saveScrollPosition = useCallback(() => {
+    return scrollRef.current?.scrollTop ?? 0;
+  }, []);
 
   function handleStartSession(item: TodoItem) {
     setPendingSession({
@@ -91,7 +106,9 @@ export function TodoView() {
   }
 
   function handleTap(item: TodoItem) {
-    navigate(`/todos/${item.id}`, { state: { item } });
+    navigate(`/todos/${item.id}`, {
+      state: { item, activeProfile, scrollTop: saveScrollPosition() },
+    });
   }
 
   function handleAddChild(parentId: string) {
@@ -100,7 +117,7 @@ export function TodoView() {
 
   return (
     <div className="todo-page">
-      <PageHeader title="Todos" badge={items.length || undefined}>
+      <PageHeader title="Telos" badge={items.length || undefined}>
         <button
           className="todo-add-btn"
           onClick={() => setCreating({ parentId: undefined })}
@@ -113,7 +130,7 @@ export function TodoView() {
         </button>
       </PageHeader>
 
-      <div className="todo-scroll">
+      <div className="todo-scroll" ref={scrollRef}>
         {profiles.length > 1 && (
           <div className="todo-filters">
             <button

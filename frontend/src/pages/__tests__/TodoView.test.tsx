@@ -186,7 +186,9 @@ describe('TodoView', () => {
     fireEvent.touchStart(card, { touches: [{ clientX: 100, clientY: 200 }] });
     fireEvent.touchEnd(card);
 
-    expect(mockNavigate).toHaveBeenCalledWith('/todos/abc', { state: { item } });
+    expect(mockNavigate).toHaveBeenCalledWith('/todos/abc', {
+      state: { item, activeProfile: undefined, scrollTop: 0 },
+    });
   });
 
   it('renders MitzoLogo for home navigation', () => {
