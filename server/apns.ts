@@ -12,6 +12,7 @@ const APNS_KEY_PATH = process.env.APNS_KEY_PATH;
 const APNS_KEY_ID = process.env.APNS_KEY_ID;
 const APNS_TEAM_ID = process.env.APNS_TEAM_ID;
 const APNS_BUNDLE_ID = process.env.APNS_BUNDLE_ID || 'com.mitzo.app';
+const APNS_PRODUCTION = process.env.APNS_PRODUCTION !== 'false';
 
 let tokens: string[] = [];
 let tokenStorePath: string | null = null;
@@ -76,8 +77,9 @@ function getProvider(): import('@parse/node-apn').Provider | null {
         keyId: APNS_KEY_ID!,
         teamId: APNS_TEAM_ID!,
       },
-      production: true,
+      production: APNS_PRODUCTION,
     });
+    log.info('APNs provider initialized', { production: APNS_PRODUCTION });
     return apnProvider;
   } catch (err: unknown) {
     log.error('failed to initialize APNs provider', {
