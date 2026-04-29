@@ -144,7 +144,11 @@ export function TodoDetailView() {
                     scrollTop?: number;
                   } | null;
                   navigate(`/todos/${child.id}`, {
-                    state: { item: child, activeProfile: state?.activeProfile, scrollTop: state?.scrollTop },
+                    state: {
+                      item: child,
+                      activeProfile: state?.activeProfile,
+                      scrollTop: state?.scrollTop,
+                    },
                   });
                 }}
               >
