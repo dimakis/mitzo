@@ -149,6 +149,25 @@ describe('TodoDetailView', () => {
     ).toBeTruthy();
   });
 
+  it('renders a back button that navigates to /todos with preserved state', () => {
+    mockLocation.mockReturnValue({
+      state: { item: fullItem, activeProfile: 'centaur', scrollTop: 150 },
+    });
+
+    const { container } = render(
+      <MemoryRouter>
+        <TodoDetailView />
+      </MemoryRouter>,
+    );
+
+    const backBtn = container.querySelector('.page-header-back')!;
+    expect(backBtn).toBeTruthy();
+    fireEvent.click(backBtn);
+    expect(mockNavigate).toHaveBeenCalledWith('/todos', {
+      state: { activeProfile: 'centaur', scrollTop: 150 },
+    });
+  });
+
   it('navigates to chat with prompt on "Open in Chat" click', () => {
     const { container } = render(
       <MemoryRouter>

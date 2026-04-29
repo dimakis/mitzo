@@ -87,6 +87,13 @@ export function TodoDetailView() {
     navigate(`/chat?${params.toString()}`);
   }
 
+  function handleBack() {
+    const state = location.state as { activeProfile?: string; scrollTop?: number } | null;
+    navigate('/todos', {
+      state: { activeProfile: state?.activeProfile, scrollTop: state?.scrollTop },
+    });
+  }
+
   function handleSourceClick(url: string) {
     window.open(url, '_blank', 'noopener,noreferrer');
   }
@@ -99,7 +106,7 @@ export function TodoDetailView() {
 
   return (
     <div className="todo-detail-page">
-      <PageHeader title="Task">
+      <PageHeader title="Task" onBack={handleBack}>
         <button className="todo-detail-chat-btn" onClick={handleOpenChat}>
           Open in Chat
         </button>
