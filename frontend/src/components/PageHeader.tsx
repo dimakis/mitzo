@@ -6,12 +6,19 @@ interface PageHeaderProps {
   badge?: number;
   center?: ReactNode;
   children?: ReactNode;
+  onBack?: () => void;
 }
 
-export function PageHeader({ title, badge, center, children }: PageHeaderProps) {
+export function PageHeader({ title, badge, center, children, onBack }: PageHeaderProps) {
   return (
     <header className="page-header">
-      <MitzoLogo />
+      {onBack ? (
+        <button className="page-header-back" onClick={onBack} aria-label="Back">
+          &larr;
+        </button>
+      ) : (
+        <MitzoLogo />
+      )}
       {center ? (
         <div className="page-header-center">{center}</div>
       ) : (

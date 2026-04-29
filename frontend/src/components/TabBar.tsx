@@ -30,7 +30,7 @@ export function TabBar() {
     { label: 'Calendar', path: '/calendar', match: (p) => p.startsWith('/calendar') },
     { label: 'Inbox', path: '/inbox', match: (p) => p === '/inbox', badge: inboxCount },
     {
-      label: 'Todos',
+      label: 'Telos',
       path: '/todos',
       match: (p) => p === '/todos' || p.startsWith('/todos/'),
       badge: todoCount,

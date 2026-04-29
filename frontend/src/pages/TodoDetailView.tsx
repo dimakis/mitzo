@@ -87,6 +87,13 @@ export function TodoDetailView() {
     navigate(`/chat?${params.toString()}`);
   }
 
+  function handleBack() {
+    const state = location.state as { activeProfile?: string; scrollTop?: number } | null;
+    navigate('/todos', {
+      state: { activeProfile: state?.activeProfile, scrollTop: state?.scrollTop },
+    });
+  }
+
   function handleSourceClick(url: string) {
     window.open(url, '_blank', 'noopener,noreferrer');
   }
@@ -99,7 +106,7 @@ export function TodoDetailView() {
 
   return (
     <div className="todo-detail-page">
-      <PageHeader title="Task">
+      <PageHeader title="Task" onBack={handleBack}>
         <button className="todo-detail-chat-btn" onClick={handleOpenChat}>
           Open in Chat
         </button>
@@ -118,6 +125,41 @@ export function TodoDetailView() {
           <span className="todo-detail-age">{ageLabel}</span>
           <span className="todo-detail-profile">{item.profile}</span>
         </div>
+
+        {item.children.length > 0 && (
+          <section className="todo-detail-children">
+            <h2>
+              Sub-tasks{' '}
+              <span className="todo-detail-children-count">
+                {item.completedChildCount}/{item.childCount}
+              </span>
+            </h2>
+            {item.children.map((child) => (
+              <div
+                key={child.id}
+                className={`todo-detail-child-row${child.status === 'completed' ? ' todo-detail-child-row--done' : ''}`}
+                onClick={() => {
+                  const state = location.state as {
+                    activeProfile?: string;
+                    scrollTop?: number;
+                  } | null;
+                  navigate(`/todos/${child.id}`, {
+                    state: {
+                      item: child,
+                      activeProfile: state?.activeProfile,
+                      scrollTop: state?.scrollTop,
+                    },
+                  });
+                }}
+              >
+                <span className="todo-detail-child-status">
+                  {child.status === 'completed' ? '\u2713' : '\u25cb'}
+                </span>
+                <span className="todo-detail-child-summary">{child.summary}</span>
+              </div>
+            ))}
+          </section>
+        )}
 
         {item.sources.length > 0 && (
           <section className="todo-detail-sources">
