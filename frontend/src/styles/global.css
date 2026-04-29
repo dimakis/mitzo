@@ -4215,6 +4215,47 @@ textarea:focus {
   margin-left: auto;
 }
 
+/* --- Sub-tasks --- */
+
+.todo-detail-children {
+  padding: var(--space-2) 0;
+}
+
+.todo-detail-children-count {
+  font-weight: 400;
+  color: var(--accent);
+}
+
+.todo-detail-child-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  background: var(--surface);
+  border-radius: 8px;
+  margin-bottom: var(--space-1h);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.todo-detail-child-row:active {
+  background: var(--border);
+}
+
+.todo-detail-child-row--done {
+  opacity: 0.5;
+}
+
+.todo-detail-child-status {
+  flex-shrink: 0;
+  font-size: var(--text-s);
+}
+
+.todo-detail-child-summary {
+  font-size: var(--text-s);
+  line-height: 1.4;
+}
+
 /* --- Sources --- */
 
 .todo-detail-sources {
@@ -4222,6 +4263,7 @@ textarea:focus {
 }
 
 .todo-detail-sources h2,
+.todo-detail-children h2,
 .todo-detail-task-hint h2,
 .todo-detail-context h2 {
   font-size: var(--text-s);
