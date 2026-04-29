@@ -61,6 +61,12 @@ export function getMcpConfigPaths(): string[] {
     paths.push(envPath);
   }
 
+  // Claude Code global config — same mcpServers format as Cursor
+  const claudePath = join(homedir(), '.claude.json');
+  if (existsSync(claudePath)) {
+    paths.push(claudePath);
+  }
+
   const cursorPath = join(homedir(), '.cursor', 'mcp.json');
   if (existsSync(cursorPath)) {
     paths.push(cursorPath);

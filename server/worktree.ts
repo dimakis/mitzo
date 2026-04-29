@@ -437,7 +437,7 @@ export function rescueDirtyWorktree(
   branch: string,
   sessionId: string,
 ): RescueResult {
-  const gitOpts = { stdio: ['pipe', 'pipe', 'pipe'] as const, timeout: WORKTREE_GIT_TIMEOUT_MS };
+  const gitOpts = { stdio: ['pipe', 'pipe', 'pipe'] as 'pipe'[], timeout: WORKTREE_GIT_TIMEOUT_MS };
 
   // Resolve the GitHub remote before doing any mutations
   const repo = getRepoRemote(worktreePath);
