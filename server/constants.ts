@@ -46,3 +46,8 @@ export const WORKTREE_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 // as unreachable (e.g. model unavailable on the configured provider) and
 // surface an error to the client instead of hanging forever.
 export const QUERY_FIRST_EVENT_TIMEOUT_MS = 90_000;
+
+// --- Observability ---
+// Max characters for agent content recorded in OTel span events and log lines.
+// Keeps Jaeger/Loki payloads bounded while preserving enough for debugging.
+export const TRACE_CONTENT_MAX_CHARS = 16_384;
