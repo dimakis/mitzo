@@ -50,8 +50,12 @@ function createTestSpan(name: string): TestSpan & OTelSpan {
     recordException: () => {},
     spanContext: () => ({ traceId: 'test', spanId: 'test', traceFlags: 1 }),
     // Expose internals for assertions
-    get _events() { return span.events; },
-    get _name() { return span.name; },
+    get _events() {
+      return span.events;
+    },
+    get _name() {
+      return span.name;
+    },
   } as unknown as TestSpan & OTelSpan;
 }
 
@@ -1806,7 +1810,11 @@ describe('runQueryLoop', () => {
         },
         {
           type: 'stream_event',
-          event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Hello world' } },
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'Hello world' },
+          },
         },
         { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
         { type: 'assistant', message: { content: [] }, session_id: 'sess-text' },
@@ -1832,7 +1840,11 @@ describe('runQueryLoop', () => {
         },
         {
           type: 'stream_event',
-          event: { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'Let me reason...' } },
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'thinking_delta', thinking: 'Let me reason...' },
+          },
         },
         { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
         { type: 'assistant', message: { content: [] }, session_id: 'sess-think' },
@@ -1907,7 +1919,12 @@ describe('runQueryLoop', () => {
           type: 'user',
           message: {
             content: [
-              { type: 'tool_result', tool_use_id: 'tool-2', content: 'file contents here', is_error: false },
+              {
+                type: 'tool_result',
+                tool_use_id: 'tool-2',
+                content: 'file contents here',
+                is_error: false,
+              },
             ],
           },
         },
