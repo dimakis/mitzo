@@ -42,6 +42,7 @@ import {
 import { createLogger } from './logger.js';
 import {
   app,
+  sseRegistry,
   setUpdateBroadcast,
   setInboxBroadcast,
   setTaskBroadcast,
@@ -104,6 +105,7 @@ setUpdateBroadcast(() => {
     if (client.readyState === client.OPEN) client.send(msg);
   });
   connRegistry.broadcastAll(data);
+  sseRegistry.broadcast('update_available', {});
 });
 
 setInboxBroadcast(() => {
@@ -114,6 +116,7 @@ setInboxBroadcast(() => {
     if (client.readyState === client.OPEN) client.send(msg);
   });
   connRegistry.broadcastAll(data);
+  sseRegistry.broadcast('inbox_updated', {});
 });
 
 setTaskBroadcast((event) => {
@@ -123,6 +126,7 @@ setTaskBroadcast((event) => {
     if (client.readyState === client.OPEN) client.send(msg);
   });
   connRegistry.broadcastAll(event as Record<string, unknown>);
+  sseRegistry.broadcast('task_state', event);
 });
 
 setWorkloadBroadcast((event) => {
@@ -132,6 +136,7 @@ setWorkloadBroadcast((event) => {
     if (client.readyState === client.OPEN) client.send(msg);
   });
   connRegistry.broadcastAll(event as Record<string, unknown>);
+  sseRegistry.broadcast('todo_update', { action: 'refresh' });
 });
 
 // --- Workflow layer ---
@@ -183,6 +188,7 @@ const orchestrator = new TaskOrchestrator({
       if (client.readyState === client.OPEN) client.send(msg);
     });
     connRegistry.broadcastAll(data);
+    sseRegistry.broadcast('loop_status', status);
   },
   broadcastTasks: () => {
     const tree = taskStore.getTree();
@@ -193,6 +199,7 @@ const orchestrator = new TaskOrchestrator({
       if (client.readyState === client.OPEN) client.send(msg);
     });
     connRegistry.broadcastAll(data as Record<string, unknown>);
+    sseRegistry.broadcast('task_state', data);
   },
   getActiveSessionIds: () => {
     const ids = new Set<string>();

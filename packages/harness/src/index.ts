@@ -15,6 +15,10 @@ export type {
 export { ConnectionRegistry } from './connection-registry.js';
 export type { Connection } from './connection-registry.js';
 
+// SSE registry (broadcast events)
+export { SseRegistry } from './sse-registry.js';
+export type { SseClient } from './sse-registry.js';
+
 // Permissions
 export {
   registerPending,

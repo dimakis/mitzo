@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from '
 import { join, dirname, resolve, extname } from 'path';
 import { execFileSync, execFile } from 'child_process';
 import { promisify } from 'util';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { login, authMiddleware, verifyToken, COOKIE_NAME, MAX_AGE_HOURS } from './auth.js';
@@ -82,6 +82,7 @@ import { SkillRegistry } from './skills.js';
 import { mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { TaskStore, type TaskCreateInput, type TaskUpdateInput } from './task-store.js';
+import { SseRegistry } from '@mitzo/harness';
 import { WorkloadStore, type WorkSignal, type TodoItemUpdateInput } from './workload-store.js';
 
 const log = createLogger('server');
@@ -236,6 +237,8 @@ export const taskStore = new TaskStore(join(mitzoDir, 'tasks.db'));
 setTaskStore(taskStore);
 export const workloadStore = new WorkloadStore(taskStore.getDatabase());
 setTokenStorePath(join(mitzoDir, 'device-tokens.json'));
+
+export const sseRegistry = new SseRegistry();
 
 export function setUpdateBroadcast(fn: () => void) {
   onUpdateAvailable = fn;
@@ -486,6 +489,27 @@ app.post('/api/sessions/suspend', (req, res) => {
 });
 
 app.use('/api', authMiddleware);
+
+// --- SSE Event Bus ---
+
+app.get('/api/events', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no', // nginx: don't buffer SSE
+  });
+
+  const clientId = randomUUID();
+  sseRegistry.add(clientId, res);
+
+  // Hydrate: send server version on connect
+  sseRegistry.sendTo(clientId, 'connected', {
+    serverVersion: buildHash,
+  });
+
+  req.on('close', () => sseRegistry.remove(clientId));
+});
 
 // --- Task Board API ---
 
