@@ -126,6 +126,8 @@ export interface QueryLoopOptions {
   onSessionResolved?: (sessionId: string) => void;
   /** Called after the initial prompt is registered, enabling auto-rename on prompt 1. */
   onInitialPrompt?: (sessionId: string) => void;
+  /** Called when an assistant turn completes (snapshot cleared). */
+  onTurnEnd?: (clientId: string) => void;
 }
 
 export async function runQueryLoop(
@@ -231,6 +233,7 @@ async function _runQueryLoopInner(
         currentTurnSpan.end();
         currentTurnSpan = null;
       }
+      options?.onTurnEnd?.(clientId);
     }
   }
 

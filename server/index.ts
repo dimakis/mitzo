@@ -28,6 +28,7 @@ import {
   eventStore,
   getRepoConfig,
   setConnectionRegistry,
+  setSessionChangeCallback,
   reconcileSessionsBackground,
 } from './chat.js';
 import { cleanupStaleWorktrees, countWorktrees } from './worktree.js';
@@ -50,6 +51,7 @@ import {
   setOrchestrator,
   setTemplateStore,
   setSignalProcessor,
+  setOverviewEmitter,
   runUpdateCheck,
   buildSkillRegistry,
   NATIVE_COMMAND_NAMES,
@@ -61,6 +63,7 @@ import {
 import { WorkflowTemplateStore, seedBuiltInTemplates } from './workflow-templates.js';
 import { SignalProcessor } from './signal-processor.js';
 import { TaskOrchestrator } from './task-orchestrator.js';
+import { SessionOverviewEmitter } from './session-overview.js';
 import { IncomingWsMessage } from './ws-schemas.js';
 import { resolvePending } from './permissions.js';
 import { resolveSlashCommand } from './slash-commands.js';
@@ -127,6 +130,7 @@ setTaskBroadcast((event) => {
   });
   connRegistry.broadcastAll(event as Record<string, unknown>);
   sseRegistry.broadcast('task_state', event);
+  overviewEmitter.scheduleBroadcast();
 });
 
 setWorkloadBroadcast((event) => {
@@ -189,6 +193,7 @@ const orchestrator = new TaskOrchestrator({
     });
     connRegistry.broadcastAll(data);
     sseRegistry.broadcast('loop_status', status);
+    overviewEmitter.scheduleBroadcast();
   },
   broadcastTasks: () => {
     const tree = taskStore.getTree();
@@ -212,6 +217,28 @@ const orchestrator = new TaskOrchestrator({
 });
 orchestratorRef = orchestrator;
 setOrchestrator(orchestrator);
+
+// --- Session Overview Emitter (SSE broadcast) ---
+const overviewEmitter = new SessionOverviewEmitter({
+  registry,
+  sseRegistry,
+  getLoopStatus: () => orchestrator.getStatus(),
+  taskStore,
+  getSessionTitle: (id: string) => eventStore.getSession(id)?.summary ?? undefined,
+});
+setOverviewEmitter(overviewEmitter);
+
+// Hook session lifecycle events into the overview emitter
+setSessionChangeCallback((clientId, event) => {
+  if (event === 'start') {
+    overviewEmitter.touch(clientId);
+  } else if (event === 'end') {
+    overviewEmitter.forget(clientId);
+  } else if (event === 'turn_end') {
+    overviewEmitter.touch(clientId);
+  }
+  overviewEmitter.scheduleBroadcast();
+});
 
 server.on('upgrade', async (req, socket, head) => {
   const url = new URL(req.url || '', `http://${req.headers.host}`);
@@ -351,6 +378,8 @@ function handleChatWsV2(ws: WebSocket, connectionId: string) {
           { 'session.sessionId': sessionId, 'ws.connectionId': connectionId },
           () => {
             detachChat(found.clientId);
+            overviewEmitter.touch(found.clientId);
+            overviewEmitter.scheduleBroadcast();
             log.info('v2 session detached (surviving)', { connectionId, sessionId });
           },
         );
@@ -770,6 +799,8 @@ function handleChatWs(
       (span) => {
         if (isActive(clientId)) {
           detachChat(clientId);
+          overviewEmitter.touch(clientId);
+          overviewEmitter.scheduleBroadcast();
           span.setAttribute('ws.disconnect.detached', true);
           log.info('session detached (surviving)', { clientId });
         }
@@ -787,6 +818,7 @@ function shutdown(signal: string) {
   server.close();
   signalProc.unwatchAll();
   wfTemplateStore.close();
+  overviewEmitter.destroy();
   registry.dispose();
   for (const client of wss.clients) {
     client.close(1001, 'Server shutting down');

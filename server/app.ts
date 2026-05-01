@@ -66,6 +66,7 @@ import {
   WorkloadPromoteBody,
 } from './api-schemas.js';
 import type { TaskOrchestrator } from './task-orchestrator.js';
+import type { SessionOverviewEmitter } from './session-overview.js';
 import type { WorkflowTemplateStore, TemplateCreateInput } from './workflow-templates.js';
 import { instantiateTemplate } from './workflow-templates.js';
 import type { SignalProcessor } from './signal-processor.js';
@@ -212,9 +213,14 @@ let onWorkloadBroadcast: ((event: Record<string, unknown>) => void) | null = nul
 let orchestrator: TaskOrchestrator | null = null;
 let templateStore: WorkflowTemplateStore | null = null;
 let signalProcessor: SignalProcessor | null = null;
+let overviewEmitter: SessionOverviewEmitter | null = null;
 
 export function setOrchestrator(o: TaskOrchestrator): void {
   orchestrator = o;
+}
+
+export function setOverviewEmitter(emitter: SessionOverviewEmitter): void {
+  overviewEmitter = emitter;
 }
 
 export function setTemplateStore(ts: WorkflowTemplateStore): void {
@@ -503,10 +509,14 @@ app.get('/api/events', (req, res) => {
   const clientId = randomUUID();
   sseRegistry.add(clientId, res);
 
-  // Hydrate: send server version on connect
+  // Hydrate: send server version + session overview on connect
   sseRegistry.sendTo(clientId, 'connected', {
     serverVersion: buildHash,
   });
+
+  if (overviewEmitter) {
+    sseRegistry.sendTo(clientId, 'session_activity', overviewEmitter.getSnapshot());
+  }
 
   req.on('close', () => sseRegistry.remove(clientId));
 });

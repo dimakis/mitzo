@@ -66,6 +66,18 @@ export function hasPending(permId: string): boolean {
  * Deny all pending permission requests associated with a session.
  * Used during session takeover to clean up stale prompts on the old device.
  */
+/**
+ * Count pending permission requests for a specific session.
+ * Used by session-overview to derive the 'waiting' state.
+ */
+export function getPendingCountBySession(sessionId: string): number {
+  let count = 0;
+  for (const entry of pending.values()) {
+    if (entry.sessionId === sessionId) count++;
+  }
+  return count;
+}
+
 export function denyPendingBySession(sessionId: string): number {
   let denied = 0;
   for (const [permId, entry] of pending) {

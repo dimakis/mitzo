@@ -44,6 +44,12 @@ let _connRegistry: ConnectionRegistry | null = null;
 export function setConnectionRegistry(registry: ConnectionRegistry): void {
   _connRegistry = registry;
 }
+
+type SessionChangeCallback = (clientId: string, event: 'start' | 'end' | 'turn_end') => void;
+let _onSessionChange: SessionChangeCallback | null = null;
+export function setSessionChangeCallback(cb: SessionChangeCallback): void {
+  _onSessionChange = cb;
+}
 import { EventStore } from './event-store.js';
 import { capturePromptComparison } from './prompt-compare.js';
 import { shouldAutoRename, extractRecentPrompts, generateSessionName } from './auto-rename.js';
@@ -660,6 +666,7 @@ async function _startChatInner(
 
   const session = registry.get(clientId)!;
   session.inputQueue = inputQueue as { push: (msg: unknown) => void; close: () => void };
+  _onSessionChange?.(clientId, 'start');
 
   // Copy all repo worktrees into the session for cleanup tracking
   for (const [name, info] of repoWorktrees) {
@@ -779,6 +786,9 @@ async function _startChatInner(
             /* errors logged internally */
           });
         },
+        onTurnEnd: (cId: string) => {
+          _onSessionChange?.(cId, 'turn_end');
+        },
       },
     );
   } catch (err: unknown) {
@@ -797,8 +807,7 @@ async function _startChatInner(
     if (failedSession) cleanupSessionWorktrees(failedSession);
     registry.abort(clientId);
   } finally {
-    // Phase 2e: worktrees survive until explicit close or stale GC.
-    // Only failed sessions (caught above) clean up their worktrees.
+    _onSessionChange?.(clientId, 'end');
   }
 }
 
