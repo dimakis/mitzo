@@ -5,6 +5,7 @@ import {
   TOOL_RESULT_MAX_CHARS,
   CONTEXT_CEILING_TOKENS,
   QUERY_FIRST_EVENT_TIMEOUT_MS,
+  TRACE_CONTENT_MAX_CHARS,
 } from './constants.js';
 import { createLogger } from './logger.js';
 import type { SessionRegistry, SnapshotBlock } from './session-registry.js';
@@ -20,6 +21,12 @@ import { tracer } from './tracing.js';
 import { context, trace, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { ProgressTracker } from './progress-tracker.js';
 const log = createLogger('query-loop');
+
+/** Truncate text for trace/log payloads, returning a truncated flag when clipped. */
+function truncateForTrace(text: string): { text: string; truncated?: true } {
+  if (text.length <= TRACE_CONTENT_MAX_CHARS) return { text };
+  return { text: text.slice(0, TRACE_CONTENT_MAX_CHARS), truncated: true };
+}
 
 /** Send data via transport, guarding on isOpen(). */
 function send(transport: SessionTransport, data: Record<string, unknown>) {
@@ -698,11 +705,18 @@ async function _runQueryLoopInner(
               const summarized = summarizeToolInput(toolEntry.name, toolInput);
               const rawInput = getRawInput(toolEntry.name, toolInput);
 
+              const trInput = truncateForTrace(toolEntry.inputBuf);
               log.info('tool call', { clientId, tool: toolEntry.name, toolId: toolEntry.id });
+              log.debug('tool call input', { clientId, toolId: toolEntry.id, input: trInput.text });
 
-              // End tool span
+              // End tool span — record raw input before closing
               const toolSpan = toolSpans.get(blockId);
               if (toolSpan) {
+                toolSpan.addEvent('tool.input', {
+                  'tool.name': toolEntry.name,
+                  'tool.input': trInput.text,
+                  ...(trInput.truncated ? { 'tool.input.truncated': true } : {}),
+                });
                 toolSpan.setStatus({ code: SpanStatusCode.OK });
                 toolSpan.end();
                 toolSpans.delete(blockId);
@@ -742,13 +756,33 @@ async function _runQueryLoopInner(
                 }
               }
             } else if (blockId) {
-              // Text or thinking block — mark done in snapshot.
+              // Text or thinking block — mark done in snapshot, record in traces + logs.
               const block = currentSession.currentSnapshot?.blocks.find(
                 (b) => b.blockId === blockId,
               );
               if (block) {
                 const bt = block.blockType;
                 block.done = true;
+
+                // Record content in turn span and logs
+                if (block.content && (bt === 'thinking' || bt === 'text')) {
+                  const tr = truncateForTrace(block.content);
+                  if (currentTurnSpan) {
+                    currentTurnSpan.addEvent(`block.${bt}`, {
+                      'block.id': blockId,
+                      'block.content': tr.text,
+                      ...(tr.truncated ? { 'block.truncated': true } : {}),
+                    });
+                  }
+                  log.info(`${bt} block complete`, {
+                    clientId,
+                    blockId,
+                    blockType: bt,
+                    contentLength: block.content.length,
+                  });
+                  log.debug(`${bt} block content`, { clientId, blockId, content: tr.text });
+                }
+
                 emit(
                   v2('block_end', {
                     messageId: currentMessageId,
@@ -782,6 +816,27 @@ async function _runQueryLoopInner(
             for (const block of content) {
               if (block.type === 'tool_result') {
                 const resultText = extractToolResultText(block.content);
+                const trResult = truncateForTrace(resultText);
+
+                // Record tool result in session span and logs
+                span.addEvent('tool.result', {
+                  'tool.id': block.tool_use_id || '',
+                  'tool.result': trResult.text,
+                  'tool.is_error': block.is_error === true,
+                  ...(trResult.truncated ? { 'tool.result.truncated': true } : {}),
+                });
+                log.info('tool result', {
+                  clientId,
+                  toolId: block.tool_use_id || '',
+                  isError: block.is_error === true,
+                  resultLength: resultText.length,
+                });
+                log.debug('tool result content', {
+                  clientId,
+                  toolId: block.tool_use_id || '',
+                  result: trResult.text,
+                });
+
                 emit(
                   v2('tool_result', {
                     messageId: currentMessageId,
