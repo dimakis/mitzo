@@ -50,4 +50,6 @@ export const QUERY_FIRST_EVENT_TIMEOUT_MS = 90_000;
 // --- Observability ---
 // Max characters for agent content recorded in OTel span events and log lines.
 // Keeps Jaeger/Loki payloads bounded while preserving enough for debugging.
-export const TRACE_CONTENT_MAX_CHARS = 16_384;
+// Configurable via env var for runtime tuning without code changes.
+export const TRACE_CONTENT_MAX_CHARS =
+  parseInt(process.env.TRACE_CONTENT_MAX_CHARS ?? '', 10) || 16_384;

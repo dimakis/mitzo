@@ -22,6 +22,12 @@ import { context, trace, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { ProgressTracker } from './progress-tracker.js';
 const log = createLogger('query-loop');
 
+/** Truncate text for trace/log payloads, returning a truncated flag when clipped. */
+function truncateForTrace(text: string): { text: string; truncated?: true } {
+  if (text.length <= TRACE_CONTENT_MAX_CHARS) return { text };
+  return { text: text.slice(0, TRACE_CONTENT_MAX_CHARS), truncated: true };
+}
+
 /** Send data via transport, guarding on isOpen(). */
 function send(transport: SessionTransport, data: Record<string, unknown>) {
   if (transport.isOpen()) transport.send(data);
@@ -699,22 +705,17 @@ async function _runQueryLoopInner(
               const summarized = summarizeToolInput(toolEntry.name, toolInput);
               const rawInput = getRawInput(toolEntry.name, toolInput);
 
-              log.info('tool call', {
-                clientId,
-                tool: toolEntry.name,
-                toolId: toolEntry.id,
-                input: toolEntry.inputBuf.slice(0, TRACE_CONTENT_MAX_CHARS),
-              });
+              const trInput = truncateForTrace(toolEntry.inputBuf);
+              log.info('tool call', { clientId, tool: toolEntry.name, toolId: toolEntry.id });
+              log.debug('tool call input', { clientId, toolId: toolEntry.id, input: trInput.text });
 
               // End tool span — record raw input before closing
               const toolSpan = toolSpans.get(blockId);
               if (toolSpan) {
                 toolSpan.addEvent('tool.input', {
                   'tool.name': toolEntry.name,
-                  'tool.input': toolEntry.inputBuf.slice(0, TRACE_CONTENT_MAX_CHARS),
-                  ...(toolEntry.inputBuf.length > TRACE_CONTENT_MAX_CHARS
-                    ? { 'tool.input.truncated': true }
-                    : {}),
+                  'tool.input': trInput.text,
+                  ...(trInput.truncated ? { 'tool.input.truncated': true } : {}),
                 });
                 toolSpan.setStatus({ code: SpanStatusCode.OK });
                 toolSpan.end();
@@ -765,14 +766,12 @@ async function _runQueryLoopInner(
 
                 // Record content in turn span and logs
                 if (block.content && (bt === 'thinking' || bt === 'text')) {
-                  const truncated = block.content.slice(0, TRACE_CONTENT_MAX_CHARS);
+                  const tr = truncateForTrace(block.content);
                   if (currentTurnSpan) {
                     currentTurnSpan.addEvent(`block.${bt}`, {
                       'block.id': blockId,
-                      'block.content': truncated,
-                      ...(block.content.length > TRACE_CONTENT_MAX_CHARS
-                        ? { 'block.truncated': true }
-                        : {}),
+                      'block.content': tr.text,
+                      ...(tr.truncated ? { 'block.truncated': true } : {}),
                     });
                   }
                   log.info(`${bt} block complete`, {
@@ -780,8 +779,8 @@ async function _runQueryLoopInner(
                     blockId,
                     blockType: bt,
                     contentLength: block.content.length,
-                    content: truncated,
                   });
+                  log.debug(`${bt} block content`, { clientId, blockId, content: tr.text });
                 }
 
                 emit(
@@ -817,23 +816,25 @@ async function _runQueryLoopInner(
             for (const block of content) {
               if (block.type === 'tool_result') {
                 const resultText = extractToolResultText(block.content);
-                const truncResult = resultText.slice(0, TRACE_CONTENT_MAX_CHARS);
+                const trResult = truncateForTrace(resultText);
 
                 // Record tool result in session span and logs
                 span.addEvent('tool.result', {
                   'tool.id': block.tool_use_id || '',
-                  'tool.result': truncResult,
+                  'tool.result': trResult.text,
                   'tool.is_error': block.is_error === true,
-                  ...(resultText.length > TRACE_CONTENT_MAX_CHARS
-                    ? { 'tool.result.truncated': true }
-                    : {}),
+                  ...(trResult.truncated ? { 'tool.result.truncated': true } : {}),
                 });
                 log.info('tool result', {
                   clientId,
                   toolId: block.tool_use_id || '',
                   isError: block.is_error === true,
                   resultLength: resultText.length,
-                  result: truncResult,
+                });
+                log.debug('tool result content', {
+                  clientId,
+                  toolId: block.tool_use_id || '',
+                  result: trResult.text,
                 });
 
                 emit(
