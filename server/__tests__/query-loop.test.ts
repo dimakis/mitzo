@@ -4,6 +4,73 @@ import { ConnectionRegistry } from '../../packages/harness/src/connection-regist
 import { runQueryLoop } from '../query-loop.js';
 import type { SessionRegistry } from '../session-registry.js';
 import { EventStore } from '../event-store.js';
+import type { Span as OTelSpan } from '@opentelemetry/api';
+
+/** Lightweight in-memory span for testing OTel instrumentation. */
+interface RecordedEvent {
+  name: string;
+  attributes?: Record<string, unknown>;
+}
+interface TestSpan {
+  name: string;
+  attributes: Record<string, unknown>;
+  events: RecordedEvent[];
+  status: { code: number; message?: string };
+  ended: boolean;
+}
+
+function createTestSpan(name: string): TestSpan & OTelSpan {
+  const span: TestSpan = { name, attributes: {}, events: [], status: { code: 0 }, ended: false };
+  return {
+    ...span,
+    setAttribute(k: string, v: unknown) {
+      span.attributes[k] = v;
+      return this;
+    },
+    setAttributes(attrs: Record<string, unknown>) {
+      Object.assign(span.attributes, attrs);
+      return this;
+    },
+    addEvent(eName: string, attrs?: Record<string, unknown>) {
+      span.events.push({ name: eName, attributes: attrs });
+      return this;
+    },
+    setStatus(s: { code: number; message?: string }) {
+      span.status = s;
+      return this;
+    },
+    end() {
+      span.ended = true;
+    },
+    updateName(n: string) {
+      span.name = n;
+      return this;
+    },
+    isRecording: () => true,
+    recordException: () => {},
+    spanContext: () => ({ traceId: 'test', spanId: 'test', traceFlags: 1 }),
+    // Expose internals for assertions
+    get _events() {
+      return span.events;
+    },
+    get _name() {
+      return span.name;
+    },
+  } as unknown as TestSpan & OTelSpan;
+}
+
+/** Collects all spans created by the mocked tracer. */
+const recordedSpans: (TestSpan & OTelSpan)[] = [];
+
+vi.mock('../tracing.js', () => ({
+  tracer: {
+    startSpan(name: string) {
+      const s = createTestSpan(name);
+      recordedSpans.push(s);
+      return s;
+    },
+  },
+}));
 
 /** Create a fake SessionTransport that records sent messages */
 function fakeTransport(): SessionTransport & { sent: Record<string, unknown>[] } {
@@ -1726,6 +1793,155 @@ describe('runQueryLoop', () => {
       );
 
       vi.useRealTimers();
+    });
+  });
+
+  describe('observability — span events for agent output', () => {
+    beforeEach(() => {
+      recordedSpans.length = 0;
+    });
+
+    it('records block.text span event on turn span for text blocks', async () => {
+      const events: Record<string, unknown>[] = [
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-t1' } } },
+        {
+          type: 'stream_event',
+          event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+        },
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'Hello world' },
+          },
+        },
+        { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-text' },
+        { type: 'result', session_id: 'sess-text' },
+      ];
+
+      await runQueryLoop(eventStream(events), clientId, registry, abortController);
+
+      const turnSpan = recordedSpans.find((s) => s.name === 'turn');
+      expect(turnSpan).toBeDefined();
+      const textEvent = turnSpan!.events.find((e) => e.name === 'block.text');
+      expect(textEvent).toBeDefined();
+      expect(textEvent!.attributes!['block.content']).toBe('Hello world');
+      expect(textEvent!.attributes!['block.truncated']).toBeUndefined();
+    });
+
+    it('records block.thinking span event on turn span for thinking blocks', async () => {
+      const events: Record<string, unknown>[] = [
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-th' } } },
+        {
+          type: 'stream_event',
+          event: { type: 'content_block_start', index: 0, content_block: { type: 'thinking' } },
+        },
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'thinking_delta', thinking: 'Let me reason...' },
+          },
+        },
+        { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-think' },
+        { type: 'result', session_id: 'sess-think' },
+      ];
+
+      await runQueryLoop(eventStream(events), clientId, registry, abortController);
+
+      const turnSpan = recordedSpans.find((s) => s.name === 'turn');
+      expect(turnSpan).toBeDefined();
+      const thinkEvent = turnSpan!.events.find((e) => e.name === 'block.thinking');
+      expect(thinkEvent).toBeDefined();
+      expect(thinkEvent!.attributes!['block.content']).toBe('Let me reason...');
+    });
+
+    it('records tool.input span event on tool span', async () => {
+      const events: Record<string, unknown>[] = [
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-ti' } } },
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_start',
+            index: 0,
+            content_block: { type: 'tool_use', name: 'Read', id: 'tool-1' },
+          },
+        },
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'input_json_delta', partial_json: '{"file_path":"/tmp/test.ts"}' },
+          },
+        },
+        { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-tool' },
+        { type: 'result', session_id: 'sess-tool' },
+      ];
+
+      await runQueryLoop(eventStream(events), clientId, registry, abortController);
+
+      const toolSpan = recordedSpans.find((s) => s.name === 'tool.Read');
+      expect(toolSpan).toBeDefined();
+      const inputEvent = toolSpan!.events.find((e) => e.name === 'tool.input');
+      expect(inputEvent).toBeDefined();
+      expect(inputEvent!.attributes!['tool.name']).toBe('Read');
+      expect(inputEvent!.attributes!['tool.input']).toBe('{"file_path":"/tmp/test.ts"}');
+    });
+
+    it('records tool.result span event on session span', async () => {
+      const events: Record<string, unknown>[] = [
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-tr' } } },
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_start',
+            index: 0,
+            content_block: { type: 'tool_use', name: 'Read', id: 'tool-2' },
+          },
+        },
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'input_json_delta', partial_json: '{}' },
+          },
+        },
+        { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-tr' },
+        {
+          type: 'user',
+          message: {
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: 'tool-2',
+                content: 'file contents here',
+                is_error: false,
+              },
+            ],
+          },
+        },
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-tr2' } } },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-tr' },
+        { type: 'result', session_id: 'sess-tr' },
+      ];
+
+      await runQueryLoop(eventStream(events), clientId, registry, abortController);
+
+      const sessionSpan = recordedSpans.find((s) => s.name === 'session');
+      expect(sessionSpan).toBeDefined();
+      const resultEvent = sessionSpan!.events.find((e) => e.name === 'tool.result');
+      expect(resultEvent).toBeDefined();
+      expect(resultEvent!.attributes!['tool.id']).toBe('tool-2');
+      expect(resultEvent!.attributes!['tool.result']).toBe('file contents here');
+      expect(resultEvent!.attributes!['tool.is_error']).toBe(false);
     });
   });
 });
