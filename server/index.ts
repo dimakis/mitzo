@@ -100,6 +100,10 @@ const server = USE_TLS
   : createServer(app);
 const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
 
+// Declared early so broadcast closures can reference it safely (assigned after orchestrator init)
+// eslint-disable-next-line prefer-const
+let overviewEmitter: SessionOverviewEmitter;
+
 setUpdateBroadcast(() => {
   const data = { type: 'update_available' };
   const msg = JSON.stringify(data);
@@ -219,7 +223,7 @@ orchestratorRef = orchestrator;
 setOrchestrator(orchestrator);
 
 // --- Session Overview Emitter (SSE broadcast) ---
-const overviewEmitter = new SessionOverviewEmitter({
+overviewEmitter = new SessionOverviewEmitter({
   registry,
   sseRegistry,
   getLoopStatus: () => orchestrator.getStatus(),

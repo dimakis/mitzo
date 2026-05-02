@@ -90,13 +90,16 @@ export class SseRegistry {
     log.info('Starting SSE heartbeat', { intervalMs: HEARTBEAT_INTERVAL_MS });
     this.heartbeatTimer = setInterval(() => {
       const payload = ':heartbeat\n\n'; // SSE comment line — ignored by EventSource
+      const failures: string[] = [];
       for (const [, client] of this.clients) {
         try {
           client.res.write(payload);
         } catch {
-          // Write failed — clean up dead connection immediately
-          this.remove(client.id);
+          failures.push(client.id);
         }
+      }
+      for (const id of failures) {
+        this.remove(id);
       }
     }, HEARTBEAT_INTERVAL_MS);
   }

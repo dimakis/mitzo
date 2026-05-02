@@ -96,8 +96,8 @@ export class EventBus {
       this.notifyConnectionChange(false);
     };
 
-    for (const event of this.listeners.keys()) {
-      this.registerEventDispatch(event);
+    for (const [event, set] of this.listeners) {
+      if (set.size > 0) this.registerEventDispatch(event);
     }
   }
 

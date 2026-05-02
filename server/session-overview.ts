@@ -9,30 +9,14 @@
 import type { SessionRegistry, ActiveSessionInfo } from '@mitzo/harness';
 import type { SseRegistry } from '@mitzo/harness';
 import { getPendingCountBySession } from '@mitzo/harness';
+import type { SessionActivity, SessionActivityState, WaitReason } from '@mitzo/protocol';
 import type { LoopStatus } from './task-orchestrator.js';
 import type { TaskStore } from './task-store.js';
 import { createLogger } from './logger.js';
 
+export type { SessionActivity, SessionActivityState, WaitReason } from '@mitzo/protocol';
+
 const log = createLogger('session-overview');
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-export type SessionActivityState = 'init' | 'working' | 'waiting' | 'done' | 'idle' | 'paused';
-
-export type WaitReason = 'permission' | 'review' | 'blocked';
-
-export interface SessionActivity {
-  sessionId: string;
-  clientId: string;
-  title: string;
-  repo?: string;
-  state: SessionActivityState;
-  flags: SessionActivityState[];
-  waitReason?: WaitReason;
-  progress?: { done: number; total: number };
-  lastEventAt: number;
-  taskId?: string;
-}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -139,7 +123,7 @@ export class SessionOverviewEmitter {
     loopStatus: LoopStatus,
     now: number,
   ): SessionActivity {
-    const sessionId = session.sessionId!;
+    const sessionId = session.sessionId ?? '';
     const lastEventAt = this.lastEventTimes.get(session.clientId) ?? now;
     const elapsed = now - lastEventAt;
 

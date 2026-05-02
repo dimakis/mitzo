@@ -1,24 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { eventBus } from '../lib/event-bus-singleton';
+import type { SessionActivity } from '@mitzo/protocol';
 
-// ─── Types (mirror server/session-overview.ts) ──────────────────────────────
-
-export type SessionActivityState = 'init' | 'working' | 'waiting' | 'done' | 'idle' | 'paused';
-
-export type WaitReason = 'permission' | 'review' | 'blocked';
-
-export interface SessionActivity {
-  sessionId: string;
-  clientId: string;
-  title: string;
-  repo?: string;
-  state: SessionActivityState;
-  flags: SessionActivityState[];
-  waitReason?: WaitReason;
-  progress?: { done: number; total: number };
-  lastEventAt: number;
-  taskId?: string;
-}
+export type { SessionActivity, SessionActivityState, WaitReason } from '@mitzo/protocol';
 
 // ─── Tier sorting ───────────────────────────────────────────────────────────
 
