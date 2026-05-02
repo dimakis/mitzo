@@ -666,6 +666,7 @@ async function _startChatInner(
     worktreePath,
     // Set sessionId early so pre-assistant events are persisted (iOS reconnect).
     ...(options.resume ? { sessionId: options.resume } : {}),
+    ...(options.telosTaskId ? { telosTaskId: options.telosTaskId } : {}),
   });
 
   const session = registry.get(clientId)!;
@@ -690,6 +691,7 @@ async function _startChatInner(
       mode,
       branch,
       ...(worktreePath ? { wtId } : {}),
+      ...(options.telosTaskId ? { telosTaskId: options.telosTaskId } : {}),
     });
   }
 

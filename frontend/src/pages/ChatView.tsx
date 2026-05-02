@@ -132,7 +132,11 @@ export function ChatView() {
     // Set the context block for display
     storeDispatchMessages({ type: 'SET_SESSION_CONTEXT', context: pendingSession.context });
     // Auto-send the prompt
-    storeSendMessage(pendingSession.prompt, { model: modelState, mode });
+    storeSendMessage(pendingSession.prompt, {
+      model: modelState,
+      mode,
+      ...(pendingSession.telosTaskId ? { telosTaskId: pendingSession.telosTaskId } : {}),
+    });
     clearPendingSession();
     forceScrollToBottom();
   }, [pendingSession]); // eslint-disable-line react-hooks/exhaustive-deps

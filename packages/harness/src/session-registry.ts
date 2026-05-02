@@ -37,6 +37,7 @@ export interface ManagedSession {
   cumulativeSessionTokens: number;
   cumulativeCostUsd: number;
   taskContext: { currentTaskId: string; goalId: string } | null;
+  telosTaskId?: string;
 }
 
 export interface ActiveSessionInfo {
