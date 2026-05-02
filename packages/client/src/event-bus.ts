@@ -1,4 +1,6 @@
-/** EventSource readyState constants — avoids referencing the global. */
+// SSE client for broadcast events (session state, tasks, health).
+
+// EventSource readyState constants.
 const ES_OPEN = 1;
 const ES_CLOSED = 2;
 
@@ -24,6 +26,7 @@ export class EventBus {
     this.createSource();
   }
 
+  // Listeners survive EventSource reconnects — dispatch goes through the Set.
   on(event: string, listener: EventBusListener): () => void {
     let set = this.listeners.get(event);
     if (!set) {
@@ -46,7 +49,7 @@ export class EventBus {
     return () => this.connectionChangeListeners.delete(cb);
   }
 
-  // Recreates EventSource if CLOSED (gave up); no-op if connected/reconnecting.
+  // Recreate EventSource if CLOSED (gave up). No-op if still alive.
   ensureConnected(): void {
     if (!this.url) return;
     if (!this.source || this.source.readyState === ES_CLOSED) {
