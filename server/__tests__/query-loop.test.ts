@@ -987,6 +987,78 @@ describe('runQueryLoop', () => {
       expect(userMsgs[0].payload).toMatchObject({ text: 'Follow-up question' });
     });
 
+    it('flushes pre-sessionId events to store when sessionId resolves (new session)', async () => {
+      // Simulate a brand-new session: no sessionId pre-set on the registry.
+      // Events emitted before the `assistant` completion should be buffered
+      // and retroactively persisted once the sessionId is known.
+      const events: Record<string, unknown>[] = [
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-flush' } } },
+        {
+          type: 'stream_event',
+          event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+        },
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'buffered content' },
+          },
+        },
+        { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-flush' },
+        { type: 'result', session_id: 'sess-flush' },
+      ];
+
+      await runQueryLoop(eventStream(events), clientId, registry, abortController, store);
+
+      const stored = store.getSessionEvents('sess-flush');
+      // All event types should be present — including those emitted before sessionId
+      expect(stored.some((e) => e.type === 'message_start')).toBe(true);
+      expect(stored.some((e) => e.type === 'block_start')).toBe(true);
+      expect(stored.some((e) => e.type === 'block_delta')).toBe(true);
+      expect(stored.some((e) => e.type === 'block_end')).toBe(true);
+      expect(stored.some((e) => e.type === 'message_end')).toBe(true);
+    });
+
+    it('persists events immediately when sessionId is pre-set (resumed session)', async () => {
+      // Simulate a resumed session: sessionId is known before the query loop
+      // starts (set by startChat passing options.resume to registry.register).
+      const session = registry.get(clientId)!;
+      session.sessionId = 'sess-resume-persist';
+
+      const events: Record<string, unknown>[] = [
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-rp' } } },
+        {
+          type: 'stream_event',
+          event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+        },
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'resumed content' },
+          },
+        },
+        { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-resume-persist' },
+        { type: 'result', session_id: 'sess-resume-persist' },
+      ];
+
+      await runQueryLoop(eventStream(events), clientId, registry, abortController, store);
+
+      const stored = store.getSessionEvents('sess-resume-persist');
+      expect(stored.some((e) => e.type === 'message_start')).toBe(true);
+      expect(stored.some((e) => e.type === 'block_delta')).toBe(true);
+      expect(stored.some((e) => e.type === 'message_end')).toBe(true);
+
+      // All v2 events should have the sessionId tag
+      for (const e of stored) {
+        expect(e.payload.sessionId).toBe('sess-resume-persist');
+      }
+    });
+
     it('works without a store (backward compatible)', async () => {
       const events: Record<string, unknown>[] = [
         { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-nostore' } } },
