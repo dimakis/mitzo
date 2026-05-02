@@ -12,6 +12,7 @@ import { apiFetch, getApiBaseUrl, getWsChatUrl } from './lib/api-fetch';
 import { registerCapacitorLifecycle } from './lib/capacitor';
 import { configureKeyboard } from './lib/keyboard';
 import { initPushNotifications } from './lib/push';
+import { eventBus } from './lib/event-bus-singleton';
 
 export const clientStore = createMitzoStore({
   transport: {
@@ -27,7 +28,10 @@ export const clientStore = createMitzoStore({
 
 // Wire Capacitor app lifecycle → force WS reconnect on resume, send suspend on background
 registerCapacitorLifecycle(
-  () => clientStore.getState().forceReconnect(),
+  () => {
+    clientStore.getState().forceReconnect();
+    eventBus.ensureConnected();
+  },
   () => clientStore.getState().sendSuspend(),
 );
 

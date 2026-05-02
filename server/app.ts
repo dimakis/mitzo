@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from '
 import { join, dirname, resolve, extname } from 'path';
 import { execFileSync, execFile } from 'child_process';
 import { promisify } from 'util';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { login, authMiddleware, verifyToken, COOKIE_NAME, MAX_AGE_HOURS } from './auth.js';
@@ -66,6 +66,7 @@ import {
   WorkloadPromoteBody,
 } from './api-schemas.js';
 import type { TaskOrchestrator } from './task-orchestrator.js';
+import type { SessionOverviewEmitter } from './session-overview.js';
 import type { WorkflowTemplateStore, TemplateCreateInput } from './workflow-templates.js';
 import { instantiateTemplate } from './workflow-templates.js';
 import type { SignalProcessor } from './signal-processor.js';
@@ -82,6 +83,7 @@ import { SkillRegistry } from './skills.js';
 import { mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { TaskStore, type TaskCreateInput, type TaskUpdateInput } from './task-store.js';
+import { SseRegistry } from '@mitzo/harness';
 import { WorkloadStore, type WorkSignal, type TodoItemUpdateInput } from './workload-store.js';
 
 const log = createLogger('server');
@@ -211,9 +213,14 @@ let onWorkloadBroadcast: ((event: Record<string, unknown>) => void) | null = nul
 let orchestrator: TaskOrchestrator | null = null;
 let templateStore: WorkflowTemplateStore | null = null;
 let signalProcessor: SignalProcessor | null = null;
+let overviewEmitter: SessionOverviewEmitter | null = null;
 
 export function setOrchestrator(o: TaskOrchestrator): void {
   orchestrator = o;
+}
+
+export function setOverviewEmitter(emitter: SessionOverviewEmitter): void {
+  overviewEmitter = emitter;
 }
 
 export function setTemplateStore(ts: WorkflowTemplateStore): void {
@@ -236,6 +243,8 @@ export const taskStore = new TaskStore(join(mitzoDir, 'tasks.db'));
 setTaskStore(taskStore);
 export const workloadStore = new WorkloadStore(taskStore.getDatabase());
 setTokenStorePath(join(mitzoDir, 'device-tokens.json'));
+
+export const sseRegistry = new SseRegistry();
 
 export function setUpdateBroadcast(fn: () => void) {
   onUpdateAvailable = fn;
@@ -486,6 +495,31 @@ app.post('/api/sessions/suspend', (req, res) => {
 });
 
 app.use('/api', authMiddleware);
+
+// --- SSE Event Bus ---
+
+app.get('/api/events', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no', // nginx: don't buffer SSE
+  });
+
+  const clientId = randomUUID();
+  sseRegistry.add(clientId, res);
+
+  // Hydrate: send server version + session overview on connect
+  sseRegistry.sendTo(clientId, 'connected', {
+    serverVersion: buildHash,
+  });
+
+  if (overviewEmitter) {
+    sseRegistry.sendTo(clientId, 'session_activity', overviewEmitter.getSnapshot());
+  }
+
+  req.on('close', () => sseRegistry.remove(clientId));
+});
 
 // --- Task Board API ---
 

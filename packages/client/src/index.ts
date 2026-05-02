@@ -59,3 +59,11 @@ export type { MitzoConnectionConfig, ConnectionListener } from './connection.js'
 // WS connection (v1 — legacy, used by frontend ws-pool consumers)
 export { WsPool } from './ws-connection.js';
 export type { WsPoolConfig, WebSocketLike, MsgListener } from './ws-connection.js';
+
+// SSE event bus (broadcast events)
+export { EventBus } from './event-bus.js';
+export type {
+  EventBusListener,
+  EventSourceFactory,
+  ConnectionChangeCallback,
+} from './event-bus.js';

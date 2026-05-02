@@ -13,6 +13,7 @@ import { formatTokens } from '../lib/formatTokens';
 import { BriefingCard } from '../components/BriefingCard';
 import { SessionSearchBar } from '../components/SessionSearchBar';
 import { useSessionSearch } from '../hooks/useSessionSearch';
+import { SessionOverview } from '../components/SessionOverview';
 
 function SwipeableSession({
   session,
@@ -307,6 +308,8 @@ export function SessionList() {
         </button>
 
         <BriefingCard />
+
+        <SessionOverview />
 
         {quickActions.length > 0 && (
           <div className="quick-section">
