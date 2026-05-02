@@ -218,9 +218,29 @@ async function _runQueryLoopInner(
     durationApiMs: 0,
   };
 
+  // Buffer v2 events emitted before sessionId is known (first turn of new
+  // sessions). Once the sessionId resolves, these are flushed to the durable
+  // store so reconnecting clients can reconstruct the full message.
+  const preSessionBuffer: Record<string, unknown>[] = [];
+
   /** Wrapper that auto-injects store + sessionId + connRegistry into sendOrBuffer */
   function emit(data: Record<string, unknown>) {
+    if (!resolvedSessionId && data.v === 2) {
+      preSessionBuffer.push(data);
+    }
     sendOrBuffer(data, clientId, registry, store, resolvedSessionId, connRegistry);
+  }
+
+  /** Flush buffered pre-sessionId events to the durable store. */
+  function flushPreSessionBuffer() {
+    if (!store || !resolvedSessionId || preSessionBuffer.length === 0) return;
+    for (const event of preSessionBuffer) {
+      store.append(resolvedSessionId, event.type as string, {
+        ...event,
+        sessionId: resolvedSessionId,
+      });
+    }
+    preSessionBuffer.length = 0;
   }
 
   function nextBlockId(): string {
@@ -317,6 +337,7 @@ async function _runQueryLoopInner(
         if (!currentSession) break;
         if (!resolvedSessionId && currentSession.sessionId) {
           resolvedSessionId = currentSession.sessionId;
+          flushPreSessionBuffer();
           // Resumed sessions: load goalId from store so usage reporting works
           if (store && !resolvedGoalId) {
             const existingSession = store.getSession(resolvedSessionId);
@@ -344,6 +365,7 @@ async function _runQueryLoopInner(
           // Capture session ID on first assistant event.
           if (!currentSession.sessionId && msg.session_id) {
             resolvedSessionId = msg.session_id as string;
+            flushPreSessionBuffer();
             span.setAttribute('session.id', resolvedSessionId);
             registry.setSessionId(clientId, resolvedSessionId);
             onSessionResolved?.(resolvedSessionId);

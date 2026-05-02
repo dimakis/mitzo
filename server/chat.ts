@@ -662,6 +662,12 @@ async function _startChatInner(
     wtId,
     sessionAllowList: new Set<string>(),
     worktreePath,
+    // For resumed sessions, set sessionId immediately so runQueryLoop can
+    // persist events from the very first SDK event. Without this, events
+    // emitted before the SDK's `assistant` completion (message_start,
+    // block_delta, etc.) are silently dropped from the EventStore — making
+    // assistant messages invisible after iOS WS reconnect.
+    ...(options.resume ? { sessionId: options.resume } : {}),
   });
 
   const session = registry.get(clientId)!;
