@@ -14,6 +14,7 @@ import { BriefingCard } from '../components/BriefingCard';
 import { SessionSearchBar } from '../components/SessionSearchBar';
 import { useSessionSearch } from '../hooks/useSessionSearch';
 import { SessionOverview } from '../components/SessionOverview';
+import { ServiceStatus } from '../components/ServiceStatus';
 
 function SwipeableSession({
   session,
@@ -310,6 +311,8 @@ export function SessionList() {
         <BriefingCard />
 
         <SessionOverview />
+
+        <ServiceStatus />
 
         {quickActions.length > 0 && (
           <div className="quick-section">

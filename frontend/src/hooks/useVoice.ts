@@ -1,13 +1,8 @@
 // Voice integration hook — Yapper health, mic capture, streaming + batch transcription, TTS playback.
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import {
-  YAPPER_URL,
-  YAPPER_HEALTH_POLL_MS,
-  TTS_ENABLED_KEY,
-  TTS_VOICE_KEY,
-  DEFAULT_TTS_VOICE,
-} from '../lib/constants';
+import { YAPPER_URL, TTS_ENABLED_KEY, TTS_VOICE_KEY, DEFAULT_TTS_VOICE } from '../lib/constants';
+import { useServiceHealth } from './useServiceHealth';
 import {
   negotiateMimeType,
   createRecorder,
@@ -25,11 +20,6 @@ import {
   unlockAudioContext,
   closeAudioContext,
 } from '../lib/tts';
-
-interface YapperHealth {
-  status: string;
-  models?: { stt?: boolean; tts?: boolean };
-}
 
 export interface Voice {
   id: string;
@@ -76,15 +66,16 @@ function mimeToFormat(mime: string): string {
 }
 
 export function useVoice(): UseVoiceReturn {
+  // --- Service health (SSE-driven) ---
+  const { yapper } = useServiceHealth();
+  const available = yapper?.ok === true && yapper.detail?.stt !== false;
+  const ttsAvailable = yapper?.ok === true && yapper.detail?.tts !== false;
+
   // --- STT state ---
-  const [available, setAvailable] = useState(false);
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [micBlocked, setMicBlocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // --- TTS state ---
-  const [ttsAvailable, setTtsAvailable] = useState(false);
   const [ttsEnabled, setTtsEnabledState] = useState(
     () => localStorage.getItem(TTS_ENABLED_KEY) === 'true',
   );
@@ -137,45 +128,6 @@ export function useVoice(): UseVoiceReturn {
       document.removeEventListener('touchstart', unlock);
     };
   }, [ttsEnabled]);
-
-  // --- Health polling ---
-  useEffect(() => {
-    let mounted = true;
-    async function checkHealth() {
-      try {
-        const res = await fetch(`${YAPPER_URL}/health`);
-        if (!res.ok) {
-          if (mounted) {
-            setAvailable(false);
-            setTtsAvailable(false);
-          }
-          return;
-        }
-        const data: YapperHealth = await res.json();
-        if (mounted) {
-          const isReady = data.status === 'ready' || data.status === 'ok';
-          // Yapper may omit `models` — when status is ok, assume both capabilities
-          const stt = data.models ? data.models.stt === true : isReady;
-          const tts = data.models ? data.models.tts === true : isReady;
-          setAvailable(isReady && stt);
-          setTtsAvailable(isReady && tts);
-        }
-      } catch {
-        if (mounted) {
-          setAvailable(false);
-          setTtsAvailable(false);
-        }
-      }
-    }
-
-    checkHealth();
-    const timer = setInterval(checkHealth, YAPPER_HEALTH_POLL_MS);
-
-    return () => {
-      mounted = false;
-      clearInterval(timer);
-    };
-  }, []);
 
   // --- Negotiate mime type once ---
   useEffect(() => {

@@ -214,6 +214,7 @@ let orchestrator: TaskOrchestrator | null = null;
 let templateStore: WorkflowTemplateStore | null = null;
 let signalProcessor: SignalProcessor | null = null;
 let overviewEmitter: SessionOverviewEmitter | null = null;
+let healthMonitor: { getSnapshot: () => unknown } | null = null;
 
 export function setOrchestrator(o: TaskOrchestrator): void {
   orchestrator = o;
@@ -221,6 +222,10 @@ export function setOrchestrator(o: TaskOrchestrator): void {
 
 export function setOverviewEmitter(emitter: SessionOverviewEmitter): void {
   overviewEmitter = emitter;
+}
+
+export function setHealthMonitor(monitor: { getSnapshot: () => unknown }): void {
+  healthMonitor = monitor;
 }
 
 export function setTemplateStore(ts: WorkflowTemplateStore): void {
@@ -516,6 +521,11 @@ app.get('/api/events', (req, res) => {
 
   if (overviewEmitter) {
     sseRegistry.sendTo(clientId, 'session_activity', overviewEmitter.getSnapshot());
+  }
+
+  if (healthMonitor) {
+    const snapshot = healthMonitor.getSnapshot();
+    if (snapshot) sseRegistry.sendTo(clientId, 'health', snapshot);
   }
 
   req.on('close', () => sseRegistry.remove(clientId));
