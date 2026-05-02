@@ -3,8 +3,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
 // Mock the event bus singleton
-const mockOn = vi.fn(() => vi.fn()); // returns unsubscribe
-const mockOnConnectionChange = vi.fn(() => vi.fn());
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockOn: any = vi.fn(() => vi.fn());
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockOnConnectionChange: any = vi.fn(() => vi.fn());
 const mockConnected = false;
 
 vi.mock('../../lib/event-bus-singleton', () => ({
