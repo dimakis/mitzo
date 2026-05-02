@@ -114,6 +114,25 @@ export interface Session {
   numTurns?: number;
 }
 
+// --- Session activity types (SSE event bus) ---
+
+export type SessionActivityState = 'init' | 'working' | 'waiting' | 'done' | 'idle' | 'paused';
+
+export type WaitReason = 'permission' | 'review' | 'blocked';
+
+export interface SessionActivity {
+  sessionId: string;
+  clientId: string;
+  title: string;
+  repo?: string;
+  state: SessionActivityState;
+  flags: SessionActivityState[];
+  waitReason?: WaitReason;
+  progress?: { done: number; total: number };
+  lastEventAt: number;
+  taskId?: string;
+}
+
 // --- Event store types ---
 
 /** Optional logger interface — keeps the protocol package free of server dependencies. */

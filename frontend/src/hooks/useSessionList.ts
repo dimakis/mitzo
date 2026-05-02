@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Session } from '../types/chat';
 import { renameSession as renameSessionApi } from '../lib/rename-session';
 import { apiFetch } from '../lib/api-fetch';
+import { eventBus } from '../lib/event-bus-singleton';
+import type { SessionActivity } from './useSessionOverview';
 
 export interface QuickAction {
   label: string;
@@ -86,8 +88,24 @@ export function useSessionList(): UseSessionListReturn {
     };
     document.addEventListener('visibilitychange', onVisible);
 
+    // Live session dots via SSE — update isActive/isAttached without full refetch
+    const unsubActivity = eventBus.on('session_activity', (data) => {
+      const activities = data as SessionActivity[];
+      const activeIds = new Set(activities.map((a) => a.sessionId));
+      setSessions((prev) =>
+        prev.map((s) => ({
+          ...s,
+          isActive: activeIds.has(s.id),
+          isAttached: activities.some(
+            (a) => a.sessionId === s.id && a.state !== 'idle' && a.state !== 'done',
+          ),
+        })),
+      );
+    });
+
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
+      unsubActivity();
     };
   }, []);
 
