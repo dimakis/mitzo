@@ -41,6 +41,7 @@ interface SessionRow {
   duration_ms: number;
   duration_api_ms: number;
   goal_id: string | null;
+  telos_task_id: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -180,6 +181,7 @@ export class EventStore {
         'ALTER TABLE sessions ADD COLUMN duration_api_ms INTEGER NOT NULL DEFAULT 0',
       ],
       ['goal_id', 'ALTER TABLE sessions ADD COLUMN goal_id TEXT'],
+      ['telos_task_id', 'ALTER TABLE sessions ADD COLUMN telos_task_id TEXT'],
     ];
     for (const [col, sql] of migrations) {
       if (!columnNames.has(col)) {
@@ -256,6 +258,10 @@ export class EventStore {
         fields.push('goal_id = ?');
         values.push(meta.goalId);
       }
+      if (meta.telosTaskId !== undefined) {
+        fields.push('telos_task_id = ?');
+        values.push(meta.telosTaskId);
+      }
       if (meta.wtId !== undefined) {
         fields.push('wt_id = ?');
         values.push(meta.wtId);
@@ -281,6 +287,7 @@ export class EventStore {
         'initial_prompt',
         'wt_id',
         'goal_id',
+        'telos_task_id',
       ];
       const vals: unknown[] = [
         meta.sessionId,
@@ -292,6 +299,7 @@ export class EventStore {
         meta.initialPrompt ?? null,
         meta.wtId ?? null,
         meta.goalId ?? null,
+        meta.telosTaskId ?? null,
       ];
       if (meta.updatedAt !== undefined) {
         cols.push('updated_at');
@@ -504,6 +512,7 @@ function rowToSession(row: SessionRow): SessionMeta {
     durationMs: row.duration_ms ?? 0,
     durationApiMs: row.duration_api_ms ?? 0,
     goalId: row.goal_id ?? null,
+    telosTaskId: row.telos_task_id ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

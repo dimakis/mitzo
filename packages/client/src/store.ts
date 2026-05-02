@@ -49,11 +49,13 @@ export interface SendMessageOptions {
   cwd?: string;
   extraTools?: string;
   isolation?: boolean;
+  telosTaskId?: string;
 }
 
 export interface PendingSession {
   prompt: string;
   context: string;
+  telosTaskId?: string;
 }
 
 export interface MitzoStoreState {
@@ -299,6 +301,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         if (opts?.cwd) msg.cwd = opts.cwd;
         if (opts?.extraTools) msg.extraTools = opts.extraTools;
         if (opts?.isolation !== undefined) msg.isolation = opts.isolation;
+        if (opts?.telosTaskId) msg.telosTaskId = opts.telosTaskId;
         return msg;
       };
 

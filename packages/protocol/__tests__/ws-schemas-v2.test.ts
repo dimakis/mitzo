@@ -106,6 +106,20 @@ describe('v2 send', () => {
     });
     expect(r.success).toBe(false);
   });
+
+  it('accepts send with telosTaskId', () => {
+    const r = V2SendMessage.safeParse({
+      type: 'send',
+      sessionId: null,
+      prompt: 'hello',
+      clientMsgId: 'u-1',
+      telosTaskId: 'abc123def456',
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.telosTaskId).toBe('abc123def456');
+    }
+  });
 });
 
 describe('v2 interrupt / stop / permission_response / set_mode', () => {
