@@ -3,6 +3,14 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { createElement, act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
+vi.mock('../../lib/event-bus-singleton', () => ({
+  eventBus: {
+    on: vi.fn(() => vi.fn()),
+    onConnectionChange: vi.fn(() => vi.fn()),
+    connected: false,
+  },
+}));
+
 import { SessionList } from '../SessionList';
 
 function mockFetchResponses(overrides: Record<string, unknown> = {}) {

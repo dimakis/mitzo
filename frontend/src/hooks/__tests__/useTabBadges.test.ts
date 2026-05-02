@@ -6,6 +6,14 @@ import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { createMitzoStore } from '@mitzo/client';
 import type { WebSocketLike } from '@mitzo/client';
 import { WS_READY_STATE } from '@mitzo/client';
+vi.mock('../../lib/event-bus-singleton', () => ({
+  eventBus: {
+    on: vi.fn(() => vi.fn()),
+    onConnectionChange: vi.fn(() => vi.fn()),
+    connected: false,
+  },
+}));
+
 import { useTabBadges } from '../useTabBadges';
 
 class MockWebSocket implements WebSocketLike {

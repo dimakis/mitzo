@@ -10,6 +10,14 @@ vi.mock('../../lib/api-fetch', () => ({
   apiFetch: vi.fn(),
 }));
 
+vi.mock('../../lib/event-bus-singleton', () => ({
+  eventBus: {
+    on: vi.fn(() => vi.fn()),
+    onConnectionChange: vi.fn(() => vi.fn()),
+    connected: false,
+  },
+}));
+
 import { apiFetch } from '../../lib/api-fetch';
 import { useSessionList } from '../useSessionList';
 

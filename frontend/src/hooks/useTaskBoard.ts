@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import type { Task, LoopStatus } from '../types/task';
+import { eventBus } from '../lib/event-bus-singleton';
 
 export interface TaskCreateInput {
   title: string;
@@ -62,6 +63,20 @@ export function useTaskBoard(): UseTaskBoardResult {
   useEffect(() => {
     Promise.all([loadTasks(), loadLoopStatus()]).finally(() => setLoading(false));
   }, [loadTasks, loadLoopStatus]);
+
+  // Live updates via SSE
+  useEffect(() => {
+    const unsubLoop = eventBus.on('loop_status', () => {
+      loadLoopStatus();
+    });
+    const unsubTask = eventBus.on('task_state', () => {
+      refreshTasks();
+    });
+    return () => {
+      unsubLoop();
+      unsubTask();
+    };
+  }, [loadLoopStatus, refreshTasks]);
 
   return {
     loading,
