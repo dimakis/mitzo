@@ -301,7 +301,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         if (opts?.cwd) msg.cwd = opts.cwd;
         if (opts?.extraTools) msg.extraTools = opts.extraTools;
         if (opts?.isolation !== undefined) msg.isolation = opts.isolation;
-        if (opts?.telosTaskId) msg.telosTaskId = opts.telosTaskId;
+        if (opts?.telosTaskId !== undefined) msg.telosTaskId = opts.telosTaskId;
         return msg;
       };
 
