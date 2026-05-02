@@ -142,6 +142,28 @@ describe('EventBus', () => {
     expect(handler).toHaveBeenCalledOnce(); // not called again
   });
 
+  it('unsubscribe then resubscribe fires exactly once per event', () => {
+    bus.connect('/api/events');
+    lastSource!.simulateOpen();
+
+    const handler = vi.fn();
+    const unsub = bus.on('task_state', handler);
+
+    lastSource!.simulateEvent('task_state', { v: 1 });
+    expect(handler).toHaveBeenCalledOnce();
+
+    unsub();
+    handler.mockClear();
+
+    // Resubscribe — should not get duplicate dispatch
+    const handler2 = vi.fn();
+    bus.on('task_state', handler2);
+
+    lastSource!.simulateEvent('task_state', { v: 2 });
+    expect(handler).not.toHaveBeenCalled(); // old handler still unsubbed
+    expect(handler2).toHaveBeenCalledOnce(); // new handler fires exactly once
+  });
+
   it('subscribes after connect — late listeners work', () => {
     bus.connect('/api/events');
     lastSource!.simulateOpen();

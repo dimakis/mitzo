@@ -248,7 +248,7 @@ export class SessionOverviewEmitter {
     const goal = tree.find((t) => t.id === goalId);
     if (!goal) return null;
 
-    // Check the goal and its children (flat tree — children follow parent)
+    // Check the goal and direct children only (single-level task decomposition)
     for (const task of tree) {
       if (task.id === goalId || task.parentId === goalId) {
         if (task.status === 'pending_review') return 'review';
@@ -276,7 +276,7 @@ export class SessionOverviewEmitter {
  */
 function extractRepoName(cwd: string): string {
   // Strip worktree suffix: .claude/worktrees/<id> or .cursor/worktrees/<id>
-  const worktreeMatch = cwd.match(/^(.+?)\/\.(claude|cursor)\/worktrees\//);
+  const worktreeMatch = cwd.match(/^(.+)\/\.(claude|cursor)\/worktrees\//);
   const base = worktreeMatch ? worktreeMatch[1] : cwd;
   const parts = base.split('/').filter(Boolean);
   return parts[parts.length - 1] || 'unknown';

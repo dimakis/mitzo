@@ -61,7 +61,6 @@ export class EventBus {
 
     return () => {
       set!.delete(listener);
-      if (set!.size === 0) this.listeners.delete(event);
     };
   }
 

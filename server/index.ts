@@ -819,6 +819,7 @@ function shutdown(signal: string) {
   signalProc.unwatchAll();
   wfTemplateStore.close();
   overviewEmitter.destroy();
+  sseRegistry.destroy();
   registry.dispose();
   for (const client of wss.clients) {
     client.close(1001, 'Server shutting down');

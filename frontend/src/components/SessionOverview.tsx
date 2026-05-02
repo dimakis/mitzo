@@ -28,6 +28,7 @@ function SessionActivityCard({
   onTap: (sessionId: string) => void;
 }) {
   const config = STATE_CONFIG[activity.state];
+  // Elapsed updates on each SSE event, not on a timer — acceptable staleness
   const elapsed = Date.now() - activity.lastEventAt;
   const timeLabel = formatElapsed(elapsed);
 

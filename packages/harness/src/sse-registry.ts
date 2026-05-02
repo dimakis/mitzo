@@ -127,7 +127,8 @@ export class SseRegistry {
         try {
           client.res.write(payload);
         } catch {
-          // Write failed — connection dead, will be cleaned up on next broadcast
+          // Write failed — clean up dead connection immediately
+          this.remove(client.id);
         }
       }
     }, HEARTBEAT_INTERVAL_MS);
