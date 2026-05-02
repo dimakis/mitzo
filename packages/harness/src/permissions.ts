@@ -63,8 +63,18 @@ export function hasPending(permId: string): boolean {
 }
 
 /**
+ * Count pending permission requests for a specific session.
+ */
+export function getPendingCountBySession(sessionId: string): number {
+  let count = 0;
+  for (const entry of pending.values()) {
+    if (entry.sessionId === sessionId) count++;
+  }
+  return count;
+}
+
+/**
  * Deny all pending permission requests associated with a session.
- * Used during session takeover to clean up stale prompts on the old device.
  */
 export function denyPendingBySession(sessionId: string): number {
   let denied = 0;
