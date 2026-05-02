@@ -1,15 +1,3 @@
-/**
- * EventBus — SSE client for broadcast events.
- *
- * Wraps native EventSource to receive typed server-sent events (session state,
- * task updates, health, etc.). One instance per app, lives for the app's
- * lifetime. Complements the WebSocket (per-session, bidirectional) with a
- * global unidirectional awareness channel.
- *
- * EventSource auto-reconnects natively — no custom reconnect logic needed.
- * On reconnect, the server sends a fresh hydration snapshot.
- */
-
 /** EventSource readyState constants — avoids referencing the global. */
 const ES_OPEN = 1;
 const ES_CLOSED = 2;
@@ -30,23 +18,12 @@ export class EventBus {
       factory ?? ((url: string) => new EventSource(url, { withCredentials: true }));
   }
 
-  /**
-   * Connect to the SSE endpoint. Call once on app mount.
-   */
   connect(url: string): void {
     if (this.source) return;
     this.url = url;
     this.createSource();
   }
 
-  /**
-   * Subscribe to a specific event type. Returns an unsubscribe function.
-   *
-   * Listeners are tracked by the bus itself — they survive EventSource
-   * reconnects because we re-register them on each new source.
-   * The dispatch path goes through the listener set (not through
-   * individual EventSource handlers), so unsubscribe is immediate.
-   */
   on(event: string, listener: EventBusListener): () => void {
     let set = this.listeners.get(event);
     if (!set) {
@@ -64,19 +41,12 @@ export class EventBus {
     };
   }
 
-  /**
-   * Register a callback for connection state changes.
-   */
   onConnectionChange(cb: ConnectionChangeCallback): () => void {
     this.connectionChangeListeners.add(cb);
     return () => this.connectionChangeListeners.delete(cb);
   }
 
-  /**
-   * Ensure the SSE connection is alive. Call on app resume (iOS foreground).
-   * If the EventSource is in CLOSED state (gave up reconnecting), recreates it.
-   * No-op if still connected or reconnecting.
-   */
+  // Recreates EventSource if CLOSED (gave up); no-op if connected/reconnecting.
   ensureConnected(): void {
     if (!this.url) return;
     if (!this.source || this.source.readyState === ES_CLOSED) {
@@ -92,9 +62,6 @@ export class EventBus {
     }
   }
 
-  /**
-   * Disconnect. Call on app unmount.
-   */
   disconnect(): void {
     if (this.source) {
       try {
@@ -106,9 +73,6 @@ export class EventBus {
     }
   }
 
-  /**
-   * Whether the SSE connection is currently open.
-   */
   get connected(): boolean {
     return this.source?.readyState === ES_OPEN;
   }
@@ -129,19 +93,11 @@ export class EventBus {
       this.notifyConnectionChange(false);
     };
 
-    // Register one dispatch handler per event type on the new source.
-    // Each handler fans out to all listeners in the set — no per-listener
-    // handlers on the EventSource, so unsubscribe is just a Set.delete().
     for (const event of this.listeners.keys()) {
       this.registerEventDispatch(event);
     }
   }
 
-  /**
-   * Register a single EventSource handler for an event type that dispatches
-   * to all listeners in the set. This indirection means unsubscribe doesn't
-   * need to touch the EventSource — it just removes from the Set.
-   */
   private registerEventDispatch(event: string): void {
     if (!this.source) return;
     this.source.addEventListener(event, ((e: MessageEvent) => {

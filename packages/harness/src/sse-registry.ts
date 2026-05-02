@@ -1,15 +1,3 @@
-/**
- * SseRegistry — manages Server-Sent Events connections for broadcast events.
- *
- * Unlike WebSocket (bidirectional, per-session), SSE is unidirectional
- * (server → client) and global (not tied to a specific session). It delivers
- * broadcast data like session state changes, task updates, todo changes, and
- * health status.
- *
- * Auto-reconnects natively via EventSource (client-side) — no custom reconnect
- * logic needed. Each client gets a fresh snapshot on connect (hydration).
- */
-
 import type { Response } from 'express';
 import { createLogger } from './logger.js';
 
@@ -26,11 +14,6 @@ export class SseRegistry {
   private clients = new Map<string, SseClient>();
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
-  /**
-   * Register a new SSE client. Starts heartbeat if this is the first client.
-   * The response object must have headers already written
-   * (Content-Type: text/event-stream, etc.) before calling this.
-   */
   add(id: string, res: Response): void {
     this.clients.set(id, { id, res });
     log.info('SSE client connected', { id, total: this.clients.size });
@@ -40,9 +23,6 @@ export class SseRegistry {
     }
   }
 
-  /**
-   * Remove a client (on close/error). Stops heartbeat if this was the last client.
-   */
   remove(id: string): void {
     if (!this.clients.has(id)) return;
 
@@ -54,13 +34,6 @@ export class SseRegistry {
     }
   }
 
-  /**
-   * Send a typed event to all connected clients.
-   * SSE format:
-   *   event: <type>\n
-   *   data: <json>\n
-   *   \n
-   */
   broadcast(event: string, data: unknown): void {
     if (this.clients.size === 0) return;
 
@@ -86,9 +59,6 @@ export class SseRegistry {
     }
   }
 
-  /**
-   * Send a typed event to a specific client (for hydration on connect).
-   */
   sendTo(clientId: string, event: string, data: unknown): boolean {
     const client = this.clients.get(clientId);
     if (!client) return false;
@@ -104,9 +74,6 @@ export class SseRegistry {
     }
   }
 
-  /**
-   * Number of connected clients.
-   */
   get size(): number {
     return this.clients.size;
   }
@@ -142,10 +109,6 @@ export class SseRegistry {
     this.heartbeatTimer = null;
   }
 
-  /**
-   * Cleanup: close all connections and stop heartbeat.
-   * Call on server shutdown.
-   */
   destroy(): void {
     log.info('Destroying SSE registry', { clients: this.clients.size });
     this.stopHeartbeat();
