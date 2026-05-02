@@ -524,8 +524,7 @@ app.get('/api/events', (req, res) => {
   }
 
   if (healthMonitor) {
-    const snapshot = healthMonitor.getSnapshot();
-    if (snapshot) sseRegistry.sendTo(clientId, 'health', snapshot);
+    sseRegistry.sendTo(clientId, 'health', healthMonitor.getSnapshot());
   }
 
   req.on('close', () => sseRegistry.remove(clientId));

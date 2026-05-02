@@ -68,6 +68,9 @@ function mimeToFormat(mime: string): string {
 export function useVoice(): UseVoiceReturn {
   // --- Service health (SSE-driven) ---
   const { yapper } = useServiceHealth();
+  // detail?.stt !== false: when Yapper omits `models`, detail is undefined
+  // and we assume both capabilities (matches old per-hook polling behavior).
+  // Server sets ok=false for non-ready statuses, so this only fires when healthy.
   const available = yapper?.ok === true && yapper.detail?.stt !== false;
   const ttsAvailable = yapper?.ok === true && yapper.detail?.tts !== false;
 
