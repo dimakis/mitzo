@@ -112,6 +112,7 @@ export interface Session {
   isAttached?: boolean;
   totalTokens?: number;
   numTurns?: number;
+  telosTaskId?: string;
 }
 
 // --- Session activity types (SSE event bus) ---
@@ -190,6 +191,7 @@ export interface SessionMeta {
   durationMs: number;
   durationApiMs: number;
   goalId: string | null;
+  telosTaskId: string | null;
   createdAt: number;
   updatedAt: number;
 }

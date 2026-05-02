@@ -559,6 +559,7 @@ export async function startChat(
     contextBlocks?: string[];
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
+    telosTaskId?: string;
   },
 ) {
   return withSpanAsync(
@@ -587,6 +588,7 @@ async function _startChatInner(
     contextBlocks?: string[];
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
+    telosTaskId?: string;
   },
 ) {
   const abortController = new AbortController();

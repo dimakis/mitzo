@@ -165,6 +165,30 @@ describe('EventStore', () => {
       expect(session!.goalId).toBe('goal-abc-123');
     });
 
+    it('persists telosTaskId on insert', () => {
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Test', telosTaskId: 'telos-abc' });
+
+      const session = store.getSession('sess-1');
+      expect(session).not.toBeNull();
+      expect(session!.telosTaskId).toBe('telos-abc');
+    });
+
+    it('persists and retrieves telosTaskId via update', () => {
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Test' });
+      store.upsertSession({ sessionId: 'sess-1', telosTaskId: 'telos-xyz' });
+
+      const session = store.getSession('sess-1');
+      expect(session).not.toBeNull();
+      expect(session!.telosTaskId).toBe('telos-xyz');
+    });
+
+    it('defaults telosTaskId to null when not provided', () => {
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Test' });
+
+      const session = store.getSession('sess-1');
+      expect(session!.telosTaskId).toBeNull();
+    });
+
     it('preserves fields not included in partial update', () => {
       store.upsertSession({
         sessionId: 'sess-1',
