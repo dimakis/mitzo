@@ -22,6 +22,9 @@ export type {
   ProgressItemStatus,
   ProgressItem,
   ProgressBlock,
+  SessionActivityState,
+  WaitReason,
+  SessionActivity,
 } from './types.js';
 
 // Constants

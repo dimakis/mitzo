@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { TodoItem, TodoData } from '../types/todo';
 import { apiFetch } from '../lib/api-fetch';
+import { eventBus } from '../lib/event-bus-singleton';
 
 export interface UseTodoDataResult {
   loading: boolean;
@@ -82,6 +83,13 @@ export function useTodoData(profile?: string): UseTodoDataResult {
       cancelled = true;
     };
   }, [profile, refreshKey]);
+
+  // Live update: SSE todo_update signals a refetch
+  useEffect(() => {
+    return eventBus.on('todo_update', () => {
+      setRefreshKey((k) => k + 1);
+    });
+  }, []);
 
   const performAction = useCallback(async (id: string, action: string, days?: number) => {
     const body: Record<string, unknown> = { action };

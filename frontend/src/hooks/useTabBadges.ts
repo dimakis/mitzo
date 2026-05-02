@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { useMitzoStore } from '@mitzo/client/hooks';
+import { eventBus } from '../lib/event-bus-singleton';
 
 export interface TabBadges {
   inboxCount: number;
@@ -23,7 +24,15 @@ export function useTabBadges(): TabBadges {
       }
     };
     document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
+
+    const unsubInbox = eventBus.on('inbox_updated', () => loadInbox());
+    const unsubTodo = eventBus.on('todo_update', () => loadTodos());
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      unsubInbox();
+      unsubTodo();
+    };
   }, [loadInbox, loadTodos]);
 
   const todoCount = useMemo(
