@@ -2016,4 +2016,107 @@ describe('runQueryLoop', () => {
       expect(resultEvent!.attributes!['tool.is_error']).toBe(false);
     });
   });
+
+  describe('subagent block type tracking', () => {
+    it('emits correct blockType for thinking blocks in subagent_block_end', async () => {
+      const events: Record<string, unknown>[] = [
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-sa1' } } },
+        // Parent tool_use block (Agent tool)
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_start',
+            index: 0,
+            content_block: { type: 'tool_use', name: 'Agent', id: 'agent-tool-1' },
+          },
+        },
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'input_json_delta', partial_json: '{"prompt":"test"}' },
+          },
+        },
+        // Subagent message_start
+        {
+          type: 'stream_event',
+          parent_tool_use_id: 'agent-tool-1',
+          event: { type: 'message_start', message: { id: 'sub-msg-1' } },
+        },
+        // Subagent thinking block start
+        {
+          type: 'stream_event',
+          parent_tool_use_id: 'agent-tool-1',
+          event: {
+            type: 'content_block_start',
+            index: 0,
+            content_block: { type: 'thinking' },
+          },
+        },
+        // Subagent thinking delta
+        {
+          type: 'stream_event',
+          parent_tool_use_id: 'agent-tool-1',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'thinking_delta', thinking: 'Let me think...' },
+          },
+        },
+        // Subagent thinking block stop — should produce blockType: 'thinking', not 'text'
+        {
+          type: 'stream_event',
+          parent_tool_use_id: 'agent-tool-1',
+          event: { type: 'content_block_stop', index: 0 },
+        },
+        // Subagent text block start
+        {
+          type: 'stream_event',
+          parent_tool_use_id: 'agent-tool-1',
+          event: {
+            type: 'content_block_start',
+            index: 1,
+            content_block: { type: 'text' },
+          },
+        },
+        // Subagent text delta
+        {
+          type: 'stream_event',
+          parent_tool_use_id: 'agent-tool-1',
+          event: {
+            type: 'content_block_delta',
+            index: 1,
+            delta: { type: 'text_delta', text: 'Response' },
+          },
+        },
+        // Subagent text block stop — should produce blockType: 'text'
+        {
+          type: 'stream_event',
+          parent_tool_use_id: 'agent-tool-1',
+          event: { type: 'content_block_stop', index: 1 },
+        },
+        // End parent tool_use block
+        { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-sa' },
+        { type: 'result', session_id: 'sess-sa' },
+      ];
+
+      await runQueryLoop(eventStream(events), clientId, registry, abortController);
+
+      const sent = transport.sent;
+
+      // Find the subagent_block_end events
+      const subagentBlockEnds = sent.filter((m) => m.type === 'subagent_block_end');
+      expect(subagentBlockEnds.length).toBeGreaterThanOrEqual(2);
+
+      // First subagent_block_end should be thinking (index 0 was a thinking block)
+      const thinkingEnd = subagentBlockEnds.find((m) => m.blockType === 'thinking');
+      expect(thinkingEnd).toBeDefined();
+
+      // Second subagent_block_end should be text (index 1 was a text block)
+      const textEnd = subagentBlockEnds.find((m) => m.blockType === 'text');
+      expect(textEnd).toBeDefined();
+    });
+  });
 });

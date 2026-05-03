@@ -233,7 +233,13 @@ export type ServerMessage =
   | LoopStatusMsg
   | ProgressStartMsg
   | ProgressUpdateMsg
-  | ProgressReplaceMsg;
+  | ProgressReplaceMsg
+  | SubagentStartMsg
+  | SubagentBlockStartMsg
+  | SubagentBlockDeltaMsg
+  | SubagentBlockEndMsg
+  | SubagentToolResultMsg
+  | SubagentEndMsg;
 
 export interface ProgressStartMsg {
   type: 'progress_start';
@@ -282,4 +288,83 @@ export interface LoopStatusMsg {
   progress: { done: number; total: number } | null;
   specMode: boolean;
   awaitingApproval: boolean;
+}
+
+// Subagent lifecycle events
+export interface SubagentStartMsg {
+  type: 'subagent_start';
+  v: 2;
+  ts: number;
+  sessionId: string;
+  parentBlockId: string;
+  parentToolId: string;
+  subagentMessageId: string;
+  description?: string;
+}
+
+export interface SubagentBlockStartMsg {
+  type: 'subagent_block_start';
+  v: 2;
+  ts: number;
+  sessionId: string;
+  parentBlockId: string;
+  subagentMessageId: string;
+  blockId: string;
+  blockType: BlockType;
+  toolName?: string;
+}
+
+export interface SubagentBlockDeltaMsg {
+  type: 'subagent_block_delta';
+  v: 2;
+  ts: number;
+  sessionId: string;
+  parentBlockId: string;
+  subagentMessageId: string;
+  blockId: string;
+  blockType: BlockType;
+  delta: string;
+}
+
+export interface SubagentBlockEndMsg {
+  type: 'subagent_block_end';
+  v: 2;
+  ts: number;
+  sessionId: string;
+  parentBlockId: string;
+  subagentMessageId: string;
+  blockId: string;
+  blockType: BlockType;
+  toolName?: string;
+  toolId?: string;
+  input?: string;
+  rawInput?: RawToolInput;
+}
+
+export interface SubagentToolResultMsg {
+  type: 'subagent_tool_result';
+  v: 2;
+  ts: number;
+  sessionId: string;
+  parentBlockId: string;
+  subagentMessageId: string;
+  toolId: string;
+  result: string;
+  isError: boolean;
+}
+
+export interface SubagentEndMsg {
+  type: 'subagent_end';
+  v: 2;
+  ts: number;
+  sessionId: string;
+  parentBlockId: string;
+  subagentMessageId: string;
+  summary?: string;
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheCreationTokens: number;
+  };
 }

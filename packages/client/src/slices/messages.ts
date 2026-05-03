@@ -77,6 +77,43 @@ export type MessagesAction =
     }
   | { type: 'MESSAGE_END'; messageId: string; sessionId?: string }
   | { type: 'SESSION_END'; sessionId?: string }
+  // Subagent events
+  | { type: 'SUBAGENT_START'; parentBlockId: string; subagentMessageId: string }
+  | {
+      type: 'SUBAGENT_BLOCK_START';
+      parentBlockId: string;
+      blockId: string;
+      blockType: BlockType;
+      toolName?: string;
+    }
+  | { type: 'SUBAGENT_BLOCK_DELTA'; parentBlockId: string; blockId: string; delta: string }
+  | {
+      type: 'SUBAGENT_BLOCK_END';
+      parentBlockId: string;
+      blockId: string;
+      toolName?: string;
+      toolId?: string;
+      input?: string;
+      rawInput?: RawToolInput;
+    }
+  | {
+      type: 'SUBAGENT_TOOL_RESULT';
+      parentBlockId: string;
+      toolId: string;
+      result: string;
+      isError: boolean;
+    }
+  | {
+      type: 'SUBAGENT_END';
+      parentBlockId: string;
+      summary?: string;
+      usage?: {
+        inputTokens: number;
+        outputTokens: number;
+        cacheReadTokens: number;
+        cacheCreationTokens: number;
+      };
+    }
   // Reattach snapshot
   | { type: 'MESSAGE_SNAPSHOT'; messageId: string; blocks: FinishedBlock[] }
   // Session / UI lifecycle
@@ -115,6 +152,7 @@ export function finishCurrent(current: StreamingMessage): FinishedMessage {
       rawInput: b.rawInput,
       toolResult: b.toolResult,
       toolError: b.toolError,
+      subagent: b.subagent,
     };
   });
   return { messageId: current.messageId, role: 'assistant', blocks, timestamp: Date.now() };
@@ -465,6 +503,177 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
           },
         ],
       };
+
+    // Subagent reducer cases
+    case 'SUBAGENT_START': {
+      if (!state.current) return state;
+      const block = state.current.blocks.get(action.parentBlockId);
+      if (!block) return state;
+
+      const newBlocks = new Map(state.current.blocks);
+      newBlocks.set(action.parentBlockId, {
+        ...block,
+        subagent: {
+          messageId: action.subagentMessageId,
+          blocks: new Map(),
+          blockOrder: [],
+          running: true,
+        },
+      });
+
+      return { ...state, current: { ...state.current, blocks: newBlocks } };
+    }
+
+    case 'SUBAGENT_BLOCK_START': {
+      if (!state.current) return state;
+      const parentBlock = state.current.blocks.get(action.parentBlockId);
+      if (!parentBlock?.subagent) return state;
+
+      const newBlock: StreamingBlock = {
+        blockId: action.blockId,
+        blockType: action.blockType,
+        content: '',
+        done: false,
+        ...(action.toolName ? { toolName: action.toolName } : {}),
+      };
+
+      const newSubBlocks = new Map(parentBlock.subagent.blocks);
+      newSubBlocks.set(action.blockId, newBlock);
+
+      const newBlocks = new Map(state.current.blocks);
+      newBlocks.set(action.parentBlockId, {
+        ...parentBlock,
+        subagent: {
+          ...parentBlock.subagent,
+          blocks: newSubBlocks,
+          blockOrder: [...parentBlock.subagent.blockOrder, action.blockId],
+        },
+      });
+
+      return { ...state, current: { ...state.current, blocks: newBlocks } };
+    }
+
+    case 'SUBAGENT_BLOCK_DELTA': {
+      if (!state.current) return state;
+      const parentBlock = state.current.blocks.get(action.parentBlockId);
+      if (!parentBlock?.subagent) return state;
+
+      const subBlock = parentBlock.subagent.blocks.get(action.blockId);
+      if (!subBlock) return state;
+
+      const newSubBlocks = new Map(parentBlock.subagent.blocks);
+      newSubBlocks.set(action.blockId, {
+        ...subBlock,
+        content: subBlock.content + action.delta,
+      });
+
+      const newBlocks = new Map(state.current.blocks);
+      newBlocks.set(action.parentBlockId, {
+        ...parentBlock,
+        subagent: {
+          ...parentBlock.subagent,
+          blocks: newSubBlocks,
+        },
+      });
+
+      return { ...state, current: { ...state.current, blocks: newBlocks } };
+    }
+
+    case 'SUBAGENT_BLOCK_END': {
+      if (!state.current) return state;
+      const parentBlock = state.current.blocks.get(action.parentBlockId);
+      if (!parentBlock?.subagent) return state;
+
+      const subBlock = parentBlock.subagent.blocks.get(action.blockId);
+      if (!subBlock) return state;
+
+      const newSubBlocks = new Map(parentBlock.subagent.blocks);
+      newSubBlocks.set(action.blockId, {
+        ...subBlock,
+        done: true,
+        ...(action.toolName ? { toolName: action.toolName } : {}),
+        ...(action.toolId ? { toolId: action.toolId } : {}),
+        ...(action.input ? { toolInput: action.input } : {}),
+        ...(action.rawInput ? { rawInput: action.rawInput } : {}),
+      });
+
+      const newBlocks = new Map(state.current.blocks);
+      newBlocks.set(action.parentBlockId, {
+        ...parentBlock,
+        subagent: {
+          ...parentBlock.subagent,
+          blocks: newSubBlocks,
+        },
+      });
+
+      return { ...state, current: { ...state.current, blocks: newBlocks } };
+    }
+
+    case 'SUBAGENT_TOOL_RESULT': {
+      if (!state.current) return state;
+      const parentBlock = state.current.blocks.get(action.parentBlockId);
+      if (!parentBlock?.subagent) return state;
+
+      // Find the tool block with matching toolId
+      for (const [blockId, subBlock] of parentBlock.subagent.blocks) {
+        if (subBlock.toolId === action.toolId) {
+          const newSubBlocks = new Map(parentBlock.subagent.blocks);
+          newSubBlocks.set(blockId, {
+            ...subBlock,
+            toolResult: action.result,
+            toolError: action.isError,
+          });
+
+          const newBlocks = new Map(state.current.blocks);
+          newBlocks.set(action.parentBlockId, {
+            ...parentBlock,
+            subagent: {
+              ...parentBlock.subagent,
+              blocks: newSubBlocks,
+            },
+          });
+
+          return { ...state, current: { ...state.current, blocks: newBlocks } };
+        }
+      }
+
+      return state;
+    }
+
+    case 'SUBAGENT_END': {
+      if (!state.current) return state;
+      const parentBlock = state.current.blocks.get(action.parentBlockId);
+      if (!parentBlock?.subagent) return state;
+
+      // Convert streaming subagent state to finished state
+      const finishedBlocks: FinishedBlock[] = parentBlock.subagent.blockOrder.map((blockId) => {
+        const b = parentBlock.subagent!.blocks.get(blockId)!;
+        return {
+          blockId: b.blockId,
+          blockType: b.blockType,
+          content: b.content,
+          toolName: b.toolName,
+          toolId: b.toolId,
+          toolInput: b.toolInput,
+          rawInput: b.rawInput,
+          toolResult: b.toolResult,
+          toolError: b.toolError,
+        };
+      });
+
+      const newBlocks = new Map(state.current.blocks);
+      newBlocks.set(action.parentBlockId, {
+        ...parentBlock,
+        subagent: {
+          messageId: parentBlock.subagent.messageId,
+          blocks: finishedBlocks,
+          summary: action.summary,
+          usage: action.usage,
+        },
+      });
+
+      return { ...state, current: { ...state.current, blocks: newBlocks } };
+    }
 
     default:
       return state;

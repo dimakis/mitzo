@@ -438,6 +438,72 @@ export function parseServerMessage(
     case 'inbox_updated':
       result.inboxRefresh = true;
       break;
+
+    // Subagent lifecycle messages
+    case 'subagent_start':
+      result.messagesActions.push({
+        type: 'SUBAGENT_START',
+        parentBlockId: msg.parentBlockId as string,
+        subagentMessageId: msg.subagentMessageId as string,
+      });
+      break;
+
+    case 'subagent_block_start':
+      result.messagesActions.push({
+        type: 'SUBAGENT_BLOCK_START',
+        parentBlockId: msg.parentBlockId as string,
+        blockId: msg.blockId as string,
+        blockType: msg.blockType as BlockType,
+        toolName: msg.toolName as string | undefined,
+      });
+      break;
+
+    case 'subagent_block_delta':
+      result.messagesActions.push({
+        type: 'SUBAGENT_BLOCK_DELTA',
+        parentBlockId: msg.parentBlockId as string,
+        blockId: msg.blockId as string,
+        delta: msg.delta as string,
+      });
+      break;
+
+    case 'subagent_block_end':
+      result.messagesActions.push({
+        type: 'SUBAGENT_BLOCK_END',
+        parentBlockId: msg.parentBlockId as string,
+        blockId: msg.blockId as string,
+        toolName: msg.toolName as string | undefined,
+        toolId: msg.toolId as string | undefined,
+        input: msg.input as string | undefined,
+        rawInput: msg.rawInput as RawToolInput | undefined,
+      });
+      break;
+
+    case 'subagent_tool_result':
+      result.messagesActions.push({
+        type: 'SUBAGENT_TOOL_RESULT',
+        parentBlockId: msg.parentBlockId as string,
+        toolId: msg.toolId as string,
+        result: msg.result as string,
+        isError: (msg.isError as boolean) ?? false,
+      });
+      break;
+
+    case 'subagent_end':
+      result.messagesActions.push({
+        type: 'SUBAGENT_END',
+        parentBlockId: msg.parentBlockId as string,
+        summary: msg.summary as string | undefined,
+        usage: msg.usage as
+          | {
+              inputTokens: number;
+              outputTokens: number;
+              cacheReadTokens: number;
+              cacheCreationTokens: number;
+            }
+          | undefined,
+      });
+      break;
   }
 
   return result;
