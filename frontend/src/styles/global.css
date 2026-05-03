@@ -5237,3 +5237,87 @@ textarea:focus {
 .isolation-toggle:hover {
   opacity: 0.8;
 }
+
+/* ━━━ Subagent Card ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.subagent-card {
+  margin: 8px 0 0 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--success);
+  background: rgba(var(--success-rgb), 0.05);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.subagent-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 8px 0;
+  width: 100%;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  font-family: inherit;
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+
+.subagent-header:active {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.subagent-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.subagent-dot--running {
+  background: var(--success);
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+.subagent-dot--done {
+  background: var(--success);
+}
+
+.subagent-summary {
+  flex: 1;
+  text-align: left;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.subagent-tokens {
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.subagent-chevron {
+  color: var(--text-dim);
+  font-size: var(--text-xs);
+  flex-shrink: 0;
+}
+
+.subagent-detail {
+  padding: 0 12px 8px 0;
+}
+
+.subagent-text {
+  padding: 8px 0;
+  color: var(--text-dim);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
