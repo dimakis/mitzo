@@ -662,6 +662,8 @@ async function _startChatInner(
     wtId,
     sessionAllowList: new Set<string>(),
     worktreePath,
+    // Set sessionId early so pre-assistant events are persisted (iOS reconnect).
+    ...(options.resume ? { sessionId: options.resume } : {}),
   });
 
   const session = registry.get(clientId)!;
