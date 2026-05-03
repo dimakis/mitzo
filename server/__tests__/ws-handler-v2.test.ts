@@ -283,6 +283,40 @@ describe('handleReconnect', () => {
 
     expect(reattachChat).not.toHaveBeenCalled();
   });
+
+  it('resets cursor to client lastSeq immediately after watch (before replay)', () => {
+    const eventStore = mockEventStore();
+    eventStore.getEventsAfter.mockReturnValue([
+      { seq: 51, payload: { type: 'msg1' } },
+      { seq: 52, payload: { type: 'msg2' } },
+    ]);
+
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    // Spy on resetCursor to verify it's called early
+    const resetSpy = vi.spyOn(ctx.connRegistry, 'resetCursor');
+
+    handleReconnect(
+      'c1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 50 }] },
+      ctx,
+    );
+
+    // resetCursor should have been called at least twice:
+    // 1. Before replay (with client's lastSeq)
+    // 2. After replay (with final replayed seq)
+    expect(resetSpy).toHaveBeenCalledTimes(2);
+    // First call sets cursor to client's lastSeq
+    expect(resetSpy).toHaveBeenNthCalledWith(1, 'c1', 'sess-1', 50);
+    // Second call sets cursor to last replayed seq
+    expect(resetSpy).toHaveBeenNthCalledWith(2, 'c1', 'sess-1', 52);
+
+    resetSpy.mockRestore();
+  });
 });
 
 // ─── handleWatch / handleUnwatch ─────────────────────────────────────────────

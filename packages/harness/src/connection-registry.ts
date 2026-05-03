@@ -38,6 +38,9 @@ export interface EventStoreAdapter {
     seq: number;
     payload: Record<string, unknown>;
   }>;
+  /** Optional: check if a session is still active. When provided, periodic sync
+   *  skips ended sessions to avoid unnecessary EventStore queries. */
+  isSessionActive?(sessionId: string): boolean;
 }
 
 // Periodic sync fires every 5s to retry missed events
@@ -218,6 +221,11 @@ export class ConnectionRegistry {
         if (!connCursors) continue;
 
         for (const sessionId of conn.watchedSessions) {
+          // Skip ended sessions to avoid unnecessary EventStore queries
+          if (this.eventStore.isSessionActive && !this.eventStore.isSessionActive(sessionId)) {
+            continue;
+          }
+
           const cursor = connCursors.get(sessionId) ?? 0;
 
           // Fetch missed events from EventStore

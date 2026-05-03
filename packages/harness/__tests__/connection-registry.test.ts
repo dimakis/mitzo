@@ -452,6 +452,60 @@ describe('ConnectionRegistry', () => {
       vi.advanceTimersByTime(5000);
       expect(t.send).not.toHaveBeenCalled();
     });
+
+    it('skips ended sessions when isSessionActive is provided', async () => {
+      vi.useFakeTimers();
+      const t = mockTransport(true);
+      const store = mockEventStore([
+        { seq: 5, payload: { type: 'msg1' } },
+        { seq: 10, payload: { type: 'msg2' } },
+      ]);
+
+      // Add isSessionActive — sess-ended is inactive, sess-active is active
+      (store as EventStoreAdapter & { isSessionActive?: (id: string) => boolean }).isSessionActive =
+        (id: string) => id !== 'sess-ended';
+
+      registry.setEventStore(store);
+      registry.register('conn-1', t);
+      registry.watch('conn-1', 'sess-ended');
+      registry.watch('conn-1', 'sess-active');
+      registry.startPeriodicSync();
+
+      await vi.advanceTimersByTimeAsync(5000);
+
+      // Should only fetch events for sess-active, not sess-ended
+      const calls = (store.getEventsAfter as ReturnType<typeof vi.fn>).mock.calls;
+      const sessionIds = calls.map((c: unknown[]) => c[0]);
+      expect(sessionIds).toContain('sess-active');
+      expect(sessionIds).not.toContain('sess-ended');
+
+      registry.stopPeriodicSync();
+    });
+
+    it('still syncs all sessions when isSessionActive is not provided', async () => {
+      vi.useFakeTimers();
+      const t = mockTransport(true);
+      const store = mockEventStore([
+        { seq: 5, payload: { type: 'msg1' } },
+      ]);
+
+      // No isSessionActive — backwards compatible
+      registry.setEventStore(store);
+      registry.register('conn-1', t);
+      registry.watch('conn-1', 'sess-a');
+      registry.watch('conn-1', 'sess-b');
+      registry.startPeriodicSync();
+
+      await vi.advanceTimersByTimeAsync(5000);
+
+      // Should fetch events for both sessions (no filtering)
+      const calls = (store.getEventsAfter as ReturnType<typeof vi.fn>).mock.calls;
+      const sessionIds = calls.map((c: unknown[]) => c[0]);
+      expect(sessionIds).toContain('sess-a');
+      expect(sessionIds).toContain('sess-b');
+
+      registry.stopPeriodicSync();
+    });
   });
 
   describe('dispose', () => {

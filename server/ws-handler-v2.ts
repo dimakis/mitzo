@@ -127,6 +127,10 @@ export function handleReconnect(
       for (const entry of msg.sessions) {
         ctx.connRegistry.watch(connectionId, entry.sessionId);
 
+        // Set cursor to client's lastSeq BEFORE replay, so periodic sync
+        // sees a reasonable cursor during replay instead of 0.
+        ctx.connRegistry.resetCursor(connectionId, entry.sessionId, entry.lastSeq);
+
         const events = ctx.eventStore.getEventsAfter(entry.sessionId, entry.lastSeq);
         for (const evt of events) {
           ctx.connRegistry.get(connectionId)?.transport.send({
