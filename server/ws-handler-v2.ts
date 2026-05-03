@@ -135,6 +135,11 @@ export function handleReconnect(
           } as Record<string, unknown>);
         }
 
+        // Reset cursor to last replayed seq — prevents duplicate delivery from
+        // periodic sync. If no events replayed, cursor stays at client's lastSeq.
+        const newCursor = events.length > 0 ? events[events.length - 1].seq : entry.lastSeq;
+        ctx.connRegistry.resetCursor(connectionId, entry.sessionId, newCursor);
+
         // Cross-reference with the durable EventStore: markSessionInactive() is
         // called in the query loop's finally block, so isActive=false in the
         // store is ground truth that the loop has ended.
