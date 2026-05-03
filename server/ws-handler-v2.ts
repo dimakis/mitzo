@@ -127,6 +127,10 @@ export function handleReconnect(
       for (const entry of msg.sessions) {
         ctx.connRegistry.watch(connectionId, entry.sessionId);
 
+        // Set cursor to client's lastSeq BEFORE replay, so periodic sync
+        // sees a reasonable cursor during replay instead of 0.
+        ctx.connRegistry.resetCursor(connectionId, entry.sessionId, entry.lastSeq);
+
         const events = ctx.eventStore.getEventsAfter(entry.sessionId, entry.lastSeq);
         for (const evt of events) {
           ctx.connRegistry.get(connectionId)?.transport.send({
@@ -134,6 +138,11 @@ export function handleReconnect(
             seq: evt.seq,
           } as Record<string, unknown>);
         }
+
+        // Reset cursor to last replayed seq — prevents duplicate delivery from
+        // periodic sync. If no events replayed, cursor stays at client's lastSeq.
+        const newCursor = events.length > 0 ? events[events.length - 1].seq : entry.lastSeq;
+        ctx.connRegistry.resetCursor(connectionId, entry.sessionId, newCursor);
 
         // Cross-reference with the durable EventStore: markSessionInactive() is
         // called in the query loop's finally block, so isActive=false in the

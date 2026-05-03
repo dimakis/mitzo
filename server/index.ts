@@ -89,6 +89,14 @@ const nativeCommands = new NativeCommandRegistry();
 const connRegistry = new ConnectionRegistry();
 setConnectionRegistry(connRegistry);
 
+// Wire up EventStore for periodic sync (enables delivery guarantee).
+// Provide isSessionActive so periodic sync skips ended sessions.
+connRegistry.setEventStore({
+  getEventsAfter: (sessionId, afterSeq, limit) =>
+    eventStore.getEventsAfter(sessionId, afterSeq, limit),
+  isSessionActive: (sessionId) => eventStore.getSession(sessionId)?.isActive ?? false,
+});
+
 // Resolve cert paths relative to the project root (where package.json lives)
 const __filename = fileURLToPath(import.meta.url);
 const PROJECT_ROOT = join(__filename, '..', '..');
@@ -832,6 +840,7 @@ function shutdown(signal: string) {
   healthMonitor.destroy();
   overviewEmitter.destroy();
   sseRegistry.destroy();
+  connRegistry.dispose(); // Stop periodic sync + clear state
   registry.dispose();
   for (const client of wss.clients) {
     client.close(1001, 'Server shutting down');
@@ -854,6 +863,10 @@ checkPort(PORT).then((inUse) => {
   server.listen(PORT, () => {
     const protocol = USE_TLS ? 'https' : 'http';
     log.info(`Chat Agent running on ${protocol}://localhost:${PORT}${USE_TLS ? ' (TLS)' : ''}`);
+
+    // Start periodic sync for connection-level delivery guarantee
+    connRegistry.startPeriodicSync();
+
     // Eagerly reconcile sessions so the first /api/sessions request is fast and accurate.
     reconcileSessionsBackground();
     // Clean up stale worktrees across all repos.
