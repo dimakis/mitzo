@@ -388,6 +388,7 @@ async function _runQueryLoopInner(
                 branch: currentSession.branch,
                 ...(currentSession.worktreePath ? { wtId: currentSession.wtId } : {}),
                 ...(initialPrompt ? { initialPrompt } : {}),
+                ...(currentSession.telosTaskId ? { telosTaskId: currentSession.telosTaskId } : {}),
               });
               if (initialPrompt) {
                 // Store the initial prompt as a user_message event so

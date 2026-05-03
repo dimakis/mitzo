@@ -56,6 +56,7 @@ export interface SessionMetaResponse {
   totalTokens: number;
   totalCostUsd: number;
   numTurns: number;
+  telosTaskId: string | null;
 }
 
 export interface CalendarData {

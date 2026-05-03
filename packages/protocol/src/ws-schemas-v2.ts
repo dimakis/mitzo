@@ -82,6 +82,7 @@ export const V2SendMessage = z.object({
   isolation: z.boolean().optional(),
   images: z.array(ImageSchema).optional(),
   contextBlocks: z.array(z.string()).optional(),
+  telosTaskId: z.string().optional(),
 });
 
 export const V2InterruptMessage = z.object({
