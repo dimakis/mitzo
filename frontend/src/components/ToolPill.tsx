@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { StreamingBlock, FinishedBlock, RawToolInput } from '../types/chat';
+import { SubagentCard } from './SubagentCard';
 
 interface Props {
   block: StreamingBlock | FinishedBlock;
@@ -71,6 +72,7 @@ export function ToolPill({ block }: Props) {
           )}
         </div>
       )}
+      {block.subagent && <SubagentCard subagent={block.subagent} />}
     </div>
   );
 }
