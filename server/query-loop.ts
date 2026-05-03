@@ -180,8 +180,29 @@ async function _runQueryLoopInner(
   // Progress tracker — intercepts TodoWrite calls, emits structured events.
   const progressTracker = new ProgressTracker();
 
+  // Subagent tracking — maps parent_tool_use_id → subagent state
+  const activeSubagents = new Map<
+    string,
+    {
+      parentBlockId: string;
+      parentToolName: string;
+      subagentMessageId: string | null;
+      subagentBlockIdByIndex: Map<number, string>;
+      subagentToolInputBuffers: Map<number, { name: string; id: string; inputBuf: string }>;
+      usage: {
+        inputTokens: number;
+        outputTokens: number;
+        cacheReadTokens: number;
+        cacheCreationTokens: number;
+      } | null;
+    }
+  >();
+
   // Map content block index → blockId for all block types.
   const blockIdByIndex = new Map<number, string>();
+
+  // Persistent map: toolId → blockId (for subagent parent lookup)
+  const toolIdToBlockId = new Map<string, string>();
 
   let blockCounter = 0;
   let currentMessageId: string | null = null;
@@ -333,6 +354,30 @@ async function _runQueryLoopInner(
         log.debug('sdk event', { clientId, type: msg.type });
 
         if (msg.type === 'assistant') {
+          const parentToolUseId = msg.parent_tool_use_id as string | undefined;
+
+          // Subagent turn complete — emit subagent_end
+          if (parentToolUseId) {
+            const subagent = activeSubagents.get(parentToolUseId);
+            if (subagent) {
+              emit(
+                v2('subagent_end', {
+                  parentBlockId: subagent.parentBlockId,
+                  subagentMessageId: subagent.subagentMessageId,
+                  usage: subagent.usage ?? undefined,
+                }),
+              );
+              log.info('subagent completed', {
+                clientId,
+                parentToolId: parentToolUseId,
+                subagentMessageId: subagent.subagentMessageId,
+                usage: subagent.usage,
+              });
+              activeSubagents.delete(parentToolUseId);
+            }
+            continue;
+          }
+
           // Turn complete — defer message_end until all blocks are closed.
           if (currentMessageId) {
             pendingMessageEnd = v2('message_end', {
@@ -510,6 +555,54 @@ async function _runQueryLoopInner(
           log.debug('stream event', { clientId, evtType: evt?.type });
 
           if (evt?.type === 'message_start') {
+            const parentToolUseId = msg.parent_tool_use_id as string | undefined;
+
+            // Subagent message_start — emit subagent_start instead of normal message_start
+            if (parentToolUseId) {
+              const parentBlockId = toolIdToBlockId.get(parentToolUseId);
+              const apiMsg = evt.message as Record<string, unknown> | undefined;
+              const subagentMessageId = (apiMsg?.id as string | undefined) ?? `msg-${Date.now()}`;
+
+              if (parentBlockId) {
+                activeSubagents.set(parentToolUseId, {
+                  parentBlockId,
+                  parentToolName: 'Agent', // We don't track this persistently, assume Agent
+                  subagentMessageId,
+                  subagentBlockIdByIndex: new Map(),
+                  subagentToolInputBuffers: new Map(),
+                  usage: null,
+                });
+
+                // Extract usage from message_start
+                const msgUsage = (apiMsg as Record<string, unknown> | undefined)?.usage as
+                  | Record<string, number>
+                  | undefined;
+                if (msgUsage) {
+                  activeSubagents.get(parentToolUseId)!.usage = {
+                    inputTokens: msgUsage.input_tokens ?? 0,
+                    outputTokens: msgUsage.output_tokens ?? 0,
+                    cacheReadTokens: msgUsage.cache_read_input_tokens ?? 0,
+                    cacheCreationTokens: msgUsage.cache_creation_input_tokens ?? 0,
+                  };
+                }
+
+                emit(
+                  v2('subagent_start', {
+                    parentBlockId,
+                    parentToolId: parentToolUseId,
+                    subagentMessageId,
+                  }),
+                );
+                log.info('subagent started', {
+                  clientId,
+                  parentToolId: parentToolUseId,
+                  subagentMessageId,
+                });
+              }
+              // Don't process parent turn logic for subagent message_start
+              continue;
+            }
+
             // End previous turn span if still open (e.g. deferred message_end)
             if (currentTurnSpan) {
               currentTurnSpan.setAttribute('turn.block_count', turnBlockCount);
@@ -573,6 +666,56 @@ async function _runQueryLoopInner(
               }
             }
           } else if (evt?.type === 'content_block_start') {
+            const parentToolUseId = msg.parent_tool_use_id as string | undefined;
+            const subagent = parentToolUseId ? activeSubagents.get(parentToolUseId) : undefined;
+
+            // Subagent content_block_start
+            if (subagent) {
+              const contentBlock = evt.content_block as Record<string, unknown> | undefined;
+              const index = evt.index as number;
+              const blockId = nextBlockId();
+              subagent.subagentBlockIdByIndex.set(index, blockId);
+              const blockType = contentBlock?.type as string | undefined;
+
+              if (blockType === 'thinking' || blockType === 'redacted_thinking') {
+                emit(
+                  v2('subagent_block_start', {
+                    parentBlockId: subagent.parentBlockId,
+                    subagentMessageId: subagent.subagentMessageId,
+                    blockId,
+                    blockType,
+                  }),
+                );
+              } else if (blockType === 'tool_use') {
+                const toolName = contentBlock!.name as string;
+                const toolId = contentBlock!.id as string;
+                subagent.subagentToolInputBuffers.set(index, {
+                  name: toolName,
+                  id: toolId,
+                  inputBuf: '',
+                });
+                emit(
+                  v2('subagent_block_start', {
+                    parentBlockId: subagent.parentBlockId,
+                    subagentMessageId: subagent.subagentMessageId,
+                    blockId,
+                    blockType: 'tool_use',
+                    toolName,
+                  }),
+                );
+              } else if (blockType === 'text') {
+                emit(
+                  v2('subagent_block_start', {
+                    parentBlockId: subagent.parentBlockId,
+                    subagentMessageId: subagent.subagentMessageId,
+                    blockId,
+                    blockType: 'text',
+                  }),
+                );
+              }
+              continue;
+            }
+
             // Auto-init message context if SDK delivers blocks before message_start.
             // On the first turn, AssistantMessage can win the async iterator race
             // and the first content_block_start arrives before message_start.
@@ -610,6 +753,7 @@ async function _runQueryLoopInner(
               const toolName = contentBlock!.name as string;
               const toolId = contentBlock!.id as string;
               toolInputBuffers.set(index, { name: toolName, id: toolId, inputBuf: '', blockId });
+              toolIdToBlockId.set(toolId, blockId); // Track toolId → blockId for subagent lookup
               const snapshotBlock: SnapshotBlock = {
                 blockId,
                 blockType: 'tool_use',
@@ -654,6 +798,42 @@ async function _runQueryLoopInner(
               );
             }
           } else if (evt?.type === 'content_block_delta') {
+            const parentToolUseId = msg.parent_tool_use_id as string | undefined;
+            const subagent = parentToolUseId ? activeSubagents.get(parentToolUseId) : undefined;
+
+            // Subagent content_block_delta
+            if (subagent) {
+              const delta = evt.delta as Record<string, unknown> | undefined;
+              const index = evt.index as number;
+              const blockId = subagent.subagentBlockIdByIndex.get(index);
+
+              if (delta?.type === 'text_delta' && blockId) {
+                emit(
+                  v2('subagent_block_delta', {
+                    parentBlockId: subagent.parentBlockId,
+                    subagentMessageId: subagent.subagentMessageId,
+                    blockId,
+                    blockType: 'text',
+                    delta: delta.text as string,
+                  }),
+                );
+              } else if (delta?.type === 'thinking_delta' && blockId) {
+                emit(
+                  v2('subagent_block_delta', {
+                    parentBlockId: subagent.parentBlockId,
+                    subagentMessageId: subagent.subagentMessageId,
+                    blockId,
+                    blockType: 'thinking',
+                    delta: delta.thinking as string,
+                  }),
+                );
+              } else if (delta?.type === 'input_json_delta') {
+                const entry = subagent.subagentToolInputBuffers.get(index);
+                if (entry) entry.inputBuf += delta.partial_json as string;
+              }
+              continue;
+            }
+
             const delta = evt.delta as Record<string, unknown> | undefined;
             const index = evt.index as number;
             const blockId = blockIdByIndex.get(index);
@@ -693,6 +873,58 @@ async function _runQueryLoopInner(
               if (entry) entry.inputBuf += delta.partial_json as string;
             }
           } else if (evt?.type === 'content_block_stop') {
+            const parentToolUseId = msg.parent_tool_use_id as string | undefined;
+            const subagent = parentToolUseId ? activeSubagents.get(parentToolUseId) : undefined;
+
+            // Subagent content_block_stop
+            if (subagent) {
+              const index = evt.index as number;
+              const blockId = subagent.subagentBlockIdByIndex.get(index);
+              const toolEntry = subagent.subagentToolInputBuffers.get(index);
+
+              if (toolEntry && blockId) {
+                subagent.subagentToolInputBuffers.delete(index);
+                let toolInput: Record<string, unknown> = {};
+                try {
+                  toolInput = JSON.parse(toolEntry.inputBuf || '{}');
+                } catch {
+                  /* malformed JSON */
+                }
+                const summarized = summarizeToolInput(toolEntry.name, toolInput);
+                const rawInput = getRawInput(toolEntry.name, toolInput);
+
+                emit(
+                  v2('subagent_block_end', {
+                    parentBlockId: subagent.parentBlockId,
+                    subagentMessageId: subagent.subagentMessageId,
+                    blockId,
+                    blockType: 'tool_use',
+                    toolName: toolEntry.name,
+                    toolId: toolEntry.id,
+                    input: summarized,
+                    ...(rawInput ? { rawInput } : {}),
+                  }),
+                );
+                log.info('subagent tool call', {
+                  clientId,
+                  parentToolId: parentToolUseId,
+                  tool: toolEntry.name,
+                  toolId: toolEntry.id,
+                });
+              } else if (blockId) {
+                // Text or thinking block
+                emit(
+                  v2('subagent_block_end', {
+                    parentBlockId: subagent.parentBlockId,
+                    subagentMessageId: subagent.subagentMessageId,
+                    blockId,
+                    blockType: subagent.subagentBlockIdByIndex.get(index) ? 'text' : 'thinking',
+                  }),
+                );
+              }
+              continue;
+            }
+
             const index = evt.index as number;
             const blockId = blockIdByIndex.get(index);
             const toolEntry = toolInputBuffers.get(index);
@@ -815,11 +1047,34 @@ async function _runQueryLoopInner(
           // API conversation turns (agent sub-prompts, tool-result text) and
           // replay them as user bubbles on session rejoin.
           const content = (msg.message as unknown as Record<string, unknown>)?.content;
+          const parentToolUseId = msg.parent_tool_use_id as string | undefined;
+          const subagent = parentToolUseId ? activeSubagents.get(parentToolUseId) : undefined;
+
           if (Array.isArray(content)) {
             for (const block of content) {
               if (block.type === 'tool_result') {
                 const resultText = extractToolResultText(block.content);
                 const trResult = truncateForTrace(resultText);
+
+                // Check if this is a subagent tool result
+                if (subagent) {
+                  emit(
+                    v2('subagent_tool_result', {
+                      parentBlockId: subagent.parentBlockId,
+                      subagentMessageId: subagent.subagentMessageId,
+                      toolId: block.tool_use_id || '',
+                      result: resultText.slice(0, TOOL_RESULT_MAX_CHARS),
+                      isError: block.is_error === true,
+                    }),
+                  );
+                  log.info('subagent tool result', {
+                    clientId,
+                    parentToolId: parentToolUseId,
+                    toolId: block.tool_use_id || '',
+                    isError: block.is_error === true,
+                  });
+                  continue;
+                }
 
                 // Record tool result in session span and logs
                 span.addEvent('tool.result', {
