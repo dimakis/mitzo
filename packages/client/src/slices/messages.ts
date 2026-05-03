@@ -152,6 +152,7 @@ export function finishCurrent(current: StreamingMessage): FinishedMessage {
       rawInput: b.rawInput,
       toolResult: b.toolResult,
       toolError: b.toolError,
+      subagent: b.subagent,
     };
   });
   return { messageId: current.messageId, role: 'assistant', blocks, timestamp: Date.now() };
