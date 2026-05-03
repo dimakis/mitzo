@@ -50,6 +50,7 @@ export interface StreamingBlock {
   rawInput?: RawToolInput;
   toolResult?: string;
   toolError?: boolean;
+  subagent?: StreamingSubagentState;
 }
 
 export interface StreamingMessage {
@@ -70,6 +71,7 @@ export interface FinishedBlock {
   rawInput?: RawToolInput;
   toolResult?: string;
   toolError?: boolean;
+  subagent?: FinishedSubagentState;
 }
 
 export interface FinishedMessage {
@@ -209,3 +211,34 @@ export interface ProgressBlock {
   items: ProgressItem[];
   sourceToolId?: string;
 }
+
+// --- Subagent nesting (nested agent execution visibility) ---
+
+export interface SubagentUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+}
+
+/** Streaming subagent state — blocks in a Map, running flag set. */
+export interface StreamingSubagentState {
+  messageId: string;
+  blocks: Map<string, StreamingBlock>;
+  blockOrder: string[];
+  running: true;
+  summary?: never;
+  usage?: never;
+}
+
+/** Finished subagent state — blocks as array, summary + usage set. */
+export interface FinishedSubagentState {
+  messageId: string;
+  blocks: FinishedBlock[];
+  summary?: string;
+  usage?: SubagentUsage;
+  running?: never;
+}
+
+/** Union type for subagent state — streaming or finished. */
+export type SubagentState = StreamingSubagentState | FinishedSubagentState;
