@@ -133,6 +133,19 @@ export interface SessionActivity {
   taskId?: string;
 }
 
+// --- Service health (SSE event bus) ---
+
+export interface ServiceHealthStatus {
+  name: string;
+  ok: boolean;
+  detail?: Record<string, unknown>;
+}
+
+export interface ServiceHealthPayload {
+  services: ServiceHealthStatus[];
+  checkedAt: number;
+}
+
 // --- Event store types ---
 
 /** Optional logger interface — keeps the protocol package free of server dependencies. */

@@ -14,75 +14,64 @@ vi.mock('../../lib/tts', () => ({
 // Mock constants
 vi.mock('../../lib/constants', () => ({
   YAPPER_URL: 'http://test-yapper',
-  YAPPER_HEALTH_POLL_MS: 30000,
   DEFAULT_TTS_VOICE: 'af_heart',
   DOCUMENT_READ_MAX_CHARS: 50_000,
+}));
+
+// Mock useServiceHealth — control yapper status per test
+let mockYapper: { ok: boolean; detail?: Record<string, unknown> } | null = null;
+vi.mock('../useServiceHealth', () => ({
+  useServiceHealth: () => ({
+    services: mockYapper ? [mockYapper] : [],
+    yapper: mockYapper,
+    contexgin: null,
+    checkedAt: mockYapper ? Date.now() : 0,
+  }),
 }));
 
 const mockFetch = vi.fn();
 
 describe('useDocumentReader', () => {
   beforeEach(() => {
-    vi.useFakeTimers();
     vi.clearAllMocks();
     vi.stubGlobal('fetch', mockFetch);
+    mockYapper = null;
   });
 
   afterEach(() => {
-    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
-  it('starts unavailable before health check', () => {
-    // Make fetch hang forever
-    mockFetch.mockReturnValue(new Promise(() => {}));
+  it('starts unavailable when no health data', () => {
+    mockYapper = null;
     const { result } = renderHook(() => useDocumentReader());
     expect(result.current.available).toBe(false);
     expect(result.current.state).toBe('idle');
   });
 
-  it('becomes available after successful health check', async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ status: 'ready', models: { stt: true, tts: true } }),
-    });
-
+  it('becomes available when yapper health reports ok with tts', () => {
+    mockYapper = { ok: true, detail: { stt: true, tts: true } };
     const { result } = renderHook(() => useDocumentReader());
-    await act(async () => {});
-
     expect(result.current.available).toBe(true);
   });
 
-  it('stays unavailable when TTS model is not ready', async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ status: 'ready', models: { stt: true, tts: false } }),
-    });
-
+  it('stays unavailable when TTS model is not ready', () => {
+    mockYapper = { ok: true, detail: { stt: true, tts: false } };
     const { result } = renderHook(() => useDocumentReader());
-    await act(async () => {});
-
     expect(result.current.available).toBe(false);
   });
 
-  it('stays unavailable when health check fails', async () => {
-    mockFetch.mockRejectedValue(new Error('network'));
-
+  it('stays unavailable when yapper is down', () => {
+    mockYapper = { ok: false };
     const { result } = renderHook(() => useDocumentReader());
-    await act(async () => {});
-
     expect(result.current.available).toBe(false);
   });
 
   it('calls synthesizeDocument and playAudio on read()', async () => {
     const { synthesizeDocument, playAudio } = await import('../../lib/tts');
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ status: 'ready' }),
-    });
+    mockYapper = { ok: true, detail: { tts: true } };
 
     const { result } = renderHook(() => useDocumentReader());
-    await act(async () => {});
 
     await act(async () => {
       result.current.read('# Hello\n\nWorld');
@@ -99,22 +88,15 @@ describe('useDocumentReader', () => {
   });
 
   it('stops playback on stop()', async () => {
-    // Make play() hang so state stays 'playing' until stop() is called
     mockPlayHandle.play.mockReturnValue(new Promise(() => {}));
-
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ status: 'ready' }),
-    });
+    mockYapper = { ok: true, detail: { tts: true } };
 
     const { result } = renderHook(() => useDocumentReader());
-    await act(async () => {});
 
     act(() => {
       result.current.read('Hello');
     });
 
-    // Flush async pipeline up to playAudio()
     await act(async () => {});
 
     expect(result.current.state).toBe('playing');
@@ -126,7 +108,6 @@ describe('useDocumentReader', () => {
     expect(mockPlayHandle.stop).toHaveBeenCalled();
     expect(result.current.state).toBe('idle');
 
-    // Restore default mock for other tests
     mockPlayHandle.play.mockResolvedValue(undefined);
   });
 });

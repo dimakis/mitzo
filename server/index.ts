@@ -52,6 +52,7 @@ import {
   setTemplateStore,
   setSignalProcessor,
   setOverviewEmitter,
+  setHealthMonitor,
   runUpdateCheck,
   buildSkillRegistry,
   NATIVE_COMMAND_NAMES,
@@ -64,6 +65,7 @@ import { WorkflowTemplateStore, seedBuiltInTemplates } from './workflow-template
 import { SignalProcessor } from './signal-processor.js';
 import { TaskOrchestrator } from './task-orchestrator.js';
 import { SessionOverviewEmitter } from './session-overview.js';
+import { HealthMonitor } from './health-monitor.js';
 import { IncomingWsMessage } from './ws-schemas.js';
 import { resolvePending } from './permissions.js';
 import { resolveSlashCommand } from './slash-commands.js';
@@ -231,6 +233,11 @@ overviewEmitter = new SessionOverviewEmitter({
   getSessionTitle: (id: string) => eventStore.getSession(id)?.summary ?? undefined,
 });
 setOverviewEmitter(overviewEmitter);
+
+// --- Health Monitor (SSE broadcast) ---
+const healthMonitor = new HealthMonitor(sseRegistry);
+setHealthMonitor(healthMonitor);
+healthMonitor.start();
 
 // Hook session lifecycle events into the overview emitter
 setSessionChangeCallback((clientId, event) => {
@@ -822,6 +829,7 @@ function shutdown(signal: string) {
   server.close();
   signalProc.unwatchAll();
   wfTemplateStore.close();
+  healthMonitor.destroy();
   overviewEmitter.destroy();
   sseRegistry.destroy();
   registry.dispose();

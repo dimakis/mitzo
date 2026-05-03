@@ -2,7 +2,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useVoice } from '../useVoice';
-import { YAPPER_HEALTH_POLL_MS } from '../../lib/constants';
 
 // --- Mocks ---
 
@@ -58,7 +57,18 @@ vi.mock('../../lib/tts', () => ({
   unlockAudioContext: vi.fn(() => Promise.resolve()),
 }));
 
-// Mock fetch
+// Mock useServiceHealth — control yapper status per test
+let mockYapper: { ok: boolean; detail?: Record<string, unknown> } | null = null;
+vi.mock('../useServiceHealth', () => ({
+  useServiceHealth: () => ({
+    services: mockYapper ? [mockYapper] : [],
+    yapper: mockYapper,
+    contexgin: null,
+    checkedAt: mockYapper ? Date.now() : 0,
+  }),
+}));
+
+// Mock fetch (still needed for transcription + voice list)
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
@@ -76,82 +86,52 @@ beforeEach(() => {
   });
   mockGetUserMedia.mockResolvedValue(mockStream);
   mockFetch.mockReset();
+  mockYapper = null;
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// Helper: mock Yapper health response
-function mockHealthy(stt = true) {
-  mockFetch.mockResolvedValueOnce({
-    ok: true,
-    json: () => Promise.resolve({ status: 'ready', models: { stt, tts: false } }),
-  });
-}
-
-function mockUnhealthy() {
-  mockFetch.mockRejectedValueOnce(new Error('Network error'));
-}
-
 // --- Tests ---
 
 describe('useVoice', () => {
-  describe('health polling', () => {
-    it('sets available=true when Yapper is healthy with STT ready', async () => {
-      mockHealthy();
+  describe('SSE-driven health', () => {
+    it('sets available=true when yapper is healthy with STT ready', () => {
+      mockYapper = { ok: true, detail: { stt: true, tts: false } };
       const { result } = renderHook(() => useVoice());
-
-      await waitFor(() => {
-        expect(result.current.available).toBe(true);
-      });
+      expect(result.current.available).toBe(true);
     });
 
-    it('sets available=false when Yapper is unreachable', async () => {
-      mockUnhealthy();
+    it('sets available=false when yapper is null', () => {
+      mockYapper = null;
       const { result } = renderHook(() => useVoice());
-
-      await waitFor(() => {
-        expect(result.current.available).toBe(false);
-      });
+      expect(result.current.available).toBe(false);
     });
 
-    it('sets available=false when STT model is not ready', async () => {
-      mockHealthy(false);
+    it('sets available=false when STT model is not ready', () => {
+      mockYapper = { ok: true, detail: { stt: false, tts: true } };
       const { result } = renderHook(() => useVoice());
-
-      await waitFor(() => {
-        expect(result.current.available).toBe(false);
-      });
+      expect(result.current.available).toBe(false);
     });
 
-    it('polls health periodically', async () => {
-      vi.useFakeTimers();
-      mockHealthy();
-      renderHook(() => useVoice());
+    it('sets ttsAvailable from yapper detail', () => {
+      mockYapper = { ok: true, detail: { stt: true, tts: true } };
+      const { result } = renderHook(() => useVoice());
+      expect(result.current.ttsAvailable).toBe(true);
+    });
 
-      // Initial fetch
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0);
-      });
-      expect(mockFetch).toHaveBeenCalledTimes(1);
-
-      // After poll interval
-      mockHealthy();
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(YAPPER_HEALTH_POLL_MS);
-      });
-      expect(mockFetch).toHaveBeenCalledTimes(2);
-
-      vi.useRealTimers();
+    it('ttsAvailable is false when models.tts is false', () => {
+      mockYapper = { ok: true, detail: { stt: true, tts: false } };
+      const { result } = renderHook(() => useVoice());
+      expect(result.current.ttsAvailable).toBe(false);
     });
   });
 
   describe('recording', () => {
     it('starts recording after requesting mic permission', async () => {
-      mockHealthy();
+      mockYapper = { ok: true, detail: { stt: true, tts: false } };
       const { result } = renderHook(() => useVoice());
-      await waitFor(() => expect(result.current.available).toBe(true));
 
       await act(async () => {
         await result.current.startRecording();
@@ -162,10 +142,9 @@ describe('useVoice', () => {
     });
 
     it('sets micBlocked when permission is denied', async () => {
-      mockHealthy();
+      mockYapper = { ok: true, detail: { stt: true, tts: false } };
       mockGetUserMedia.mockRejectedValueOnce(new DOMException('denied', 'NotAllowedError'));
       const { result } = renderHook(() => useVoice());
-      await waitFor(() => expect(result.current.available).toBe(true));
 
       await act(async () => {
         await result.current.startRecording();
@@ -176,9 +155,8 @@ describe('useVoice', () => {
     });
 
     it('stops recording and returns transcript', async () => {
-      mockHealthy();
+      mockYapper = { ok: true, detail: { stt: true, tts: false } };
       const { result } = renderHook(() => useVoice());
-      await waitFor(() => expect(result.current.available).toBe(true));
 
       await act(async () => {
         await result.current.startRecording();
@@ -190,7 +168,6 @@ describe('useVoice', () => {
         stopPromise = result.current.stopRecording();
       });
 
-      // Simulate final transcript from WS
       act(() => {
         mockWsClient.onTranscript?.({ type: 'final', text: 'hello world' });
       });
@@ -204,9 +181,8 @@ describe('useVoice', () => {
     });
 
     it('cancel discards recording without transcribing', async () => {
-      mockHealthy();
+      mockYapper = { ok: true, detail: { stt: true, tts: false } };
       const { result } = renderHook(() => useVoice());
-      await waitFor(() => expect(result.current.available).toBe(true));
 
       await act(async () => {
         await result.current.startRecording();
@@ -217,7 +193,6 @@ describe('useVoice', () => {
       });
 
       expect(result.current.recording).toBe(false);
-      // No transcription fetch should have been made (only health check)
       const transcribeCalls = mockFetch.mock.calls.filter(
         (call) => typeof call[0] === 'string' && call[0].includes('/v1/transcribe'),
       );
@@ -227,21 +202,18 @@ describe('useVoice', () => {
 
   describe('transcription errors', () => {
     it('returns empty string on batch transcription failure', async () => {
-      mockHealthy();
+      mockYapper = { ok: true, detail: { stt: true, tts: false } };
 
       const { result } = renderHook(() => useVoice());
-      await waitFor(() => expect(result.current.available).toBe(true));
 
       await act(async () => {
         await result.current.startRecording();
       });
 
-      // Simulate WS error so it falls back to batch
       act(() => {
         mockWsClient.onError?.(new Event('error'));
       });
 
-      // Mock batch transcription failure
       mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
 
       let transcript: string | undefined;
@@ -256,29 +228,25 @@ describe('useVoice', () => {
 
   describe('streaming STT', () => {
     it('uses streaming recorder + WS client when available', async () => {
-      mockHealthy();
+      mockYapper = { ok: true, detail: { stt: true, tts: false } };
       const { result } = renderHook(() => useVoice());
-      await waitFor(() => expect(result.current.available).toBe(true));
 
       await act(async () => {
         await result.current.startRecording();
       });
 
       expect(result.current.recording).toBe(true);
-      // Streaming recorder should have been started
       expect(mockStreamingRecorder.start).toHaveBeenCalled();
     });
 
     it('shows partial transcript from WS partial events', async () => {
-      mockHealthy();
+      mockYapper = { ok: true, detail: { stt: true, tts: false } };
       const { result } = renderHook(() => useVoice());
-      await waitFor(() => expect(result.current.available).toBe(true));
 
       await act(async () => {
         await result.current.startRecording();
       });
 
-      // Simulate a partial transcript from the WS
       act(() => {
         mockWsClient.onTranscript?.({ type: 'partial', text: 'hello' });
       });
@@ -287,9 +255,8 @@ describe('useVoice', () => {
     });
 
     it('updates partial transcript on each new partial', async () => {
-      mockHealthy();
+      mockYapper = { ok: true, detail: { stt: true, tts: false } };
       const { result } = renderHook(() => useVoice());
-      await waitFor(() => expect(result.current.available).toBe(true));
 
       await act(async () => {
         await result.current.startRecording();
@@ -307,26 +274,22 @@ describe('useVoice', () => {
     });
 
     it('stopRecording sends END and returns final transcript', async () => {
-      mockHealthy();
+      mockYapper = { ok: true, detail: { stt: true, tts: false } };
       const { result } = renderHook(() => useVoice());
-      await waitFor(() => expect(result.current.available).toBe(true));
 
       await act(async () => {
         await result.current.startRecording();
       });
 
-      // Simulate partials
       act(() => {
         mockWsClient.onTranscript?.({ type: 'partial', text: 'hello' });
       });
 
-      // Stop recording — should send END and wait for final
       let transcriptPromise: Promise<string>;
       act(() => {
         transcriptPromise = result.current.stopRecording();
       });
 
-      // Simulate the final transcript arriving
       act(() => {
         mockWsClient.onTranscript?.({ type: 'final', text: 'hello world' });
       });
@@ -342,19 +305,16 @@ describe('useVoice', () => {
     });
 
     it('sends audio chunks to WS as they arrive', async () => {
-      mockHealthy();
+      mockYapper = { ok: true, detail: { stt: true, tts: false } };
       const { result } = renderHook(() => useVoice());
-      await waitFor(() => expect(result.current.available).toBe(true));
 
       await act(async () => {
         await result.current.startRecording();
       });
 
-      // Simulate a chunk from the streaming recorder
       const chunkBlob = new Blob(['audio-chunk'], { type: 'audio/webm' });
       await act(async () => {
         mockStreamingRecorder.onChunk?.(chunkBlob);
-        // Give it a tick for the async arrayBuffer conversion
         await new Promise((r) => setTimeout(r, 0));
       });
 
@@ -362,9 +322,8 @@ describe('useVoice', () => {
     });
 
     it('sends format frame before audio', async () => {
-      mockHealthy();
+      mockYapper = { ok: true, detail: { stt: true, tts: false } };
       const { result } = renderHook(() => useVoice());
-      await waitFor(() => expect(result.current.available).toBe(true));
 
       await act(async () => {
         await result.current.startRecording();
@@ -374,9 +333,8 @@ describe('useVoice', () => {
     });
 
     it('cancelRecording closes WS and clears partial', async () => {
-      mockHealthy();
+      mockYapper = { ok: true, detail: { stt: true, tts: false } };
       const { result } = renderHook(() => useVoice());
-      await waitFor(() => expect(result.current.available).toBe(true));
 
       await act(async () => {
         await result.current.startRecording();
@@ -398,26 +356,22 @@ describe('useVoice', () => {
     });
 
     it('falls back to batch on WS error during recording', async () => {
-      mockHealthy();
-      // Mock the batch transcription response for fallback
+      mockYapper = { ok: true, detail: { stt: true, tts: false } };
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ text: 'batch fallback', language: 'en', duration: 1.0 }),
       });
 
       const { result } = renderHook(() => useVoice());
-      await waitFor(() => expect(result.current.available).toBe(true));
 
       await act(async () => {
         await result.current.startRecording();
       });
 
-      // Simulate WS error
       act(() => {
         mockWsClient.onError?.(new Event('error'));
       });
 
-      // stopRecording should use batch fallback
       let transcript: string | undefined;
       await act(async () => {
         transcript = await result.current.stopRecording();
@@ -428,44 +382,14 @@ describe('useVoice', () => {
   });
 
   describe('TTS', () => {
-    // Helper: health with TTS available
-    function mockHealthyWithTts() {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ status: 'ready', models: { stt: true, tts: true } }),
-      });
-    }
-
-    it('sets ttsAvailable from health poll models.tts', async () => {
-      mockHealthyWithTts();
+    it('ttsEnabled defaults to false', () => {
+      mockYapper = { ok: true, detail: { stt: true, tts: true } };
       const { result } = renderHook(() => useVoice());
-
-      await waitFor(() => {
-        expect(result.current.ttsAvailable).toBe(true);
-      });
-    });
-
-    it('ttsAvailable is false when models.tts is false', async () => {
-      mockHealthy(); // stt=true, tts=false
-      const { result } = renderHook(() => useVoice());
-
-      await waitFor(() => {
-        expect(result.current.available).toBe(true);
-        expect(result.current.ttsAvailable).toBe(false);
-      });
-    });
-
-    it('ttsEnabled defaults to false', async () => {
-      mockHealthyWithTts();
-      const { result } = renderHook(() => useVoice());
-
-      await waitFor(() => expect(result.current.ttsAvailable).toBe(true));
       expect(result.current.ttsEnabled).toBe(false);
     });
 
     it('setTtsEnabled toggles and persists to localStorage', async () => {
-      mockHealthyWithTts();
-      // Mock voices fetch when enabling TTS
+      mockYapper = { ok: true, detail: { stt: true, tts: true } };
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () =>
@@ -477,7 +401,6 @@ describe('useVoice', () => {
       });
 
       const { result } = renderHook(() => useVoice());
-      await waitFor(() => expect(result.current.ttsAvailable).toBe(true));
 
       await act(async () => {
         result.current.setTtsEnabled(true);
@@ -488,17 +411,14 @@ describe('useVoice', () => {
     });
 
     it('fetches voices lazily on first setTtsEnabled(true)', async () => {
-      mockHealthyWithTts();
+      mockYapper = { ok: true, detail: { stt: true, tts: true } };
       const { result } = renderHook(() => useVoice());
-      await waitFor(() => expect(result.current.ttsAvailable).toBe(true));
 
-      // No voices fetch yet
       const voiceFetchesBefore = mockFetch.mock.calls.filter(
         (call) => typeof call[0] === 'string' && call[0].includes('/v1/voices'),
       );
       expect(voiceFetchesBefore).toHaveLength(0);
 
-      // Enable TTS — should fetch voices
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () =>
@@ -525,25 +445,20 @@ describe('useVoice', () => {
       const mockUnlock = unlockAudioContext as ReturnType<typeof vi.fn>;
       mockUnlock.mockClear();
 
-      // Simulate suspended AudioContext (page load, no user gesture yet)
       mockCtx.mockReturnValue({ state: 'suspended' });
 
-      // Pre-set ttsEnabled in localStorage before render
       localStorage.setItem('mitzo-tts-enabled', 'true');
 
-      mockHealthyWithTts();
+      mockYapper = { ok: true, detail: { stt: true, tts: true } };
       renderHook(() => useVoice());
       await waitFor(() => {});
 
-      // unlockAudioContext should NOT have been called yet (no user gesture)
       expect(mockUnlock).not.toHaveBeenCalled();
 
-      // Simulate user click — should trigger the one-shot listener
       document.dispatchEvent(new Event('click'));
 
       expect(mockUnlock).toHaveBeenCalledTimes(1);
 
-      // Restore default mock
       mockCtx.mockReturnValue({ state: 'running' });
     });
 
@@ -556,16 +471,14 @@ describe('useVoice', () => {
       mockCtx.mockReturnValue({ state: 'suspended' });
       localStorage.setItem('mitzo-tts-enabled', 'true');
 
-      mockHealthyWithTts();
+      mockYapper = { ok: true, detail: { stt: true, tts: true } };
       renderHook(() => useVoice());
       await waitFor(() => {});
 
-      // Simulate touch — the primary gesture on iOS Safari
       document.dispatchEvent(new Event('touchstart'));
 
       expect(mockUnlock).toHaveBeenCalledTimes(1);
 
-      // Second touch should NOT call again (listener removed)
       mockUnlock.mockClear();
       document.dispatchEvent(new Event('touchstart'));
       expect(mockUnlock).not.toHaveBeenCalled();
@@ -579,24 +492,21 @@ describe('useVoice', () => {
       const mockUnlock = unlockAudioContext as ReturnType<typeof vi.fn>;
       mockUnlock.mockClear();
 
-      // AudioContext already running (not suspended)
       mockCtx.mockReturnValue({ state: 'running' });
 
       localStorage.setItem('mitzo-tts-enabled', 'true');
 
-      mockHealthyWithTts();
+      mockYapper = { ok: true, detail: { stt: true, tts: true } };
       renderHook(() => useVoice());
       await waitFor(() => {});
 
-      // No listener should be registered — click should NOT call unlock
       document.dispatchEvent(new Event('click'));
       expect(mockUnlock).not.toHaveBeenCalled();
     });
 
     it('setTtsEnabled(true) calls unlockAudioContext for iOS Safari', async () => {
       const { unlockAudioContext } = await import('../../lib/tts');
-      mockHealthyWithTts();
-      // Mock voices fetch
+      mockYapper = { ok: true, detail: { stt: true, tts: true } };
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () =>
@@ -608,7 +518,6 @@ describe('useVoice', () => {
       });
 
       const { result } = renderHook(() => useVoice());
-      await waitFor(() => expect(result.current.ttsAvailable).toBe(true));
 
       await act(async () => {
         result.current.setTtsEnabled(true);
@@ -619,9 +528,8 @@ describe('useVoice', () => {
 
     it('speak() synthesizes and plays audio', async () => {
       const { synthesize, playAudio } = await import('../../lib/tts');
-      mockHealthyWithTts();
+      mockYapper = { ok: true, detail: { stt: true, tts: true } };
       const { result } = renderHook(() => useVoice());
-      await waitFor(() => expect(result.current.ttsAvailable).toBe(true));
 
       await act(async () => {
         await result.current.speak('Hello world');
@@ -633,7 +541,6 @@ describe('useVoice', () => {
     });
 
     it('stopSpeaking() stops current playback', async () => {
-      // Make play() hang so we can interrupt it
       let resolvePlay!: () => void;
       mockPlayHandle.play.mockImplementationOnce(
         () =>
@@ -642,11 +549,9 @@ describe('useVoice', () => {
           }),
       );
 
-      mockHealthyWithTts();
+      mockYapper = { ok: true, detail: { stt: true, tts: true } };
       const { result } = renderHook(() => useVoice());
-      await waitFor(() => expect(result.current.ttsAvailable).toBe(true));
 
-      // Start speaking (will hang on play)
       let speakDone = false;
       act(() => {
         result.current.speak('Hello world').then(() => {
@@ -654,10 +559,8 @@ describe('useVoice', () => {
         });
       });
 
-      // Wait for speaking state
       await waitFor(() => expect(result.current.speaking).toBe(true));
 
-      // Now stop
       act(() => {
         result.current.stopSpeaking();
       });
@@ -665,7 +568,6 @@ describe('useVoice', () => {
       expect(mockPlayHandle.stop).toHaveBeenCalled();
       expect(result.current.speaking).toBe(false);
 
-      // Clean up the hanging promise
       resolvePlay();
       await waitFor(() => expect(speakDone).toBe(true));
     });
@@ -676,36 +578,30 @@ describe('useVoice', () => {
       const mockSynth = synthesize as ReturnType<typeof vi.fn>;
       const mockPlayAudio = playAudio as ReturnType<typeof vi.fn>;
 
-      // Clear any calls from previous tests
       mockSynth.mockClear();
       mockPlayAudio.mockClear();
 
-      // 3 chunks: first succeeds, second fails, third succeeds
       mockChunk.mockReturnValueOnce(['chunk1', 'chunk2', 'chunk3']);
       const goodBlob = new Blob(['wav'], { type: 'audio/wav' });
       mockSynth
-        .mockResolvedValueOnce(goodBlob) // chunk1 ok
-        .mockRejectedValueOnce(new Error('Synthesis failed (500)')) // chunk2 fails
-        .mockResolvedValueOnce(goodBlob); // chunk3 ok
+        .mockResolvedValueOnce(goodBlob)
+        .mockRejectedValueOnce(new Error('Synthesis failed (500)'))
+        .mockResolvedValueOnce(goodBlob);
 
-      mockHealthyWithTts();
+      mockYapper = { ok: true, detail: { stt: true, tts: true } };
       const { result } = renderHook(() => useVoice());
-      await waitFor(() => expect(result.current.ttsAvailable).toBe(true));
 
       await act(async () => {
         await result.current.speak('some long text');
       });
 
-      // synthesize called 3 times (didn't abort after failure)
       expect(mockSynth).toHaveBeenCalledTimes(3);
-      // playAudio called for chunk1 and chunk3 (skipped chunk2)
       expect(mockPlayAudio).toHaveBeenCalledTimes(2);
     });
 
-    it('setVoice persists to localStorage', async () => {
-      mockHealthyWithTts();
+    it('setVoice persists to localStorage', () => {
+      mockYapper = { ok: true, detail: { stt: true, tts: true } };
       const { result } = renderHook(() => useVoice());
-      await waitFor(() => expect(result.current.ttsAvailable).toBe(true));
 
       act(() => {
         result.current.setVoice('am_adam');

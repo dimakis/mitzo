@@ -743,6 +743,27 @@ textarea:focus {
   margin-top: 2px;
 }
 
+.service-status {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-2) 0;
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+}
+
+.service-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.service-dot-indicator {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
 .quick-section {
   margin-bottom: var(--space-5);
 }

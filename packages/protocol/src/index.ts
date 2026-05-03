@@ -25,6 +25,8 @@ export type {
   SessionActivityState,
   WaitReason,
   SessionActivity,
+  ServiceHealthStatus,
+  ServiceHealthPayload,
 } from './types.js';
 
 // Constants

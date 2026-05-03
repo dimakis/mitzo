@@ -1,11 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  YAPPER_URL,
-  YAPPER_HEALTH_POLL_MS,
-  DEFAULT_TTS_VOICE,
-  DOCUMENT_READ_MAX_CHARS,
-} from '../lib/constants';
+import { YAPPER_URL, DEFAULT_TTS_VOICE, DOCUMENT_READ_MAX_CHARS } from '../lib/constants';
 import { synthesizeDocument, playAudio, unlockAudioContext } from '../lib/tts';
+import { useServiceHealth } from './useServiceHealth';
 
 export type ReaderState = 'idle' | 'loading' | 'playing';
 
@@ -21,36 +17,11 @@ export interface DocumentReader {
  * Checks Yapper TTS availability and manages document playback lifecycle.
  */
 export function useDocumentReader(): DocumentReader {
-  const [available, setAvailable] = useState(false);
+  const { yapper } = useServiceHealth();
+  const available = yapper?.ok === true && yapper.detail?.tts !== false;
   const [state, setState] = useState<ReaderState>('idle');
   const abortRef = useRef<AbortController | null>(null);
   const playRef = useRef<{ stop: () => void } | null>(null);
-
-  // Health poll — reuses same pattern as useVoice
-  useEffect(() => {
-    let mounted = true;
-    async function check() {
-      try {
-        const res = await fetch(`${YAPPER_URL}/health`);
-        if (!res.ok) {
-          if (mounted) setAvailable(false);
-          return;
-        }
-        const data = await res.json();
-        const ready = data.status === 'ready' || data.status === 'ok';
-        const tts = data.models ? data.models.tts === true : ready;
-        if (mounted) setAvailable(ready && tts);
-      } catch {
-        if (mounted) setAvailable(false);
-      }
-    }
-    check();
-    const timer = setInterval(check, YAPPER_HEALTH_POLL_MS);
-    return () => {
-      mounted = false;
-      clearInterval(timer);
-    };
-  }, []);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
