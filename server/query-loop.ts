@@ -187,7 +187,7 @@ async function _runQueryLoopInner(
       parentBlockId: string;
       parentToolName: string;
       subagentMessageId: string | null;
-      subagentBlockIdByIndex: Map<number, string>;
+      subagentBlockIdByIndex: Map<number, { blockId: string; blockType: string }>;
       subagentToolInputBuffers: Map<number, { name: string; id: string; inputBuf: string }>;
       usage: {
         inputTokens: number;
@@ -674,8 +674,8 @@ async function _runQueryLoopInner(
               const contentBlock = evt.content_block as Record<string, unknown> | undefined;
               const index = evt.index as number;
               const blockId = nextBlockId();
-              subagent.subagentBlockIdByIndex.set(index, blockId);
               const blockType = contentBlock?.type as string | undefined;
+              subagent.subagentBlockIdByIndex.set(index, { blockId, blockType: blockType ?? 'text' });
 
               if (blockType === 'thinking' || blockType === 'redacted_thinking') {
                 emit(
@@ -805,7 +805,8 @@ async function _runQueryLoopInner(
             if (subagent) {
               const delta = evt.delta as Record<string, unknown> | undefined;
               const index = evt.index as number;
-              const blockId = subagent.subagentBlockIdByIndex.get(index);
+              const blockEntry = subagent.subagentBlockIdByIndex.get(index);
+              const blockId = blockEntry?.blockId;
 
               if (delta?.type === 'text_delta' && blockId) {
                 emit(
@@ -879,7 +880,8 @@ async function _runQueryLoopInner(
             // Subagent content_block_stop
             if (subagent) {
               const index = evt.index as number;
-              const blockId = subagent.subagentBlockIdByIndex.get(index);
+              const blockEntry = subagent.subagentBlockIdByIndex.get(index);
+              const blockId = blockEntry?.blockId;
               const toolEntry = subagent.subagentToolInputBuffers.get(index);
 
               if (toolEntry && blockId) {
@@ -912,13 +914,13 @@ async function _runQueryLoopInner(
                   toolId: toolEntry.id,
                 });
               } else if (blockId) {
-                // Text or thinking block
+                // Text or thinking block — use the stored blockType
                 emit(
                   v2('subagent_block_end', {
                     parentBlockId: subagent.parentBlockId,
                     subagentMessageId: subagent.subagentMessageId,
                     blockId,
-                    blockType: subagent.subagentBlockIdByIndex.get(index) ? 'text' : 'thinking',
+                    blockType: blockEntry!.blockType as 'text' | 'thinking',
                   }),
                 );
               }

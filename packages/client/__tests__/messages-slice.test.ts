@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { messagesReducer, INITIAL_MESSAGES_STATE } from '../src/slices/messages.js';
+import { messagesReducer, finishCurrent, INITIAL_MESSAGES_STATE } from '../src/slices/messages.js';
 import type { MessagesState } from '../src/slices/messages.js';
-import type { FinishedBlock } from '@mitzo/protocol';
+import type { FinishedBlock, StreamingMessage } from '@mitzo/protocol';
 
 const INITIAL = INITIAL_MESSAGES_STATE;
 
@@ -1137,6 +1137,73 @@ describe('CONNECTION_LOST', () => {
     expect(state.messages[state.messages.length - 1].blocks[0].content).toContain(
       'Connection lost',
     );
+  });
+});
+
+// ─── finishCurrent (subagent preservation) ──────────────────────────────────
+
+describe('finishCurrent', () => {
+  it('preserves the subagent field when converting StreamingBlock to FinishedBlock', () => {
+    const subagentState = {
+      messageId: 'sub-msg-1',
+      blocks: new Map([
+        [
+          'sub-b1',
+          {
+            blockId: 'sub-b1',
+            blockType: 'text' as const,
+            content: 'subagent output',
+            done: true,
+          },
+        ],
+      ]),
+      blockOrder: ['sub-b1'],
+      running: true as const,
+    };
+
+    const current: StreamingMessage = {
+      messageId: 'msg-1',
+      blocks: new Map([
+        [
+          'b1',
+          {
+            blockId: 'b1',
+            blockType: 'tool_use' as const,
+            content: '',
+            done: true,
+            toolName: 'Agent',
+            subagent: subagentState,
+          },
+        ],
+      ]),
+      blockOrder: ['b1'],
+    };
+
+    const finished = finishCurrent(current);
+    expect(finished.blocks[0].subagent).toBeDefined();
+    expect(finished.blocks[0].subagent!.messageId).toBe('sub-msg-1');
+  });
+
+  it('works normally when subagent field is absent', () => {
+    const current: StreamingMessage = {
+      messageId: 'msg-2',
+      blocks: new Map([
+        [
+          'b1',
+          {
+            blockId: 'b1',
+            blockType: 'text' as const,
+            content: 'hello',
+            done: true,
+          },
+        ],
+      ]),
+      blockOrder: ['b1'],
+    };
+
+    const finished = finishCurrent(current);
+    expect(finished.blocks[0].subagent).toBeUndefined();
+    expect(finished.blocks[0].content).toBe('hello');
   });
 });
 
