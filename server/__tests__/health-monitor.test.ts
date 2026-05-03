@@ -190,6 +190,38 @@ describe('HealthMonitor', () => {
     monitor.destroy();
   });
 
+  it('marks service as down on fetch timeout', async () => {
+    // Simulate AbortSignal.timeout rejecting with TimeoutError
+    const timeoutErr = new DOMException('signal timed out', 'TimeoutError');
+    mockFetch.mockRejectedValueOnce(timeoutErr).mockResolvedValueOnce(contexginOk());
+
+    const monitor = new HealthMonitor(registry as any);
+    monitor.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const payload = registry.broadcast.mock.calls[0]?.[1];
+    const yapper = payload?.services.find((s: any) => s.name === 'yapper');
+    expect(yapper?.ok).toBe(false);
+
+    monitor.destroy();
+  });
+
+  it('start() is idempotent — calling twice does not create duplicate intervals', async () => {
+    mockFetch.mockResolvedValue(yapperOk()).mockResolvedValue(contexginOk());
+
+    const monitor = new HealthMonitor(registry as any);
+    monitor.start();
+    monitor.start(); // second call should be a no-op
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Only one initial check, not two
+    // Each check fetches 2 services, so 2 fetch calls = 1 check
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+
+    monitor.destroy();
+  });
+
   it('destroy clears the timer', async () => {
     mockFetch.mockResolvedValueOnce(yapperOk()).mockResolvedValueOnce(contexginOk());
 

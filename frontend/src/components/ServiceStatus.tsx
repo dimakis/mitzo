@@ -17,8 +17,8 @@ function ServiceDot({ service }: { service: ServiceHealthStatus | null }) {
 export function ServiceStatus() {
   const { yapper, contexgin, checkedAt } = useServiceHealth();
 
-  // Don't render until first health check arrives
-  if (checkedAt === 0) return null;
+  // Don't render until first health check arrives, or if no services are present
+  if (checkedAt === 0 || (!yapper && !contexgin)) return null;
 
   return (
     <div className="service-status">

@@ -73,7 +73,6 @@ describe('ServiceStatus', () => {
   it('renders nothing when both services are null', () => {
     mockReturn = { services: [], yapper: null, contexgin: null, checkedAt: Date.now() };
     const { container } = render(<ServiceStatus />);
-    const dots = container.querySelectorAll('.service-dot');
-    expect(dots).toHaveLength(0);
+    expect(container.firstChild).toBeNull();
   });
 });
