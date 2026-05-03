@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { TaskNode } from '../components/TaskNode';
 import { TaskCreateForm } from '../components/TaskCreateForm';
 import { WorkflowCreateForm } from '../components/WorkflowCreateForm';
@@ -6,7 +6,27 @@ import { LoopControls } from '../components/LoopControls';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 import { useTaskBoard } from '../hooks/useTaskBoard';
-import type { TaskStatus } from '../types/task';
+import type { Task, TaskStatus } from '../types/task';
+
+// ─── Attention-tier sorting ────────────────────────────────────────────────
+
+type AttendTier = 1 | 2 | 3 | 4;
+
+function getTaskTier(task: Task): AttendTier {
+  if (task.status === 'pending_review' || task.status === 'blocked' || task.status === 'failed')
+    return 1;
+  if (task.status === 'done') return 2;
+  if (task.status === 'active') return 3;
+  return 4; // pending, skipped
+}
+
+function sortByAttention(tasks: Task[]): Task[] {
+  return [...tasks].sort((a, b) => {
+    const tierDiff = getTaskTier(a) - getTaskTier(b);
+    if (tierDiff !== 0) return tierDiff;
+    return (b.updatedAt || 0) - (a.updatedAt || 0);
+  });
+}
 
 export function TaskBoard() {
   const {
@@ -33,6 +53,12 @@ export function TaskBoard() {
   } = useTaskBoard();
   const [creating, setCreating] = useState<{ parentId?: string } | null>(null);
   const [creatingWorkflow, setCreatingWorkflow] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+
+  const sortedTasks = useMemo(
+    () => (showAll ? tasks : sortByAttention(tasks)),
+    [tasks, showAll],
+  );
 
   function handleStatusChange(id: string, status: TaskStatus) {
     updateTask(id, { status });
@@ -54,9 +80,24 @@ export function TaskBoard() {
   // Root tasks with no parent serve as potential goals
   const goals = tasks.filter((t) => !t.parentId);
 
+  const t1Count = tasks.filter(
+    (t) =>
+      t.status === 'pending_review' || t.status === 'blocked' || t.status === 'failed',
+  ).length;
+
   return (
     <div className="task-board-page">
-      <PageHeader title="Tasks" badge={tasks.length || undefined}>
+      <PageHeader
+        title="Tasks"
+        badge={t1Count > 0 ? t1Count : tasks.length || undefined}
+      >
+        <button
+          className={`task-board-sort-btn${showAll ? '' : ' task-board-sort-btn--active'}`}
+          onClick={() => setShowAll(!showAll)}
+          title={showAll ? 'Sort by attention' : 'Show tree order'}
+        >
+          {showAll ? '\u2195' : '\u2B06'}
+        </button>
         <button
           className="task-board-add-btn"
           onClick={() => setCreating({ parentId: undefined })}

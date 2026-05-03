@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import { TodoCard } from '../components/TodoCard';
@@ -7,6 +7,51 @@ import { PageHeader } from '../components/PageHeader';
 import { useTodoData } from '../hooks/useTodoData';
 import { buildPrompt, buildTodoContext } from '../lib/todo-utils';
 import type { TodoItem } from '../types/todo';
+
+// ─── Section grouping ──────────────────────────────────────────────────────
+
+interface TodoSection {
+  key: string;
+  label: string;
+  items: TodoItem[];
+  defaultCollapsed: boolean;
+}
+
+function groupIntoSections(items: TodoItem[]): TodoSection[] {
+  const focus: TodoItem[] = [];
+  const active: TodoItem[] = [];
+  const seen: TodoItem[] = [];
+  const done: TodoItem[] = [];
+
+  for (const item of items) {
+    if (item.status === 'completed') {
+      done.push(item);
+    } else if (item.status === 'acknowledged') {
+      seen.push(item);
+    } else if (item.starred && item.urgency >= 0.5) {
+      focus.push(item);
+    } else {
+      active.push(item);
+    }
+  }
+
+  // Sort within sections
+  const byUrgencyDesc = (a: TodoItem, b: TodoItem) => b.urgency - a.urgency || a.ageDays - b.ageDays;
+  focus.sort(byUrgencyDesc);
+  active.sort(byUrgencyDesc);
+  seen.sort((a, b) => a.ageDays - b.ageDays); // oldest first
+  done.sort((a, b) => b.ageDays - a.ageDays); // newest first
+
+  const sections: TodoSection[] = [];
+  if (focus.length > 0) sections.push({ key: 'focus', label: 'Focus', items: focus, defaultCollapsed: false });
+  if (active.length > 0) sections.push({ key: 'active', label: 'Active', items: active, defaultCollapsed: false });
+  if (seen.length > 0) sections.push({ key: 'seen', label: 'Seen', items: seen, defaultCollapsed: false });
+  if (done.length > 0) sections.push({ key: 'done', label: 'Done', items: done, defaultCollapsed: true });
+
+  return sections;
+}
+
+// ─── Create form ───────────────────────────────────────────────────────────
 
 function TodoCreateForm({
   parentId,
@@ -75,6 +120,33 @@ function TodoCreateForm({
   );
 }
 
+// ─── Section header ────────────────────────────────────────────────────────
+
+function SectionHeader({
+  label,
+  count,
+  collapsed,
+  onToggle,
+}: {
+  label: string;
+  count: number;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button className="todo-section-header" onClick={onToggle}>
+      <span className="todo-section-label">{label}</span>
+      <span className="todo-section-count">{count}</span>
+      <span className="todo-section-line" />
+      <span className={`todo-section-chevron${collapsed ? '' : ' todo-section-chevron--open'}`}>
+        &rsaquo;
+      </span>
+    </button>
+  );
+}
+
+// ─── Main view ─────────────────────────────────────────────────────────────
+
 export function TodoView() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -84,6 +156,11 @@ export function TodoView() {
   const [creating, setCreating] = useState<{ parentId?: string } | null>(null);
   const setPendingSession = useMitzoStore((s) => s.setPendingSession);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
+    done: true,
+  });
+
+  const sections = useMemo(() => groupIntoSections(items), [items]);
 
   // Restore scroll position when returning from detail view
   useEffect(() => {
@@ -96,6 +173,10 @@ export function TodoView() {
   const saveScrollPosition = useCallback(() => {
     return scrollRef.current?.scrollTop ?? 0;
   }, []);
+
+  function toggleSection(key: string) {
+    setCollapsedSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
 
   function handleStartSession(item: TodoItem) {
     setPendingSession({
@@ -175,24 +256,35 @@ export function TodoView() {
           />
         )}
 
-        <div className="todo-hint">
-          {items.length > 0 && <span>Tap to start working. Swipe right = seen, left = done.</span>}
-        </div>
-
-        <div className="todo-list">
-          {items.map((item) => (
-            <TodoCard
-              key={item.id}
-              item={item}
-              onAck={ack}
-              onDone={done}
-              onStar={star}
-              onTap={handleTap}
-              onAddChild={handleAddChild}
-              onStartSession={handleStartSession}
-            />
-          ))}
-        </div>
+        {sections.map((section) => {
+          const isCollapsed = collapsedSections[section.key] ?? section.defaultCollapsed;
+          return (
+            <div key={section.key} className="todo-section">
+              <SectionHeader
+                label={section.label}
+                count={section.items.length}
+                collapsed={isCollapsed}
+                onToggle={() => toggleSection(section.key)}
+              />
+              {!isCollapsed && (
+                <div className="todo-list">
+                  {section.items.map((item) => (
+                    <TodoCard
+                      key={item.id}
+                      item={item}
+                      onAck={ack}
+                      onDone={done}
+                      onStar={star}
+                      onTap={handleTap}
+                      onAddChild={handleAddChild}
+                      onStartSession={handleStartSession}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
