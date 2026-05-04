@@ -50,7 +50,7 @@ export interface StreamingBlock {
   rawInput?: RawToolInput;
   toolResult?: string;
   toolError?: boolean;
-  subagent?: StreamingSubagentState;
+  subagent?: StreamingSubagentState | FinishedSubagentState;
 }
 
 export interface StreamingMessage {
