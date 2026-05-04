@@ -24,6 +24,14 @@ export interface ActiveWorktree {
   path: string;
 }
 
+export interface BootContextMeta {
+  source: 'contexgin' | 'local-fallback';
+  sourceCount: number;
+  tokenCount: number;
+  trimmedCount: number;
+  sources: string[];
+}
+
 export interface MessagesState {
   messages: FinishedMessage[];
   current: StreamingMessage | null;
@@ -34,6 +42,7 @@ export interface MessagesState {
   wtId: string | null;
   activeWorktrees: ActiveWorktree[];
   sessionContext: string | null;
+  bootContext: BootContextMeta | null;
 }
 
 export const INITIAL_MESSAGES_STATE: MessagesState = {
@@ -46,6 +55,7 @@ export const INITIAL_MESSAGES_STATE: MessagesState = {
   wtId: null,
   activeWorktrees: [],
   sessionContext: null,
+  bootContext: null,
 };
 
 // ─── Actions ─────────────────────────────────────────────────────────────────
@@ -137,6 +147,7 @@ export type MessagesAction =
   | { type: 'WORKTREE_OPENED'; repoName: string; path: string }
   | { type: 'NATIVE_COMMAND_RESULT'; command: string; content: string }
   | { type: 'SET_SESSION_CONTEXT'; context: string }
+  | { type: 'SET_BOOT_CONTEXT'; bootContext: BootContextMeta }
   | { type: 'CLEAR' };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -410,6 +421,9 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
 
     case 'SET_SESSION_CONTEXT':
       return { ...state, sessionContext: action.context };
+
+    case 'SET_BOOT_CONTEXT':
+      return { ...state, bootContext: action.bootContext };
 
     case 'CLEAR':
       return { ...INITIAL_MESSAGES_STATE };

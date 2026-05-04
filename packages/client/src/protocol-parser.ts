@@ -194,6 +194,19 @@ export function parseServerMessage(
       });
       break;
 
+    case 'boot_context':
+      result.messagesActions.push({
+        type: 'SET_BOOT_CONTEXT',
+        bootContext: {
+          source: msg.source as 'contexgin' | 'local-fallback',
+          sourceCount: msg.sourceCount as number,
+          tokenCount: msg.tokenCount as number,
+          trimmedCount: msg.trimmedCount as number,
+          sources: msg.sources as string[],
+        },
+      });
+      break;
+
     case 'worktree_opened':
       result.messagesActions.push({
         type: 'WORKTREE_OPENED',
