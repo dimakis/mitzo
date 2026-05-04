@@ -9,7 +9,7 @@ export function BootContextPill({ context }: Props) {
   const [expanded, setExpanded] = useState(false);
 
   const isContexgin = context.source === 'contexgin';
-  const dotColor = isContexgin ? '#4ade80' : '#fbbf24';
+  const dotClass = isContexgin ? 'boot-context-pill-dot--ok' : 'boot-context-pill-dot--warn';
   const tokenLabel =
     context.tokenCount >= 1000
       ? `${(context.tokenCount / 1000).toFixed(1)}k`
@@ -22,7 +22,7 @@ export function BootContextPill({ context }: Props) {
         className="boot-context-pill-header"
         onClick={() => setExpanded((e) => !e)}
       >
-        <span className="boot-context-pill-dot" style={{ background: dotColor }} />
+        <span className={`boot-context-pill-dot ${dotClass}`} />
         <span className="boot-context-pill-label">{label}</span>
         <span className="boot-context-pill-engine">
           {isContexgin ? 'ContexGin' : 'Fallback'}

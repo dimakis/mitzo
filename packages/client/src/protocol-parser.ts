@@ -194,18 +194,18 @@ export function parseServerMessage(
       });
       break;
 
-    case 'boot_context':
+    case 'boot_context': {
+      const source = msg.source === 'contexgin' ? 'contexgin' : 'local-fallback';
+      const sourceCount = typeof msg.sourceCount === 'number' ? msg.sourceCount : 0;
+      const tokenCount = typeof msg.tokenCount === 'number' ? msg.tokenCount : 0;
+      const trimmedCount = typeof msg.trimmedCount === 'number' ? msg.trimmedCount : 0;
+      const sources = Array.isArray(msg.sources) ? (msg.sources as string[]) : [];
       result.messagesActions.push({
         type: 'SET_BOOT_CONTEXT',
-        bootContext: {
-          source: msg.source as 'contexgin' | 'local-fallback',
-          sourceCount: msg.sourceCount as number,
-          tokenCount: msg.tokenCount as number,
-          trimmedCount: msg.trimmedCount as number,
-          sources: msg.sources as string[],
-        },
+        bootContext: { source, sourceCount, tokenCount, trimmedCount, sources },
       });
       break;
+    }
 
     case 'worktree_opened':
       result.messagesActions.push({

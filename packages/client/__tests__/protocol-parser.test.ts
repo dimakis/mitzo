@@ -702,3 +702,74 @@ describe('error with No conversation found', () => {
     expect(r.messagesActions).toContainEqual(expect.objectContaining({ type: 'ERROR' }));
   });
 });
+
+// ─── boot_context ─────────────────────────────────────────────────────────────
+
+describe('boot_context', () => {
+  it('maps boot_context to SET_BOOT_CONTEXT with validated fields', () => {
+    const r = parseServerMessage(
+      {
+        type: 'boot_context',
+        source: 'contexgin',
+        sourceCount: 5,
+        tokenCount: 3200,
+        trimmedCount: 1,
+        sources: ['CLAUDE.md', 'CONSTITUTION.md'],
+      },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.messagesActions).toEqual([
+      {
+        type: 'SET_BOOT_CONTEXT',
+        bootContext: {
+          source: 'contexgin',
+          sourceCount: 5,
+          tokenCount: 3200,
+          trimmedCount: 1,
+          sources: ['CLAUDE.md', 'CONSTITUTION.md'],
+        },
+      },
+    ]);
+  });
+
+  it('normalizes unknown source to local-fallback', () => {
+    const r = parseServerMessage(
+      {
+        type: 'boot_context',
+        source: 'unknown-engine',
+        sourceCount: 0,
+        tokenCount: 0,
+        trimmedCount: 0,
+        sources: [],
+      },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.messagesActions[0]).toMatchObject({
+      type: 'SET_BOOT_CONTEXT',
+      bootContext: { source: 'local-fallback' },
+    });
+  });
+
+  it('defaults missing numeric fields to 0 and sources to empty array', () => {
+    const r = parseServerMessage(
+      { type: 'boot_context', source: 'contexgin' },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.messagesActions[0]).toEqual({
+      type: 'SET_BOOT_CONTEXT',
+      bootContext: {
+        source: 'contexgin',
+        sourceCount: 0,
+        tokenCount: 0,
+        trimmedCount: 0,
+        sources: [],
+      },
+    });
+  });
+});

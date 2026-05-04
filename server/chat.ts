@@ -729,19 +729,23 @@ async function _startChatInner(
     buildTaskPromptForSession(clientId);
 
   // Fire-and-forget: emit boot context metadata to client + capture prompt comparison
-  import('contexgin')
-    .then(({ compile }) => compile({ workspaceRoot: cwd, tokenBudget: 8000 }))
-    .then((compiled) => {
+  (async () => {
+    try {
+      const { compile } = await import('contexgin');
+      const compiled = await compile({ workspaceRoot: cwd, tokenBudget: 8000 });
+      const sources = Array.isArray(compiled?.sources) ? compiled.sources : [];
+      const trimmed = Array.isArray(compiled?.trimmed) ? compiled.trimmed : [];
       send(transport, {
         type: 'boot_context',
         source: 'contexgin',
-        sourceCount: compiled.sources.length,
-        tokenCount: compiled.bootTokens,
-        trimmedCount: compiled.trimmed?.length ?? 0,
-        sources: compiled.sources.map((s: { relativePath: string }) => s.relativePath),
+        sourceCount: sources.length,
+        tokenCount: typeof compiled?.bootTokens === 'number' ? compiled.bootTokens : 0,
+        trimmedCount: trimmed.length,
+        sources: sources.map((s: { relativePath: string }) => s.relativePath),
       });
-    })
-    .catch(() => {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.warn('boot context compilation failed, using fallback', { error: msg });
       send(transport, {
         type: 'boot_context',
         source: 'local-fallback',
@@ -750,7 +754,8 @@ async function _startChatInner(
         trimmedCount: 0,
         sources: [],
       });
-    });
+    }
+  })();
   capturePromptComparison(wtId, cwd, systemPromptAppend, repoWorktrees).catch(() => {});
 
   try {

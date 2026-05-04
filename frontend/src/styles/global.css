@@ -23,6 +23,8 @@
   --hover: rgba(108, 99, 255, 0.1);
   --active: rgba(108, 99, 255, 0.2);
   --warning: #ff9800;
+  --status-ok: #4ade80;
+  --status-warn: #fbbf24;
   --shadow: rgba(0, 0, 0, 0.3);
 
   /* Task state colors */
@@ -2332,6 +2334,14 @@ textarea:focus {
   flex-shrink: 0;
 }
 
+.boot-context-pill-dot--ok {
+  background: var(--status-ok);
+}
+
+.boot-context-pill-dot--warn {
+  background: var(--status-warn);
+}
+
 .boot-context-pill-label {
   font-size: var(--text-xxs);
 }
@@ -2365,7 +2375,7 @@ textarea:focus {
 .boot-context-pill-trimmed {
   margin-top: 0.2rem;
   font-style: italic;
-  color: #fbbf24;
+  color: var(--status-warn);
 }
 
 /* ===== Tool Group ===== */
