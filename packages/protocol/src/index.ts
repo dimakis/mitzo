@@ -27,6 +27,10 @@ export type {
   SessionActivity,
   ServiceHealthStatus,
   ServiceHealthPayload,
+  SubagentUsage,
+  StreamingSubagentState,
+  FinishedSubagentState,
+  SubagentState,
 } from './types.js';
 
 // Constants

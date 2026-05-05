@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import type { FinishedSubagentState, StreamingSubagentState } from '@mitzo/protocol';
+import type { StreamingBlock, FinishedBlock } from '@mitzo/protocol';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolPill } from './ToolPill';
 
 interface SubagentCardProps {
-  subagent: FinishedSubagentState | StreamingSubagentState;
+  subagent: NonNullable<StreamingBlock['subagent']> | NonNullable<FinishedBlock['subagent']>;
 }
 
 function formatTokens(usage?: { inputTokens: number; outputTokens: number }): string {

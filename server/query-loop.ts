@@ -269,6 +269,22 @@ async function _runQueryLoopInner(
     currentSnapshot: { blocks: SnapshotBlock[] } | null;
   }) {
     if (!pendingMessageEnd) return;
+    // Flush orphaned subagents — emit subagent_end so clients don't show perpetual spinners
+    for (const [parentToolId, subagent] of activeSubagents) {
+      emit(
+        v2('subagent_end', {
+          parentBlockId: subagent.parentBlockId,
+          subagentMessageId: subagent.subagentMessageId,
+          usage: subagent.usage,
+        }),
+      );
+      log.warn('force-flushed orphaned subagent', {
+        clientId,
+        parentToolId,
+        subagentMessageId: subagent.subagentMessageId,
+      });
+    }
+    activeSubagents.clear();
     for (const [index, bid] of blockIdByIndex) {
       if (openBlockCount <= 0) break;
       const snap = session.currentSnapshot?.blocks.find((b) => b.blockId === bid);
@@ -613,6 +629,7 @@ async function _runQueryLoopInner(
             forceFlushPendingMessage(currentSession);
             toolInputBuffers.clear();
             blockIdByIndex.clear();
+            toolIdToBlockId.clear();
             progressTracker.reset();
             blockCounter = 0;
             openBlockCount = 0;
