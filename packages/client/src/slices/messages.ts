@@ -556,8 +556,8 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
     case 'SUBAGENT_BLOCK_START': {
       if (!state.current) return state;
       const parentBlock = state.current.blocks.get(action.parentBlockId);
-      if (!parentBlock?.subagent) return state;
-      const sub = parentBlock.subagent as StreamingSubagentState;
+      if (!parentBlock?.subagent || !('blockOrder' in parentBlock.subagent)) return state;
+      const sub = parentBlock.subagent;
 
       const newBlock: StreamingBlock = {
         blockId: action.blockId,
@@ -586,8 +586,8 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
     case 'SUBAGENT_BLOCK_DELTA': {
       if (!state.current) return state;
       const parentBlock = state.current.blocks.get(action.parentBlockId);
-      if (!parentBlock?.subagent) return state;
-      const sub = parentBlock.subagent as StreamingSubagentState;
+      if (!parentBlock?.subagent || !('blockOrder' in parentBlock.subagent)) return state;
+      const sub = parentBlock.subagent;
 
       const subBlock = sub.blocks.get(action.blockId);
       if (!subBlock) return state;
@@ -610,8 +610,8 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
     case 'SUBAGENT_BLOCK_END': {
       if (!state.current) return state;
       const parentBlock = state.current.blocks.get(action.parentBlockId);
-      if (!parentBlock?.subagent) return state;
-      const sub = parentBlock.subagent as StreamingSubagentState;
+      if (!parentBlock?.subagent || !('blockOrder' in parentBlock.subagent)) return state;
+      const sub = parentBlock.subagent;
 
       const subBlock = sub.blocks.get(action.blockId);
       if (!subBlock) return state;
@@ -638,8 +638,8 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
     case 'SUBAGENT_TOOL_RESULT': {
       if (!state.current) return state;
       const parentBlock = state.current.blocks.get(action.parentBlockId);
-      if (!parentBlock?.subagent) return state;
-      const sub = parentBlock.subagent as StreamingSubagentState;
+      if (!parentBlock?.subagent || !('blockOrder' in parentBlock.subagent)) return state;
+      const sub = parentBlock.subagent;
 
       // Find the tool block with matching toolId
       for (const [blockId, subBlock] of sub.blocks) {
@@ -667,8 +667,8 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
     case 'SUBAGENT_END': {
       if (!state.current) return state;
       const parentBlock = state.current.blocks.get(action.parentBlockId);
-      if (!parentBlock?.subagent) return state;
-      const sub = parentBlock.subagent as StreamingSubagentState;
+      if (!parentBlock?.subagent || !('blockOrder' in parentBlock.subagent)) return state;
+      const sub = parentBlock.subagent;
 
       // Convert streaming subagent state to finished state
       const finished: FinishedSubagentState = {
