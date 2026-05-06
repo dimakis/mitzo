@@ -406,4 +406,107 @@ describe('Subagent Reducer Actions', () => {
     expect(sub.blocks[0].content).toBe('Partial');
     expect(sub.summary).toBeUndefined();
   });
+
+  it('finishSubagent skips stale blockOrder entries not in the Map', () => {
+    const state = {
+      ...INITIAL_MESSAGES_STATE,
+      current: {
+        messageId: 'msg-1',
+        blocks: new Map<string, StreamingBlock>([
+          [
+            'b1',
+            {
+              blockId: 'b1',
+              blockType: 'tool_use',
+              content: '',
+              done: true,
+              toolName: 'Agent',
+              toolId: 't1',
+              subagent: {
+                messageId: 'msg-sub-1',
+                // blockOrder references 'ghost' which is NOT in the Map
+                blocks: new Map([
+                  [
+                    'b-sub-1',
+                    {
+                      blockId: 'b-sub-1',
+                      blockType: 'text',
+                      content: 'Real',
+                      done: true,
+                    },
+                  ],
+                ]),
+                blockOrder: ['b-sub-1', 'ghost'],
+                running: true as const,
+              },
+            },
+          ],
+        ]),
+        blockOrder: ['b1'],
+      },
+    };
+
+    // Should not throw — stale entry is filtered out
+    const finished = finishCurrent(state.current!);
+    const sub = finished.blocks[0].subagent as FinishedSubagentState;
+    expect(sub.blocks).toHaveLength(1);
+    expect(sub.blocks[0].blockId).toBe('b-sub-1');
+  });
+
+  it('drops streaming events after SUBAGENT_END (out-of-order delivery)', () => {
+    let state = {
+      ...INITIAL_MESSAGES_STATE,
+      current: {
+        messageId: 'msg-1',
+        blocks: new Map<string, StreamingBlock>([
+          [
+            'b1',
+            {
+              blockId: 'b1',
+              blockType: 'tool_use',
+              content: '',
+              done: true,
+              toolName: 'Agent',
+              toolId: 't1',
+              subagent: {
+                messageId: 'msg-sub-1',
+                blocks: new Map([
+                  [
+                    'b-sub-1',
+                    {
+                      blockId: 'b-sub-1',
+                      blockType: 'text',
+                      content: 'Done',
+                      done: true,
+                    },
+                  ],
+                ]),
+                blockOrder: ['b-sub-1'],
+                running: true as const,
+              },
+            },
+          ],
+        ]),
+        blockOrder: ['b1'],
+      },
+    };
+
+    // End the subagent
+    state = messagesReducer(state, {
+      type: 'SUBAGENT_END',
+      parentBlockId: 'b1',
+      summary: 'Complete',
+    });
+
+    // Late-arriving streaming event should be silently dropped
+    const afterDelta = messagesReducer(state, {
+      type: 'SUBAGENT_BLOCK_DELTA',
+      parentBlockId: 'b1',
+      blockId: 'b-sub-1',
+      delta: ' extra',
+    });
+
+    // State unchanged — event was dropped by getStreamingSubagent guard
+    expect(afterDelta).toBe(state);
+  });
 });
