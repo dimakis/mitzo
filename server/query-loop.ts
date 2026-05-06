@@ -675,7 +675,10 @@ async function _runQueryLoopInner(
               const index = evt.index as number;
               const blockId = nextBlockId();
               const blockType = contentBlock?.type as string | undefined;
-              subagent.subagentBlockIdByIndex.set(index, { blockId, blockType: blockType ?? 'text' });
+              subagent.subagentBlockIdByIndex.set(index, {
+                blockId,
+                blockType: blockType ?? 'text',
+              });
 
               if (blockType === 'thinking' || blockType === 'redacted_thinking') {
                 emit(
