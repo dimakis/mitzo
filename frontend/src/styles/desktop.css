@@ -169,6 +169,60 @@
     font-weight: 600;
   }
 
+  /* === Desktop Nav === */
+  .desktop-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: var(--space-2);
+    padding-bottom: var(--space-2);
+    margin-bottom: var(--space-1);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .desktop-nav-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-1h) var(--space-2);
+    border-radius: 6px;
+    font-size: var(--text-s);
+    color: var(--text-dim);
+    background: none;
+    border: none;
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
+  }
+
+  .desktop-nav-item:hover {
+    background: var(--border);
+    color: var(--text);
+  }
+
+  .desktop-nav-item--active {
+    color: var(--accent);
+    background: rgba(108, 99, 255, 0.1);
+  }
+
+  .desktop-nav-item--active:hover {
+    background: rgba(108, 99, 255, 0.15);
+  }
+
+  .desktop-nav-badge {
+    background: var(--danger);
+    color: #fff;
+    font-size: var(--text-2xs);
+    min-width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+  }
+
   /* === Session Panel === */
   .session-panel {
     display: flex;

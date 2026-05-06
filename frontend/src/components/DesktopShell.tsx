@@ -1,9 +1,10 @@
 import { useState, useCallback, type ReactNode } from 'react';
+import { DesktopNav } from './DesktopNav';
 
 export interface DesktopShellProps {
-  left: ReactNode;
+  left?: ReactNode;
   center: ReactNode;
-  right: ReactNode;
+  right?: ReactNode;
   statusBar?: ReactNode;
 }
 
@@ -55,25 +56,32 @@ export function DesktopShell({ left, center, right, statusBar }: DesktopShellPro
           <button
             className="desktop-collapse-btn"
             onClick={toggleLeft}
-            title={leftCollapsed ? 'Show sessions' : 'Hide sessions'}
+            title={leftCollapsed ? 'Show sidebar' : 'Hide sidebar'}
           >
             {leftCollapsed ? '\u25B6' : '\u25C0'}
           </button>
-          {!leftCollapsed && left}
+          {!leftCollapsed && (
+            <>
+              <DesktopNav />
+              {left}
+            </>
+          )}
         </div>
         <div className="desktop-center">{center}</div>
-        <div
-          className={`desktop-sidebar-right${rightCollapsed ? ' desktop-sidebar--collapsed' : ''}`}
-        >
-          <button
-            className="desktop-collapse-btn"
-            onClick={toggleRight}
-            title={rightCollapsed ? 'Show context' : 'Hide context'}
+        {right && (
+          <div
+            className={`desktop-sidebar-right${rightCollapsed ? ' desktop-sidebar--collapsed' : ''}`}
           >
-            {rightCollapsed ? '\u25C0' : '\u25B6'}
-          </button>
-          {!rightCollapsed && right}
-        </div>
+            <button
+              className="desktop-collapse-btn"
+              onClick={toggleRight}
+              title={rightCollapsed ? 'Show context' : 'Hide context'}
+            >
+              {rightCollapsed ? '\u25C0' : '\u25B6'}
+            </button>
+            {!rightCollapsed && right}
+          </div>
+        )}
       </div>
       {statusBar && <div className="desktop-status-row">{statusBar}</div>}
     </div>
