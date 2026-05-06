@@ -14,6 +14,7 @@ import { TodoDetailView } from './pages/TodoDetailView';
 import { TaskBoard } from './pages/TaskBoard';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { MobileShell } from './components/MobileShell';
+import { DesktopShell } from './components/DesktopShell';
 import { useIsDesktop } from './hooks/useMediaQuery';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -39,6 +40,12 @@ function HomeRoute() {
 function ChatRoute() {
   const isDesktop = useIsDesktop();
   return isDesktop ? <DesktopChatView /> : <ChatView />;
+}
+
+function PageRoute({ children }: { children: React.ReactNode }) {
+  const isDesktop = useIsDesktop();
+  if (!isDesktop) return <>{children}</>;
+  return <DesktopShell center={children} />;
 }
 
 function dismissKeyboard(e: React.MouseEvent | React.TouchEvent) {
@@ -96,7 +103,9 @@ export function App() {
                 path="/inbox"
                 element={
                   <ProtectedRoute>
-                    <InboxView />
+                    <PageRoute>
+                      <InboxView />
+                    </PageRoute>
                   </ProtectedRoute>
                 }
               />
@@ -104,7 +113,9 @@ export function App() {
                 path="/calendar"
                 element={
                   <ProtectedRoute>
-                    <CalendarView />
+                    <PageRoute>
+                      <CalendarView />
+                    </PageRoute>
                   </ProtectedRoute>
                 }
               />
@@ -112,7 +123,9 @@ export function App() {
                 path="/todos"
                 element={
                   <ProtectedRoute>
-                    <TodoView />
+                    <PageRoute>
+                      <TodoView />
+                    </PageRoute>
                   </ProtectedRoute>
                 }
               />
@@ -120,7 +133,9 @@ export function App() {
                 path="/todos/:id"
                 element={
                   <ProtectedRoute>
-                    <TodoDetailView />
+                    <PageRoute>
+                      <TodoDetailView />
+                    </PageRoute>
                   </ProtectedRoute>
                 }
               />
@@ -128,7 +143,9 @@ export function App() {
                 path="/tasks"
                 element={
                   <ProtectedRoute>
-                    <TaskBoard />
+                    <PageRoute>
+                      <TaskBoard />
+                    </PageRoute>
                   </ProtectedRoute>
                 }
               />
@@ -137,7 +154,9 @@ export function App() {
                 element={
                   <ProtectedRoute>
                     <ErrorBoundary>
-                      <FileViewer />
+                      <PageRoute>
+                        <FileViewer />
+                      </PageRoute>
                     </ErrorBoundary>
                   </ProtectedRoute>
                 }
