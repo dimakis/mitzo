@@ -13,6 +13,8 @@ import type {
   PermissionRequest,
   RawToolInput,
   BlockType,
+  StreamingSubagentState,
+  FinishedSubagentState,
 } from '@mitzo/protocol';
 
 // ─── State ───────────────────────────────────────────────────────────────────
@@ -139,6 +141,26 @@ export type MessagesAction =
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+function finishSubagent(sa: StreamingSubagentState | FinishedSubagentState): FinishedSubagentState {
+  if (Array.isArray(sa.blocks)) return sa as FinishedSubagentState;
+  const streaming = sa as StreamingSubagentState;
+  const blocks: FinishedBlock[] = streaming.blockOrder.map((id) => {
+    const sb = streaming.blocks.get(id)!;
+    return {
+      blockId: sb.blockId,
+      blockType: sb.blockType,
+      content: sb.content,
+      toolName: sb.toolName,
+      toolId: sb.toolId,
+      toolInput: sb.toolInput,
+      rawInput: sb.rawInput,
+      toolResult: sb.toolResult,
+      toolError: sb.toolError,
+    };
+  });
+  return { messageId: streaming.messageId, blocks };
+}
+
 export function finishCurrent(current: StreamingMessage): FinishedMessage {
   const blocks: FinishedBlock[] = current.blockOrder.map((blockId) => {
     const b = current.blocks.get(blockId)!;
@@ -152,7 +174,7 @@ export function finishCurrent(current: StreamingMessage): FinishedMessage {
       rawInput: b.rawInput,
       toolResult: b.toolResult,
       toolError: b.toolError,
-      subagent: b.subagent,
+      subagent: b.subagent ? finishSubagent(b.subagent) : undefined,
     };
   });
   return { messageId: current.messageId, role: 'assistant', blocks, timestamp: Date.now() };
@@ -527,7 +549,8 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
     case 'SUBAGENT_BLOCK_START': {
       if (!state.current) return state;
       const parentBlock = state.current.blocks.get(action.parentBlockId);
-      if (!parentBlock?.subagent) return state;
+      if (!parentBlock?.subagent || !('blockOrder' in parentBlock.subagent)) return state;
+      const sa = parentBlock.subagent;
 
       const newBlock: StreamingBlock = {
         blockId: action.blockId,
@@ -537,17 +560,13 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
         ...(action.toolName ? { toolName: action.toolName } : {}),
       };
 
-      const newSubBlocks = new Map(parentBlock.subagent.blocks);
+      const newSubBlocks = new Map(sa.blocks);
       newSubBlocks.set(action.blockId, newBlock);
 
       const newBlocks = new Map(state.current.blocks);
       newBlocks.set(action.parentBlockId, {
         ...parentBlock,
-        subagent: {
-          ...parentBlock.subagent,
-          blocks: newSubBlocks,
-          blockOrder: [...parentBlock.subagent.blockOrder, action.blockId],
-        },
+        subagent: { ...sa, blocks: newSubBlocks, blockOrder: [...sa.blockOrder, action.blockId] },
       });
 
       return { ...state, current: { ...state.current, blocks: newBlocks } };
@@ -556,24 +575,19 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
     case 'SUBAGENT_BLOCK_DELTA': {
       if (!state.current) return state;
       const parentBlock = state.current.blocks.get(action.parentBlockId);
-      if (!parentBlock?.subagent) return state;
+      if (!parentBlock?.subagent || !('blockOrder' in parentBlock.subagent)) return state;
+      const sa = parentBlock.subagent;
 
-      const subBlock = parentBlock.subagent.blocks.get(action.blockId);
+      const subBlock = sa.blocks.get(action.blockId);
       if (!subBlock) return state;
 
-      const newSubBlocks = new Map(parentBlock.subagent.blocks);
-      newSubBlocks.set(action.blockId, {
-        ...subBlock,
-        content: subBlock.content + action.delta,
-      });
+      const newSubBlocks = new Map(sa.blocks);
+      newSubBlocks.set(action.blockId, { ...subBlock, content: subBlock.content + action.delta });
 
       const newBlocks = new Map(state.current.blocks);
       newBlocks.set(action.parentBlockId, {
         ...parentBlock,
-        subagent: {
-          ...parentBlock.subagent,
-          blocks: newSubBlocks,
-        },
+        subagent: { ...sa, blocks: newSubBlocks },
       });
 
       return { ...state, current: { ...state.current, blocks: newBlocks } };
@@ -582,12 +596,13 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
     case 'SUBAGENT_BLOCK_END': {
       if (!state.current) return state;
       const parentBlock = state.current.blocks.get(action.parentBlockId);
-      if (!parentBlock?.subagent) return state;
+      if (!parentBlock?.subagent || !('blockOrder' in parentBlock.subagent)) return state;
+      const sa = parentBlock.subagent;
 
-      const subBlock = parentBlock.subagent.blocks.get(action.blockId);
+      const subBlock = sa.blocks.get(action.blockId);
       if (!subBlock) return state;
 
-      const newSubBlocks = new Map(parentBlock.subagent.blocks);
+      const newSubBlocks = new Map(sa.blocks);
       newSubBlocks.set(action.blockId, {
         ...subBlock,
         done: true,
@@ -600,10 +615,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
       const newBlocks = new Map(state.current.blocks);
       newBlocks.set(action.parentBlockId, {
         ...parentBlock,
-        subagent: {
-          ...parentBlock.subagent,
-          blocks: newSubBlocks,
-        },
+        subagent: { ...sa, blocks: newSubBlocks },
       });
 
       return { ...state, current: { ...state.current, blocks: newBlocks } };
@@ -612,12 +624,13 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
     case 'SUBAGENT_TOOL_RESULT': {
       if (!state.current) return state;
       const parentBlock = state.current.blocks.get(action.parentBlockId);
-      if (!parentBlock?.subagent) return state;
+      if (!parentBlock?.subagent || !('blockOrder' in parentBlock.subagent)) return state;
+      const sa = parentBlock.subagent;
 
       // Find the tool block with matching toolId
-      for (const [blockId, subBlock] of parentBlock.subagent.blocks) {
+      for (const [blockId, subBlock] of sa.blocks) {
         if (subBlock.toolId === action.toolId) {
-          const newSubBlocks = new Map(parentBlock.subagent.blocks);
+          const newSubBlocks = new Map(sa.blocks);
           newSubBlocks.set(blockId, {
             ...subBlock,
             toolResult: action.result,
@@ -627,10 +640,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
           const newBlocks = new Map(state.current.blocks);
           newBlocks.set(action.parentBlockId, {
             ...parentBlock,
-            subagent: {
-              ...parentBlock.subagent,
-              blocks: newSubBlocks,
-            },
+            subagent: { ...sa, blocks: newSubBlocks },
           });
 
           return { ...state, current: { ...state.current, blocks: newBlocks } };
@@ -645,28 +655,12 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
       const parentBlock = state.current.blocks.get(action.parentBlockId);
       if (!parentBlock?.subagent) return state;
 
-      // Convert streaming subagent state to finished state
-      const finishedBlocks: FinishedBlock[] = parentBlock.subagent.blockOrder.map((blockId) => {
-        const b = parentBlock.subagent!.blocks.get(blockId)!;
-        return {
-          blockId: b.blockId,
-          blockType: b.blockType,
-          content: b.content,
-          toolName: b.toolName,
-          toolId: b.toolId,
-          toolInput: b.toolInput,
-          rawInput: b.rawInput,
-          toolResult: b.toolResult,
-          toolError: b.toolError,
-        };
-      });
-
+      const finished = finishSubagent(parentBlock.subagent);
       const newBlocks = new Map(state.current.blocks);
       newBlocks.set(action.parentBlockId, {
         ...parentBlock,
         subagent: {
-          messageId: parentBlock.subagent.messageId,
-          blocks: finishedBlocks,
+          ...finished,
           summary: action.summary,
           usage: action.usage,
         },
