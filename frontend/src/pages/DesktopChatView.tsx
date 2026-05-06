@@ -202,7 +202,10 @@ export function DesktopChatView() {
   }, []);
 
   const handleSelectSession = useCallback((id: string) => navigate(`/chat/${id}`), [navigate]);
-  const handleNewChat = useCallback(() => navigate('/chat'), [navigate]);
+  const handleNewChat = useCallback(() => {
+    storeNewSession();
+    navigate('/chat');
+  }, [navigate, storeNewSession]);
 
   return (
     <DesktopShell

@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
-import { describe, it, expect, afterEach, beforeEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+
+vi.mock('../DesktopNav', () => ({
+  DesktopNav: () => <nav data-testid="desktop-nav">Nav</nav>,
+}));
+
 import { DesktopShell } from '../DesktopShell';
 
 beforeEach(() => {
@@ -31,7 +36,7 @@ describe('DesktopShell', () => {
         right={<div>Right</div>}
       />,
     );
-    const toggleBtn = screen.getByTitle('Hide sessions');
+    const toggleBtn = screen.getByTitle('Hide sidebar');
     fireEvent.click(toggleBtn);
     expect(screen.queryByText('Left Panel')).toBeNull();
     expect(localStorage.getItem('mitzo-sidebar-left-collapsed')).toBe('1');
@@ -61,7 +66,7 @@ describe('DesktopShell', () => {
       />,
     );
     expect(screen.queryByText('Left Panel')).toBeNull();
-    expect(screen.getByTitle('Show sessions')).toBeTruthy();
+    expect(screen.getByTitle('Show sidebar')).toBeTruthy();
   });
 
   it('expands collapsed sidebar on toggle', () => {
@@ -73,7 +78,7 @@ describe('DesktopShell', () => {
         right={<div>Right</div>}
       />,
     );
-    fireEvent.click(screen.getByTitle('Show sessions'));
+    fireEvent.click(screen.getByTitle('Show sidebar'));
     expect(screen.getByText('Left Panel')).toBeTruthy();
     expect(localStorage.getItem('mitzo-sidebar-left-collapsed')).toBe('0');
   });
