@@ -198,21 +198,26 @@ export function TaskNode({
       )}
       {hasChildren && expanded && (
         <div className="task-node-children">
-          {task.children.map((child) => (
-            <TaskNode
-              key={child.id}
-              task={child}
-              depth={depth + 1}
-              compact={true}
-              activeTaskId={activeTaskId}
-              displayMeta={displayMeta}
-              onStatusChange={onStatusChange}
-              onDelete={onDelete}
-              onAddChild={onAddChild}
-              onApprove={onApprove}
-              onReject={onReject}
-            />
-          ))}
+          {task.children.map((child) => {
+            // Tier-1 children (pending_review, blocked, failed) should show context lines
+            const childMeta = displayMeta?.get(child.id);
+            const childCompact = childMeta?.attendTier !== 1;
+            return (
+              <TaskNode
+                key={child.id}
+                task={child}
+                depth={depth + 1}
+                compact={childCompact}
+                activeTaskId={activeTaskId}
+                displayMeta={displayMeta}
+                onStatusChange={onStatusChange}
+                onDelete={onDelete}
+                onAddChild={onAddChild}
+                onApprove={onApprove}
+                onReject={onReject}
+              />
+            );
+          })}
         </div>
       )}
     </div>

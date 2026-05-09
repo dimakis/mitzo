@@ -15,12 +15,6 @@ export interface TaskDisplayMeta {
   blockerSummary?: string;
 }
 
-export interface AttendCounts {
-  t1: number;
-  t2: number;
-  t3: number;
-}
-
 // ─── Pure helpers ──────────────────────────────────────────────────────────
 
 const FADE_START_MS = 5 * 60 * 1000; // 5 minutes
@@ -41,9 +35,9 @@ function getAttendTier(status: TaskStatus): 1 | 2 | 3 | 4 {
   }
 }
 
-function computeFadeOpacity(completedAt: number | null): number {
+function computeFadeOpacity(completedAt: number | null, now: number): number {
   if (!completedAt) return 1;
-  const elapsed = Date.now() - completedAt;
+  const elapsed = now - completedAt;
   if (elapsed < FADE_START_MS) return 1;
   if (elapsed >= FADE_END_MS) return 0;
   // Linear fade from 1 → 0.5 between 5min and 30min
@@ -54,7 +48,7 @@ function buildDisplayMeta(task: Task, now: number): TaskDisplayMeta {
   const tier = getAttendTier(task.status);
   const meta: TaskDisplayMeta = {
     attendTier: tier,
-    fadeOpacity: task.status === 'done' ? computeFadeOpacity(task.completedAt) : 1,
+    fadeOpacity: task.status === 'done' ? computeFadeOpacity(task.completedAt, now) : 1,
   };
 
   if (task.status === 'done' && task.completedAt) {
@@ -78,18 +72,6 @@ function collectDisplayMeta(tasks: Task[], now: number, map: Map<string, TaskDis
     map.set(task.id, buildDisplayMeta(task, now));
     if (task.children.length > 0) {
       collectDisplayMeta(task.children, now, map);
-    }
-  }
-}
-
-function countAttendTiers(tasks: Task[], counts: AttendCounts): void {
-  for (const task of tasks) {
-    const tier = getAttendTier(task.status);
-    if (tier === 1) counts.t1++;
-    else if (tier === 2) counts.t2++;
-    else if (tier === 3) counts.t3++;
-    if (task.children.length > 0) {
-      countAttendTiers(task.children, counts);
     }
   }
 }
@@ -152,7 +134,6 @@ export interface UseTaskBoardResult {
   tasks: Task[];
   sortedTasks: Task[];
   displayMeta: Map<string, TaskDisplayMeta>;
-  attendCounts: AttendCounts;
   totalTokenUsage: number;
   showAll: boolean;
   setShowAll: (v: boolean) => void;
@@ -213,12 +194,9 @@ export function useTaskBoard(): UseTaskBoardResult {
     };
   }, [loadLoopStatus, refreshTasks]);
 
-  // Fade timer — recompute every 60s for done task opacity
+  // Timer — recompute every 60s for done task fade opacity and active task elapsed time
   useEffect(() => {
-    const hasDone = tasks.some(
-      (t) => t.status === 'done' || t.children.some((c) => c.status === 'done'),
-    );
-    if (!hasDone) return;
+    if (tasks.length === 0) return;
     const interval = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(interval);
   }, [tasks]);
@@ -233,13 +211,6 @@ export function useTaskBoard(): UseTaskBoardResult {
     return map;
   }, [tasks, now]);
 
-  // Attend counts
-  const attendCounts = useMemo(() => {
-    const counts: AttendCounts = { t1: 0, t2: 0, t3: 0 };
-    countAttendTiers(tasks, counts);
-    return counts;
-  }, [tasks]);
-
   // Total token usage
   const totalTokenUsage = useMemo(() => sumTokenUsage(tasks), [tasks]);
 
@@ -248,7 +219,6 @@ export function useTaskBoard(): UseTaskBoardResult {
     tasks,
     sortedTasks,
     displayMeta,
-    attendCounts,
     totalTokenUsage,
     showAll,
     setShowAll,
