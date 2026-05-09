@@ -772,4 +772,50 @@ describe('boot_context', () => {
       },
     });
   });
+
+  it('filters out non-string elements from sources array', () => {
+    const r = parseServerMessage(
+      {
+        type: 'boot_context',
+        source: 'contexgin',
+        sourceCount: 3,
+        tokenCount: 1000,
+        trimmedCount: 0,
+        sources: ['CLAUDE.md', 42, null, undefined, { relativePath: 'foo.md' }, 'README.md'],
+      },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    const action = r.messagesActions[0];
+    expect(action).toMatchObject({
+      type: 'SET_BOOT_CONTEXT',
+      bootContext: {
+        sources: ['CLAUDE.md', 'README.md'],
+      },
+    });
+  });
+
+  it('handles sources as a non-array value gracefully', () => {
+    const r = parseServerMessage(
+      {
+        type: 'boot_context',
+        source: 'contexgin',
+        sourceCount: 1,
+        tokenCount: 500,
+        trimmedCount: 0,
+        sources: 'not-an-array',
+      },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    const action = r.messagesActions[0];
+    expect(action).toMatchObject({
+      type: 'SET_BOOT_CONTEXT',
+      bootContext: {
+        sources: [],
+      },
+    });
+  });
 });

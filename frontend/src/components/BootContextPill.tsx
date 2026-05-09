@@ -18,21 +18,16 @@ export function BootContextPill({ context }: Props) {
 
   return (
     <div className="boot-context-pill">
-      <button
-        className="boot-context-pill-header"
-        onClick={() => setExpanded((e) => !e)}
-      >
+      <button className="boot-context-pill-header" onClick={() => setExpanded((e) => !e)}>
         <span className={`boot-context-pill-dot ${dotClass}`} />
         <span className="boot-context-pill-label">{label}</span>
-        <span className="boot-context-pill-engine">
-          {isContexgin ? 'ContexGin' : 'Fallback'}
-        </span>
+        <span className="boot-context-pill-engine">{isContexgin ? 'ContexGin' : 'Fallback'}</span>
         <span className="boot-context-pill-chevron">{expanded ? '\u25BE' : '\u25B8'}</span>
       </button>
       {expanded && (
         <div className="boot-context-pill-content">
-          {context.sources.map((src) => (
-            <div key={src} className="boot-context-pill-source">
+          {context.sources.map((src, idx) => (
+            <div key={idx} className="boot-context-pill-source">
               {src}
             </div>
           ))}

@@ -155,7 +155,7 @@ export function ChatArea({
         {bootContext && <BootContextPill context={bootContext} />}
         {sessionContext && <ContextBlock content={sessionContext} />}
 
-        {messages.length === 0 && !current && !running && !sessionContext && (
+        {messages.length === 0 && !current && !running && !sessionContext && !bootContext && (
           <p className="chat-empty">Send a message to start</p>
         )}
 
