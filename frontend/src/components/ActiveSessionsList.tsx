@@ -1,5 +1,4 @@
 import { useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
   useSessionOverview,
   type SessionActivity,
@@ -70,16 +69,14 @@ export interface ActiveSessionsListProps {
 
 export function ActiveSessionsList({ activeSessionId, onSelectSession }: ActiveSessionsListProps) {
   const { activities, attendCount } = useSessionOverview();
-  const navigate = useNavigate();
 
   const visible = activities.filter((a) => a.state !== 'idle' && a.state !== 'init');
 
   const handleTap = useCallback(
     (sessionId: string) => {
       onSelectSession(sessionId);
-      navigate(`/chat/${sessionId}`);
     },
-    [navigate, onSelectSession],
+    [onSelectSession],
   );
 
   if (visible.length === 0) {

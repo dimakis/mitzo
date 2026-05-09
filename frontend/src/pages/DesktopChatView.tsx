@@ -255,7 +255,7 @@ export function DesktopChatView() {
           />
         </div>
       }
-      right={<CommandCenter activeSessionId={activeSessionId ?? undefined} />}
+      right={<CommandCenter />}
       statusBar={
         <StatusBar
           connected={connected}

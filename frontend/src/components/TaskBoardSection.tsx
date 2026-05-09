@@ -16,11 +16,7 @@ const STATE_COLORS: Record<string, string> = {
   paused: '#fbbf24',
 };
 
-export interface TaskBoardSectionProps {
-  activeSessionId?: string;
-}
-
-export function TaskBoardSection({ activeSessionId: _activeSessionId }: TaskBoardSectionProps) {
+export function TaskBoardSection() {
   const {
     loading,
     tasks,
@@ -50,11 +46,6 @@ export function TaskBoardSection({ activeSessionId: _activeSessionId }: TaskBoar
     },
     [deleteTask],
   );
-
-  // No-op for add child in compact mode — users go to full task board
-  const handleAddChild = useCallback(() => {
-    // Not supported in sidebar compact view
-  }, []);
 
   const { state, progress, awaitingApproval } = loopStatus;
 
@@ -148,7 +139,6 @@ export function TaskBoardSection({ activeSessionId: _activeSessionId }: TaskBoar
             activeTaskId={loopStatus.activeTaskId}
             onStatusChange={handleStatusChange}
             onDelete={handleDelete}
-            onAddChild={handleAddChild}
             onApprove={approveTask}
             onReject={rejectTask}
           />

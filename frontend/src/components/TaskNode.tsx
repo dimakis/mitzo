@@ -33,7 +33,7 @@ interface TaskNodeProps {
   activeTaskId?: string | null;
   onStatusChange: (id: string, status: TaskStatus) => void;
   onDelete: (id: string) => void;
-  onAddChild: (parentId: string) => void;
+  onAddChild?: (parentId: string) => void;
   onApprove?: (id: string) => void;
   onReject?: (id: string, feedback: string) => void;
 }
@@ -105,13 +105,15 @@ export function TaskNode({
               &#x2717;
             </button>
           )}
-          <button
-            className="task-node-action"
-            onClick={() => onAddChild(task.id)}
-            title="Add sub-task"
-          >
-            +
-          </button>
+          {onAddChild && (
+            <button
+              className="task-node-action"
+              onClick={() => onAddChild(task.id)}
+              title="Add sub-task"
+            >
+              +
+            </button>
+          )}
           <button
             className="task-node-action task-node-action--danger"
             onClick={() => onDelete(task.id)}

@@ -10,8 +10,7 @@ export function DesktopNav() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Inbox, Telos, and Tasks now live in the right-panel Command Center.
-  // Only Chat, Calendar, and Files remain as nav-routed pages.
+  // Nav only lists full-page routes; sidebar widgets (Inbox, Telos, Tasks) are in CommandCenter.
   const items: NavItem[] = [
     {
       label: 'Chat',

@@ -27,7 +27,9 @@ export function InboxSection() {
     loadInbox().then(() => setLoading(false));
   }, [loadInbox]);
 
-  // Sync store inbox to local state, filtering optimistic removals
+  // Sync store inbox to local state, filtering optimistic removals.
+  // Derive the pruned set inline so filtering uses the up-to-date value
+  // instead of the stale closure captured before setPendingRemovals runs.
   useEffect(() => {
     const serverFilenames = new Set((storeInbox as InboxItem[]).map((i) => i.filename));
     setPendingRemovals((prev) => {
@@ -37,6 +39,10 @@ export function InboxSection() {
       }
       return pruned.size === prev.size ? prev : pruned;
     });
+  }, [storeInbox]);
+
+  // Derive visible items from store + pending removals (both are reactive)
+  useEffect(() => {
     const filtered = (storeInbox as InboxItem[]).filter(
       (item) => !pendingRemovals.has(item.filename),
     );
