@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { messagesReducer, finishCurrent, INITIAL_MESSAGES_STATE } from '../src/slices/messages.js';
 import type { MessagesState } from '../src/slices/messages.js';
-import type { FinishedBlock, StreamingMessage } from '@mitzo/protocol';
+import type { FinishedBlock, FinishedSubagentState, StreamingMessage } from '@mitzo/protocol';
 
 const INITIAL = INITIAL_MESSAGES_STATE;
 
@@ -1180,8 +1180,13 @@ describe('finishCurrent', () => {
     };
 
     const finished = finishCurrent(current);
-    expect(finished.blocks[0].subagent).toBeDefined();
-    expect(finished.blocks[0].subagent!.messageId).toBe('sub-msg-1');
+    const sub = finished.blocks[0].subagent as FinishedSubagentState;
+    expect(sub).toBeDefined();
+    expect(sub.messageId).toBe('sub-msg-1');
+    // Verify streaming Map was converted to finished array
+    expect(Array.isArray(sub.blocks)).toBe(true);
+    expect(sub.blocks).toHaveLength(1);
+    expect(sub.blocks[0].content).toBe('subagent output');
   });
 
   it('works normally when subagent field is absent', () => {
