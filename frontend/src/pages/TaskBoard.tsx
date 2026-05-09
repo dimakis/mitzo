@@ -12,6 +12,11 @@ export function TaskBoard() {
   const {
     loading,
     tasks,
+    sortedTasks,
+    displayMeta,
+    totalTokenUsage,
+    showAll,
+    setShowAll,
     loopStatus,
     createTask,
     updateTask,
@@ -66,6 +71,13 @@ export function TaskBoard() {
         >
           {'\u2699'}
         </button>
+        <button
+          className={`task-board-show-all${showAll ? ' task-board-show-all--active' : ''}`}
+          onClick={() => setShowAll(!showAll)}
+          title={showAll ? 'Sort by attention' : 'Show tree order'}
+        >
+          {showAll ? 'Tree' : 'Tiers'}
+        </button>
         <button className="task-board-refresh" onClick={refresh} title="Refresh">
           &#x21bb;
         </button>
@@ -74,6 +86,7 @@ export function TaskBoard() {
       <LoopControls
         loopStatus={loopStatus}
         goals={goals}
+        totalTokenUsage={totalTokenUsage}
         onStart={startLoop}
         onPause={pauseLoop}
         onResume={resumeLoop}
@@ -107,12 +120,13 @@ export function TaskBoard() {
       )}
 
       <div className="task-board-list">
-        {tasks.map((task) => (
+        {sortedTasks.map((task) => (
           <TaskNode
             key={task.id}
             task={task}
             depth={0}
             activeTaskId={loopStatus.activeTaskId}
+            displayMeta={displayMeta}
             onStatusChange={handleStatusChange}
             onDelete={handleDelete}
             onAddChild={handleAddChild}
