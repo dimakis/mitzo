@@ -485,9 +485,7 @@ describe('ConnectionRegistry', () => {
     it('still syncs all sessions when isSessionActive is not provided', async () => {
       vi.useFakeTimers();
       const t = mockTransport(true);
-      const store = mockEventStore([
-        { seq: 5, payload: { type: 'msg1' } },
-      ]);
+      const store = mockEventStore([{ seq: 5, payload: { type: 'msg1' } }]);
 
       // No isSessionActive — backwards compatible
       registry.setEventStore(store);
