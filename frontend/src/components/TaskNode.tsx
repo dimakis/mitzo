@@ -189,7 +189,7 @@ export function TaskNode({
             {'\u21BB'}
             {task.retryCount}
           </span>
-        </div>
+        )}
         <div className="task-node-actions">
           {task.status === 'pending_review' && onApprove && (
             <button

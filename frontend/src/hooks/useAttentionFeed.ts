@@ -9,7 +9,7 @@ import type { Task, TaskStatus } from '../types/task';
 // ─── Attention item model ──────────────────────────────────────────────────
 
 export type AttentionSource = 'telos' | 'atb' | 'session';
-export type AttentionTier = 1 | 2 | 3;
+export type AttentionTier = 1 | 2;
 
 export interface AttentionItem {
   id: string;
@@ -21,6 +21,8 @@ export interface AttentionItem {
   icon: string;
   /** Navigation target */
   navigateTo: string;
+  /** Epoch ms used for recency sort within a tier (higher = more recent) */
+  updatedAt: number;
 }
 
 // ─── Color constants ───────────────────────────────────────────────────────
@@ -29,13 +31,14 @@ const COLOR_AMBER = '#fbbf24';
 const COLOR_RED = '#ff6d6d';
 const COLOR_PURPLE = '#b48cff';
 const COLOR_GREEN = '#4ade80';
-const COLOR_BLUE = '#60a5fa';
 
 // ─── Derive attention items from Telos ─────────────────────────────────────
 
 function telosToAttention(items: TodoItem[]): AttentionItem[] {
   const result: AttentionItem[] = [];
   for (const item of items) {
+    // ageDays → approximate epoch (lower ageDays = more recent)
+    const updatedAt = Date.now() - item.ageDays * 86_400_000;
     // T1: starred + high urgency = Focus
     if (item.starred && item.urgency >= 0.5) {
       result.push({
@@ -47,6 +50,7 @@ function telosToAttention(items: TodoItem[]): AttentionItem[] {
         accentColor: item.urgency >= 0.8 ? COLOR_RED : COLOR_AMBER,
         icon: '\u2605', // ★
         navigateTo: `/todos/${item.id}`,
+        updatedAt,
       });
     }
     // T2: starred but lower urgency, or unstarred but high urgency
@@ -60,6 +64,7 @@ function telosToAttention(items: TodoItem[]): AttentionItem[] {
         accentColor: item.starred ? COLOR_AMBER : COLOR_PURPLE,
         icon: item.starred ? '\u2605' : '\u25CF', // ★ or ●
         navigateTo: `/todos/${item.id}`,
+        updatedAt,
       });
     }
   }
@@ -103,6 +108,7 @@ function atbToAttention(tasks: Task[]): AttentionItem[] {
             ? '\u2298' // ⊘
             : '\u2717', // ✗
       navigateTo: '/tasks',
+      updatedAt: t.updatedAt || 0,
     }));
 }
 
@@ -127,13 +133,16 @@ function sessionsToAttention(activities: SessionActivity[]): AttentionItem[] {
       accentColor: a.state === 'waiting' ? COLOR_RED : COLOR_GREEN,
       icon: a.state === 'waiting' ? '\u26A0' : '\u2713', // ⚠ or ✓
       navigateTo: `/chat/${a.sessionId}`,
+      updatedAt: a.lastEventAt || 0,
     }));
 }
 
 // ─── Sort by tier then recency ─────────────────────────────────────────────
 
 function sortAttention(items: AttentionItem[]): AttentionItem[] {
-  return [...items].sort((a, b) => a.tier - b.tier);
+  return [...items].sort(
+    (a, b) => a.tier - b.tier || b.updatedAt - a.updatedAt,
+  );
 }
 
 // ─── Hook ──────────────────────────────────────────────────────────────────
@@ -189,11 +198,19 @@ export function useAttentionFeed(): UseAttentionFeedReturn {
     return unsub;
   }, [loadTasks]);
 
-  // Session activities from SSE
+  // Session activities from SSE — validated at runtime
   const [activities, setActivities] = useState<SessionActivity[]>([]);
   useEffect(() => {
     const unsub = eventBus.on('session_activity', (data) => {
-      setActivities(data as SessionActivity[]);
+      if (!Array.isArray(data)) return;
+      const valid = data.filter(
+        (d): d is SessionActivity =>
+          d != null &&
+          typeof d === 'object' &&
+          typeof (d as Record<string, unknown>).sessionId === 'string' &&
+          typeof (d as Record<string, unknown>).state === 'string',
+      );
+      setActivities(valid);
     });
     return unsub;
   }, []);

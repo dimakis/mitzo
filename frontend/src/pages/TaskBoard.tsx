@@ -12,15 +12,38 @@ import type { Task, TaskStatus } from '../types/task';
 
 type AttendTier = 1 | 2 | 3 | 4;
 
-function getTaskTier(task: Task): AttendTier {
-  if (task.status === 'pending_review' || task.status === 'blocked' || task.status === 'failed')
-    return 1;
-  if (task.status === 'done') return 2;
-  if (task.status === 'active') return 3;
+const T1_STATUS_SET: Set<TaskStatus> = new Set(['pending_review', 'blocked', 'failed']);
+
+/** Tier for a single task's own status */
+function ownTier(status: TaskStatus): AttendTier {
+  if (T1_STATUS_SET.has(status)) return 1;
+  if (status === 'done') return 2;
+  if (status === 'active') return 3;
   return 4; // pending, skipped
 }
 
-function sortByAttention(tasks: Task[]): Task[] {
+/** Effective tier: worst of own status and any descendant */
+export function getTaskTier(task: Task): AttendTier {
+  let worst = ownTier(task.status);
+  for (const child of task.children) {
+    const childTier = getTaskTier(child);
+    if (childTier < worst) worst = childTier;
+    if (worst === 1) break; // can't get worse
+  }
+  return worst;
+}
+
+/** Count T1 items recursively across entire tree */
+function countT1Recursive(tasks: Task[]): number {
+  let count = 0;
+  for (const t of tasks) {
+    if (T1_STATUS_SET.has(t.status)) count++;
+    if (t.children.length > 0) count += countT1Recursive(t.children);
+  }
+  return count;
+}
+
+export function sortByAttention(tasks: Task[]): Task[] {
   return [...tasks].sort((a, b) => {
     const tierDiff = getTaskTier(a) - getTaskTier(b);
     if (tierDiff !== 0) return tierDiff;
@@ -80,10 +103,7 @@ export function TaskBoard() {
   // Root tasks with no parent serve as potential goals
   const goals = tasks.filter((t) => !t.parentId);
 
-  const t1Count = tasks.filter(
-    (t) =>
-      t.status === 'pending_review' || t.status === 'blocked' || t.status === 'failed',
-  ).length;
+  const t1Count = countT1Recursive(tasks);
 
   return (
     <div className="task-board-page">
