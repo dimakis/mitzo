@@ -17,7 +17,12 @@ export type {
 } from './store.js';
 
 // Slices — state shapes and types
-export type { MessagesState, MessagesAction, ActiveWorktree, BootContextMeta } from './slices/messages.js';
+export type {
+  MessagesState,
+  MessagesAction,
+  ActiveWorktree,
+  BootContextMeta,
+} from './slices/messages.js';
 export { messagesReducer, INITIAL_MESSAGES_STATE } from './slices/messages.js';
 export type { SessionsState } from './slices/sessions.js';
 export type { ConnectionState, ConnectionStatus } from './slices/connection.js';
