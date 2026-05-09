@@ -38,6 +38,8 @@ export function DesktopChatView() {
   const storeSetModel = useMitzoStore((s) => s.setModel);
   const storeDispatchMessages = useMitzoStore((s) => s.dispatchMessages);
   const storeFetchSessionMeta = useMitzoStore((s) => s.fetchSessionMeta);
+  const sessionContext = useMitzoStore((s) => s.messages.sessionContext);
+  const bootContext = useMitzoStore((s) => s.messages.bootContext);
   const progressByToolId = useProgressByToolId();
 
   const connected = connection.status === 'connected';
@@ -236,6 +238,8 @@ export function DesktopChatView() {
             permission={messages.permission}
             onPermissionRespond={handlePermission}
             scrollRef={scrollRef}
+            sessionContext={sessionContext}
+            bootContext={bootContext}
             progressByToolId={progressByToolId}
             voice={voice}
           />

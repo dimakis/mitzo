@@ -23,6 +23,8 @@
   --hover: rgba(108, 99, 255, 0.1);
   --active: rgba(108, 99, 255, 0.2);
   --warning: #ff9800;
+  --status-ok: #4ade80;
+  --status-warn: #fbbf24;
   --shadow: rgba(0, 0, 0, 0.3);
 
   /* Task state colors */
@@ -2291,6 +2293,89 @@ textarea:focus {
   -webkit-overflow-scrolling: touch;
   margin: 0;
   opacity: 0.7;
+}
+
+/* ===== Boot Context Pill (ContexGin metadata) ===== */
+
+.boot-context-pill {
+  align-self: flex-start;
+  width: 100%;
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 0.3rem;
+}
+
+.boot-context-pill-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  touch-action: manipulation;
+  padding: 0.25rem 0.6rem;
+  width: 100%;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  -webkit-tap-highlight-color: transparent;
+  font-size: var(--text-xxs);
+  font-family: inherit;
+  color: var(--text-dim);
+  min-width: 0;
+}
+
+.boot-context-pill-header:active {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.boot-context-pill-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.boot-context-pill-dot--ok {
+  background: var(--status-ok);
+}
+
+.boot-context-pill-dot--warn {
+  background: var(--status-warn);
+}
+
+.boot-context-pill-label {
+  font-size: var(--text-xxs);
+}
+
+.boot-context-pill-engine {
+  font-size: var(--text-xxs);
+  opacity: 0.5;
+}
+
+.boot-context-pill-chevron {
+  margin-left: auto;
+  font-size: 0.6rem;
+  opacity: 0.5;
+}
+
+.boot-context-pill-content {
+  padding: 0.3rem 0.6rem 0.3rem 1.2rem;
+  font-family: var(--code-font);
+  font-size: var(--text-xxs);
+  line-height: 1.5;
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+
+.boot-context-pill-source {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.boot-context-pill-trimmed {
+  margin-top: 0.2rem;
+  font-style: italic;
+  color: var(--status-warn);
 }
 
 /* ===== Tool Group ===== */
