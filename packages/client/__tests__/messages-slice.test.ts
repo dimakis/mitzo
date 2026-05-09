@@ -1228,3 +1228,52 @@ describe('NATIVE_COMMAND_RESULT', () => {
     expect(msg.blocks[0].content).toContain('Available skills');
   });
 });
+
+// ─── SET_BOOT_CONTEXT ────────────────────────────────────────────────────────
+
+describe('SET_BOOT_CONTEXT', () => {
+  it('sets bootContext from null', () => {
+    const meta = {
+      source: 'contexgin' as const,
+      sourceCount: 5,
+      tokenCount: 3200,
+      trimmedCount: 1,
+      sources: ['CLAUDE.md', 'CONSTITUTION.md'],
+    };
+    const state = messagesReducer(INITIAL, { type: 'SET_BOOT_CONTEXT', bootContext: meta });
+    expect(state.bootContext).toEqual(meta);
+  });
+
+  it('overwrites existing bootContext', () => {
+    const first = {
+      source: 'local-fallback' as const,
+      sourceCount: 0,
+      tokenCount: 0,
+      trimmedCount: 0,
+      sources: [] as string[],
+    };
+    const second = {
+      source: 'contexgin' as const,
+      sourceCount: 3,
+      tokenCount: 1500,
+      trimmedCount: 0,
+      sources: ['a.md'],
+    };
+    let state = messagesReducer(INITIAL, { type: 'SET_BOOT_CONTEXT', bootContext: first });
+    state = messagesReducer(state, { type: 'SET_BOOT_CONTEXT', bootContext: second });
+    expect(state.bootContext).toEqual(second);
+  });
+
+  it('is cleared by CLEAR', () => {
+    const meta = {
+      source: 'contexgin' as const,
+      sourceCount: 2,
+      tokenCount: 1000,
+      trimmedCount: 0,
+      sources: ['a.md'],
+    };
+    let state = messagesReducer(INITIAL, { type: 'SET_BOOT_CONTEXT', bootContext: meta });
+    state = messagesReducer(state, { type: 'CLEAR' });
+    expect(state.bootContext).toBeNull();
+  });
+});
