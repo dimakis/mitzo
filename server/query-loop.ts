@@ -196,6 +196,11 @@ async function _runQueryLoopInner(
         cacheReadTokens: number;
         cacheCreationTokens: number;
       } | null;
+      // OTel span hierarchy for subagent
+      span: Span | null;
+      turnSpan: Span | null;
+      toolSpans: Map<string, Span>; // blockId → tool span
+      startedAt: number;
     }
   >();
 
@@ -378,10 +383,40 @@ async function _runQueryLoopInner(
         if (msg.type === 'assistant') {
           const parentToolUseId = msg.parent_tool_use_id as string | undefined;
 
-          // Subagent turn complete — emit subagent_end
+          // Subagent turn complete — emit subagent_end + close spans
           if (parentToolUseId) {
             const subagent = activeSubagents.get(parentToolUseId);
             if (subagent) {
+              const durationMs = Date.now() - subagent.startedAt;
+
+              // End any open subagent tool spans
+              for (const [, ts] of subagent.toolSpans) {
+                ts.setStatus({ code: SpanStatusCode.OK });
+                ts.end();
+              }
+              subagent.toolSpans.clear();
+
+              // End subagent turn span
+              if (subagent.turnSpan) {
+                subagent.turnSpan.setStatus({ code: SpanStatusCode.OK });
+                subagent.turnSpan.end();
+              }
+
+              // End subagent span with attributes
+              if (subagent.span) {
+                subagent.span.setAttribute('subagent.duration_ms', durationMs);
+                if (subagent.usage) {
+                  const totalTokens =
+                    subagent.usage.inputTokens +
+                    subagent.usage.outputTokens +
+                    subagent.usage.cacheReadTokens +
+                    subagent.usage.cacheCreationTokens;
+                  subagent.span.setAttribute('subagent.total_tokens', totalTokens);
+                }
+                subagent.span.setStatus({ code: SpanStatusCode.OK });
+                subagent.span.end();
+              }
+
               emit(
                 v2('subagent_end', {
                   parentBlockId: subagent.parentBlockId,
@@ -394,6 +429,7 @@ async function _runQueryLoopInner(
                 parentToolId: parentToolUseId,
                 subagentMessageId: subagent.subagentMessageId,
                 usage: subagent.usage,
+                durationMs,
               });
               activeSubagents.delete(parentToolUseId);
             }
@@ -588,14 +624,32 @@ async function _runQueryLoopInner(
               const subagentMessageId = (apiMsg?.id as string | undefined) ?? `msg-${Date.now()}`;
 
               if (parentBlockId) {
+                // Create OTel subagent span under the parent tool span
+                const parentToolSpan = toolSpans.get(parentBlockId);
+                const subagentParentCtx = parentToolSpan
+                  ? trace.setSpan(context.active(), parentToolSpan)
+                  : context.active();
+                const subagentSpan = tracer.startSpan('subagent', {}, subagentParentCtx);
+                subagentSpan.setAttribute('subagent.parent_tool_id', parentToolUseId);
+                subagentSpan.setAttribute('subagent.message_id', subagentMessageId);
+
+                // Start first turn span under the subagent span
+                const subTurnCtx = trace.setSpan(context.active(), subagentSpan);
+                const subTurnSpan = tracer.startSpan('subagent.turn', {}, subTurnCtx);
+                subTurnSpan.setAttribute('subagent.turn.index', 0);
+
                 activeSubagents.set(parentToolUseId, {
                   parentBlockId,
-                  parentToolName: 'Agent', // We don't track this persistently, assume Agent
+                  parentToolName: 'Agent',
                   taskId: null,
                   subagentMessageId,
                   subagentBlockIdByIndex: new Map(),
                   subagentToolInputBuffers: new Map(),
                   usage: null,
+                  span: subagentSpan,
+                  turnSpan: subTurnSpan,
+                  toolSpans: new Map(),
+                  startedAt: Date.now(),
                 });
 
                 // Extract usage from message_start
@@ -722,6 +776,20 @@ async function _runQueryLoopInner(
                   id: toolId,
                   inputBuf: '',
                 });
+
+                // Create OTel span for subagent tool under its turn span
+                const subToolParent = subagent.turnSpan
+                  ? trace.setSpan(context.active(), subagent.turnSpan)
+                  : context.active();
+                const subToolSpan = tracer.startSpan(
+                  `subagent.tool.${toolName}`,
+                  {},
+                  subToolParent,
+                );
+                subToolSpan.setAttribute('tool.name', toolName);
+                subToolSpan.setAttribute('tool.id', toolId);
+                subagent.toolSpans.set(blockId, subToolSpan);
+
                 emit(
                   v2('subagent_block_start', {
                     parentBlockId: subagent.parentBlockId,
@@ -935,6 +1003,14 @@ async function _runQueryLoopInner(
                     ...(rawInput ? { rawInput } : {}),
                   }),
                 );
+                // End subagent tool span
+                const subToolSpan = subagent.toolSpans.get(blockId);
+                if (subToolSpan) {
+                  subToolSpan.setStatus({ code: SpanStatusCode.OK });
+                  subToolSpan.end();
+                  subagent.toolSpans.delete(blockId);
+                }
+
                 log.info('subagent tool call', {
                   clientId,
                   parentToolId: parentToolUseId,
@@ -1219,6 +1295,23 @@ async function _runQueryLoopInner(
       if (store && resolvedSessionId) {
         store.markSessionInactive(resolvedSessionId);
       }
+      // Clean up any open subagent spans
+      for (const [, sub] of activeSubagents) {
+        for (const [, ts] of sub.toolSpans) {
+          ts.setStatus({ code: SpanStatusCode.OK });
+          ts.end();
+        }
+        sub.toolSpans.clear();
+        if (sub.turnSpan) {
+          sub.turnSpan.setStatus({ code: SpanStatusCode.OK });
+          sub.turnSpan.end();
+        }
+        if (sub.span) {
+          sub.span.setStatus({ code: SpanStatusCode.OK });
+          sub.span.end();
+        }
+      }
+      activeSubagents.clear();
       // Clean up any open tool spans
       for (const [, ts] of toolSpans) {
         ts.setStatus({ code: SpanStatusCode.OK });
