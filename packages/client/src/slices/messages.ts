@@ -237,6 +237,10 @@ export function patchToolResult(
 export function messagesReducer(state: MessagesState, action: MessagesAction): MessagesState {
   switch (action.type) {
     case 'MESSAGE_START': {
+      // Dedup: skip if this message was already restored (e.g. WS replay after RESTORE)
+      if (state.messages.some((m) => m.messageId === action.messageId)) {
+        return state;
+      }
       const base = state.current
         ? { ...state, messages: [...state.messages, finishCurrent(state.current)] }
         : state;
@@ -309,6 +313,10 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
 
     case 'MESSAGE_END': {
       if (!state.current) return { ...state };
+      // Dedup: if this message was already restored, discard the streaming copy
+      if (state.messages.some((m) => m.messageId === state.current!.messageId)) {
+        return { ...state, current: null };
+      }
       const finished = finishCurrent(state.current);
       return { ...state, messages: [...state.messages, finished], current: null };
     }
@@ -473,9 +481,15 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
           merged.splice(insertAfter + 1, 0, opt);
         }
         merged.push(notice);
-        return { ...state, messages: merged };
+        const currentStaleI = state.current &&
+          merged.some((m) => m.messageId === state.current!.messageId);
+        return { ...state, messages: merged, ...(currentStaleI ? { current: null } : {}) };
       }
-      return { ...state, messages: valid };
+      // Clear current if the restored set already contains it (prevents
+      // MESSAGE_END from re-inserting a message that RESTORE already has).
+      const currentStale = state.current &&
+        valid.some((m) => m.messageId === state.current!.messageId);
+      return { ...state, messages: valid, ...(currentStale ? { current: null } : {}) };
     }
 
     case 'USER_MESSAGE_RECEIVED': {

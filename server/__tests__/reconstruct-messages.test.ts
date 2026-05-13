@@ -290,4 +290,33 @@ describe('replayEventsToMessages — user_message events', () => {
       blocks: [{ content: 'Hello from empty session' }],
     });
   });
+
+  it('reuses stored messageId for initial prompt (deterministic across calls)', () => {
+    const events: StoredEvent[] = [
+      evt(1, 'user_message', { messageId: 'umsg-12345-init', text: 'Hello Claude' }),
+      evt(2, 'message_start', { messageId: 'msg-a1' }),
+      evt(3, 'block_start', { messageId: 'msg-a1', blockId: 'b0', blockType: 'text' }),
+      evt(4, 'block_delta', { messageId: 'msg-a1', blockId: 'b0', delta: 'Hi!' }),
+      evt(5, 'block_end', { messageId: 'msg-a1', blockId: 'b0', blockType: 'text' }),
+      evt(6, 'message_end', { messageId: 'msg-a1' }),
+    ];
+    const result1 = replayEventsToMessages(events, 'Hello Claude');
+    const result2 = replayEventsToMessages(events, 'Hello Claude');
+    expect(result1[0].messageId).toBe('umsg-12345-init');
+    expect(result2[0].messageId).toBe('umsg-12345-init');
+    // Same ID across calls — no Date.now() instability
+    expect(result1[0].messageId).toBe(result2[0].messageId);
+  });
+
+  it('falls back to stable umsg-initial when no matching event exists', () => {
+    const events: StoredEvent[] = [
+      evt(1, 'message_start', { messageId: 'msg-a1' }),
+      evt(2, 'block_start', { messageId: 'msg-a1', blockId: 'b0', blockType: 'text' }),
+      evt(3, 'block_delta', { messageId: 'msg-a1', blockId: 'b0', delta: 'Hi!' }),
+      evt(4, 'block_end', { messageId: 'msg-a1', blockId: 'b0', blockType: 'text' }),
+      evt(5, 'message_end', { messageId: 'msg-a1' }),
+    ];
+    const result = replayEventsToMessages(events, 'Hello Claude');
+    expect(result[0].messageId).toBe('umsg-initial');
+  });
 });
