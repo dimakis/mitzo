@@ -40,26 +40,25 @@ export function MarkdownPreviewCard({ filePath }: Props) {
 
   return (
     <div className="md-preview-card">
-      <button className="md-preview-card-header" onClick={handleToggle}>
-        <span className="md-preview-card-icon">MD</span>
-        <span className="md-preview-card-name">{fileName}</span>
-        <a
+      <div className="md-preview-card-header">
+        <button className="md-preview-card-toggle" onClick={handleToggle}>
+          <span className="md-preview-card-icon">MD</span>
+          <span className="md-preview-card-name">{fileName}</span>
+          <span className="md-preview-card-chevron">
+            {expanded ? '\u25BE' : '\u25B8'}
+          </span>
+        </button>
+        <button
           className="md-preview-card-open"
-          href="#"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
+          onClick={() =>
             navigate(
               `/files?path=${encodeURIComponent(filePath)}&from=${encodeURIComponent(currentPath)}`,
-            );
-          }}
+            )
+          }
         >
           Open
-        </a>
-        <span className="md-preview-card-chevron">
-          {expanded ? '\u25BE' : '\u25B8'}
-        </span>
-      </button>
+        </button>
+      </div>
       {expanded && (
         <div className="md-preview-card-content">
           {loading && (

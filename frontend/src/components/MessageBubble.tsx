@@ -121,6 +121,8 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
                 </div>
               );
             },
+            // Detect standalone .md file links tagged by the `a` handler via
+            // data-md-preview and promote them to block-level preview cards.
             p: ({ children }) => {
               const childArray = React.Children.toArray(children);
               if (childArray.length === 1 && React.isValidElement(childArray[0])) {
