@@ -71,7 +71,10 @@ afterEach(() => {
 
 describe('useAttentionFeed', () => {
   it('loads todos from API on mount', async () => {
-    mockApiFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ items: [] }) } as Response);
+    mockApiFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ items: [] }),
+    } as Response);
 
     renderHook(() => useAttentionFeed());
 
@@ -79,7 +82,10 @@ describe('useAttentionFeed', () => {
   });
 
   it('loads tasks from store on mount', () => {
-    mockApiFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ items: [] }) } as Response);
+    mockApiFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ items: [] }),
+    } as Response);
 
     renderHook(() => useAttentionFeed());
 
@@ -91,7 +97,10 @@ describe('useAttentionFeed', () => {
       makeTodo({ id: 't1', summary: 'Urgent starred', starred: true, urgency: 0.9 }),
       makeTodo({ id: 't2', summary: 'Normal item', starred: false, urgency: 0.3 }),
     ];
-    mockApiFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ items }) } as Response);
+    mockApiFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ items }),
+    } as Response);
 
     const { result } = renderHook(() => useAttentionFeed());
 
@@ -109,7 +118,10 @@ describe('useAttentionFeed', () => {
     const items = [
       makeTodo({ id: 't1', summary: 'Starred low urgency', starred: true, urgency: 0.3 }),
     ];
-    mockApiFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ items }) } as Response);
+    mockApiFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ items }),
+    } as Response);
 
     const { result } = renderHook(() => useAttentionFeed());
 
@@ -125,7 +137,10 @@ describe('useAttentionFeed', () => {
     const items = [
       makeTodo({ id: 't1', summary: 'Critical unstarred', starred: false, urgency: 0.9 }),
     ];
-    mockApiFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ items }) } as Response);
+    mockApiFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ items }),
+    } as Response);
 
     const { result } = renderHook(() => useAttentionFeed());
 
@@ -142,7 +157,10 @@ describe('useAttentionFeed', () => {
       makeTodo({ id: 't1', summary: 'Starred low', starred: true, urgency: 0.3 }),
       makeTodo({ id: 't2', summary: 'Starred high', starred: true, urgency: 0.8 }),
     ];
-    mockApiFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ items }) } as Response);
+    mockApiFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ items }),
+    } as Response);
 
     const { result } = renderHook(() => useAttentionFeed());
 
@@ -160,7 +178,10 @@ describe('useAttentionFeed', () => {
     const items = Array.from({ length: 10 }, (_, i) =>
       makeTodo({ id: `t${i}`, summary: `Item ${i}`, starred: true, urgency: 0.9 }),
     );
-    mockApiFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ items }) } as Response);
+    mockApiFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ items }),
+    } as Response);
 
     const { result } = renderHook(() => useAttentionFeed());
 
@@ -172,7 +193,10 @@ describe('useAttentionFeed', () => {
   });
 
   it('subscribes to SSE events for live updates', () => {
-    mockApiFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ items: [] }) } as Response);
+    mockApiFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ items: [] }),
+    } as Response);
 
     renderHook(() => useAttentionFeed());
 

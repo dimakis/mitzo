@@ -157,7 +157,9 @@ export function TodoCard({
         >
           {/* Line 1: icon + summary + star */}
           <div className="todo-card-line1">
-            <span className="todo-card-icon" style={{ color }}>{icon}</span>
+            <span className="todo-card-icon" style={{ color }}>
+              {icon}
+            </span>
             <span className="todo-card-summary">{item.summary}</span>
             {hasChildren && (
               <button
@@ -189,7 +191,10 @@ export function TodoCard({
               <span className="todo-card-source todo-card-source--manual">+</span>
             )}
             {source?.author && (
-              <><span className="todo-card-author">{source.author}</span>{' \u00B7 '}</>
+              <>
+                <span className="todo-card-author">{source.author}</span>
+                {' \u00B7 '}
+              </>
             )}
             <span className="todo-card-age">{ageLabel}</span>
             {' \u00B7 '}

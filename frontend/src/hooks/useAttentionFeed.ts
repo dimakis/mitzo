@@ -99,8 +99,7 @@ function atbToAttention(tasks: Task[]): AttentionItem[] {
           : t.status === 'blocked'
             ? 'blocked'
             : 'failed',
-      accentColor:
-        t.status === 'pending_review' ? COLOR_AMBER : COLOR_RED,
+      accentColor: t.status === 'pending_review' ? COLOR_AMBER : COLOR_RED,
       icon:
         t.status === 'pending_review'
           ? '\u25D4' // ◔
@@ -140,9 +139,7 @@ function sessionsToAttention(activities: SessionActivity[]): AttentionItem[] {
 // ─── Sort by tier then recency ─────────────────────────────────────────────
 
 function sortAttention(items: AttentionItem[]): AttentionItem[] {
-  return [...items].sort(
-    (a, b) => a.tier - b.tier || b.updatedAt - a.updatedAt,
-  );
+  return [...items].sort((a, b) => a.tier - b.tier || b.updatedAt - a.updatedAt);
 }
 
 // ─── Hook ──────────────────────────────────────────────────────────────────
