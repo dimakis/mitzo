@@ -230,8 +230,9 @@ describe('TextBubble markdown preview card promotion', () => {
   it('promotes a standalone .md file-path link to MarkdownPreviewCard', () => {
     renderToStaticMarkup(createElement(TextBubble, { content: 'test' }));
     const p = capturedComponents!.p;
-    // Simulate what the a handler returns for a .md file-path link
-    const link = createElement('a', { 'data-file-path': '/tmp/notes.md' }, '/tmp/notes.md');
+    // Simulate what ReactMarkdown v10 passes: an unrendered component with href prop
+    const fileHref = `${FILE_SCHEME}${encodeURIComponent('/tmp/notes.md')}`;
+    const link = createElement('a', { href: fileHref }, '/tmp/notes.md');
 
     const result = p({ children: link });
     // Should return a MarkdownPreviewCard, not a <p>
@@ -242,7 +243,8 @@ describe('TextBubble markdown preview card promotion', () => {
   it('does not promote non-.md file-path links', () => {
     renderToStaticMarkup(createElement(TextBubble, { content: 'test' }));
     const p = capturedComponents!.p;
-    const link = createElement('a', { 'data-file-path': '/tmp/data.json' }, '/tmp/data.json');
+    const fileHref = `${FILE_SCHEME}${encodeURIComponent('/tmp/data.json')}`;
+    const link = createElement('a', { href: fileHref }, '/tmp/data.json');
 
     const result = p({ children: link });
     expect(result.type).toBe('p');
@@ -251,7 +253,8 @@ describe('TextBubble markdown preview card promotion', () => {
   it('does not promote .md links when paragraph has other content', () => {
     renderToStaticMarkup(createElement(TextBubble, { content: 'test' }));
     const p = capturedComponents!.p;
-    const link = createElement('a', { 'data-file-path': '/tmp/notes.md' }, '/tmp/notes.md');
+    const fileHref = `${FILE_SCHEME}${encodeURIComponent('/tmp/notes.md')}`;
+    const link = createElement('a', { href: fileHref }, '/tmp/notes.md');
 
     const result = p({ children: ['See ', link, ' for details'] });
     expect(result.type).toBe('p');
