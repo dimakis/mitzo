@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -8,6 +8,7 @@ import { formatTime } from '../lib/formatTime';
 import { CopyButton } from './CopyButton';
 import { ReadAloudButton } from './ReadAloudButton';
 import { extractText } from '../lib/extractText';
+import { MarkdownPreviewCard } from './MarkdownPreviewCard';
 
 const COLLAPSE_HEIGHT = 300;
 
@@ -120,6 +121,21 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
                 </div>
               );
             },
+            // When a paragraph contains a single file-path link to a .md/.mdx
+            // file, promote it to an inline preview card instead of a plain link.
+            // The `a` handler passes the resolved path via data-file-path; this
+            // handler checks the extension and decides whether to promote.
+            p: ({ children }) => {
+              const childArray = React.Children.toArray(children);
+              if (childArray.length === 1 && React.isValidElement(childArray[0])) {
+                const el = childArray[0] as React.ReactElement<Record<string, unknown>>;
+                const filePath = el.props?.['data-file-path'] as string | undefined;
+                if (filePath && /\.mdx?$/i.test(filePath)) {
+                  return <MarkdownPreviewCard filePath={filePath} />;
+                }
+              }
+              return <p>{children}</p>;
+            },
             a: ({ href, children }) => {
               if (href?.startsWith(FILE_SCHEME)) {
                 const filePath = decodeURIComponent(href.slice(FILE_SCHEME.length));
@@ -127,6 +143,7 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
                   <a
                     href="#"
                     className="file-path-link"
+                    data-file-path={filePath}
                     onClick={(e) => {
                       e.preventDefault();
                       navigate(
