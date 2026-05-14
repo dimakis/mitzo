@@ -220,6 +220,52 @@ describe('TextBubble code block CopyButton', () => {
   });
 });
 
+describe('TextBubble markdown preview card promotion', () => {
+  it('provides a custom p component to ReactMarkdown', () => {
+    renderToStaticMarkup(createElement(TextBubble, { content: 'test' }));
+    expect(capturedComponents).toBeDefined();
+    expect(capturedComponents!.p).toBeDefined();
+  });
+
+  it('promotes a standalone .md file-path link to MarkdownPreviewCard', () => {
+    renderToStaticMarkup(createElement(TextBubble, { content: 'test' }));
+    const p = capturedComponents!.p;
+    // Simulate what the a handler returns for a .md file-path link
+    const link = createElement('a', { 'data-file-path': '/tmp/notes.md' }, '/tmp/notes.md');
+
+    const result = p({ children: link });
+    // Should return a MarkdownPreviewCard, not a <p>
+    expect(result.type).not.toBe('p');
+    expect(result.props.filePath).toBe('/tmp/notes.md');
+  });
+
+  it('does not promote non-.md file-path links', () => {
+    renderToStaticMarkup(createElement(TextBubble, { content: 'test' }));
+    const p = capturedComponents!.p;
+    const link = createElement('a', { 'data-file-path': '/tmp/data.json' }, '/tmp/data.json');
+
+    const result = p({ children: link });
+    expect(result.type).toBe('p');
+  });
+
+  it('does not promote .md links when paragraph has other content', () => {
+    renderToStaticMarkup(createElement(TextBubble, { content: 'test' }));
+    const p = capturedComponents!.p;
+    const link = createElement('a', { 'data-file-path': '/tmp/notes.md' }, '/tmp/notes.md');
+
+    const result = p({ children: ['See ', link, ' for details'] });
+    expect(result.type).toBe('p');
+  });
+
+  it('a handler sets data-file-path on file-path links', () => {
+    renderToStaticMarkup(createElement(TextBubble, { content: 'test' }));
+    const anchor = capturedComponents!.a;
+    const fileHref = `${FILE_SCHEME}${encodeURIComponent('/tmp/notes.md')}`;
+    const rendered = anchor({ href: fileHref, children: '/tmp/notes.md' });
+    expect(rendered.props['data-file-path']).toBe('/tmp/notes.md');
+  });
+});
+
 describe('MessageBubble legacy adapter forwards timestamps', () => {
   it('forwards timestamp to UserBubble for user messages', () => {
     const ts = Date.now();
