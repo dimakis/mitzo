@@ -38,45 +38,6 @@ const NEXT_STATUS: Record<TaskStatus, TaskStatus> = {
   failed: 'pending',
 };
 
-const T1_STATUSES: TaskStatus[] = ['pending_review', 'blocked', 'failed'];
-
-function statusMeta(task: Task): string {
-  switch (task.status) {
-    case 'active':
-      return task.sessionId ? `session ${task.sessionId.slice(-6)}` : 'in progress';
-    case 'pending_review':
-      return 'awaiting approval';
-    case 'blocked':
-      return task.annotations?.[0] || 'blocked';
-    case 'failed':
-      return `failed${task.retryCount > 0 ? ` \u00B7 retry ${task.retryCount}/${task.maxRetries}` : ''}`;
-    case 'done':
-      return task.completedAt ? formatElapsed(Date.now() - task.completedAt) : 'done';
-    default:
-      return task.status;
-  }
-}
-
-function formatElapsed(ms: number): string {
-  const sec = Math.floor(ms / 1000);
-  if (sec < 60) return 'just now';
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}min ago`;
-  const hr = Math.floor(min / 60);
-  return `${hr}h ago`;
-}
-
-/** Opacity for done tasks: fade after 5min, near-invisible after 30min */
-function doneOpacity(task: Task): number {
-  if (task.status !== 'done' || !task.completedAt) return 1;
-  const elapsed = Date.now() - task.completedAt;
-  const FIVE_MIN = 5 * 60 * 1000;
-  const THIRTY_MIN = 30 * 60 * 1000;
-  if (elapsed < FIVE_MIN) return 1;
-  if (elapsed > THIRTY_MIN) return 0.3;
-  return 1 - 0.7 * ((elapsed - FIVE_MIN) / (THIRTY_MIN - FIVE_MIN));
-}
-
 interface TaskNodeProps {
   task: Task;
   depth: number;
@@ -120,6 +81,9 @@ function contextColorClass(status: TaskStatus): string {
   return '';
 }
 
+// Note: Time-dependent display (fade opacity, elapsed labels) is computed by
+// useTaskBoard's displayMeta and refreshed every 60s via setInterval + on each
+// SSE task_state event. The component itself is a pure render of that snapshot.
 export function TaskNode({
   task,
   depth,

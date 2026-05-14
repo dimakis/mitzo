@@ -17,7 +17,7 @@ interface TodoSection {
   defaultCollapsed: boolean;
 }
 
-function groupIntoSections(items: TodoItem[]): TodoSection[] {
+export function groupIntoSections(items: TodoItem[]): TodoSection[] {
   const focus: TodoItem[] = [];
   const active: TodoItem[] = [];
   const seen: TodoItem[] = [];
@@ -35,18 +35,26 @@ function groupIntoSections(items: TodoItem[]): TodoSection[] {
     }
   }
 
-  // Sort within sections
-  const byUrgencyDesc = (a: TodoItem, b: TodoItem) => b.urgency - a.urgency || a.ageDays - b.ageDays;
+  // Sort within sections — intentional direction differences:
+  // Focus/Active: highest urgency first, tie-break by newest (lower ageDays)
+  // Seen: oldest first (longest-waiting items surface)
+  // Done: newest first (most recent completions on top for review)
+  const byUrgencyDesc = (a: TodoItem, b: TodoItem) =>
+    b.urgency - a.urgency || a.ageDays - b.ageDays;
   focus.sort(byUrgencyDesc);
   active.sort(byUrgencyDesc);
-  seen.sort((a, b) => a.ageDays - b.ageDays); // oldest first
-  done.sort((a, b) => b.ageDays - a.ageDays); // newest first
+  seen.sort((a, b) => a.ageDays - b.ageDays);
+  done.sort((a, b) => b.ageDays - a.ageDays);
 
   const sections: TodoSection[] = [];
-  if (focus.length > 0) sections.push({ key: 'focus', label: 'Focus', items: focus, defaultCollapsed: false });
-  if (active.length > 0) sections.push({ key: 'active', label: 'Active', items: active, defaultCollapsed: false });
-  if (seen.length > 0) sections.push({ key: 'seen', label: 'Seen', items: seen, defaultCollapsed: false });
-  if (done.length > 0) sections.push({ key: 'done', label: 'Done', items: done, defaultCollapsed: true });
+  if (focus.length > 0)
+    sections.push({ key: 'focus', label: 'Focus', items: focus, defaultCollapsed: false });
+  if (active.length > 0)
+    sections.push({ key: 'active', label: 'Active', items: active, defaultCollapsed: false });
+  if (seen.length > 0)
+    sections.push({ key: 'seen', label: 'Seen', items: seen, defaultCollapsed: false });
+  if (done.length > 0)
+    sections.push({ key: 'done', label: 'Done', items: done, defaultCollapsed: true });
 
   return sections;
 }

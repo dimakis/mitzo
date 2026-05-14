@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { TaskNode } from '../components/TaskNode';
 import { TaskCreateForm } from '../components/TaskCreateForm';
 import { WorkflowCreateForm } from '../components/WorkflowCreateForm';
@@ -33,7 +33,7 @@ export function getTaskTier(task: Task): AttendTier {
   return worst;
 }
 
-/** Count T1 items recursively across entire tree */
+/** Count T1 items recursively across entire tree (roots + all descendants) */
 function countT1Recursive(tasks: Task[]): number {
   let count = 0;
   for (const t of tasks) {
@@ -43,6 +43,12 @@ function countT1Recursive(tasks: Task[]): number {
   return count;
 }
 
+/**
+ * Sort root tasks by effective attention tier, with recency tiebreaker.
+ * Only sorts root level — children retain tree order (rendered by TaskNode).
+ * getTaskTier already considers descendant status, so a root with a blocked
+ * child will bubble up even if the root itself is pending.
+ */
 export function sortByAttention(tasks: Task[]): Task[] {
   return [...tasks].sort((a, b) => {
     const tierDiff = getTaskTier(a) - getTaskTier(b);
@@ -76,12 +82,6 @@ export function TaskBoard() {
   } = useTaskBoard();
   const [creating, setCreating] = useState<{ parentId?: string } | null>(null);
   const [creatingWorkflow, setCreatingWorkflow] = useState(false);
-  const [showAll, setShowAll] = useState(false);
-
-  const sortedTasks = useMemo(
-    () => (showAll ? tasks : sortByAttention(tasks)),
-    [tasks, showAll],
-  );
 
   function handleStatusChange(id: string, status: TaskStatus) {
     updateTask(id, { status });
@@ -107,10 +107,7 @@ export function TaskBoard() {
 
   return (
     <div className="task-board-page">
-      <PageHeader
-        title="Tasks"
-        badge={t1Count > 0 ? t1Count : tasks.length || undefined}
-      >
+      <PageHeader title="Tasks" badge={t1Count > 0 ? t1Count : tasks.length || undefined}>
         <button
           className={`task-board-sort-btn${showAll ? '' : ' task-board-sort-btn--active'}`}
           onClick={() => setShowAll(!showAll)}

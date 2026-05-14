@@ -60,6 +60,11 @@ vi.mock('../../hooks/useTaskBoard', () => ({
   useTaskBoard: () => ({
     loading: mockLoading,
     tasks: mockTasks,
+    sortedTasks: mockTasks,
+    displayMeta: new Map(),
+    totalTokenUsage: 0,
+    showAll: false,
+    setShowAll: vi.fn(),
     loopStatus: {
       state: 'idle',
       goalId: null,
