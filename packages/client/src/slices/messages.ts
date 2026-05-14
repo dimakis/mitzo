@@ -312,7 +312,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
     }
 
     case 'MESSAGE_END': {
-      if (!state.current) return { ...state };
+      if (!state.current) return state;
       // Dedup: if this message was already restored, discard the streaming copy
       if (state.messages.some((m) => m.messageId === state.current!.messageId)) {
         return { ...state, current: null };
@@ -481,15 +481,15 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
           merged.splice(insertAfter + 1, 0, opt);
         }
         merged.push(notice);
-        const currentStaleI = state.current &&
+        const currentStale = state.current &&
           merged.some((m) => m.messageId === state.current!.messageId);
-        return { ...state, messages: merged, ...(currentStaleI ? { current: null } : {}) };
+        return { ...state, messages: merged, current: currentStale ? null : state.current };
       }
       // Clear current if the restored set already contains it (prevents
       // MESSAGE_END from re-inserting a message that RESTORE already has).
       const currentStale = state.current &&
         valid.some((m) => m.messageId === state.current!.messageId);
-      return { ...state, messages: valid, ...(currentStale ? { current: null } : {}) };
+      return { ...state, messages: valid, current: currentStale ? null : state.current };
     }
 
     case 'USER_MESSAGE_RECEIVED': {
