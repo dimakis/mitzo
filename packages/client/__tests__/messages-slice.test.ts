@@ -1415,6 +1415,56 @@ describe('RESTORE clears stale current', () => {
     const next = messagesReducer(state, { type: 'RESTORE', messages: restored, interrupted: true });
     expect(next.current).toBeNull();
   });
+
+  it('interrupted RESTORE with optimistic user msgs AND stale current', () => {
+    // Simulate: user sent a follow-up (optimistic), assistant was streaming,
+    // then interrupted RESTORE arrives with the completed assistant message.
+    const state: MessagesState = {
+      ...INITIAL,
+      messages: [
+        {
+          messageId: 'restored-1',
+          role: 'assistant' as const,
+          blocks: [{ blockId: 'a1', blockType: 'text' as const, content: 'first reply' }],
+        },
+        {
+          messageId: 'user-optimistic',
+          role: 'user' as const,
+          blocks: [{ blockId: 'u1', blockType: 'text' as const, content: 'follow-up' }],
+        },
+      ],
+      current: {
+        messageId: 'asst-2',
+        blocks: new Map(),
+        blockOrder: [],
+      },
+    };
+    const restored = [
+      {
+        messageId: 'restored-1',
+        role: 'assistant' as const,
+        blocks: [{ blockId: 'a1', blockType: 'text' as const, content: 'first reply' }],
+      },
+      {
+        messageId: 'asst-2',
+        role: 'assistant' as const,
+        blocks: [{ blockId: 'a2', blockType: 'text' as const, content: 'second reply' }],
+      },
+    ];
+    const next = messagesReducer(state, {
+      type: 'RESTORE',
+      messages: restored,
+      interrupted: true,
+    });
+    // current should be cleared (asst-2 is in the restored set)
+    expect(next.current).toBeNull();
+    // optimistic user msg should be preserved and merged
+    const userMsgs = next.messages.filter((m) => m.role === 'user');
+    expect(userMsgs).toHaveLength(1);
+    expect(userMsgs[0].messageId).toBe('user-optimistic');
+    // restored assistant messages should be present
+    expect(next.messages.some((m) => m.messageId === 'asst-2')).toBe(true);
+  });
 });
 
 describe('foreground recovery race — full sequence', () => {
