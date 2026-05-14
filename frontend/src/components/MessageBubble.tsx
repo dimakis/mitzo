@@ -121,15 +121,17 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
                 </div>
               );
             },
-            // Detect standalone .md file links tagged by the `a` handler via
-            // data-md-preview and promote them to block-level preview cards.
+            // When a paragraph contains a single file-path link to a .md/.mdx
+            // file, promote it to an inline preview card instead of a plain link.
+            // The `a` handler passes the resolved path via data-file-path; this
+            // handler checks the extension and decides whether to promote.
             p: ({ children }) => {
               const childArray = React.Children.toArray(children);
               if (childArray.length === 1 && React.isValidElement(childArray[0])) {
                 const el = childArray[0] as React.ReactElement<Record<string, unknown>>;
-                const mdPath = el.props?.['data-md-preview'] as string | undefined;
-                if (mdPath) {
-                  return <MarkdownPreviewCard filePath={mdPath} />;
+                const filePath = el.props?.['data-file-path'] as string | undefined;
+                if (filePath && /\.mdx?$/i.test(filePath)) {
+                  return <MarkdownPreviewCard filePath={filePath} />;
                 }
               }
               return <p>{children}</p>;
@@ -137,12 +139,11 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
             a: ({ href, children }) => {
               if (href?.startsWith(FILE_SCHEME)) {
                 const filePath = decodeURIComponent(href.slice(FILE_SCHEME.length));
-                const isMd = /\.mdx?$/i.test(filePath);
                 return (
                   <a
                     href="#"
                     className="file-path-link"
-                    data-md-preview={isMd ? filePath : undefined}
+                    data-file-path={filePath}
                     onClick={(e) => {
                       e.preventDefault();
                       navigate(

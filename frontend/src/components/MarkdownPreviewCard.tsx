@@ -22,11 +22,10 @@ export function MarkdownPreviewCard({ filePath }: Props) {
     const next = !expanded;
     setExpanded(next);
     if (next && content === null && !loading) {
+      setError(null);
       setLoading(true);
       try {
-        const res = await apiFetch(
-          `/api/files/read?path=${encodeURIComponent(filePath)}`,
-        );
+        const res = await apiFetch(`/api/files/read?path=${encodeURIComponent(filePath)}`);
         if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
         const data = await res.json();
         setContent(data.content);
@@ -44,9 +43,7 @@ export function MarkdownPreviewCard({ filePath }: Props) {
         <button className="md-preview-card-toggle" onClick={handleToggle}>
           <span className="md-preview-card-icon">MD</span>
           <span className="md-preview-card-name">{fileName}</span>
-          <span className="md-preview-card-chevron">
-            {expanded ? '\u25BE' : '\u25B8'}
-          </span>
+          <span className="md-preview-card-chevron">{expanded ? '\u25BE' : '\u25B8'}</span>
         </button>
         <button
           className="md-preview-card-open"
@@ -61,19 +58,11 @@ export function MarkdownPreviewCard({ filePath }: Props) {
       </div>
       {expanded && (
         <div className="md-preview-card-content">
-          {loading && (
-            <p className="md-preview-card-status">Loading...</p>
-          )}
-          {error && (
-            <p className="md-preview-card-status md-preview-card-status--error">
-              {error}
-            </p>
-          )}
+          {loading && <p className="md-preview-card-status">Loading...</p>}
+          {error && <p className="md-preview-card-status md-preview-card-status--error">{error}</p>}
           {content !== null && (
             <div className="md-preview-card-body">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {content}
-              </ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
             </div>
           )}
         </div>
