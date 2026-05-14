@@ -1543,9 +1543,14 @@ export function replayEventsToMessages(
   // Inject the initial prompt as the first message.
   // Priority: initialPrompt param (from session metadata) > legacy out-of-order event
   if (initialPrompt) {
+    // Reuse the stored messageId so REST recovery and WS replay agree on IDs
+    const matchingEvt = events.find(
+      (e) => e.type === 'user_message' && e.payload.text === initialPrompt,
+    );
+    const messageId = matchingEvt ? (matchingEvt.payload.messageId as string) : 'umsg-initial';
     const firstTs = events[0]?.createdAt;
     messages.push({
-      messageId: `umsg-initial-${Date.now()}`,
+      messageId,
       role: 'user',
       timestamp: firstTs,
       blocks: [{ blockId: 'user-initial', blockType: 'text', content: initialPrompt }],

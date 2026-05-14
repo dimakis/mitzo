@@ -1277,3 +1277,398 @@ describe('SET_BOOT_CONTEXT', () => {
     expect(state.bootContext).toBeNull();
   });
 });
+
+// ─── Dedup: foreground recovery vs WS replay ────────────────────────────────
+
+describe('MESSAGE_START dedup', () => {
+  it('skips if messageId already exists in finished messages', () => {
+    const state: MessagesState = {
+      ...INITIAL,
+      messages: [
+        {
+          messageId: 'msg-1',
+          role: 'assistant',
+          blocks: [{ blockId: 'b1', blockType: 'text', content: 'done' }],
+        },
+      ],
+    };
+    const next = messagesReducer(state, { type: 'MESSAGE_START', messageId: 'msg-1' });
+    expect(next.current).toBeNull();
+    expect(next.messages).toHaveLength(1);
+  });
+
+  it('allows MESSAGE_START for a new messageId', () => {
+    const state: MessagesState = {
+      ...INITIAL,
+      messages: [
+        {
+          messageId: 'msg-1',
+          role: 'assistant',
+          blocks: [{ blockId: 'b1', blockType: 'text', content: 'done' }],
+        },
+      ],
+    };
+    const next = messagesReducer(state, { type: 'MESSAGE_START', messageId: 'msg-2' });
+    expect(next.current).not.toBeNull();
+    expect(next.current!.messageId).toBe('msg-2');
+  });
+});
+
+describe('MESSAGE_END dedup', () => {
+  it('discards current without appending if messageId already in messages', () => {
+    const state: MessagesState = {
+      ...INITIAL,
+      messages: [
+        {
+          messageId: 'msg-1',
+          role: 'assistant',
+          blocks: [{ blockId: 'b1', blockType: 'text', content: 'restored' }],
+        },
+      ],
+      current: {
+        messageId: 'msg-1',
+        blocks: new Map([
+          ['b2', { blockId: 'b2', blockType: 'text', content: 'streaming', done: true }],
+        ]),
+        blockOrder: ['b2'],
+      },
+    };
+    const next = messagesReducer(state, { type: 'MESSAGE_END', messageId: 'msg-1' });
+    expect(next.current).toBeNull();
+    expect(next.messages).toHaveLength(1);
+    expect(next.messages[0].blocks[0].content).toBe('restored');
+  });
+
+  it('appends normally when messageId is new', () => {
+    const state: MessagesState = {
+      ...INITIAL,
+      current: {
+        messageId: 'msg-2',
+        blocks: new Map([['b1', { blockId: 'b1', blockType: 'text', content: 'new', done: true }]]),
+        blockOrder: ['b1'],
+      },
+    };
+    const next = messagesReducer(state, { type: 'MESSAGE_END', messageId: 'msg-2' });
+    expect(next.current).toBeNull();
+    expect(next.messages).toHaveLength(1);
+    expect(next.messages[0].messageId).toBe('msg-2');
+  });
+});
+
+describe('RESTORE clears stale current', () => {
+  it('nullifies current when its messageId is in the restored set', () => {
+    const state: MessagesState = {
+      ...INITIAL,
+      current: {
+        messageId: 'msg-1',
+        blocks: new Map(),
+        blockOrder: [],
+      },
+    };
+    const restored = [
+      {
+        messageId: 'msg-1',
+        role: 'assistant' as const,
+        blocks: [{ blockId: 'b1', blockType: 'text' as const, content: 'done' }],
+      },
+    ];
+    const next = messagesReducer(state, { type: 'RESTORE', messages: restored });
+    expect(next.current).toBeNull();
+    expect(next.messages).toHaveLength(1);
+  });
+
+  it('preserves current when its messageId is NOT in the restored set', () => {
+    const state: MessagesState = {
+      ...INITIAL,
+      current: {
+        messageId: 'msg-new',
+        blocks: new Map(),
+        blockOrder: [],
+      },
+    };
+    const restored = [
+      {
+        messageId: 'msg-old',
+        role: 'assistant' as const,
+        blocks: [{ blockId: 'b1', blockType: 'text' as const, content: 'done' }],
+      },
+    ];
+    const next = messagesReducer(state, { type: 'RESTORE', messages: restored });
+    expect(next.current).not.toBeNull();
+    expect(next.current!.messageId).toBe('msg-new');
+  });
+
+  it('nullifies current in interrupted RESTORE too', () => {
+    const state: MessagesState = {
+      ...INITIAL,
+      current: {
+        messageId: 'msg-1',
+        blocks: new Map(),
+        blockOrder: [],
+      },
+    };
+    const restored = [
+      {
+        messageId: 'msg-1',
+        role: 'assistant' as const,
+        blocks: [{ blockId: 'b1', blockType: 'text' as const, content: 'done' }],
+      },
+    ];
+    const next = messagesReducer(state, { type: 'RESTORE', messages: restored, interrupted: true });
+    expect(next.current).toBeNull();
+  });
+
+  it('interrupted RESTORE with optimistic user msgs AND stale current', () => {
+    // Simulate: user sent a follow-up (optimistic), assistant was streaming,
+    // then interrupted RESTORE arrives with the completed assistant message.
+    const state: MessagesState = {
+      ...INITIAL,
+      messages: [
+        {
+          messageId: 'restored-1',
+          role: 'assistant' as const,
+          blocks: [{ blockId: 'a1', blockType: 'text' as const, content: 'first reply' }],
+        },
+        {
+          messageId: 'user-optimistic',
+          role: 'user' as const,
+          blocks: [{ blockId: 'u1', blockType: 'text' as const, content: 'follow-up' }],
+        },
+      ],
+      current: {
+        messageId: 'asst-2',
+        blocks: new Map(),
+        blockOrder: [],
+      },
+    };
+    const restored = [
+      {
+        messageId: 'restored-1',
+        role: 'assistant' as const,
+        blocks: [{ blockId: 'a1', blockType: 'text' as const, content: 'first reply' }],
+      },
+      {
+        messageId: 'asst-2',
+        role: 'assistant' as const,
+        blocks: [{ blockId: 'a2', blockType: 'text' as const, content: 'second reply' }],
+      },
+    ];
+    const next = messagesReducer(state, {
+      type: 'RESTORE',
+      messages: restored,
+      interrupted: true,
+    });
+    // current should be cleared (asst-2 is in the restored set)
+    expect(next.current).toBeNull();
+    // optimistic user msg should be preserved and merged
+    const userMsgs = next.messages.filter((m) => m.role === 'user');
+    expect(userMsgs).toHaveLength(1);
+    expect(userMsgs[0].messageId).toBe('user-optimistic');
+    // restored assistant messages should be present
+    expect(next.messages.some((m) => m.messageId === 'asst-2')).toBe(true);
+  });
+});
+
+describe('MESSAGE_START finalizes current with subagent blocks', () => {
+  it('finishCurrent converts streaming subagent to finished when new message starts', () => {
+    // Simulate: assistant is streaming a message with a subagent tool_use block,
+    // then a new MESSAGE_START arrives — the orphaned current should be finalized
+    // with subagent blocks correctly converted from Map to array.
+    const subagentBlocks = new Map([
+      [
+        'sub-b1',
+        {
+          blockId: 'sub-b1',
+          blockType: 'text' as const,
+          content: 'subagent thinking',
+          done: true,
+        },
+      ],
+      [
+        'sub-b2',
+        {
+          blockId: 'sub-b2',
+          blockType: 'tool_use' as const,
+          content: '',
+          done: true,
+          toolName: 'Bash',
+          toolId: 'sub-tool-1',
+          toolInput: 'echo hi',
+        },
+      ],
+    ]);
+
+    const state: MessagesState = {
+      ...INITIAL,
+      current: {
+        messageId: 'msg-with-subagent',
+        blocks: new Map([
+          [
+            'b1',
+            {
+              blockId: 'b1',
+              blockType: 'tool_use' as const,
+              content: '',
+              done: true,
+              toolName: 'Agent',
+              toolId: 'agent-tool-1',
+              subagent: {
+                messageId: 'sub-msg-1',
+                blocks: subagentBlocks,
+                blockOrder: ['sub-b1', 'sub-b2'],
+                running: true as const,
+              },
+            },
+          ],
+        ]),
+        blockOrder: ['b1'],
+      },
+    };
+
+    // New MESSAGE_START should finalize the current (with subagent) and start fresh
+    const next = messagesReducer(state, { type: 'MESSAGE_START', messageId: 'msg-new' });
+
+    // Orphaned message with subagent should be finalized into messages[]
+    expect(next.messages).toHaveLength(1);
+    expect(next.messages[0].messageId).toBe('msg-with-subagent');
+
+    // Subagent should be converted from streaming (Map) to finished (array)
+    const sub = next.messages[0].blocks[0].subagent as FinishedSubagentState;
+    expect(sub).toBeDefined();
+    expect(sub.messageId).toBe('sub-msg-1');
+    expect(Array.isArray(sub.blocks)).toBe(true);
+    expect(sub.blocks).toHaveLength(2);
+    expect(sub.blocks[0].content).toBe('subagent thinking');
+    expect(sub.blocks[1].toolName).toBe('Bash');
+    expect(sub.blocks[1].toolId).toBe('sub-tool-1');
+
+    // New current should be clean
+    expect(next.current).not.toBeNull();
+    expect(next.current!.messageId).toBe('msg-new');
+    expect(next.current!.blockOrder).toHaveLength(0);
+  });
+});
+
+describe('foreground recovery race — full sequence', () => {
+  it('RESTORE then WS replay of same message does not duplicate', () => {
+    // Simulate: user sends, assistant streams, iOS backgrounds, foreground returns
+    // 1. USER_SEND adds optimistic user message
+    let state = messagesReducer(INITIAL, {
+      type: 'USER_SEND',
+      text: 'hello',
+      clientMsgId: 'user-abc',
+    });
+    // 2. MESSAGE_START creates current
+    state = messagesReducer(state, { type: 'MESSAGE_START', messageId: 'asst-1' });
+    state = messagesReducer(state, {
+      type: 'BLOCK_START',
+      messageId: 'asst-1',
+      blockId: 'b1',
+      blockType: 'text',
+    });
+    state = messagesReducer(state, {
+      type: 'BLOCK_DELTA',
+      messageId: 'asst-1',
+      blockId: 'b1',
+      blockType: 'text',
+      delta: 'partial',
+    });
+    expect(state.messages).toHaveLength(1); // user msg
+    expect(state.current).not.toBeNull();
+
+    // 3. RESTORE fires (foreground recovery) — server has the completed conversation
+    state = messagesReducer(state, {
+      type: 'RESTORE',
+      messages: [
+        {
+          messageId: 'user-abc',
+          role: 'user' as const,
+          blocks: [{ blockId: 'u1', blockType: 'text' as const, content: 'hello' }],
+        },
+        {
+          messageId: 'asst-1',
+          role: 'assistant' as const,
+          blocks: [{ blockId: 'b1', blockType: 'text' as const, content: 'full response' }],
+        },
+      ],
+    });
+    // RESTORE should replace messages AND clear stale current
+    expect(state.messages).toHaveLength(2);
+    expect(state.current).toBeNull();
+
+    // 4. WS replay delivers the same message_start + message_end
+    state = messagesReducer(state, { type: 'MESSAGE_START', messageId: 'asst-1' });
+    // MESSAGE_START should be a no-op (dedup)
+    expect(state.current).toBeNull();
+    expect(state.messages).toHaveLength(2);
+
+    // 5. BLOCK events after suppressed MESSAGE_START are safe no-ops
+    state = messagesReducer(state, {
+      type: 'BLOCK_START',
+      messageId: 'asst-1',
+      blockId: 'b1',
+      blockType: 'text',
+    });
+    state = messagesReducer(state, {
+      type: 'BLOCK_DELTA',
+      messageId: 'asst-1',
+      blockId: 'b1',
+      blockType: 'text',
+      delta: 'replayed',
+    });
+    state = messagesReducer(state, {
+      type: 'BLOCK_END',
+      messageId: 'asst-1',
+      blockId: 'b1',
+      blockType: 'text',
+    });
+    // Still no current, still 2 messages
+    expect(state.current).toBeNull();
+    expect(state.messages).toHaveLength(2);
+
+    // 6. MESSAGE_END for the replayed message — should be safe no-op
+    state = messagesReducer(state, { type: 'MESSAGE_END', messageId: 'asst-1' });
+    expect(state.current).toBeNull();
+    expect(state.messages).toHaveLength(2);
+    expect(state.messages[1].blocks[0].content).toBe('full response');
+  });
+
+  it('multi-turn: only the replayed message is deduplicated, earlier ones kept', () => {
+    // Start with a completed first turn
+    const state: MessagesState = {
+      ...INITIAL,
+      messages: [
+        {
+          messageId: 'user-1',
+          role: 'user',
+          blocks: [{ blockId: 'u1', blockType: 'text', content: 'first' }],
+        },
+        {
+          messageId: 'asst-1',
+          role: 'assistant',
+          blocks: [{ blockId: 'a1', blockType: 'text', content: 'reply 1' }],
+        },
+        {
+          messageId: 'user-2',
+          role: 'user',
+          blocks: [{ blockId: 'u2', blockType: 'text', content: 'second' }],
+        },
+        {
+          messageId: 'asst-2',
+          role: 'assistant',
+          blocks: [{ blockId: 'a2', blockType: 'text', content: 'reply 2' }],
+        },
+      ],
+    };
+
+    // WS replay tries to re-deliver only asst-2
+    let next = messagesReducer(state, { type: 'MESSAGE_START', messageId: 'asst-2' });
+    expect(next.current).toBeNull(); // dedup blocked it
+    expect(next.messages).toHaveLength(4); // all 4 still there
+
+    // A genuinely new message should still work
+    next = messagesReducer(next, { type: 'MESSAGE_START', messageId: 'asst-3' });
+    expect(next.current).not.toBeNull();
+    expect(next.current!.messageId).toBe('asst-3');
+  });
+});
