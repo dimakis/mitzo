@@ -81,6 +81,9 @@ function contextColorClass(status: TaskStatus): string {
   return '';
 }
 
+// Note: Time-dependent display (fade opacity, elapsed labels) is computed by
+// useTaskBoard's displayMeta and refreshed every 60s via setInterval + on each
+// SSE task_state event. The component itself is a pure render of that snapshot.
 export function TaskNode({
   task,
   depth,
