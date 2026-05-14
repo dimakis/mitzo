@@ -14,6 +14,7 @@ import { BriefingCard } from '../components/BriefingCard';
 import { SessionSearchBar } from '../components/SessionSearchBar';
 import { useSessionSearch } from '../hooks/useSessionSearch';
 import { SessionOverview } from '../components/SessionOverview';
+import { AttentionFeed } from '../components/AttentionFeed';
 import { ServiceStatus } from '../components/ServiceStatus';
 
 function SwipeableSession({
@@ -311,6 +312,8 @@ export function SessionList() {
         <BriefingCard />
 
         <SessionOverview />
+
+        <AttentionFeed />
 
         <ServiceStatus />
 

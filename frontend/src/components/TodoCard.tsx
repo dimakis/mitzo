@@ -14,11 +14,38 @@ interface TodoCardProps {
   onStartSession: (item: TodoItem) => void;
 }
 
-function urgencyBar(urgency: number): string {
-  if (urgency >= 0.8) return '\u2593\u2593\u2593';
-  if (urgency >= 0.5) return '\u2593\u2593\u2591';
-  if (urgency >= 0.2) return '\u2593\u2591\u2591';
-  return '\u2591\u2591\u2591';
+// ─── Urgency → color border ────────────────────────────────────────────────
+
+function urgencyColor(urgency: number): string {
+  if (urgency >= 0.8) return '#ff6d6d';
+  if (urgency >= 0.5) return '#fbbf24';
+  if (urgency >= 0.2) return '#b48cff';
+  return 'transparent';
+}
+
+function urgencyWidth(urgency: number): number {
+  if (urgency >= 0.8) return 4;
+  if (urgency >= 0.5) return 3;
+  if (urgency >= 0.2) return 2;
+  return 0;
+}
+
+// ─── Status visuals ────────────────────────────────────────────────────────
+
+function getStatusIcon(item: TodoItem): string {
+  if (item.starred) return '\u2605'; // ★
+  if (item.status === 'active') return '\u25CF'; // ●
+  if (item.status === 'acknowledged') return '\u25D0'; // ◐
+  if (item.status === 'completed') return '\u2713'; // ✓
+  return '\u25CB'; // ○ (snoozed)
+}
+
+function getStatusColor(item: TodoItem): string {
+  if (item.starred) return '#fbbf24';
+  if (item.status === 'active') return '#b48cff';
+  if (item.status === 'acknowledged') return '#60a5fa';
+  if (item.status === 'completed') return '#4ade80';
+  return '#888';
 }
 
 export function TodoCard({
@@ -102,9 +129,12 @@ export function TodoCard({
 
   const source = item.sources[0];
   const ageLabel = item.ageDays === 0 ? 'new' : `${item.ageDays}d`;
-  const statusIcon = item.status === 'active' ? '\u25CF' : '\u25D0';
   const children = item.children ?? [];
   const hasChildren = children.length > 0;
+  const icon = getStatusIcon(item);
+  const color = getStatusColor(item);
+  const borderClr = urgencyColor(item.urgency);
+  const borderW = urgencyWidth(item.urgency);
 
   return (
     <div className={`todo-card-tree-node ${depth > 0 ? 'todo-card-tree-node--child' : ''}`}>
@@ -119,8 +149,18 @@ export function TodoCard({
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
+          style={{
+            borderLeftColor: borderClr,
+            borderLeftWidth: borderW > 0 ? `${borderW}px` : undefined,
+            borderLeftStyle: borderW > 0 ? 'solid' : undefined,
+          }}
         >
-          <div className="todo-card-header">
+          {/* Line 1: icon + summary + star */}
+          <div className="todo-card-line1">
+            <span className="todo-card-icon" style={{ color }}>
+              {icon}
+            </span>
+            <span className="todo-card-summary">{item.summary}</span>
             {hasChildren && (
               <button
                 className="todo-card-expand"
@@ -132,19 +172,6 @@ export function TodoCard({
                 {expanded ? '\u25BC' : '\u25B6'}
               </button>
             )}
-            <span className="todo-card-status">{statusIcon}</span>
-            <span className="todo-card-urgency">{urgencyBar(item.urgency)}</span>
-            {source ? (
-              <span className="todo-card-source">{sourceIcon(source.type)}</span>
-            ) : (
-              <span className="todo-card-source todo-card-source--manual">+</span>
-            )}
-            <span className="todo-card-age">{ageLabel}</span>
-            {hasChildren && (
-              <span className="todo-card-progress">
-                {item.completedChildCount ?? 0}/{item.childCount ?? children.length}
-              </span>
-            )}
             <button
               className="todo-card-star"
               onClick={(e) => {
@@ -152,16 +179,38 @@ export function TodoCard({
                 onStar(item.id);
               }}
             >
-              {item.starred ? '⭐' : '☆'}
+              {item.starred ? '\u2B50' : '\u2606'}
             </button>
           </div>
-          <div className="todo-card-summary">{item.summary}</div>
-          {source && (
-            <div className="todo-card-meta">
-              <span className="todo-card-author">{source.author}</span>
-            </div>
-          )}
-          <div className="todo-card-actions">
+
+          {/* Line 2: source + meta */}
+          <div className="todo-card-line2">
+            {source ? (
+              <span className="todo-card-source">{sourceIcon(source.type)}</span>
+            ) : (
+              <span className="todo-card-source todo-card-source--manual">+</span>
+            )}
+            {source?.author && (
+              <>
+                <span className="todo-card-author">{source.author}</span>
+                {' \u00B7 '}
+              </>
+            )}
+            <span className="todo-card-age">{ageLabel}</span>
+            {' \u00B7 '}
+            <span className="todo-card-profile">{item.profile}</span>
+            {hasChildren && (
+              <>
+                {' \u00B7 '}
+                <span className="todo-card-progress">
+                  {item.completedChildCount ?? 0}/{item.childCount ?? children.length}
+                </span>
+              </>
+            )}
+          </div>
+
+          {/* Line 3: actions */}
+          <div className="todo-card-line3">
             <button
               className="todo-card-add-child"
               onClick={(e) => {
