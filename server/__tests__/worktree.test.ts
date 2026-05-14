@@ -167,6 +167,90 @@ describe('createWorktreeAsync', () => {
     const path = await createWorktreeAsync(sessionId, baseRepo);
     expect(existsSync(path)).toBe(true);
   });
+
+  it('branches from main by default, not from HEAD', async () => {
+    // Simulate the bug: checkout a session branch with extra commits,
+    // then create a new worktree. Without startPoint fix, the new worktree
+    // inherits the extra commits. With the fix, it branches from main.
+
+    // Create a commit on main so we have a known ref
+    const mainCommit = execFileSync('git', ['-C', baseRepo, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+
+    // Create a divergent branch with an extra commit (simulating a prior session)
+    execFileSync('git', ['-C', baseRepo, 'checkout', '-b', 'session/old-session'], {
+      stdio: 'pipe',
+    });
+    execFileSync('git', ['-C', baseRepo, 'commit', '--allow-empty', '-m', 'old session work'], {
+      stdio: 'pipe',
+    });
+
+    // HEAD is now on session/old-session, ahead of main
+    const headCommit = execFileSync('git', ['-C', baseRepo, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+    expect(headCommit).not.toBe(mainCommit);
+
+    // Create new worktree — should branch from main, not HEAD
+    const sessionId = 'async-startpoint-test';
+    const path = await createWorktreeAsync(sessionId, baseRepo);
+
+    // Verify the worktree's HEAD matches main, not the old session branch
+    const wtCommit = execFileSync('git', ['-C', path, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+    expect(wtCommit).toBe(mainCommit);
+  });
+
+  it('respects custom startPoint option', async () => {
+    // Create a feature branch with an extra commit
+    execFileSync('git', ['-C', baseRepo, 'checkout', '-b', 'feature/base'], { stdio: 'pipe' });
+    execFileSync('git', ['-C', baseRepo, 'commit', '--allow-empty', '-m', 'feature base'], {
+      stdio: 'pipe',
+    });
+    const featureCommit = execFileSync('git', ['-C', baseRepo, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+    execFileSync('git', ['-C', baseRepo, 'checkout', 'main'], { stdio: 'pipe' });
+
+    const sessionId = 'async-custom-startpoint';
+    const path = await createWorktreeAsync(sessionId, baseRepo, { startPoint: 'feature/base' });
+
+    const wtCommit = execFileSync('git', ['-C', path, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+    expect(wtCommit).toBe(featureCommit);
+  });
+
+  it('resets existing branch to startPoint on fallback', async () => {
+    // Create a branch pointing to HEAD (main)
+    const mainCommit = execFileSync('git', ['-C', baseRepo, 'rev-parse', 'main'], {
+      encoding: 'utf8',
+    }).trim();
+
+    // Add a commit to main so we can create a branch at a different point
+    execFileSync('git', ['-C', baseRepo, 'commit', '--allow-empty', '-m', 'second commit'], {
+      stdio: 'pipe',
+    });
+    const secondCommit = execFileSync('git', ['-C', baseRepo, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+
+    // Pre-create the session branch at the old main commit
+    const sessionId = 'async-reset-branch';
+    const branch = `session/${sessionId}`;
+    execFileSync('git', ['-C', baseRepo, 'branch', branch, mainCommit], { stdio: 'pipe' });
+
+    // Create worktree with startPoint=main (which is now at secondCommit)
+    const path = await createWorktreeAsync(sessionId, baseRepo);
+
+    // Branch should have been reset to current main (secondCommit), not old position
+    const wtCommit = execFileSync('git', ['-C', path, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+    expect(wtCommit).toBe(secondCommit);
+  });
 });
 
 describe('symlinkRuntimeDirs', () => {

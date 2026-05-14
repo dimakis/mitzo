@@ -56,6 +56,8 @@ export interface CreateWorktreeOptions {
   dir?: string;
   branch?: string;
   prefix?: '.claude' | '.cursor';
+  /** Git ref to branch from. Defaults to 'main' to avoid inheriting unmerged session commits. */
+  startPoint?: string;
 }
 
 export function createWorktree(
@@ -69,6 +71,7 @@ export function createWorktree(
 
   const worktreePath = join(dir, sessionId);
   const branch = opts?.branch ?? `${WORKTREE_BRANCH_PREFIX}${sessionId}`;
+  const startPoint = opts?.startPoint ?? 'main';
 
   // If the worktree path already exists (stale from a previous session),
   // check whether it's a valid worktree we can reuse or a stale directory
@@ -96,13 +99,19 @@ export function createWorktree(
   }
 
   try {
-    execFileSync('git', ['-C', baseRepo, 'worktree', 'add', '-b', branch, worktreePath], {
-      stdio: 'pipe',
-      timeout: WORKTREE_GIT_TIMEOUT_MS,
-    });
+    execFileSync(
+      'git',
+      ['-C', baseRepo, 'worktree', 'add', '-b', branch, worktreePath, startPoint],
+      { stdio: 'pipe', timeout: WORKTREE_GIT_TIMEOUT_MS },
+    );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     if (message.includes('already exists')) {
+      // Branch exists but no worktree — reset it to startPoint before attaching
+      execFileSync('git', ['-C', baseRepo, 'branch', '-f', branch, startPoint], {
+        stdio: 'pipe',
+        timeout: WORKTREE_GIT_TIMEOUT_MS,
+      });
       execFileSync('git', ['-C', baseRepo, 'worktree', 'add', worktreePath, branch], {
         stdio: 'pipe',
         timeout: WORKTREE_GIT_TIMEOUT_MS,
@@ -112,7 +121,7 @@ export function createWorktree(
     }
   }
 
-  log.info(`created: ${worktreePath} (${branch})`);
+  log.info(`created: ${worktreePath} (${branch}) from ${startPoint}`);
   return worktreePath;
 }
 
@@ -131,6 +140,7 @@ export async function createWorktreeAsync(
 
   const worktreePath = join(dir, sessionId);
   const branch = opts?.branch ?? `${WORKTREE_BRANCH_PREFIX}${sessionId}`;
+  const startPoint = opts?.startPoint ?? 'main';
 
   if (existsSync(worktreePath)) {
     try {
@@ -151,12 +161,18 @@ export async function createWorktreeAsync(
   }
 
   try {
-    await execFileAsync('git', ['-C', baseRepo, 'worktree', 'add', '-b', branch, worktreePath], {
-      timeout: WORKTREE_GIT_TIMEOUT_MS,
-    });
+    await execFileAsync(
+      'git',
+      ['-C', baseRepo, 'worktree', 'add', '-b', branch, worktreePath, startPoint],
+      { timeout: WORKTREE_GIT_TIMEOUT_MS },
+    );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     if (message.includes('already exists')) {
+      // Branch exists but no worktree — reset it to startPoint before attaching
+      await execFileAsync('git', ['-C', baseRepo, 'branch', '-f', branch, startPoint], {
+        timeout: WORKTREE_GIT_TIMEOUT_MS,
+      });
       await execFileAsync('git', ['-C', baseRepo, 'worktree', 'add', worktreePath, branch], {
         timeout: WORKTREE_GIT_TIMEOUT_MS,
       });
@@ -165,7 +181,7 @@ export async function createWorktreeAsync(
     }
   }
 
-  log.info(`created: ${worktreePath} (${branch})`);
+  log.info(`created: ${worktreePath} (${branch}) from ${startPoint}`);
   return worktreePath;
 }
 
