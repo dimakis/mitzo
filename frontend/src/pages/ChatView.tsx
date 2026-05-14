@@ -51,6 +51,7 @@ export function ChatView() {
   const pendingSession = useMitzoStore((s) => s.pendingSession);
   const clearPendingSession = useMitzoStore((s) => s.clearPendingSession);
   const sessionContext = useMitzoStore((s) => s.messages.sessionContext);
+  const bootContext = useMitzoStore((s) => s.messages.bootContext);
   const progressByToolId = useProgressByToolId();
 
   const connected = connection.status === 'connected';
@@ -267,6 +268,7 @@ export function ChatView() {
         onPermissionRespond={handlePermission}
         scrollRef={scrollRef}
         sessionContext={sessionContext}
+        bootContext={bootContext}
         progressByToolId={progressByToolId}
         voice={voice}
       />

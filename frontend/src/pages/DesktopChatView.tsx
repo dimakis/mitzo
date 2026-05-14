@@ -1,10 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
-import { apiFetch } from '../lib/api-fetch';
 import { DesktopShell } from '../components/DesktopShell';
 import { SessionPanel } from '../components/SessionPanel';
-import { ContextPanel } from '../components/ContextPanel';
-import { FileBrowserPanel } from '../components/FileBrowserPanel';
+import { CommandCenter } from '../components/CommandCenter';
 import { ChatArea } from '../components/ChatArea';
 import { ChatInput } from '../components/ChatInput';
 import { ScrollFab } from '../components/ScrollFab';
@@ -16,40 +14,12 @@ import { getPreferredModel, setPreferredModel } from '../lib/model-preference';
 import { useVoice } from '../hooks/useVoice';
 import { useAutoSpeak } from '../hooks/useAutoSpeak';
 import { useProgressByToolId } from '../hooks/useProgress';
-import type { FileRoot } from '../components/FileBrowserPanel';
-import type { ContextBlockEntry } from '../components/ContextPicker';
 import type { ImageAttachment } from '../types/chat';
 
 export function DesktopChatView() {
   const { sessionId } = useParams<{ sessionId?: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-
-  const [contextBlocks, setContextBlocks] = useState<string[]>([]);
-
-  // Shared config fetch for right-panel children
-  const [configBlocks, setConfigBlocks] = useState<ContextBlockEntry[]>([]);
-  const [fileRoots, setFileRoots] = useState<FileRoot[]>([]);
-  const [configLoaded, setConfigLoaded] = useState(false);
-
-  useEffect(() => {
-    apiFetch('/api/config')
-      .then((r) => r.json())
-      .then((data) => {
-        const entries: ContextBlockEntry[] = [];
-        if (data.contextBlocks) {
-          for (const [name, info] of Object.entries(
-            data.contextBlocks as Record<string, { path: string; sizeBytes: number }>,
-          )) {
-            entries.push({ name, path: info.path, sizeBytes: info.sizeBytes });
-          }
-        }
-        setConfigBlocks(entries);
-        setFileRoots(data.fileViewerRoots ?? []);
-        setConfigLoaded(true);
-      })
-      .catch(() => setConfigLoaded(true));
-  }, []);
 
   // Store state
   const messages = useMessages();
@@ -68,6 +38,8 @@ export function DesktopChatView() {
   const storeSetModel = useMitzoStore((s) => s.setModel);
   const storeDispatchMessages = useMitzoStore((s) => s.dispatchMessages);
   const storeFetchSessionMeta = useMitzoStore((s) => s.fetchSessionMeta);
+  const sessionContext = useMitzoStore((s) => s.messages.sessionContext);
+  const bootContext = useMitzoStore((s) => s.messages.bootContext);
   const progressByToolId = useProgressByToolId();
 
   const connected = connection.status === 'connected';
@@ -149,10 +121,6 @@ export function DesktopChatView() {
   // ── Actions ──────────────────────────────────────────────────────────────
 
   function handleSend(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): boolean {
-    // For new sessions (no activeSessionId) the store bootstraps a WS on
-    // demand inside sendMessage(), so we must not block on connection status.
-    // Only gate on connection for existing sessions where a WS should already
-    // be open.
     if (activeSessionId && connection.status !== 'connected') {
       storeDispatchMessages({ type: 'CONNECTION_LOST' });
       return false;
@@ -194,12 +162,6 @@ export function DesktopChatView() {
     setMode(newMode);
     storeSetMode(newMode);
   }
-
-  const handleToggleContext = useCallback((name: string) => {
-    setContextBlocks((prev) =>
-      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
-    );
-  }, []);
 
   const handleSelectSession = useCallback((id: string) => navigate(`/chat/${id}`), [navigate]);
   const handleNewChat = useCallback(() => {
@@ -276,6 +238,8 @@ export function DesktopChatView() {
             permission={messages.permission}
             onPermissionRespond={handlePermission}
             scrollRef={scrollRef}
+            sessionContext={sessionContext}
+            bootContext={bootContext}
             progressByToolId={progressByToolId}
             voice={voice}
           />
@@ -291,22 +255,11 @@ export function DesktopChatView() {
             isWorktree={messages.isWorktree}
             wtId={messages.wtId || undefined}
             sessionId={activeSessionId ?? undefined}
-            externalContextBlocks={contextBlocks}
             tokenState={tokens}
           />
         </div>
       }
-      right={
-        <div className="desktop-right-panels">
-          <ContextPanel
-            selected={contextBlocks}
-            onToggle={handleToggleContext}
-            blocks={configBlocks}
-            loaded={configLoaded}
-          />
-          <FileBrowserPanel roots={fileRoots} loaded={configLoaded} />
-        </div>
-      }
+      right={<CommandCenter />}
       statusBar={
         <StatusBar
           connected={connected}

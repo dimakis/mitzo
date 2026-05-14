@@ -4,6 +4,7 @@ import { ThinkingBlock } from './ThinkingBlock';
 import { ToolPill } from './ToolPill';
 import { ToolGroup } from './ToolGroup';
 import { ContextBlock } from './ContextBlock';
+import { BootContextPill } from './BootContextPill';
 import { PermissionBanner } from './PermissionBanner';
 import { ProgressWidget } from './ProgressWidget';
 import { groupBlocks } from '../lib/groupMessages';
@@ -15,6 +16,7 @@ import type {
   PermissionRequest,
 } from '../types/chat';
 import type { ProgressBlock } from '@mitzo/protocol';
+import type { BootContextMeta } from '@mitzo/client';
 import type { UseVoiceReturn } from '../hooks/useVoice';
 
 export type ChatAreaVoice = Pick<
@@ -36,6 +38,8 @@ export interface ChatAreaProps {
   scrollRef?: React.RefObject<HTMLDivElement | null>;
   /** Boot context for sessions started from inbox/todo items */
   sessionContext?: string | null;
+  /** Boot context compilation metadata from ContexGin */
+  bootContext?: BootContextMeta | null;
   /** Progress blocks indexed by toolId for rendering ProgressWidget on TodoWrite blocks */
   progressByToolId?: Record<string, ProgressBlock>;
   /** Voice capabilities for per-block read-aloud */
@@ -50,6 +54,7 @@ export function ChatArea({
   onPermissionRespond,
   scrollRef: externalScrollRef,
   sessionContext,
+  bootContext,
   progressByToolId,
   voice,
 }: ChatAreaProps) {
@@ -147,9 +152,10 @@ export function ChatArea({
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
+        {bootContext && <BootContextPill context={bootContext} />}
         {sessionContext && <ContextBlock content={sessionContext} />}
 
-        {messages.length === 0 && !current && !running && !sessionContext && (
+        {messages.length === 0 && !current && !running && !sessionContext && !bootContext && (
           <p className="chat-empty">Send a message to start</p>
         )}
 

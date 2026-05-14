@@ -29,8 +29,8 @@ export type {
   ServiceHealthPayload,
   StreamingSubagentState,
   FinishedSubagentState,
-  SubagentUsage,
   SubagentState,
+  SubagentUsage,
 } from './types.js';
 
 // Constants

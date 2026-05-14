@@ -728,7 +728,84 @@ async function _startChatInner(
     buildWorktreeSystemPrompt(repoWorktrees) +
     buildTaskPromptForSession(clientId);
 
-  // Fire-and-forget: capture prompt comparison for the experiments spoke
+  // Fire-and-forget: emit boot context metadata to client + capture prompt comparison
+  (async () => {
+    // Step 1: dynamically import contexgin (optional dependency)
+    let compileModule: {
+      compile: (opts: { workspaceRoot: string; tokenBudget: number }) => Promise<unknown>;
+    };
+    try {
+      compileModule = await import('contexgin');
+    } catch (importErr: unknown) {
+      const msg = importErr instanceof Error ? importErr.message : String(importErr);
+      log.info('contexgin not available, using fallback', { error: msg });
+      send(transport, {
+        type: 'boot_context',
+        source: 'local-fallback',
+        sourceCount: 0,
+        tokenCount: 0,
+        trimmedCount: 0,
+        sources: [],
+      });
+      return;
+    }
+
+    // Step 2: compile — runtime errors propagate (not swallowed as import failure)
+    try {
+      const compiled = await compileModule.compile({ workspaceRoot: cwd, tokenBudget: 8000 });
+
+      // Validate the compiled object shape
+      if (!compiled || typeof compiled !== 'object') {
+        log.warn('contexgin compile() returned unexpected shape', { compiled });
+        send(transport, {
+          type: 'boot_context',
+          source: 'local-fallback',
+          sourceCount: 0,
+          tokenCount: 0,
+          trimmedCount: 0,
+          sources: [],
+        });
+        return;
+      }
+
+      const obj = compiled as Record<string, unknown>;
+      const sources = Array.isArray(obj.sources) ? obj.sources : [];
+      const trimmed = Array.isArray(obj.trimmed) ? obj.trimmed : [];
+      const bootTokens = typeof obj.bootTokens === 'number' ? obj.bootTokens : 0;
+
+      // Validate each source entry has a relativePath string
+      const sourcePaths: string[] = [];
+      for (const s of sources) {
+        if (
+          s &&
+          typeof s === 'object' &&
+          typeof (s as Record<string, unknown>).relativePath === 'string'
+        ) {
+          sourcePaths.push((s as Record<string, unknown>).relativePath as string);
+        }
+      }
+
+      send(transport, {
+        type: 'boot_context',
+        source: 'contexgin',
+        sourceCount: sourcePaths.length,
+        tokenCount: bootTokens,
+        trimmedCount: trimmed.length,
+        sources: sourcePaths,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.warn('boot context compilation failed', { error: msg });
+      send(transport, {
+        type: 'boot_context',
+        source: 'local-fallback',
+        sourceCount: 0,
+        tokenCount: 0,
+        trimmedCount: 0,
+        sources: [],
+      });
+    }
+  })();
   capturePromptComparison(wtId, cwd, systemPromptAppend, repoWorktrees).catch(() => {});
 
   try {

@@ -6,6 +6,7 @@ import {
   type SessionActivityState,
 } from '../hooks/useSessionOverview';
 import { selectionChanged } from '../lib/haptics';
+import { formatRelativeTime } from '../lib/formatTime';
 
 // ─── State visuals ──────────────────────────────────────────────────────────
 
@@ -29,8 +30,7 @@ function SessionActivityCard({
 }) {
   const config = STATE_CONFIG[activity.state];
   // Elapsed updates on each SSE event, not on a timer — acceptable staleness
-  const elapsed = Date.now() - activity.lastEventAt;
-  const timeLabel = formatElapsed(elapsed);
+  const timeLabel = formatRelativeTime(activity.lastEventAt);
 
   let metaText = config.label;
   if (activity.waitReason === 'permission') metaText = 'permission';
@@ -120,15 +120,4 @@ export function SessionOverview() {
       )}
     </div>
   );
-}
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-function formatElapsed(ms: number): string {
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return 'just now';
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}min ago`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h ago`;
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { messagesReducer, finishCurrent, INITIAL_MESSAGES_STATE } from '../src/slices/messages.js';
 import type { MessagesState } from '../src/slices/messages.js';
-import type { FinishedBlock, StreamingMessage } from '@mitzo/protocol';
+import type { FinishedBlock, FinishedSubagentState, StreamingMessage } from '@mitzo/protocol';
 
 const INITIAL = INITIAL_MESSAGES_STATE;
 
@@ -1180,8 +1180,13 @@ describe('finishCurrent', () => {
     };
 
     const finished = finishCurrent(current);
-    expect(finished.blocks[0].subagent).toBeDefined();
-    expect(finished.blocks[0].subagent!.messageId).toBe('sub-msg-1');
+    const sub = finished.blocks[0].subagent as FinishedSubagentState;
+    expect(sub).toBeDefined();
+    expect(sub.messageId).toBe('sub-msg-1');
+    // Verify streaming Map was converted to finished array
+    expect(Array.isArray(sub.blocks)).toBe(true);
+    expect(sub.blocks).toHaveLength(1);
+    expect(sub.blocks[0].content).toBe('subagent output');
   });
 
   it('works normally when subagent field is absent', () => {
@@ -1221,5 +1226,54 @@ describe('NATIVE_COMMAND_RESULT', () => {
     expect(msg.role).toBe('assistant');
     expect(msg.blocks.length).toBe(1);
     expect(msg.blocks[0].content).toContain('Available skills');
+  });
+});
+
+// ─── SET_BOOT_CONTEXT ────────────────────────────────────────────────────────
+
+describe('SET_BOOT_CONTEXT', () => {
+  it('sets bootContext from null', () => {
+    const meta = {
+      source: 'contexgin' as const,
+      sourceCount: 5,
+      tokenCount: 3200,
+      trimmedCount: 1,
+      sources: ['CLAUDE.md', 'CONSTITUTION.md'],
+    };
+    const state = messagesReducer(INITIAL, { type: 'SET_BOOT_CONTEXT', bootContext: meta });
+    expect(state.bootContext).toEqual(meta);
+  });
+
+  it('overwrites existing bootContext', () => {
+    const first = {
+      source: 'local-fallback' as const,
+      sourceCount: 0,
+      tokenCount: 0,
+      trimmedCount: 0,
+      sources: [] as string[],
+    };
+    const second = {
+      source: 'contexgin' as const,
+      sourceCount: 3,
+      tokenCount: 1500,
+      trimmedCount: 0,
+      sources: ['a.md'],
+    };
+    let state = messagesReducer(INITIAL, { type: 'SET_BOOT_CONTEXT', bootContext: first });
+    state = messagesReducer(state, { type: 'SET_BOOT_CONTEXT', bootContext: second });
+    expect(state.bootContext).toEqual(second);
+  });
+
+  it('is cleared by CLEAR', () => {
+    const meta = {
+      source: 'contexgin' as const,
+      sourceCount: 2,
+      tokenCount: 1000,
+      trimmedCount: 0,
+      sources: ['a.md'],
+    };
+    let state = messagesReducer(INITIAL, { type: 'SET_BOOT_CONTEXT', bootContext: meta });
+    state = messagesReducer(state, { type: 'CLEAR' });
+    expect(state.bootContext).toBeNull();
   });
 });

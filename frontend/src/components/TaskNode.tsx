@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Task, TaskStatus, StageType } from '../types/task';
+import type { TaskDisplayMeta } from '../hooks/useTaskBoard';
 
 const STATUS_ICONS: Record<TaskStatus, string> = {
   pending: '\u25CB', // ○
@@ -9,6 +10,16 @@ const STATUS_ICONS: Record<TaskStatus, string> = {
   blocked: '\u2298', // ⊘
   skipped: '\u2014', // —
   failed: '\u2717', // ✗
+};
+
+const STATUS_LABELS: Record<TaskStatus, string> = {
+  pending: 'pending',
+  active: 'running',
+  done: 'done',
+  pending_review: 'review',
+  blocked: 'blocked',
+  skipped: 'skipped',
+  failed: 'failed',
 };
 
 const STAGE_LABELS: Record<StageType, string> = {
@@ -30,18 +41,52 @@ const NEXT_STATUS: Record<TaskStatus, TaskStatus> = {
 interface TaskNodeProps {
   task: Task;
   depth: number;
+  compact?: boolean;
   activeTaskId?: string | null;
+  displayMeta?: Map<string, TaskDisplayMeta>;
   onStatusChange: (id: string, status: TaskStatus) => void;
   onDelete: (id: string) => void;
-  onAddChild: (parentId: string) => void;
+  onAddChild?: (parentId: string) => void;
   onApprove?: (id: string) => void;
   onReject?: (id: string, feedback: string) => void;
+}
+
+function buildContextLine(task: Task, meta?: TaskDisplayMeta): string | null {
+  switch (task.status) {
+    case 'active': {
+      const parts: string[] = [STATUS_LABELS.active];
+      if (meta?.sessionHash) parts.push(meta.sessionHash);
+      if (meta?.elapsedLabel) parts.push(meta.elapsedLabel);
+      return parts.join(' \u00B7 ');
+    }
+    case 'pending_review':
+      return 'awaiting approval';
+    case 'blocked':
+      return meta?.blockerSummary ?? 'blocked';
+    case 'done':
+      return meta?.completedAgo ? `done \u00B7 ${meta.completedAgo}` : 'done';
+    case 'failed': {
+      const label = meta?.blockerSummary ?? 'failed';
+      return task.retryCount > 0 ? `${label} \u00B7 retry ${task.retryCount}` : label;
+    }
+    default:
+      return null;
+  }
+}
+
+function contextColorClass(status: TaskStatus): string {
+  if (status === 'pending_review') return ' task-node-context--review';
+  if (status === 'blocked') return ' task-node-context--blocked';
+  if (status === 'failed') return ' task-node-context--failed';
+  return '';
 }
 
 export function TaskNode({
   task,
   depth,
+  compact,
   activeTaskId,
+  displayMeta,
   onStatusChange,
   onDelete,
   onAddChild,
@@ -50,9 +95,22 @@ export function TaskNode({
 }: TaskNodeProps) {
   const [expanded, setExpanded] = useState(true);
   const hasChildren = task.children.length > 0;
+  const meta = displayMeta?.get(task.id);
+  const isCompact = compact && task.status !== 'active';
+
+  // Build class list
+  const classes = ['task-node', `task-node--status-${task.status}`];
+  if (meta?.attendTier === 1) classes.push('task-node--t1');
+  if (meta && meta.fadeOpacity <= 0) classes.push('task-node--hidden');
+
+  const contextLine = isCompact ? null : buildContextLine(task, meta);
+  const fadeStyle =
+    meta && meta.fadeOpacity < 1 && meta.fadeOpacity > 0
+      ? { opacity: meta.fadeOpacity }
+      : undefined;
 
   return (
-    <div className={`task-node${activeTaskId === task.id ? ' task-node--active' : ''}`}>
+    <div className={classes.join(' ')} style={fadeStyle}>
       <div className="task-node-row">
         {hasChildren && (
           <button
@@ -70,17 +128,24 @@ export function TaskNode({
         >
           {STATUS_ICONS[task.status]}
         </button>
-        <span
-          className={`task-node-title${task.status === 'done' ? ' task-node-title--done' : ''}`}
-        >
-          {task.title}
-        </span>
+        <div className="task-node-body">
+          <span
+            className={`task-node-title${task.status === 'done' ? ' task-node-title--done' : ''}`}
+          >
+            {task.title}
+          </span>
+          {contextLine && (
+            <div className={`task-node-context${contextColorClass(task.status)}`}>
+              {contextLine}
+            </div>
+          )}
+        </div>
         {task.stageType && STAGE_LABELS[task.stageType] && (
           <span className={`task-node-stage task-node-stage--${task.stageType}`}>
             {STAGE_LABELS[task.stageType]}
           </span>
         )}
-        {task.retryCount > 0 && (
+        {!isCompact && task.retryCount > 0 && task.status !== 'failed' && (
           <span className="task-node-retry" title={`Retry ${task.retryCount}/${task.maxRetries}`}>
             {'\u21BB'}
             {task.retryCount}
@@ -105,13 +170,15 @@ export function TaskNode({
               &#x2717;
             </button>
           )}
-          <button
-            className="task-node-action"
-            onClick={() => onAddChild(task.id)}
-            title="Add sub-task"
-          >
-            +
-          </button>
+          {onAddChild && (
+            <button
+              className="task-node-action"
+              onClick={() => onAddChild(task.id)}
+              title="Add sub-task"
+            >
+              +
+            </button>
+          )}
           <button
             className="task-node-action task-node-action--danger"
             onClick={() => onDelete(task.id)}
@@ -133,19 +200,26 @@ export function TaskNode({
       )}
       {hasChildren && expanded && (
         <div className="task-node-children">
-          {task.children.map((child) => (
-            <TaskNode
-              key={child.id}
-              task={child}
-              depth={depth + 1}
-              activeTaskId={activeTaskId}
-              onStatusChange={onStatusChange}
-              onDelete={onDelete}
-              onAddChild={onAddChild}
-              onApprove={onApprove}
-              onReject={onReject}
-            />
-          ))}
+          {task.children.map((child) => {
+            // Tier-1 children (pending_review, blocked, failed) should show context lines
+            const childMeta = displayMeta?.get(child.id);
+            const childCompact = childMeta?.attendTier !== 1;
+            return (
+              <TaskNode
+                key={child.id}
+                task={child}
+                depth={depth + 1}
+                compact={childCompact}
+                activeTaskId={activeTaskId}
+                displayMeta={displayMeta}
+                onStatusChange={onStatusChange}
+                onDelete={onDelete}
+                onAddChild={onAddChild}
+                onApprove={onApprove}
+                onReject={onReject}
+              />
+            );
+          })}
         </div>
       )}
     </div>
