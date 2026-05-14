@@ -136,7 +136,11 @@ describe('interruptChat emits user_message via transport', () => {
     const session = registry.get(CLIENT_ID)!;
     session.sessionId = 'sess-int-1';
     session.inputQueue = { push: pushSpy, close: vi.fn() };
-    session.queryInstance = { interrupt: vi.fn().mockResolvedValue(undefined), close: vi.fn() };
+    session.queryInstance = {
+      interrupt: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn(),
+      stopTask: vi.fn().mockResolvedValue(undefined),
+    };
 
     const result = await interruptChat(CLIENT_ID, 'Urgent message');
     expect(result).toBe(true);
@@ -165,7 +169,11 @@ describe('interruptChat emits user_message via transport', () => {
     const session = registry.get(CLIENT_ID)!;
     session.sessionId = 'sess-int-2';
     session.inputQueue = { push: pushSpy, close: vi.fn() };
-    session.queryInstance = { interrupt: vi.fn().mockResolvedValue(undefined), close: vi.fn() };
+    session.queryInstance = {
+      interrupt: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn(),
+      stopTask: vi.fn().mockResolvedValue(undefined),
+    };
 
     const result = await interruptChat(CLIENT_ID, 'Urgent', undefined, undefined, 'user-5678-def');
     expect(result).toBe(true);

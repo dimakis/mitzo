@@ -929,6 +929,17 @@ export async function interruptChat(
     const echo = { type: 'user_message', messageId, text: fullPrompt };
     send(session.transport, echo);
     broadcastToObservers(session.observers, echo);
+    // Stop all active subagent tasks before interrupting the parent query.
+    // Without this, interrupt() only halts the parent — which is blocked
+    // waiting for the subagent, so the session hangs.
+    if (session.activeTaskIds.size > 0) {
+      const stops = [...session.activeTaskIds.keys()].map((taskId) =>
+        session
+          .queryInstance!.stopTask(taskId)
+          .catch((err: unknown) => log.warn('stopTask failed', { taskId, err })),
+      );
+      await Promise.allSettled(stops);
+    }
     await session.queryInstance.interrupt();
     session.inputQueue.push(makeUserMessage(fullPrompt, 'now'));
     return true;

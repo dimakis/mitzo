@@ -368,3 +368,13 @@ export interface SubagentEndMsg {
     cacheCreationTokens: number;
   };
 }
+
+export interface SubagentCancelledMsg {
+  type: 'subagent_cancelled';
+  v: 2;
+  ts: number;
+  sessionId: string;
+  parentBlockId: string;
+  subagentMessageId: string;
+  taskId: string;
+}

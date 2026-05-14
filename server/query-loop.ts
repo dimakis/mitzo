@@ -186,6 +186,7 @@ async function _runQueryLoopInner(
     {
       parentBlockId: string;
       parentToolName: string;
+      taskId: string | null;
       subagentMessageId: string | null;
       subagentBlockIdByIndex: Map<number, { blockId: string; blockType: string }>;
       subagentToolInputBuffers: Map<number, { name: string; id: string; inputBuf: string }>;
@@ -590,6 +591,7 @@ async function _runQueryLoopInner(
                 activeSubagents.set(parentToolUseId, {
                   parentBlockId,
                   parentToolName: 'Agent', // We don't track this persistently, assume Agent
+                  taskId: null,
                   subagentMessageId,
                   subagentBlockIdByIndex: new Map(),
                   subagentToolInputBuffers: new Map(),
@@ -698,7 +700,10 @@ async function _runQueryLoopInner(
               const index = evt.index as number;
               const blockId = nextBlockId();
               const blockType = contentBlock?.type as string | undefined;
-              subagent.subagentBlockIdByIndex.set(index, { blockId, blockType: blockType ?? 'text' });
+              subagent.subagentBlockIdByIndex.set(index, {
+                blockId,
+                blockType: blockType ?? 'text',
+              });
 
               if (blockType === 'thinking' || blockType === 'redacted_thinking') {
                 emit(
@@ -1057,12 +1062,46 @@ async function _runQueryLoopInner(
             tryFlushMessageEnd(currentSession);
           }
         } else if (msg.type === 'system') {
-          // Track compaction events from SDK system status messages
           const subtype = (msg as Record<string, unknown>).subtype;
+
+          // Track compaction events from SDK system status messages
           const compactResult = (msg as Record<string, unknown>).compact_result;
           if (subtype === 'status' && compactResult === 'success') {
             numCompactions++;
             log.info('compaction completed', { clientId, numCompactions });
+          }
+
+          // Track subagent task lifecycle for interrupt cancellation
+          if (subtype === 'task_started') {
+            const taskId = (msg as Record<string, unknown>).task_id as string | undefined;
+            const toolUseId = (msg as Record<string, unknown>).tool_use_id as string | undefined;
+            if (taskId && toolUseId) {
+              currentSession?.activeTaskIds.set(taskId, toolUseId);
+              const subagent = activeSubagents.get(toolUseId);
+              if (subagent) subagent.taskId = taskId;
+              log.info('subagent task started', { clientId, taskId, toolUseId });
+            }
+          } else if (subtype === 'task_notification') {
+            const taskId = (msg as Record<string, unknown>).task_id as string | undefined;
+            const status = (msg as Record<string, unknown>).status as string | undefined;
+            const toolUseId = taskId ? currentSession?.activeTaskIds.get(taskId) : undefined;
+            if (taskId) {
+              currentSession?.activeTaskIds.delete(taskId);
+              log.info('subagent task finished', { clientId, taskId, status });
+            }
+            if (status === 'stopped' && toolUseId) {
+              const subagent = activeSubagents.get(toolUseId);
+              if (subagent) {
+                emit(
+                  v2('subagent_cancelled', {
+                    parentBlockId: subagent.parentBlockId,
+                    subagentMessageId: subagent.subagentMessageId,
+                    taskId,
+                  }),
+                );
+                activeSubagents.delete(toolUseId);
+              }
+            }
           }
         } else if (msg.type === 'user') {
           // Only extract tool_result events from SDK user turns.
