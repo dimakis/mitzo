@@ -1327,7 +1327,9 @@ describe('MESSAGE_END dedup', () => {
       ],
       current: {
         messageId: 'msg-1',
-        blocks: new Map([['b2', { blockId: 'b2', blockType: 'text', content: 'streaming', done: true }]]),
+        blocks: new Map([
+          ['b2', { blockId: 'b2', blockType: 'text', content: 'streaming', done: true }],
+        ]),
         blockOrder: ['b2'],
       },
     };
@@ -1464,6 +1466,86 @@ describe('RESTORE clears stale current', () => {
     expect(userMsgs[0].messageId).toBe('user-optimistic');
     // restored assistant messages should be present
     expect(next.messages.some((m) => m.messageId === 'asst-2')).toBe(true);
+  });
+});
+
+describe('MESSAGE_START finalizes current with subagent blocks', () => {
+  it('finishCurrent converts streaming subagent to finished when new message starts', () => {
+    // Simulate: assistant is streaming a message with a subagent tool_use block,
+    // then a new MESSAGE_START arrives — the orphaned current should be finalized
+    // with subagent blocks correctly converted from Map to array.
+    const subagentBlocks = new Map([
+      [
+        'sub-b1',
+        {
+          blockId: 'sub-b1',
+          blockType: 'text' as const,
+          content: 'subagent thinking',
+          done: true,
+        },
+      ],
+      [
+        'sub-b2',
+        {
+          blockId: 'sub-b2',
+          blockType: 'tool_use' as const,
+          content: '',
+          done: true,
+          toolName: 'Bash',
+          toolId: 'sub-tool-1',
+          toolInput: 'echo hi',
+        },
+      ],
+    ]);
+
+    const state: MessagesState = {
+      ...INITIAL,
+      current: {
+        messageId: 'msg-with-subagent',
+        blocks: new Map([
+          [
+            'b1',
+            {
+              blockId: 'b1',
+              blockType: 'tool_use' as const,
+              content: '',
+              done: true,
+              toolName: 'Agent',
+              toolId: 'agent-tool-1',
+              subagent: {
+                messageId: 'sub-msg-1',
+                blocks: subagentBlocks,
+                blockOrder: ['sub-b1', 'sub-b2'],
+                running: true as const,
+              },
+            },
+          ],
+        ]),
+        blockOrder: ['b1'],
+      },
+    };
+
+    // New MESSAGE_START should finalize the current (with subagent) and start fresh
+    const next = messagesReducer(state, { type: 'MESSAGE_START', messageId: 'msg-new' });
+
+    // Orphaned message with subagent should be finalized into messages[]
+    expect(next.messages).toHaveLength(1);
+    expect(next.messages[0].messageId).toBe('msg-with-subagent');
+
+    // Subagent should be converted from streaming (Map) to finished (array)
+    const sub = next.messages[0].blocks[0].subagent as FinishedSubagentState;
+    expect(sub).toBeDefined();
+    expect(sub.messageId).toBe('sub-msg-1');
+    expect(Array.isArray(sub.blocks)).toBe(true);
+    expect(sub.blocks).toHaveLength(2);
+    expect(sub.blocks[0].content).toBe('subagent thinking');
+    expect(sub.blocks[1].toolName).toBe('Bash');
+    expect(sub.blocks[1].toolId).toBe('sub-tool-1');
+
+    // New current should be clean
+    expect(next.current).not.toBeNull();
+    expect(next.current!.messageId).toBe('msg-new');
+    expect(next.current!.blockOrder).toHaveLength(0);
   });
 });
 

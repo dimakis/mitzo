@@ -481,14 +481,14 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
           merged.splice(insertAfter + 1, 0, opt);
         }
         merged.push(notice);
-        const currentStale = state.current &&
-          merged.some((m) => m.messageId === state.current!.messageId);
+        const currentStale =
+          state.current && merged.some((m) => m.messageId === state.current!.messageId);
         return { ...state, messages: merged, current: currentStale ? null : state.current };
       }
       // Clear current if the restored set already contains it (prevents
       // MESSAGE_END from re-inserting a message that RESTORE already has).
-      const currentStale = state.current &&
-        valid.some((m) => m.messageId === state.current!.messageId);
+      const currentStale =
+        state.current && valid.some((m) => m.messageId === state.current!.messageId);
       return { ...state, messages: valid, current: currentStale ? null : state.current };
     }
 
