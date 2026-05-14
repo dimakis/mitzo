@@ -521,6 +521,14 @@ export function parseServerMessage(
           | undefined,
       });
       break;
+
+    case 'subagent_cancelled':
+      result.messagesActions.push({
+        type: 'SUBAGENT_END',
+        parentBlockId: msg.parentBlockId as string,
+        summary: 'Cancelled',
+      });
+      break;
   }
 
   return result;

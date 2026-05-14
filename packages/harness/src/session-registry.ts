@@ -28,7 +28,11 @@ export interface ManagedSession {
   worktreePath?: string;
   /** All worktrees created for this session, keyed by repo name. */
   worktreePaths: Map<string, { path: string; wtId: string }>;
-  queryInstance?: { interrupt: () => Promise<void>; close: () => void };
+  queryInstance?: {
+    interrupt: () => Promise<void>;
+    close: () => void;
+    stopTask: (taskId: string) => Promise<void>;
+  };
   inputQueue?: { push: (msg: unknown) => void; close: () => void };
   currentSnapshot: MessageSnapshot | null;
   activeSkillPolicy: Set<string> | null;
@@ -38,6 +42,8 @@ export interface ManagedSession {
   cumulativeCostUsd: number;
   taskContext: { currentTaskId: string; goalId: string } | null;
   telosTaskId?: string;
+  /** Active subagent task IDs — task_id → tool_use_id (parent_tool_use_id). */
+  activeTaskIds: Map<string, string>;
 }
 
 export interface ActiveSessionInfo {
@@ -89,6 +95,7 @@ export class SessionRegistry {
       | 'cumulativeSessionTokens'
       | 'cumulativeCostUsd'
       | 'taskContext'
+      | 'activeTaskIds'
     > & {
       sessionId?: string;
     },
@@ -102,6 +109,7 @@ export class SessionRegistry {
       cumulativeSessionTokens: 0,
       cumulativeCostUsd: 0,
       taskContext: null,
+      activeTaskIds: new Map(),
     });
     this.attached.add(clientId);
   }

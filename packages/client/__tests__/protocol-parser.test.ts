@@ -819,3 +819,29 @@ describe('boot_context', () => {
     });
   });
 });
+
+// ─── Subagent cancellation ───────────────────────────────────────────────────
+
+describe('subagent_cancelled', () => {
+  it('maps to SUBAGENT_END with summary Cancelled', () => {
+    const r = parseServerMessage(
+      {
+        type: 'subagent_cancelled',
+        v: 2,
+        ts: Date.now(),
+        parentBlockId: 'blk-parent-1',
+        subagentMessageId: 'msg-sub-1',
+        taskId: 'task-123',
+      } as any,
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.messagesActions).toHaveLength(1);
+    expect(r.messagesActions[0]).toEqual({
+      type: 'SUBAGENT_END',
+      parentBlockId: 'blk-parent-1',
+      summary: 'Cancelled',
+    });
+  });
+});

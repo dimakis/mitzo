@@ -239,7 +239,8 @@ export type ServerMessage =
   | SubagentBlockDeltaMsg
   | SubagentBlockEndMsg
   | SubagentToolResultMsg
-  | SubagentEndMsg;
+  | SubagentEndMsg
+  | SubagentCancelledMsg;
 
 export interface ProgressStartMsg {
   type: 'progress_start';
@@ -367,4 +368,14 @@ export interface SubagentEndMsg {
     cacheReadTokens: number;
     cacheCreationTokens: number;
   };
+}
+
+export interface SubagentCancelledMsg {
+  type: 'subagent_cancelled';
+  v: 2;
+  ts: number;
+  sessionId: string;
+  parentBlockId: string;
+  subagentMessageId: string;
+  taskId: string;
 }
