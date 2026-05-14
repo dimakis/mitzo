@@ -184,4 +184,36 @@ describe('interruptChat emits user_message via transport', () => {
     expect(userMsgEvents).toHaveLength(1);
     expect((userMsgEvents[0] as Record<string, unknown>).messageId).toBe('user-5678-def');
   });
+
+  it('calls stopTask for active subagent tasks before interrupt', async () => {
+    const transport = mockTransport();
+    const pushSpy = vi.fn();
+    const stopTaskSpy = vi.fn().mockResolvedValue(undefined);
+    const interruptSpy = vi.fn().mockResolvedValue(undefined);
+
+    registry.register(CLIENT_ID, {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+
+    const session = registry.get(CLIENT_ID)!;
+    session.sessionId = 'sess-int-3';
+    session.inputQueue = { push: pushSpy, close: vi.fn() };
+    session.queryInstance = {
+      interrupt: interruptSpy,
+      close: vi.fn(),
+      stopTask: stopTaskSpy,
+    };
+    session.activeTaskIds.set('task-abc', 'tool-1');
+    session.activeTaskIds.set('task-def', 'tool-2');
+
+    await interruptChat(CLIENT_ID, 'Stop everything');
+
+    expect(stopTaskSpy).toHaveBeenCalledTimes(2);
+    expect(stopTaskSpy).toHaveBeenCalledWith('task-abc');
+    expect(stopTaskSpy).toHaveBeenCalledWith('task-def');
+    expect(interruptSpy).toHaveBeenCalledTimes(1);
+  });
 });

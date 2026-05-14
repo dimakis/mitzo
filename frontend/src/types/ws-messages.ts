@@ -239,7 +239,8 @@ export type ServerMessage =
   | SubagentBlockDeltaMsg
   | SubagentBlockEndMsg
   | SubagentToolResultMsg
-  | SubagentEndMsg;
+  | SubagentEndMsg
+  | SubagentCancelledMsg;
 
 export interface ProgressStartMsg {
   type: 'progress_start';

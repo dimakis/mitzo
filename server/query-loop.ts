@@ -1080,6 +1080,8 @@ async function _runQueryLoopInner(
               const subagent = activeSubagents.get(toolUseId);
               if (subagent) subagent.taskId = taskId;
               log.info('subagent task started', { clientId, taskId, toolUseId });
+            } else {
+              log.debug('task_started missing fields', { clientId, taskId, toolUseId });
             }
           } else if (subtype === 'task_notification') {
             const taskId = (msg as Record<string, unknown>).task_id as string | undefined;
