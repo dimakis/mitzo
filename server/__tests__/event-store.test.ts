@@ -413,4 +413,87 @@ describe('EventStore', () => {
       store.close(); // should not throw
     });
   });
+
+  describe('updateLastSpeaker', () => {
+    it('sets last_speaker to user', () => {
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Test' });
+      store.updateLastSpeaker('sess-1', 'user');
+
+      const session = store.getSession('sess-1');
+      expect(session!.lastSpeaker).toBe('user');
+      expect(session!.lastSpeakerAt).toBeGreaterThan(0);
+    });
+
+    it('toggles between user and assistant', () => {
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Test' });
+      store.updateLastSpeaker('sess-1', 'user');
+      store.updateLastSpeaker('sess-1', 'assistant');
+
+      const session = store.getSession('sess-1');
+      expect(session!.lastSpeaker).toBe('assistant');
+    });
+
+    it('updates updated_at timestamp', () => {
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Test' });
+      const before = store.getSession('sess-1')!.updatedAt;
+
+      // Small delay to ensure timestamp changes
+      store.updateLastSpeaker('sess-1', 'assistant');
+      const after = store.getSession('sess-1')!.updatedAt;
+      expect(after).toBeGreaterThanOrEqual(before);
+    });
+  });
+
+  describe('getAttentionSessions', () => {
+    it('returns sessions where last_speaker is assistant', () => {
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Awaiting reply' });
+      store.updateLastSpeaker('sess-1', 'assistant');
+
+      store.upsertSession({ sessionId: 'sess-2', summary: 'User replied' });
+      store.updateLastSpeaker('sess-2', 'user');
+
+      const attention = store.getAttentionSessions();
+      expect(attention).toHaveLength(1);
+      expect(attention[0].sessionId).toBe('sess-1');
+    });
+
+    it('excludes inactive sessions', () => {
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Closed' });
+      store.updateLastSpeaker('sess-1', 'assistant');
+      store.markSessionInactive('sess-1');
+
+      const attention = store.getAttentionSessions();
+      expect(attention).toHaveLength(0);
+    });
+
+    it('excludes hidden sessions', () => {
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Hidden' });
+      store.updateLastSpeaker('sess-1', 'assistant');
+      store.hideSession('sess-1');
+
+      const attention = store.getAttentionSessions();
+      expect(attention).toHaveLength(0);
+    });
+
+    it('limits to 10 results', () => {
+      for (let i = 0; i < 15; i++) {
+        const id = `sess-${i}`;
+        store.upsertSession({ sessionId: id, summary: `Session ${i}` });
+        store.updateLastSpeaker(id, 'assistant');
+      }
+
+      const attention = store.getAttentionSessions();
+      expect(attention).toHaveLength(10);
+    });
+
+    it('maps lastSpeaker and lastSpeakerAt in rowToSession', () => {
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Test' });
+      store.updateLastSpeaker('sess-1', 'assistant');
+
+      const session = store.getSession('sess-1');
+      expect(session!.lastSpeaker).toBe('assistant');
+      expect(typeof session!.lastSpeakerAt).toBe('number');
+      expect(session!.lastSpeakerAt).toBeGreaterThan(0);
+    });
+  });
 });

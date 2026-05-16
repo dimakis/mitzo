@@ -9,7 +9,12 @@
 import type { SessionRegistry, ActiveSessionInfo } from '@mitzo/harness';
 import type { SseRegistry } from '@mitzo/harness';
 import { getPendingCountBySession } from '@mitzo/harness';
-import type { SessionActivity, SessionActivityState, SessionMeta, WaitReason } from '@mitzo/protocol';
+import type {
+  SessionActivity,
+  SessionActivityState,
+  SessionMeta,
+  WaitReason,
+} from '@mitzo/protocol';
 import type { EventStore } from '@mitzo/protocol/event-store';
 import type { LoopStatus } from './task-orchestrator.js';
 import type { TaskStore } from './task-store.js';
@@ -234,9 +239,7 @@ export class SessionOverviewEmitter {
     const repo = session.cwd ? extractRepoName(session.cwd) : undefined;
 
     // Check uncommitted work for live sessions
-    const uncommittedWork = session.cwd
-      ? this.checkUncommittedCached(session.cwd, now)
-      : false;
+    const uncommittedWork = session.cwd ? this.checkUncommittedCached(session.cwd, now) : false;
 
     // Check if awaiting user reply (assistant spoke last, not streaming)
     const meta = this.deps.eventStore.getSession(sessionId);
@@ -297,13 +300,11 @@ export class SessionOverviewEmitter {
     if (cached && now - cached.checkedAt < UNCOMMITTED_CACHE_TTL_MS) {
       return cached.dirty;
     }
-    try {
-      const dirty = hasUncommittedWork(cwd) !== null;
-      this.uncommittedCache.set(cwd, { dirty, checkedAt: now });
-      return dirty;
-    } catch {
-      return false;
-    }
+    const result = hasUncommittedWork(cwd);
+    // Distinguish genuine dirty output from error sentinels (which start with '[')
+    const dirty = result !== null && !result.startsWith('[');
+    this.uncommittedCache.set(cwd, { dirty, checkedAt: now });
+    return dirty;
   }
 
   /**

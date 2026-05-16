@@ -60,7 +60,7 @@ function telosToAttention(items: TodoItem[]): AttentionItem[] {
         tier: 1,
         subPriority: SUB_TELOS,
         title: item.summary,
-        meta: `${item.ageDays === 0 ? 'new' : `${item.ageDays}d`} \u00B7 ${item.profile}`,
+        meta: `${item.ageDays === 0 ? 'new' : `${item.ageDays}d`} · ${item.profile}`,
         accentColor: item.urgency >= 0.8 ? COLOR_RED : COLOR_AMBER,
         icon: '\u2605', // ★
         navigateTo: `/todos/${item.id}`,
@@ -75,7 +75,7 @@ function telosToAttention(items: TodoItem[]): AttentionItem[] {
         tier: 2,
         subPriority: SUB_TELOS,
         title: item.summary,
-        meta: `${item.ageDays === 0 ? 'new' : `${item.ageDays}d`} \u00B7 ${item.profile}`,
+        meta: `${item.ageDays === 0 ? 'new' : `${item.ageDays}d`} · ${item.profile}`,
         accentColor: item.starred ? COLOR_AMBER : COLOR_PURPLE,
         icon: item.starred ? '\u2605' : '\u25CF', // ★ or ●
         navigateTo: `/todos/${item.id}`,
@@ -191,7 +191,7 @@ function sessionsToAttention(activities: SessionActivity[]): AttentionItem[] {
         id: `session-${a.sessionId}`,
         source: 'session',
         tier: 2,
-        subPriority: SUB_AWAITING_REPLY,
+        subPriority: SUB_TELOS,
         title: a.title,
         meta: 'done',
         accentColor: COLOR_GREEN,

@@ -575,4 +575,63 @@ describe('SessionOverviewEmitter', () => {
     expect(activities).toHaveLength(1);
     expect(activities[0].sessionId).toBe('session-1');
   });
+
+  // ─── Uncommitted work cache TTL ─────────────────────────────────────────
+
+  it('caches uncommitted work results within TTL', () => {
+    mockHasUncommittedWork.mockClear();
+    mockHasUncommittedWork.mockReturnValue('M dirty.ts');
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => [makeActiveSession({ cwd: '/Users/test/project' })]),
+      } as unknown as SessionOverviewDeps['registry'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    emitter.touch('client-1');
+
+    // First call checks git
+    emitter.getSnapshot();
+    expect(mockHasUncommittedWork).toHaveBeenCalledTimes(1);
+
+    // Second call within TTL uses cache
+    emitter.getSnapshot();
+    expect(mockHasUncommittedWork).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-checks uncommitted work after TTL expires', () => {
+    mockHasUncommittedWork.mockClear();
+    mockHasUncommittedWork.mockReturnValue('M dirty.ts');
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => [makeActiveSession({ cwd: '/Users/test/project' })]),
+      } as unknown as SessionOverviewDeps['registry'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    emitter.touch('client-1');
+
+    // First call
+    emitter.getSnapshot();
+    expect(mockHasUncommittedWork).toHaveBeenCalledTimes(1);
+
+    // Advance past TTL (5 minutes)
+    vi.advanceTimersByTime(6 * 60 * 1000);
+
+    // Should re-check
+    emitter.getSnapshot();
+    expect(mockHasUncommittedWork).toHaveBeenCalledTimes(2);
+  });
+
+  it('treats git error sentinels as clean (not dirty)', () => {
+    mockHasUncommittedWork.mockReturnValue('[git status failed: timeout]');
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => [makeActiveSession({ cwd: '/Users/test/project' })]),
+      } as unknown as SessionOverviewDeps['registry'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    emitter.touch('client-1');
+
+    const activities = emitter.getSnapshot();
+    expect(activities[0].uncommittedWork).toBe(false);
+  });
 });
