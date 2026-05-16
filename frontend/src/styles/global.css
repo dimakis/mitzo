@@ -1617,6 +1617,24 @@ textarea:focus {
   }
 }
 
+/* Session close button (mobile) */
+.session-close-btn {
+  background: none;
+  border: 1px solid var(--border, #374151);
+  border-radius: 4px;
+  color: var(--text-muted, #6b7280);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.session-close-btn:hover {
+  color: var(--error, #ef4444);
+  border-color: var(--error, #ef4444);
+}
+
 .chat-empty {
   text-align: center;
   color: var(--text-dim);

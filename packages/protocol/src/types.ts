@@ -105,6 +105,8 @@ export interface ImageAttachment {
 
 // --- Session (client-facing) ---
 
+export type SessionClosedBy = 'user' | 'auto' | 'abandoned';
+
 export interface Session {
   id: string;
   summary: string;
@@ -115,6 +117,7 @@ export interface Session {
   totalTokens?: number;
   numTurns?: number;
   telosTaskId?: string;
+  closedBy?: SessionClosedBy;
 }
 
 // --- Session activity types (SSE event bus) ---
@@ -194,6 +197,7 @@ export interface SessionMeta {
   durationApiMs: number;
   goalId: string | null;
   telosTaskId: string | null;
+  closedBy: SessionClosedBy | null;
   createdAt: number;
   updatedAt: number;
 }

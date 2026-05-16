@@ -44,6 +44,7 @@ export function ChatView() {
   const storeRespondToPermission = useMitzoStore((s) => s.respondToPermission);
   const storeSwitchSession = useMitzoStore((s) => s.switchSession);
   const storeNewSession = useMitzoStore((s) => s.newSession);
+  const storeCloseSession = useMitzoStore((s) => s.closeSession);
   const storeSetMode = useMitzoStore((s) => s.setMode);
   const storeSetModel = useMitzoStore((s) => s.setModel);
   const storeDispatchMessages = useMitzoStore((s) => s.dispatchMessages);
@@ -245,6 +246,15 @@ export function ChatView() {
                 title={isolation ? 'Worktree isolation: ON' : 'Worktree isolation: OFF'}
               >
                 {isolation ? '\u{1f512}' : '\u{1f513}'}
+              </button>
+            )}
+            {activeSessionId && (
+              <button
+                className="session-close-btn"
+                onClick={storeCloseSession}
+                title="Close session"
+              >
+                &times;
               </button>
             )}
             <VoiceSettings
