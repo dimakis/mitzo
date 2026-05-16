@@ -28,6 +28,27 @@ import { createLogger } from './logger.js';
 
 const log = createLogger('worktree');
 
+/**
+ * Detect the default branch of a repo (e.g. 'main' or 'master').
+ * Uses `git symbolic-ref refs/remotes/origin/HEAD` when an origin exists,
+ * otherwise falls back to 'main'.
+ */
+export function detectDefaultBranch(repoPath: string): string {
+  try {
+    const ref = execFileSync(
+      'git',
+      ['-C', repoPath, 'symbolic-ref', 'refs/remotes/origin/HEAD'],
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: WORKTREE_GIT_TIMEOUT_MS },
+    ).trim();
+    // ref looks like "refs/remotes/origin/main" — extract the last segment
+    const branch = ref.split('/').pop();
+    if (branch) return branch;
+  } catch {
+    // No origin or symbolic-ref not set — fall back
+  }
+  return 'main';
+}
+
 /** Worktrees live inside each repo at .claude/worktrees/<sessionId>. */
 function worktreesDir(baseRepo: string): string {
   return join(baseRepo, '.claude', 'worktrees');
@@ -56,7 +77,7 @@ export interface CreateWorktreeOptions {
   dir?: string;
   branch?: string;
   prefix?: '.claude' | '.cursor';
-  /** Git ref to branch from. Defaults to 'main' to avoid inheriting unmerged session commits. */
+  /** Git ref to branch from. Defaults to the repo's default branch (detected dynamically, falls back to 'main'). */
   startPoint?: string;
 }
 
@@ -71,7 +92,7 @@ export function createWorktree(
 
   const worktreePath = join(dir, sessionId);
   const branch = opts?.branch ?? `${WORKTREE_BRANCH_PREFIX}${sessionId}`;
-  const startPoint = opts?.startPoint ?? 'main';
+  const startPoint = opts?.startPoint ?? detectDefaultBranch(baseRepo);
 
   // If the worktree path already exists (stale from a previous session),
   // check whether it's a valid worktree we can reuse or a stale directory
@@ -140,7 +161,7 @@ export async function createWorktreeAsync(
 
   const worktreePath = join(dir, sessionId);
   const branch = opts?.branch ?? `${WORKTREE_BRANCH_PREFIX}${sessionId}`;
-  const startPoint = opts?.startPoint ?? 'main';
+  const startPoint = opts?.startPoint ?? detectDefaultBranch(baseRepo);
 
   if (existsSync(worktreePath)) {
     try {
