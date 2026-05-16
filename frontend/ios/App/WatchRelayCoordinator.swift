@@ -21,11 +21,18 @@ final class WatchRelayCoordinator: @unchecked Sendable {
     }
 
     func start() {
-        Task { await connect() }
+        // Activate WCSession unconditionally so the watch relay works
+        // even before auth. This lets the auth_token relay bootstrap
+        // the token, and list_sessions/get_messages return proper errors
+        // instead of silently hanging with no delegate.
+        let apiClient = MitzoAPIClient(baseURL: serverURL, authManager: authManager)
+        watchRelay.activate(wsClient: nil, apiClient: apiClient)
+
+        Task { await connectWS() }
     }
 
     func reconnect() {
-        Task { await connect() }
+        Task { await connectWS() }
     }
 
     func suspend() {
@@ -40,7 +47,9 @@ final class WatchRelayCoordinator: @unchecked Sendable {
         }
     }
 
-    private func connect() async {
+    /// Connect the native WS (for forwarding server events to watch).
+    /// WCSession is already active from start() — this only adds WS.
+    private func connectWS() async {
         guard let token = try? await authManager.getToken() else { return }
 
         var components = URLComponents(url: serverURL, resolvingAgainstBaseURL: false)!
@@ -51,8 +60,9 @@ final class WatchRelayCoordinator: @unchecked Sendable {
         guard let wsURL = components.url else { return }
 
         let client = MitzoWSClient(url: wsURL)
+        let apiClient = MitzoAPIClient(baseURL: serverURL, authManager: authManager)
         lock.withLock { wsClient = client }
-        watchRelay.activate(wsClient: client)
+        watchRelay.activate(wsClient: client, apiClient: apiClient)
 
         let relay = watchRelay
         await client.connect { event in

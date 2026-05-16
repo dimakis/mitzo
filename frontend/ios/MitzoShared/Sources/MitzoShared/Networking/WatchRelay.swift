@@ -26,9 +26,9 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
         super.init()
     }
 
-    public func activate(wsClient: MitzoWSClient, apiClient: MitzoAPIClient? = nil) {
-        state.setWSClient(wsClient)
-        state.setAPIClient(apiClient)
+    public func activate(wsClient: MitzoWSClient? = nil, apiClient: MitzoAPIClient? = nil) {
+        if let wsClient { state.setWSClient(wsClient) }
+        if let apiClient { state.setAPIClient(apiClient) }
 
         guard WCSession.isSupported() else { return }
         WCSession.default.delegate = self
@@ -50,30 +50,29 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
             return
         }
 
-        // Extract values before crossing the Task isolation boundary
+        // Extract ALL values before crossing the Task isolation boundary
         // so we don't capture the non-Sendable [String: Any] dict.
-        let clientMsg: ClientMessage?
+        let clientMsg: UnsafeSendable<ClientMessage?>
         if type == "send" {
-            clientMsg = try? decodeClientMessage(from: message)
+            clientMsg = UnsafeSendable(try? decodeClientMessage(from: message))
         } else {
-            clientMsg = nil
+            clientMsg = UnsafeSendable(nil)
         }
-        let relaySessionId = message["sessionId"] as? String ?? ""
+        let sessionId = message["sessionId"] as? String ?? ""
         let reply = UnsafeSendable(replyHandler)
 
         Task {
             do {
                 switch type {
                 case "send":
-                    guard let clientMsg else {
+                    guard let msg = clientMsg.value else {
                         reply.value(["error": "invalid message"])
                         return
                     }
-                    try await state.getWSClient()?.send(clientMsg)
+                    try await state.getWSClient()?.send(msg)
                     reply.value(["ok": true])
 
                 case "get_messages":
-                    let sessionId = relaySessionId
                     if let apiClient = state.getAPIClient() {
                         do {
                             let messages: [FinishedMessage] = try await apiClient.getMessages(sessionId: sessionId)
