@@ -102,6 +102,9 @@ export async function biometricLogin(apiBaseUrl = ''): Promise<string | null> {
     }
 
     localStorage.setItem(AUTH_TOKEN_KEY, token);
+    // Also save to native shared Keychain for Apple Watch
+    const { saveTokenToWatch } = await import('./watch-auth');
+    await saveTokenToWatch(token);
     return token;
   } catch {
     return null;

@@ -860,6 +860,15 @@ checkPort(PORT).then((inUse) => {
     process.exit(1);
   }
 
+  // Plain HTTP listener for watchOS (can't trust self-signed TLS certs)
+  if (USE_TLS) {
+    const httpServer = createServer(app);
+    const HTTP_PORT = PORT + 1;
+    httpServer.listen(HTTP_PORT, () => {
+      log.info(`HTTP listener for watchOS on http://localhost:${HTTP_PORT}`);
+    });
+  }
+
   server.listen(PORT, () => {
     const protocol = USE_TLS ? 'https' : 'http';
     log.info(`Chat Agent running on ${protocol}://localhost:${PORT}${USE_TLS ? ' (TLS)' : ''}`);
