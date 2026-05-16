@@ -11,6 +11,7 @@ frontend/ios/local.xcconfig
 mcp-server/build/
 certs/
 logs/
+.jaeger-data/
 .DS_Store
 .claude/worktrees/
 .cursor/worktrees/
