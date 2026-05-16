@@ -1,4 +1,4 @@
-// Voice input bar — push-to-talk with live transcript
+// Voice input bar — compact mic toggle for watchOS
 
 import SwiftUI
 
@@ -7,65 +7,53 @@ struct VoiceInputBar: View {
     let onSend: (String) -> Void
 
     var body: some View {
-        VStack(spacing: 4) {
-            // Partial transcript
-            if !voiceService.partialTranscript.isEmpty {
-                Text(voiceService.partialTranscript)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 8)
-            }
-
-            HStack(spacing: 12) {
-                // Cancel (visible while recording)
-                if voiceService.isRecording {
-                    Button {
-                        voiceService.cancelRecording()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title3)
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                // Mic button — hold to talk
+        HStack(spacing: 8) {
+            // Cancel (visible while recording)
+            if voiceService.isRecording {
                 Button {
-                    // Toggle behavior for watch (long press is awkward)
-                    if voiceService.isRecording {
-                        voiceService.stopRecording { transcript in
-                            if !transcript.isEmpty {
-                                onSend(transcript)
-                            }
-                        }
-                    } else {
-                        voiceService.startRecording()
-                    }
+                    voiceService.cancelRecording()
                 } label: {
-                    ZStack {
-                        Circle()
-                            .fill(voiceService.isRecording ? Color.red : Color.blue)
-                            .frame(width: 44, height: 44)
-
-                        Image(systemName: voiceService.isRecording ? "stop.fill" : "mic.fill")
-                            .font(.body)
-                            .foregroundStyle(.white)
-                    }
+                    Image(systemName: "xmark")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-
-                // Recording indicator
-                if voiceService.isRecording {
-                    Circle()
-                        .fill(.red)
-                        .frame(width: 8, height: 8)
-                        .opacity(voiceService.isRecording ? 1 : 0)
-                        .animation(.easeInOut(duration: 0.5).repeatForever(), value: voiceService.isRecording)
-                }
+                .frame(width: 24, height: 24)
             }
-            .padding(.vertical, 6)
+
+            // Partial transcript
+            if voiceService.isRecording && !voiceService.partialTranscript.isEmpty {
+                Text(voiceService.partialTranscript)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else if !voiceService.isRecording {
+                Spacer()
+            }
+
+            // Mic button
+            Button {
+                if voiceService.isRecording {
+                    voiceService.stopRecording { transcript in
+                        if !transcript.isEmpty {
+                            onSend(transcript)
+                        }
+                    }
+                } else {
+                    voiceService.startRecording()
+                }
+            } label: {
+                Image(systemName: voiceService.isRecording ? "stop.fill" : "mic.fill")
+                    .font(.caption)
+                    .foregroundStyle(.white)
+                    .frame(width: 28, height: 28)
+                    .background(voiceService.isRecording ? Color.red : Color.blue)
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
     }
 }

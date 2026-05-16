@@ -530,6 +530,11 @@ app.get('/api/events', (req, res) => {
   req.on('close', () => sseRegistry.remove(clientId));
 });
 
+// REST fallback for service health (iOS WebKit can't do SSE with self-signed certs)
+app.get('/api/service-health', (_req, res) => {
+  res.json(healthMonitor?.getSnapshot() ?? { services: [], checkedAt: 0 });
+});
+
 // --- Task Board API ---
 
 app.get('/api/tasks', (_req, res) => {
