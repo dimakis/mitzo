@@ -689,7 +689,9 @@ async function _startChatInner(
 
   // Pre-register resumed sessions in EventStore so they're discoverable
   // even if the query loop dies before the first assistant event.
+  // Preserve existing updatedAt so server restarts don't reset all timestamps.
   if (options.resume) {
+    const existingMeta = eventStore.getSession(options.resume);
     eventStore.upsertSession({
       sessionId: options.resume,
       cwd,
@@ -698,6 +700,7 @@ async function _startChatInner(
       isActive: true,
       ...(worktreePath ? { wtId } : {}),
       ...(options.telosTaskId ? { telosTaskId: options.telosTaskId } : {}),
+      ...(existingMeta ? { updatedAt: existingMeta.updatedAt } : {}),
     });
   }
 
@@ -1509,10 +1512,12 @@ export function getSessionsCached(offset = 0, limit = SESSION_PAGE_SIZE) {
   const all = eventStore.listSessions().filter((m) => {
     // Hide sessions that were never used through Mitzo (e.g. automated
     // code review sessions discovered from filesystem).  Active sessions
-    // always show regardless of turn count.
-    // Note: new sessions are created with is_active=1 by default (see EventStore
-    // schema), so a brand-new session will never be filtered out here.
-    if (m.numTurns === 0 && m.promptCount === 0 && !m.isActive) return false;
+    // always show regardless of turn count.  Recently created sessions
+    // (< 1 hour) are kept even with no turns — they may still be starting.
+    if (m.numTurns === 0 && m.promptCount === 0 && !m.isActive) {
+      const ONE_HOUR = 60 * 60 * 1000;
+      return Date.now() - m.createdAt < ONE_HOUR;
+    }
     return true;
   });
   const page = all.slice(offset, offset + limit);
