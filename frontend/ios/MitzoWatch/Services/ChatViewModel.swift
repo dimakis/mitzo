@@ -14,18 +14,15 @@ final class ChatViewModel: ObservableObject {
     let sessionId: String?
     private var resolvedSessionId: String?
     private(set) weak var appState: AppState?
-    private var wsClient: MitzoWSClient?
 
     init(sessionId: String?, appState: AppState? = nil) {
         self.sessionId = sessionId
         self.resolvedSessionId = sessionId
         self.appState = appState
-        self.wsClient = appState?.getWSClient()
     }
 
     func configure(appState: AppState) {
         self.appState = appState
-        self.wsClient = appState.getWSClient()
         appState.setActiveChatVM(self)
     }
 
@@ -38,38 +35,34 @@ final class ChatViewModel: ObservableObject {
 
     func loadHistory() async {
         guard let sessionId = resolvedSessionId,
-              let apiClient = appState?.getAPIClient() else { return }
+              let appState else { return }
 
         do {
-            let finished: [FinishedMessage] = try await apiClient.getMessages(sessionId: sessionId)
+            let finished = try await appState.loadMessages(sessionId: sessionId)
             messages = finished.map { ChatMessage(from: $0) }
         } catch {
             // History load failure is non-fatal
         }
 
-        // Watch this session
-        if let client = wsClient {
-            try? await client.send(.watch(sessionId: sessionId))
-        }
+        // Watch this session for live updates
+        try? await appState.sendMessage(.watch(sessionId: sessionId))
     }
 
     // MARK: - Send Message
 
     func send(text: String) async {
-        guard let client = wsClient else { return }
+        guard let appState else { return }
 
-        // Add user message to display
         let userMsg = ChatMessage(role: .user, text: text)
         messages.append(userMsg)
 
-        // Send via WS
         let params = SendParams(
             sessionId: resolvedSessionId,
             prompt: text
         )
 
         do {
-            try await client.send(.send(params))
+            try await appState.sendMessage(.send(params))
             isStreaming = true
         } catch {
             // Handle send failure
@@ -80,7 +73,7 @@ final class ChatViewModel: ObservableObject {
 
     func respondToPermission(decision: PermissionDecision) async {
         guard let perm = permissionRequest,
-              let client = wsClient else { return }
+              let appState else { return }
 
         let params = PermissionResponseParams(
             sessionId: resolvedSessionId,
@@ -88,7 +81,7 @@ final class ChatViewModel: ObservableObject {
             decision: decision
         )
 
-        try? await client.send(.permissionResponse(params))
+        try? await appState.sendMessage(.permissionResponse(params))
         permissionRequest = nil
     }
 
@@ -96,9 +89,9 @@ final class ChatViewModel: ObservableObject {
 
     func stop() async {
         guard let sessionId = resolvedSessionId,
-              let client = wsClient else { return }
+              let appState else { return }
 
-        try? await client.send(.stop(sessionId: sessionId))
+        try? await appState.sendMessage(.stop(sessionId: sessionId))
     }
 
     // MARK: - Process Server Messages
