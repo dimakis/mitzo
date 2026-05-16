@@ -331,6 +331,10 @@ textarea:focus {
   background: var(--hover);
 }
 
+.tab-bar-more-item--danger {
+  color: #ef4444;
+}
+
 /* ── EmptyState ─────────────────────────────────────────── */
 
 .empty-state {

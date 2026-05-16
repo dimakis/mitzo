@@ -17,7 +17,7 @@ final class VoiceService: ObservableObject {
     // Configurable via UserDefaults; defaults to Tailscale hostname
     var yapperURL: URL {
         let stored = UserDefaults.standard.string(forKey: "mitzo_yapper_url")
-        return URL(string: stored ?? "http://mitzo.tail:8700")!
+        return URL(string: stored ?? "http://100.91.50.57:8700")!
     }
 
     init() {

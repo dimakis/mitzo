@@ -2,6 +2,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useTabBadges } from '../hooks/useTabBadges';
 import { useIsDesktop } from '../hooks/useMediaQuery';
 import { useTheme } from '../hooks/useTheme';
+import { deleteCredentials } from '../lib/biometric';
+import { clearWatchToken } from '../lib/watch-auth';
 import { useState } from 'react';
 
 interface Tab {
@@ -76,6 +78,19 @@ export function TabBar() {
                 : preference === 'light'
                   ? 'System Mode'
                   : 'Dark Mode'}
+            </button>
+            <div className="tab-bar-more-divider" />
+            <button
+              className="tab-bar-more-item tab-bar-more-item--danger"
+              onClick={async () => {
+                localStorage.removeItem('mitzo_auth_token');
+                await deleteCredentials();
+                await clearWatchToken();
+                setMoreOpen(false);
+                navigate('/login');
+              }}
+            >
+              Logout
             </button>
           </div>
         </div>
