@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SessionOverviewEmitter, type SessionOverviewDeps } from '../session-overview.js';
 import type { ActiveSessionInfo } from '@mitzo/harness';
+import type { SessionMeta } from '@mitzo/protocol';
 import type { LoopStatus } from '../task-orchestrator.js';
 
 // ─── Mock helpers ─────────────────────────────────────────────────────────────
@@ -45,6 +46,10 @@ function makeDeps(overrides: Partial<SessionOverviewDeps> = {}): SessionOverview
     taskStore: {
       getTree: vi.fn(() => []),
     } as unknown as SessionOverviewDeps['taskStore'],
+    eventStore: {
+      getSession: vi.fn(() => null),
+      getAttentionSessions: vi.fn(() => []),
+    } as unknown as SessionOverviewDeps['eventStore'],
     getSessionTitle: vi.fn(() => undefined),
     ...overrides,
   };
@@ -63,6 +68,15 @@ vi.mock('@mitzo/harness', async (importOriginal) => {
 import { getPendingCountBySession } from '@mitzo/harness';
 const mockGetPending = getPendingCountBySession as ReturnType<typeof vi.fn>;
 
+// ─── Mock worktree module ────────────────────────────────────────────────────
+
+vi.mock('../worktree.js', () => ({
+  hasUncommittedWork: vi.fn(() => null), // default: clean worktree
+}));
+
+import { hasUncommittedWork } from '../worktree.js';
+const mockHasUncommittedWork = hasUncommittedWork as ReturnType<typeof vi.fn>;
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('SessionOverviewEmitter', () => {
@@ -72,6 +86,7 @@ describe('SessionOverviewEmitter', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mockGetPending.mockReturnValue(0);
+    mockHasUncommittedWork.mockReturnValue(null);
   });
 
   afterEach(() => {
@@ -420,5 +435,144 @@ describe('SessionOverviewEmitter', () => {
 
     const activities = emitter.getSnapshot();
     expect(activities[0].state).toBe('idle');
+  });
+
+  // ─── Awaiting reply ───────────────────────────────────────────────────────
+
+  it('sets awaitingReply when lastSpeaker is assistant and not streaming', () => {
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => [makeActiveSession({ hasSnapshot: false })]),
+      } as unknown as SessionOverviewDeps['registry'],
+      eventStore: {
+        getSession: vi.fn(() => ({ lastSpeaker: 'assistant', lastSpeakerAt: Date.now() })),
+        getAttentionSessions: vi.fn(() => []),
+      } as unknown as SessionOverviewDeps['eventStore'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    emitter.touch('client-1');
+
+    const activities = emitter.getSnapshot();
+    expect(activities[0].awaitingReply).toBe(true);
+  });
+
+  it('does not set awaitingReply when lastSpeaker is user', () => {
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => [makeActiveSession({ hasSnapshot: false })]),
+      } as unknown as SessionOverviewDeps['registry'],
+      eventStore: {
+        getSession: vi.fn(() => ({ lastSpeaker: 'user', lastSpeakerAt: Date.now() })),
+        getAttentionSessions: vi.fn(() => []),
+      } as unknown as SessionOverviewDeps['eventStore'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    emitter.touch('client-1');
+
+    const activities = emitter.getSnapshot();
+    expect(activities[0].awaitingReply).toBe(false);
+  });
+
+  it('does not set awaitingReply when session is streaming', () => {
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => [makeActiveSession({ hasSnapshot: true })]),
+      } as unknown as SessionOverviewDeps['registry'],
+      eventStore: {
+        getSession: vi.fn(() => ({ lastSpeaker: 'assistant', lastSpeakerAt: Date.now() })),
+        getAttentionSessions: vi.fn(() => []),
+      } as unknown as SessionOverviewDeps['eventStore'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    emitter.touch('client-1');
+
+    const activities = emitter.getSnapshot();
+    expect(activities[0].awaitingReply).toBe(false);
+  });
+
+  // ─── Uncommitted work ─────────────────────────────────────────────────────
+
+  it('sets uncommittedWork when worktree is dirty', () => {
+    mockHasUncommittedWork.mockReturnValue('M some-file.ts');
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => [makeActiveSession({ cwd: '/Users/test/project' })]),
+      } as unknown as SessionOverviewDeps['registry'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    emitter.touch('client-1');
+
+    const activities = emitter.getSnapshot();
+    expect(activities[0].uncommittedWork).toBe(true);
+  });
+
+  it('does not set uncommittedWork when worktree is clean', () => {
+    mockHasUncommittedWork.mockReturnValue(null);
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => [makeActiveSession({ cwd: '/Users/test/project' })]),
+      } as unknown as SessionOverviewDeps['registry'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    emitter.touch('client-1');
+
+    const activities = emitter.getSnapshot();
+    expect(activities[0].uncommittedWork).toBe(false);
+  });
+
+  // ─── Persistent attention sessions ────────────────────────────────────────
+
+  it('includes persistent sessions from getAttentionSessions', () => {
+    const persistentMeta = {
+      sessionId: 'persistent-1',
+      summary: 'Fix auth bug',
+      cwd: '/Users/test/tools/mitzo',
+      lastSpeaker: 'assistant',
+      lastSpeakerAt: Date.now() - 60_000,
+      updatedAt: Date.now() - 60_000,
+      goalId: null,
+    } as SessionMeta;
+
+    deps = makeDeps({
+      eventStore: {
+        getSession: vi.fn(() => null),
+        getAttentionSessions: vi.fn(() => [persistentMeta]),
+      } as unknown as SessionOverviewDeps['eventStore'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+
+    const activities = emitter.getSnapshot();
+    expect(activities).toHaveLength(1);
+    expect(activities[0].sessionId).toBe('persistent-1');
+    expect(activities[0].title).toBe('Fix auth bug');
+    expect(activities[0].state).toBe('done');
+    expect(activities[0].awaitingReply).toBe(true);
+  });
+
+  it('does not duplicate persistent sessions that are also live', () => {
+    const persistentMeta = {
+      sessionId: 'session-1',
+      summary: 'Fix auth bug',
+      lastSpeaker: 'assistant',
+      lastSpeakerAt: Date.now(),
+      updatedAt: Date.now(),
+      goalId: null,
+    } as SessionMeta;
+
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => [makeActiveSession({ sessionId: 'session-1' })]),
+      } as unknown as SessionOverviewDeps['registry'],
+      eventStore: {
+        getSession: vi.fn(() => ({ lastSpeaker: 'assistant', lastSpeakerAt: Date.now() })),
+        getAttentionSessions: vi.fn(() => [persistentMeta]),
+      } as unknown as SessionOverviewDeps['eventStore'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    emitter.touch('client-1');
+
+    const activities = emitter.getSnapshot();
+    expect(activities).toHaveLength(1);
+    expect(activities[0].sessionId).toBe('session-1');
   });
 });

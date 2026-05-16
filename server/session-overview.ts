@@ -9,9 +9,11 @@
 import type { SessionRegistry, ActiveSessionInfo } from '@mitzo/harness';
 import type { SseRegistry } from '@mitzo/harness';
 import { getPendingCountBySession } from '@mitzo/harness';
-import type { SessionActivity, SessionActivityState, WaitReason } from '@mitzo/protocol';
+import type { SessionActivity, SessionActivityState, SessionMeta, WaitReason } from '@mitzo/protocol';
+import type { EventStore } from '@mitzo/protocol/event-store';
 import type { LoopStatus } from './task-orchestrator.js';
 import type { TaskStore } from './task-store.js';
+import { hasUncommittedWork } from './worktree.js';
 import { createLogger } from './logger.js';
 
 export type { SessionActivity, SessionActivityState, WaitReason } from '@mitzo/protocol';
@@ -25,6 +27,9 @@ const DONE_TIMEOUT_MS = 5 * 60 * 1000;
 
 /** Coalesce broadcasts within this window to avoid re-render storms. */
 const COALESCE_MS = 200;
+
+/** TTL for cached uncommitted work checks (5 minutes). */
+const UNCOMMITTED_CACHE_TTL_MS = 5 * 60 * 1000;
 
 // ─── State priority for "highest wins" ────────────────────────────────────────
 
@@ -44,17 +49,25 @@ export interface SessionOverviewDeps {
   sseRegistry: SseRegistry;
   getLoopStatus: () => LoopStatus;
   taskStore: TaskStore;
+  eventStore: EventStore;
   /** Resolve session title. Typically eventStore.getSession(id)?.summary */
   getSessionTitle: (sessionId: string) => string | undefined;
 }
 
 // ─── Emitter ──────────────────────────────────────────────────────────────────
 
+interface UncommittedCacheEntry {
+  dirty: boolean;
+  checkedAt: number;
+}
+
 export class SessionOverviewEmitter {
   private deps: SessionOverviewDeps;
   private coalesceTimer: ReturnType<typeof setTimeout> | null = null;
   /** Track last assistant event time per clientId for timeout derivation. */
   private lastEventTimes = new Map<string, number>();
+  /** Cached uncommitted work results per session cwd. */
+  private uncommittedCache = new Map<string, UncommittedCacheEntry>();
 
   constructor(deps: SessionOverviewDeps) {
     this.deps = deps;
@@ -105,7 +118,7 @@ export class SessionOverviewEmitter {
   }
 
   /**
-   * Compute SessionActivity[] from all active sessions.
+   * Compute SessionActivity[] from all active sessions + persistent attention sessions.
    * State is derived purely from current data — no stored state.
    */
   private compute(): SessionActivity[] {
@@ -113,9 +126,19 @@ export class SessionOverviewEmitter {
     const activeSessions = this.deps.registry.getActiveSessions();
     const loopStatus = this.deps.getLoopStatus();
 
-    return activeSessions
+    const liveActivities = activeSessions
       .filter((s) => s.sessionId) // Skip sessions without SDK IDs
       .map((s) => this.deriveActivity(s, loopStatus, now));
+
+    // Merge persistent attention sessions (awaiting user reply)
+    const liveIds = new Set(liveActivities.map((a) => a.sessionId));
+    const persistentSessions = this.deps.eventStore.getAttentionSessions();
+    for (const meta of persistentSessions) {
+      if (liveIds.has(meta.sessionId)) continue;
+      liveActivities.push(this.persistentToActivity(meta, now));
+    }
+
+    return liveActivities;
   }
 
   private deriveActivity(
@@ -210,6 +233,17 @@ export class SessionOverviewEmitter {
     // Derive repo from cwd
     const repo = session.cwd ? extractRepoName(session.cwd) : undefined;
 
+    // Check uncommitted work for live sessions
+    const uncommittedWork = session.cwd
+      ? this.checkUncommittedCached(session.cwd, now)
+      : false;
+
+    // Check if awaiting user reply (assistant spoke last, not streaming)
+    const meta = this.deps.eventStore.getSession(sessionId);
+    const awaitingReply = meta?.lastSpeaker === 'assistant' && !session.hasSnapshot;
+    const speakerAt = meta?.lastSpeakerAt ?? lastEventAt;
+    const idleMinutes = Math.round((now - speakerAt) / 60_000);
+
     return {
       sessionId,
       clientId: session.clientId,
@@ -221,7 +255,55 @@ export class SessionOverviewEmitter {
       progress,
       lastEventAt,
       taskId,
+      uncommittedWork,
+      awaitingReply,
+      idleMinutes,
     };
+  }
+
+  /**
+   * Convert a persistent SessionMeta (from EventStore) to a SessionActivity.
+   * These are sessions not currently live but awaiting user reply.
+   */
+  private persistentToActivity(meta: SessionMeta, now: number): SessionActivity {
+    const title = meta.summary || meta.sessionId.slice(-8);
+    const repo = meta.cwd ? extractRepoName(meta.cwd) : undefined;
+    const lastEventAt = meta.lastSpeakerAt ?? meta.updatedAt;
+    const idleMinutes = Math.round((now - lastEventAt) / 60_000);
+
+    // Check for uncommitted work (cached)
+    const uncommittedWork = meta.cwd ? this.checkUncommittedCached(meta.cwd, now) : false;
+
+    return {
+      sessionId: meta.sessionId,
+      clientId: meta.sessionId, // No live clientId — use sessionId
+      title,
+      repo,
+      state: 'done',
+      flags: [],
+      lastEventAt,
+      taskId: meta.goalId ?? undefined,
+      uncommittedWork,
+      awaitingReply: true, // By definition — sourced from getAttentionSessions()
+      idleMinutes,
+    };
+  }
+
+  /**
+   * Check uncommitted work with a TTL cache to avoid expensive git calls.
+   */
+  private checkUncommittedCached(cwd: string, now: number): boolean {
+    const cached = this.uncommittedCache.get(cwd);
+    if (cached && now - cached.checkedAt < UNCOMMITTED_CACHE_TTL_MS) {
+      return cached.dirty;
+    }
+    try {
+      const dirty = hasUncommittedWork(cwd) !== null;
+      this.uncommittedCache.set(cwd, { dirty, checkedAt: now });
+      return dirty;
+    } catch {
+      return false;
+    }
   }
 
   /**

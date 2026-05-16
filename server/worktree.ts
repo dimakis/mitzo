@@ -321,7 +321,7 @@ export function getWorktreePath(sessionId: string, baseRepo: string): string | n
  * Returns the porcelain output if dirty, empty string if clean, or a sentinel
  * error message if git status itself fails (so we don't delete potentially dirty worktrees).
  */
-function hasUncommittedWork(worktreePath: string): string | null {
+export function hasUncommittedWork(worktreePath: string): string | null {
   try {
     const output = execFileSync('git', ['-C', worktreePath, 'status', '--porcelain'], {
       encoding: 'utf-8',

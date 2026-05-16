@@ -137,6 +137,12 @@ export interface SessionActivity {
   progress?: { done: number; total: number };
   lastEventAt: number;
   taskId?: string;
+  /** True when the session worktree has uncommitted changes. */
+  uncommittedWork?: boolean;
+  /** True when last message was from assistant and session is not actively streaming. */
+  awaitingReply?: boolean;
+  /** Minutes since the last speaker event (user or assistant). */
+  idleMinutes?: number;
 }
 
 // --- Service health (SSE event bus) ---
@@ -198,6 +204,8 @@ export interface SessionMeta {
   goalId: string | null;
   telosTaskId: string | null;
   closedBy: SessionClosedBy | null;
+  lastSpeaker: 'user' | 'assistant' | null;
+  lastSpeakerAt: number | null;
   createdAt: number;
   updatedAt: number;
 }

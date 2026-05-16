@@ -238,6 +238,7 @@ overviewEmitter = new SessionOverviewEmitter({
   sseRegistry,
   getLoopStatus: () => orchestrator.getStatus(),
   taskStore,
+  eventStore,
   getSessionTitle: (id: string) => eventStore.getSession(id)?.summary ?? undefined,
 });
 setOverviewEmitter(overviewEmitter);
@@ -255,6 +256,11 @@ setSessionChangeCallback((clientId, event) => {
     overviewEmitter.forget(clientId);
   } else if (event === 'turn_end') {
     overviewEmitter.touch(clientId);
+    // Mark assistant as last speaker for attention tracking
+    const session = registry.get(clientId);
+    if (session?.sessionId) {
+      eventStore.updateLastSpeaker(session.sessionId, 'assistant');
+    }
   }
   overviewEmitter.scheduleBroadcast();
 });
