@@ -719,10 +719,27 @@ describe('boot_context', () => {
           { path: 'CONSTITUTION.md', kind: 'constitution' },
         ],
         included: [
-          { source: 'CLAUDE.md', heading: 'Boot Context', tokens: 200, content: '## Boot Context\nSome content' },
-          { source: 'CLAUDE.md', heading: 'Git Discipline', tokens: 150, content: '## Git Discipline\nMore content' },
+          {
+            source: 'CLAUDE.md',
+            heading: 'Boot Context',
+            tokens: 200,
+            content: '## Boot Context\nSome content',
+          },
+          {
+            source: 'CLAUDE.md',
+            heading: 'Git Discipline',
+            tokens: 150,
+            content: '## Git Discipline\nMore content',
+          },
         ],
-        trimmed: [{ source: 'CONSTITUTION.md', heading: 'Architecture > Spokes', tokens: 450, content: 'spoke stuff' }],
+        trimmed: [
+          {
+            source: 'CONSTITUTION.md',
+            heading: 'Architecture > Spokes',
+            tokens: 450,
+            content: 'spoke stuff',
+          },
+        ],
       },
       makeState(),
       makeCallbacks(),
@@ -741,10 +758,27 @@ describe('boot_context', () => {
             { path: 'CONSTITUTION.md', kind: 'constitution' },
           ],
           included: [
-            { source: 'CLAUDE.md', heading: 'Boot Context', tokens: 200, content: '## Boot Context\nSome content' },
-            { source: 'CLAUDE.md', heading: 'Git Discipline', tokens: 150, content: '## Git Discipline\nMore content' },
+            {
+              source: 'CLAUDE.md',
+              heading: 'Boot Context',
+              tokens: 200,
+              content: '## Boot Context\nSome content',
+            },
+            {
+              source: 'CLAUDE.md',
+              heading: 'Git Discipline',
+              tokens: 150,
+              content: '## Git Discipline\nMore content',
+            },
           ],
-          trimmed: [{ source: 'CONSTITUTION.md', heading: 'Architecture > Spokes', tokens: 450, content: 'spoke stuff' }],
+          trimmed: [
+            {
+              source: 'CONSTITUTION.md',
+              heading: 'Architecture > Spokes',
+              tokens: 450,
+              content: 'spoke stuff',
+            },
+          ],
         },
       },
     ]);
@@ -766,7 +800,10 @@ describe('boot_context', () => {
       makeCallbacks(),
       POOL_KEY,
     );
-    const action = r.messagesActions[0] as { type: string; bootContext: { sources: Array<{ path: string; kind: string }> } };
+    const action = r.messagesActions[0] as {
+      type: string;
+      bootContext: { sources: Array<{ path: string; kind: string }> };
+    };
     expect(action.bootContext.sources).toEqual([
       { path: 'CLAUDE.md', kind: 'reference' },
       { path: 'CONSTITUTION.md', kind: 'reference' },
@@ -839,7 +876,10 @@ describe('boot_context', () => {
       makeCallbacks(),
       POOL_KEY,
     );
-    const action = r.messagesActions[0] as { type: string; bootContext: { sources: Array<{ path: string; kind: string }> } };
+    const action = r.messagesActions[0] as {
+      type: string;
+      bootContext: { sources: Array<{ path: string; kind: string }> };
+    };
     expect(action.bootContext.sources).toEqual([
       { path: 'CLAUDE.md', kind: 'reference' },
       { path: 'foo.md', kind: 'profile' },

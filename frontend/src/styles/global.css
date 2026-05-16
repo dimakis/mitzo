@@ -2494,11 +2494,25 @@ textarea:focus {
   color: var(--text-dim);
 }
 
-.boot-context-pill-kind--constitution { background: rgba(130, 170, 255, 0.15); color: #82aaff; }
-.boot-context-pill-kind--profile { background: rgba(199, 146, 234, 0.15); color: #c792ea; }
-.boot-context-pill-kind--memory { background: rgba(255, 203, 107, 0.15); color: #ffcb6b; }
-.boot-context-pill-kind--service { background: rgba(137, 221, 255, 0.15); color: #89ddff; }
-.boot-context-pill-kind--reference { background: rgba(255, 255, 255, 0.06); }
+.boot-context-pill-kind--constitution {
+  background: rgba(130, 170, 255, 0.15);
+  color: #82aaff;
+}
+.boot-context-pill-kind--profile {
+  background: rgba(199, 146, 234, 0.15);
+  color: #c792ea;
+}
+.boot-context-pill-kind--memory {
+  background: rgba(255, 203, 107, 0.15);
+  color: #ffcb6b;
+}
+.boot-context-pill-kind--service {
+  background: rgba(137, 221, 255, 0.15);
+  color: #89ddff;
+}
+.boot-context-pill-kind--reference {
+  background: rgba(255, 255, 255, 0.06);
+}
 
 .boot-context-pill-source-path {
   overflow: hidden;

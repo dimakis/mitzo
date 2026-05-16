@@ -78,9 +78,19 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
                   ) : s.closedBy ? (
                     <span
                       className={`session-panel-status session-panel-status--${s.closedBy}`}
-                      title={s.closedBy === 'user' ? 'Closed by you' : s.closedBy === 'auto' ? 'Auto-closed' : 'Abandoned'}
+                      title={
+                        s.closedBy === 'user'
+                          ? 'Closed by you'
+                          : s.closedBy === 'auto'
+                            ? 'Auto-closed'
+                            : 'Abandoned'
+                      }
                     >
-                      {s.closedBy === 'user' ? '\u2713' : s.closedBy === 'auto' ? '\u23F9' : '\u2205'}
+                      {s.closedBy === 'user'
+                        ? '\u2713'
+                        : s.closedBy === 'auto'
+                          ? '\u23F9'
+                          : '\u2205'}
                     </span>
                   ) : null}
                   <div className="session-panel-item-text">

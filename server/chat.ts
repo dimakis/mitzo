@@ -765,7 +765,10 @@ async function _startChatInner(
     try {
       if (compileModule.loadAgentDefinition) {
         const recipePath = join(cwd, '.agents', 'mitzo-conversational.yaml');
-        const def = (await compileModule.loadAgentDefinition(recipePath)) as Record<string, unknown>;
+        const def = (await compileModule.loadAgentDefinition(recipePath)) as Record<
+          string,
+          unknown
+        >;
         const ctx = def.context as Record<string, unknown> | undefined;
         const boot = ctx?.boot as Record<string, unknown> | undefined;
         if (typeof boot?.tokenBudget === 'number') {

@@ -22,7 +22,9 @@ function SectionRow({ section, dimmed }: { section: SectionMeta; dimmed?: boolea
   }, []);
 
   return (
-    <div className={`boot-context-pill-section-row ${dimmed ? 'boot-context-pill-section-row--dimmed' : ''}`}>
+    <div
+      className={`boot-context-pill-section-row ${dimmed ? 'boot-context-pill-section-row--dimmed' : ''}`}
+    >
       <button className="boot-context-pill-section-button" onClick={toggle}>
         <span className="boot-context-pill-chevron-inline">{open ? '\u25BE' : '\u25B8'}</span>
         <span className="boot-context-pill-section-heading">{section.heading}</span>

@@ -219,8 +219,12 @@ export function parseServerMessage(
       const parseSections = (
         raw: unknown[],
       ): Array<{ source: string; heading: string; tokens: number; content: string }> => {
-        const sections: Array<{ source: string; heading: string; tokens: number; content: string }> =
-          [];
+        const sections: Array<{
+          source: string;
+          heading: string;
+          tokens: number;
+          content: string;
+        }> = [];
         for (const t of raw) {
           if (t && typeof t === 'object') {
             const obj = t as Record<string, unknown>;

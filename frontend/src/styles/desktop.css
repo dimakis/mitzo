@@ -607,7 +607,9 @@
     font-size: 14px;
     padding: 2px 6px;
     line-height: 1;
-    transition: color 0.15s, border-color 0.15s;
+    transition:
+      color 0.15s,
+      border-color 0.15s;
   }
 
   .session-close-btn:hover {
