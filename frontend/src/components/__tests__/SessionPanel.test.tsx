@@ -158,6 +158,19 @@ describe('SessionPanel', () => {
   });
 
   describe('Load More button', () => {
+    it('does not render Load More when hasMore is false', () => {
+      mockUseSessionList.mockReturnValue(
+        makeDefaultReturn({
+          sessions: [{ id: 's1', summary: 'A session', lastModified: Date.now() }],
+          hasMore: false,
+        }),
+      );
+      render(
+        <SessionPanel activeSessionId={undefined} onSelectSession={vi.fn()} onNewChat={vi.fn()} />,
+      );
+      expect(screen.queryByText('Load More')).toBeNull();
+    });
+
     it('renders when hasMore is true', () => {
       mockUseSessionList.mockReturnValue(
         makeDefaultReturn({
