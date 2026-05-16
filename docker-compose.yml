@@ -17,7 +17,7 @@ services:
       BADGER_EPHEMERAL: 'false'
       BADGER_DIRECTORY_VALUE: /badger/data
       BADGER_DIRECTORY_KEY: /badger/key
-      BADGER_SPAN_STORE_TTL: 336h  # 14 days retention
+      BADGER_SPAN_STORE_TTL: 336h # 14 days retention
     volumes:
       - ./.jaeger-data:/badger
 
