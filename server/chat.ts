@@ -40,6 +40,9 @@ import { INTERNAL_TOKEN } from './internal-token.js';
 import { buildTaskSystemPrompt } from './task-context.js';
 import type { TaskStore } from './task-store.js';
 
+/** Grace period for zero-turn inactive sessions — recently created ones stay visible. */
+const ZERO_TURN_GRACE_MS = 60 * 60 * 1000; // 1 hour
+
 let _taskStore: TaskStore | null = null;
 export function setTaskStore(store: TaskStore): void {
   _taskStore = store;
@@ -1515,8 +1518,7 @@ export function getSessionsCached(offset = 0, limit = SESSION_PAGE_SIZE) {
     // always show regardless of turn count.  Recently created sessions
     // (< 1 hour) are kept even with no turns — they may still be starting.
     if (m.numTurns === 0 && m.promptCount === 0 && !m.isActive) {
-      const ONE_HOUR = 60 * 60 * 1000;
-      return Date.now() - m.createdAt < ONE_HOUR;
+      return Date.now() - m.createdAt < ZERO_TURN_GRACE_MS;
     }
     return true;
   });
