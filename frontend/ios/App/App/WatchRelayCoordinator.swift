@@ -18,6 +18,8 @@ final class WatchRelayCoordinator: @unchecked Sendable {
 
     init() {
         watchRelay = WatchRelayHost(authManager: authManager)
+        // Activate WCSession immediately so watch can reach us even before login
+        watchRelay.activate(wsClient: nil, apiClient: nil)
     }
 
     func start() {
@@ -54,6 +56,7 @@ final class WatchRelayCoordinator: @unchecked Sendable {
         lock.withLock { wsClient = client }
 
         let api = MitzoAPIClient(baseURL: serverURL, authManager: authManager)
+        // Update relay with authenticated clients (WCSession already activated in init)
         watchRelay.activate(wsClient: client, apiClient: api)
 
         let relay = watchRelay
