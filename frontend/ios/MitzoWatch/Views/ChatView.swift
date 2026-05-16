@@ -6,8 +6,9 @@ import MitzoShared
 struct ChatView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var viewModel: ChatViewModel
-    @StateObject private var voiceService = VoiceService()
     @State private var scrollProxy: ScrollViewProxy?
+    @State private var showTextInput = false
+    @State private var draftText = ""
 
     init(sessionId: String?) {
         _viewModel = StateObject(wrappedValue: ChatViewModel(sessionId: sessionId))
@@ -15,57 +16,92 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Message stream
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach(viewModel.messages) { message in
-                            MessageBubble(message: message)
-                                .id(message.id)
-                        }
+                // Message stream — takes all available space
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 8) {
+                            Color.clear.frame(height: 1).id("top")
 
-                        // Live streaming content
-                        if let stream = viewModel.currentStream {
-                            StreamingBubble(stream: stream)
-                                .id("streaming")
-                        }
+                            ForEach(viewModel.messages) { message in
+                                MessageBubble(message: message)
+                                    .id(message.id)
+                            }
 
-                        // Tool status pill
-                        if let status = viewModel.toolStatus {
-                            ToolPill(status: status)
-                                .id("tool")
+                            // Live streaming content
+                            if let stream = viewModel.currentStream {
+                                StreamingBubble(stream: stream)
+                                    .id("streaming")
+                            }
+
+                            // Tool status pill
+                            if let status = viewModel.toolStatus {
+                                ToolPill(status: status)
+                                    .id("tool")
+                            }
+
+                            Color.clear.frame(height: 1).id("bottom")
+                        }
+                        .padding(.horizontal, 4)
+                    }
+                    .onChange(of: viewModel.messages.count) { _, _ in
+                        withAnimation {
+                            proxy.scrollTo("bottom", anchor: .bottom)
                         }
                     }
-                    .padding(.horizontal, 4)
-                    .padding(.bottom, 8)
+                    .onAppear { scrollProxy = proxy }
                 }
-                .onChange(of: viewModel.messages.count) { _, _ in
-                    withAnimation {
-                        proxy.scrollTo("streaming", anchor: .bottom)
-                    }
+
+                // Permission banner
+                if let perm = viewModel.permissionRequest {
+                    PermissionBanner(
+                        request: perm,
+                        onAllow: {
+                            Task { await viewModel.respondToPermission(decision: .once) }
+                        },
+                        onDeny: {
+                            Task { await viewModel.respondToPermission(decision: .deny) }
+                        }
+                    )
                 }
-                .onAppear { scrollProxy = proxy }
-            }
 
-            // Permission banner
-            if let perm = viewModel.permissionRequest {
-                PermissionBanner(
-                    request: perm,
-                    onAllow: {
-                        Task { await viewModel.respondToPermission(decision: .once) }
-                    },
-                    onDeny: {
-                        Task { await viewModel.respondToPermission(decision: .deny) }
+                // Bottom bar: scroll nav + compose
+                HStack(spacing: 8) {
+                    Button {
+                        withAnimation { scrollProxy?.scrollTo("top", anchor: .top) }
+                    } label: {
+                        Image(systemName: "chevron.up")
+                            .font(.system(size: 9, weight: .semibold))
                     }
-                )
-            }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
 
-            Divider()
+                    Button {
+                        withAnimation { scrollProxy?.scrollTo("bottom", anchor: .bottom) }
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 9, weight: .semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
 
-            // Voice input bar
-            VoiceInputBar(voiceService: voiceService) { transcript in
-                Task { await viewModel.send(text: transcript) }
-            }
+                    Spacer()
+
+                    // Compose — opens watchOS native text input (dictation + scribble + keyboard)
+                    Button {
+                        showTextInput = true
+                    } label: {
+                        Image(systemName: "mic.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.white)
+                            .frame(width: 24, height: 24)
+                            .background(Color.blue)
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .frame(height: 32)
         }
         .navigationTitle(viewModel.sessionId?.prefix(6).description ?? "New")
         .navigationBarTitleDisplayMode(.inline)
@@ -80,6 +116,12 @@ struct ChatView: View {
                             .font(.caption2)
                     }
                 }
+            }
+        }
+        .sheet(isPresented: $showTextInput) {
+            ComposeSheet(draftText: $draftText) { text in
+                Task { await viewModel.send(text: text) }
+                showTextInput = false
             }
         }
         .task {
