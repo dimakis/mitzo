@@ -24,12 +24,26 @@ export interface ActiveWorktree {
   path: string;
 }
 
+export interface BootSourceMeta {
+  path: string;
+  kind: string;
+}
+
+export interface SectionMeta {
+  source: string;
+  heading: string;
+  tokens: number;
+  content: string;
+}
+
 export interface BootContextMeta {
   source: 'contexgin' | 'local-fallback';
   sourceCount: number;
   tokenCount: number;
-  trimmedCount: number;
-  sources: string[];
+  tokenBudget: number;
+  sources: BootSourceMeta[];
+  included: SectionMeta[];
+  trimmed: SectionMeta[];
 }
 
 export interface MessagesState {

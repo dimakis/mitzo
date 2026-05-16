@@ -17,6 +17,7 @@ import {
   UnwatchMessage,
   SwitchSessionMessage,
   SessionSuspendMessage,
+  SessionCloseMessage,
   V2SendMessage,
   V2StopMessage,
   V2InterruptMessage,
@@ -29,6 +30,7 @@ type WatchMsg = z.infer<typeof WatchMessage>;
 type UnwatchMsg = z.infer<typeof UnwatchMessage>;
 type SwitchSessionMsg = z.infer<typeof SwitchSessionMessage>;
 type SessionSuspendMsg = z.infer<typeof SessionSuspendMessage>;
+type SessionCloseMsg = z.infer<typeof SessionCloseMessage>;
 type SendMsg = z.infer<typeof V2SendMessage>;
 type StopMsg = z.infer<typeof V2StopMessage>;
 type InterruptMsg = z.infer<typeof V2InterruptMessage>;
@@ -43,6 +45,7 @@ import {
   sendToChat,
   interruptChat,
   stopChat,
+  closeSessionByUser,
   isActive,
   reattachChat,
   rekeyChat,
@@ -658,6 +661,61 @@ export function handleSessionSuspend(
   );
 }
 
+export function handleSessionClose(
+  connectionId: string,
+  msg: SessionCloseMsg,
+  ctx: V2HandlerContext,
+): void {
+  withSpan(
+    'ws.session_close',
+    { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId },
+    () => {
+      const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
+      const conn = ctx.connRegistry.get(connectionId);
+
+      if (!found) {
+        log.warn('close: session not found', { connectionId, sessionId: msg.sessionId });
+        conn?.transport.send({
+          type: 'session_close_ack',
+          sessionId: msg.sessionId,
+          accepted: false,
+          reason: 'Session not found',
+        });
+        return;
+      }
+
+      const ownerConnection = getOwnerConnection(found.clientId);
+      if (ownerConnection !== connectionId) {
+        log.warn('close: not owner', {
+          connectionId,
+          sessionId: msg.sessionId,
+          owner: ownerConnection,
+        });
+        conn?.transport.send({
+          type: 'session_close_ack',
+          sessionId: msg.sessionId,
+          accepted: false,
+          reason: 'Not session owner',
+        });
+        return;
+      }
+
+      closeSessionByUser(found.clientId);
+      log.info('session close initiated by user', {
+        connectionId,
+        sessionId: msg.sessionId,
+        clientId: found.clientId,
+      });
+
+      conn?.transport.send({
+        type: 'session_close_ack',
+        sessionId: msg.sessionId,
+        accepted: true,
+      });
+    },
+  );
+}
+
 // ─── Dispatcher ──────────────────────────────────────────────────────────────
 
 /**
@@ -707,6 +765,9 @@ export async function dispatchV2Message(
       break;
     case 'session_suspend':
       handleSessionSuspend(connectionId, msg, ctx);
+      break;
+    case 'session_close':
+      handleSessionClose(connectionId, msg, ctx);
       break;
     case 'send':
       handleSendV2(connectionId, transport, msg, ctx);

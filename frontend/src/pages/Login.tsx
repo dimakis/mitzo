@@ -7,6 +7,7 @@ import {
   biometricLogin,
   saveCredentials,
 } from '../lib/biometric';
+import { saveTokenToWatch } from '../lib/watch-auth';
 import { notifySuccess } from '../lib/haptics';
 
 export function Login() {
@@ -59,6 +60,7 @@ export function Login() {
       if (data.token) {
         localStorage.setItem('mitzo_auth_token', data.token);
         await saveCredentials(data.token);
+        await saveTokenToWatch(data.token);
       }
       navigate('/');
     } else {

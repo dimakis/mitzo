@@ -85,6 +85,7 @@ export interface MitzoStoreState {
   sendMessage(text: string, opts?: SendMessageOptions): void;
   interruptMessage(text: string, opts?: SendMessageOptions): void;
   stopGeneration(): void;
+  closeSession(): void;
   respondToPermission(permId: string, decision: 'once' | 'always' | 'deny'): void;
   setMode(mode: MitzoMode): void;
   setModel(modelId: string): void;
@@ -277,6 +278,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         permissions: INITIAL_PERMISSIONS_STATE,
         progress: INITIAL_PROGRESS_STATE,
       });
+    },
+
+    closeSession() {
+      const sessionId = parserState.currentSessionId;
+      if (!sessionId) return;
+      connection.send({ type: 'session_close', sessionId });
     },
 
     sendMessage(text: string, opts?: SendMessageOptions) {

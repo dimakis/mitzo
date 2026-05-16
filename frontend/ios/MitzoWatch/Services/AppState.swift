@@ -18,18 +18,13 @@ final class AppState: ObservableObject {
     @Published var error: String?
 
     private let authManager = AuthManager()
-    private var wsClient: MitzoWSClient?
-    private var apiClient: MitzoAPIClient?
     private var activeChatVM: ChatViewModel?
     private let relayClient = WatchRelayClient()
-    private var reconnectAttempts = 0
-    private var isReconnecting = false
-    private static let maxReconnectDelay: UInt64 = 30_000_000_000 // 30s
 
-    // Configurable via UserDefaults; defaults to Tailscale hostname
+    // Server URL used only for login (brief HTTP POST that sometimes works)
     var serverURL: URL {
         let stored = UserDefaults.standard.string(forKey: "mitzo_server_url")
-        return URL(string: stored ?? "https://mitzo.tail:3100")!
+        return URL(string: stored ?? "http://100.91.50.57:3101")!
     }
 
     init() {
@@ -76,103 +71,49 @@ final class AppState: ObservableObject {
         }
     }
 
-    // MARK: - Connection (waterfall: direct → relay)
+    // MARK: - Connection (relay-only — direct to Tailscale IPs is blocked by NECP)
 
     func connect() async {
-        let directSuccess = await connectDirect()
-        if directSuccess {
-            reconnectAttempts = 0
-            return
+        // watchOS cannot reach Tailscale IPs due to NECP policy on the
+        // iPhone's VPN extension. All traffic goes through the iPhone
+        // via WatchConnectivity relay.
+
+        // WCSession activation is async — give it a moment if not ready yet
+        if !relayClient.isPhoneReachable {
+            try? await Task.sleep(nanoseconds: 2_000_000_000) // 2s
         }
 
         if relayClient.isPhoneReachable {
             connectionMode = .relay
             connectionState = .connected(connectionId: "relay")
-            reconnectAttempts = 0
             await loadSessionsViaRelay()
         } else {
             connectionMode = .none
-            error = "Cannot reach server or iPhone"
+            connectionState = .disconnected
+            error = "iPhone not reachable — open Mitzo on your phone"
+            // Don't reconnect-loop. WCSession reachability changes will
+            // trigger a retry via the session delegate (future enhancement).
         }
     }
 
-    private func connectDirect() async -> Bool {
-        guard let token = try? await authManager.getToken() else { return false }
+    // MARK: - Sessions & Messages
 
-        var components = URLComponents(url: serverURL, resolvingAgainstBaseURL: false)!
-        components.scheme = components.scheme == "https" ? "wss" : "ws"
-        components.path = "/ws/chat"
-        components.queryItems = [URLQueryItem(name: "token", value: token)]
-
-        guard let wsURL = components.url else { return false }
-
-        let client = MitzoWSClient(url: wsURL)
-        wsClient = client
-
-        apiClient = MitzoAPIClient(baseURL: serverURL, authManager: authManager)
-
-        let connected = await withCheckedContinuation { continuation in
-            var resolved = false
-
-            Task {
-                await client.connect { [weak self] event in
-                    Task { @MainActor in
-                        self?.handleWSEvent(event)
-
-                        if !resolved {
-                            if case .stateChanged(.connected) = event {
-                                resolved = true
-                                continuation.resume(returning: true)
-                            }
-                        }
-                    }
-                }
-            }
-
-            Task {
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
-                if !resolved {
-                    resolved = true
-                    continuation.resume(returning: false)
-                }
-            }
-        }
-
-        if connected {
-            connectionMode = .direct
-            await loadSessions()
-            return true
-        } else {
-            await client.disconnect()
-            wsClient = nil
-            return false
-        }
+    func loadMessages(sessionId: String) async throws -> [FinishedMessage] {
+        return try await relayClient.requestMessages(sessionId: sessionId)
     }
 
-    func suspend() async {
-        guard let client = wsClient else { return }
-        let sessions = await client.getSuspendSessions()
-        if !sessions.isEmpty {
-            try? await client.suspend(sessions: sessions)
-        }
-    }
-
-    // MARK: - Sessions
-
-    func loadSessions() async {
-        do {
-            let response = try await apiClient?.getSessions() ?? SessionsResponse(sessions: [], hasMore: false)
-            sessions = response.sessions
-        } catch {
-            self.error = "Failed to load sessions"
-        }
+    func refreshSessions() async {
+        await loadSessionsViaRelay()
     }
 
     private func loadSessionsViaRelay() async {
-        // Relay mode can't use the REST API directly — the phone owns the
-        // WS connection and there's no relay message type for session listing.
-        // The watch shows an empty list with a hint to open on iPhone.
-        sessions = []
+        do {
+            let response = try await relayClient.requestSessions()
+            sessions = response.sessions
+        } catch {
+            self.error = "Failed to load sessions via relay"
+            sessions = []
+        }
     }
 
     // MARK: - Active Chat
@@ -184,53 +125,14 @@ final class AppState: ObservableObject {
     // MARK: - Send (mode-aware)
 
     func sendMessage(_ message: ClientMessage) async throws {
-        switch connectionMode {
-        case .direct:
-            try await wsClient?.send(message)
-
-        case .relay:
-            let dict = try clientMessageToRelayDict(message)
-            let reply = try await relayClient.send(action: dict["action"] as? String ?? "", params: dict)
-            if let relayError = reply["error"] as? String {
-                throw RelayResponseError.serverRejected(relayError)
-            }
-
-        case .none:
+        guard connectionMode == .relay else {
             throw ConnectionError.notConnected
         }
-    }
 
-    // MARK: - Event Handling
-
-    private func handleWSEvent(_ event: MitzoWSClient.Event) {
-        switch event {
-        case .stateChanged(let state):
-            connectionState = state
-
-            if case .disconnected = state, connectionMode == .direct {
-                connectionMode = .none
-                reconnectWithBackoff()
-            }
-
-        case .message(let msg):
-            activeChatVM?.handleMessage(msg)
-
-        case .error(let err):
-            error = err.localizedDescription
-        }
-    }
-
-    private func reconnectWithBackoff() {
-        guard !isReconnecting else { return }
-        isReconnecting = true
-        reconnectAttempts += 1
-        let baseDelay: UInt64 = 1_000_000_000 // 1s
-        let delay = min(baseDelay * UInt64(1 << min(reconnectAttempts - 1, 4)), Self.maxReconnectDelay)
-
-        Task {
-            try? await Task.sleep(nanoseconds: delay)
-            await connect()
-            isReconnecting = false
+        let dict = try clientMessageToRelayDict(message)
+        let reply = try await relayClient.send(action: dict["action"] as? String ?? "", params: dict)
+        if let relayError = reply["error"] as? String {
+            throw RelayResponseError.serverRejected(relayError)
         }
     }
 
@@ -317,10 +219,6 @@ final class AppState: ObservableObject {
         }
     }
 
-    // MARK: - Accessors
-
-    func getWSClient() -> MitzoWSClient? { wsClient }
-    func getAPIClient() -> MitzoAPIClient? { apiClient }
 }
 
 enum ConnectionError: Error {

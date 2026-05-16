@@ -147,6 +147,7 @@ function createMockStore() {
     clearPendingSession: vi.fn(),
     forceReconnect: vi.fn(),
     sendSuspend: vi.fn(),
+    closeSession: vi.fn().mockResolvedValue(undefined),
   }));
 }
 

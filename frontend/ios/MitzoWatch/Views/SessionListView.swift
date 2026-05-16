@@ -36,7 +36,7 @@ struct SessionListView: View {
             }
         }
         .task {
-            await appState.loadSessions()
+            await appState.refreshSessions()
         }
     }
 

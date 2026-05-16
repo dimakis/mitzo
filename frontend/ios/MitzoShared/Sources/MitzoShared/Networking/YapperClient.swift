@@ -27,7 +27,7 @@ public actor YapperClient {
 
     public func checkHealth() async throws -> Bool {
         let healthURL = baseURL.appendingPathComponent("/health")
-        let (data, _) = try await URLSession.shared.data(from: healthURL)
+        let (data, _) = try await tailscaleURLSession.data(from: healthURL)
 
         struct HealthResponse: Decodable {
             let status: String
@@ -57,8 +57,7 @@ public actor YapperClient {
             throw YapperError.connectionFailed
         }
 
-        let session = URLSession(configuration: .default)
-        wsTask = session.webSocketTask(with: wsURL)
+        wsTask = tailscaleURLSession.webSocketTask(with: wsURL)
         wsTask?.resume()
 
         // Send format frame

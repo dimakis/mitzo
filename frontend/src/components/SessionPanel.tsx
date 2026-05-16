@@ -71,11 +71,28 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
                   className={`session-panel-item${s.id === activeSessionId ? ' session-panel-item--active' : ''}`}
                   onClick={() => onSelectSession(s.id)}
                 >
-                  {s.isActive && (
+                  {s.isActive ? (
                     <span
                       className={`session-panel-dot${s.isAttached ? ' session-panel-dot--attached' : ' session-panel-dot--detached'}`}
                     />
-                  )}
+                  ) : s.closedBy ? (
+                    <span
+                      className={`session-panel-status session-panel-status--${s.closedBy}`}
+                      title={
+                        s.closedBy === 'user'
+                          ? 'Closed by you'
+                          : s.closedBy === 'auto'
+                            ? 'Auto-closed'
+                            : 'Abandoned'
+                      }
+                    >
+                      {s.closedBy === 'user'
+                        ? '\u2713'
+                        : s.closedBy === 'auto'
+                          ? '\u23F9'
+                          : '\u2205'}
+                    </span>
+                  ) : null}
                   <div className="session-panel-item-text">
                     <div className="session-panel-item-summary">
                       {s.summary || 'Untitled session'}

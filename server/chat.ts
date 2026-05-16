@@ -30,7 +30,12 @@ import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
 import { runQueryLoop, broadcastToObservers } from './query-loop.js';
 import { AsyncQueue } from './async-queue.js';
-import { GIT_BRANCH_TIMEOUT_MS, SESSION_PAGE_SIZE, SESSION_MESSAGES_LIMIT } from './constants.js';
+import {
+  GIT_BRANCH_TIMEOUT_MS,
+  SESSION_PAGE_SIZE,
+  SESSION_MESSAGES_LIMIT,
+  USER_CLOSEOUT_TIMEOUT_MS,
+} from './constants.js';
 import { INTERNAL_TOKEN } from './internal-token.js';
 import { buildTaskSystemPrompt } from './task-context.js';
 import type { TaskStore } from './task-store.js';
@@ -690,6 +695,7 @@ async function _startChatInner(
       cwd,
       mode,
       branch,
+      isActive: true,
       ...(worktreePath ? { wtId } : {}),
       ...(options.telosTaskId ? { telosTaskId: options.telosTaskId } : {}),
     });
@@ -729,10 +735,12 @@ async function _startChatInner(
     buildTaskPromptForSession(clientId);
 
   // Fire-and-forget: emit boot context metadata to client + capture prompt comparison
+  const DEFAULT_TOKEN_BUDGET = 8000;
   (async () => {
     // Step 1: dynamically import contexgin (optional dependency)
     let compileModule: {
       compile: (opts: { workspaceRoot: string; tokenBudget: number }) => Promise<unknown>;
+      loadAgentDefinition?: (path: string) => Promise<unknown>;
     };
     try {
       compileModule = await import('contexgin');
@@ -744,15 +752,39 @@ async function _startChatInner(
         source: 'local-fallback',
         sourceCount: 0,
         tokenCount: 0,
-        trimmedCount: 0,
+        tokenBudget: DEFAULT_TOKEN_BUDGET,
         sources: [],
+        included: [],
+        trimmed: [],
       });
       return;
     }
 
+    // Step 1b: read token budget from agent recipe if available
+    let tokenBudget = DEFAULT_TOKEN_BUDGET;
+    try {
+      if (compileModule.loadAgentDefinition) {
+        const recipePath = join(cwd, '.agents', 'mitzo-conversational.yaml');
+        const def = (await compileModule.loadAgentDefinition(recipePath)) as Record<
+          string,
+          unknown
+        >;
+        const ctx = def.context as Record<string, unknown> | undefined;
+        const boot = ctx?.boot as Record<string, unknown> | undefined;
+        if (typeof boot?.tokenBudget === 'number') {
+          tokenBudget = boot.tokenBudget as number;
+        }
+      }
+    } catch {
+      // Recipe not found or invalid — use default
+    }
+
     // Step 2: compile — runtime errors propagate (not swallowed as import failure)
     try {
-      const compiled = await compileModule.compile({ workspaceRoot: cwd, tokenBudget: 8000 });
+      const compiled = await compileModule.compile({
+        workspaceRoot: cwd,
+        tokenBudget,
+      });
 
       // Validate the compiled object shape
       if (!compiled || typeof compiled !== 'object') {
@@ -762,36 +794,69 @@ async function _startChatInner(
           source: 'local-fallback',
           sourceCount: 0,
           tokenCount: 0,
-          trimmedCount: 0,
+          tokenBudget: tokenBudget,
           sources: [],
+          included: [],
+          trimmed: [],
         });
         return;
       }
 
       const obj = compiled as Record<string, unknown>;
-      const sources = Array.isArray(obj.sources) ? obj.sources : [];
-      const trimmed = Array.isArray(obj.trimmed) ? obj.trimmed : [];
+      const rawSources = Array.isArray(obj.sources) ? obj.sources : [];
+      const rawIncluded = Array.isArray(obj.included) ? obj.included : [];
+      const rawTrimmed = Array.isArray(obj.trimmed) ? obj.trimmed : [];
       const bootTokens = typeof obj.bootTokens === 'number' ? obj.bootTokens : 0;
 
-      // Validate each source entry has a relativePath string
-      const sourcePaths: string[] = [];
-      for (const s of sources) {
-        if (
-          s &&
-          typeof s === 'object' &&
-          typeof (s as Record<string, unknown>).relativePath === 'string'
-        ) {
-          sourcePaths.push((s as Record<string, unknown>).relativePath as string);
+      // Extract rich source metadata (path + kind)
+      const sources: Array<{ path: string; kind: string }> = [];
+      for (const s of rawSources) {
+        if (s && typeof s === 'object') {
+          const so = s as Record<string, unknown>;
+          if (typeof so.relativePath === 'string') {
+            sources.push({
+              path: so.relativePath as string,
+              kind: typeof so.kind === 'string' ? (so.kind as string) : 'reference',
+            });
+          }
         }
       }
+
+      // Helper to extract section metadata from ExtractedSection objects
+      const extractSections = (
+        raw: unknown[],
+      ): Array<{ source: string; heading: string; tokens: number; content: string }> => {
+        const result: Array<{ source: string; heading: string; tokens: number; content: string }> =
+          [];
+        for (const t of raw) {
+          if (t && typeof t === 'object') {
+            const to = t as Record<string, unknown>;
+            const src = to.source as Record<string, unknown> | undefined;
+            const headingPath = Array.isArray(to.headingPath) ? to.headingPath : [];
+            result.push({
+              source:
+                src && typeof src.relativePath === 'string' ? (src.relativePath as string) : '',
+              heading: headingPath.filter((h: unknown) => typeof h === 'string').join(' > '),
+              tokens: typeof to.tokenEstimate === 'number' ? (to.tokenEstimate as number) : 0,
+              content: typeof to.content === 'string' ? (to.content as string) : '',
+            });
+          }
+        }
+        return result;
+      };
+
+      const included = extractSections(rawIncluded);
+      const trimmed = extractSections(rawTrimmed);
 
       send(transport, {
         type: 'boot_context',
         source: 'contexgin',
-        sourceCount: sourcePaths.length,
+        sourceCount: sources.length,
         tokenCount: bootTokens,
-        trimmedCount: trimmed.length,
-        sources: sourcePaths,
+        tokenBudget: tokenBudget,
+        sources,
+        included,
+        trimmed,
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -801,8 +866,10 @@ async function _startChatInner(
         source: 'local-fallback',
         sourceCount: 0,
         tokenCount: 0,
-        trimmedCount: 0,
+        tokenBudget: tokenBudget,
         sources: [],
+        included: [],
+        trimmed: [],
       });
     }
   })();
@@ -1081,6 +1148,7 @@ function _closeoutSessionInner(clientId: string): void {
       try {
         finalizeCloseout(BASE_REPO, session.wtId, {
           status: 'abandoned',
+          closed_by: 'abandoned',
           tokens_used: session.cumulativeSessionTokens,
           cost_usd: session.cumulativeCostUsd,
         });
@@ -1105,9 +1173,15 @@ function _closeoutSessionInner(clientId: string): void {
     const wtId = session.wtId;
     const onAbort = () => {
       const status = registry.isClosingOut(clientId) ? 'abandoned' : 'closed';
+      const closedBy = registry.isUserClose(clientId)
+        ? 'user'
+        : status === 'abandoned'
+          ? 'abandoned'
+          : 'auto';
       try {
         finalizeCloseout(BASE_REPO, wtId, {
           status,
+          closed_by: closedBy,
           tokens_used: session.cumulativeSessionTokens,
           cost_usd: session.cumulativeCostUsd,
         });
@@ -1121,6 +1195,90 @@ function _closeoutSessionInner(clientId: string): void {
 
 // Wire closeout handler on the registry
 registry.setCloseoutHandler(closeoutSession);
+
+const USER_CLOSEOUT_PROMPT = `The user has closed this session.
+Please perform session closeout:
+
+1. If there is uncommitted work in any worktree, commit it now with a descriptive message
+2. If there are memory-worthy observations, decisions, or patterns — write them to memory/Observations/ or memory/Decisions/
+3. Write a 2-3 sentence summary of what was accomplished and what remains unfinished — output it as your final chat message so it appears in the conversation history
+4. Do not ask for confirmation — just do it`;
+
+/**
+ * User-initiated session close. Triggers the same closeout flow as
+ * auto-close but with a shorter timeout (2 minutes) and marks the
+ * session as closed by the user.
+ */
+export function closeSessionByUser(clientId: string): void {
+  withSpan('session.close_by_user', { 'session.clientId': clientId }, () => {
+    const session = registry.get(clientId);
+    if (!session) return;
+
+    // Mark as user-initiated close in the registry
+    registry.markUserClose(clientId);
+
+    if (!session.inputQueue) {
+      // No active agent — finalize immediately
+      if (session.wtId) {
+        try {
+          finalizeCloseout(BASE_REPO, session.wtId, {
+            status: 'closed',
+            closed_by: 'user',
+            tokens_used: session.cumulativeSessionTokens,
+            cost_usd: session.cumulativeCostUsd,
+          });
+        } catch {
+          // best-effort
+        }
+      }
+      if (session.sessionId) {
+        eventStore.upsertSession({
+          sessionId: session.sessionId,
+          isActive: false,
+          closedBy: 'user',
+        });
+      }
+      registry.remove(clientId);
+      return;
+    }
+
+    log.info('user-initiated closeout', { clientId, wtId: session.wtId });
+
+    // Inject closeout prompt
+    session.inputQueue.push(makeUserMessage(USER_CLOSEOUT_PROMPT, 'now'));
+
+    // Register abort listener to finalize with closed_by: 'user'
+    if (session.wtId) {
+      const wtId = session.wtId;
+      const onAbort = () => {
+        try {
+          finalizeCloseout(BASE_REPO, wtId, {
+            status: 'closed',
+            closed_by: 'user',
+            tokens_used: session.cumulativeSessionTokens,
+            cost_usd: session.cumulativeCostUsd,
+          });
+        } catch {
+          // best-effort
+        }
+      };
+      session.abortController.signal.addEventListener('abort', onAbort, { once: true });
+    }
+
+    // Mark inactive in event store
+    if (session.sessionId) {
+      eventStore.upsertSession({ sessionId: session.sessionId, closedBy: 'user' });
+    }
+
+    // Set a shorter timeout — 2 minutes instead of 10
+    setTimeout(() => {
+      if (registry.isActive(clientId) && registry.isUserClose(clientId)) {
+        log.info('user closeout timeout, aborting', { clientId });
+        registry.abort(clientId);
+      }
+    }, USER_CLOSEOUT_TIMEOUT_MS);
+  });
+}
 
 export function stopChat(clientId: string) {
   withSpan('session.stop', { 'session.clientId': clientId }, () => {

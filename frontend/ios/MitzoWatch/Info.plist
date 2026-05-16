@@ -26,5 +26,10 @@
 	<true/>
 	<key>WKCompanionAppBundleIdentifier</key>
 	<string>com.mitzo.app</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 </dict>
 </plist>
