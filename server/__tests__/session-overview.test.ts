@@ -71,11 +71,11 @@ const mockGetPending = getPendingCountBySession as ReturnType<typeof vi.fn>;
 // ─── Mock worktree module ────────────────────────────────────────────────────
 
 vi.mock('../worktree.js', () => ({
-  hasUncommittedWork: vi.fn(() => null), // default: clean worktree
+  hasUncommittedWorkAsync: vi.fn(async () => null), // default: clean worktree
 }));
 
-import { hasUncommittedWork } from '../worktree.js';
-const mockHasUncommittedWork = hasUncommittedWork as ReturnType<typeof vi.fn>;
+import { hasUncommittedWorkAsync } from '../worktree.js';
+const mockHasUncommittedWorkAsync = hasUncommittedWorkAsync as ReturnType<typeof vi.fn>;
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
@@ -86,7 +86,7 @@ describe('SessionOverviewEmitter', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mockGetPending.mockReturnValue(0);
-    mockHasUncommittedWork.mockReturnValue(null);
+    mockHasUncommittedWorkAsync.mockImplementation(async () => null);
   });
 
   afterEach(() => {
@@ -492,8 +492,8 @@ describe('SessionOverviewEmitter', () => {
 
   // ─── Uncommitted work ─────────────────────────────────────────────────────
 
-  it('sets uncommittedWork when worktree is dirty', () => {
-    mockHasUncommittedWork.mockReturnValue('M some-file.ts');
+  it('sets uncommittedWork when worktree is dirty', async () => {
+    mockHasUncommittedWorkAsync.mockImplementation(async () => 'M some-file.ts');
     deps = makeDeps({
       registry: {
         getActiveSessions: vi.fn(() => [makeActiveSession({ cwd: '/Users/test/project' })]),
@@ -501,13 +501,16 @@ describe('SessionOverviewEmitter', () => {
     });
     emitter = new SessionOverviewEmitter(deps);
     emitter.touch('client-1');
+
+    // Flush the initial background refresh
+    await vi.advanceTimersByTimeAsync(0);
 
     const activities = emitter.getSnapshot();
     expect(activities[0].uncommittedWork).toBe(true);
   });
 
-  it('does not set uncommittedWork when worktree is clean', () => {
-    mockHasUncommittedWork.mockReturnValue(null);
+  it('does not set uncommittedWork when worktree is clean', async () => {
+    mockHasUncommittedWorkAsync.mockImplementation(async () => null);
     deps = makeDeps({
       registry: {
         getActiveSessions: vi.fn(() => [makeActiveSession({ cwd: '/Users/test/project' })]),
@@ -515,6 +518,8 @@ describe('SessionOverviewEmitter', () => {
     });
     emitter = new SessionOverviewEmitter(deps);
     emitter.touch('client-1');
+
+    await vi.advanceTimersByTimeAsync(0);
 
     const activities = emitter.getSnapshot();
     expect(activities[0].uncommittedWork).toBe(false);
@@ -576,11 +581,11 @@ describe('SessionOverviewEmitter', () => {
     expect(activities[0].sessionId).toBe('session-1');
   });
 
-  // ─── Uncommitted work cache TTL ─────────────────────────────────────────
+  // ─── Background uncommitted work refresh ────────────────────────────────
 
-  it('caches uncommitted work results within TTL', () => {
-    mockHasUncommittedWork.mockClear();
-    mockHasUncommittedWork.mockReturnValue('M dirty.ts');
+  it('does not call git synchronously during compute', async () => {
+    mockHasUncommittedWorkAsync.mockClear();
+    mockHasUncommittedWorkAsync.mockImplementation(async () => 'M dirty.ts');
     deps = makeDeps({
       registry: {
         getActiveSessions: vi.fn(() => [makeActiveSession({ cwd: '/Users/test/project' })]),
@@ -589,18 +594,19 @@ describe('SessionOverviewEmitter', () => {
     emitter = new SessionOverviewEmitter(deps);
     emitter.touch('client-1');
 
-    // First call checks git
-    emitter.getSnapshot();
-    expect(mockHasUncommittedWork).toHaveBeenCalledTimes(1);
+    // Before background refresh resolves, cache returns false (safe default)
+    const before = emitter.getSnapshot();
+    expect(before[0].uncommittedWork).toBe(false);
 
-    // Second call within TTL uses cache
-    emitter.getSnapshot();
-    expect(mockHasUncommittedWork).toHaveBeenCalledTimes(1);
+    // After background refresh
+    await vi.advanceTimersByTimeAsync(0);
+    const after = emitter.getSnapshot();
+    expect(after[0].uncommittedWork).toBe(true);
   });
 
-  it('re-checks uncommitted work after TTL expires', () => {
-    mockHasUncommittedWork.mockClear();
-    mockHasUncommittedWork.mockReturnValue('M dirty.ts');
+  it('refreshes cache on interval', async () => {
+    mockHasUncommittedWorkAsync.mockClear();
+    mockHasUncommittedWorkAsync.mockImplementation(async () => 'M dirty.ts');
     deps = makeDeps({
       registry: {
         getActiveSessions: vi.fn(() => [makeActiveSession({ cwd: '/Users/test/project' })]),
@@ -609,20 +615,17 @@ describe('SessionOverviewEmitter', () => {
     emitter = new SessionOverviewEmitter(deps);
     emitter.touch('client-1');
 
-    // First call
-    emitter.getSnapshot();
-    expect(mockHasUncommittedWork).toHaveBeenCalledTimes(1);
+    // Initial refresh
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mockHasUncommittedWorkAsync).toHaveBeenCalledTimes(1);
 
-    // Advance past TTL (5 minutes)
-    vi.advanceTimersByTime(6 * 60 * 1000);
-
-    // Should re-check
-    emitter.getSnapshot();
-    expect(mockHasUncommittedWork).toHaveBeenCalledTimes(2);
+    // Advance past refresh interval (60s)
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mockHasUncommittedWorkAsync).toHaveBeenCalledTimes(2);
   });
 
-  it('treats git error sentinels as clean (not dirty)', () => {
-    mockHasUncommittedWork.mockReturnValue('[git status failed: timeout]');
+  it('treats git error sentinels as clean (not dirty)', async () => {
+    mockHasUncommittedWorkAsync.mockImplementation(async () => '[git status failed: timeout]');
     deps = makeDeps({
       registry: {
         getActiveSessions: vi.fn(() => [makeActiveSession({ cwd: '/Users/test/project' })]),
@@ -630,6 +633,8 @@ describe('SessionOverviewEmitter', () => {
     });
     emitter = new SessionOverviewEmitter(deps);
     emitter.touch('client-1');
+
+    await vi.advanceTimersByTimeAsync(0);
 
     const activities = emitter.getSnapshot();
     expect(activities[0].uncommittedWork).toBe(false);

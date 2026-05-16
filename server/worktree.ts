@@ -341,6 +341,28 @@ export function hasUncommittedWork(worktreePath: string): string | null {
 }
 
 /**
+ * Async version of hasUncommittedWork — does not block the event loop.
+ * Used by SessionOverviewEmitter's background refresh loop.
+ */
+export async function hasUncommittedWorkAsync(worktreePath: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', worktreePath, 'status', '--porcelain'], {
+      encoding: 'utf-8',
+      timeout: WORKTREE_GIT_TIMEOUT_MS,
+    });
+    const output = stdout.trim();
+    return output || null;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'unknown';
+    log.warn('git status failed on worktree (async), treating as dirty', {
+      path: worktreePath,
+      error: message,
+    });
+    return `[git status failed: ${message}]`;
+  }
+}
+
+/**
  * Post a proposal to the mgmt inbox about a stale worktree with uncommitted work.
  */
 function postDirtyWorktreeToInbox(

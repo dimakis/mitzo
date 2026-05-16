@@ -18,7 +18,7 @@ import type {
 import type { EventStore } from '@mitzo/protocol/event-store';
 import type { LoopStatus } from './task-orchestrator.js';
 import type { TaskStore } from './task-store.js';
-import { hasUncommittedWork } from './worktree.js';
+import { hasUncommittedWorkAsync } from './worktree.js';
 import { createLogger } from './logger.js';
 
 export type { SessionActivity, SessionActivityState, WaitReason } from '@mitzo/protocol';
@@ -33,8 +33,8 @@ const DONE_TIMEOUT_MS = 5 * 60 * 1000;
 /** Coalesce broadcasts within this window to avoid re-render storms. */
 const COALESCE_MS = 200;
 
-/** TTL for cached uncommitted work checks (5 minutes). */
-const UNCOMMITTED_CACHE_TTL_MS = 5 * 60 * 1000;
+/** Interval for background uncommitted work refresh (60 seconds). */
+const UNCOMMITTED_REFRESH_INTERVAL_MS = 60 * 1000;
 
 // ─── State priority for "highest wins" ────────────────────────────────────────
 
@@ -71,11 +71,16 @@ export class SessionOverviewEmitter {
   private coalesceTimer: ReturnType<typeof setTimeout> | null = null;
   /** Track last assistant event time per clientId for timeout derivation. */
   private lastEventTimes = new Map<string, number>();
-  /** Cached uncommitted work results per session cwd. */
+  /** Cached uncommitted work results per session cwd (populated by background refresh). */
   private uncommittedCache = new Map<string, UncommittedCacheEntry>();
+  /** Background refresh interval for uncommitted work checks. */
+  private uncommittedRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  /** Guard against overlapping refresh runs. */
+  private refreshInFlight = false;
 
   constructor(deps: SessionOverviewDeps) {
     this.deps = deps;
+    this.startUncommittedRefresh();
   }
 
   /**
@@ -238,8 +243,8 @@ export class SessionOverviewEmitter {
     // Derive repo from cwd
     const repo = session.cwd ? extractRepoName(session.cwd) : undefined;
 
-    // Check uncommitted work for live sessions
-    const uncommittedWork = session.cwd ? this.checkUncommittedCached(session.cwd, now) : false;
+    // Check uncommitted work for live sessions (from background cache)
+    const uncommittedWork = session.cwd ? this.checkUncommittedCached(session.cwd) : false;
 
     // Check if awaiting user reply (assistant spoke last, not streaming)
     const meta = this.deps.eventStore.getSession(sessionId);
@@ -274,8 +279,8 @@ export class SessionOverviewEmitter {
     const lastEventAt = meta.lastSpeakerAt ?? meta.updatedAt;
     const idleMinutes = Math.round((now - lastEventAt) / 60_000);
 
-    // Check for uncommitted work (cached)
-    const uncommittedWork = meta.cwd ? this.checkUncommittedCached(meta.cwd, now) : false;
+    // Check for uncommitted work (from background cache)
+    const uncommittedWork = meta.cwd ? this.checkUncommittedCached(meta.cwd) : false;
 
     return {
       sessionId: meta.sessionId,
@@ -293,18 +298,69 @@ export class SessionOverviewEmitter {
   }
 
   /**
-   * Check uncommitted work with a TTL cache to avoid expensive git calls.
+   * Pure cache read — returns cached dirty state, or false if not yet checked.
+   * Cache is populated asynchronously by the background refresh loop.
    */
-  private checkUncommittedCached(cwd: string, now: number): boolean {
-    const cached = this.uncommittedCache.get(cwd);
-    if (cached && now - cached.checkedAt < UNCOMMITTED_CACHE_TTL_MS) {
-      return cached.dirty;
+  private checkUncommittedCached(cwd: string): boolean {
+    return this.uncommittedCache.get(cwd)?.dirty ?? false;
+  }
+
+  /**
+   * Start the background loop that refreshes uncommitted work state
+   * for all known session cwds. Runs async git status checks without
+   * blocking the event loop.
+   */
+  private startUncommittedRefresh(): void {
+    // Fire immediately (async, non-blocking) then repeat on interval
+    void this.refreshUncommittedCache();
+    this.uncommittedRefreshTimer = setInterval(() => {
+      void this.refreshUncommittedCache();
+    }, UNCOMMITTED_REFRESH_INTERVAL_MS);
+  }
+
+  /**
+   * Collect all cwds from live + persistent sessions, run async git status
+   * for each, and update the cache. Skips if a previous run is still in flight.
+   */
+  private async refreshUncommittedCache(): Promise<void> {
+    if (this.refreshInFlight) return;
+    this.refreshInFlight = true;
+    try {
+      const cwds = this.collectSessionCwds();
+      if (cwds.size === 0) return;
+
+      const now = Date.now();
+      await Promise.all(
+        [...cwds].map(async (cwd) => {
+          const result = await hasUncommittedWorkAsync(cwd);
+          const dirty = result !== null && !result.startsWith('[');
+          this.uncommittedCache.set(cwd, { dirty, checkedAt: now });
+        }),
+      );
+
+      // Broadcast after cache update so clients see fresh uncommitted state
+      this.scheduleBroadcast();
+    } catch (err) {
+      log.warn('uncommitted work refresh failed', {
+        error: err instanceof Error ? err.message : 'unknown',
+      });
+    } finally {
+      this.refreshInFlight = false;
     }
-    const result = hasUncommittedWork(cwd);
-    // Distinguish genuine dirty output from error sentinels (which start with '[')
-    const dirty = result !== null && !result.startsWith('[');
-    this.uncommittedCache.set(cwd, { dirty, checkedAt: now });
-    return dirty;
+  }
+
+  /**
+   * Gather all unique cwds from live registry sessions + persistent attention sessions.
+   */
+  private collectSessionCwds(): Set<string> {
+    const cwds = new Set<string>();
+    for (const s of this.deps.registry.getActiveSessions()) {
+      if (s.cwd) cwds.add(s.cwd);
+    }
+    for (const meta of this.deps.eventStore.getAttentionSessions()) {
+      if (meta.cwd) cwds.add(meta.cwd);
+    }
+    return cwds;
   }
 
   /**
@@ -330,7 +386,12 @@ export class SessionOverviewEmitter {
       clearTimeout(this.coalesceTimer);
       this.coalesceTimer = null;
     }
+    if (this.uncommittedRefreshTimer) {
+      clearInterval(this.uncommittedRefreshTimer);
+      this.uncommittedRefreshTimer = null;
+    }
     this.lastEventTimes.clear();
+    this.uncommittedCache.clear();
   }
 }
 
