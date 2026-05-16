@@ -130,6 +130,18 @@ public struct FinishedBlock: Codable, Sendable {
     public let rawInput: RawToolInput?
     public let toolResult: String?
     public let toolError: Bool?
+
+    public init(blockId: String, blockType: BlockType, content: String, toolName: String? = nil, toolId: String? = nil, toolInput: String? = nil, rawInput: RawToolInput? = nil, toolResult: String? = nil, toolError: Bool? = nil) {
+        self.blockId = blockId
+        self.blockType = blockType
+        self.content = content
+        self.toolName = toolName
+        self.toolId = toolId
+        self.toolInput = toolInput
+        self.rawInput = rawInput
+        self.toolResult = toolResult
+        self.toolError = toolError
+    }
 }
 
 public enum MessageRole: String, Codable, Sendable {
@@ -144,6 +156,15 @@ public struct FinishedMessage: Codable, Sendable {
     public let images: [String]?
     public let contextBlocks: [String]?
     public let timestamp: Int?
+
+    public init(messageId: String, role: MessageRole, blocks: [FinishedBlock], images: [String]? = nil, contextBlocks: [String]? = nil, timestamp: Int? = nil) {
+        self.messageId = messageId
+        self.role = role
+        self.blocks = blocks
+        self.images = images
+        self.contextBlocks = contextBlocks
+        self.timestamp = timestamp
+    }
 }
 
 // MARK: - Permission

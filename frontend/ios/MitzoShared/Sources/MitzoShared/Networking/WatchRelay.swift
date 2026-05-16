@@ -282,20 +282,76 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
     /// WCSession has an undocumented ~64 KB per-message limit; large payloads
     /// (e.g. file-read block_delta) are silently dropped by the system.
     public func forwardToWatch(_ message: ServerMessage) {
-        guard WCSession.default.isReachable else { return }
+        guard WCSession.default.isReachable else {
+            print("[WatchRelay] forwardToWatch: watch not reachable")
+            return
+        }
 
         do {
             let data = try JSONEncoder().encode(message)
+
+            // Skip events that exceed WCSession's payload limit
+            if data.count > 60_000 {
+                print("[WatchRelay] forwardToWatch: skipping oversized event (\(data.count) bytes)")
+                return
+            }
+
             if let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                let eventType = dict["type"] as? String ?? "unknown"
+                print("[WatchRelay] forwardToWatch: \(eventType) (\(data.count) bytes)")
                 WCSession.default.sendMessage(
                     ["_relay": "server_event", "_payload": dict],
                     replyHandler: nil,
-                    errorHandler: { @Sendable _ in } // Non-fatal: watch recovers via seq replay
+                    errorHandler: { @Sendable error in
+                        print("[WatchRelay] forwardToWatch error: \(error)")
+                    }
                 )
             }
         } catch {
-            // Encoding failure — drop the message
+            print("[WatchRelay] forwardToWatch encode error: \(error)")
         }
+    }
+
+    // MARK: - Slim Messages
+
+    /// Strips tool blocks, truncates text, and drops oldest messages until
+    /// the JSON payload fits under `maxBytes` (WCSession ~64KB limit).
+    static func slimMessages(_ messages: [FinishedMessage], maxBytes: Int = 50_000) -> [FinishedMessage] {
+        // Keep only text blocks, truncate long content
+        var slim = messages.map { msg in
+            let textBlocks = msg.blocks
+                .filter { $0.blockType == .text }
+                .map { block in
+                    let content = block.content.count > 500
+                        ? String(block.content.prefix(500)) + "…"
+                        : block.content
+                    return FinishedBlock(
+                        blockId: block.blockId,
+                        blockType: .text,
+                        content: content
+                    )
+                }
+            return FinishedMessage(
+                messageId: msg.messageId,
+                role: msg.role,
+                blocks: textBlocks,
+                timestamp: msg.timestamp
+            )
+        }
+
+        // Take last 30 messages
+        if slim.count > 30 {
+            slim = Array(slim.suffix(30))
+        }
+
+        // Drop oldest until under byte limit
+        while slim.count > 1 {
+            guard let data = try? JSONEncoder().encode(slim),
+                  data.count > maxBytes else { break }
+            slim.removeFirst()
+        }
+
+        return slim
     }
 
     // MARK: - Helpers
@@ -439,6 +495,10 @@ public final class WatchRelayClient: NSObject, WCSessionDelegate, Sendable {
         var message = params
         message["_relay"] = "send"
         message["action"] = action
+        // Include token so iPhone can lazily create WS client
+        if let token = try? await AuthManager().getToken() {
+            message["_token"] = token
+        }
 
         return try await withCheckedThrowingContinuation { continuation in
             let cont = UnsafeSendable(continuation)
@@ -452,10 +512,15 @@ public final class WatchRelayClient: NSObject, WCSessionDelegate, Sendable {
 
     /// Request messages for a session from phone (phone calls server REST API)
     public func requestMessages(sessionId: String) async throws -> [FinishedMessage] {
+        var msg: [String: Any] = ["_relay": "get_messages", "sessionId": sessionId]
+        if let token = try? await AuthManager().getToken() {
+            msg["_token"] = token
+        }
+
         let reply = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[String: Any], Error>) in
             let cont = UnsafeSendable(continuation)
             WCSession.default.sendMessage(
-                ["_relay": "get_messages", "sessionId": sessionId],
+                msg,
                 replyHandler: { @Sendable reply in cont.value.resume(returning: UnsafeSendable(reply).value) },
                 errorHandler: { @Sendable error in cont.value.resume(throwing: error) }
             )
@@ -475,10 +540,17 @@ public final class WatchRelayClient: NSObject, WCSessionDelegate, Sendable {
 
     /// Request session list from phone (phone calls server REST API)
     public func requestSessions() async throws -> SessionsResponse {
+        // Include our token so the phone can create an apiClient even if
+        // its own Keychain hasn't been populated by the web layer yet.
+        var msg: [String: Any] = ["_relay": "list_sessions"]
+        if let token = try? await AuthManager().getToken() {
+            msg["_token"] = token
+        }
+
         let reply = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[String: Any], Error>) in
             let cont = UnsafeSendable(continuation)
             WCSession.default.sendMessage(
-                ["_relay": "list_sessions"],
+                msg,
                 replyHandler: { @Sendable reply in cont.value.resume(returning: UnsafeSendable(reply).value) },
                 errorHandler: { @Sendable error in cont.value.resume(throwing: error) }
             )
@@ -521,12 +593,19 @@ public final class WatchRelayClient: NSObject, WCSessionDelegate, Sendable {
         guard message["_relay"] as? String == "server_event",
               let payload = message["_payload"] as? [String: Any] else { return }
 
+        let eventType = payload["type"] as? String ?? "unknown"
+        print("[WatchRelay] Watch received event: \(eventType)")
+
         do {
             let data = try JSONSerialization.data(withJSONObject: payload)
             let serverMsg = try JSONDecoder().decode(ServerMessage.self, from: data)
-            state.getHandler()?(serverMsg)
+            if state.getHandler() != nil {
+                state.getHandler()?(serverMsg)
+            } else {
+                print("[WatchRelay] No handler set for server events!")
+            }
         } catch {
-            // Decoding failure — drop the message
+            print("[WatchRelay] Watch decode error for \(eventType): \(error)")
         }
     }
 }
