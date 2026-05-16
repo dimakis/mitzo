@@ -41,7 +41,7 @@ final class ChatViewModel: ObservableObject {
             let finished = try await appState.loadMessages(sessionId: sessionId)
             messages = finished.map { ChatMessage(from: $0) }
         } catch {
-            // History load failure is non-fatal
+            print("[Watch] loadHistory failed: \(error)")
         }
 
         // Watch this session for live updates
@@ -65,7 +65,8 @@ final class ChatViewModel: ObservableObject {
             try await appState.sendMessage(.send(params))
             isStreaming = true
         } catch {
-            // Handle send failure
+            let errorMsg = ChatMessage(role: .assistant, text: "Send failed: \(error.localizedDescription)")
+            messages.append(errorMsg)
         }
     }
 

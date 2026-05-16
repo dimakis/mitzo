@@ -107,12 +107,22 @@ final class AppState: ObservableObject {
     }
 
     private func loadSessionsViaRelay() async {
-        do {
-            let response = try await relayClient.requestSessions()
-            sessions = response.sessions
-        } catch {
-            self.error = "Failed to load sessions via relay"
-            sessions = []
+        for attempt in 1...2 {
+            do {
+                let response = try await relayClient.requestSessions()
+                sessions = response.sessions
+                error = nil
+                return
+            } catch {
+                print("[Watch] loadSessions attempt \(attempt) failed: \(error)")
+                if attempt < 2 {
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                }
+            }
+        }
+        // Only set error if we have no sessions at all
+        if sessions.isEmpty {
+            self.error = "Failed to load sessions"
         }
     }
 

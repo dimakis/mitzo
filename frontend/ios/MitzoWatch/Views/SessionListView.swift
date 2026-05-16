@@ -27,6 +27,12 @@ struct SessionListView: View {
                         SessionRow(session: session)
                     }
                 }
+
+                if let error = appState.error {
+                    Text(error)
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                }
             }
             .navigationTitle("Mitzo")
             .toolbar {
