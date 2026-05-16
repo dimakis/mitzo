@@ -297,6 +297,52 @@ describe('detectDefaultBranch', () => {
     expect(detectDefaultBranch(baseRepo)).toBe('develop');
     rmSync(remoteRepo, { recursive: true, force: true });
   });
+
+  it('handles branch names with slashes correctly', () => {
+    // Create a bare "remote" repo with a slashed default branch
+    const remoteRepo = mkdtempSync(join(tmpdir(), 'mitzo-remote-slashed-'));
+    execFileSync('git', ['-C', remoteRepo, 'init', '--bare', '-b', 'release/stable'], {
+      stdio: 'pipe',
+    });
+    execFileSync('git', ['-C', baseRepo, 'remote', 'add', 'origin', remoteRepo], {
+      stdio: 'pipe',
+    });
+    execFileSync('git', ['-C', baseRepo, 'push', 'origin', 'main:release/stable'], {
+      stdio: 'pipe',
+    });
+    execFileSync('git', ['-C', baseRepo, 'fetch', 'origin'], { stdio: 'pipe' });
+    execFileSync(
+      'git',
+      [
+        '-C',
+        baseRepo,
+        'symbolic-ref',
+        'refs/remotes/origin/HEAD',
+        'refs/remotes/origin/release/stable',
+      ],
+      { stdio: 'pipe' },
+    );
+
+    expect(detectDefaultBranch(baseRepo)).toBe('release/stable');
+    rmSync(remoteRepo, { recursive: true, force: true });
+  });
+
+  it('falls back to HEAD when main does not exist', () => {
+    // Create a repo with master instead of main
+    const masterRepo = mkdtempSync(join(tmpdir(), 'mitzo-master-'));
+    execFileSync('git', ['-C', masterRepo, 'init', '-b', 'master'], { stdio: 'pipe' });
+    execFileSync('git', ['-C', masterRepo, 'config', 'user.email', 'test@test.com'], {
+      stdio: 'pipe',
+    });
+    execFileSync('git', ['-C', masterRepo, 'config', 'user.name', 'Test'], { stdio: 'pipe' });
+    execFileSync('git', ['-C', masterRepo, 'commit', '--allow-empty', '-m', 'init'], {
+      stdio: 'pipe',
+    });
+
+    // No origin, 'main' doesn't exist — should fall back to 'HEAD'
+    expect(detectDefaultBranch(masterRepo)).toBe('HEAD');
+    rmSync(masterRepo, { recursive: true, force: true });
+  });
 });
 
 describe('createWorktree (sync)', () => {

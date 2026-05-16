@@ -31,7 +31,10 @@ const log = createLogger('worktree');
 /**
  * Detect the default branch of a repo (e.g. 'main' or 'master').
  * Uses `git symbolic-ref refs/remotes/origin/HEAD` when an origin exists,
- * otherwise falls back to 'main'.
+ * otherwise falls back to 'main' (verified) or HEAD.
+ *
+ * NOTE: Uses execFileSync intentionally — called during session setup (not hot path).
+ * Worktree creation is a one-time initialization per session, so blocking is acceptable.
  */
 export function detectDefaultBranch(repoPath: string): string {
   try {
@@ -40,13 +43,25 @@ export function detectDefaultBranch(repoPath: string): string {
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: WORKTREE_GIT_TIMEOUT_MS,
     }).trim();
-    // ref looks like "refs/remotes/origin/main" — extract the last segment
-    const branch = ref.split('/').pop();
+    // ref looks like "refs/remotes/origin/main" or "refs/remotes/origin/release/stable"
+    const branch = ref.replace('refs/remotes/origin/', '');
     if (branch) return branch;
   } catch {
     // No origin or symbolic-ref not set — fall back
   }
-  return 'main';
+
+  // Verify 'main' exists before using it as fallback
+  try {
+    execFileSync('git', ['-C', repoPath, 'rev-parse', '--verify', 'main'], {
+      stdio: 'pipe',
+      timeout: WORKTREE_GIT_TIMEOUT_MS,
+    });
+    return 'main';
+  } catch {
+    // 'main' doesn't exist — fall back to HEAD
+  }
+
+  return 'HEAD';
 }
 
 /** Worktrees live inside each repo at .claude/worktrees/<sessionId>. */
