@@ -26,6 +26,138 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
         super.init()
     }
 
+    /// Returns the configured wsClient, or lazily creates and connects one.
+    private func getOrCreateWSClient(fallbackToken: String? = nil) async -> MitzoWSClient? {
+        if let existing = state.getWSClient() { return existing }
+
+        // Try to get a token for WS authentication
+        var token = try? await authManager.getToken()
+        if token == nil, let fb = fallbackToken {
+            try? await authManager.saveToken(fb)
+            token = try? await authManager.getToken()
+        }
+
+        guard let token else {
+            print("[WatchRelay] No token for lazy wsClient")
+            return nil
+        }
+
+        let stored = UserDefaults.standard.string(forKey: "mitzo_server_url")
+        guard let serverURL = URL(string: stored ?? "https://100.91.50.57:3100") else {
+            return nil
+        }
+
+        var components = URLComponents(url: serverURL, resolvingAgainstBaseURL: false)!
+        components.scheme = components.scheme == "https" ? "wss" : "ws"
+        components.path = "/ws/chat"
+        components.queryItems = [URLQueryItem(name: "token", value: token)]
+
+        guard let wsURL = components.url else { return nil }
+
+        let client = MitzoWSClient(url: wsURL)
+        state.setWSClient(client)
+        print("[WatchRelay] Lazily created wsClient for \(wsURL.host ?? "")")
+
+        // Connect in the background — fire and forget, the client handles reconnection
+        let relay = self
+        Task {
+            await client.connect { event in
+                if case .message(let msg) = event {
+                    relay.forwardToWatch(msg)
+                }
+            }
+        }
+
+        // Give the WS handshake a moment
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        return client
+    }
+
+    /// Returns the configured apiClient, or lazily creates one if none is set.
+    /// This handles the timing gap where the watch requests sessions before
+    /// the coordinator has finished connecting.
+    /// If a fallback token is provided (from the watch's relay message), it will
+    /// be saved to the Keychain and used to create the apiClient.
+    private func getOrCreateAPIClient(fallbackToken: String? = nil) async -> MitzoAPIClient? {
+        if let existing = state.getAPIClient() { return existing }
+
+        // Try Keychain first, then fall back to token from watch
+        var hasToken = (try? await authManager.getToken()) != nil
+        if !hasToken, let token = fallbackToken {
+            print("[WatchRelay] Using fallback token from watch")
+            try? await authManager.saveToken(token)
+            hasToken = true
+        }
+
+        guard hasToken else {
+            print("[WatchRelay] No token available for lazy apiClient")
+            return nil
+        }
+
+        let stored = UserDefaults.standard.string(forKey: "mitzo_server_url")
+        guard let serverURL = URL(string: stored ?? "https://100.91.50.57:3100") else {
+            return nil
+        }
+
+        let api = MitzoAPIClient(baseURL: serverURL, authManager: authManager)
+        state.setAPIClient(api)
+        print("[WatchRelay] Lazily created apiClient for \(serverURL)")
+        return api
+    }
+
+    /// Slim down messages to fit within WCSession's ~64KB payload limit.
+    /// Keeps only text blocks, truncates long content, drops tool
+    /// input/output/results, and takes only the most recent messages.
+    static func slimMessages(_ messages: [FinishedMessage], maxBytes: Int) -> [FinishedMessage] {
+        // Take last 30 messages, strip tool details
+        let recent = messages.suffix(30)
+        var slim: [FinishedMessage] = []
+
+        for msg in recent {
+            let slimBlocks = msg.blocks.compactMap { block -> FinishedBlock? in
+                // Keep only text blocks, skip tool_use/thinking
+                guard block.blockType == .text else {
+                    return nil
+                }
+                // Truncate long content
+                let content = block.content.count > 500
+                    ? String(block.content.prefix(500)) + "..."
+                    : block.content
+                return FinishedBlock(
+                    blockId: block.blockId,
+                    blockType: block.blockType,
+                    content: content,
+                    toolName: nil,
+                    toolId: nil,
+                    toolInput: nil,
+                    rawInput: nil,
+                    toolResult: nil,
+                    toolError: nil
+                )
+            }
+            // Skip messages with no displayable blocks
+            guard !slimBlocks.isEmpty else { continue }
+            slim.append(FinishedMessage(
+                messageId: msg.messageId,
+                role: msg.role,
+                blocks: slimBlocks,
+                images: nil,
+                contextBlocks: nil,
+                timestamp: msg.timestamp
+            ))
+        }
+
+        // Final size check — drop oldest if still too large
+        while slim.count > 2 {
+            if let data = try? JSONEncoder().encode(slim), data.count <= maxBytes {
+                break
+            }
+            slim.removeFirst()
+        }
+
+        return slim
+    }
+
     public func activate(wsClient: MitzoWSClient? = nil, apiClient: MitzoAPIClient? = nil) {
         if let wsClient { state.setWSClient(wsClient) }
         if let apiClient { state.setAPIClient(apiClient) }
@@ -68,9 +200,9 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
             clientMsg = UnsafeSendable(nil)
         }
         let sessionId = message["sessionId"] as? String ?? ""
+        let fallbackToken = message["_token"] as? String
         let reply = UnsafeSendable(replyHandler)
-        let capturedState = state
-        let capturedAuthManager = authManager
+        let capturedSelf = self
 
         Task { @Sendable in
             do {
@@ -80,45 +212,58 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
                         reply.value(["error": "invalid message"])
                         return
                     }
-                    try await capturedState.getWSClient()?.send(msg)
-                    reply.value(["ok": true])
+                    if let ws = await capturedSelf.getOrCreateWSClient(fallbackToken: fallbackToken) {
+                        try await ws.send(msg)
+                        reply.value(["ok": true])
+                    } else {
+                        print("[WatchRelay] No wsClient for send")
+                        reply.value(["error": "no_ws_client"])
+                    }
 
                 case "get_messages":
-                    if let apiClient = capturedState.getAPIClient() {
+                    if let apiClient = await capturedSelf.getOrCreateAPIClient(fallbackToken: fallbackToken) {
                         do {
-                            let messages: [FinishedMessage] = try await apiClient.getMessages(sessionId: sessionId)
-                            let data = try JSONEncoder().encode(messages)
+                            let allMessages: [FinishedMessage] = try await apiClient.getMessages(sessionId: sessionId)
+                            // WCSession has ~64KB limit. Strip tool details and take
+                            // only recent messages to stay under the cap.
+                            let slim = WatchRelayHost.slimMessages(allMessages, maxBytes: 50_000)
+                            let data = try JSONEncoder().encode(slim)
                             if let arr = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
                                 reply.value(["_payload": arr])
                             } else {
                                 reply.value(["error": "encoding_failed"])
                             }
                         } catch {
+                            print("[WatchRelay] get_messages error: \(error)")
                             reply.value(["error": error.localizedDescription])
                         }
                     } else {
+                        print("[WatchRelay] No apiClient for get_messages")
                         reply.value(["error": "no_api_client"])
                     }
 
                 case "list_sessions":
-                    if let apiClient = capturedState.getAPIClient() {
+                    if let apiClient = await capturedSelf.getOrCreateAPIClient(fallbackToken: fallbackToken) {
                         do {
                             let response = try await apiClient.getSessions()
                             let data = try JSONEncoder().encode(response)
                             if let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                                print("[WatchRelay] list_sessions success: \(dict.keys)")
                                 reply.value(["_payload": dict])
                             } else {
                                 reply.value(["error": "encoding_failed"])
                             }
                         } catch {
+                            print("[WatchRelay] list_sessions error: \(error)")
                             reply.value(["error": error.localizedDescription])
                         }
                     } else {
+                        print("[WatchRelay] No apiClient for list_sessions")
                         reply.value(["error": "no_api_client"])
                     }
 
                 case "auth_token":
-                    if let token = try? await capturedAuthManager.getToken() {
+                    if let token = try? await capturedSelf.authManager.getToken() {
                         reply.value(["token": token])
                     } else {
                         reply.value(["error": "no_token"])

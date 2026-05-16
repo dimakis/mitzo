@@ -29,6 +29,7 @@
 		EB52F01B4D4DE944429DFFB7 /* SessionListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A3543D568BAEA16F3464C2D /* SessionListView.swift */; };
 		EBDB8718D00B3CAC47EFD6EC /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB2544C9BF33F98A575F8F9F /* AppState.swift */; };
 		F1A2B3C4D5E6F70800000001 /* ComposeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E6F70800000002 /* ComposeSheet.swift */; };
+		AA000004AAAA000000000004 /* MitzoWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 264FB5577C8B9098BE816A36 /* MitzoWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -59,6 +60,30 @@
 		FB2544C9BF33F98A575F8F9F /* AppState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		FF6B3AF931A2A562E89BCCA0 /* ChatView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXContainerItemProxy section */
+		AA000001AAAA000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E33326562D8A9AEAE27478C4;
+			remoteInfo = MitzoWatch;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		AA000003AAAA000000000003 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				AA000004AAAA000000000004 /* MitzoWatch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		46CE6721E210798D5CF8813F /* Frameworks */ = {
@@ -172,10 +197,12 @@
 				504EC3001FED79650016851F /* Sources */,
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
+				AA000003AAAA000000000003 /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				AA000002AAAA000000000002 /* PBXTargetDependency */,
 			);
 			name = App;
 			packageProductDependencies = (
@@ -320,6 +347,14 @@
 			sourceTree = "<group>";
 		};
 /* End PBXVariantGroup section */
+
+/* Begin PBXTargetDependency section */
+		AA000002AAAA000000000002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E33326562D8A9AEAE27478C4 /* MitzoWatch */;
+			targetProxy = AA000001AAAA000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		16EF91AC41A8DC5F7DE4223C /* Debug */ = {

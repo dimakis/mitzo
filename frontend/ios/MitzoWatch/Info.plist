@@ -26,6 +26,8 @@
 	<true/>
 	<key>WKCompanionAppBundleIdentifier</key>
 	<string>com.mitzo.app</string>
+	<key>WKRunsIndependentlyOfCompanionApp</key>
+	<false/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
