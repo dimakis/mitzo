@@ -35,13 +35,11 @@ import {
   SESSION_PAGE_SIZE,
   SESSION_MESSAGES_LIMIT,
   USER_CLOSEOUT_TIMEOUT_MS,
+  ZERO_TURN_GRACE_MS,
 } from './constants.js';
 import { INTERNAL_TOKEN } from './internal-token.js';
 import { buildTaskSystemPrompt } from './task-context.js';
 import type { TaskStore } from './task-store.js';
-
-/** Grace period for zero-turn inactive sessions — recently created ones stay visible. */
-const ZERO_TURN_GRACE_MS = 60 * 60 * 1000; // 1 hour
 
 let _taskStore: TaskStore | null = null;
 export function setTaskStore(store: TaskStore): void {
@@ -1512,13 +1510,14 @@ export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
  * Returns the same shape as getSessions() for API compatibility.
  */
 export function getSessionsCached(offset = 0, limit = SESSION_PAGE_SIZE) {
+  const now = Date.now();
   const all = eventStore.listSessions().filter((m) => {
     // Hide sessions that were never used through Mitzo (e.g. automated
     // code review sessions discovered from filesystem).  Active sessions
     // always show regardless of turn count.  Recently created sessions
     // (< 1 hour) are kept even with no turns — they may still be starting.
     if (m.numTurns === 0 && m.promptCount === 0 && !m.isActive) {
-      return Date.now() - m.createdAt < ZERO_TURN_GRACE_MS;
+      return now - m.createdAt < ZERO_TURN_GRACE_MS;
     }
     return true;
   });

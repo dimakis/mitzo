@@ -42,6 +42,10 @@ export const SHUTDOWN_GRACE_MS = 5_000;
 export const GUARD_STATS_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 export const WORKTREE_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
+// --- Session List ---
+/** Grace period for zero-turn inactive sessions — recently created ones stay visible. */
+export const ZERO_TURN_GRACE_MS = 60 * 60 * 1000; // 1 hour
+
 // --- Query loop ---
 // If the Agent SDK yields no events within this window, we treat the turn
 // as unreachable (e.g. model unavailable on the configured provider) and
