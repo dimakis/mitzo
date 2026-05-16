@@ -4,18 +4,24 @@ import { describe, it, expect, vi } from 'vitest';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let capturedComponents: Record<string, any> | undefined;
 let capturedContent: string | undefined;
+
+let capturedUrlTransform: ((url: string) => string) | undefined;
 vi.mock('react-markdown', () => ({
   default: ({
     children,
     components,
+    urlTransform,
   }: {
     children: string;
     components?: Record<string, unknown>;
+    urlTransform?: (url: string) => string;
   }) => {
     capturedComponents = components;
     capturedContent = children;
+    capturedUrlTransform = urlTransform;
     return children;
   },
+  defaultUrlTransform: (url: string) => `sanitized:${url}`,
 }));
 vi.mock('remark-gfm', () => ({ default: () => {} }));
 
@@ -286,6 +292,25 @@ describe('TextBubble markdown preview card promotion', () => {
     const fileHref = `${FILE_SCHEME}${encodeURIComponent('/tmp/notes.md')}`;
     const rendered = anchor({ href: fileHref, children: '/tmp/notes.md' });
     expect(rendered.props['data-file-path']).toBe('/tmp/notes.md');
+  });
+});
+
+describe('TextBubble urlTransform', () => {
+  it('preserves file-path:// URLs and delegates others to defaultUrlTransform', () => {
+    renderToStaticMarkup(createElement(TextBubble, { content: 'test' }));
+    expect(capturedUrlTransform).toBeDefined();
+
+    // file-path:// URLs are preserved as-is (not passed through defaultUrlTransform)
+    const fileUrl = 'file-path://%2Ftmp%2Fnotes.md';
+    expect(capturedUrlTransform!(fileUrl)).toBe(fileUrl);
+
+    // Non-file-path URLs are delegated to defaultUrlTransform (mock prefixes with "sanitized:")
+    const httpUrl = 'https://example.com';
+    expect(capturedUrlTransform!(httpUrl)).toBe(`sanitized:${httpUrl}`);
+
+    // Dangerous schemes should also go through defaultUrlTransform, not be preserved
+    const jsUrl = 'javascript:alert(1)';
+    expect(capturedUrlTransform!(jsUrl)).toBe(`sanitized:${jsUrl}`);
   });
 });
 
