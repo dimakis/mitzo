@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { FinishedMessage } from '../types/chat';
@@ -106,6 +106,7 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
       <div className="msg-bubble-markdown" ref={contentRef}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
+          urlTransform={(url) => (url.startsWith(FILE_SCHEME) ? url : defaultUrlTransform(url))}
           components={{
             table: ({ children, ...props }) => (
               <div className="table-scroll-wrapper">
@@ -123,15 +124,19 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
             },
             // When a paragraph contains a single file-path link to a .md/.mdx
             // file, promote it to an inline preview card instead of a plain link.
-            // The `a` handler passes the resolved path via data-file-path; this
-            // handler checks the extension and decides whether to promote.
+            // In ReactMarkdown v10, children are unrendered component instances —
+            // the `a` handler hasn't run yet — so we check `href` (the prop
+            // ReactMarkdown passes) rather than rendered DOM attributes.
             p: ({ children }) => {
               const childArray = React.Children.toArray(children);
               if (childArray.length === 1 && React.isValidElement(childArray[0])) {
                 const el = childArray[0] as React.ReactElement<Record<string, unknown>>;
-                const filePath = el.props?.['data-file-path'] as string | undefined;
-                if (filePath && /\.mdx?$/i.test(filePath)) {
-                  return <MarkdownPreviewCard filePath={filePath} />;
+                const href = el.props?.href as string | undefined;
+                if (href?.startsWith(FILE_SCHEME)) {
+                  const filePath = decodeURIComponent(href.slice(FILE_SCHEME.length));
+                  if (/\.mdx?$/i.test(filePath)) {
+                    return <MarkdownPreviewCard filePath={filePath} />;
+                  }
                 }
               }
               return <p>{children}</p>;
