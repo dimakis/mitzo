@@ -35,11 +35,11 @@ const log = createLogger('worktree');
  */
 export function detectDefaultBranch(repoPath: string): string {
   try {
-    const ref = execFileSync(
-      'git',
-      ['-C', repoPath, 'symbolic-ref', 'refs/remotes/origin/HEAD'],
-      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: WORKTREE_GIT_TIMEOUT_MS },
-    ).trim();
+    const ref = execFileSync('git', ['-C', repoPath, 'symbolic-ref', 'refs/remotes/origin/HEAD'], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: WORKTREE_GIT_TIMEOUT_MS,
+    }).trim();
     // ref looks like "refs/remotes/origin/main" — extract the last segment
     const branch = ref.split('/').pop();
     if (branch) return branch;
