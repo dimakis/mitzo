@@ -5,6 +5,10 @@
 import Capacitor
 import MitzoShared
 
+extension Notification.Name {
+    static let watchAuthTokenSaved = Notification.Name("watchAuthTokenSaved")
+}
+
 @objc(WatchAuthBridge)
 public class WatchAuthBridge: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "WatchAuthBridge"
@@ -25,6 +29,7 @@ public class WatchAuthBridge: CAPPlugin, CAPBridgedPlugin {
         Task {
             do {
                 try await authManager.saveToken(token)
+                NotificationCenter.default.post(name: .watchAuthTokenSaved, object: nil)
                 call.resolve()
             } catch {
                 call.reject("Failed to save token: \(error.localizedDescription)")

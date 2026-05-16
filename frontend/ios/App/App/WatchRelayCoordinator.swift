@@ -20,6 +20,16 @@ final class WatchRelayCoordinator: @unchecked Sendable {
         watchRelay = WatchRelayHost(authManager: authManager)
         // Activate WCSession immediately so watch can reach us even before login
         watchRelay.activate(wsClient: nil, apiClient: nil)
+
+        // When web layer saves a token, reconnect so relay has authenticated clients
+        NotificationCenter.default.addObserver(
+            forName: .watchAuthTokenSaved,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            print("[WatchRelayCoordinator] Token saved notification, reconnecting")
+            self?.reconnect()
+        }
     }
 
     func start() {
