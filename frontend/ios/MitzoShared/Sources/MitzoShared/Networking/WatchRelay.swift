@@ -30,14 +30,20 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
         if let wsClient { state.setWSClient(wsClient) }
         if let apiClient { state.setAPIClient(apiClient) }
 
-        guard WCSession.isSupported() else { return }
+        guard WCSession.isSupported() else {
+            print("[WatchRelay] WCSession not supported")
+            return
+        }
+        print("[WatchRelay] Activating WCSession, delegate=\(WCSession.default.delegate == nil ? "nil" : "set")")
         WCSession.default.delegate = self
         WCSession.default.activate()
     }
 
     // MARK: - WCSessionDelegate
 
-    public func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {}
+    public func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
+        print("[WatchRelay] Activation complete: state=\(activationState.rawValue), error=\(String(describing: error))")
+    }
 
     public func sessionDidBecomeInactive(_ session: WCSession) {}
     public func sessionDidDeactivate(_ session: WCSession) {
@@ -45,10 +51,13 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
     }
 
     public func session(_ session: WCSession, didReceiveMessage message: [String: Any], replyHandler: @escaping ([String: Any]) -> Void) {
+        print("[WatchRelay] Received message: \(message)")
         guard let type = message["_relay"] as? String else {
+            print("[WatchRelay] Missing _relay type, sending error")
             replyHandler(["error": "missing _relay type"])
             return
         }
+        print("[WatchRelay] Relay type: \(type)")
 
         // Extract ALL values before crossing the Task isolation boundary
         // so we don't capture the non-Sendable [String: Any] dict.
