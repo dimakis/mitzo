@@ -1368,6 +1368,18 @@ async function _runQueryLoopInner(
         currentTurnSpan = null;
       }
 
+      // Ensure span attributes are set even if the SDK result event never arrived.
+      // The result handler (msg.type === 'result') sets these, but sessions that
+      // abort, timeout, or lose connection skip that path. Use live counters as fallback.
+      if (!doneSent) {
+        span.setAttribute('session.total_tokens', liveSessionTokens);
+        span.setAttribute('session.num_turns', turnIndex);
+      }
+      // Always set session.id if we resolved it (idempotent with line 472)
+      if (resolvedSessionId) {
+        span.setAttribute('session.id', resolvedSessionId);
+      }
+
       span.setStatus({ code: SpanStatusCode.OK });
       log.info('query loop ended', { clientId, doneSent });
     }
