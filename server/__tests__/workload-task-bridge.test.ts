@@ -104,7 +104,7 @@ describe('Workload → Task Board bridge', () => {
     orchestrator.onTaskCompleted(child2.id);
 
     // 6. Verify goal is complete
-    const finalGoal = taskStore.get(goal.id);
+    const finalGoal = taskStore.get(goal.id)!;
     expect(finalGoal.status).toBe('done');
 
     // 7. Verify workload item was auto-completed
@@ -140,7 +140,7 @@ describe('Workload → Task Board bridge', () => {
     orchestrator.onTaskCompleted(child.id);
 
     // Goal should be failed
-    const finalGoal = taskStore.get(goal.id);
+    const finalGoal = taskStore.get(goal.id)!;
     expect(finalGoal.status).toBe('failed');
 
     // Workload item should NOT be completed (only done triggers completion)
