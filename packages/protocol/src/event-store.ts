@@ -155,8 +155,7 @@ export class EventStore {
       ),
       getAttentionSessions: db.prepare(
         `SELECT * FROM sessions
-         WHERE is_active = 1
-           AND is_hidden = 0
+         WHERE is_hidden = 0
            AND last_speaker = 'assistant'
          ORDER BY last_speaker_at DESC
          LIMIT 10`,
