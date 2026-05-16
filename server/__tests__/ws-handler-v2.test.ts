@@ -1782,6 +1782,52 @@ describe('handleSendV2 stale session via EventStore', () => {
 
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
+
+  it('does not remove session on rapid resume when EventStore shows isActive: true', () => {
+    // Regression test for repeated-prompt bug: when resuming a session,
+    // startChat should set isActive: true in EventStore immediately so that
+    // a second rapid send doesn't incorrectly trigger the stale removal path.
+    (sendToChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-1', session: {} });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(true);
+    sessionReg.remove.mockClear();
+
+    const eventStore = mockEventStore();
+    // EventStore correctly reflects that the session is active
+    // (because startChat set isActive: true on resume)
+    eventStore.getSession.mockReturnValue({ sessionId: 'sess-1', isActive: true });
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleSendV2(
+      'c1',
+      transport,
+      { type: 'send' as const, sessionId: 'sess-1', prompt: 'hello again', clientMsgId: 'rapid-2' },
+      ctx,
+    );
+
+    // Should NOT remove the session from registry (stale check should pass)
+    expect(sessionReg.remove).not.toHaveBeenCalled();
+    // Should use the active session
+    expect(sendToChat).toHaveBeenCalledWith(
+      'c1:sess-1',
+      'hello again',
+      undefined,
+      undefined,
+      'rapid-2',
+    );
+
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  });
 });
 
 describe('handleInterruptV2 stale session via EventStore', () => {

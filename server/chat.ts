@@ -30,7 +30,12 @@ import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
 import { runQueryLoop, broadcastToObservers } from './query-loop.js';
 import { AsyncQueue } from './async-queue.js';
-import { GIT_BRANCH_TIMEOUT_MS, SESSION_PAGE_SIZE, SESSION_MESSAGES_LIMIT, USER_CLOSEOUT_TIMEOUT_MS } from './constants.js';
+import {
+  GIT_BRANCH_TIMEOUT_MS,
+  SESSION_PAGE_SIZE,
+  SESSION_MESSAGES_LIMIT,
+  USER_CLOSEOUT_TIMEOUT_MS,
+} from './constants.js';
 import { INTERNAL_TOKEN } from './internal-token.js';
 import { buildTaskSystemPrompt } from './task-context.js';
 import type { TaskStore } from './task-store.js';
@@ -690,6 +695,7 @@ async function _startChatInner(
       cwd,
       mode,
       branch,
+      isActive: true,
       ...(worktreePath ? { wtId } : {}),
       ...(options.telosTaskId ? { telosTaskId: options.telosTaskId } : {}),
     });
@@ -1165,7 +1171,11 @@ export function closeSessionByUser(clientId: string): void {
         }
       }
       if (session.sessionId) {
-        eventStore.upsertSession({ sessionId: session.sessionId, isActive: false, closedBy: 'user' });
+        eventStore.upsertSession({
+          sessionId: session.sessionId,
+          isActive: false,
+          closedBy: 'user',
+        });
       }
       registry.remove(clientId);
       return;
