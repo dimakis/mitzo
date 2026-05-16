@@ -735,10 +735,12 @@ async function _startChatInner(
     buildTaskPromptForSession(clientId);
 
   // Fire-and-forget: emit boot context metadata to client + capture prompt comparison
+  const DEFAULT_TOKEN_BUDGET = 8000;
   (async () => {
     // Step 1: dynamically import contexgin (optional dependency)
     let compileModule: {
       compile: (opts: { workspaceRoot: string; tokenBudget: number }) => Promise<unknown>;
+      loadAgentDefinition?: (path: string) => Promise<unknown>;
     };
     try {
       compileModule = await import('contexgin');
@@ -750,15 +752,36 @@ async function _startChatInner(
         source: 'local-fallback',
         sourceCount: 0,
         tokenCount: 0,
-        trimmedCount: 0,
+        tokenBudget: DEFAULT_TOKEN_BUDGET,
         sources: [],
+        included: [],
+        trimmed: [],
       });
       return;
     }
 
+    // Step 1b: read token budget from agent recipe if available
+    let tokenBudget = DEFAULT_TOKEN_BUDGET;
+    try {
+      if (compileModule.loadAgentDefinition) {
+        const recipePath = join(cwd, '.agents', 'mitzo-conversational.yaml');
+        const def = (await compileModule.loadAgentDefinition(recipePath)) as Record<string, unknown>;
+        const ctx = def.context as Record<string, unknown> | undefined;
+        const boot = ctx?.boot as Record<string, unknown> | undefined;
+        if (typeof boot?.tokenBudget === 'number') {
+          tokenBudget = boot.tokenBudget as number;
+        }
+      }
+    } catch {
+      // Recipe not found or invalid — use default
+    }
+
     // Step 2: compile — runtime errors propagate (not swallowed as import failure)
     try {
-      const compiled = await compileModule.compile({ workspaceRoot: cwd, tokenBudget: 8000 });
+      const compiled = await compileModule.compile({
+        workspaceRoot: cwd,
+        tokenBudget,
+      });
 
       // Validate the compiled object shape
       if (!compiled || typeof compiled !== 'object') {
@@ -768,36 +791,69 @@ async function _startChatInner(
           source: 'local-fallback',
           sourceCount: 0,
           tokenCount: 0,
-          trimmedCount: 0,
+          tokenBudget: tokenBudget,
           sources: [],
+          included: [],
+          trimmed: [],
         });
         return;
       }
 
       const obj = compiled as Record<string, unknown>;
-      const sources = Array.isArray(obj.sources) ? obj.sources : [];
-      const trimmed = Array.isArray(obj.trimmed) ? obj.trimmed : [];
+      const rawSources = Array.isArray(obj.sources) ? obj.sources : [];
+      const rawIncluded = Array.isArray(obj.included) ? obj.included : [];
+      const rawTrimmed = Array.isArray(obj.trimmed) ? obj.trimmed : [];
       const bootTokens = typeof obj.bootTokens === 'number' ? obj.bootTokens : 0;
 
-      // Validate each source entry has a relativePath string
-      const sourcePaths: string[] = [];
-      for (const s of sources) {
-        if (
-          s &&
-          typeof s === 'object' &&
-          typeof (s as Record<string, unknown>).relativePath === 'string'
-        ) {
-          sourcePaths.push((s as Record<string, unknown>).relativePath as string);
+      // Extract rich source metadata (path + kind)
+      const sources: Array<{ path: string; kind: string }> = [];
+      for (const s of rawSources) {
+        if (s && typeof s === 'object') {
+          const so = s as Record<string, unknown>;
+          if (typeof so.relativePath === 'string') {
+            sources.push({
+              path: so.relativePath as string,
+              kind: typeof so.kind === 'string' ? (so.kind as string) : 'reference',
+            });
+          }
         }
       }
+
+      // Helper to extract section metadata from ExtractedSection objects
+      const extractSections = (
+        raw: unknown[],
+      ): Array<{ source: string; heading: string; tokens: number; content: string }> => {
+        const result: Array<{ source: string; heading: string; tokens: number; content: string }> =
+          [];
+        for (const t of raw) {
+          if (t && typeof t === 'object') {
+            const to = t as Record<string, unknown>;
+            const src = to.source as Record<string, unknown> | undefined;
+            const headingPath = Array.isArray(to.headingPath) ? to.headingPath : [];
+            result.push({
+              source:
+                src && typeof src.relativePath === 'string' ? (src.relativePath as string) : '',
+              heading: headingPath.filter((h: unknown) => typeof h === 'string').join(' > '),
+              tokens: typeof to.tokenEstimate === 'number' ? (to.tokenEstimate as number) : 0,
+              content: typeof to.content === 'string' ? (to.content as string) : '',
+            });
+          }
+        }
+        return result;
+      };
+
+      const included = extractSections(rawIncluded);
+      const trimmed = extractSections(rawTrimmed);
 
       send(transport, {
         type: 'boot_context',
         source: 'contexgin',
-        sourceCount: sourcePaths.length,
+        sourceCount: sources.length,
         tokenCount: bootTokens,
-        trimmedCount: trimmed.length,
-        sources: sourcePaths,
+        tokenBudget: tokenBudget,
+        sources,
+        included,
+        trimmed,
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -807,8 +863,10 @@ async function _startChatInner(
         source: 'local-fallback',
         sourceCount: 0,
         tokenCount: 0,
-        trimmedCount: 0,
+        tokenBudget: tokenBudget,
         sources: [],
+        included: [],
+        trimmed: [],
       });
     }
   })();

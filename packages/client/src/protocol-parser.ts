@@ -198,15 +198,49 @@ export function parseServerMessage(
       const source = msg.source === 'contexgin' ? 'contexgin' : 'local-fallback';
       const sourceCount = typeof msg.sourceCount === 'number' ? msg.sourceCount : 0;
       const tokenCount = typeof msg.tokenCount === 'number' ? msg.tokenCount : 0;
-      const trimmedCount = typeof msg.trimmedCount === 'number' ? msg.trimmedCount : 0;
-      // Validate each element is a string — filter out non-string entries
+      const tokenBudget = typeof msg.tokenBudget === 'number' ? msg.tokenBudget : 0;
+
+      // Parse rich source metadata — accept objects with path+kind, fall back to string-only
       const rawSources = Array.isArray(msg.sources) ? msg.sources : [];
-      const sources: string[] = rawSources.filter(
-        (s: unknown): s is string => typeof s === 'string',
-      );
+      const sources: Array<{ path: string; kind: string }> = [];
+      for (const s of rawSources) {
+        if (s && typeof s === 'object' && typeof (s as Record<string, unknown>).path === 'string') {
+          const obj = s as Record<string, unknown>;
+          sources.push({
+            path: obj.path as string,
+            kind: typeof obj.kind === 'string' ? obj.kind : 'reference',
+          });
+        } else if (typeof s === 'string') {
+          sources.push({ path: s, kind: 'reference' });
+        }
+      }
+
+      // Parse section metadata (shared shape for included + trimmed)
+      const parseSections = (
+        raw: unknown[],
+      ): Array<{ source: string; heading: string; tokens: number; content: string }> => {
+        const sections: Array<{ source: string; heading: string; tokens: number; content: string }> =
+          [];
+        for (const t of raw) {
+          if (t && typeof t === 'object') {
+            const obj = t as Record<string, unknown>;
+            sections.push({
+              source: typeof obj.source === 'string' ? obj.source : '',
+              heading: typeof obj.heading === 'string' ? obj.heading : '',
+              tokens: typeof obj.tokens === 'number' ? obj.tokens : 0,
+              content: typeof obj.content === 'string' ? obj.content : '',
+            });
+          }
+        }
+        return sections;
+      };
+
+      const included = parseSections(Array.isArray(msg.included) ? msg.included : []);
+      const trimmed = parseSections(Array.isArray(msg.trimmed) ? msg.trimmed : []);
+
       result.messagesActions.push({
         type: 'SET_BOOT_CONTEXT',
-        bootContext: { source, sourceCount, tokenCount, trimmedCount, sources },
+        bootContext: { source, sourceCount, tokenCount, tokenBudget, sources, included, trimmed },
       });
       break;
     }

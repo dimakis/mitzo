@@ -706,15 +706,23 @@ describe('error with No conversation found', () => {
 // ─── boot_context ─────────────────────────────────────────────────────────────
 
 describe('boot_context', () => {
-  it('maps boot_context to SET_BOOT_CONTEXT with validated fields', () => {
+  it('maps boot_context with rich source metadata to SET_BOOT_CONTEXT', () => {
     const r = parseServerMessage(
       {
         type: 'boot_context',
         source: 'contexgin',
-        sourceCount: 5,
+        sourceCount: 2,
         tokenCount: 3200,
-        trimmedCount: 1,
-        sources: ['CLAUDE.md', 'CONSTITUTION.md'],
+        tokenBudget: 8000,
+        sources: [
+          { path: 'CLAUDE.md', kind: 'reference' },
+          { path: 'CONSTITUTION.md', kind: 'constitution' },
+        ],
+        included: [
+          { source: 'CLAUDE.md', heading: 'Boot Context', tokens: 200, content: '## Boot Context\nSome content' },
+          { source: 'CLAUDE.md', heading: 'Git Discipline', tokens: 150, content: '## Git Discipline\nMore content' },
+        ],
+        trimmed: [{ source: 'CONSTITUTION.md', heading: 'Architecture > Spokes', tokens: 450, content: 'spoke stuff' }],
       },
       makeState(),
       makeCallbacks(),
@@ -725,12 +733,43 @@ describe('boot_context', () => {
         type: 'SET_BOOT_CONTEXT',
         bootContext: {
           source: 'contexgin',
-          sourceCount: 5,
+          sourceCount: 2,
           tokenCount: 3200,
-          trimmedCount: 1,
-          sources: ['CLAUDE.md', 'CONSTITUTION.md'],
+          tokenBudget: 8000,
+          sources: [
+            { path: 'CLAUDE.md', kind: 'reference' },
+            { path: 'CONSTITUTION.md', kind: 'constitution' },
+          ],
+          included: [
+            { source: 'CLAUDE.md', heading: 'Boot Context', tokens: 200, content: '## Boot Context\nSome content' },
+            { source: 'CLAUDE.md', heading: 'Git Discipline', tokens: 150, content: '## Git Discipline\nMore content' },
+          ],
+          trimmed: [{ source: 'CONSTITUTION.md', heading: 'Architecture > Spokes', tokens: 450, content: 'spoke stuff' }],
         },
       },
+    ]);
+  });
+
+  it('backwards-compat: plain string sources get wrapped as reference kind', () => {
+    const r = parseServerMessage(
+      {
+        type: 'boot_context',
+        source: 'contexgin',
+        sourceCount: 2,
+        tokenCount: 1000,
+        tokenBudget: 8000,
+        sources: ['CLAUDE.md', 'CONSTITUTION.md'],
+        included: [],
+        trimmed: [],
+      },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    const action = r.messagesActions[0] as { type: string; bootContext: { sources: Array<{ path: string; kind: string }> } };
+    expect(action.bootContext.sources).toEqual([
+      { path: 'CLAUDE.md', kind: 'reference' },
+      { path: 'CONSTITUTION.md', kind: 'reference' },
     ]);
   });
 
@@ -741,8 +780,10 @@ describe('boot_context', () => {
         source: 'unknown-engine',
         sourceCount: 0,
         tokenCount: 0,
-        trimmedCount: 0,
+        tokenBudget: 0,
         sources: [],
+        included: [],
+        trimmed: [],
       },
       makeState(),
       makeCallbacks(),
@@ -754,7 +795,7 @@ describe('boot_context', () => {
     });
   });
 
-  it('defaults missing numeric fields to 0 and sources to empty array', () => {
+  it('defaults missing fields to zero/empty', () => {
     const r = parseServerMessage(
       { type: 'boot_context', source: 'contexgin' },
       makeState(),
@@ -767,33 +808,43 @@ describe('boot_context', () => {
         source: 'contexgin',
         sourceCount: 0,
         tokenCount: 0,
-        trimmedCount: 0,
+        tokenBudget: 0,
         sources: [],
+        included: [],
+        trimmed: [],
       },
     });
   });
 
-  it('filters out non-string elements from sources array', () => {
+  it('filters out invalid elements from sources array', () => {
     const r = parseServerMessage(
       {
         type: 'boot_context',
         source: 'contexgin',
         sourceCount: 3,
         tokenCount: 1000,
-        trimmedCount: 0,
-        sources: ['CLAUDE.md', 42, null, undefined, { relativePath: 'foo.md' }, 'README.md'],
+        tokenBudget: 8000,
+        sources: [
+          'CLAUDE.md',
+          42,
+          null,
+          undefined,
+          { path: 'foo.md', kind: 'profile' },
+          'README.md',
+        ],
+        included: [],
+        trimmed: [],
       },
       makeState(),
       makeCallbacks(),
       POOL_KEY,
     );
-    const action = r.messagesActions[0];
-    expect(action).toMatchObject({
-      type: 'SET_BOOT_CONTEXT',
-      bootContext: {
-        sources: ['CLAUDE.md', 'README.md'],
-      },
-    });
+    const action = r.messagesActions[0] as { type: string; bootContext: { sources: Array<{ path: string; kind: string }> } };
+    expect(action.bootContext.sources).toEqual([
+      { path: 'CLAUDE.md', kind: 'reference' },
+      { path: 'foo.md', kind: 'profile' },
+      { path: 'README.md', kind: 'reference' },
+    ]);
   });
 
   it('handles sources as a non-array value gracefully', () => {
@@ -803,15 +854,16 @@ describe('boot_context', () => {
         source: 'contexgin',
         sourceCount: 1,
         tokenCount: 500,
-        trimmedCount: 0,
+        tokenBudget: 8000,
         sources: 'not-an-array',
+        included: [],
+        trimmed: [],
       },
       makeState(),
       makeCallbacks(),
       POOL_KEY,
     );
-    const action = r.messagesActions[0];
-    expect(action).toMatchObject({
+    expect(r.messagesActions[0]).toMatchObject({
       type: 'SET_BOOT_CONTEXT',
       bootContext: {
         sources: [],
