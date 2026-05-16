@@ -1380,7 +1380,7 @@ async function _runQueryLoopInner(
           span.setAttribute('session.cost_usd', finalSession.cumulativeCostUsd);
         }
       }
-      // Always set session.id if we resolved it (idempotent with line 472)
+      // Always set session.id if we resolved it (idempotent with first-event handler)
       if (resolvedSessionId) {
         span.setAttribute('session.id', resolvedSessionId);
       }
