@@ -60,8 +60,10 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
         }
         let sessionId = message["sessionId"] as? String ?? ""
         let reply = UnsafeSendable(replyHandler)
+        let capturedState = state
+        let capturedAuthManager = authManager
 
-        Task {
+        Task { @Sendable in
             do {
                 switch type {
                 case "send":
@@ -69,11 +71,11 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
                         reply.value(["error": "invalid message"])
                         return
                     }
-                    try await state.getWSClient()?.send(msg)
+                    try await capturedState.getWSClient()?.send(msg)
                     reply.value(["ok": true])
 
                 case "get_messages":
-                    if let apiClient = state.getAPIClient() {
+                    if let apiClient = capturedState.getAPIClient() {
                         do {
                             let messages: [FinishedMessage] = try await apiClient.getMessages(sessionId: sessionId)
                             let data = try JSONEncoder().encode(messages)
@@ -90,7 +92,7 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
                     }
 
                 case "list_sessions":
-                    if let apiClient = state.getAPIClient() {
+                    if let apiClient = capturedState.getAPIClient() {
                         do {
                             let response = try await apiClient.getSessions()
                             let data = try JSONEncoder().encode(response)
@@ -107,7 +109,7 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
                     }
 
                 case "auth_token":
-                    if let token = try? await authManager.getToken() {
+                    if let token = try? await capturedAuthManager.getToken() {
                         reply.value(["token": token])
                     } else {
                         reply.value(["error": "no_token"])
