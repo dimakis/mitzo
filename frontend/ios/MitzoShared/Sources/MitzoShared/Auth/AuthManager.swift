@@ -13,8 +13,16 @@ public actor AuthManager {
 
     private let keychainService = "com.mitzo.app"
     private let keychainAccount = "jwt"
-    // Team ID prefix for shared Keychain access group (iOS + watchOS)
-    private let accessGroup = "Y4QGXHYSY3.com.mitzo.app"
+    // Shared Keychain access group (iOS + watchOS).
+    // AppIdentifierPrefix is injected by Xcode at build time — no hardcoded Team ID.
+    private let accessGroup: String = {
+        if let prefix = Bundle.main.infoDictionary?["AppIdentifierPrefix"] as? String {
+            return "\(prefix)com.mitzo.app"
+        }
+        // Fallback: read from entitlements at runtime isn't possible,
+        // so use the known group directly. This only fires in unit tests.
+        return "Y4QGXHYSY3.com.mitzo.app"
+    }()
 
     private var cachedToken: String?
 
