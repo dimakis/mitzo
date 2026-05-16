@@ -67,6 +67,7 @@ export class SessionRegistry {
   private detachTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private closeoutTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private closingOut = new Set<string>();
+  private userClosing = new Set<string>();
   private closeoutHandler: CloseoutHandler | null = null;
   private suspended = new Set<string>();
   private suspendBuffers = new Map<string, Record<string, unknown>[]>();
@@ -80,6 +81,17 @@ export class SessionRegistry {
   /** Check if a session is currently in the closeout phase. */
   isClosingOut(clientId: string): boolean {
     return this.closingOut.has(clientId);
+  }
+
+  /** Mark a session as being closed by the user. */
+  markUserClose(clientId: string): void {
+    this.userClosing.add(clientId);
+    this.closingOut.add(clientId);
+  }
+
+  /** Check if a session close was user-initiated. */
+  isUserClose(clientId: string): boolean {
+    return this.userClosing.has(clientId);
   }
 
   register(
@@ -195,6 +207,7 @@ export class SessionRegistry {
     this.clearDetachTimer(clientId);
     this.clearCloseoutTimer(clientId);
     this.closingOut.delete(clientId);
+    this.userClosing.delete(clientId);
     this.clearSuspendState(clientId);
     return true;
   }
@@ -302,6 +315,7 @@ export class SessionRegistry {
     this.sessions.delete(clientId);
     this.attached.delete(clientId);
     this.closingOut.delete(clientId);
+    this.userClosing.delete(clientId);
   }
 
   /**
@@ -317,6 +331,7 @@ export class SessionRegistry {
     this.sessions.delete(clientId);
     this.attached.delete(clientId);
     this.closingOut.delete(clientId);
+    this.userClosing.delete(clientId);
   }
 
   /**
@@ -333,6 +348,7 @@ export class SessionRegistry {
     }
     this.closeoutTimers.clear();
     this.closingOut.clear();
+    this.userClosing.clear();
 
     for (const timer of this.suspendTimers.values()) {
       clearTimeout(timer);

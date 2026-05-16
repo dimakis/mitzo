@@ -30,7 +30,7 @@ import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
 import { runQueryLoop, broadcastToObservers } from './query-loop.js';
 import { AsyncQueue } from './async-queue.js';
-import { GIT_BRANCH_TIMEOUT_MS, SESSION_PAGE_SIZE, SESSION_MESSAGES_LIMIT } from './constants.js';
+import { GIT_BRANCH_TIMEOUT_MS, SESSION_PAGE_SIZE, SESSION_MESSAGES_LIMIT, USER_CLOSEOUT_TIMEOUT_MS } from './constants.js';
 import { INTERNAL_TOKEN } from './internal-token.js';
 import { buildTaskSystemPrompt } from './task-context.js';
 import type { TaskStore } from './task-store.js';
@@ -1081,6 +1081,7 @@ function _closeoutSessionInner(clientId: string): void {
       try {
         finalizeCloseout(BASE_REPO, session.wtId, {
           status: 'abandoned',
+          closed_by: 'abandoned',
           tokens_used: session.cumulativeSessionTokens,
           cost_usd: session.cumulativeCostUsd,
         });
@@ -1105,9 +1106,15 @@ function _closeoutSessionInner(clientId: string): void {
     const wtId = session.wtId;
     const onAbort = () => {
       const status = registry.isClosingOut(clientId) ? 'abandoned' : 'closed';
+      const closedBy = registry.isUserClose(clientId)
+        ? 'user'
+        : status === 'abandoned'
+          ? 'abandoned'
+          : 'auto';
       try {
         finalizeCloseout(BASE_REPO, wtId, {
           status,
+          closed_by: closedBy,
           tokens_used: session.cumulativeSessionTokens,
           cost_usd: session.cumulativeCostUsd,
         });
@@ -1121,6 +1128,86 @@ function _closeoutSessionInner(clientId: string): void {
 
 // Wire closeout handler on the registry
 registry.setCloseoutHandler(closeoutSession);
+
+const USER_CLOSEOUT_PROMPT = `The user has closed this session.
+Please perform session closeout:
+
+1. If there is uncommitted work in any worktree, commit it now with a descriptive message
+2. If there are memory-worthy observations, decisions, or patterns — write them to memory/Observations/ or memory/Decisions/
+3. Write a 2-3 sentence summary of what was accomplished and what remains unfinished — output it as your final chat message so it appears in the conversation history
+4. Do not ask for confirmation — just do it`;
+
+/**
+ * User-initiated session close. Triggers the same closeout flow as
+ * auto-close but with a shorter timeout (2 minutes) and marks the
+ * session as closed by the user.
+ */
+export function closeSessionByUser(clientId: string): void {
+  withSpan('session.close_by_user', { 'session.clientId': clientId }, () => {
+    const session = registry.get(clientId);
+    if (!session) return;
+
+    // Mark as user-initiated close in the registry
+    registry.markUserClose(clientId);
+
+    if (!session.inputQueue) {
+      // No active agent — finalize immediately
+      if (session.wtId) {
+        try {
+          finalizeCloseout(BASE_REPO, session.wtId, {
+            status: 'closed',
+            closed_by: 'user',
+            tokens_used: session.cumulativeSessionTokens,
+            cost_usd: session.cumulativeCostUsd,
+          });
+        } catch {
+          // best-effort
+        }
+      }
+      if (session.sessionId) {
+        eventStore.upsertSession({ sessionId: session.sessionId, isActive: false, closedBy: 'user' });
+      }
+      registry.remove(clientId);
+      return;
+    }
+
+    log.info('user-initiated closeout', { clientId, wtId: session.wtId });
+
+    // Inject closeout prompt
+    session.inputQueue.push(makeUserMessage(USER_CLOSEOUT_PROMPT, 'now'));
+
+    // Register abort listener to finalize with closed_by: 'user'
+    if (session.wtId) {
+      const wtId = session.wtId;
+      const onAbort = () => {
+        try {
+          finalizeCloseout(BASE_REPO, wtId, {
+            status: 'closed',
+            closed_by: 'user',
+            tokens_used: session.cumulativeSessionTokens,
+            cost_usd: session.cumulativeCostUsd,
+          });
+        } catch {
+          // best-effort
+        }
+      };
+      session.abortController.signal.addEventListener('abort', onAbort, { once: true });
+    }
+
+    // Mark inactive in event store
+    if (session.sessionId) {
+      eventStore.upsertSession({ sessionId: session.sessionId, closedBy: 'user' });
+    }
+
+    // Set a shorter timeout — 2 minutes instead of 10
+    setTimeout(() => {
+      if (registry.isActive(clientId) && registry.isUserClose(clientId)) {
+        log.info('user closeout timeout, aborting', { clientId });
+        registry.abort(clientId);
+      }
+    }, USER_CLOSEOUT_TIMEOUT_MS);
+  });
+}
 
 export function stopChat(clientId: string) {
   withSpan('session.stop', { 'session.clientId': clientId }, () => {

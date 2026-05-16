@@ -351,6 +351,17 @@ export function parseServerMessage(
       });
       break;
 
+    case 'session_close_ack':
+      if (msg.accepted) {
+        result.messagesActions.push({
+          type: 'NATIVE_COMMAND_RESULT',
+          command: 'close',
+          content: 'Session closing... The agent will commit work and write a summary.',
+        });
+        result.messagesActions.push({ type: 'SET_RUNNING', running: false });
+      }
+      break;
+
     case 'skill_invoked':
       break;
 

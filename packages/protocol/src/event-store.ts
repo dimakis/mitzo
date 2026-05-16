@@ -42,6 +42,7 @@ interface SessionRow {
   duration_api_ms: number;
   goal_id: string | null;
   telos_task_id: string | null;
+  closed_by: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -99,6 +100,7 @@ export class EventStore {
     this.migratePromptTracking(db);
     this.migrateUsageTracking(db);
     this.migrateWorktreeTracking(db);
+    this.migrateCloseTracking(db);
 
     this.log.info('EventStore initialized', { dbPath });
 
@@ -200,6 +202,15 @@ export class EventStore {
     }
   }
 
+  private migrateCloseTracking(db: Database.Database): void {
+    const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
+    const columnNames = new Set(columns.map((c) => c.name));
+    if (!columnNames.has('closed_by')) {
+      db.exec('ALTER TABLE sessions ADD COLUMN closed_by TEXT');
+      this.log.info('migrated sessions table: added closed_by');
+    }
+  }
+
   close(): void {
     if (this.db) {
       this.db.close();
@@ -266,6 +277,10 @@ export class EventStore {
         fields.push('wt_id = ?');
         values.push(meta.wtId);
       }
+      if (meta.closedBy !== undefined) {
+        fields.push('closed_by = ?');
+        values.push(meta.closedBy);
+      }
       if (meta.updatedAt !== undefined) {
         fields.push('updated_at = ?');
         values.push(meta.updatedAt);
@@ -288,6 +303,7 @@ export class EventStore {
         'wt_id',
         'goal_id',
         'telos_task_id',
+        'closed_by',
       ];
       const vals: unknown[] = [
         meta.sessionId,
@@ -300,6 +316,7 @@ export class EventStore {
         meta.wtId ?? null,
         meta.goalId ?? null,
         meta.telosTaskId ?? null,
+        meta.closedBy ?? null,
       ];
       if (meta.updatedAt !== undefined) {
         cols.push('updated_at');
@@ -513,6 +530,7 @@ function rowToSession(row: SessionRow): SessionMeta {
     durationApiMs: row.duration_api_ms ?? 0,
     goalId: row.goal_id ?? null,
     telosTaskId: row.telos_task_id ?? null,
+    closedBy: (row.closed_by as SessionMeta['closedBy']) ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

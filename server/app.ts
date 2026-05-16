@@ -1007,6 +1007,7 @@ app.get('/api/sessions', async (req, res) => {
           ? meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens
           : undefined,
         numTurns: meta?.numTurns,
+        closedBy: meta?.closedBy ?? undefined,
       };
     });
   }
