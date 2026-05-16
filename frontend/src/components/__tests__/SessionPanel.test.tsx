@@ -7,6 +7,15 @@ vi.mock('../../hooks/useSessionList', () => ({
   useSessionList: vi.fn(),
 }));
 
+// Mock useSessionOverview to avoid EventSource dependency
+vi.mock('../../hooks/useSessionOverview', () => ({
+  useSessionOverview: vi.fn(() => ({
+    activities: [],
+    attendCount: 0,
+    connected: false,
+  })),
+}));
+
 import { SessionPanel } from '../SessionPanel';
 import { useSessionList } from '../../hooks/useSessionList';
 
@@ -32,11 +41,15 @@ function makeDefaultReturn(overrides = {}) {
 
 beforeEach(() => {
   mockUseSessionList.mockReturnValue(makeDefaultReturn());
+  // Default to "All" view so session list tests work (the "Active" view
+  // renders ActiveSessionsList which is tested separately).
+  localStorage.setItem('mitzo-session-view-mode', 'all');
 });
 
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  localStorage.clear();
 });
 
 describe('SessionPanel', () => {
@@ -142,5 +155,52 @@ describe('SessionPanel', () => {
     const deleteBtn = container.querySelector('.session-panel-delete')!;
     fireEvent.click(deleteBtn);
     expect(dismiss).toHaveBeenCalledWith('s1');
+  });
+
+  describe('Load More button', () => {
+    it('renders when hasMore is true', () => {
+      mockUseSessionList.mockReturnValue(
+        makeDefaultReturn({
+          sessions: [{ id: 's1', summary: 'A session', lastModified: Date.now() }],
+          hasMore: true,
+        }),
+      );
+      render(
+        <SessionPanel activeSessionId={undefined} onSelectSession={vi.fn()} onNewChat={vi.fn()} />,
+      );
+      expect(screen.getByText('Load More')).toBeTruthy();
+    });
+
+    it('shows disabled loading state when loadingMore is true', () => {
+      mockUseSessionList.mockReturnValue(
+        makeDefaultReturn({
+          sessions: [{ id: 's1', summary: 'A session', lastModified: Date.now() }],
+          hasMore: true,
+          loadingMore: true,
+        }),
+      );
+      render(
+        <SessionPanel activeSessionId={undefined} onSelectSession={vi.fn()} onNewChat={vi.fn()} />,
+      );
+      const btn = screen.getByText('Loading...');
+      expect(btn).toBeTruthy();
+      expect((btn as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it('calls loadMore when clicked', () => {
+      const loadMore = vi.fn();
+      mockUseSessionList.mockReturnValue(
+        makeDefaultReturn({
+          sessions: [{ id: 's1', summary: 'A session', lastModified: Date.now() }],
+          hasMore: true,
+          loadMore,
+        }),
+      );
+      render(
+        <SessionPanel activeSessionId={undefined} onSelectSession={vi.fn()} onNewChat={vi.fn()} />,
+      );
+      fireEvent.click(screen.getByText('Load More'));
+      expect(loadMore).toHaveBeenCalledOnce();
+    });
   });
 });
