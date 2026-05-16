@@ -260,6 +260,26 @@ describe('TextBubble markdown preview card promotion', () => {
     expect(result.type).toBe('p');
   });
 
+  it('promotes a standalone .mdx file-path link to MarkdownPreviewCard', () => {
+    renderToStaticMarkup(createElement(TextBubble, { content: 'test' }));
+    const p = capturedComponents!.p;
+    const fileHref = `${FILE_SCHEME}${encodeURIComponent('/tmp/design.mdx')}`;
+    const link = createElement('a', { href: fileHref }, '/tmp/design.mdx');
+
+    const result = p({ children: link });
+    expect(result.type).not.toBe('p');
+    expect(result.props.filePath).toBe('/tmp/design.mdx');
+  });
+
+  it('does not promote regular URL links in a solo paragraph', () => {
+    renderToStaticMarkup(createElement(TextBubble, { content: 'test' }));
+    const p = capturedComponents!.p;
+    const link = createElement('a', { href: 'https://example.com' }, 'Example');
+
+    const result = p({ children: link });
+    expect(result.type).toBe('p');
+  });
+
   it('a handler sets data-file-path on file-path links', () => {
     renderToStaticMarkup(createElement(TextBubble, { content: 'test' }));
     const anchor = capturedComponents!.a;

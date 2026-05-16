@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { FinishedMessage } from '../types/chat';
@@ -106,7 +106,7 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
       <div className="msg-bubble-markdown" ref={contentRef}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
-          urlTransform={(url) => url}
+          urlTransform={(url) => (url.startsWith(FILE_SCHEME) ? url : defaultUrlTransform(url))}
           components={{
             table: ({ children, ...props }) => (
               <div className="table-scroll-wrapper">
