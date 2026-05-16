@@ -58,6 +58,7 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
         } else {
             clientMsg = nil
         }
+        let relaySessionId = message["sessionId"] as? String ?? ""
         let reply = UnsafeSendable(replyHandler)
 
         Task {
@@ -72,7 +73,7 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
                     reply.value(["ok": true])
 
                 case "get_messages":
-                    let sessionId = message["sessionId"] as? String ?? ""
+                    let sessionId = relaySessionId
                     if let apiClient = state.getAPIClient() {
                         do {
                             let messages: [FinishedMessage] = try await apiClient.getMessages(sessionId: sessionId)
