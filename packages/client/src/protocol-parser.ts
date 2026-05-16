@@ -19,6 +19,7 @@ import type {
 import type { MessagesAction } from './slices/messages.js';
 import type { WsMsg } from './server-messages.js';
 import type { Task, LoopStatus } from './slices/tasks.js';
+import type { WorkloadItem } from './slices/workload.js';
 import type { TokensState } from './slices/tokens.js';
 import type { ProgressUpdate } from './slices/progress.js';
 import type { ProgressItem, ProgressItemStatus } from '@mitzo/protocol';
@@ -91,6 +92,12 @@ export interface ParseResult {
 
   /** Inbox refresh signal. */
   inboxRefresh?: boolean;
+
+  /** Workload update, if any. */
+  workloadUpdate?:
+    | { type: 'workload_item_created'; item: WorkloadItem }
+    | { type: 'workload_item_updated'; item: WorkloadItem }
+    | { type: 'workload_batch_updated'; items: WorkloadItem[]; created: number };
 }
 
 // ─── Parser ──────────────────────────────────────────────────────────────────
@@ -454,6 +461,22 @@ export function parseServerMessage(
           specMode: (msg.specMode as boolean) ?? false,
           awaitingApproval: (msg.awaitingApproval as boolean) ?? false,
         },
+      };
+      break;
+
+    case 'workload_item_created':
+      result.workloadUpdate = { type: 'workload_item_created', item: msg.item as WorkloadItem };
+      break;
+
+    case 'workload_item_updated':
+      result.workloadUpdate = { type: 'workload_item_updated', item: msg.item as WorkloadItem };
+      break;
+
+    case 'workload_batch_updated':
+      result.workloadUpdate = {
+        type: 'workload_batch_updated',
+        items: msg.items as WorkloadItem[],
+        created: (msg.created as number) ?? 0,
       };
       break;
 

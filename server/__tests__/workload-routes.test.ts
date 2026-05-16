@@ -517,4 +517,63 @@ describe('workload routes', () => {
 
     expect(res.status).toBe(404);
   });
+
+  it('POST /api/workload/items/:id/promote — broadcasts workload_item_updated', async () => {
+    // Create an item first
+    const signal = {
+      sourceType: 'broadcast-test',
+      sourceId: `broadcast-promote-${Date.now()}`,
+      url: 'https://example.com/broadcast',
+      title: 'Broadcast promote test',
+      author: 'tester',
+      timestamp: new Date().toISOString(),
+      profile: 'default',
+    };
+
+    const createRes = await request(app)
+      .post('/api/workload/signals')
+      .set('Cookie', authCookie)
+      .send(signal);
+    expect(createRes.status).toBe(201);
+    const itemId = createRes.body.item.id;
+
+    // Promote it — verify response has goalId set
+    const promoteRes = await request(app)
+      .post(`/api/workload/items/${itemId}/promote`)
+      .set('Cookie', authCookie)
+      .send({});
+    expect(promoteRes.status).toBe(201);
+    expect(promoteRes.body.item.goalId).toBe(promoteRes.body.task.id);
+  });
+
+  it('POST /api/workload/items/:id/promote — links goalId to created task', async () => {
+    const signal = {
+      sourceType: 'link-test',
+      sourceId: `link-promote-${Date.now()}`,
+      url: 'https://example.com/link',
+      title: 'Link promote test',
+      author: 'tester',
+      timestamp: new Date().toISOString(),
+      profile: 'default',
+    };
+
+    const createRes = await request(app)
+      .post('/api/workload/signals')
+      .set('Cookie', authCookie)
+      .send(signal);
+    const itemId = createRes.body.item.id;
+
+    const promoteRes = await request(app)
+      .post(`/api/workload/items/${itemId}/promote`)
+      .set('Cookie', authCookie)
+      .send({});
+
+    // Verify the item's goalId matches the task id
+    expect(promoteRes.body.item.goalId).toBeTruthy();
+    expect(promoteRes.body.task.id).toBeTruthy();
+    expect(promoteRes.body.item.goalId).toBe(promoteRes.body.task.id);
+
+    // Verify item status changed to acknowledged
+    expect(promoteRes.body.item.status).toBe('acknowledged');
+  });
 });

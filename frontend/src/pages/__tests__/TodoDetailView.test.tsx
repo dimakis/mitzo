@@ -30,6 +30,7 @@ const fullItem: TodoItem = {
   children: [],
   childCount: 2,
   completedChildCount: 1,
+  goalId: null,
   sources: [
     {
       type: 'github',
@@ -359,5 +360,131 @@ describe('TodoDetailView', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/todos', { replace: true });
     });
     fetchSpy.mockRestore();
+  });
+
+  describe('promote functionality', () => {
+    it('shows promote button when goalId is null', () => {
+      const { container } = render(
+        <MemoryRouter>
+          <TodoDetailView />
+        </MemoryRouter>,
+      );
+      expect(container.querySelector('.todo-detail-promote-btn')).toBeTruthy();
+      expect(container.querySelector('.todo-detail-promote-btn')?.textContent).toBe(
+        'Promote to Tasks',
+      );
+    });
+
+    it('hides promote button when goalId exists', () => {
+      const promotedItem: TodoItem = { ...fullItem, goalId: 'goal-abc' };
+      mockLocation.mockReturnValue({ state: { item: promotedItem } });
+
+      const { container } = render(
+        <MemoryRouter>
+          <TodoDetailView />
+        </MemoryRouter>,
+      );
+      expect(container.querySelector('.todo-detail-promote-btn')).toBeNull();
+    });
+
+    it('shows promoted badge when goalId exists', () => {
+      const promotedItem: TodoItem = { ...fullItem, goalId: 'goal-abc' };
+      mockLocation.mockReturnValue({ state: { item: promotedItem } });
+
+      const { container } = render(
+        <MemoryRouter>
+          <TodoDetailView />
+        </MemoryRouter>,
+      );
+      const badge = container.querySelector('.todo-detail-promoted');
+      expect(badge).toBeTruthy();
+      expect(badge?.textContent).toContain('Task Board');
+    });
+
+    it('navigates to tasks when promoted badge is clicked', () => {
+      const promotedItem: TodoItem = { ...fullItem, goalId: 'goal-abc' };
+      mockLocation.mockReturnValue({ state: { item: promotedItem } });
+
+      const { container } = render(
+        <MemoryRouter>
+          <TodoDetailView />
+        </MemoryRouter>,
+      );
+      fireEvent.click(container.querySelector('.todo-detail-promoted')!);
+      expect(mockNavigate).toHaveBeenCalledWith('/tasks?highlight=goal-abc');
+    });
+
+    it('calls promote API and navigates on success', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ task: { id: 'new-task-id' } }),
+      } as Response);
+
+      const { container } = render(
+        <MemoryRouter>
+          <TodoDetailView />
+        </MemoryRouter>,
+      );
+      fireEvent.click(container.querySelector('.todo-detail-promote-btn')!);
+
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith('/tasks?highlight=new-task-id');
+      });
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/workload/items/abc123/promote',
+        expect.objectContaining({ method: 'POST' }),
+      );
+      fetchSpy.mockRestore();
+    });
+
+    it('shows error on promote failure', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({ error: 'Server error' }),
+      } as Response);
+
+      const { container } = render(
+        <MemoryRouter>
+          <TodoDetailView />
+        </MemoryRouter>,
+      );
+      fireEvent.click(container.querySelector('.todo-detail-promote-btn')!);
+
+      await waitFor(() => {
+        expect(container.querySelector('.todo-detail-error')).toBeTruthy();
+        expect(container.querySelector('.todo-detail-error')?.textContent).toContain(
+          'Server error',
+        );
+      });
+      vi.restoreAllMocks();
+    });
+
+    it('disables button during promotion', async () => {
+      let resolvePromise: (value: Response) => void;
+      const pending = new Promise<Response>((r) => {
+        resolvePromise = r;
+      });
+      vi.spyOn(globalThis, 'fetch').mockReturnValue(pending);
+
+      const { container } = render(
+        <MemoryRouter>
+          <TodoDetailView />
+        </MemoryRouter>,
+      );
+      fireEvent.click(container.querySelector('.todo-detail-promote-btn')!);
+
+      await waitFor(() => {
+        const btn = container.querySelector('.todo-detail-promote-btn') as HTMLButtonElement;
+        expect(btn.disabled).toBe(true);
+        expect(btn.textContent).toBe('Promoting...');
+      });
+
+      resolvePromise!({
+        ok: true,
+        json: () => Promise.resolve({ task: { id: 'x' } }),
+      } as Response);
+      vi.restoreAllMocks();
+    });
   });
 });

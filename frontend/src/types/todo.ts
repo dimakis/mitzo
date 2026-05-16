@@ -31,6 +31,7 @@ export interface TodoItem {
   completedChildCount: number;
   sources: TodoSource[];
   contextHints: TodoContextHints;
+  goalId: string | null;
 }
 
 export interface TodoData {

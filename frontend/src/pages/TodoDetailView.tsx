@@ -28,6 +28,8 @@ export function TodoDetailView() {
   const stateItem = (location.state as { item?: TodoItem } | null)?.item;
   const [fetchedItem, setFetchedItem] = useState<TodoItem | null>(null);
   const [fetchFailed, setFetchFailed] = useState(false);
+  const [promoting, setPromoting] = useState(false);
+  const [promoteError, setPromoteError] = useState<string | null>(null);
 
   useEffect(() => {
     if (stateItem || !id) return;
@@ -104,13 +106,52 @@ export function TodoDetailView() {
     navigate(`/files?${params.toString()}`);
   }
 
+  async function handlePromote() {
+    if (!currentItem || promoting) return;
+
+    setPromoting(true);
+    setPromoteError(null);
+
+    try {
+      const res = await apiFetch(`/api/workload/items/${currentItem.id}/promote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: '' }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error((data as { error?: string }).error || `HTTP ${res.status}`);
+      }
+
+      const result = await res.json();
+      navigate(`/tasks?highlight=${result.task.id}`);
+    } catch (err) {
+      setPromoteError(err instanceof Error ? err.message : 'Failed to promote');
+    } finally {
+      setPromoting(false);
+    }
+  }
+
   return (
     <div className="todo-detail-page">
       <PageHeader title="Task" onBack={handleBack}>
-        <button className="todo-detail-chat-btn" onClick={handleOpenChat}>
-          Open in Chat
-        </button>
+        <div className="todo-detail-actions">
+          <button className="todo-detail-chat-btn" onClick={handleOpenChat}>
+            Open in Chat
+          </button>
+          {!item.goalId && (
+            <button
+              className="todo-detail-promote-btn"
+              onClick={handlePromote}
+              disabled={promoting}
+            >
+              {promoting ? 'Promoting...' : 'Promote to Tasks'}
+            </button>
+          )}
+        </div>
       </PageHeader>
+      {promoteError && <div className="todo-detail-error">{promoteError}</div>}
 
       <div className="todo-detail-scroll">
         <div className="todo-detail-summary">{item.summary}</div>
@@ -124,6 +165,15 @@ export function TodoDetailView() {
           </span>
           <span className="todo-detail-age">{ageLabel}</span>
           <span className="todo-detail-profile">{item.profile}</span>
+          {item.goalId && (
+            <span
+              className="todo-detail-promoted"
+              onClick={() => navigate(`/tasks?highlight=${item.goalId}`)}
+              title="Click to view task"
+            >
+              ↗ Task Board
+            </span>
+          )}
         </div>
 
         {item.children.length > 0 && (
