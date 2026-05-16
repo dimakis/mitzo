@@ -246,9 +246,11 @@ export class SessionOverviewEmitter {
     // Check uncommitted work for live sessions (from background cache)
     const uncommittedWork = session.cwd ? this.checkUncommittedCached(session.cwd) : false;
 
-    // Check if awaiting user reply (assistant spoke last, not streaming)
+    // Check if awaiting user reply (assistant spoke last, not streaming, not waiting for input)
+    // Exclude 'waiting' state — sessions needing permission/review should sort as waiting, not awaiting reply
     const meta = this.deps.eventStore.getSession(sessionId);
-    const awaitingReply = meta?.lastSpeaker === 'assistant' && !session.hasSnapshot;
+    const awaitingReply =
+      meta?.lastSpeaker === 'assistant' && !session.hasSnapshot && primaryState !== 'waiting';
     const speakerAt = meta?.lastSpeakerAt ?? lastEventAt;
     const idleMinutes = Math.round((now - speakerAt) / 60_000);
 

@@ -490,6 +490,25 @@ describe('SessionOverviewEmitter', () => {
     expect(activities[0].awaitingReply).toBe(false);
   });
 
+  it('does not set awaitingReply when session is in waiting state', () => {
+    mockGetPending.mockReturnValue(1);
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => [makeActiveSession({ hasSnapshot: false })]),
+      } as unknown as SessionOverviewDeps['registry'],
+      eventStore: {
+        getSession: vi.fn(() => ({ lastSpeaker: 'assistant', lastSpeakerAt: Date.now() })),
+        getAttentionSessions: vi.fn(() => []),
+      } as unknown as SessionOverviewDeps['eventStore'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    emitter.touch('client-1');
+
+    const activities = emitter.getSnapshot();
+    expect(activities[0].state).toBe('waiting');
+    expect(activities[0].awaitingReply).toBe(false);
+  });
+
   // ─── Uncommitted work ─────────────────────────────────────────────────────
 
   it('sets uncommittedWork when worktree is dirty', async () => {
