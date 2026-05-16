@@ -51,7 +51,7 @@ public actor MitzoAPIClient {
         let token = try await authManager.getToken()
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await tailscaleURLSession.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.invalidResponse
