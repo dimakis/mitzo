@@ -1374,6 +1374,11 @@ async function _runQueryLoopInner(
       if (!doneSent) {
         span.setAttribute('session.total_tokens', liveSessionTokens);
         span.setAttribute('session.num_turns', turnIndex);
+        // Cost is only available from the SDK result event. For multi-query sessions
+        // (compaction), earlier result events may have set cumulativeCostUsd before abort.
+        if (finalSession && finalSession.cumulativeCostUsd > 0) {
+          span.setAttribute('session.cost_usd', finalSession.cumulativeCostUsd);
+        }
       }
       // Always set session.id if we resolved it (idempotent with line 472)
       if (resolvedSessionId) {
