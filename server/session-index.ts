@@ -18,6 +18,7 @@ export interface SessionIndexEntry {
   last_title?: string;
   repos?: SessionIndexRepo[];
   status?: 'active' | 'closed' | 'abandoned';
+  closed_by?: 'user' | 'auto' | 'abandoned';
   has_uncommitted?: boolean;
   closeout_summary?: string;
   tokens_used?: number;
@@ -132,6 +133,7 @@ export function finalizeCloseout(
   wtId: string,
   fields: {
     status: 'closed' | 'abandoned';
+    closed_by?: 'user' | 'auto' | 'abandoned';
     tokens_used?: number;
     cost_usd?: number;
     has_uncommitted?: boolean;

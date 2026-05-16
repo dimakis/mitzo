@@ -12,6 +12,7 @@ export class NativeCommandRegistry {
 
   constructor() {
     this.commands.set('skills', skillsCommand);
+    this.commands.set('close', closeCommand);
   }
 
   has(name: string): boolean {
@@ -80,4 +81,13 @@ function skillsCommand(args: string, skillRegistry: SkillRegistry): NativeComman
   }
 
   return { command: 'skills', content: lines.join('\n') };
+}
+
+// --- /close command ---
+
+function closeCommand(): NativeCommandResult {
+  return {
+    command: 'close',
+    content: 'Closing session... The agent will commit any uncommitted work and write a summary.',
+  };
 }
