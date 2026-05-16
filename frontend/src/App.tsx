@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { apiFetch } from './lib/api-fetch';
 import { hideSplash } from './lib/splash';
+import { saveTokenToWatch } from './lib/watch-auth';
 import { Login } from './pages/Login';
 import { SessionList } from './pages/SessionList';
 import { ChatView } from './pages/ChatView';
@@ -21,7 +22,13 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const [auth, setAuth] = useState<'loading' | 'ok' | 'denied'>('loading');
   useEffect(() => {
     apiFetch('/api/auth/check')
-      .then((r) => setAuth(r.ok ? 'ok' : 'denied'))
+      .then((r) => {
+        setAuth(r.ok ? 'ok' : 'denied');
+        if (r.ok) {
+          const token = localStorage.getItem('mitzo_auth_token');
+          if (token) saveTokenToWatch(token);
+        }
+      })
       .catch(() => setAuth('denied'))
       .finally(() => hideSplash());
   }, []);
