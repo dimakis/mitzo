@@ -19,7 +19,7 @@ public final class TailscaleTrustDelegate: NSObject, URLSessionDelegate, Sendabl
         }
 
         let host = challenge.protectionSpace.host
-        if host.hasSuffix(".ts.net") || host == "localhost" || host.hasSuffix(".tail") {
+        if host.hasSuffix(".ts.net") || host == "localhost" || host.hasSuffix(".tail") || host.hasPrefix("100.") {
             return (.useCredential, URLCredential(trust: trust))
         }
 

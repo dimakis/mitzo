@@ -13,7 +13,7 @@ final class WatchRelayCoordinator: @unchecked Sendable {
 
     private var serverURL: URL {
         let stored = UserDefaults.standard.string(forKey: "mitzo_server_url")
-        return URL(string: stored ?? "https://dimakis-mac.tail:3100")!
+        return URL(string: stored ?? "https://100.91.50.57:3100")!
     }
 
     init() {
@@ -43,7 +43,11 @@ final class WatchRelayCoordinator: @unchecked Sendable {
     }
 
     private func connect() async {
-        guard let token = try? await authManager.getToken() else { return }
+        guard let token = try? await authManager.getToken() else {
+            print("[WatchRelayCoordinator] No token found, skipping connect")
+            return
+        }
+        print("[WatchRelayCoordinator] Token found, connecting to \(serverURL)")
 
         var components = URLComponents(url: serverURL, resolvingAgainstBaseURL: false)!
         components.scheme = components.scheme == "https" ? "wss" : "ws"
@@ -56,6 +60,7 @@ final class WatchRelayCoordinator: @unchecked Sendable {
         lock.withLock { wsClient = client }
 
         let api = MitzoAPIClient(baseURL: serverURL, authManager: authManager)
+        print("[WatchRelayCoordinator] Created apiClient + wsClient")
         // Update relay with authenticated clients (WCSession already activated in init)
         watchRelay.activate(wsClient: client, apiClient: api)
 
