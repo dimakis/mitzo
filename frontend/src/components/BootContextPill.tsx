@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import type { BootContextMeta, SectionMeta } from '@mitzo/client';
 
 interface Props {
@@ -16,10 +16,10 @@ const KIND_LABELS: Record<string, string> = {
 function SectionRow({ section, dimmed }: { section: SectionMeta; dimmed?: boolean }) {
   const [open, setOpen] = useState(false);
 
-  const toggle = useCallback((e: React.MouseEvent) => {
+  const toggle = (e: React.MouseEvent) => {
     e.stopPropagation();
     setOpen((o) => !o);
-  }, []);
+  };
 
   return (
     <div
