@@ -129,12 +129,14 @@ gh pr diff <number> -R <owner>/<repo> --stat
 ```
 
 **Simple PR** (auto-merge) — ALL of these are true:
+
 - 5 or fewer files changed
 - Under 300 lines changed total
 - No changes to CI config, package.json/lock files, database migrations, or security-critical files
 - All review comments were auto-fixable (no substantive escalations during this shepherd run)
 
 **Complex PR** (ask user) — any of these are true:
+
 - More than 5 files changed
 - Over 300 lines changed
 - Touches CI, dependencies, migrations, auth, or config
@@ -151,6 +153,7 @@ Report: "Auto-merged PR #N (simple: M files, K lines). Shepherd complete."
 **For complex PRs — ask first:**
 
 > PR is clean and ready to merge.
+>
 > - CI: all green
 > - Reviews: all addressed
 > - Conflicts: none
