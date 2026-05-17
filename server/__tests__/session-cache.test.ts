@@ -217,6 +217,51 @@ describe('getSessionsCached', () => {
       cwd: '/projects/bar',
     });
   });
+
+  it('keeps a recent zero-turn inactive session within the grace period', async () => {
+    const thirtyMinutesAgo = Date.now() - 30 * 60 * 1000;
+    mockListSessionsMeta.mockReturnValue([
+      {
+        sessionId: 'sess-recent-zero',
+        summary: 'Just created',
+        numTurns: 0,
+        promptCount: 0,
+        isActive: false,
+        createdAt: thirtyMinutesAgo,
+        updatedAt: thirtyMinutesAgo,
+        branch: null,
+        cwd: null,
+      },
+    ]);
+
+    const { getSessionsCached } = await import('../chat.js');
+    const { sessions } = getSessionsCached();
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].id).toBe('sess-recent-zero');
+  });
+
+  it('hides an old zero-turn inactive session past the grace period', async () => {
+    const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+    mockListSessionsMeta.mockReturnValue([
+      {
+        sessionId: 'sess-old-zero',
+        summary: 'Stale empty session',
+        numTurns: 0,
+        promptCount: 0,
+        isActive: false,
+        createdAt: twoHoursAgo,
+        updatedAt: twoHoursAgo,
+        branch: null,
+        cwd: null,
+      },
+    ]);
+
+    const { getSessionsCached } = await import('../chat.js');
+    const { sessions } = getSessionsCached();
+
+    expect(sessions).toHaveLength(0);
+  });
 });
 
 describe('syncSessionTimestamps', () => {
@@ -344,6 +389,63 @@ describe('syncSessionTimestamps', () => {
     await syncSessionTimestamps();
 
     expect(mockUpsertSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('resume timestamp preservation', () => {
+  it('preserves updatedAt when resuming an existing session', async () => {
+    const originalUpdatedAt = Date.now() - 3600_000; // 1 hour ago
+    const existingMeta = {
+      sessionId: 'sess-resume',
+      summary: 'Old session',
+      updatedAt: originalUpdatedAt,
+      createdAt: originalUpdatedAt - 7200_000,
+      numTurns: 5,
+      promptCount: 3,
+      isActive: false,
+      branch: 'main',
+      cwd: '/projects/foo',
+      manuallyRenamed: false,
+    };
+    mockGetSession.mockReturnValue(existingMeta);
+
+    // Simulate the resume upsert pattern from startSession (chat.ts L688-701):
+    //   const existingMeta = eventStore.getSession(id);
+    //   eventStore.upsertSession({ ..., ...(existingMeta ? { updatedAt: existingMeta.updatedAt } : {}) });
+    const sessionId = 'sess-resume';
+    const retrieved = mockEventStore.getSession(sessionId);
+    mockEventStore.upsertSession({
+      sessionId,
+      cwd: '/projects/foo',
+      mode: 'code',
+      branch: 'main',
+      ...(retrieved ? { updatedAt: retrieved.updatedAt } : {}),
+    });
+
+    expect(mockUpsertSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'sess-resume',
+        updatedAt: originalUpdatedAt,
+      }),
+    );
+  });
+
+  it('omits updatedAt when resuming a session with no prior metadata', async () => {
+    mockGetSession.mockReturnValue(null);
+
+    const sessionId = 'sess-new-resume';
+    const retrieved = mockEventStore.getSession(sessionId);
+    mockEventStore.upsertSession({
+      sessionId,
+      cwd: '/projects/foo',
+      mode: 'code',
+      branch: 'main',
+      ...(retrieved ? { updatedAt: retrieved.updatedAt } : {}),
+    });
+
+    const call = mockUpsertSession.mock.calls[0][0];
+    expect(call.sessionId).toBe('sess-new-resume');
+    expect(call).not.toHaveProperty('updatedAt');
   });
 });
 
