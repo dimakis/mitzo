@@ -45,19 +45,21 @@ export async function initPushNotifications(): Promise<void> {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId, actionId, userText: inputValue }),
-      }).finally(() => {
+      }).then(() => {
+        window.location.href = `/chat/${sessionId}`;
+      }).catch(() => {
+        // Still navigate — user can resend from chat view
         window.location.href = `/chat/${sessionId}`;
       });
     } else if (sessionId) {
-      // VIEW_ACTION, LATER_ACTION, or default tap — navigate to session
-      if (actionId && actionId !== 'VIEW_ACTION') {
+      if (actionId === 'LATER_ACTION') {
         apiFetch('/api/push/notification-action', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ sessionId, actionId }),
         });
-      }
-      if (actionId !== 'LATER_ACTION') {
+      } else {
+        // VIEW_ACTION or default tap — just navigate
         window.location.href = `/chat/${sessionId}`;
       }
     }

@@ -627,7 +627,7 @@ async function _runQueryLoopInner(
           if (!registry.isAttached(clientId)) {
             const snippet = extractSnippet(snapshotBlocks, NOTIFY_SNIPPET_MAX_CHARS);
             const sid = (msg.session_id as string) || currentSession.sessionId;
-            const sessionTitle = store?.getSession(sid)?.summary ?? undefined;
+            const sessionTitle = sid ? (store?.getSession(sid)?.summary ?? undefined) : undefined;
             ntfyTurnComplete(sid, snippet, sessionTitle).catch(() => {});
             pushoverTurnComplete(sid, snippet, sessionTitle).catch(() => {});
             apnsTurnComplete(sid, snippet, sessionTitle).catch(() => {});
