@@ -34,36 +34,41 @@ export async function initPushNotifications(): Promise<void> {
     // Foreground — WS handles live updates, no action needed
   });
 
-  await PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
-    const { actionId, inputValue } = action;
-    const data = action.notification.data as Record<string, string> | undefined;
-    const sessionId = data?.sessionId;
+  await PushNotifications.addListener(
+    'pushNotificationActionPerformed',
+    (action: ActionPerformed) => {
+      const { actionId, inputValue } = action;
+      const data = action.notification.data as Record<string, string> | undefined;
+      const sessionId = data?.sessionId;
 
-    if (sessionId && actionId === 'REPLY_ACTION' && inputValue) {
-      // Send reply text to the session, then navigate
-      apiFetch('/api/push/notification-action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, actionId, userText: inputValue }),
-      }).then(() => {
-        window.location.href = `/chat/${sessionId}`;
-      }).catch(() => {
-        // Still navigate — user can resend from chat view
-        window.location.href = `/chat/${sessionId}`;
-      });
-    } else if (sessionId) {
-      if (actionId === 'LATER_ACTION') {
+      if (sessionId && actionId === 'REPLY_ACTION' && inputValue) {
+        // Send reply text to the session, then navigate
         apiFetch('/api/push/notification-action', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId, actionId }),
-        });
-      } else {
-        // VIEW_ACTION or default tap — just navigate
-        window.location.href = `/chat/${sessionId}`;
+          body: JSON.stringify({ sessionId, actionId, userText: inputValue }),
+        })
+          .then(() => {
+            window.location.href = `/chat/${sessionId}`;
+          })
+          .catch(() => {
+            // Still navigate — user can resend from chat view
+            window.location.href = `/chat/${sessionId}`;
+          });
+      } else if (sessionId) {
+        if (actionId === 'LATER_ACTION') {
+          apiFetch('/api/push/notification-action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId, actionId }),
+          });
+        } else {
+          // VIEW_ACTION or default tap — just navigate
+          window.location.href = `/chat/${sessionId}`;
+        }
       }
-    }
-  });
+    },
+  );
 
   await PushNotifications.register();
 }
