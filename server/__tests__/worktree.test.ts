@@ -37,7 +37,9 @@ import {
   cleanupStaleWorktrees,
   parseWorktreeAge,
   countWorktrees,
+  createWorktree,
   createWorktreeAsync,
+  detectDefaultBranch,
   symlinkRuntimeDirs,
   discoverSessionWorktrees,
 } from '../worktree.js';
@@ -124,7 +126,7 @@ describe('createWorktreeAsync', () => {
 
   beforeEach(() => {
     baseRepo = mkdtempSync(join(tmpdir(), 'mitzo-async-wt-'));
-    execFileSync('git', ['-C', baseRepo, 'init'], { stdio: 'pipe' });
+    execFileSync('git', ['-C', baseRepo, 'init', '-b', 'main'], { stdio: 'pipe' });
     execFileSync('git', ['-C', baseRepo, 'config', 'user.email', 'test@test.com'], {
       stdio: 'pipe',
     });
@@ -166,6 +168,309 @@ describe('createWorktreeAsync', () => {
     execFileSync('git', ['-C', baseRepo, 'branch', branch], { stdio: 'pipe' });
     const path = await createWorktreeAsync(sessionId, baseRepo);
     expect(existsSync(path)).toBe(true);
+  });
+
+  it('branches from main by default, not from HEAD', async () => {
+    // Simulate the bug: checkout a session branch with extra commits,
+    // then create a new worktree. Without startPoint fix, the new worktree
+    // inherits the extra commits. With the fix, it branches from main.
+
+    // Create a commit on main so we have a known ref
+    const mainCommit = execFileSync('git', ['-C', baseRepo, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+
+    // Create a divergent branch with an extra commit (simulating a prior session)
+    execFileSync('git', ['-C', baseRepo, 'checkout', '-b', 'session/old-session'], {
+      stdio: 'pipe',
+    });
+    execFileSync('git', ['-C', baseRepo, 'commit', '--allow-empty', '-m', 'old session work'], {
+      stdio: 'pipe',
+    });
+
+    // HEAD is now on session/old-session, ahead of main
+    const headCommit = execFileSync('git', ['-C', baseRepo, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+    expect(headCommit).not.toBe(mainCommit);
+
+    // Create new worktree — should branch from main, not HEAD
+    const sessionId = 'async-startpoint-test';
+    const path = await createWorktreeAsync(sessionId, baseRepo);
+
+    // Verify the worktree's HEAD matches main, not the old session branch
+    const wtCommit = execFileSync('git', ['-C', path, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+    expect(wtCommit).toBe(mainCommit);
+  });
+
+  it('respects custom startPoint option', async () => {
+    // Create a feature branch with an extra commit
+    execFileSync('git', ['-C', baseRepo, 'checkout', '-b', 'feature/base'], { stdio: 'pipe' });
+    execFileSync('git', ['-C', baseRepo, 'commit', '--allow-empty', '-m', 'feature base'], {
+      stdio: 'pipe',
+    });
+    const featureCommit = execFileSync('git', ['-C', baseRepo, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+    execFileSync('git', ['-C', baseRepo, 'checkout', 'main'], { stdio: 'pipe' });
+
+    const sessionId = 'async-custom-startpoint';
+    const path = await createWorktreeAsync(sessionId, baseRepo, { startPoint: 'feature/base' });
+
+    const wtCommit = execFileSync('git', ['-C', path, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+    expect(wtCommit).toBe(featureCommit);
+  });
+
+  it('resets existing branch to startPoint on fallback', async () => {
+    // Create a branch pointing to HEAD (main)
+    const mainCommit = execFileSync('git', ['-C', baseRepo, 'rev-parse', 'main'], {
+      encoding: 'utf8',
+    }).trim();
+
+    // Add a commit to main so we can create a branch at a different point
+    execFileSync('git', ['-C', baseRepo, 'commit', '--allow-empty', '-m', 'second commit'], {
+      stdio: 'pipe',
+    });
+    const secondCommit = execFileSync('git', ['-C', baseRepo, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+
+    // Pre-create the session branch at the old main commit
+    const sessionId = 'async-reset-branch';
+    const branch = `session/${sessionId}`;
+    execFileSync('git', ['-C', baseRepo, 'branch', branch, mainCommit], { stdio: 'pipe' });
+
+    // Create worktree with startPoint=main (which is now at secondCommit)
+    const path = await createWorktreeAsync(sessionId, baseRepo);
+
+    // Branch should have been reset to current main (secondCommit), not old position
+    const wtCommit = execFileSync('git', ['-C', path, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+    expect(wtCommit).toBe(secondCommit);
+  });
+});
+
+describe('detectDefaultBranch', () => {
+  let baseRepo: string;
+
+  beforeEach(() => {
+    baseRepo = mkdtempSync(join(tmpdir(), 'mitzo-detect-branch-'));
+    execFileSync('git', ['-C', baseRepo, 'init', '-b', 'main'], { stdio: 'pipe' });
+    execFileSync('git', ['-C', baseRepo, 'config', 'user.email', 'test@test.com'], {
+      stdio: 'pipe',
+    });
+    execFileSync('git', ['-C', baseRepo, 'config', 'user.name', 'Test'], { stdio: 'pipe' });
+    execFileSync('git', ['-C', baseRepo, 'commit', '--allow-empty', '-m', 'init'], {
+      stdio: 'pipe',
+    });
+  });
+
+  afterEach(() => {
+    rmSync(baseRepo, { recursive: true, force: true });
+  });
+
+  it('falls back to main when no origin is configured', () => {
+    expect(detectDefaultBranch(baseRepo)).toBe('main');
+  });
+
+  it('detects default branch from origin symbolic-ref', () => {
+    // Create a bare "remote" repo with a non-standard default branch
+    const remoteRepo = mkdtempSync(join(tmpdir(), 'mitzo-remote-'));
+    execFileSync('git', ['-C', remoteRepo, 'init', '--bare', '-b', 'develop'], { stdio: 'pipe' });
+    // Add it as origin and fetch
+    execFileSync('git', ['-C', baseRepo, 'remote', 'add', 'origin', remoteRepo], { stdio: 'pipe' });
+    // Push main to origin as develop
+    execFileSync('git', ['-C', baseRepo, 'push', 'origin', 'main:develop'], { stdio: 'pipe' });
+    execFileSync('git', ['-C', baseRepo, 'fetch', 'origin'], { stdio: 'pipe' });
+    // Set the symbolic ref to point to develop
+    execFileSync(
+      'git',
+      ['-C', baseRepo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/develop'],
+      { stdio: 'pipe' },
+    );
+
+    expect(detectDefaultBranch(baseRepo)).toBe('develop');
+    rmSync(remoteRepo, { recursive: true, force: true });
+  });
+
+  it('handles branch names with slashes correctly', () => {
+    // Create a bare "remote" repo with a slashed default branch
+    const remoteRepo = mkdtempSync(join(tmpdir(), 'mitzo-remote-slashed-'));
+    execFileSync('git', ['-C', remoteRepo, 'init', '--bare', '-b', 'release/stable'], {
+      stdio: 'pipe',
+    });
+    execFileSync('git', ['-C', baseRepo, 'remote', 'add', 'origin', remoteRepo], {
+      stdio: 'pipe',
+    });
+    execFileSync('git', ['-C', baseRepo, 'push', 'origin', 'main:release/stable'], {
+      stdio: 'pipe',
+    });
+    execFileSync('git', ['-C', baseRepo, 'fetch', 'origin'], { stdio: 'pipe' });
+    execFileSync(
+      'git',
+      [
+        '-C',
+        baseRepo,
+        'symbolic-ref',
+        'refs/remotes/origin/HEAD',
+        'refs/remotes/origin/release/stable',
+      ],
+      { stdio: 'pipe' },
+    );
+
+    expect(detectDefaultBranch(baseRepo)).toBe('release/stable');
+    rmSync(remoteRepo, { recursive: true, force: true });
+  });
+
+  it('falls back to HEAD when main does not exist', () => {
+    // Create a repo with master instead of main
+    const masterRepo = mkdtempSync(join(tmpdir(), 'mitzo-master-'));
+    execFileSync('git', ['-C', masterRepo, 'init', '-b', 'master'], { stdio: 'pipe' });
+    execFileSync('git', ['-C', masterRepo, 'config', 'user.email', 'test@test.com'], {
+      stdio: 'pipe',
+    });
+    execFileSync('git', ['-C', masterRepo, 'config', 'user.name', 'Test'], { stdio: 'pipe' });
+    execFileSync('git', ['-C', masterRepo, 'commit', '--allow-empty', '-m', 'init'], {
+      stdio: 'pipe',
+    });
+
+    // No origin, 'main' doesn't exist — should fall back to 'HEAD'
+    expect(detectDefaultBranch(masterRepo)).toBe('HEAD');
+    rmSync(masterRepo, { recursive: true, force: true });
+  });
+});
+
+describe('createWorktree (sync)', () => {
+  let baseRepo: string;
+
+  beforeEach(() => {
+    baseRepo = mkdtempSync(join(tmpdir(), 'mitzo-sync-wt-'));
+    execFileSync('git', ['-C', baseRepo, 'init', '-b', 'main'], { stdio: 'pipe' });
+    execFileSync('git', ['-C', baseRepo, 'config', 'user.email', 'test@test.com'], {
+      stdio: 'pipe',
+    });
+    execFileSync('git', ['-C', baseRepo, 'config', 'user.name', 'Test'], { stdio: 'pipe' });
+    execFileSync('git', ['-C', baseRepo, 'commit', '--allow-empty', '-m', 'init'], {
+      stdio: 'pipe',
+    });
+  });
+
+  afterEach(() => {
+    try {
+      execFileSync('git', ['-C', baseRepo, 'worktree', 'prune'], { stdio: 'pipe' });
+    } catch {
+      // ignore
+    }
+    rmSync(baseRepo, { recursive: true, force: true });
+  });
+
+  it('creates a worktree and returns its path', () => {
+    const sessionId = 'sync-test-session';
+    const path = createWorktree(sessionId, baseRepo);
+    expect(path).toBe(join(baseRepo, '.claude', 'worktrees', sessionId));
+    expect(existsSync(path)).toBe(true);
+    // Verify it's a valid git worktree
+    execFileSync('git', ['-C', path, 'rev-parse', '--git-dir'], { stdio: 'pipe' });
+  });
+
+  it('reuses existing valid worktree', () => {
+    const sessionId = 'sync-reuse-session';
+    const first = createWorktree(sessionId, baseRepo);
+    const second = createWorktree(sessionId, baseRepo);
+    expect(first).toBe(second);
+  });
+
+  it('handles branch-already-exists fallback', () => {
+    const sessionId = 'sync-branch-exists';
+    const branch = `session/${sessionId}`;
+    // Pre-create the branch so the first `git worktree add -b` fails
+    execFileSync('git', ['-C', baseRepo, 'branch', branch], { stdio: 'pipe' });
+    const path = createWorktree(sessionId, baseRepo);
+    expect(existsSync(path)).toBe(true);
+  });
+
+  it('branches from main by default, not from HEAD', () => {
+    // Create a commit on main so we have a known ref
+    const mainCommit = execFileSync('git', ['-C', baseRepo, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+
+    // Create a divergent branch with an extra commit (simulating a prior session)
+    execFileSync('git', ['-C', baseRepo, 'checkout', '-b', 'session/old-session'], {
+      stdio: 'pipe',
+    });
+    execFileSync('git', ['-C', baseRepo, 'commit', '--allow-empty', '-m', 'old session work'], {
+      stdio: 'pipe',
+    });
+
+    // HEAD is now on session/old-session, ahead of main
+    const headCommit = execFileSync('git', ['-C', baseRepo, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+    expect(headCommit).not.toBe(mainCommit);
+
+    // Create new worktree — should branch from main, not HEAD
+    const sessionId = 'sync-startpoint-test';
+    const path = createWorktree(sessionId, baseRepo);
+
+    // Verify the worktree's HEAD matches main, not the old session branch
+    const wtCommit = execFileSync('git', ['-C', path, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+    expect(wtCommit).toBe(mainCommit);
+  });
+
+  it('respects custom startPoint option', () => {
+    // Create a feature branch with an extra commit
+    execFileSync('git', ['-C', baseRepo, 'checkout', '-b', 'feature/base'], { stdio: 'pipe' });
+    execFileSync('git', ['-C', baseRepo, 'commit', '--allow-empty', '-m', 'feature base'], {
+      stdio: 'pipe',
+    });
+    const featureCommit = execFileSync('git', ['-C', baseRepo, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+    execFileSync('git', ['-C', baseRepo, 'checkout', 'main'], { stdio: 'pipe' });
+
+    const sessionId = 'sync-custom-startpoint';
+    const path = createWorktree(sessionId, baseRepo, { startPoint: 'feature/base' });
+
+    const wtCommit = execFileSync('git', ['-C', path, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+    expect(wtCommit).toBe(featureCommit);
+  });
+
+  it('resets existing branch to startPoint on fallback', () => {
+    const mainCommit = execFileSync('git', ['-C', baseRepo, 'rev-parse', 'main'], {
+      encoding: 'utf8',
+    }).trim();
+
+    // Add a commit to main so we can create a branch at a different point
+    execFileSync('git', ['-C', baseRepo, 'commit', '--allow-empty', '-m', 'second commit'], {
+      stdio: 'pipe',
+    });
+    const secondCommit = execFileSync('git', ['-C', baseRepo, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+
+    // Pre-create the session branch at the old main commit
+    const sessionId = 'sync-reset-branch';
+    const branch = `session/${sessionId}`;
+    execFileSync('git', ['-C', baseRepo, 'branch', branch, mainCommit], { stdio: 'pipe' });
+
+    // Create worktree with startPoint=main (which is now at secondCommit)
+    const path = createWorktree(sessionId, baseRepo);
+
+    // Branch should have been reset to current main (secondCommit), not old position
+    const wtCommit = execFileSync('git', ['-C', path, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+    expect(wtCommit).toBe(secondCommit);
   });
 });
 
@@ -303,7 +608,7 @@ describe('cleanupStaleWorktrees', () => {
     // Create a real temporary git repo for testing
     baseRepo = mkdtempSync(join(tmpdir(), 'mitzo-wt-test-'));
     inboxDir = join(baseRepo, 'test-inbox');
-    execFileSync('git', ['-C', baseRepo, 'init'], { stdio: 'pipe' });
+    execFileSync('git', ['-C', baseRepo, 'init', '-b', 'main'], { stdio: 'pipe' });
     execFileSync('git', ['-C', baseRepo, 'config', 'user.email', 'test@test.com'], {
       stdio: 'pipe',
     });
