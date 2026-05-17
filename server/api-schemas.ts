@@ -226,3 +226,17 @@ export const WorkloadItemUpdateBody = z.object({
 export const WorkloadPromoteBody = z.object({
   description: z.string().optional(),
 });
+
+// -- Session creation schemas --
+
+export const SessionCreateBody = z.object({
+  source: z.string().min(1),
+  /** Initial prompt to auto-send when the session starts (e.g. "/pr-shepherd mitzo#254"). */
+  initialPrompt: z.string().min(1).optional(),
+  /** Human-readable session title (e.g. "PR Shepherd: mitzo#254"). */
+  summary: z.string().max(200).optional(),
+  /** Agent mode — defaults to "agent". */
+  mode: z.enum(['ask', 'agent', 'auto']).default('agent'),
+  /** Model override. */
+  model: z.string().optional(),
+});

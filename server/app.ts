@@ -18,6 +18,7 @@ import {
   hideSession,
   hideAllSessions,
   renameSessionById,
+  startChat,
   AVAILABLE_MODELS,
   BASE_REPO,
   getMcpServerNames,
@@ -27,6 +28,7 @@ import {
   registry,
   generateWtId,
 } from './chat.js';
+import { NullTransport } from './null-transport.js';
 import {
   createWorktree,
   createSessionWorktrees as createAllWorktrees,
@@ -64,6 +66,7 @@ import {
   WorkSignalBatchBody,
   WorkloadItemUpdateBody,
   WorkloadPromoteBody,
+  SessionCreateBody,
 } from './api-schemas.js';
 import type { TaskOrchestrator } from './task-orchestrator.js';
 import type { SessionOverviewEmitter } from './session-overview.js';
@@ -405,17 +408,39 @@ app.post('/api/repos/open', (req, res) => {
   }
 });
 
-app.post('/api/sessions', (req, res) => {
+app.post('/api/sessions', async (req, res) => {
   if (!verifyInternalToken(req)) {
     res.status(401).json({ error: 'Internal token required' });
     return;
   }
 
-  const { source } = req.body || {};
-  if (!source || typeof source !== 'string') {
-    res.status(400).json({ error: 'source is required (cursor | claude | mitzo)' });
+  const body = SessionCreateBody.safeParse(req.body);
+  if (!body.success) {
+    // Backwards-compatible: check for old-style { source: string } body
+    const { source } = req.body || {};
+    if (!source || typeof source !== 'string') {
+      res.status(400).json({ error: 'source is required (cursor | claude | mitzo)' });
+      return;
+    }
+    // Fall through with legacy shape
+    await handleSessionCreate(res, { source });
     return;
   }
+
+  await handleSessionCreate(res, body.data);
+});
+
+async function handleSessionCreate(
+  res: express.Response,
+  data: {
+    source: string;
+    initialPrompt?: string;
+    summary?: string;
+    mode?: 'ask' | 'agent' | 'auto';
+    model?: string;
+  },
+) {
+  const { source, initialPrompt, summary, mode, model } = data;
 
   if (!isIsolationEnabled()) {
     log.info('session isolation disabled', { source });
@@ -424,7 +449,6 @@ app.post('/api/sessions', (req, res) => {
   }
 
   const config = getRepoConfig();
-
   const wtId = generateWtId();
 
   try {
@@ -436,15 +460,46 @@ app.post('/api/sessions', (req, res) => {
       sessionId: wtId,
       source,
       repos: Object.keys(worktrees),
+      hasInitialPrompt: !!initialPrompt,
     });
 
-    res.json({ sessionId: wtId, worktrees, isolation: true });
+    // If initialPrompt is provided, register in event store and auto-start headlessly
+    if (initialPrompt) {
+      eventStore.upsertSession({
+        sessionId: wtId,
+        summary: summary ?? initialPrompt.slice(0, 100),
+        initialPrompt,
+        isActive: true,
+        mode: mode ?? 'agent',
+      });
+
+      // Start the session headlessly — NullTransport discards WS messages
+      // but the query loop still persists events to the EventStore.
+      // The user can reattach via WS at any time (takeover logic in ws-handler-v2).
+      const clientId = `headless:${wtId}`;
+      const transport = new NullTransport();
+      await startChat(transport, clientId, initialPrompt, {
+        resume: wtId,
+        mode: mode ?? 'agent',
+        model,
+        isolation: true,
+      });
+
+      log.info('headless session started', { sessionId: wtId, prompt: initialPrompt });
+    }
+
+    res.status(initialPrompt ? 201 : 200).json({
+      sessionId: wtId,
+      worktrees,
+      isolation: true,
+      headless: !!initialPrompt,
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     log.error('session creation failed', { source, error: message });
     res.status(500).json({ error: `Session creation failed: ${message}` });
   }
-});
+}
 
 // --- Suspend endpoint (sendBeacon fallback) ---
 // Above authMiddleware because sendBeacon cannot set custom headers.
