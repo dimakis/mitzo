@@ -192,7 +192,7 @@ Even when waiting for reviews, keep the PR healthy:
 
 - **Default is to fix.** Only escalate if the fix requires judgment the agent shouldn't make.
 - **Never dismiss review feedback** without evidence that it's factually wrong.
-- **Never merge without explicit user approval.**
+- **Auto-merge simple PRs.** For simple PRs (≤5 files, <300 lines, no sensitive areas, no substantive review escalations), merge immediately when ready. For complex PRs, ask first.
 - **Never force-push** — always use `--force-with-lease`.
 - **Conflicts are the #1 reason CI doesn't start.** Always check conflicts before diagnosing CI.
 - **Keep the user informed** but don't spam. One status line per cycle unless something changed.

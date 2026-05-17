@@ -478,7 +478,7 @@ function handleSessionCreate(
       // The user can reattach via WS at any time (takeover logic in ws-handler-v2).
       const clientId = `headless:${wtId}`;
       const transport = new NullTransport();
-      startChat(transport, clientId, initialPrompt, {
+      await startChat(transport, clientId, initialPrompt, {
         resume: wtId,
         mode: mode ?? 'agent',
         model,
