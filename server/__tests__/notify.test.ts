@@ -27,6 +27,24 @@ describe('sendTurnCompleteNotification', () => {
     }
   });
 
+  it('uses session title in notification title when provided', async () => {
+    await sendTurnCompleteNotification('sess-123', 'Summary', 'Debug Auth Flow');
+
+    if (mockFetch.mock.calls.length > 0) {
+      const [, opts] = mockFetch.mock.calls[0];
+      expect(opts.headers.Title).toBe('Mitzo: Debug Auth Flow');
+    }
+  });
+
+  it('falls back to Mitzo when no session title', async () => {
+    await sendTurnCompleteNotification('sess-123', 'Summary');
+
+    if (mockFetch.mock.calls.length > 0) {
+      const [, opts] = mockFetch.mock.calls[0];
+      expect(opts.headers.Title).toBe('Mitzo');
+    }
+  });
+
   it('works without arguments (backward compatible)', async () => {
     await expect(sendTurnCompleteNotification()).resolves.toBeUndefined();
   });

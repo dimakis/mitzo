@@ -67,11 +67,13 @@ export async function sendPermissionNotification(
 export async function sendTurnCompleteNotification(
   sessionId?: string,
   snippet?: string,
+  sessionTitle?: string,
 ): Promise<void> {
   if (!isConfigured()) return;
 
+  const title = sessionTitle ? `Mitzo: ${sessionTitle}` : 'Mitzo';
   await sendPushoverNotification(
-    'Mitzo: Agent replied',
+    title,
     snippet || 'The agent has finished its turn.',
     sessionUrl(sessionId),
     'Open Mitzo',

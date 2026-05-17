@@ -239,7 +239,7 @@ export async function generateSessionName(prompts: string[]): Promise<string> {
         model: isVertex ? VERTEX_MODEL : AUTO_RENAME_MODEL,
         max_tokens: 20,
         system:
-          'Generate a 3-6 word title for this chat session. Be specific and descriptive. Return only the title, nothing else.',
+          'What is the user trying to accomplish? Generate a 3-6 word title capturing their intent or goal. Be action-oriented and specific. Return only the title, nothing else.',
         messages: [
           {
             role: 'user',

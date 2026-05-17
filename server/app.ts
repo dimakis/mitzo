@@ -19,6 +19,7 @@ import {
   hideAllSessions,
   renameSessionById,
   startChat,
+  sendToChat,
   AVAILABLE_MODELS,
   BASE_REPO,
   getMcpServerNames,
@@ -1453,6 +1454,56 @@ app.delete('/api/push/register', (req, res) => {
   }
   removeToken(token);
   res.json({ ok: true });
+});
+
+// --- Push notification action responses (Reply/View/Later from iOS) ---
+
+app.post('/api/push/notification-action', (req, res) => {
+  const { sessionId, actionId, userText } = req.body || {};
+
+  if (!sessionId || typeof sessionId !== 'string') {
+    res.status(400).json({ error: 'sessionId is required' });
+    return;
+  }
+  if (!actionId || typeof actionId !== 'string') {
+    res.status(400).json({ error: 'actionId is required' });
+    return;
+  }
+
+  // View and Later are client-side only — acknowledge without server action
+  if (actionId === 'VIEW_ACTION') {
+    res.json({ ok: true, action: 'view' });
+    return;
+  }
+  if (actionId === 'LATER_ACTION') {
+    res.json({ ok: true, action: 'later' });
+    return;
+  }
+
+  // Reply requires text
+  if (actionId === 'REPLY_ACTION') {
+    if (!userText || typeof userText !== 'string') {
+      res.status(400).json({ error: 'userText is required for REPLY_ACTION' });
+      return;
+    }
+
+    const found = registry.findBySessionId(sessionId);
+    if (!found) {
+      res.status(404).json({ error: 'Session not found or inactive' });
+      return;
+    }
+
+    const ok = sendToChat(found.clientId, userText);
+    if (!ok) {
+      res.status(500).json({ error: 'Failed to send message to session' });
+      return;
+    }
+
+    res.json({ ok: true, action: 'reply' });
+    return;
+  }
+
+  res.status(400).json({ error: `Unknown actionId: ${actionId}` });
 });
 
 // --- Calendar API ---

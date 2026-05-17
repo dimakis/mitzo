@@ -89,11 +89,15 @@ function getProvider(): import('@parse/node-apn').Provider | null {
   }
 }
 
+/** APNs notification category for session updates. Register on the iOS client to enable actions. */
+export const APNS_CATEGORY = 'SESSION_UPDATE';
+
 /** Send a push notification to all registered devices. */
 export async function sendPush(
   title: string,
   body: string,
   data?: Record<string, unknown>,
+  options?: { threadId?: string; category?: string },
 ): Promise<void> {
   const provider = getProvider();
   if (!provider || tokens.length === 0) return;
@@ -106,6 +110,8 @@ export async function sendPush(
     notification.sound = 'default';
     notification.badge = 1;
     if (data) notification.payload = data;
+    if (options?.threadId) notification.threadId = options.threadId;
+    if (options?.category) notification.category = options.category;
 
     const result = await provider.send(notification, tokens);
 
@@ -126,9 +132,13 @@ export async function sendPush(
 export async function sendTurnCompleteNotification(
   sessionId?: string,
   snippet?: string,
+  sessionTitle?: string,
 ): Promise<void> {
-  await sendPush('Mitzo: Agent replied', snippet || 'The agent has finished its turn.', {
-    type: 'turn_complete',
-    sessionId,
-  });
+  const title = sessionTitle ? `Mitzo: ${sessionTitle}` : 'Mitzo';
+  await sendPush(
+    title,
+    snippet || 'The agent has finished its turn.',
+    { type: 'turn_complete', sessionId },
+    { threadId: sessionId, category: APNS_CATEGORY },
+  );
 }

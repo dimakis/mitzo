@@ -61,11 +61,13 @@ export async function sendPermissionNotification(
 export async function sendTurnCompleteNotification(
   sessionId?: string,
   snippet?: string,
+  sessionTitle?: string,
 ): Promise<void> {
   if (!NTFY_TOPIC || !BASE_URL) return;
 
+  const title = sessionTitle ? `Mitzo: ${sessionTitle}` : 'Mitzo';
   const headers: Record<string, string> = {
-    Title: 'Mitzo: Agent replied',
+    Title: title,
     Priority: '3',
     Tags: 'speech_balloon',
     Actions: `view, Open Mitzo, ${sessionUrl(sessionId)}`,

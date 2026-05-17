@@ -7,6 +7,9 @@ import { tmpdir } from 'os';
 
 const TEST_REPO = join(tmpdir(), `mitzo-push-test-${process.pid}`);
 
+const mockSendToChat = vi.fn().mockReturnValue(true);
+const mockFindBySessionId = vi.fn().mockReturnValue(null);
+
 vi.mock('../chat.js', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { join: pjoin } = require('path');
@@ -19,6 +22,7 @@ vi.mock('../chat.js', () => {
     renameSessionById: vi.fn(),
     hideSession: vi.fn(),
     hideAllSessions: vi.fn(),
+    sendToChat: (...args: unknown[]) => mockSendToChat(...args),
     BASE_REPO: repo,
     getRepoConfig: vi.fn(() => ({
       quickActions: [],
@@ -36,6 +40,7 @@ vi.mock('../chat.js', () => {
     registry: {
       get: vi.fn(),
       getActiveSessions: vi.fn().mockReturnValue([]),
+      findBySessionId: (...args: unknown[]) => mockFindBySessionId(...args),
     },
     setTaskStore: vi.fn(),
     eventStore: {
@@ -100,6 +105,108 @@ describe('POST /api/push/register', () => {
     const res = await request(app)
       .post('/api/push/register')
       .send({ token: 'device-token-abc123' });
+
+    expect(res.status).toBe(401);
+  });
+});
+
+describe('POST /api/push/notification-action', () => {
+  it('injects reply text into an active session', async () => {
+    mockFindBySessionId.mockReturnValueOnce({
+      clientId: 'client-1',
+      session: { sessionId: 'sess-abc' },
+    });
+    mockSendToChat.mockReturnValueOnce(true);
+
+    const res = await request(app)
+      .post('/api/push/notification-action')
+      .set('Cookie', authCookie)
+      .send({ sessionId: 'sess-abc', actionId: 'REPLY_ACTION', userText: 'Fix the bug' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, action: 'reply' });
+    expect(mockSendToChat).toHaveBeenCalledWith('client-1', 'Fix the bug');
+  });
+
+  it('returns 404 when session is not found', async () => {
+    mockFindBySessionId.mockReturnValueOnce(null);
+
+    const res = await request(app)
+      .post('/api/push/notification-action')
+      .set('Cookie', authCookie)
+      .send({ sessionId: 'nonexistent', actionId: 'REPLY_ACTION', userText: 'hello' });
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toContain('not found');
+  });
+
+  it('returns 400 when sessionId is missing', async () => {
+    const res = await request(app)
+      .post('/api/push/notification-action')
+      .set('Cookie', authCookie)
+      .send({ actionId: 'REPLY_ACTION' });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 when actionId is missing', async () => {
+    const res = await request(app)
+      .post('/api/push/notification-action')
+      .set('Cookie', authCookie)
+      .send({ sessionId: 'sess-abc' });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 200 with no-op for VIEW_ACTION', async () => {
+    const res = await request(app)
+      .post('/api/push/notification-action')
+      .set('Cookie', authCookie)
+      .send({ sessionId: 'sess-abc', actionId: 'VIEW_ACTION' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, action: 'view' });
+  });
+
+  it('returns 200 with no-op for LATER_ACTION', async () => {
+    const res = await request(app)
+      .post('/api/push/notification-action')
+      .set('Cookie', authCookie)
+      .send({ sessionId: 'sess-abc', actionId: 'LATER_ACTION' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, action: 'later' });
+  });
+
+  it('returns 400 for REPLY_ACTION without userText', async () => {
+    const res = await request(app)
+      .post('/api/push/notification-action')
+      .set('Cookie', authCookie)
+      .send({ sessionId: 'sess-abc', actionId: 'REPLY_ACTION' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('userText');
+  });
+
+  it('returns 500 when sendToChat fails', async () => {
+    mockFindBySessionId.mockReturnValueOnce({
+      clientId: 'client-1',
+      session: { sessionId: 'sess-abc' },
+    });
+    mockSendToChat.mockReturnValueOnce(false);
+
+    const res = await request(app)
+      .post('/api/push/notification-action')
+      .set('Cookie', authCookie)
+      .send({ sessionId: 'sess-abc', actionId: 'REPLY_ACTION', userText: 'test' });
+
+    expect(res.status).toBe(500);
+  });
+
+  it('requires authentication', async () => {
+    const res = await request(app)
+      .post('/api/push/notification-action')
+      .send({ sessionId: 'sess-abc', actionId: 'REPLY_ACTION', userText: 'test' });
 
     expect(res.status).toBe(401);
   });
