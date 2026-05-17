@@ -627,9 +627,10 @@ async function _runQueryLoopInner(
           if (!registry.isAttached(clientId)) {
             const snippet = extractSnippet(snapshotBlocks, NOTIFY_SNIPPET_MAX_CHARS);
             const sid = (msg.session_id as string) || currentSession.sessionId;
-            ntfyTurnComplete(sid, snippet).catch(() => {});
-            pushoverTurnComplete(sid, snippet).catch(() => {});
-            apnsTurnComplete(sid, snippet).catch(() => {});
+            const sessionTitle = store?.getSession(sid)?.summary ?? undefined;
+            ntfyTurnComplete(sid, snippet, sessionTitle).catch(() => {});
+            pushoverTurnComplete(sid, snippet, sessionTitle).catch(() => {});
+            apnsTurnComplete(sid, snippet, sessionTitle).catch(() => {});
           }
         } else if (msg.type === 'stream_event') {
           const evt = msg.event as Record<string, unknown> | undefined;

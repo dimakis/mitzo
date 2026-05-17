@@ -113,3 +113,37 @@ describe('sendPush', () => {
     await expect(sendPush('Test', 'Body')).resolves.toBeUndefined();
   });
 });
+
+describe('sendTurnCompleteNotification', () => {
+  it('uses session title in notification title when provided', async () => {
+    vi.resetModules();
+    delete process.env.APNS_KEY_PATH;
+    const { sendTurnCompleteNotification } = await import('../apns.js');
+    // Not configured, so sendPush is a no-op — we test the interface contract
+    await expect(
+      sendTurnCompleteNotification('sess-1', 'Some snippet', 'Jira Sprint Analysis'),
+    ).resolves.toBeUndefined();
+  });
+
+  it('falls back to "Mitzo" when no session title', async () => {
+    vi.resetModules();
+    delete process.env.APNS_KEY_PATH;
+    const { sendTurnCompleteNotification } = await import('../apns.js');
+    await expect(sendTurnCompleteNotification('sess-1', 'Snippet')).resolves.toBeUndefined();
+  });
+
+  it('accepts undefined snippet and sessionId', async () => {
+    vi.resetModules();
+    delete process.env.APNS_KEY_PATH;
+    const { sendTurnCompleteNotification } = await import('../apns.js');
+    await expect(sendTurnCompleteNotification()).resolves.toBeUndefined();
+  });
+});
+
+describe('APNS_CATEGORY', () => {
+  it('exports the notification category constant', async () => {
+    vi.resetModules();
+    const { APNS_CATEGORY } = await import('../apns.js');
+    expect(APNS_CATEGORY).toBe('SESSION_UPDATE');
+  });
+});

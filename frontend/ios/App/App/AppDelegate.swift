@@ -1,4 +1,5 @@
 import UIKit
+import UserNotifications
 import Capacitor
 
 @UIApplicationMain
@@ -9,7 +10,39 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         watchRelay.start()
+        registerNotificationCategories()
         return true
+    }
+
+    private func registerNotificationCategories() {
+        let replyAction = UNTextInputNotificationAction(
+            identifier: "REPLY_ACTION",
+            title: "Reply",
+            options: [.foreground],
+            textInputButtonTitle: "Send",
+            textInputPlaceholder: "Type your reply..."
+        )
+
+        let viewAction = UNNotificationAction(
+            identifier: "VIEW_ACTION",
+            title: "View",
+            options: [.foreground]
+        )
+
+        let laterAction = UNNotificationAction(
+            identifier: "LATER_ACTION",
+            title: "Later",
+            options: []
+        )
+
+        let sessionCategory = UNNotificationCategory(
+            identifier: "SESSION_UPDATE",
+            actions: [replyAction, viewAction, laterAction],
+            intentIdentifiers: [],
+            options: [.customDismissAction]
+        )
+
+        UNUserNotificationCenter.current().setNotificationCategories([sessionCategory])
     }
 
     func applicationWillResignActive(_ application: UIApplication) {
