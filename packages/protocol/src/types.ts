@@ -120,8 +120,6 @@ export interface Session {
   closedBy?: SessionClosedBy;
 }
 
-export type SessionClosedBy = 'user' | 'auto' | 'abandoned';
-
 // --- Session activity types (SSE event bus) ---
 
 export type SessionActivityState = 'init' | 'working' | 'waiting' | 'done' | 'idle' | 'paused';
