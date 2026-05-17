@@ -35,9 +35,36 @@ export async function initPushNotifications(): Promise<void> {
   });
 
   await PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
-    const data = (action as { notification: { data: Record<string, string> } }).notification.data;
-    if (data?.sessionId) {
-      window.location.href = `/chat/${data.sessionId}`;
+    const typed = action as {
+      actionId: string;
+      inputValue?: string;
+      notification: { data: Record<string, string> };
+    };
+    const { actionId, inputValue } = typed;
+    const data = typed.notification.data;
+    const sessionId = data?.sessionId;
+
+    if (sessionId && actionId === 'REPLY_ACTION' && inputValue) {
+      // Send reply text to the session, then navigate
+      apiFetch('/api/push/notification-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, actionId, userText: inputValue }),
+      }).finally(() => {
+        window.location.href = `/chat/${sessionId}`;
+      });
+    } else if (sessionId) {
+      // VIEW_ACTION, LATER_ACTION, or default tap — navigate to session
+      if (actionId && actionId !== 'VIEW_ACTION') {
+        apiFetch('/api/push/notification-action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId, actionId }),
+        });
+      }
+      if (actionId !== 'LATER_ACTION') {
+        window.location.href = `/chat/${sessionId}`;
+      }
     }
   });
 
