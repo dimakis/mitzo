@@ -218,4 +218,140 @@ describe('useAttentionFeed', () => {
 
     expect(result.current.items).toEqual([]);
   });
+
+  describe('sessionsToAttention (via session_activity events)', () => {
+    function emptyApiMock() {
+      mockApiFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ items: [] }),
+      } as Response);
+    }
+
+    function getSessionActivityHandler(): (data: unknown) => void {
+      const call = mockEventBusOn.mock.calls.find((c: unknown[]) => c[0] === 'session_activity');
+      return call[1];
+    }
+
+    it('shows awaiting-reply sessions as tier 1', async () => {
+      emptyApiMock();
+      const { result } = renderHook(() => useAttentionFeed());
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      const handler = getSessionActivityHandler();
+      handler([
+        {
+          sessionId: 's1',
+          clientId: 'c1',
+          title: 'Awaiting session',
+          state: 'done',
+          flags: [],
+          lastEventAt: Date.now(),
+          awaitingReply: true,
+        },
+      ]);
+
+      await waitFor(() => {
+        expect(result.current.items).toHaveLength(1);
+      });
+      expect(result.current.items[0].source).toBe('session');
+      expect(result.current.items[0].tier).toBe(1);
+      expect(result.current.items[0].meta).toBe('awaiting reply');
+    });
+
+    it('shows waiting sessions with correct meta', async () => {
+      emptyApiMock();
+      const { result } = renderHook(() => useAttentionFeed());
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      const handler = getSessionActivityHandler();
+      handler([
+        {
+          sessionId: 's2',
+          clientId: 'c2',
+          title: 'Permission session',
+          state: 'waiting',
+          flags: [],
+          waitReason: 'permission',
+          lastEventAt: Date.now(),
+        },
+      ]);
+
+      await waitFor(() => {
+        expect(result.current.items).toHaveLength(1);
+      });
+      expect(result.current.items[0].meta).toBe('permission needed');
+    });
+
+    it('shows uncommitted work sessions as tier 1', async () => {
+      emptyApiMock();
+      const { result } = renderHook(() => useAttentionFeed());
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      const handler = getSessionActivityHandler();
+      handler([
+        {
+          sessionId: 's3',
+          clientId: 'c3',
+          title: 'Dirty session',
+          state: 'done',
+          flags: [],
+          lastEventAt: Date.now(),
+          uncommittedWork: true,
+        },
+      ]);
+
+      await waitFor(() => {
+        expect(result.current.items).toHaveLength(1);
+      });
+      expect(result.current.items[0].meta).toBe('uncommitted work');
+      expect(result.current.items[0].tier).toBe(1);
+    });
+
+    it('ignores working/init sessions', async () => {
+      emptyApiMock();
+      const { result } = renderHook(() => useAttentionFeed());
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      const handler = getSessionActivityHandler();
+      handler([
+        {
+          sessionId: 's4',
+          clientId: 'c4',
+          title: 'Working session',
+          state: 'working',
+          flags: [],
+          lastEventAt: Date.now(),
+        },
+      ]);
+
+      // No attention items from a working session
+      await waitFor(() => {
+        expect(result.current.items).toHaveLength(0);
+      });
+    });
+
+    it('shows done sessions as tier 2', async () => {
+      emptyApiMock();
+      const { result } = renderHook(() => useAttentionFeed());
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      const handler = getSessionActivityHandler();
+      handler([
+        {
+          sessionId: 's5',
+          clientId: 'c5',
+          title: 'Finished session',
+          state: 'done',
+          flags: [],
+          lastEventAt: Date.now(),
+        },
+      ]);
+
+      await waitFor(() => {
+        expect(result.current.items).toHaveLength(1);
+      });
+      expect(result.current.items[0].tier).toBe(2);
+      expect(result.current.items[0].meta).toBe('done');
+    });
+  });
 });

@@ -155,8 +155,7 @@ export class EventStore {
       ),
       getAttentionSessions: db.prepare(
         `SELECT * FROM sessions
-         WHERE is_active = 1
-           AND is_hidden = 0
+         WHERE is_hidden = 0
            AND last_speaker = 'assistant'
          ORDER BY last_speaker_at DESC
          LIMIT 10`,
@@ -222,6 +221,7 @@ export class EventStore {
     }
   }
 
+  /** Scaffolding — column + mapping wired up, callers added when session lifecycle overhaul lands. */
   private migrateCloseTracking(db: Database.Database): void {
     const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
     const columnNames = new Set(columns.map((c) => c.name));

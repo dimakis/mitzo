@@ -65,6 +65,12 @@ vi.mock('@mitzo/harness', async (importOriginal) => {
   };
 });
 
+// ─── Mock the worktree module ─────────────────────────────────────────────────
+
+vi.mock('../worktree.js', () => ({
+  hasUncommittedWork: vi.fn(() => null),
+}));
+
 import { getPendingCountBySession } from '@mitzo/harness';
 const mockGetPending = getPendingCountBySession as ReturnType<typeof vi.fn>;
 
