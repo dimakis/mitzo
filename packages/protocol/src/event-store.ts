@@ -43,6 +43,8 @@ interface SessionRow {
   goal_id: string | null;
   telos_task_id: string | null;
   closed_by: string | null;
+  last_speaker: string | null;
+  last_speaker_at: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -87,6 +89,8 @@ export class EventStore {
     markInactive: Database.Statement;
     hide: Database.Statement;
     recordUsage: Database.Statement;
+    updateLastSpeaker: Database.Statement;
+    getAttentionSessions: Database.Statement;
   };
 
   constructor(dbPath: string, logger?: EventStoreLogger) {
@@ -101,6 +105,7 @@ export class EventStore {
     this.migrateUsageTracking(db);
     this.migrateWorktreeTracking(db);
     this.migrateCloseTracking(db);
+    this.migrateAttentionTracking(db);
 
     this.log.info('EventStore initialized', { dbPath });
 
@@ -140,6 +145,21 @@ export class EventStore {
           duration_api_ms = ?,
           updated_at = unixepoch('now', 'subsec') * 1000
         WHERE session_id = ?`,
+      ),
+      updateLastSpeaker: db.prepare(
+        `UPDATE sessions SET
+          last_speaker = ?,
+          last_speaker_at = unixepoch('now', 'subsec') * 1000,
+          updated_at = unixepoch('now', 'subsec') * 1000
+        WHERE session_id = ?`,
+      ),
+      getAttentionSessions: db.prepare(
+        `SELECT * FROM sessions
+         WHERE is_active = 1
+           AND is_hidden = 0
+           AND last_speaker = 'assistant'
+         ORDER BY last_speaker_at DESC
+         LIMIT 10`,
       ),
     };
   }
@@ -208,6 +228,19 @@ export class EventStore {
     if (!columnNames.has('closed_by')) {
       db.exec('ALTER TABLE sessions ADD COLUMN closed_by TEXT');
       this.log.info('migrated sessions table: added closed_by');
+    }
+  }
+
+  private migrateAttentionTracking(db: Database.Database): void {
+    const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
+    const columnNames = new Set(columns.map((c) => c.name));
+    if (!columnNames.has('last_speaker')) {
+      db.exec('ALTER TABLE sessions ADD COLUMN last_speaker TEXT');
+      this.log.info('migrated sessions table: added last_speaker');
+    }
+    if (!columnNames.has('last_speaker_at')) {
+      db.exec('ALTER TABLE sessions ADD COLUMN last_speaker_at INTEGER');
+      this.log.info('migrated sessions table: added last_speaker_at');
     }
   }
 
@@ -446,6 +479,15 @@ export class EventStore {
     ).run(sessionId);
   }
 
+  updateLastSpeaker(sessionId: string, speaker: 'user' | 'assistant'): void {
+    this.stmts.updateLastSpeaker.run(speaker, sessionId);
+  }
+
+  getAttentionSessions(): SessionMeta[] {
+    const rows = this.stmts.getAttentionSessions.all();
+    return (rows as SessionRow[]).map(rowToSession);
+  }
+
   recordUsage(
     sessionId: string,
     usage: {
@@ -531,6 +573,8 @@ function rowToSession(row: SessionRow): SessionMeta {
     goalId: row.goal_id ?? null,
     telosTaskId: row.telos_task_id ?? null,
     closedBy: (row.closed_by as SessionMeta['closedBy']) ?? null,
+    lastSpeaker: (row.last_speaker as SessionMeta['lastSpeaker']) ?? null,
+    lastSpeakerAt: row.last_speaker_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

@@ -916,6 +916,7 @@ async function _startChatInner(
         messageId,
         text: fullPrompt,
       });
+      eventStore.updateLastSpeaker(options.resume, 'user');
       const echo = { type: 'user_message', messageId, text: fullPrompt };
       send(transport, echo);
       broadcastToObservers(session.observers, echo);
@@ -1036,6 +1037,7 @@ export function sendToChat(
         messageId,
         text: fullPrompt,
       });
+      eventStore.updateLastSpeaker(session.sessionId, 'user');
       tryAutoRename(session.sessionId, clientId).catch(() => {
         /* errors logged internally */
       });
@@ -1069,6 +1071,7 @@ export async function interruptChat(
         messageId,
         text: fullPrompt,
       });
+      eventStore.updateLastSpeaker(session.sessionId, 'user');
     }
     const echo = { type: 'user_message', messageId, text: fullPrompt };
     send(session.transport, echo);
