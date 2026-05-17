@@ -30,8 +30,9 @@ const log = createLogger('worktree');
 
 /**
  * Detect the default branch of a repo (e.g. 'main' or 'master').
- * Uses `git symbolic-ref refs/remotes/origin/HEAD` when an origin exists,
- * otherwise falls back to 'main' (verified) or HEAD.
+ * Prefers origin/HEAD (remote truth) since session worktrees should branch
+ * from the canonical default, not whatever is locally checked out.
+ * Falls back to 'main' (verified) or HEAD for repos without a remote.
  *
  * NOTE: Uses execFileSync intentionally — called during session setup (not hot path).
  * Worktree creation is a one-time initialization per session, so blocking is acceptable.
