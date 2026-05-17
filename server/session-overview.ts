@@ -252,7 +252,7 @@ export class SessionOverviewEmitter {
     const awaitingReply =
       meta?.lastSpeaker === 'assistant' && !session.hasSnapshot && primaryState !== 'waiting';
     const speakerAt = meta?.lastSpeakerAt ?? lastEventAt;
-    const idleMinutes = Math.round((now - speakerAt) / 60_000);
+    const idleMinutes = Math.max(0, Math.round((now - speakerAt) / 60_000));
 
     return {
       sessionId,
@@ -279,7 +279,7 @@ export class SessionOverviewEmitter {
     const title = meta.summary || meta.sessionId.slice(-8);
     const repo = meta.cwd ? extractRepoName(meta.cwd) : undefined;
     const lastEventAt = meta.lastSpeakerAt ?? meta.updatedAt;
-    const idleMinutes = Math.round((now - lastEventAt) / 60_000);
+    const idleMinutes = Math.max(0, Math.round((now - lastEventAt) / 60_000));
 
     // Check for uncommitted work (from background cache)
     const uncommittedWork = meta.cwd ? this.checkUncommittedCached(meta.cwd) : false;

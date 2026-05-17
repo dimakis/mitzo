@@ -221,6 +221,7 @@ export class EventStore {
     }
   }
 
+  /** Scaffolding — column + mapping wired up, callers added when session lifecycle overhaul lands. */
   private migrateCloseTracking(db: Database.Database): void {
     const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
     const columnNames = new Set(columns.map((c) => c.name));

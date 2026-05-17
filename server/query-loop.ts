@@ -504,6 +504,7 @@ async function _runQueryLoopInner(
                   messageId: `umsg-${now}-init`,
                   text: initialPrompt,
                 });
+                store.updateLastSpeaker(resolvedSessionId, 'user');
                 // Trigger auto-rename — tryAutoRename handles the increment
                 onInitialPrompt?.(resolvedSessionId);
               }
