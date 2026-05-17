@@ -408,7 +408,7 @@ app.post('/api/repos/open', (req, res) => {
   }
 });
 
-app.post('/api/sessions', (req, res) => {
+app.post('/api/sessions', async (req, res) => {
   if (!verifyInternalToken(req)) {
     res.status(401).json({ error: 'Internal token required' });
     return;
@@ -423,14 +423,14 @@ app.post('/api/sessions', (req, res) => {
       return;
     }
     // Fall through with legacy shape
-    handleSessionCreate(res, { source });
+    await handleSessionCreate(res, { source });
     return;
   }
 
-  handleSessionCreate(res, body.data);
+  await handleSessionCreate(res, body.data);
 });
 
-function handleSessionCreate(
+async function handleSessionCreate(
   res: express.Response,
   data: {
     source: string;

@@ -9,6 +9,7 @@ allowed-tools:
   - Grep
   - Bash
   - Agent
+  - ScheduleWakeup
 ---
 
 # PR Shepherd
