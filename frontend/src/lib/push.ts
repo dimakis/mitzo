@@ -1,7 +1,7 @@
 // Push notification integration for Capacitor iOS. No-op in browser.
 
 import { Capacitor } from '@capacitor/core';
-import { PushNotifications } from '@capacitor/push-notifications';
+import { PushNotifications, type ActionPerformed } from '@capacitor/push-notifications';
 import { apiFetch } from './api-fetch';
 
 let initialized = false;
@@ -34,14 +34,9 @@ export async function initPushNotifications(): Promise<void> {
     // Foreground — WS handles live updates, no action needed
   });
 
-  await PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
-    const typed = action as {
-      actionId: string;
-      inputValue?: string;
-      notification: { data: Record<string, string> };
-    };
-    const { actionId, inputValue } = typed;
-    const data = typed.notification.data;
+  await PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
+    const { actionId, inputValue } = action;
+    const data = action.notification.data as Record<string, string> | undefined;
     const sessionId = data?.sessionId;
 
     if (sessionId && actionId === 'REPLY_ACTION' && inputValue) {
