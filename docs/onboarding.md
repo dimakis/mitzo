@@ -60,9 +60,11 @@ Edit `.env` and set the three required values:
 
 ```bash
 AUTH_PASSPHRASE=pick-something-memorable
-AUTH_SECRET=$(openssl rand -hex 32)
+AUTH_SECRET=replace-with-a-random-string-at-least-32-chars
 REPO_PATH=/absolute/path/to/your/main/repo
 ```
+
+Generate a secret with `openssl rand -hex 32` and paste the output as `AUTH_SECRET`.
 
 ### Required variables
 
@@ -74,26 +76,26 @@ REPO_PATH=/absolute/path/to/your/main/repo
 
 ### Optional variables
 
-| Variable                      | Default                 | Description                                                                |
-| ----------------------------- | ----------------------- | -------------------------------------------------------------------------- |
-| `PORT`                        | `3100`                  | Server port                                                                |
-| `WORKTREE_ENABLED`            | `true`                  | Git worktree isolation per session                                         |
-| `MCP_CONFIG_PATH`             | `~/.cursor/mcp.json`    | MCP server config location                                                 |
-| `LOG_LEVEL`                   | `info`                  | Log verbosity: `debug`, `info`, `warn`, `error`                            |
-| `COOKIE_MAX_AGE_HOURS`        | `24`                    | JWT cookie lifetime                                                        |
-| `BASE_URL`                    | —                       | Public URL for notification deep links (e.g. `http://<tailscale-ip>:3100`) |
-| `NTFY_URL`                    | `https://ntfy.sh`       | ntfy server URL                                                            |
-| `NTFY_TOPIC`                  | —                       | ntfy topic for push notifications                                          |
-| `NTFY_AUTH_TOKEN`             | —                       | ntfy auth token (if using private topic)                                   |
-| `PUSHOVER_API_TOKEN`          | —                       | Pushover API token (for Apple Watch)                                       |
-| `PUSHOVER_USER_KEY`           | —                       | Pushover user key                                                          |
-| `YAPPER_PROXY_TARGET`         | `http://localhost:8700` | Yapper backend URL for voice                                               |
-| `CLAUDE_CODE_USE_VERTEX`      | —                       | Set to `1` for Vertex AI auto-rename                                       |
-| `ANTHROPIC_VERTEX_PROJECT_ID` | —                       | GCP project ID (with Vertex)                                               |
-| `CLOUD_ML_REGION`             | `us-east5`              | GCP region for Vertex                                                      |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | —                       | OTLP endpoint for tracing (e.g. `http://localhost:4318`)                   |
-| `LOKI_HOST`                   | —                       | Loki endpoint for log aggregation                                          |
-| `CONTEXGIN_URL`               | `http://localhost:8321` | ContexGin goal registry URL                                                |
+| Variable                      | Default                 | Description                                                                       |
+| ----------------------------- | ----------------------- | --------------------------------------------------------------------------------- |
+| `PORT`                        | `3100`                  | Server port                                                                       |
+| `WORKTREE_ENABLED`            | `true`                  | Git worktree isolation per session                                                |
+| `MCP_CONFIG_PATH`             | `~/.cursor/mcp.json`    | MCP server config location                                                        |
+| `LOG_LEVEL`                   | `info`                  | Log verbosity: `debug`, `info`, `warn`, `error`                                   |
+| `COOKIE_MAX_AGE_HOURS`        | `24`                    | JWT cookie lifetime                                                               |
+| `BASE_URL`                    | —                       | Public URL for notification deep links (e.g. `https://<tailscale-hostname>:3100`) |
+| `NTFY_URL`                    | `https://ntfy.sh`       | ntfy server URL                                                                   |
+| `NTFY_TOPIC`                  | —                       | ntfy topic for push notifications                                                 |
+| `NTFY_AUTH_TOKEN`             | —                       | ntfy auth token (if using private topic)                                          |
+| `PUSHOVER_API_TOKEN`          | —                       | Pushover API token (for Apple Watch)                                              |
+| `PUSHOVER_USER_KEY`           | —                       | Pushover user key                                                                 |
+| `YAPPER_PROXY_TARGET`         | `http://localhost:8700` | Yapper backend URL for voice                                                      |
+| `CLAUDE_CODE_USE_VERTEX`      | —                       | Set to `1` for Vertex AI auto-rename                                              |
+| `ANTHROPIC_VERTEX_PROJECT_ID` | —                       | GCP project ID (with Vertex)                                                      |
+| `CLOUD_ML_REGION`             | `us-east5`              | GCP region for Vertex                                                             |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | —                       | OTLP endpoint for tracing (e.g. `http://localhost:4318`)                          |
+| `LOKI_HOST`                   | —                       | Loki endpoint for log aggregation                                                 |
+| `CONTEXGIN_URL`               | `http://localhost:8321` | ContexGin goal registry URL                                                       |
 
 ## Step 3: Generate HTTPS certificate
 
@@ -107,7 +109,7 @@ tailscale status | head -1
 bash scripts/generate-cert.sh <your-hostname>.tailnet.ts.net
 ```
 
-This creates `certs/server.key` and `certs/server.crt`. The server picks them up automatically on start.
+This creates `certs/key.pem` and `certs/cert.pem`. The server picks them up automatically on start.
 
 > **Tip:** On iOS, you'll need to trust the certificate. Open `https://<your-hostname>:3100` in Safari, tap through the warning, then go to Settings > General > About > Certificate Trust Settings and enable it.
 
@@ -116,7 +118,7 @@ This creates `certs/server.key` and `certs/server.crt`. The server picks them up
 ### Quick start (terminal)
 
 ```bash
-npm run build      # Build frontend
+npm run build:all  # Build server + frontend
 npm start          # Start server
 ```
 
@@ -510,7 +512,7 @@ npm run deploy:ios
 
 ### Xcode setup
 
-1. Open `frontend/ios/App/App.xcworkspace` in Xcode
+1. Open `frontend/ios/App/App.xcodeproj` in Xcode
 2. Set your development team in Signing & Capabilities
 3. Configure push notification entitlement (for APNs)
 4. Build and run on your device, or archive for TestFlight
@@ -556,7 +558,7 @@ npm run observability:up
 npm run observability:down
 ```
 
-Requires podman (installed automatically by `npm run deploy`) or Docker.
+Requires podman (`brew install podman`) or Docker.
 
 ### Enable tracing
 
