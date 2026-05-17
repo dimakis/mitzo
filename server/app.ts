@@ -578,6 +578,9 @@ app.patch('/api/tasks/:id', (req, res) => {
     res.status(404).json({ error: 'Task not found' });
     return;
   }
+  if (body.data.status === 'done' && orchestrator) {
+    orchestrator.onTaskCompleted(req.params.id);
+  }
   res.json({ task });
   onTaskBroadcast?.({ type: 'task_updated', task });
 });
@@ -630,6 +633,9 @@ app.post('/api/internal/task-tools/complete', (req, res) => {
     return;
   }
   const result = handleTaskComplete(taskStore, taskId, req.body.summary ?? '');
+  if (orchestrator) {
+    orchestrator.onTaskCompleted(taskId);
+  }
   res.json({ result });
   onTaskBroadcast?.({
     type: 'task_state',

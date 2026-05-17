@@ -25,6 +25,7 @@ const mockItem: TodoItem = {
       snippet: 'Some description',
     },
   ],
+  goalId: null,
   contextHints: {
     repos: ['dimakis/mitzo'],
     paths: [],

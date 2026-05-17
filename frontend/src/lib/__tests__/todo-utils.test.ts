@@ -37,6 +37,7 @@ const fullItem: TodoItem = {
   children: [],
   childCount: 0,
   completedChildCount: 0,
+  goalId: null,
   sources: [
     {
       type: 'github',

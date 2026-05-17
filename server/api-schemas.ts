@@ -85,6 +85,7 @@ const TodoItemSchema: z.ZodType<unknown> = z.lazy(() =>
     completedChildCount: z.number().optional().default(0),
     sources: z.array(TodoSourceSchema),
     contextHints: TodoContextHintsSchema,
+    goalId: z.string().nullable().optional().default(null),
   }),
 );
 

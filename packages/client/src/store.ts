@@ -20,6 +20,12 @@ import { INITIAL_PERMISSIONS_STATE } from './slices/permissions.js';
 import type { PermissionsState } from './slices/permissions.js';
 import { INITIAL_TASKS_STATE } from './slices/tasks.js';
 import type { TasksState, Task, LoopStatus } from './slices/tasks.js';
+import {
+  INITIAL_WORKLOAD_STATE,
+  updateWorkloadItem,
+  batchUpdateWorkloadItems,
+} from './slices/workload.js';
+import type { WorkloadState } from './slices/workload.js';
 import { INITIAL_INBOX_STATE } from './slices/inbox.js';
 import type { InboxState } from './slices/inbox.js';
 import { INITIAL_CALENDAR_STATE } from './slices/calendar.js';
@@ -65,6 +71,7 @@ export interface MitzoStoreState {
   connection: ConnectionState;
   permissions: PermissionsState;
   tasks: TasksState;
+  workload: WorkloadState;
   inbox: InboxState;
   calendar: CalendarState;
   todos: TodosState;
@@ -215,6 +222,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     connection: INITIAL_CONNECTION_STATE,
     permissions: INITIAL_PERMISSIONS_STATE,
     tasks: INITIAL_TASKS_STATE,
+    workload: INITIAL_WORKLOAD_STATE,
     inbox: INITIAL_INBOX_STATE,
     calendar: INITIAL_CALENDAR_STATE,
     todos: INITIAL_TODOS_STATE,
@@ -754,6 +762,26 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             },
           }));
           break;
+      }
+    }
+
+    if (result.workloadUpdate) {
+      switch (result.workloadUpdate.type) {
+        case 'workload_item_created':
+        case 'workload_item_updated': {
+          const item = result.workloadUpdate.item;
+          store.setState((s) => ({
+            workload: { ...s.workload, items: updateWorkloadItem(s.workload.items, item) },
+          }));
+          break;
+        }
+        case 'workload_batch_updated': {
+          const items = result.workloadUpdate.items;
+          store.setState((s) => ({
+            workload: { ...s.workload, items: batchUpdateWorkloadItems(s.workload.items, items) },
+          }));
+          break;
+        }
       }
     }
 

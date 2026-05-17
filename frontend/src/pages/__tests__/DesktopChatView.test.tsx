@@ -100,6 +100,7 @@ function createMockStore() {
         awaitingApproval: false,
       },
     },
+    workload: { items: [], profiles: [] },
     inbox: { items: [], count: 0 },
     calendar: { events: [], sprints: [], loading: false },
     todos: { items: [], profiles: [] },
