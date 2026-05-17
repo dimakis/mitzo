@@ -23,7 +23,7 @@ function readViewMode(): ViewMode {
 }
 
 export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: SessionPanelProps) {
-  const { sessions, loading, dismissSession } = useSessionList();
+  const { sessions, loading, loadingMore, hasMore, loadMore, dismissSession } = useSessionList();
   const { attendCount } = useSessionOverview();
   const [viewMode, setViewMode] = useState<ViewMode>(readViewMode);
 
@@ -116,6 +116,11 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
                   </button>
                 </div>
               ))}
+              {hasMore && (
+                <button className="session-load-more" onClick={loadMore} disabled={loadingMore}>
+                  {loadingMore ? 'Loading...' : 'Load More'}
+                </button>
+              )}
             </div>
           )}
         </>
