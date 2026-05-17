@@ -1324,6 +1324,10 @@ async function _runQueryLoopInner(
       }
     } finally {
       clearTimeout(firstEventTimer);
+      // NOTE: finalSession is read before registry.remove() below. After remove(),
+      // the object reference remains valid (Map.delete doesn't mutate the value).
+      // cumulativeCostUsd is read from finalSession after remove — safe due to
+      // reference semantics, but keep the ordering if refactoring.
       const finalSession = registry.get(clientId);
       if (finalSession) {
         finalSession.currentSnapshot = null;
@@ -1369,8 +1373,25 @@ async function _runQueryLoopInner(
         currentTurnSpan = null;
       }
 
-      span.setStatus({ code: SpanStatusCode.OK });
-      log.info('query loop ended', { clientId, doneSent });
+      // Ensure span attributes are set even if the SDK result event never arrived.
+      // The result handler (msg.type === 'result') sets these, but sessions that
+      // abort, timeout, or lose connection skip that path. Use live counters as fallback.
+      if (!doneSent) {
+        span.setAttribute('session.total_tokens', liveSessionTokens);
+        span.setAttribute('session.num_turns', turnIndex);
+        // Cost is only available from the SDK result event. For multi-query sessions
+        // (compaction), earlier result events may have set cumulativeCostUsd before abort.
+        if (finalSession && finalSession.cumulativeCostUsd > 0) {
+          span.setAttribute('session.cost_usd', finalSession.cumulativeCostUsd);
+        }
+      }
+      // Always set session.id if we resolved it (idempotent with first-event handler)
+      if (resolvedSessionId) {
+        span.setAttribute('session.id', resolvedSessionId);
+      }
+
+      span.setStatus({ code: caughtError ? SpanStatusCode.ERROR : SpanStatusCode.OK });
+      log.info('query loop ended', { clientId, doneSent, caughtError });
     }
   } finally {
     span.end();
