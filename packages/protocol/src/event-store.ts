@@ -512,15 +512,6 @@ export class EventStore {
       sessionId,
     );
   }
-
-  updateLastSpeaker(sessionId: string, speaker: 'user' | 'assistant'): void {
-    this.stmts.updateLastSpeaker.run(speaker, sessionId);
-  }
-
-  getAttentionSessions(): SessionMeta[] {
-    const rows = this.stmts.getAttentionSessions.all() as SessionRow[];
-    return rows.map(rowToSession);
-  }
 }
 
 function rowToEvent(row: EventRow): StoredEvent {
