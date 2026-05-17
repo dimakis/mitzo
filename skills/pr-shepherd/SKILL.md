@@ -118,24 +118,46 @@ The PR is merge-ready when ALL of these are true:
 - All review comments are addressed (no outstanding threads)
 - No `CHANGES_REQUESTED` reviews remain unresolved
 
-When merge-ready, report:
+When merge-ready, assess complexity to decide whether to auto-merge or ask.
 
-> PR is clean and ready to merge.
-> - CI: all green
-> - Reviews: all addressed
-> - Conflicts: none
->
-> Say "merge" to squash-merge, or I'll keep watching.
+### Step 5: Merge Decision
 
-### Step 5: Merge (on user command only)
+**Assess PR complexity** using the diff stats:
 
-When the user says "merge":
+```bash
+gh pr diff <number> -R <owner>/<repo> --stat
+```
+
+**Simple PR** (auto-merge) — ALL of these are true:
+- 5 or fewer files changed
+- Under 300 lines changed total
+- No changes to CI config, package.json/lock files, database migrations, or security-critical files
+- All review comments were auto-fixable (no substantive escalations during this shepherd run)
+
+**Complex PR** (ask user) — any of these are true:
+- More than 5 files changed
+- Over 300 lines changed
+- Touches CI, dependencies, migrations, auth, or config
+- Had substantive review comments that required user guidance
+
+**For simple PRs — auto-merge immediately:**
 
 ```bash
 gh pr merge <number> -R <owner>/<repo> --squash
 ```
 
-**Never merge autonomously.** Always wait for explicit "merge" from the user.
+Report: "Auto-merged PR #N (simple: M files, K lines). Shepherd complete."
+
+**For complex PRs — ask first:**
+
+> PR is clean and ready to merge.
+> - CI: all green
+> - Reviews: all addressed
+> - Conflicts: none
+> - Complexity: **high** (N files, M lines, touches <sensitive areas>)
+>
+> Say "merge" to squash-merge, or I'll keep watching.
+
 **Never use `--admin`.** Never use `--delete-branch` from a worktree.
 
 Report the merge result and stop the shepherd loop.
