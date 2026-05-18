@@ -95,6 +95,7 @@ export const V2InterruptMessage = z.object({
   sessionId: z.string().min(1),
   prompt: z.string().min(1),
   clientMsgId: z.string().min(1),
+  model: z.string().optional(),
   images: z.array(ImageSchema).optional(),
   contextBlocks: z.array(z.string()).optional(),
 });

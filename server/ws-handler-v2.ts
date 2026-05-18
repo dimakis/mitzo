@@ -563,6 +563,7 @@ export function handleInterruptV2(
       ctx.connRegistry.setActive(connectionId, msg.sessionId);
       startChat(transport, sessionClientId, msg.prompt, {
         resume: msg.sessionId,
+        model: msg.model ?? found.session?.model,
         images: msg.images,
         contextBlocks: msg.contextBlocks,
         clientMsgId: msg.clientMsgId,

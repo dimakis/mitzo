@@ -676,6 +676,7 @@ async function _startChatInner(
   });
 
   const session = registry.get(clientId)!;
+  session.model = options.model;
   session.inputQueue = inputQueue as { push: (msg: unknown) => void; close: () => void };
   _onSessionChange?.(clientId, 'start');
 

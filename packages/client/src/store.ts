@@ -374,6 +374,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         prompt: text,
         clientMsgId,
       };
+      const model = opts?.model ?? get().config.modelId;
+      if (model) msg.model = model;
       if (opts?.images?.length) {
         msg.images = opts.images.map((img) => ({ data: img.data, mediaType: img.mediaType }));
       }
