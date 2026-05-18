@@ -721,6 +721,58 @@ describe('sendMessage — session expired recovery', () => {
   });
 });
 
+describe('interruptMessage', () => {
+  it('includes model from opts when provided', () => {
+    const store = createReadyStore();
+    store.getState().sendMessage('first');
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'sess-int' });
+
+    store.getState().interruptMessage('urgent', { model: 'claude-opus-4-6' });
+
+    const interrupts = lastWs.parsedSent().filter((m) => m.type === 'interrupt');
+    expect(interrupts).toHaveLength(1);
+    expect(interrupts[0].model).toBe('claude-opus-4-6');
+  });
+
+  it('falls back to config.modelId when opts.model is not provided', () => {
+    const store = createReadyStore();
+    store.getState().setModel('claude-sonnet-4-6');
+    store.getState().sendMessage('first');
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'sess-int2' });
+
+    store.getState().interruptMessage('urgent');
+
+    const interrupts = lastWs.parsedSent().filter((m) => m.type === 'interrupt');
+    expect(interrupts).toHaveLength(1);
+    expect(interrupts[0].model).toBe('claude-sonnet-4-6');
+  });
+
+  it('opts.model takes precedence over config.modelId', () => {
+    const store = createReadyStore();
+    store.getState().setModel('claude-sonnet-4-6');
+    store.getState().sendMessage('first');
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'sess-int3' });
+
+    store.getState().interruptMessage('urgent', { model: 'claude-opus-4-7' });
+
+    const interrupts = lastWs.parsedSent().filter((m) => m.type === 'interrupt');
+    expect(interrupts).toHaveLength(1);
+    expect(interrupts[0].model).toBe('claude-opus-4-7');
+  });
+
+  it('does not include model field when both opts and config are null', () => {
+    const store = createReadyStore();
+    store.getState().sendMessage('first');
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'sess-int4' });
+
+    store.getState().interruptMessage('urgent');
+
+    const interrupts = lastWs.parsedSent().filter((m) => m.type === 'interrupt');
+    expect(interrupts).toHaveLength(1);
+    expect(interrupts[0].model).toBeUndefined();
+  });
+});
+
 describe('session isolation via sessionId filtering', () => {
   it('ignores events tagged with a different sessionId', async () => {
     const store = createReadyStore();
