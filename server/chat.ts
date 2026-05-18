@@ -851,6 +851,7 @@ async function _startChatInner(
 
       const included = extractSections(rawIncluded);
       const trimmed = extractSections(rawTrimmed);
+      const fullMarkdown = typeof obj.result === 'string' ? obj.result : undefined;
 
       send(transport, {
         type: 'boot_context',
@@ -861,6 +862,7 @@ async function _startChatInner(
         sources,
         included,
         trimmed,
+        fullMarkdown,
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

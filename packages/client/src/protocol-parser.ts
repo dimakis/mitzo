@@ -248,10 +248,20 @@ export function parseServerMessage(
 
       const included = parseSections(Array.isArray(msg.included) ? msg.included : []);
       const trimmed = parseSections(Array.isArray(msg.trimmed) ? msg.trimmed : []);
+      const fullMarkdown = typeof msg.fullMarkdown === 'string' ? msg.fullMarkdown : undefined;
 
       result.messagesActions.push({
         type: 'SET_BOOT_CONTEXT',
-        bootContext: { source, sourceCount, tokenCount, tokenBudget, sources, included, trimmed },
+        bootContext: {
+          source,
+          sourceCount,
+          tokenCount,
+          tokenBudget,
+          sources,
+          included,
+          trimmed,
+          fullMarkdown,
+        },
       });
       break;
     }

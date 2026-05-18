@@ -40,6 +40,7 @@ function SectionRow({ section, dimmed }: { section: SectionMeta; dimmed?: boolea
 export function BootContextPill({ context }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [showTrimmed, setShowTrimmed] = useState(false);
+  const [showModal, setShowModal] = useState(false);
 
   const isContexgin = context.source === 'contexgin';
   const dotClass = isContexgin ? 'boot-context-pill-dot--ok' : 'boot-context-pill-dot--warn';
@@ -60,6 +61,18 @@ export function BootContextPill({ context }: Props) {
         <span className="boot-context-pill-label">{label}</span>
         <span className="boot-context-pill-engine">{isContexgin ? 'ContexGin' : 'Fallback'}</span>
         <span className="boot-context-pill-chevron">{expanded ? '\u25BE' : '\u25B8'}</span>
+        {context.fullMarkdown && (
+          <button
+            className="boot-context-pill-view-full"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowModal(true);
+            }}
+            title="View full markdown"
+          >
+            ⎘
+          </button>
+        )}
       </button>
       {expanded && (
         <div className="boot-context-pill-content">
@@ -104,6 +117,24 @@ export function BootContextPill({ context }: Props) {
                 ))}
             </>
           )}
+        </div>
+      )}
+
+      {showModal && context.fullMarkdown && (
+        <div
+          className="boot-context-modal-overlay"
+          onClick={() => setShowModal(false)}
+          onTouchStart={(e) => e.stopPropagation()}
+        >
+          <div className="boot-context-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="boot-context-modal-header">
+              <h3>Boot Context (Full Markdown)</h3>
+              <button onClick={() => setShowModal(false)} className="boot-context-modal-close">
+                ✕
+              </button>
+            </div>
+            <pre className="boot-context-modal-content">{context.fullMarkdown}</pre>
+          </div>
         </div>
       )}
     </div>

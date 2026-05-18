@@ -44,6 +44,7 @@ export interface BootContextMeta {
   sources: BootSourceMeta[];
   included: SectionMeta[];
   trimmed: SectionMeta[];
+  fullMarkdown?: string;
 }
 
 export interface MessagesState {
