@@ -260,6 +260,7 @@ setSessionChangeCallback((clientId, event) => {
     const session = registry.get(clientId);
     if (session?.sessionId) {
       eventStore.updateLastSpeaker(session.sessionId, 'assistant');
+      overviewEmitter.updateSpeaker(session.sessionId, 'assistant');
     }
   }
   overviewEmitter.scheduleBroadcast();
