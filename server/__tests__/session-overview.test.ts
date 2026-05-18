@@ -664,4 +664,52 @@ describe('SessionOverviewEmitter', () => {
     const activities = emitter.getSnapshot();
     expect(activities[0].uncommittedWork).toBe(false);
   });
+
+  // ─── Speaker caching ─────────────────────────────────────────────────────
+
+  it('caches speaker lookups and avoids repeated eventStore.getSession calls', () => {
+    const getSessionMock = vi.fn(() => ({ lastSpeaker: 'assistant', lastSpeakerAt: Date.now() }));
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => [makeActiveSession()]),
+      } as unknown as SessionOverviewDeps['registry'],
+      eventStore: {
+        getAttentionSessions: vi.fn(() => []),
+        getSession: getSessionMock,
+      } as unknown as SessionOverviewDeps['eventStore'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    emitter.touch('client-1');
+
+    // First snapshot — should call getSession to populate cache
+    emitter.getSnapshot();
+    expect(getSessionMock).toHaveBeenCalledTimes(1);
+
+    // Second snapshot — should use cached value
+    emitter.getSnapshot();
+    expect(getSessionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('updateSpeaker bypasses eventStore lookup', () => {
+    const getSessionMock = vi.fn(() => null);
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => [makeActiveSession()]),
+      } as unknown as SessionOverviewDeps['registry'],
+      eventStore: {
+        getAttentionSessions: vi.fn(() => []),
+        getSession: getSessionMock,
+      } as unknown as SessionOverviewDeps['eventStore'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    emitter.touch('client-1');
+
+    // Pre-populate cache
+    emitter.updateSpeaker('session-1', 'assistant');
+
+    const activities = emitter.getSnapshot();
+    // Should NOT call getSession since cache was pre-populated
+    expect(getSessionMock).not.toHaveBeenCalled();
+    expect(activities[0].awaitingReply).toBe(true);
+  });
 });
