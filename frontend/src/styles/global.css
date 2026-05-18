@@ -2405,13 +2405,19 @@ textarea:focus {
   background: var(--bg-primary);
 }
 
+.boot-context-pill-header-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
 .boot-context-pill-header {
   display: flex;
   align-items: center;
   gap: 0.4rem;
   touch-action: manipulation;
   padding: 0.25rem 0.6rem;
-  width: 100%;
+  flex: 1;
   cursor: pointer;
   background: transparent;
   border: none;
@@ -2602,19 +2608,21 @@ textarea:focus {
 }
 
 .boot-context-pill-view-full {
-  margin-left: auto;
-  padding: 0.2rem 0.4rem;
+  padding: 0.25rem 0.6rem;
   background: transparent;
   border: none;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
   cursor: pointer;
   font-size: 0.9rem;
   color: var(--text-dim);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+  flex-shrink: 0;
 }
 
 .boot-context-pill-view-full:active {
   color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.03);
 }
 
 /* Modal overlay */

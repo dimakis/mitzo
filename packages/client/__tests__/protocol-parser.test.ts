@@ -849,6 +849,57 @@ describe('boot_context', () => {
         sources: [],
         included: [],
         trimmed: [],
+        fullMarkdown: undefined,
+      },
+    });
+  });
+
+  it('passes through fullMarkdown when present', () => {
+    const r = parseServerMessage(
+      {
+        type: 'boot_context',
+        source: 'contexgin',
+        sourceCount: 1,
+        tokenCount: 100,
+        tokenBudget: 8000,
+        sources: [],
+        included: [],
+        trimmed: [],
+        fullMarkdown: '# Boot Context\n\nFull markdown content here',
+      },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.messagesActions[0]).toMatchObject({
+      type: 'SET_BOOT_CONTEXT',
+      bootContext: {
+        fullMarkdown: '# Boot Context\n\nFull markdown content here',
+      },
+    });
+  });
+
+  it('omits fullMarkdown when non-string', () => {
+    const r = parseServerMessage(
+      {
+        type: 'boot_context',
+        source: 'contexgin',
+        sourceCount: 0,
+        tokenCount: 0,
+        tokenBudget: 0,
+        sources: [],
+        included: [],
+        trimmed: [],
+        fullMarkdown: 12345,
+      },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.messagesActions[0]).toMatchObject({
+      type: 'SET_BOOT_CONTEXT',
+      bootContext: {
+        fullMarkdown: undefined,
       },
     });
   });
