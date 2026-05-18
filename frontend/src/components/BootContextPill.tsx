@@ -70,7 +70,7 @@ export function BootContextPill({ context }: Props) {
             }}
             title="View full markdown"
           >
-            ⎘
+            ⧉
           </button>
         )}
       </button>
