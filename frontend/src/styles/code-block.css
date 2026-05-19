@@ -1,0 +1,106 @@
+/* --- CodeBlock component --- */
+
+.code-block-highlight {
+  position: relative;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--code-bg);
+  margin: 0.15rem 0;
+}
+
+.code-block-highlight-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.code-block-highlight-label {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--code-font);
+  font-size: var(--text-xxs);
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-block-highlight-lang {
+  font-size: 0.55rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.code-block-highlight-copy {
+  flex-shrink: 0;
+}
+
+/* Floating copy button when there's no header */
+.code-block-highlight-copy-float {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.code-block-highlight:hover .code-block-highlight-copy-float,
+.code-block-highlight:active .code-block-highlight-copy-float {
+  opacity: 1;
+}
+
+.code-block-highlight-pre {
+  margin: 0;
+  padding: 0.5rem;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  font-family: var(--code-font);
+  font-size: var(--text-xxs);
+  line-height: 1.5;
+  /* Override highlight.js theme background to match our code-bg */
+  background: var(--code-bg) !important;
+}
+
+.code-block-highlight-pre code {
+  font-family: inherit;
+  font-size: inherit;
+  background: none !important;
+  padding: 0 !important;
+}
+
+/* --- Diff variants --- */
+
+.code-block-highlight--removed {
+  border-left: 3px solid rgba(244, 67, 54, 0.4);
+  background: rgba(244, 67, 54, 0.06);
+}
+
+.code-block-highlight--removed .code-block-highlight-pre {
+  background: rgba(244, 67, 54, 0.06) !important;
+}
+
+.code-block-highlight--added {
+  border-left: 3px solid rgba(76, 175, 80, 0.4);
+  background: rgba(76, 175, 80, 0.06);
+}
+
+.code-block-highlight--added .code-block-highlight-pre {
+  background: rgba(76, 175, 80, 0.06) !important;
+}
+
+/* --- rehype-highlight in chat bubbles --- */
+
+.msg-bubble-markdown pre code.hljs {
+  background: var(--code-bg) !important;
+  padding: 0.5rem !important;
+  border-radius: 4px;
+}

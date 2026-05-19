@@ -49,6 +49,13 @@ describe('protocol types', () => {
     expect(input.type).toBe('command');
   });
 
+  it('RawToolInput — read variant', () => {
+    const input: RawToolInput = { type: 'read', path: '/src/main.py', language: 'python' };
+    expect(input.type).toBe('read');
+    expect(input.path).toBe('/src/main.py');
+    expect(input.language).toBe('python');
+  });
+
   it('SnapshotBlock has required fields', () => {
     const block: SnapshotBlock = {
       blockId: 'b1',

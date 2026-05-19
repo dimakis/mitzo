@@ -1,17 +1,26 @@
 import { useState } from 'react';
 import type { StreamingBlock, FinishedBlock, RawToolInput } from '../types/chat';
 import { SubagentCard } from './SubagentCard';
+import { CodeBlock } from './CodeBlock';
 
 interface Props {
   block: StreamingBlock | FinishedBlock;
 }
 
 function RawInputDetail({ raw }: { raw: RawToolInput }) {
+  if (raw.type === 'read') {
+    // Read tool: path shown in header, no input body to render
+    return null;
+  }
   if (raw.type === 'write') {
     return (
       <div className="tool-pill-section">
-        <span className="tool-pill-label">{raw.path}</span>
-        <pre className="tool-pill-pre tool-pill-code">{raw.contents}</pre>
+        <CodeBlock
+          code={raw.contents || ''}
+          language={raw.language}
+          label={raw.path}
+          maxHeight={300}
+        />
       </div>
     );
   }
@@ -19,20 +28,60 @@ function RawInputDetail({ raw }: { raw: RawToolInput }) {
     return (
       <div className="tool-pill-section">
         <span className="tool-pill-label">{raw.path}</span>
-        {raw.old_string && <pre className="tool-pill-pre tool-pill-old">{raw.old_string}</pre>}
-        {raw.new_string && <pre className="tool-pill-pre tool-pill-new">{raw.new_string}</pre>}
+        {raw.old_string && (
+          <CodeBlock
+            code={raw.old_string}
+            language={raw.language}
+            variant="removed"
+            maxHeight={200}
+          />
+        )}
+        {raw.new_string && (
+          <CodeBlock
+            code={raw.new_string}
+            language={raw.language}
+            variant="added"
+            maxHeight={200}
+          />
+        )}
       </div>
     );
   }
   if (raw.type === 'command') {
     return (
       <div className="tool-pill-section">
-        <span className="tool-pill-label">Command</span>
-        <pre className="tool-pill-pre tool-pill-code">{raw.command}</pre>
+        <CodeBlock code={raw.command || ''} language="bash" label="Command" maxHeight={200} />
       </div>
     );
   }
   return null;
+}
+
+/** Render tool result — syntax-highlighted for read/write tools, plain for others. */
+function ToolResult({ block }: { block: StreamingBlock | FinishedBlock }) {
+  if (block.toolResult === undefined) return null;
+
+  const raw = block.rawInput;
+  // For Read tool results, show the file content with syntax highlighting
+  if (raw?.type === 'read' && block.toolResult) {
+    return (
+      <div className="tool-pill-section">
+        <CodeBlock
+          code={block.toolResult}
+          language={raw.language}
+          label={raw.path}
+          maxHeight={400}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="tool-pill-section">
+      <span className="tool-pill-label">Result</span>
+      <pre className="tool-pill-pre">{block.toolResult}</pre>
+    </div>
+  );
 }
 
 export function ToolPill({ block }: Props) {
@@ -64,12 +113,7 @@ export function ToolPill({ block }: Props) {
               <pre className="tool-pill-pre">{input}</pre>
             </div>
           )}
-          {done && (
-            <div className="tool-pill-section">
-              <span className="tool-pill-label">Result</span>
-              <pre className="tool-pill-pre">{block.toolResult}</pre>
-            </div>
-          )}
+          <ToolResult block={block} />
         </div>
       )}
       {block.subagent && <SubagentCard subagent={block.subagent} />}

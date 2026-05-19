@@ -1,30 +1,46 @@
 import { TOOL_SUMMARY_MAX_CHARS, RAW_INPUT_MAX_CHARS } from './constants.js';
 import type { RawToolInput } from './types.js';
+import { languageFromPath } from './language.js';
 
 export function getRawInput(
   toolName: string,
   input: Record<string, unknown>,
 ): RawToolInput | undefined {
   switch (toolName) {
-    case 'Write':
+    case 'Read': {
+      const path = String(input.file_path || '');
+      return {
+        type: 'read',
+        path,
+        language: languageFromPath(path),
+      };
+    }
+    case 'Write': {
+      const path = String(input.file_path || '');
       return {
         type: 'write',
-        path: String(input.file_path || ''),
+        path,
         contents: String(input.content || '').slice(0, RAW_INPUT_MAX_CHARS),
+        language: languageFromPath(path),
       };
+    }
     case 'Edit':
-    case 'StrReplace':
+    case 'StrReplace': {
+      const path = String(input.file_path || '');
       return {
         type: 'diff',
-        path: String(input.file_path || ''),
+        path,
         old_string: String(input.old_string || '').slice(0, RAW_INPUT_MAX_CHARS),
         new_string: String(input.new_string || '').slice(0, RAW_INPUT_MAX_CHARS),
+        language: languageFromPath(path),
       };
+    }
     case 'Bash':
     case 'Shell':
       return {
         type: 'command',
         command: String(input.command || ''),
+        language: 'bash',
       };
     default:
       return undefined;

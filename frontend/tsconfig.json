@@ -10,7 +10,11 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "@mitzo/protocol": ["../packages/protocol/src/index.ts"],
+      "@mitzo/protocol/*": ["../packages/protocol/src/*"]
+    }
   },
   "include": ["src"],
   "references": [{ "path": "../packages/client" }]
