@@ -757,4 +757,24 @@ describe('SessionOverviewEmitter', () => {
     emitter.getSnapshot();
     expect(getSessionMock).toHaveBeenCalled();
   });
+
+  it('getCachedSpeaker falls back to null when eventStore returns no speaker', () => {
+    const getSessionMock = vi.fn(() => ({ lastSpeaker: null, lastSpeakerAt: null }));
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => [makeActiveSession()]),
+      } as unknown as SessionOverviewDeps['registry'],
+      eventStore: {
+        getAttentionSessions: vi.fn(() => []),
+        getSession: getSessionMock,
+      } as unknown as SessionOverviewDeps['eventStore'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    emitter.touch('client-1');
+
+    const activities = emitter.getSnapshot();
+    // Null speaker → not awaiting reply
+    expect(getSessionMock).toHaveBeenCalledTimes(1);
+    expect(activities[0].awaitingReply).toBe(false);
+  });
 });

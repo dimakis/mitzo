@@ -157,6 +157,7 @@ export class EventStore {
         `SELECT * FROM sessions
          WHERE is_hidden = 0
            AND last_speaker = 'assistant'
+           AND last_speaker_at > (unixepoch('now', 'subsec') * 1000 - 604800000)
          ORDER BY last_speaker_at DESC
          LIMIT 10`,
       ),
@@ -221,7 +222,7 @@ export class EventStore {
     }
   }
 
-  /** Scaffolding — column + mapping wired up, callers added when session lifecycle overhaul lands. */
+  /** Adds closed_by column for tracking how a session ended (user close, timeout, error, etc). */
   private migrateCloseTracking(db: Database.Database): void {
     const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
     const columnNames = new Set(columns.map((c) => c.name));
