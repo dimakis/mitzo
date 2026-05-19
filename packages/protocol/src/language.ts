@@ -1,5 +1,7 @@
 // Maps file extensions to highlight.js language identifiers.
-// To add a new language, add an entry here — no other changes needed.
+// To add a new language:
+// 1. Add extension → language mapping here
+// 2. Register the language in frontend/src/components/CodeBlock.tsx
 
 const EXT_MAP: Record<string, string> = {
   // JavaScript / TypeScript
@@ -72,7 +74,6 @@ const EXT_MAP: Record<string, string> = {
   // Infrastructure
   tf: 'hcl',
   hcl: 'hcl',
-  Dockerfile: 'dockerfile',
   dockerfile: 'dockerfile',
 
   // SQL
