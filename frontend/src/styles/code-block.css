@@ -43,19 +43,63 @@
   flex-shrink: 0;
 }
 
-/* Floating copy button when there's no header */
-.code-block-highlight-copy-float {
+/* Pop-out button in header */
+.code-block-highlight-popout {
+  background: none;
+  border: none;
+  color: var(--accent, #6366f1);
+  font-size: 0.7rem;
+  cursor: pointer;
+  padding: 0.15rem 0.3rem;
+  border-radius: 3px;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.code-block-highlight-popout:active {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Floating actions when there's no header */
+.code-block-highlight-float-actions {
   position: absolute;
   top: 0.3rem;
   right: 0.3rem;
   z-index: 1;
+  display: flex;
+  gap: 0.2rem;
   opacity: 0;
   transition: opacity 0.15s;
 }
 
-.code-block-highlight:hover .code-block-highlight-copy-float,
-.code-block-highlight:active .code-block-highlight-copy-float {
+.code-block-highlight:hover .code-block-highlight-float-actions,
+.code-block-highlight:active .code-block-highlight-float-actions {
   opacity: 1;
+}
+
+.code-block-highlight-copy-float,
+.code-block-highlight-popout-float {
+  /* inherits from CopyButton / bare button */
+}
+
+.code-block-highlight-popout-float {
+  background: none;
+  border: none;
+  color: var(--accent, #6366f1);
+  font-size: 0.7rem;
+  cursor: pointer;
+  padding: 0.15rem 0.3rem;
+  border-radius: 3px;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.code-block-highlight-popout-float:active {
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .code-block-highlight-pre {

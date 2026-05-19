@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { FinishedSubagentState, StreamingSubagentState } from '@mitzo/protocol';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolPill } from './ToolPill';
+import { TextBubble } from './MessageBubble';
 
 interface SubagentCardProps {
   subagent: FinishedSubagentState | StreamingSubagentState;
@@ -9,7 +10,8 @@ interface SubagentCardProps {
 
 function formatTokens(usage?: { inputTokens: number; outputTokens: number }): string {
   if (!usage) return '';
-  return `${usage.inputTokens}↓ ${usage.outputTokens}↑`;
+  const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+  return `${fmt(usage.inputTokens)}↓ ${fmt(usage.outputTokens)}↑`;
 }
 
 export function SubagentCard({ subagent }: SubagentCardProps) {
@@ -18,29 +20,38 @@ export function SubagentCard({ subagent }: SubagentCardProps) {
   const isRunning = 'running' in subagent && subagent.running;
   const summary = isRunning ? 'Working...' : subagent.summary || 'Complete';
   const usage = 'usage' in subagent ? subagent.usage : undefined;
+  const done = !isRunning;
 
   // Convert blocks to array for rendering
   const blocks = Array.isArray(subagent.blocks)
     ? subagent.blocks
     : Array.from(subagent.blocks.values());
 
+  // Count nested tool calls for the badge
+  const toolCount = blocks.filter((b) => b.blockType === 'tool_use').length;
+
   return (
-    <div className="subagent-card">
+    <div
+      className={`tool-pill tool-pill--agent ${done ? 'tool-pill--done' : 'tool-pill--running'}`}
+    >
       <button
-        className="subagent-header"
+        className="tool-pill-header"
         onClick={() => setExpanded((e) => !e)}
         aria-expanded={expanded}
       >
         <span
-          className={`subagent-dot ${isRunning ? 'subagent-dot--running' : 'subagent-dot--done'}`}
+          className={`tool-pill-dot ${isRunning ? 'tool-pill-dot--pending' : 'tool-pill-dot--done'}`}
         />
-        <span className="subagent-summary">{summary}</span>
-        {usage && <span className="subagent-tokens">{formatTokens(usage)}</span>}
-        <span className="subagent-chevron">{expanded ? '▾' : '▸'}</span>
+        <span className="tool-pill-name">Agent</span>
+        <span className="tool-pill-input">{summary}</span>
+        {toolCount > 0 && <span className="tool-pill-badge">{toolCount}</span>}
+        {usage && <span className="tool-pill-tokens">{formatTokens(usage)}</span>}
+        {!done && <span className="tool-pill-status">Running...</span>}
+        <span className="tool-pill-chevron">{expanded ? '▾' : '▸'}</span>
       </button>
 
       {expanded && (
-        <div className="subagent-detail">
+        <div className="tool-pill-detail">
           {blocks.map((block) => {
             if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
               return <ThinkingBlock key={block.blockId} block={block} />;
@@ -48,11 +59,9 @@ export function SubagentCard({ subagent }: SubagentCardProps) {
             if (block.blockType === 'tool_use') {
               return <ToolPill key={block.blockId} block={block} />;
             }
-            if (block.blockType === 'text') {
+            if (block.blockType === 'text' && block.content) {
               return (
-                <div key={block.blockId} className="subagent-text">
-                  {block.content}
-                </div>
+                <TextBubble key={block.blockId} content={block.content} />
               );
             }
             return null;

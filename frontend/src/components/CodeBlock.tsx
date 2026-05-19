@@ -54,6 +54,8 @@ interface CodeBlockProps {
   maxHeight?: number;
   /** Visual variant for diff context. */
   variant?: 'default' | 'added' | 'removed';
+  /** Callback when user clicks the pop-out button. */
+  onPopOut?: () => void;
 }
 
 export function CodeBlock({
@@ -63,6 +65,7 @@ export function CodeBlock({
   className,
   maxHeight = 400,
   variant = 'default',
+  onPopOut,
 }: CodeBlockProps) {
   const highlighted = useMemo(() => {
     if (!code) return '';
@@ -92,9 +95,33 @@ export function CodeBlock({
           <span className="code-block-highlight-label">{label}</span>
           {language && <span className="code-block-highlight-lang">{language}</span>}
           <CopyButton text={code} className="code-block-highlight-copy" label="Copy" />
+          {onPopOut && (
+            <button
+              className="code-block-highlight-popout"
+              onClick={onPopOut}
+              aria-label="Open in viewer"
+              title="Open in viewer"
+            >
+              ↗
+            </button>
+          )}
         </div>
       )}
-      {!label && <CopyButton text={code} className="code-block-highlight-copy-float" label="Copy" />}
+      {!label && (
+        <div className="code-block-highlight-float-actions">
+          <CopyButton text={code} className="code-block-highlight-copy-float" label="Copy" />
+          {onPopOut && (
+            <button
+              className="code-block-highlight-popout-float"
+              onClick={onPopOut}
+              aria-label="Open in viewer"
+              title="Open in viewer"
+            >
+              ↗
+            </button>
+          )}
+        </div>
+      )}
       <pre
         className="code-block-highlight-pre hljs"
         style={{ maxHeight: `${maxHeight}px` }}

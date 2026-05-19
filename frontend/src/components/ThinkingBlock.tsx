@@ -13,8 +13,11 @@ export function ThinkingBlock({ block, streaming = false }: Props) {
 
   if (block.blockType === 'redacted_thinking') {
     return (
-      <div className="thinking-block thinking-block--redacted">
-        <span className="thinking-block-label">Reasoning redacted</span>
+      <div className="tool-pill tool-pill--done">
+        <div className="tool-pill-header tool-pill-header--static">
+          <span className="tool-pill-dot tool-pill-dot--done" />
+          <span className="tool-pill-name thinking-block-name">Reasoning redacted</span>
+        </div>
       </div>
     );
   }
@@ -22,13 +25,20 @@ export function ThinkingBlock({ block, streaming = false }: Props) {
   if (!text && !isStreaming) return null;
 
   return (
-    <div className={`thinking-block ${isStreaming ? 'thinking-block--streaming' : ''}`}>
-      <button className="thinking-block-header" onClick={() => setExpanded((e) => !e)}>
-        <span className="thinking-block-label">{isStreaming ? 'Thinking...' : 'Thought'}</span>
-        <span className="thinking-block-chevron">{expanded ? '▾' : '▸'}</span>
+    <div
+      className={`tool-pill ${isStreaming ? 'tool-pill--running' : 'tool-pill--done'} tool-pill--thinking`}
+    >
+      <button className="tool-pill-header" onClick={() => setExpanded((e) => !e)}>
+        <span
+          className={`tool-pill-dot ${isStreaming ? 'tool-pill-dot--pending' : 'tool-pill-dot--done'}`}
+        />
+        <span className="tool-pill-name thinking-block-name">
+          {isStreaming ? 'Thinking...' : 'Thought'}
+        </span>
+        <span className="tool-pill-chevron">{expanded ? '▾' : '▸'}</span>
       </button>
       {expanded && (
-        <div className="thinking-block-content">
+        <div className="tool-pill-detail">
           <pre className="thinking-block-text">{text}</pre>
         </div>
       )}

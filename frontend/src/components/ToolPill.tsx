@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import type { StreamingBlock, FinishedBlock, RawToolInput } from '../types/chat';
 import { SubagentCard } from './SubagentCard';
 import { CodeBlock } from './CodeBlock';
@@ -7,7 +8,13 @@ interface Props {
   block: StreamingBlock | FinishedBlock;
 }
 
-function RawInputDetail({ raw }: { raw: RawToolInput }) {
+function RawInputDetail({
+  raw,
+  onPopOut,
+}: {
+  raw: RawToolInput;
+  onPopOut?: (path: string) => void;
+}) {
   if (raw.type === 'read') {
     // Read tool: path shown in header, no input body to render
     return null;
@@ -20,6 +27,7 @@ function RawInputDetail({ raw }: { raw: RawToolInput }) {
           language={raw.language}
           label={raw.path}
           maxHeight={300}
+          onPopOut={raw.path && onPopOut ? () => onPopOut(raw.path!) : undefined}
         />
       </div>
     );
@@ -27,7 +35,18 @@ function RawInputDetail({ raw }: { raw: RawToolInput }) {
   if (raw.type === 'diff') {
     return (
       <div className="tool-pill-section">
-        <span className="tool-pill-label">{raw.path}</span>
+        <span className="tool-pill-label">
+          {raw.path}
+          {raw.path && onPopOut && (
+            <button
+              className="tool-pill-popout-inline"
+              onClick={() => onPopOut(raw.path!)}
+              aria-label="Open in viewer"
+            >
+              ↗
+            </button>
+          )}
+        </span>
         {raw.old_string && (
           <CodeBlock
             code={raw.old_string}
@@ -58,7 +77,13 @@ function RawInputDetail({ raw }: { raw: RawToolInput }) {
 }
 
 /** Render tool result — syntax-highlighted for read/write tools, plain for others. */
-function ToolResult({ block }: { block: StreamingBlock | FinishedBlock }) {
+function ToolResult({
+  block,
+  onPopOut,
+}: {
+  block: StreamingBlock | FinishedBlock;
+  onPopOut?: (path: string) => void;
+}) {
   if (block.toolResult === undefined) return null;
 
   const raw = block.rawInput;
@@ -71,6 +96,7 @@ function ToolResult({ block }: { block: StreamingBlock | FinishedBlock }) {
           language={raw.language}
           label={raw.path}
           maxHeight={400}
+          onPopOut={raw.path && onPopOut ? () => onPopOut(raw.path!) : undefined}
         />
       </div>
     );
@@ -85,10 +111,22 @@ function ToolResult({ block }: { block: StreamingBlock | FinishedBlock }) {
 }
 
 export function ToolPill({ block }: Props) {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [expanded, setExpanded] = useState(false);
   const done = block.toolResult !== undefined;
   const hasError = (block as StreamingBlock).toolError === true;
   const input = block.toolInput || '';
+
+  const handlePopOut = useCallback(
+    (filePath: string) => {
+      const currentPath = location.pathname + location.search;
+      navigate(
+        `/files?path=${encodeURIComponent(filePath)}&from=${encodeURIComponent(currentPath)}`,
+      );
+    },
+    [navigate, location],
+  );
 
   return (
     <div
@@ -106,14 +144,14 @@ export function ToolPill({ block }: Props) {
       {expanded && (
         <div className="tool-pill-detail">
           {block.rawInput ? (
-            <RawInputDetail raw={block.rawInput} />
+            <RawInputDetail raw={block.rawInput} onPopOut={handlePopOut} />
           ) : (
             <div className="tool-pill-section">
               <span className="tool-pill-label">Input</span>
               <pre className="tool-pill-pre">{input}</pre>
             </div>
           )}
-          <ToolResult block={block} />
+          <ToolResult block={block} onPopOut={handlePopOut} />
         </div>
       )}
       {block.subagent && <SubagentCard subagent={block.subagent} />}
