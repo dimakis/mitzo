@@ -194,7 +194,7 @@ Behind the scenes, every tool has a risk tier:
 | ------------ | ---------------- | ---------- | ---------- | ---------- |
 | **Safe**     | Read, Glob, Grep | Auto-allow | Auto-allow | Auto-allow |
 | **Standard** | Edit, Write      | Prompt     | Auto-allow | Auto-allow |
-| **Elevated** | Bash             | Prompt     | Prompt     | Auto-allow |
+| **Elevated** | Bash             | Prompt     | Auto-allow | Auto-allow |
 | **Unknown**  | MCP tools        | Prompt     | Prompt     | Prompt     |
 
 You can override tiers in `.mitzo.json` (see below).
@@ -247,7 +247,7 @@ Drop a `.mitzo.json` file in your `REPO_PATH` root to customize everything. Here
     "Architecture": "/Users/you/docs/architecture.md"
   },
   "venvPaths": [".venv/bin"],
-  "tierOverrides": {
+  "toolTierOverrides": {
     "mcp__jira__jira_search": "safe",
     "mcp__jira__jira_get_issue": "safe"
   }
@@ -323,7 +323,7 @@ Paths relative to `REPO_PATH`. Resolved and prepended to `PATH` so Claude sessio
 ### Tier overrides
 
 ```json
-"tierOverrides": {
+"toolTierOverrides": {
   "mcp__jira__jira_search": "safe",
   "mcp__jira__jira_get_issue": "safe"
 }
@@ -531,7 +531,7 @@ Mitzo reads your Cursor MCP config (`~/.cursor/mcp.json` by default, or `MCP_CON
 
 The home screen shows which MCP servers are connected. Tool calls to MCP servers show up as tool pills in chat, just like built-in tools.
 
-MCP tools default to the `unknown` tier (always prompted). Use `tierOverrides` in `.mitzo.json` to promote trusted tools.
+MCP tools default to the `unknown` tier (always prompted). Use `toolTierOverrides` in `.mitzo.json` to promote trusted tools.
 
 ## Observability (optional)
 
