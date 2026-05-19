@@ -74,7 +74,10 @@ export class SessionOverviewEmitter {
   /** Cached uncommitted work results per session cwd (populated by background refresh). */
   private uncommittedCache = new Map<string, UncommittedCacheEntry>();
   /** Cached lastSpeakerAt + lastSpeaker per sessionId — avoids per-broadcast SQLite lookups. */
-  private speakerCache = new Map<string, { speaker: string | null; at: number | null }>();
+  private speakerCache = new Map<
+    string,
+    { speaker: 'user' | 'assistant' | null; at: number | null }
+  >();
   /** Background refresh interval for uncommitted work checks. */
   private uncommittedRefreshTimer: ReturnType<typeof setInterval> | null = null;
   /** Guard against overlapping refresh runs. */
@@ -308,11 +311,15 @@ export class SessionOverviewEmitter {
    * Get cached speaker info for a session. Lazily populated from EventStore
    * on first access, then kept up-to-date via updateSpeaker().
    */
-  private getCachedSpeaker(sessionId: string): { speaker: string | null; at: number | null } {
+  private getCachedSpeaker(sessionId: string): {
+    speaker: 'user' | 'assistant' | null;
+    at: number | null;
+  } {
     const cached = this.speakerCache.get(sessionId);
     if (cached) return cached;
     const meta = this.deps.eventStore.getSession(sessionId);
-    const entry = { speaker: meta?.lastSpeaker ?? null, at: meta?.lastSpeakerAt ?? null };
+    const speaker = meta?.lastSpeaker as 'user' | 'assistant' | undefined;
+    const entry = { speaker: speaker ?? null, at: meta?.lastSpeakerAt ?? null };
     this.speakerCache.set(sessionId, entry);
     return entry;
   }

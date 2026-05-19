@@ -54,6 +54,7 @@ export function setConnectionRegistry(registry: ConnectionRegistry): void {
 type SessionChangeCallback = (
   clientId: string,
   event: 'start' | 'end' | 'turn_end' | 'user_message',
+  sessionId?: string,
 ) => void;
 let _onSessionChange: SessionChangeCallback | null = null;
 export function setSessionChangeCallback(cb: SessionChangeCallback): void {
@@ -966,7 +967,7 @@ async function _startChatInner(
     if (failedSession) cleanupSessionWorktrees(failedSession);
     registry.abort(clientId);
   } finally {
-    _onSessionChange?.(clientId, 'end');
+    _onSessionChange?.(clientId, 'end', session.sessionId);
   }
 }
 

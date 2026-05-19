@@ -249,12 +249,11 @@ setHealthMonitor(healthMonitor);
 healthMonitor.start();
 
 // Hook session lifecycle events into the overview emitter
-setSessionChangeCallback((clientId, event) => {
+setSessionChangeCallback((clientId, event, sessionId) => {
   if (event === 'start') {
     overviewEmitter.touch(clientId);
   } else if (event === 'end') {
-    const session = registry.get(clientId);
-    overviewEmitter.forget(clientId, session?.sessionId);
+    overviewEmitter.forget(clientId, sessionId);
   } else if (event === 'user_message') {
     const session = registry.get(clientId);
     if (session?.sessionId) {
