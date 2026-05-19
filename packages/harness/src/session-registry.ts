@@ -23,6 +23,8 @@ export interface ManagedSession {
   cwd?: string;
   /** Git branch at session start. */
   branch?: string;
+  /** Model used for this session's SDK query. */
+  model?: string;
   /** Session-scoped worktree identifier, shared across all repos. */
   wtId?: string;
   worktreePath?: string;

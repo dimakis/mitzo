@@ -552,7 +552,14 @@ export function handleInterruptV2(
 
           ctx.connRegistry.watch(connectionId, msg.sessionId);
           ctx.connRegistry.setActive(connectionId, msg.sessionId);
-          interruptChat(activeClientId, msg.prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
+          interruptChat(
+            activeClientId,
+            msg.prompt,
+            msg.images,
+            msg.contextBlocks,
+            msg.clientMsgId,
+            msg.model,
+          );
           log.info('interrupt', { connectionId, sessionId: msg.sessionId });
           return;
         }
@@ -563,6 +570,7 @@ export function handleInterruptV2(
       ctx.connRegistry.setActive(connectionId, msg.sessionId);
       startChat(transport, sessionClientId, msg.prompt, {
         resume: msg.sessionId,
+        model: msg.model ?? found.session?.model,
         images: msg.images,
         contextBlocks: msg.contextBlocks,
         clientMsgId: msg.clientMsgId,

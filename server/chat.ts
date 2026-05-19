@@ -676,6 +676,7 @@ async function _startChatInner(
   });
 
   const session = registry.get(clientId)!;
+  session.model = options.model ?? session.model;
   session.inputQueue = inputQueue as { push: (msg: unknown) => void; close: () => void };
   _onSessionChange?.(clientId, 'start');
 
@@ -1061,10 +1062,12 @@ export async function interruptChat(
   images?: Array<{ data: string; mediaType: string }>,
   contextBlocks?: string[],
   clientMsgId?: string,
+  model?: string,
 ): Promise<boolean> {
   return withSpanAsync('chat.interrupt', { 'chat.clientId': clientId }, async () => {
     const session = registry.get(clientId);
     if (!session?.queryInstance || !session?.inputQueue) return false;
+    if (model) session.model = model;
     const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
     const messageId = clientMsgId || `umsg-${Date.now()}-interrupt`;
     if (session.sessionId) {

@@ -1990,6 +1990,44 @@ describe('handleInterruptV2 forwarding', () => {
       images,
       contextBlocks,
       'i3',
+      undefined,
+    );
+  });
+
+  it('forwards model to interruptChat when session is active', () => {
+    (interruptChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-model', session: {} });
+    sessionReg.isAttached.mockReturnValue(true);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleInterruptV2(
+      'c1',
+      transport,
+      {
+        type: 'interrupt',
+        sessionId: 'sess-model',
+        prompt: 'change model',
+        clientMsgId: 'i-model',
+        model: 'claude-opus-4-6',
+      },
+      ctx,
+    );
+
+    expect(interruptChat).toHaveBeenCalledWith(
+      'c1:sess-model',
+      'change model',
+      undefined,
+      undefined,
+      'i-model',
+      'claude-opus-4-6',
     );
   });
 
@@ -2027,6 +2065,110 @@ describe('handleInterruptV2 forwarding', () => {
       'c1:sess-1',
       'new direction',
       expect.objectContaining({ resume: 'sess-1', images, contextBlocks, clientMsgId: 'i3' }),
+    );
+  });
+
+  it('forwards msg.model to startChat when session is idle', () => {
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'c-idle', session: {} });
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c2', transport);
+
+    handleInterruptV2(
+      'c2',
+      transport,
+      {
+        type: 'interrupt',
+        sessionId: 'sess-resume',
+        prompt: 'urgent',
+        clientMsgId: 'i-resume',
+        model: 'claude-opus-4-7',
+      },
+      ctx,
+    );
+
+    expect(startChat).toHaveBeenCalledWith(
+      transport,
+      'c2:sess-resume',
+      'urgent',
+      expect.objectContaining({ resume: 'sess-resume', model: 'claude-opus-4-7' }),
+    );
+  });
+
+  it('uses found.session.model as fallback when msg.model is absent', () => {
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'c-fallback',
+      session: { model: 'claude-sonnet-4-6' },
+    });
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c3', transport);
+
+    handleInterruptV2(
+      'c3',
+      transport,
+      {
+        type: 'interrupt',
+        sessionId: 'sess-fallback',
+        prompt: 'no model',
+        clientMsgId: 'i-fallback',
+      },
+      ctx,
+    );
+
+    expect(startChat).toHaveBeenCalledWith(
+      transport,
+      'c3:sess-fallback',
+      'no model',
+      expect.objectContaining({ resume: 'sess-fallback', model: 'claude-sonnet-4-6' }),
+    );
+  });
+
+  it('msg.model takes precedence over found.session.model', () => {
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'c-precedence',
+      session: { model: 'claude-sonnet-4-6' },
+    });
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c4', transport);
+
+    handleInterruptV2(
+      'c4',
+      transport,
+      {
+        type: 'interrupt',
+        sessionId: 'sess-precedence',
+        prompt: 'override',
+        clientMsgId: 'i-precedence',
+        model: 'claude-opus-4-7',
+      },
+      ctx,
+    );
+
+    expect(startChat).toHaveBeenCalledWith(
+      transport,
+      'c4:sess-precedence',
+      'override',
+      expect.objectContaining({ resume: 'sess-precedence', model: 'claude-opus-4-7' }),
     );
   });
 
@@ -2174,7 +2316,14 @@ describe('handleInterruptV2 connection ownership', () => {
       ctx,
     );
 
-    expect(interruptChat).toHaveBeenCalledWith('c1:sess-1', 'redirect', undefined, undefined, 'i6');
+    expect(interruptChat).toHaveBeenCalledWith(
+      'c1:sess-1',
+      'redirect',
+      undefined,
+      undefined,
+      'i6',
+      undefined,
+    );
   });
 
   it('allows interrupt when session is detached (takeover)', () => {
@@ -2336,6 +2485,7 @@ describe('handleInterruptV2 rekey after detached reattach', () => {
       undefined,
       undefined,
       'i-rk',
+      undefined,
     );
 
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
