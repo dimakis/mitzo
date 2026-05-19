@@ -96,8 +96,11 @@ export class SessionOverviewEmitter {
   /**
    * Clean up tracking for a removed session.
    */
-  forget(clientId: string): void {
+  forget(clientId: string, sessionId?: string): void {
     this.lastEventTimes.delete(clientId);
+    if (sessionId) {
+      this.speakerCache.delete(sessionId);
+    }
   }
 
   /**

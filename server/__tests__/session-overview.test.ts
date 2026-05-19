@@ -65,18 +65,13 @@ vi.mock('@mitzo/harness', async (importOriginal) => {
   };
 });
 
-// ─── Mock the worktree module ─────────────────────────────────────────────────
-
-vi.mock('../worktree.js', () => ({
-  hasUncommittedWork: vi.fn(() => null),
-}));
-
 import { getPendingCountBySession } from '@mitzo/harness';
 const mockGetPending = getPendingCountBySession as ReturnType<typeof vi.fn>;
 
 // ─── Mock worktree module ────────────────────────────────────────────────────
 
 vi.mock('../worktree.js', () => ({
+  hasUncommittedWork: vi.fn(() => null),
   hasUncommittedWorkAsync: vi.fn(async () => null), // default: clean worktree
 }));
 
@@ -711,5 +706,55 @@ describe('SessionOverviewEmitter', () => {
     // Should NOT call getSession since cache was pre-populated
     expect(getSessionMock).not.toHaveBeenCalled();
     expect(activities[0].awaitingReply).toBe(true);
+  });
+
+  it('updateSpeaker with user clears awaitingReply', () => {
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => [makeActiveSession()]),
+      } as unknown as SessionOverviewDeps['registry'],
+      eventStore: {
+        getAttentionSessions: vi.fn(() => []),
+        getSession: vi.fn(() => null),
+      } as unknown as SessionOverviewDeps['eventStore'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    emitter.touch('client-1');
+
+    // Simulate assistant spoke last → awaitingReply
+    emitter.updateSpeaker('session-1', 'assistant');
+    expect(emitter.getSnapshot()[0].awaitingReply).toBe(true);
+
+    // Simulate user sends a message → no longer awaiting reply
+    emitter.updateSpeaker('session-1', 'user');
+    expect(emitter.getSnapshot()[0].awaitingReply).toBe(false);
+  });
+
+  it('forget clears speakerCache when sessionId is provided', () => {
+    const getSessionMock = vi.fn(() => null);
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => [makeActiveSession()]),
+      } as unknown as SessionOverviewDeps['registry'],
+      eventStore: {
+        getAttentionSessions: vi.fn(() => []),
+        getSession: getSessionMock,
+      } as unknown as SessionOverviewDeps['eventStore'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    emitter.touch('client-1');
+
+    // Pre-populate speaker cache
+    emitter.updateSpeaker('session-1', 'assistant');
+    emitter.getSnapshot(); // uses cached value
+    expect(getSessionMock).not.toHaveBeenCalled();
+
+    // Forget with sessionId should clear cache
+    emitter.forget('client-1', 'session-1');
+
+    // Re-add and snapshot — should fall through to eventStore
+    emitter.touch('client-1');
+    emitter.getSnapshot();
+    expect(getSessionMock).toHaveBeenCalled();
   });
 });
