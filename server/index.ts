@@ -249,17 +249,23 @@ setHealthMonitor(healthMonitor);
 healthMonitor.start();
 
 // Hook session lifecycle events into the overview emitter
-setSessionChangeCallback((clientId, event) => {
+setSessionChangeCallback((clientId, event, sessionId) => {
   if (event === 'start') {
     overviewEmitter.touch(clientId);
   } else if (event === 'end') {
-    overviewEmitter.forget(clientId);
+    overviewEmitter.forget(clientId, sessionId);
+  } else if (event === 'user_message') {
+    const session = registry.get(clientId);
+    if (session?.sessionId) {
+      overviewEmitter.updateSpeaker(session.sessionId, 'user');
+    }
   } else if (event === 'turn_end') {
     overviewEmitter.touch(clientId);
     // Mark assistant as last speaker for attention tracking
     const session = registry.get(clientId);
     if (session?.sessionId) {
       eventStore.updateLastSpeaker(session.sessionId, 'assistant');
+      overviewEmitter.updateSpeaker(session.sessionId, 'assistant');
     }
   }
   overviewEmitter.scheduleBroadcast();

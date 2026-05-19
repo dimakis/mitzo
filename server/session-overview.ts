@@ -73,6 +73,11 @@ export class SessionOverviewEmitter {
   private lastEventTimes = new Map<string, number>();
   /** Cached uncommitted work results per session cwd (populated by background refresh). */
   private uncommittedCache = new Map<string, UncommittedCacheEntry>();
+  /** Cached lastSpeakerAt + lastSpeaker per sessionId — avoids per-broadcast SQLite lookups. */
+  private speakerCache = new Map<
+    string,
+    { speaker: 'user' | 'assistant' | null; at: number | null }
+  >();
   /** Background refresh interval for uncommitted work checks. */
   private uncommittedRefreshTimer: ReturnType<typeof setInterval> | null = null;
   /** Guard against overlapping refresh runs. */
@@ -94,8 +99,11 @@ export class SessionOverviewEmitter {
   /**
    * Clean up tracking for a removed session.
    */
-  forget(clientId: string): void {
+  forget(clientId: string, sessionId?: string): void {
     this.lastEventTimes.delete(clientId);
+    if (sessionId) {
+      this.speakerCache.delete(sessionId);
+    }
   }
 
   /**
@@ -248,10 +256,10 @@ export class SessionOverviewEmitter {
 
     // Check if awaiting user reply (assistant spoke last, not streaming, not waiting for input)
     // Exclude 'waiting' state — sessions needing permission/review should sort as waiting, not awaiting reply
-    const meta = this.deps.eventStore.getSession(sessionId);
+    const speaker = this.getCachedSpeaker(sessionId);
     const awaitingReply =
-      meta?.lastSpeaker === 'assistant' && !session.hasSnapshot && primaryState !== 'waiting';
-    const speakerAt = meta?.lastSpeakerAt ?? lastEventAt;
+      speaker.speaker === 'assistant' && !session.hasSnapshot && primaryState !== 'waiting';
+    const speakerAt = speaker.at ?? lastEventAt;
     const idleMinutes = Math.max(0, Math.round((now - speakerAt) / 60_000));
 
     return {
@@ -297,6 +305,31 @@ export class SessionOverviewEmitter {
       awaitingReply: true, // By definition — sourced from getAttentionSessions()
       idleMinutes,
     };
+  }
+
+  /**
+   * Get cached speaker info for a session. Lazily populated from EventStore
+   * on first access, then kept up-to-date via updateSpeaker().
+   */
+  private getCachedSpeaker(sessionId: string): {
+    speaker: 'user' | 'assistant' | null;
+    at: number | null;
+  } {
+    const cached = this.speakerCache.get(sessionId);
+    if (cached) return cached;
+    const meta = this.deps.eventStore.getSession(sessionId);
+    const speaker = meta?.lastSpeaker as 'user' | 'assistant' | undefined;
+    const entry = { speaker: speaker ?? null, at: meta?.lastSpeakerAt ?? null };
+    this.speakerCache.set(sessionId, entry);
+    return entry;
+  }
+
+  /**
+   * Update the cached speaker state for a session.
+   * Call this from the turn_end / user_message event handlers.
+   */
+  updateSpeaker(sessionId: string, speaker: 'user' | 'assistant'): void {
+    this.speakerCache.set(sessionId, { speaker, at: Date.now() });
   }
 
   /**
@@ -394,6 +427,7 @@ export class SessionOverviewEmitter {
     }
     this.lastEventTimes.clear();
     this.uncommittedCache.clear();
+    this.speakerCache.clear();
   }
 }
 

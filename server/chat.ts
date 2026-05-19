@@ -51,7 +51,11 @@ export function setConnectionRegistry(registry: ConnectionRegistry): void {
   _connRegistry = registry;
 }
 
-type SessionChangeCallback = (clientId: string, event: 'start' | 'end' | 'turn_end') => void;
+type SessionChangeCallback = (
+  clientId: string,
+  event: 'start' | 'end' | 'turn_end' | 'user_message',
+  sessionId?: string,
+) => void;
 let _onSessionChange: SessionChangeCallback | null = null;
 export function setSessionChangeCallback(cb: SessionChangeCallback): void {
   _onSessionChange = cb;
@@ -922,6 +926,7 @@ async function _startChatInner(
         text: fullPrompt,
       });
       eventStore.updateLastSpeaker(options.resume, 'user');
+      _onSessionChange?.(clientId, 'user_message');
       const echo = { type: 'user_message', messageId, text: fullPrompt };
       send(transport, echo);
       broadcastToObservers(session.observers, echo);
@@ -963,7 +968,7 @@ async function _startChatInner(
     if (failedSession) cleanupSessionWorktrees(failedSession);
     registry.abort(clientId);
   } finally {
-    _onSessionChange?.(clientId, 'end');
+    _onSessionChange?.(clientId, 'end', session.sessionId);
   }
 }
 
@@ -1043,6 +1048,7 @@ export function sendToChat(
         text: fullPrompt,
       });
       eventStore.updateLastSpeaker(session.sessionId, 'user');
+      _onSessionChange?.(clientId, 'user_message');
       tryAutoRename(session.sessionId, clientId).catch(() => {
         /* errors logged internally */
       });
@@ -1079,6 +1085,7 @@ export async function interruptChat(
         text: fullPrompt,
       });
       eventStore.updateLastSpeaker(session.sessionId, 'user');
+      _onSessionChange?.(clientId, 'user_message');
     }
     const echo = { type: 'user_message', messageId, text: fullPrompt };
     send(session.transport, echo);
