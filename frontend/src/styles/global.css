@@ -2403,6 +2403,9 @@ textarea:focus {
   top: 0;
   z-index: 10;
   background: var(--bg-primary);
+  margin-inline: calc(-1 * var(--space-3));
+  padding-inline: var(--space-3);
+  width: calc(100% + 2 * var(--space-3));
 }
 
 .boot-context-pill-header-wrapper {
