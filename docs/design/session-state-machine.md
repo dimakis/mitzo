@@ -91,7 +91,7 @@ STARTING → ENDED          query fails before first event (timeout/error)
 ACTIVE → DETACHED         transport.close() without abort
 ACTIVE → SUSPENDED        iOS background + suspend buffer active
 ACTIVE → CLOSING          closeout handler fires
-ACTIVE → ENDED            query completes normally
+ACTIVE → ENDED            query completes normally or interrupt aborts query
 
 DETACHED → ACTIVE         reattach()
 DETACHED → SUSPENDED      iOS background while detached
@@ -99,7 +99,6 @@ DETACHED → CLOSING        detach TTL expires, closeout fires
 DETACHED → ENDED          detach TTL expires without closeout, or query aborts
 
 SUSPENDED → ACTIVE        resume from background, reattach
-SUSPENDED → DETACHED      resume but stay detached (shouldn't happen)
 SUSPENDED → ENDED         suspend timeout expires, query aborts
 
 CLOSING → ENDED           closeout completes or timeout expires
@@ -107,11 +106,21 @@ CLOSING → ENDED           closeout completes or timeout expires
 ENDED → STARTING          explicit resume with startChat(resume: sessionId)
 ```
 
+### Interrupt Behavior
+
+When the user interrupts (taps stop), the SDK query is aborted and the query loop exits.
+This is a normal ACTIVE → ENDED transition with `reason: 'interrupt'`. The session can be
+resumed via ENDED → STARTING on the next `startChat(resume: sessionId)`.
+
+Interrupt during DETACHED/SUSPENDED: the abort signal fires on the query loop regardless of
+transport state. Same transition — the state goes to ENDED via the query loop's `finally` block.
+
 ### Invalid Transitions (bugs if observed)
 
 - Any state → CREATED (sessions don't un-create)
 - ENDED → any except STARTING (can't revive without explicit resume)
 - CLOSING → any except ENDED (closeout is terminal)
+- SUSPENDED → DETACHED (if background resumes without transport, go straight to ENDED)
 - SUSPENDED → CLOSING (suspend timeout goes to ENDED, not CLOSING)
 
 ### Invariants
@@ -142,6 +151,8 @@ ENDED → STARTING          explicit resume with startChat(resume: sessionId)
 
 ```sql
 -- server/migrations/003_session_state.sql
+-- `sessions` table already has: session_id, isActive, created_at, updated_at, ...
+-- See 001_init.sql for full schema.
 ALTER TABLE sessions ADD COLUMN state TEXT DEFAULT 'ENDED';
 ALTER TABLE sessions ADD COLUMN last_state_change INTEGER;
 
@@ -509,10 +520,39 @@ if (sessionId) {
       violation: 'registry_missing_active_session',
     });
     span.recordException(new Error(`Registry missing session in state ${state}`));
-    // Could attempt recovery here by marking ENDED, then falling through to resume
+    // Force to ENDED then resume — query loop is gone, only option is restart
     ctx.eventStore.setState(sessionId, 'ENDED', {
-      reason: 'registry_lost_session'
+      reason: 'registry_lost_session',
+      force: true,
     });
+    // Fall through to resume explicitly
+    const sessionClientId = `${connectionId}:${sessionId}`;
+    ctx.connRegistry.watch(connectionId, sessionId);
+    ctx.connRegistry.setActive(connectionId, sessionId);
+    span.setAttribute('routing.decision', 'resume_after_recovery');
+    startChat(transport, sessionClientId, prompt, {
+      resume: sessionId,
+      ...msg,
+    });
+    applySkillPolicy(sessionClientId);
+    return;
+  }
+
+  // Guard: duplicate startChat while session is still booting
+  if (found && (state === 'CREATED' || state === 'STARTING')) {
+    log.warn('message received while session still starting, ignoring duplicate', {
+      sessionId,
+      state,
+      clientId: found.clientId,
+    });
+    span.setAttribute('routing.decision', 'deduplicated');
+    // Don't start a second query — the first one will transition to ACTIVE
+    // and pick up this message from the conversation history on next turn.
+    transport.send({
+      type: 'system',
+      message: 'Session is starting, please wait...',
+    });
+    return;
   }
 
   // Normal routing based on state
@@ -662,7 +702,7 @@ const VALID_TRANSITIONS: Record<SessionState, SessionState[]> = {
   STARTING: ['ACTIVE', 'ENDED'],
   ACTIVE: ['DETACHED', 'SUSPENDED', 'CLOSING', 'ENDED'],
   DETACHED: ['ACTIVE', 'SUSPENDED', 'CLOSING', 'ENDED'],
-  SUSPENDED: ['ACTIVE', 'DETACHED', 'ENDED'],
+  SUSPENDED: ['ACTIVE', 'ENDED'],
   CLOSING: ['ENDED'],
   ENDED: ['STARTING'],
 };
@@ -677,6 +717,9 @@ class EventStore {
     const fromState = current?.state ?? null;
 
     // Validate transition
+    // force: true bypasses validation — ONLY for crash recovery paths
+    // (server startup stale cleanup, registry-lost-session recovery).
+    // Normal lifecycle code must never pass force.
     if (fromState && !opts?.force) {
       const allowed = VALID_TRANSITIONS[fromState];
       if (!allowed.includes(newState)) {
@@ -691,6 +734,15 @@ class EventStore {
         });
         throw err;
       }
+    }
+
+    if (opts?.force) {
+      log.warn('forced state transition (recovery path)', {
+        sessionId,
+        fromState,
+        toState: newState,
+        reason: opts?.reason,
+      });
     }
 
     // Proceed with update
@@ -718,35 +770,31 @@ class EventStore {
 ```typescript
 // app.ts - on server start
 async function recoverStaleSessions(store: EventStore) {
+  // On startup the registry is empty — no query loops survived the restart.
+  // Any session not in ENDED is orphaned. Force-end all of them so the
+  // state machine is consistent when clients reconnect and trigger
+  // ENDED → STARTING via resume.
   const stale = store.db.all(
     `SELECT session_id, state, last_state_change 
      FROM sessions 
      WHERE state != 'ENDED'`,
   );
 
+  if (stale.length > 0) {
+    log.info('recovering orphaned sessions on startup', { count: stale.length });
+  }
+
   for (const { session_id, state, last_state_change } of stale) {
     const ageMs = Date.now() - last_state_change;
-
-    if (ageMs > 24 * 60 * 60 * 1000) {
-      // Stale for >24h - mark as ended
-      log.warn('recovering stale session on startup', {
-        sessionId: session_id,
-        state,
-        ageMs,
-      });
-      store.setState(session_id, 'ENDED', {
-        reason: 'crash_recovery',
-        force: true,
-      });
-    } else {
-      // Recent - might be legitimate if server just restarted during a session
-      log.info('recent non-ENDED session on startup', {
-        sessionId: session_id,
-        state,
-        ageMs,
-      });
-      // Could attempt to reconnect here, but for now just log
-    }
+    log.warn('force-ending orphaned session', {
+      sessionId: session_id,
+      previousState: state,
+      ageMs,
+    });
+    store.setState(session_id, 'ENDED', {
+      reason: 'server_restart_recovery',
+      force: true,
+    });
   }
 }
 
@@ -871,6 +919,12 @@ describe('reattach hang bug fix', () => {
 Each phase ships via feature flag so it can be reverted quickly if issues arise.
 
 ## Metrics and Observability
+
+> **Note:** Mitzo currently uses OTLP tracing (Jaeger). The Prometheus-style metric names
+> below (`_total`, `_gauge`, `_seconds`) assume adding an OTLP metrics exporter alongside
+> tracing. If that's out of scope, derive equivalent dashboards from span attributes
+> on the `session.state_transition` span (filter by `from_state`, `to_state`, compute
+> dwell times from span durations).
 
 ### State Transition Events
 
