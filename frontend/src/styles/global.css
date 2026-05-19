@@ -2399,6 +2399,19 @@ textarea:focus {
   border-radius: 6px;
   overflow: hidden;
   margin-bottom: 0.3rem;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg-primary);
+  margin-inline: calc(-1 * var(--space-3));
+  padding-inline: var(--space-3);
+  width: calc(100% + 2 * var(--space-3));
+}
+
+.boot-context-pill-header-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0;
 }
 
 .boot-context-pill-header {
@@ -2407,7 +2420,7 @@ textarea:focus {
   gap: 0.4rem;
   touch-action: manipulation;
   padding: 0.25rem 0.6rem;
-  width: 100%;
+  flex: 1;
   cursor: pointer;
   background: transparent;
   border: none;
@@ -2595,6 +2608,96 @@ textarea:focus {
 .boot-context-pill-chevron-inline {
   font-size: 0.55rem;
   opacity: 0.7;
+}
+
+.boot-context-pill-view-full {
+  padding: 0.25rem 0.6rem;
+  background: transparent;
+  border: none;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  flex-shrink: 0;
+}
+
+.boot-context-pill-view-full:active {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* Modal overlay */
+.boot-context-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+.boot-context-modal {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  max-width: 900px;
+  width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.boot-context-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.boot-context-modal-header h3 {
+  margin: 0;
+  font-size: var(--text-base);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.boot-context-modal-close {
+  background: transparent;
+  border: none;
+  font-size: 1.5rem;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.boot-context-modal-close:active {
+  color: var(--text-primary);
+}
+
+.boot-context-modal-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+  margin: 0;
+  font-family: var(--code-font);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* ===== Markdown Preview Card ===== */
