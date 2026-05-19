@@ -51,7 +51,10 @@ export function setConnectionRegistry(registry: ConnectionRegistry): void {
   _connRegistry = registry;
 }
 
-type SessionChangeCallback = (clientId: string, event: 'start' | 'end' | 'turn_end' | 'user_message') => void;
+type SessionChangeCallback = (
+  clientId: string,
+  event: 'start' | 'end' | 'turn_end' | 'user_message',
+) => void;
 let _onSessionChange: SessionChangeCallback | null = null;
 export function setSessionChangeCallback(cb: SessionChangeCallback): void {
   _onSessionChange = cb;
