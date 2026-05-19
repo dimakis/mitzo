@@ -181,8 +181,8 @@ Switch modes via the selector in the chat header:
 | Mode      | What Claude can do                                                    |
 | --------- | --------------------------------------------------------------------- |
 | **Ask**   | Read files only. Safe for exploration and questions.                  |
-| **Agent** | Read + write files. Prompts for permission on writes.                 |
-| **Auto**  | Full access including shell. Only prompts for elevated/unknown tools. |
+| **Agent** | Read + write files + shell. Only prompts for unknown tools (MCP).     |
+| **Auto**  | Full access including shell. Only prompts for unknown tools (MCP).    |
 
 Start in Ask to explore. Switch to Agent when you're ready to make changes.
 
