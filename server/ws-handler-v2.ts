@@ -660,6 +660,10 @@ export function handleSessionSuspend(
         }
 
         ctx.sessionRegistry.suspend(found.clientId, entry.lastSeq);
+        ctx.eventStore.setSessionState(entry.sessionId, 'SUSPENDED', {
+          clientId: found.clientId,
+          reason: 'ios_background',
+        });
         log.info('session suspended', {
           connectionId,
           sessionId: entry.sessionId,

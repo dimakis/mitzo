@@ -109,6 +109,15 @@ export interface ImageAttachment {
 
 export type SessionClosedBy = 'user' | 'auto' | 'abandoned';
 
+export type SessionState =
+  | 'CREATED'
+  | 'STARTING'
+  | 'ACTIVE'
+  | 'DETACHED'
+  | 'SUSPENDED'
+  | 'CLOSING'
+  | 'ENDED';
+
 export interface Session {
   id: string;
   summary: string;
@@ -208,6 +217,8 @@ export interface SessionMeta {
   closedBy: SessionClosedBy | null;
   lastSpeaker: 'user' | 'assistant' | null;
   lastSpeakerAt: number | null;
+  state: SessionState | null;
+  lastStateChange: number | null;
   createdAt: number;
   updatedAt: number;
 }

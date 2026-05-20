@@ -697,6 +697,12 @@ async function _startChatInner(
   session.inputQueue = inputQueue as { push: (msg: unknown) => void; close: () => void };
   _onSessionChange?.(clientId, 'start');
 
+  // Session state machine: mark CREATED (Phase 1 — write only, no behavior change)
+  const stateSessionId = options.resume ?? session.sessionId;
+  if (stateSessionId) {
+    eventStore.setSessionState(stateSessionId, 'CREATED', { clientId });
+  }
+
   // Copy all repo worktrees into the session for cleanup tracking
   for (const [name, info] of repoWorktrees) {
     session.worktreePaths.set(name, info);
@@ -939,6 +945,12 @@ async function _startChatInner(
     });
 
     session.queryInstance = q;
+
+    // Session state machine: mark STARTING (query allocated, waiting for first SDK event)
+    const startingSessionId = options.resume ?? session.sessionId;
+    if (startingSessionId) {
+      eventStore.setSessionState(startingSessionId, 'STARTING', { clientId });
+    }
 
     // For resumed sessions the prompt is sent to the SDK but was never stored
     // in the event store — making user messages invisible after WS reconnect.
@@ -1222,6 +1234,13 @@ function _closeoutSessionInner(clientId: string): void {
     return;
   }
 
+  if (session.sessionId) {
+    eventStore.setSessionState(session.sessionId, 'CLOSING', {
+      clientId,
+      reason: 'detach_ttl_closeout',
+    });
+  }
+
   log.info('injecting closeout prompt', { clientId, wtId: session.wtId });
 
   // Push the closeout prompt as an interrupt so the agent sees it immediately
@@ -1356,12 +1375,27 @@ export function stopChat(clientId: string) {
 }
 export function detachChat(clientId: string) {
   withSpan('session.detach', { 'session.clientId': clientId }, () => {
+    const session = registry.get(clientId);
     registry.detach(clientId);
+    if (session?.sessionId) {
+      eventStore.setSessionState(session.sessionId, 'DETACHED', {
+        clientId,
+        reason: 'transport_close',
+      });
+    }
   });
 }
 export function reattachChat(clientId: string, transport: SessionTransport): boolean {
   return withSpan('session.reattach', { 'session.clientId': clientId }, () => {
-    return registry.reattach(clientId, transport);
+    const session = registry.get(clientId);
+    const ok = registry.reattach(clientId, transport);
+    if (ok && session?.sessionId) {
+      eventStore.setSessionState(session.sessionId, 'ACTIVE', {
+        clientId,
+        reason: 'reattach',
+      });
+    }
+    return ok;
   });
 }
 export function rekeyChat(oldClientId: string, newClientId: string): boolean {

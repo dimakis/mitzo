@@ -407,6 +407,11 @@ async function _runQueryLoopInner(
         if (!firstEventReceived) {
           firstEventReceived = true;
           clearTimeout(firstEventTimer);
+          // Session state machine: mark ACTIVE on first SDK event (resume path)
+          const sid = resolvedSessionId || registry.get(clientId)?.sessionId;
+          if (store && sid) {
+            store.setSessionState(sid, 'ACTIVE', { clientId, reason: 'first_sdk_event' });
+          }
         }
         const currentSession = registry.get(clientId);
         if (!currentSession) break;
@@ -1352,6 +1357,10 @@ async function _runQueryLoopInner(
       // Mark session as inactive in durable store
       if (store && resolvedSessionId) {
         store.markSessionInactive(resolvedSessionId);
+        store.setSessionState(resolvedSessionId, 'ENDED', {
+          clientId,
+          reason: caughtError ? 'error' : 'completed',
+        });
       }
       // Clean up any open subagent spans (ERROR if catch was entered)
       const subagentCleanupStatus = caughtError ? SpanStatusCode.ERROR : SpanStatusCode.OK;
