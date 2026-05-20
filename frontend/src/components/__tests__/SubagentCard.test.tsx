@@ -127,8 +127,22 @@ describe('SubagentCard', () => {
 
   it('shows tool count badge when agent has nested tool calls', () => {
     const blocks: FinishedBlock[] = [
-      { blockId: 'b1', blockType: 'tool_use', content: '', toolName: 'Read', toolInput: 'foo.ts', toolResult: '...' },
-      { blockId: 'b2', blockType: 'tool_use', content: '', toolName: 'Grep', toolInput: 'bar', toolResult: '...' },
+      {
+        blockId: 'b1',
+        blockType: 'tool_use',
+        content: '',
+        toolName: 'Read',
+        toolInput: 'foo.ts',
+        toolResult: '...',
+      },
+      {
+        blockId: 'b2',
+        blockType: 'tool_use',
+        content: '',
+        toolName: 'Grep',
+        toolInput: 'bar',
+        toolResult: '...',
+      },
       { blockId: 'b3', blockType: 'text', content: 'Done' },
     ];
 

@@ -60,9 +60,7 @@ export function SubagentCard({ subagent }: SubagentCardProps) {
               return <ToolPill key={block.blockId} block={block} />;
             }
             if (block.blockType === 'text' && block.content) {
-              return (
-                <TextBubble key={block.blockId} content={block.content} />
-              );
+              return <TextBubble key={block.blockId} content={block.content} />;
             }
             return null;
           })}

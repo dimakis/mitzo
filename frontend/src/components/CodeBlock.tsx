@@ -154,10 +154,7 @@ export function CodeBlock({
           )}
         </div>
       )}
-      <pre
-        className="code-block-highlight-pre hljs"
-        style={{ maxHeight: `${maxHeight}px` }}
-      >
+      <pre className="code-block-highlight-pre hljs" style={{ maxHeight: `${maxHeight}px` }}>
         <code dangerouslySetInnerHTML={{ __html: highlighted }} />
       </pre>
     </div>
