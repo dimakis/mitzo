@@ -103,24 +103,25 @@ SUSPENDED → ENDED         suspend timeout expires, query aborts
 
 CLOSING → ENDED           closeout completes or timeout expires
 
-ENDED → STARTING          explicit resume with startChat(resume: sessionId)
+ENDED → CREATED           startChat(resume: sessionId) allocates in registry
+CREATED → ENDED           query() fails before STARTING (error cleanup)
 ```
 
 ### Interrupt Behavior
 
 When the user interrupts (taps stop), the SDK query is aborted and the query loop exits.
 This is a normal ACTIVE → ENDED transition with `reason: 'interrupt'`. The session can be
-resumed via ENDED → STARTING on the next `startChat(resume: sessionId)`.
+resumed via ENDED → CREATED → STARTING on the next `startChat(resume: sessionId)`.
 
 Interrupt during DETACHED/SUSPENDED: the abort signal fires on the query loop regardless of
 transport state. Same transition — the state goes to ENDED via the query loop's `finally` block.
 
 ### Invalid Transitions (bugs if observed)
 
-- Any state → CREATED (sessions don't un-create)
-- ENDED → any except STARTING (can't revive without explicit resume)
+- Any state except ENDED → CREATED (only new or resumed sessions enter CREATED)
+- ENDED → any except CREATED (resume must go through CREATED → STARTING)
 - CLOSING → any except ENDED (closeout is terminal)
-- SUSPENDED → DETACHED (if background resumes without transport, go straight to ENDED)
+- SUSPENDED → DETACHED is invalid — if transport is absent on resume, transition directly to ENDED instead
 - SUSPENDED → CLOSING (suspend timeout goes to ENDED, not CLOSING)
 
 ### Invariants
@@ -185,7 +186,7 @@ class EventStore {
   setState(
     sessionId: string,
     newState: SessionState,
-    opts?: { clientId?: string; reason?: string },
+    opts?: { clientId?: string; reason?: string; force?: boolean },
   ): void {
     const current = this.getSession(sessionId);
     const fromState = current?.state ?? null;
@@ -698,13 +699,13 @@ export function reattachChat(clientId: string, transport: SessionTransport): boo
 ```typescript
 // event-store.ts
 const VALID_TRANSITIONS: Record<SessionState, SessionState[]> = {
-  CREATED: ['STARTING'],
+  CREATED: ['STARTING', 'ENDED'],
   STARTING: ['ACTIVE', 'ENDED'],
   ACTIVE: ['DETACHED', 'SUSPENDED', 'CLOSING', 'ENDED'],
   DETACHED: ['ACTIVE', 'SUSPENDED', 'CLOSING', 'ENDED'],
   SUSPENDED: ['ACTIVE', 'ENDED'],
   CLOSING: ['ENDED'],
-  ENDED: ['STARTING'],
+  ENDED: ['CREATED'],
 };
 
 class EventStore {
@@ -827,9 +828,19 @@ describe('EventStore.setState', () => {
     expect(() => store.setState(sid, 'ACTIVE')).toThrow(/Invalid.*transition/);
   });
 
-  it('allows ENDED → STARTING for explicit resume', () => {
+  it('allows ENDED → CREATED for resume', () => {
     store.setState(sid, 'ENDED');
-    expect(() => store.setState(sid, 'STARTING')).not.toThrow();
+    expect(() => store.setState(sid, 'CREATED')).not.toThrow();
+  });
+
+  it('blocks ENDED → STARTING directly (must go through CREATED)', () => {
+    store.setState(sid, 'ENDED');
+    expect(() => store.setState(sid, 'STARTING')).toThrow(/Invalid.*transition/);
+  });
+
+  it('allows CREATED → ENDED for early failure', () => {
+    store.setState(sid, 'CREATED');
+    expect(() => store.setState(sid, 'ENDED')).not.toThrow();
   });
 });
 
