@@ -492,6 +492,8 @@ async function handleSessionCreate(
       log.info('headless session started', { sessionId: wtId, prompt: initialPrompt });
     }
 
+    sseRegistry.broadcast('sessions_changed', {});
+
     res.status(initialPrompt ? 201 : 200).json({
       sessionId: wtId,
       worktrees,
@@ -1103,6 +1105,7 @@ app.get('/api/sessions/:id/messages', async (req, res) => {
 
 app.delete('/api/sessions/:id', (req, res) => {
   hideSession(req.params.id as string);
+  sseRegistry.broadcast('sessions_changed', {});
   res.json({ ok: true });
 });
 
@@ -1139,6 +1142,7 @@ app.get('/api/sessions/:id/events', (req, res) => {
 
 app.delete('/api/sessions', (_req, res) => {
   hideAllSessions();
+  sseRegistry.broadcast('sessions_changed', {});
   res.json({ ok: true });
 });
 
@@ -1150,6 +1154,7 @@ app.put('/api/sessions/:id/rename', async (req, res) => {
   }
   try {
     await renameSessionById(req.params.id, title.slice(0, 200));
+    sseRegistry.broadcast('sessions_changed', {});
     res.json({ ok: true });
   } catch {
     res.status(404).json({ error: 'Session not found' });

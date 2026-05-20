@@ -88,6 +88,19 @@ export function useSessionList(): UseSessionListReturn {
     };
     document.addEventListener('visibilitychange', onVisible);
 
+    // Refetch session list when sessions are created, renamed, or deleted
+    const unsubChanged = eventBus.on('sessions_changed', () => {
+      apiFetch('/api/sessions')
+        .then((r) => r.json())
+        .then((data) => {
+          const { sessions: page, hasMore: more } = parseSessionsResponse(data);
+          setSessions(page);
+          setHasMore(more);
+          nextOffset.current = page.length;
+        })
+        .catch(() => {});
+    });
+
     // Live session dots via SSE — update isActive/isAttached without full refetch
     const unsubActivity = eventBus.on('session_activity', (data) => {
       const activities = data as SessionActivity[];
@@ -105,6 +118,7 @@ export function useSessionList(): UseSessionListReturn {
 
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
+      unsubChanged();
       unsubActivity();
     };
   }, []);
