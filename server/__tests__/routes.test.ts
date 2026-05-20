@@ -659,6 +659,42 @@ describe('file routes', () => {
       .send({ path: '/tmp/outside/file.txt', content: 'nope' });
     expect(res.status).toBe(403);
   });
+
+  it('GET /api/files/download — downloads file with Content-Disposition', async () => {
+    const dlFile = join(TEST_REPO, 'download-test.txt');
+    writeFileSync(dlFile, 'download me');
+    const res = await request(app)
+      .get('/api/files/download')
+      .query({ path: dlFile })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-disposition']).toContain('download-test.txt');
+    expect(res.text).toBe('download me');
+  });
+
+  it('GET /api/files/download — disallowed path returns 403', async () => {
+    const res = await request(app)
+      .get('/api/files/download')
+      .query({ path: '/etc/passwd' })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(403);
+  });
+
+  it('GET /api/files/download — missing file returns 404', async () => {
+    const res = await request(app)
+      .get('/api/files/download')
+      .query({ path: join(TEST_REPO, 'gone.txt') })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(404);
+  });
+
+  it('GET /api/files/download — directory returns 400', async () => {
+    const res = await request(app)
+      .get('/api/files/download')
+      .query({ path: join(TEST_REPO, 'subdir') })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(400);
+  });
 });
 
 // --- Inbox Routes ---
