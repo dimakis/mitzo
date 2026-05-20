@@ -64,6 +64,7 @@ import {
   isHelloHandshake,
   dispatchV2Message,
   getOwnerConnection,
+  detectStateMismatch,
   type V2HandlerContext,
 } from '../ws-handler-v2.js';
 import { NativeCommandRegistry } from '../native-commands.js';
@@ -85,6 +86,8 @@ function mockEventStore() {
   return {
     getEventsAfter: vi.fn().mockReturnValue([]),
     getSession: vi.fn().mockReturnValue(null),
+    getSessionState: vi.fn().mockReturnValue(null),
+    setSessionState: vi.fn(),
   };
 }
 
@@ -2845,5 +2848,221 @@ describe('handleSendV2 agentName', () => {
       });
       expect(result.agentName).toBe(name);
     });
+  });
+});
+
+// ─── detectStateMismatch ────────────────────────────────────────────────────
+
+describe('detectStateMismatch', () => {
+  it('returns no mismatch when registry and store agree (both absent)', () => {
+    const reg = mockSessionRegistry();
+    const store = mockEventStore();
+    reg.findBySessionId.mockReturnValue(null);
+    store.getSessionState.mockReturnValue(null);
+
+    const result = detectStateMismatch(
+      'sess-1',
+      reg as unknown as V2HandlerContext['sessionRegistry'],
+      store as unknown as V2HandlerContext['eventStore'],
+    );
+    expect(result.mismatch).toBe(false);
+  });
+
+  it('returns no mismatch when registry and store agree (ENDED + absent)', () => {
+    const reg = mockSessionRegistry();
+    const store = mockEventStore();
+    reg.findBySessionId.mockReturnValue(null);
+    store.getSessionState.mockReturnValue('ENDED');
+
+    const result = detectStateMismatch(
+      'sess-1',
+      reg as unknown as V2HandlerContext['sessionRegistry'],
+      store as unknown as V2HandlerContext['eventStore'],
+    );
+    expect(result.mismatch).toBe(false);
+  });
+
+  it('returns no mismatch when ACTIVE + attached', () => {
+    const reg = mockSessionRegistry();
+    const store = mockEventStore();
+    reg.findBySessionId.mockReturnValue({ clientId: 'c1', session: {} });
+    reg.isAttached.mockReturnValue(true);
+    store.getSessionState.mockReturnValue('ACTIVE');
+
+    const result = detectStateMismatch(
+      'sess-1',
+      reg as unknown as V2HandlerContext['sessionRegistry'],
+      store as unknown as V2HandlerContext['eventStore'],
+    );
+    expect(result.mismatch).toBe(false);
+  });
+
+  it('returns no mismatch when DETACHED + not attached', () => {
+    const reg = mockSessionRegistry();
+    const store = mockEventStore();
+    reg.findBySessionId.mockReturnValue({ clientId: 'c1', session: {} });
+    reg.isAttached.mockReturnValue(false);
+    store.getSessionState.mockReturnValue('DETACHED');
+
+    const result = detectStateMismatch(
+      'sess-1',
+      reg as unknown as V2HandlerContext['sessionRegistry'],
+      store as unknown as V2HandlerContext['eventStore'],
+    );
+    expect(result.mismatch).toBe(false);
+  });
+
+  it('returns no mismatch when SUSPENDED + not attached', () => {
+    const reg = mockSessionRegistry();
+    const store = mockEventStore();
+    reg.findBySessionId.mockReturnValue({ clientId: 'c1', session: {} });
+    reg.isAttached.mockReturnValue(false);
+    store.getSessionState.mockReturnValue('SUSPENDED');
+
+    const result = detectStateMismatch(
+      'sess-1',
+      reg as unknown as V2HandlerContext['sessionRegistry'],
+      store as unknown as V2HandlerContext['eventStore'],
+    );
+    expect(result.mismatch).toBe(false);
+  });
+
+  it('detects registry has session but state=ENDED', () => {
+    const reg = mockSessionRegistry();
+    const store = mockEventStore();
+    reg.findBySessionId.mockReturnValue({ clientId: 'c1', session: {} });
+    store.getSessionState.mockReturnValue('ENDED');
+
+    const result = detectStateMismatch(
+      'sess-1',
+      reg as unknown as V2HandlerContext['sessionRegistry'],
+      store as unknown as V2HandlerContext['eventStore'],
+    );
+    expect(result.mismatch).toBe(true);
+    expect(result.details).toContain('registry has session but state=ENDED');
+  });
+
+  it('detects registry has session but state=null', () => {
+    const reg = mockSessionRegistry();
+    const store = mockEventStore();
+    reg.findBySessionId.mockReturnValue({ clientId: 'c1', session: {} });
+    store.getSessionState.mockReturnValue(null);
+
+    const result = detectStateMismatch(
+      'sess-1',
+      reg as unknown as V2HandlerContext['sessionRegistry'],
+      store as unknown as V2HandlerContext['eventStore'],
+    );
+    expect(result.mismatch).toBe(true);
+    expect(result.details).toContain('registry has session but state=null');
+  });
+
+  it('detects registry missing but state=ACTIVE', () => {
+    const reg = mockSessionRegistry();
+    const store = mockEventStore();
+    reg.findBySessionId.mockReturnValue(null);
+    store.getSessionState.mockReturnValue('ACTIVE');
+
+    const result = detectStateMismatch(
+      'sess-1',
+      reg as unknown as V2HandlerContext['sessionRegistry'],
+      store as unknown as V2HandlerContext['eventStore'],
+    );
+    expect(result.mismatch).toBe(true);
+    expect(result.details).toContain('registry missing session but state=ACTIVE');
+  });
+
+  it('detects attached transport but DETACHED state', () => {
+    const reg = mockSessionRegistry();
+    const store = mockEventStore();
+    reg.findBySessionId.mockReturnValue({ clientId: 'c1', session: {} });
+    reg.isAttached.mockReturnValue(true);
+    store.getSessionState.mockReturnValue('DETACHED');
+
+    const result = detectStateMismatch(
+      'sess-1',
+      reg as unknown as V2HandlerContext['sessionRegistry'],
+      store as unknown as V2HandlerContext['eventStore'],
+    );
+    expect(result.mismatch).toBe(true);
+    expect(result.details).toContain('transport attached but state=DETACHED');
+  });
+
+  it('detects attached transport but SUSPENDED state', () => {
+    const reg = mockSessionRegistry();
+    const store = mockEventStore();
+    reg.findBySessionId.mockReturnValue({ clientId: 'c1', session: {} });
+    reg.isAttached.mockReturnValue(true);
+    store.getSessionState.mockReturnValue('SUSPENDED');
+
+    const result = detectStateMismatch(
+      'sess-1',
+      reg as unknown as V2HandlerContext['sessionRegistry'],
+      store as unknown as V2HandlerContext['eventStore'],
+    );
+    expect(result.mismatch).toBe(true);
+    expect(result.details).toContain('transport attached but state=SUSPENDED');
+  });
+
+  it('detects detached transport but ACTIVE state', () => {
+    const reg = mockSessionRegistry();
+    const store = mockEventStore();
+    reg.findBySessionId.mockReturnValue({ clientId: 'c1', session: {} });
+    reg.isAttached.mockReturnValue(false);
+    store.getSessionState.mockReturnValue('ACTIVE');
+
+    const result = detectStateMismatch(
+      'sess-1',
+      reg as unknown as V2HandlerContext['sessionRegistry'],
+      store as unknown as V2HandlerContext['eventStore'],
+    );
+    expect(result.mismatch).toBe(true);
+    expect(result.details).toContain('transport detached but state=ACTIVE');
+  });
+
+  it('detects detached transport but CLOSING state', () => {
+    const reg = mockSessionRegistry();
+    const store = mockEventStore();
+    reg.findBySessionId.mockReturnValue({ clientId: 'c1', session: {} });
+    reg.isAttached.mockReturnValue(false);
+    store.getSessionState.mockReturnValue('CLOSING');
+
+    const result = detectStateMismatch(
+      'sess-1',
+      reg as unknown as V2HandlerContext['sessionRegistry'],
+      store as unknown as V2HandlerContext['eventStore'],
+    );
+    expect(result.mismatch).toBe(true);
+    expect(result.details).toContain('transport detached but state=CLOSING');
+  });
+
+  it('allows STARTING state in registry regardless of attach state', () => {
+    const reg = mockSessionRegistry();
+    const store = mockEventStore();
+    reg.findBySessionId.mockReturnValue({ clientId: 'c1', session: {} });
+    reg.isAttached.mockReturnValue(true);
+    store.getSessionState.mockReturnValue('STARTING');
+
+    const result = detectStateMismatch(
+      'sess-1',
+      reg as unknown as V2HandlerContext['sessionRegistry'],
+      store as unknown as V2HandlerContext['eventStore'],
+    );
+    expect(result.mismatch).toBe(false);
+  });
+
+  it('allows CREATED state in registry regardless of attach state', () => {
+    const reg = mockSessionRegistry();
+    const store = mockEventStore();
+    reg.findBySessionId.mockReturnValue({ clientId: 'c1', session: {} });
+    reg.isAttached.mockReturnValue(true);
+    store.getSessionState.mockReturnValue('CREATED');
+
+    const result = detectStateMismatch(
+      'sess-1',
+      reg as unknown as V2HandlerContext['sessionRegistry'],
+      store as unknown as V2HandlerContext['eventStore'],
+    );
+    expect(result.mismatch).toBe(false);
   });
 });

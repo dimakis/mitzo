@@ -94,6 +94,65 @@ export function getOwnerConnection(clientId: string): string {
   return colonIdx === -1 ? clientId : clientId.slice(0, colonIdx);
 }
 
+// ─── State mismatch detection (Phase 2) ─────────────────────────────────────
+
+export interface StateMismatchResult {
+  mismatch: boolean;
+  details?: string;
+}
+
+/**
+ * Detect inconsistencies between in-memory SessionRegistry and durable
+ * EventStore session state. Runs on every send/interrupt to surface bugs
+ * before Phase 3 replaces routing logic.
+ */
+export function detectStateMismatch(
+  sessionId: string,
+  registry: SessionRegistry,
+  store: EventStore,
+): StateMismatchResult {
+  const found = registry.findBySessionId(sessionId);
+  const state = store.getSessionState(sessionId);
+
+  const registryHas = !!found;
+  const shouldHave = state != null && state !== 'ENDED';
+
+  if (registryHas && !shouldHave) {
+    return {
+      mismatch: true,
+      details: `registry has session but state=${state ?? 'null'}`,
+    };
+  }
+
+  if (!registryHas && shouldHave) {
+    return {
+      mismatch: true,
+      details: `registry missing session but state=${state}`,
+    };
+  }
+
+  if (found && state) {
+    const attached = registry.isAttached(found.clientId);
+    const shouldBeAttached = state === 'ACTIVE' || state === 'CLOSING';
+    const shouldBeDetached = state === 'DETACHED' || state === 'SUSPENDED';
+
+    if (attached && shouldBeDetached) {
+      return {
+        mismatch: true,
+        details: `transport attached but state=${state}`,
+      };
+    }
+    if (!attached && shouldBeAttached) {
+      return {
+        mismatch: true,
+        details: `transport detached but state=${state}`,
+      };
+    }
+  }
+
+  return { mismatch: false };
+}
+
 // ─── Handlers ────────────────────────────────────────────────────────────────
 
 export function handleHello(
@@ -381,6 +440,21 @@ export function handleSendV2(
 
         if (sessionId) {
           const found = ctx.sessionRegistry.findBySessionId(sessionId);
+          const storeState = ctx.eventStore.getSessionState(sessionId);
+
+          // Phase 2: detect state mismatches (observability only)
+          const mismatch = detectStateMismatch(sessionId, ctx.sessionRegistry, ctx.eventStore);
+          if (mismatch.mismatch) {
+            log.error('session state mismatch detected (send)', {
+              connectionId,
+              sessionId,
+              storeState,
+              registryHas: !!found,
+              details: mismatch.details,
+            });
+            span.setAttribute('session.state_mismatch', mismatch.details ?? 'unknown');
+          }
+
           if (found && isActive(found.clientId)) {
             const storeMeta = ctx.eventStore.getSession(sessionId);
             const staleInMemory = storeMeta && !storeMeta.isActive;
@@ -390,6 +464,7 @@ export function handleSendV2(
                 connectionId,
                 sessionId,
                 clientId: found.clientId,
+                storeState,
               });
               ctx.sessionRegistry.remove(found.clientId);
             } else {
@@ -417,12 +492,14 @@ export function handleSendV2(
                   sessionId,
                   oldOwner: ownerConnection,
                   newClientId: activeClientId,
+                  storeState,
                 });
               } else if (isDetached) {
                 reattachChat(found.clientId, transport);
                 log.info('reattached own detached session on send', {
                   connectionId,
                   sessionId,
+                  storeState,
                 });
               }
               applySkillPolicy(activeClientId);
@@ -511,6 +588,19 @@ export function handleInterruptV2(
       if (!found) return;
 
       let activeClientId = found.clientId;
+      const storeState = ctx.eventStore.getSessionState(msg.sessionId);
+
+      // Phase 2: detect state mismatches (observability only)
+      const mismatch = detectStateMismatch(msg.sessionId, ctx.sessionRegistry, ctx.eventStore);
+      if (mismatch.mismatch) {
+        log.error('session state mismatch detected (interrupt)', {
+          connectionId,
+          sessionId: msg.sessionId,
+          storeState,
+          registryHas: true,
+          details: mismatch.details,
+        });
+      }
 
       if (isActive(found.clientId)) {
         const storeMeta = ctx.eventStore.getSession(msg.sessionId);
@@ -521,6 +611,7 @@ export function handleInterruptV2(
             connectionId,
             sessionId: msg.sessionId,
             clientId: found.clientId,
+            storeState,
           });
           ctx.sessionRegistry.remove(found.clientId);
         } else {
@@ -547,6 +638,7 @@ export function handleInterruptV2(
               sessionId: msg.sessionId,
               oldOwner: ownerConnection,
               newClientId: activeClientId,
+              storeState,
             });
           } else if (isDetached) {
             reattachChat(found.clientId, transport);
