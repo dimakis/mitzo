@@ -50,6 +50,9 @@ export {
 // Tool summary
 export { getRawInput, summarizeToolInput } from './tool-summary.js';
 
+// Language detection
+export { languageFromPath } from './language.js';
+
 // Content blocks
 export { extractToolResultText, parseContentBlocks } from './content-blocks.js';
 

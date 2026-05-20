@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { SubagentCard } from '../SubagentCard';
 import type { FinishedBlock } from '../../types/chat';
 
 afterEach(() => cleanup());
+
+function wrap(ui: React.ReactElement) {
+  return <MemoryRouter>{ui}</MemoryRouter>;
+}
 
 describe('SubagentCard', () => {
   it('renders collapsed by default with summary', () => {
@@ -26,10 +31,11 @@ describe('SubagentCard', () => {
       },
     };
 
-    render(<SubagentCard subagent={subagent} />);
+    render(wrap(<SubagentCard subagent={subagent} />));
 
     expect(screen.getByText('Search complete')).toBeTruthy();
-    expect(screen.getByText(/100.*50/)).toBeTruthy(); // Token display
+    // Token display now uses k-formatting for >=1000, raw for <1000
+    expect(screen.getByText(/100.*50/)).toBeTruthy();
   });
 
   it('renders "Working..." when subagent is still running', () => {
@@ -50,7 +56,7 @@ describe('SubagentCard', () => {
       running: true as const,
     };
 
-    render(<SubagentCard subagent={subagent} />);
+    render(wrap(<SubagentCard subagent={subagent} />));
 
     expect(screen.getByText('Working...')).toBeTruthy();
   });
@@ -75,19 +81,19 @@ describe('SubagentCard', () => {
       summary: 'Done',
     };
 
-    const { container } = render(<SubagentCard subagent={subagent} />);
+    const { container } = render(wrap(<SubagentCard subagent={subagent} />));
 
     // Initially collapsed - detail not visible
-    expect(container.querySelector('.subagent-detail')).not.toBeTruthy();
+    expect(container.querySelector('.tool-pill-detail')).not.toBeTruthy();
 
-    // Click to expand
-    const header = container.querySelector('.subagent-header');
+    // Click to expand — now uses tool-pill-header
+    const header = container.querySelector('.tool-pill-header');
     if (header) {
       fireEvent.click(header);
     }
 
     // Now detail section is visible
-    expect(container.querySelector('.subagent-detail')).toBeTruthy();
+    expect(container.querySelector('.tool-pill-detail')).toBeTruthy();
     expect(screen.getByText('Search results here')).toBeTruthy();
   });
 
@@ -99,22 +105,69 @@ describe('SubagentCard', () => {
       running: true as const,
     };
 
-    const { container } = render(<SubagentCard subagent={subagent} />);
+    const { container } = render(wrap(<SubagentCard subagent={subagent} />));
 
-    const dot = container.querySelector('.subagent-dot--running');
+    // Now uses tool-pill-dot--pending (pulsing)
+    const dot = container.querySelector('.tool-pill-dot--pending');
     expect(dot).toBeTruthy();
   });
 
-  it('shows checkmark when complete', () => {
+  it('shows done indicator when complete', () => {
     const subagent = {
       messageId: 'msg-sub-1',
       blocks: [],
       summary: 'Complete',
     };
 
-    const { container } = render(<SubagentCard subagent={subagent} />);
+    const { container } = render(wrap(<SubagentCard subagent={subagent} />));
 
-    const dot = container.querySelector('.subagent-dot--done');
+    const dot = container.querySelector('.tool-pill-dot--done');
     expect(dot).toBeTruthy();
+  });
+
+  it('shows tool count badge when agent has nested tool calls', () => {
+    const blocks: FinishedBlock[] = [
+      {
+        blockId: 'b1',
+        blockType: 'tool_use',
+        content: '',
+        toolName: 'Read',
+        toolInput: 'foo.ts',
+        toolResult: '...',
+      },
+      {
+        blockId: 'b2',
+        blockType: 'tool_use',
+        content: '',
+        toolName: 'Grep',
+        toolInput: 'bar',
+        toolResult: '...',
+      },
+      { blockId: 'b3', blockType: 'text', content: 'Done' },
+    ];
+
+    const subagent = {
+      messageId: 'msg-sub-1',
+      blocks,
+      summary: 'Searched 2 files',
+    };
+
+    const { container } = render(wrap(<SubagentCard subagent={subagent} />));
+
+    const badge = container.querySelector('.tool-pill-badge');
+    expect(badge).toBeTruthy();
+    expect(badge?.textContent).toBe('2');
+  });
+
+  it('renders with agent modifier class', () => {
+    const subagent = {
+      messageId: 'msg-sub-1',
+      blocks: [],
+      summary: 'Done',
+    };
+
+    const { container } = render(wrap(<SubagentCard subagent={subagent} />));
+
+    expect(container.querySelector('.tool-pill--agent')).toBeTruthy();
   });
 });

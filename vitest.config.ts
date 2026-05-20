@@ -4,6 +4,9 @@ import { resolve } from 'path';
 export default defineConfig({
   resolve: {
     alias: {
+      // Resolve workspace packages to local source (worktree-safe)
+      '@mitzo/protocol/event-store': resolve(__dirname, 'packages/protocol/src/event-store.ts'),
+      '@mitzo/protocol': resolve(__dirname, 'packages/protocol/src/index.ts'),
       // With npm workspaces, deps are hoisted to root node_modules
       react: resolve(__dirname, 'node_modules/react'),
       'react-dom': resolve(__dirname, 'node_modules/react-dom'),

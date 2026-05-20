@@ -1,45 +1,132 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import type { StreamingBlock, FinishedBlock, RawToolInput } from '../types/chat';
 import { SubagentCard } from './SubagentCard';
+import { CodeBlock } from './CodeBlock';
 
 interface Props {
   block: StreamingBlock | FinishedBlock;
 }
 
-function RawInputDetail({ raw }: { raw: RawToolInput }) {
+function RawInputDetail({
+  raw,
+  onPopOut,
+}: {
+  raw: RawToolInput;
+  onPopOut?: (path: string) => void;
+}) {
+  if (raw.type === 'read') {
+    // Read tool: path shown in header, no input body to render
+    return null;
+  }
   if (raw.type === 'write') {
     return (
       <div className="tool-pill-section">
-        <span className="tool-pill-label">{raw.path}</span>
-        <pre className="tool-pill-pre tool-pill-code">{raw.contents}</pre>
+        <CodeBlock
+          code={raw.contents || ''}
+          language={raw.language}
+          label={raw.path}
+          maxHeight={300}
+          onPopOut={raw.path && onPopOut ? () => onPopOut(raw.path!) : undefined}
+        />
       </div>
     );
   }
   if (raw.type === 'diff') {
     return (
       <div className="tool-pill-section">
-        <span className="tool-pill-label">{raw.path}</span>
-        {raw.old_string && <pre className="tool-pill-pre tool-pill-old">{raw.old_string}</pre>}
-        {raw.new_string && <pre className="tool-pill-pre tool-pill-new">{raw.new_string}</pre>}
+        <span className="tool-pill-label">
+          {raw.path}
+          {raw.path && onPopOut && (
+            <button
+              className="tool-pill-popout-inline"
+              onClick={() => onPopOut(raw.path!)}
+              aria-label="Open in viewer"
+            >
+              ↗
+            </button>
+          )}
+        </span>
+        {raw.old_string && (
+          <CodeBlock
+            code={raw.old_string}
+            language={raw.language}
+            variant="removed"
+            maxHeight={200}
+          />
+        )}
+        {raw.new_string && (
+          <CodeBlock
+            code={raw.new_string}
+            language={raw.language}
+            variant="added"
+            maxHeight={200}
+          />
+        )}
       </div>
     );
   }
   if (raw.type === 'command') {
     return (
       <div className="tool-pill-section">
-        <span className="tool-pill-label">Command</span>
-        <pre className="tool-pill-pre tool-pill-code">{raw.command}</pre>
+        <CodeBlock code={raw.command || ''} language="bash" label="Command" maxHeight={200} />
       </div>
     );
   }
   return null;
 }
 
+/** Render tool result — syntax-highlighted for read/write tools, plain for others. */
+function ToolResult({
+  block,
+  onPopOut,
+}: {
+  block: StreamingBlock | FinishedBlock;
+  onPopOut?: (path: string) => void;
+}) {
+  if (block.toolResult === undefined) return null;
+
+  const raw = block.rawInput;
+  // For Read tool results, show the file content with syntax highlighting
+  if (raw?.type === 'read' && block.toolResult) {
+    return (
+      <div className="tool-pill-section">
+        <CodeBlock
+          code={block.toolResult}
+          language={raw.language}
+          label={raw.path}
+          maxHeight={400}
+          onPopOut={raw.path && onPopOut ? () => onPopOut(raw.path!) : undefined}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="tool-pill-section">
+      <span className="tool-pill-label">Result</span>
+      <pre className="tool-pill-pre">{block.toolResult}</pre>
+    </div>
+  );
+}
+
 export function ToolPill({ block }: Props) {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [expanded, setExpanded] = useState(false);
   const done = block.toolResult !== undefined;
   const hasError = (block as StreamingBlock).toolError === true;
   const input = block.toolInput || '';
+
+  const handlePopOut = useCallback(
+    (filePath: string) => {
+      const currentPath = location.pathname + location.search;
+      navigate(
+        `/files?path=${encodeURIComponent(filePath)}&from=${encodeURIComponent(currentPath)}`,
+      );
+    },
+    [navigate, location],
+  );
 
   return (
     <div
@@ -57,19 +144,14 @@ export function ToolPill({ block }: Props) {
       {expanded && (
         <div className="tool-pill-detail">
           {block.rawInput ? (
-            <RawInputDetail raw={block.rawInput} />
+            <RawInputDetail raw={block.rawInput} onPopOut={handlePopOut} />
           ) : (
             <div className="tool-pill-section">
               <span className="tool-pill-label">Input</span>
               <pre className="tool-pill-pre">{input}</pre>
             </div>
           )}
-          {done && (
-            <div className="tool-pill-section">
-              <span className="tool-pill-label">Result</span>
-              <pre className="tool-pill-pre">{block.toolResult}</pre>
-            </div>
-          )}
+          <ToolResult block={block} onPopOut={handlePopOut} />
         </div>
       )}
       {block.subagent && <SubagentCard subagent={block.subagent} />}

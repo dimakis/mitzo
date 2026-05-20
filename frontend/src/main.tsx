@@ -4,7 +4,9 @@ import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { App } from './App';
 import { clientStore } from './client-store';
 import { initTheme } from './hooks/useTheme';
+import 'highlight.js/styles/github-dark-dimmed.min.css';
 import './styles/global.css';
+import './styles/code-block.css';
 import './styles/calendar.css';
 import './styles/desktop.css';
 

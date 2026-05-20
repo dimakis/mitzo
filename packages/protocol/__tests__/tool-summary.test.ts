@@ -94,7 +94,12 @@ describe('summarizeToolInput', () => {
 describe('getRawInput', () => {
   it('returns write type for Write tool', () => {
     const result = getRawInput('Write', { file_path: 'foo.ts', content: 'hello world' });
-    expect(result).toEqual({ type: 'write', path: 'foo.ts', contents: 'hello world' });
+    expect(result).toEqual({
+      type: 'write',
+      path: 'foo.ts',
+      contents: 'hello world',
+      language: 'typescript',
+    });
   });
 
   it('returns diff type for StrReplace tool', () => {
@@ -108,6 +113,7 @@ describe('getRawInput', () => {
       path: 'bar.ts',
       old_string: 'old code',
       new_string: 'new code',
+      language: 'typescript',
     });
   });
 
@@ -122,16 +128,17 @@ describe('getRawInput', () => {
 
   it('returns command type for Bash tool', () => {
     const result = getRawInput('Bash', { command: 'ls -la' });
-    expect(result).toEqual({ type: 'command', command: 'ls -la' });
+    expect(result).toEqual({ type: 'command', command: 'ls -la', language: 'bash' });
   });
 
   it('returns command type for Shell tool', () => {
     const result = getRawInput('Shell', { command: 'npm test' });
-    expect(result).toEqual({ type: 'command', command: 'npm test' });
+    expect(result).toEqual({ type: 'command', command: 'npm test', language: 'bash' });
   });
 
-  it('returns undefined for Read tool', () => {
-    expect(getRawInput('Read', { file_path: 'foo.ts' })).toBeUndefined();
+  it('returns read type for Read tool', () => {
+    const result = getRawInput('Read', { file_path: 'foo.ts' });
+    expect(result).toEqual({ type: 'read', path: 'foo.ts', language: 'typescript' });
   });
 
   it('returns undefined for Grep tool', () => {

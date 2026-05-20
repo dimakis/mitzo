@@ -11,12 +11,14 @@ export type ToolTier = 'safe' | 'standard' | 'elevated' | 'unknown';
 // --- Tool input ---
 
 export interface RawToolInput {
-  type: 'write' | 'diff' | 'command';
+  type: 'write' | 'diff' | 'command' | 'read';
   path?: string;
   contents?: string;
   old_string?: string;
   new_string?: string;
   command?: string;
+  /** Language hint derived from file extension (e.g. 'typescript', 'python'). */
+  language?: string;
 }
 
 // --- Snapshot (server-side current message state) ---
