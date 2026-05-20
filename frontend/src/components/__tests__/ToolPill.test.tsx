@@ -107,7 +107,7 @@ describe('ToolPill', () => {
           language: 'javascript',
         },
       };
-      render(wrap(<ToolPill block={block} />));
+      const { container } = render(wrap(<ToolPill block={block} />));
       fireEvent.click(screen.getByRole('button'));
 
       expect(screen.getByText('/src/test.js')).toBeTruthy();
@@ -130,7 +130,7 @@ describe('ToolPill', () => {
           language: 'python',
         },
       };
-      render(wrap(<ToolPill block={block} />));
+      const { container } = render(wrap(<ToolPill block={block} />));
       fireEvent.click(screen.getByRole('button'));
 
       expect(screen.getByText('/src/test.py')).toBeTruthy();
@@ -148,7 +148,7 @@ describe('ToolPill', () => {
         toolResult: 'file1.txt\nfile2.txt',
         rawInput: { type: 'command', command: 'ls -la' },
       };
-      render(wrap(<ToolPill block={block} />));
+      const { container } = render(wrap(<ToolPill block={block} />));
       fireEvent.click(screen.getByRole('button'));
 
       expect(screen.getByText('Command')).toBeTruthy();
@@ -167,7 +167,7 @@ describe('ToolPill', () => {
         toolResult: 'def hello():\n    print("world")',
         rawInput: { type: 'read', path: '/src/main.py', language: 'python' },
       };
-      render(wrap(<ToolPill block={block} />));
+      const { container } = render(wrap(<ToolPill block={block} />));
       fireEvent.click(screen.getByRole('button'));
 
       expect(screen.getByText('/src/main.py')).toBeTruthy();
@@ -183,7 +183,7 @@ describe('ToolPill', () => {
         toolInput: 'search term',
         toolResult: 'file1.txt:10:match\nfile2.txt:20:match',
       };
-      render(wrap(<ToolPill block={block} />));
+      const { container } = render(wrap(<ToolPill block={block} />));
       fireEvent.click(screen.getByRole('button'));
 
       expect(screen.getByText('Result')).toBeTruthy();
@@ -199,7 +199,7 @@ describe('ToolPill', () => {
         toolName: 'Read',
         toolInput: 'test.py',
       };
-      render(wrap(<ToolPill block={block} />));
+      const { container } = render(wrap(<ToolPill block={block} />));
       fireEvent.click(screen.getByRole('button'));
 
       expect(screen.queryByText('Result')).toBeNull();
