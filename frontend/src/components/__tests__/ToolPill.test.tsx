@@ -2,10 +2,10 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-
-afterEach(() => cleanup());
 import { ToolPill } from '../ToolPill';
 import type { FinishedBlock } from '../../types/chat';
+
+afterEach(() => cleanup());
 
 function wrap(ui: React.ReactElement) {
   return <MemoryRouter>{ui}</MemoryRouter>;

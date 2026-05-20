@@ -69,11 +69,7 @@ const EXT_MAP: Record<string, string> = {
   md: 'markdown',
   mdx: 'markdown',
   tex: 'latex',
-  rst: 'plaintext',
-
   // Infrastructure
-  tf: 'hcl',
-  hcl: 'hcl',
   dockerfile: 'dockerfile',
 
   // SQL

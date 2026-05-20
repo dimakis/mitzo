@@ -81,11 +81,6 @@
   opacity: 1;
 }
 
-.code-block-highlight-copy-float,
-.code-block-highlight-popout-float {
-  /* inherits from CopyButton / bare button */
-}
-
 .code-block-highlight-popout-float {
   background: none;
   border: none;
