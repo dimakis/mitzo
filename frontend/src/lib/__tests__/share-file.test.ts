@@ -93,4 +93,23 @@ describe('shareFile', () => {
 
     await expect(shareFile('/etc/passwd')).rejects.toThrow('Path not allowed');
   });
+
+  it('treats AbortError from share cancellation as success', async () => {
+    const blob = new Blob(['data'], { type: 'text/plain' });
+    mockApiFetch.mockResolvedValue(new Response(blob, { status: 200 }));
+
+    const abortError = new DOMException('Share canceled', 'AbortError');
+    const shareFn = vi.fn().mockRejectedValue(abortError);
+    Object.defineProperty(navigator, 'canShare', {
+      value: () => true,
+      configurable: true,
+    });
+    Object.defineProperty(navigator, 'share', {
+      value: shareFn,
+      configurable: true,
+    });
+
+    const result = await shareFile('/workspace/notes.txt');
+    expect(result).toBe(true);
+  });
 });

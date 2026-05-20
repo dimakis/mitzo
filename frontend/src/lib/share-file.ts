@@ -71,7 +71,12 @@ export async function shareFile(filePath: string): Promise<boolean> {
   // Try native share (mobile)
   if (canNativeShare(filename, typedBlob)) {
     const file = new File([typedBlob], filename, { type: mime });
-    await navigator.share({ files: [file] });
+    try {
+      await navigator.share({ files: [file] });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return true;
+      throw err;
+    }
     return true;
   }
 

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { shareFile } from '../lib/share-file';
 
 interface ShareButtonProps {
@@ -8,13 +8,15 @@ interface ShareButtonProps {
 
 export function ShareButton({ filePath, className }: ShareButtonProps) {
   const [state, setState] = useState<'idle' | 'busy' | 'done' | 'error'>('idle');
+  const busyRef = useRef(false);
 
   const handleShare = useCallback(
     async (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      if (state === 'busy') return;
+      if (busyRef.current) return;
 
+      busyRef.current = true;
       setState('busy');
       try {
         await shareFile(filePath);
@@ -23,9 +25,11 @@ export function ShareButton({ filePath, className }: ShareButtonProps) {
       } catch {
         setState('error');
         setTimeout(() => setState('idle'), 2000);
+      } finally {
+        busyRef.current = false;
       }
     },
-    [filePath, state],
+    [filePath],
   );
 
   const label =

@@ -1899,7 +1899,6 @@ textarea:focus {
   font-size: 0.75em;
   padding: 1px 3px;
   border-radius: 3px;
-  transition: color 0.15s, background 0.15s;
   line-height: 1;
   vertical-align: middle;
   opacity: 0;
