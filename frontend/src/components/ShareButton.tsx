@@ -41,7 +41,8 @@ export function ShareButton({ filePath, className }: ShareButtonProps) {
           ? 'Failed'
           : 'Share file';
 
-  const icon = state === 'busy' ? '...' : state === 'done' ? '\u2713' : state === 'error' ? '!' : '\u21A6';
+  const icon =
+    state === 'busy' ? '...' : state === 'done' ? '\u2713' : state === 'error' ? '!' : '\u21A6';
 
   return (
     <button

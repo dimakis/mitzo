@@ -1902,7 +1902,10 @@ textarea:focus {
   line-height: 1;
   vertical-align: middle;
   opacity: 0;
-  transition: opacity 0.15s, color 0.15s, background 0.15s;
+  transition:
+    opacity 0.15s,
+    color 0.15s,
+    background 0.15s;
 }
 
 .file-path-group:hover .share-btn,

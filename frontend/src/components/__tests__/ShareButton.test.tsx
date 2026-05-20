@@ -53,7 +53,10 @@ describe('ShareButton', () => {
   it('is disabled while busy', async () => {
     let resolveShare: (v: boolean) => void;
     mockShareFile.mockImplementation(
-      () => new Promise<boolean>((r) => { resolveShare = r; }),
+      () =>
+        new Promise<boolean>((r) => {
+          resolveShare = r;
+        }),
     );
     render(<ShareButton filePath="/workspace/file.md" />);
 

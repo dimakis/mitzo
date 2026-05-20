@@ -21,7 +21,9 @@ describe('shareFile', () => {
     clickedHrefs = [];
     appendChildSpy = vi.spyOn(document.body, 'appendChild').mockImplementation((node) => node);
     removeChildSpy = vi.spyOn(document.body, 'removeChild').mockImplementation((node) => node);
-    createObjectURLSpy = vi.fn().mockReturnValue('blob:test-url') as unknown as ReturnType<typeof vi.spyOn>;
+    createObjectURLSpy = vi.fn().mockReturnValue('blob:test-url') as unknown as ReturnType<
+      typeof vi.spyOn
+    >;
     revokeObjectURLSpy = vi.fn() as unknown as ReturnType<typeof vi.spyOn>;
     globalThis.URL.createObjectURL = createObjectURLSpy as unknown as typeof URL.createObjectURL;
     globalThis.URL.revokeObjectURL = revokeObjectURLSpy as unknown as typeof URL.revokeObjectURL;
@@ -52,9 +54,7 @@ describe('shareFile', () => {
 
     const result = await shareFile('/workspace/report.md');
 
-    expect(mockApiFetch).toHaveBeenCalledWith(
-      '/api/files/download?path=%2Fworkspace%2Freport.md',
-    );
+    expect(mockApiFetch).toHaveBeenCalledWith('/api/files/download?path=%2Fworkspace%2Freport.md');
     expect(appendChildSpy).toHaveBeenCalled();
     expect(removeChildSpy).toHaveBeenCalled();
     expect(result).toBe(true);

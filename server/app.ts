@@ -1345,7 +1345,10 @@ app.get('/api/files/download', (req, res) => {
     }
     const filename = basename(filePath);
     const safeFilename = filename.replace(/"/g, '\\"');
-    res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${safeFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    );
     res.setHeader('Content-Length', stat.size);
     res.sendFile(resolve(filePath));
   } catch (err: unknown) {
