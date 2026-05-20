@@ -3,7 +3,7 @@ import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'fs';
-import { join, dirname, resolve, extname } from 'path';
+import { join, dirname, resolve, extname, basename } from 'path';
 import { execFileSync, execFile } from 'child_process';
 import { promisify } from 'util';
 import { createHash, randomUUID } from 'crypto';
@@ -1324,6 +1324,39 @@ app.get('/api/files/read', (req, res) => {
       error: err instanceof Error ? err.message : 'unknown',
     });
     res.status(500).json({ error: 'Failed to read file' });
+  }
+});
+
+app.get('/api/files/download', (req, res) => {
+  const filePath = req.query.path as string;
+  if (!filePath || !isAllowedPath(filePath)) {
+    res.status(403).json({ error: 'Path not allowed' });
+    return;
+  }
+  if (!existsSync(filePath)) {
+    res.status(404).json({ error: 'File not found' });
+    return;
+  }
+  try {
+    const stat = statSync(filePath);
+    if (stat.isDirectory()) {
+      res.status(400).json({ error: 'Cannot download a directory' });
+      return;
+    }
+    const filename = basename(filePath);
+    const safeFilename = filename.replace(/"/g, '\\"');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${safeFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    );
+    res.setHeader('Content-Length', stat.size);
+    res.sendFile(resolve(filePath));
+  } catch (err: unknown) {
+    log.error('failed to download file', {
+      path: filePath,
+      error: err instanceof Error ? err.message : 'unknown',
+    });
+    res.status(500).json({ error: 'Failed to download file' });
   }
 });
 

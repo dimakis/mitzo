@@ -7,6 +7,7 @@ import type { FinishedMessage } from '../types/chat';
 import { linkifyFilePaths, FILE_SCHEME } from '../lib/file-paths';
 import { formatTime } from '../lib/formatTime';
 import { CopyButton } from './CopyButton';
+import { ShareButton } from './ShareButton';
 import { ReadAloudButton } from './ReadAloudButton';
 import { extractText } from '../lib/extractText';
 import { MarkdownPreviewCard } from './MarkdownPreviewCard';
@@ -147,19 +148,22 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
               if (href?.startsWith(FILE_SCHEME)) {
                 const filePath = decodeURIComponent(href.slice(FILE_SCHEME.length));
                 return (
-                  <a
-                    href="#"
-                    className="file-path-link"
-                    data-file-path={filePath}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      navigate(
-                        `/files?path=${encodeURIComponent(filePath)}&from=${encodeURIComponent(currentPath)}`,
-                      );
-                    }}
-                  >
-                    {children}
-                  </a>
+                  <span className="file-path-group">
+                    <a
+                      href="#"
+                      className="file-path-link"
+                      data-file-path={filePath}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        navigate(
+                          `/files?path=${encodeURIComponent(filePath)}&from=${encodeURIComponent(currentPath)}`,
+                        );
+                      }}
+                    >
+                      {children}
+                    </a>
+                    <ShareButton filePath={filePath} className="file-path-share" />
+                  </span>
                 );
               }
               return (

@@ -1875,6 +1875,12 @@ textarea:focus {
   text-underline-offset: 2px;
 }
 
+.file-path-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .msg-bubble--assistant a.file-path-link {
   color: #7dd3fc;
   text-decoration: none;
@@ -1883,6 +1889,49 @@ textarea:focus {
   border-radius: 3px;
   font-family: var(--font-mono, monospace);
   font-size: 0.9em;
+}
+
+.share-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 0.75em;
+  padding: 1px 3px;
+  border-radius: 3px;
+  line-height: 1;
+  vertical-align: middle;
+  opacity: 0;
+  transition:
+    opacity 0.15s,
+    color 0.15s,
+    background 0.15s;
+}
+
+.file-path-group:hover .share-btn,
+.share-btn--busy,
+.share-btn--done,
+.share-btn--error {
+  opacity: 1;
+}
+
+.share-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.share-btn--done {
+  color: var(--success);
+}
+
+.share-btn--error {
+  color: var(--error, #f87171);
+}
+
+@media (hover: none) {
+  .share-btn {
+    opacity: 0.7;
+  }
 }
 
 .msg-bubble--assistant img {
