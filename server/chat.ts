@@ -570,6 +570,7 @@ export async function startChat(
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
     telosTaskId?: string;
+    agentName?: string;
   },
 ) {
   return withSpanAsync(
@@ -599,6 +600,7 @@ async function _startChatInner(
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
     telosTaskId?: string;
+    agentName?: string;
   },
 ) {
   const abortController = new AbortController();
@@ -677,6 +679,7 @@ async function _startChatInner(
     // Set sessionId early so pre-assistant events are persisted (iOS reconnect).
     ...(options.resume ? { sessionId: options.resume } : {}),
     ...(options.telosTaskId ? { telosTaskId: options.telosTaskId } : {}),
+    ...(options.agentName ? { agentName: options.agentName } : {}),
   });
 
   const session = registry.get(clientId)!;
@@ -722,6 +725,8 @@ async function _startChatInner(
   // Build session env with worktree paths for the agent (all repos including primary)
   const sessionEnv = sdkEnv();
   sessionEnv.MITZO_SESSION_ID = wtId;
+  const agentName = options.agentName || 'mitzo-conversational';
+  sessionEnv.MITZO_AGENT_NAME = agentName;
   for (const [name, { path }] of repoWorktrees) {
     sessionEnv[`MITZO_REPO_${name.toUpperCase()}`] = path;
   }
@@ -773,7 +778,7 @@ async function _startChatInner(
     let tokenBudget = DEFAULT_TOKEN_BUDGET;
     try {
       if (compileModule.loadAgentDefinition) {
-        const recipePath = join(cwd, '.agents', 'mitzo-conversational.yaml');
+        const recipePath = join(cwd, '.agents', `${agentName}.yaml`);
         const def = (await compileModule.loadAgentDefinition(recipePath)) as Record<
           string,
           unknown

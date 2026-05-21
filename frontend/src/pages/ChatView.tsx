@@ -138,6 +138,7 @@ export function ChatView() {
       model: modelState,
       mode,
       ...(pendingSession.telosTaskId ? { telosTaskId: pendingSession.telosTaskId } : {}),
+      ...(pendingSession.agentName ? { agentName: pendingSession.agentName } : {}),
     });
     clearPendingSession();
     forceScrollToBottom();

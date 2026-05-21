@@ -46,6 +46,8 @@ export interface ManagedSession {
   telosTaskId?: string;
   /** Active subagent task IDs — task_id → tool_use_id (parent_tool_use_id). */
   activeTaskIds: Map<string, string>;
+  /** Agent definition name for ContexGin boot context (e.g., mitzo-conversational, mitzo-telos). */
+  agentName?: string;
 }
 
 export interface ActiveSessionInfo {
