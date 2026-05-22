@@ -28,7 +28,9 @@ export const clientStore = createMitzoStore({
 });
 
 // Sync localStorage model preference into the store so sendMessage() includes it
-clientStore.getState().setModel(getPreferredModel());
+if (typeof window !== 'undefined') {
+  clientStore.getState().setModel(getPreferredModel());
+}
 
 // Wire Capacitor app lifecycle → force WS reconnect on resume, send suspend on background
 registerCapacitorLifecycle(

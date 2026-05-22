@@ -332,6 +332,35 @@ describe('startChat stores user message for resumed sessions', () => {
   });
 });
 
+describe('resume resolves SDK session ID', () => {
+  let chatSource: string;
+
+  beforeAll(async () => {
+    const { readFileSync } = await import('fs');
+    const { join } = await import('path');
+    chatSource = readFileSync(join(import.meta.dirname, '..', 'chat.ts'), 'utf-8');
+  });
+
+  it('calls getSessionSdkId before passing resume to query()', () => {
+    expect(chatSource).toContain('getSessionSdkId(BASE_REPO, options.resume)');
+  });
+
+  it('guards BASE_REPO before calling getSessionSdkId', () => {
+    expect(chatSource).toContain('BASE_REPO && getSessionSdkId(BASE_REPO');
+  });
+
+  it('falls back to raw options.resume when lookup returns undefined', () => {
+    // The ?? operator provides the fallback
+    expect(chatSource).toMatch(/getSessionSdkId\(.*\)\)\s*\?\?\s*options\.resume/);
+  });
+
+  it('warns when REPO_PATH is unset during resume', () => {
+    expect(chatSource).toContain(
+      'REPO_PATH unset — resume will use raw worktree ID, SDK may reject it',
+    );
+  });
+});
+
 describe('isIsolationEnabled', () => {
   let originalEnv: string | undefined;
 

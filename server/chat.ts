@@ -910,9 +910,14 @@ async function _startChatInner(
         thinking: resolveThinking(options.model),
         ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
         ...(options.resume
-          ? {
-              resume: (BASE_REPO && getSessionSdkId(BASE_REPO, options.resume)) ?? options.resume,
-            }
+          ? (() => {
+              if (!BASE_REPO) {
+                log.warn('REPO_PATH unset — resume will use raw worktree ID, SDK may reject it');
+              }
+              return {
+                resume: (BASE_REPO && getSessionSdkId(BASE_REPO, options.resume)) ?? options.resume,
+              };
+            })()
           : {}),
         ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
         ...(hooks ? { hooks } : {}),
