@@ -56,6 +56,7 @@ export interface StreamingMessage {
   messageId: string;
   blocks: Map<string, StreamingBlock>;
   blockOrder: string[];
+  createdAt?: number;
 }
 
 // --- Finished message (persisted state) ---
@@ -78,6 +79,7 @@ export interface FinishedMessage {
   blocks: FinishedBlock[];
   images?: string[];
   contextBlocks?: string[];
+  createdAt?: number;
 }
 
 // --- Permission ---

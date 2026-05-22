@@ -1021,6 +1021,7 @@ export interface RestoredMessage {
     toolResult?: string;
     toolError?: boolean;
   }>;
+  createdAt?: number;
 }
 
 /**
@@ -1113,6 +1114,7 @@ export function replayEventsToMessages(
               content: p.text as string,
             },
           ],
+          createdAt: evt.createdAt,
         });
         break;
 
@@ -1120,7 +1122,7 @@ export function replayEventsToMessages(
         if (currentMsg && currentMsg.blocks.length > 0) {
           messages.push(currentMsg);
         }
-        currentMsg = { messageId: p.messageId as string, role: 'assistant', blocks: [] };
+        currentMsg = { messageId: p.messageId as string, role: 'assistant', blocks: [], createdAt: evt.createdAt };
         break;
 
       case 'block_start':

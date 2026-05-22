@@ -86,6 +86,7 @@ export function DesktopChatView() {
 
   const voice = useVoice();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [prefillText, setPrefillText] = useState<string | undefined>();
 
   const forceScrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -258,6 +259,7 @@ export function DesktopChatView() {
             running={messages.running}
             permission={messages.permission}
             onPermissionRespond={handlePermission}
+            onEditUserMessage={setPrefillText}
             scrollRef={scrollRef}
           />
           <ScrollFab scrollRef={scrollRef} />
@@ -267,6 +269,8 @@ export function DesktopChatView() {
             onInterrupt={handleInterrupt}
             running={messages.running}
             initialText={searchParams.get('prompt') || undefined}
+            prefillText={prefillText}
+            onPrefillConsumed={() => setPrefillText(undefined)}
             voice={voice}
             branch={messages.branch || undefined}
             isWorktree={messages.isWorktree}

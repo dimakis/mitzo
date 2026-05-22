@@ -114,7 +114,7 @@ export function finishCurrent(current: StreamingMessage): FinishedMessage {
       toolError: b.toolError,
     };
   });
-  return { messageId: current.messageId, role: 'assistant', blocks };
+  return { messageId: current.messageId, role: 'assistant', blocks, createdAt: current.createdAt };
 }
 
 export function patchToolResult(
@@ -159,6 +159,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
           messageId: action.messageId,
           blocks: new Map<string, StreamingBlock>(),
           blockOrder: [],
+          createdAt: Date.now(),
         },
       };
     }
@@ -416,6 +417,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
             blocks: [],
             images: action.images,
             contextBlocks: action.contextBlocks,
+            createdAt: Date.now(),
             ...(action.text
               ? {
                   blocks: [

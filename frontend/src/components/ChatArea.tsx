@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { UserBubble, TextBubble } from './MessageBubble';
+import { formatMessageTime } from '../lib/formatTime';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolPill } from './ToolPill';
 import { ToolGroup } from './ToolGroup';
@@ -23,6 +24,7 @@ export interface ChatAreaProps {
     decision: 'once' | 'always' | 'deny',
     toolName: string,
   ) => void;
+  onEditUserMessage?: (text: string) => void;
   /** External ref for scroll container — caller can use for forceScrollToBottom */
   scrollRef?: React.RefObject<HTMLDivElement | null>;
 }
@@ -33,6 +35,7 @@ export function ChatArea({
   running,
   permission,
   onPermissionRespond,
+  onEditUserMessage,
   scrollRef: externalScrollRef,
 }: ChatAreaProps) {
   const internalScrollRef = useRef<HTMLDivElement>(null);
@@ -82,34 +85,40 @@ export function ChatArea({
           if (msg.role === 'user') {
             const textBlock = msg.blocks.find((b) => b.blockType === 'text');
             return (
-              <UserBubble
-                key={msg.messageId}
-                text={textBlock?.content}
-                images={msg.images}
-                contextBlocks={msg.contextBlocks}
-              />
+              <React.Fragment key={msg.messageId}>
+                <UserBubble
+                  text={textBlock?.content}
+                  images={msg.images}
+                  contextBlocks={msg.contextBlocks}
+                  onEdit={onEditUserMessage}
+                />
+                {msg.createdAt && <span className="msg-meta">{formatMessageTime(msg.createdAt)}</span>}
+              </React.Fragment>
             );
           }
 
           // Assistant turn — render grouped blocks
           return (
-            <div key={msg.messageId} className="msg-turn">
-              {(grouped ?? []).map((item, i) => {
-                if (item.type === 'tool-group') {
-                  return <ToolGroup key={item.key} tools={item.tools} />;
-                }
-                const block: FinishedBlock = item.block;
-                if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
-                  return <ThinkingBlock key={block.blockId} block={block} />;
-                }
-                if (block.blockType === 'tool_use') {
-                  return <ToolPill key={block.blockId} block={block} />;
-                }
-                return (
-                  <TextBubble key={block.blockId || `text-${i}`} content={block.content ?? ''} />
-                );
-              })}
-            </div>
+            <React.Fragment key={msg.messageId}>
+              <div className="msg-turn">
+                {(grouped ?? []).map((item, i) => {
+                  if (item.type === 'tool-group') {
+                    return <ToolGroup key={item.key} tools={item.tools} />;
+                  }
+                  const block: FinishedBlock = item.block;
+                  if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
+                    return <ThinkingBlock key={block.blockId} block={block} />;
+                  }
+                  if (block.blockType === 'tool_use') {
+                    return <ToolPill key={block.blockId} block={block} />;
+                  }
+                  return (
+                    <TextBubble key={block.blockId || `text-${i}`} content={block.content ?? ''} />
+                  );
+                })}
+              </div>
+              {msg.createdAt && <span className="msg-meta">{formatMessageTime(msg.createdAt)}</span>}
+            </React.Fragment>
           );
         })}
 

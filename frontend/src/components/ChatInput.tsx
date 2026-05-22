@@ -32,6 +32,9 @@ interface Props {
   /** When provided, uses these context blocks instead of internal state. Hides @ picker. */
   externalContextBlocks?: string[];
   tokenState?: TokenState;
+  /** Pre-fill the input with this text (e.g. from tapping a user message to edit). */
+  prefillText?: string;
+  onPrefillConsumed?: () => void;
 }
 
 export function ChatInput({
@@ -48,6 +51,8 @@ export function ChatInput({
   sessionId,
   externalContextBlocks,
   tokenState,
+  prefillText,
+  onPrefillConsumed,
 }: Props) {
   const [text, setText] = useState(initialText || '');
   const [images, setImages] = useState<ImageAttachment[]>([]);
@@ -66,6 +71,18 @@ export function ChatInput({
     el.style.height = 'auto';
     el.style.height = Math.min(el.scrollHeight, 160) + 'px';
   }, []);
+
+  // Prefill from user message edit
+  useEffect(() => {
+    if (prefillText !== undefined) {
+      setText(prefillText);
+      onPrefillConsumed?.();
+      requestAnimationFrame(() => {
+        autoResize();
+        textareaRef.current?.focus();
+      });
+    }
+  }, [prefillText]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     textareaRef.current?.focus();

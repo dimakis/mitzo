@@ -53,6 +53,7 @@ export function ChatView() {
 
   const voice = useVoice();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [prefillText, setPrefillText] = useState<string | undefined>();
 
   const forceScrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -211,6 +212,7 @@ export function ChatView() {
         running={messages.running}
         permission={messages.permission}
         onPermissionRespond={handlePermission}
+        onEditUserMessage={setPrefillText}
         scrollRef={scrollRef}
       />
       <ScrollFab scrollRef={scrollRef} />
@@ -221,6 +223,8 @@ export function ChatView() {
         onInterrupt={handleInterrupt}
         running={messages.running}
         initialText={initialPrompt}
+        prefillText={prefillText}
+        onPrefillConsumed={() => setPrefillText(undefined)}
         voice={voice}
         branch={messages.branch || undefined}
         isWorktree={messages.isWorktree}

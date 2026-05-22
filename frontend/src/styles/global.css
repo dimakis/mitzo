@@ -1456,6 +1456,113 @@ textarea:focus {
   margin: 0.5em 0;
 }
 
+/* ===== Copy Buttons ===== */
+
+.copy-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: var(--text-sm);
+  padding: var(--space-1);
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+  line-height: 1;
+}
+
+.copy-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.copy-btn--copied {
+  color: var(--success);
+}
+
+.msg-bubble-copy {
+  opacity: 0;
+  transition: opacity 0.15s;
+  margin-top: var(--space-1);
+  align-self: flex-end;
+}
+
+.msg-bubble--assistant:hover .msg-bubble-copy {
+  opacity: 1;
+}
+
+.code-block-wrapper {
+  position: relative;
+}
+
+.code-block-copy {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 1;
+  font-size: var(--text-xs);
+}
+
+.code-block-wrapper:hover .code-block-copy {
+  opacity: 1;
+}
+
+/* Mobile: always show copy buttons (no hover) */
+@media (hover: none) {
+  .msg-bubble-copy {
+    opacity: 0.5;
+  }
+  .code-block-copy {
+    opacity: 0.5;
+  }
+}
+
+/* ===== Collapsible Messages ===== */
+
+.msg-bubble--collapsed .msg-bubble-markdown {
+  max-height: 300px;
+  overflow: hidden;
+  position: relative;
+}
+
+.msg-bubble--collapsed .msg-bubble-markdown::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: linear-gradient(transparent, var(--surface));
+  pointer-events: none;
+}
+
+.msg-bubble-collapse-toggle {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  padding: var(--space-1) 0;
+  text-align: center;
+  width: 100%;
+}
+
+.msg-bubble-collapse-toggle:hover {
+  text-decoration: underline;
+}
+
+/* ===== Editable User Bubbles ===== */
+
+.msg-bubble--editable {
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.msg-bubble--editable:active {
+  opacity: 0.8;
+}
+
 /* ===== Tool Pills ===== */
 
 .tool-pill {
