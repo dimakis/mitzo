@@ -190,6 +190,8 @@ export function TodoView() {
     setPendingSession({
       prompt: buildPrompt(item),
       context: buildTodoContext(item),
+      telosTaskId: item.id,
+      agentName: 'mitzo-telos',
     });
     navigate('/chat');
   }

@@ -449,6 +449,7 @@ export function handleSendV2(
             contextBlocks: msg.contextBlocks,
             clientMsgId: msg.clientMsgId,
             telosTaskId: msg.telosTaskId,
+            agentName: msg.agentName,
           });
           applySkillPolicy(sessionClientId);
         } else {
@@ -469,6 +470,7 @@ export function handleSendV2(
             clientMsgId: msg.clientMsgId,
             onSessionResolved,
             telosTaskId: msg.telosTaskId,
+            agentName: msg.agentName,
           });
           applySkillPolicy(sessionClientId);
         }

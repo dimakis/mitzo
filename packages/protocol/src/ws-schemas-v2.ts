@@ -88,6 +88,10 @@ export const V2SendMessage = z.object({
   images: z.array(ImageSchema).optional(),
   contextBlocks: z.array(z.string()).optional(),
   telosTaskId: z.string().optional(),
+  agentName: z
+    .string()
+    .regex(/^[a-zA-Z0-9_-]+$/)
+    .optional(),
 });
 
 export const V2InterruptMessage = z.object({

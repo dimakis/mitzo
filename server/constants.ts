@@ -42,6 +42,9 @@ export const SHUTDOWN_GRACE_MS = 5_000;
 export const GUARD_STATS_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 export const WORKTREE_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
+// --- Agent Selection ---
+export const DEFAULT_AGENT_NAME = 'mitzo-conversational';
+
 // --- Session List ---
 /** Grace period for zero-turn inactive sessions — recently created ones stay visible. */
 export const ZERO_TURN_GRACE_MS = 60 * 60 * 1000; // 1 hour

@@ -36,6 +36,7 @@ import {
   SESSION_MESSAGES_LIMIT,
   USER_CLOSEOUT_TIMEOUT_MS,
   ZERO_TURN_GRACE_MS,
+  DEFAULT_AGENT_NAME,
 } from './constants.js';
 import { INTERNAL_TOKEN } from './internal-token.js';
 import { buildTaskSystemPrompt } from './task-context.js';
@@ -575,6 +576,7 @@ export async function startChat(
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
     telosTaskId?: string;
+    agentName?: string;
   },
 ) {
   return withSpanAsync(
@@ -604,6 +606,7 @@ async function _startChatInner(
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
     telosTaskId?: string;
+    agentName?: string;
   },
 ) {
   const abortController = new AbortController();
@@ -727,6 +730,8 @@ async function _startChatInner(
   // Build session env with worktree paths for the agent (all repos including primary)
   const sessionEnv = sdkEnv();
   sessionEnv.MITZO_SESSION_ID = wtId;
+  const agentName = options.agentName ?? DEFAULT_AGENT_NAME;
+  sessionEnv.MITZO_AGENT_NAME = agentName;
   for (const [name, { path }] of repoWorktrees) {
     sessionEnv[`MITZO_REPO_${name.toUpperCase()}`] = path;
   }
@@ -778,7 +783,7 @@ async function _startChatInner(
     let tokenBudget = DEFAULT_TOKEN_BUDGET;
     try {
       if (compileModule.loadAgentDefinition) {
-        const recipePath = join(cwd, '.agents', 'mitzo-conversational.yaml');
+        const recipePath = join(cwd, '.agents', `${agentName}.yaml`);
         const def = (await compileModule.loadAgentDefinition(recipePath)) as Record<
           string,
           unknown

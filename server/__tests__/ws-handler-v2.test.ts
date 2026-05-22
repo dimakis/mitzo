@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { SessionTransport } from '@mitzo/harness';
 import { ConnectionRegistry } from '@mitzo/harness';
+import { V2SendMessage } from '@mitzo/protocol';
 
 vi.mock('../chat.js', () => ({
   startChat: vi.fn(),
@@ -2740,5 +2741,109 @@ describe('dispatchV2Message session_suspend', () => {
     );
 
     expect(sessionReg.suspend).toHaveBeenCalledWith('conn-1:sess-1', 5);
+  });
+});
+// ─── handleSendV2 agentName parameter ────────────────────────────────────────
+
+describe('handleSendV2 agentName', () => {
+  it('forwards agentName from message to startChat', () => {
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleSendV2(
+      'c1',
+      transport,
+      {
+        type: 'send' as const,
+        sessionId: null,
+        prompt: 'test',
+        clientMsgId: 'msg-1',
+        agentName: 'mitzo-telos',
+      },
+      ctx,
+    );
+
+    const callArgs = (startChat as ReturnType<typeof vi.fn>).mock.calls[0];
+    const options = callArgs[3];
+    expect(options.agentName).toBe('mitzo-telos');
+  });
+
+  it('omits agentName when not provided in message', () => {
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleSendV2(
+      'c1',
+      transport,
+      {
+        type: 'send' as const,
+        sessionId: null,
+        prompt: 'test',
+        clientMsgId: 'msg-1',
+      },
+      ctx,
+    );
+
+    const callArgs = (startChat as ReturnType<typeof vi.fn>).mock.calls[0];
+    const options = callArgs[3];
+    expect(options.agentName).toBeUndefined();
+  });
+
+  it('rejects path traversal attempts via schema validation', () => {
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    // The Zod schema should reject these before handleSendV2 is called
+    // This test documents the expected validation behavior
+    expect(() =>
+      V2SendMessage.parse({
+        type: 'send',
+        sessionId: null,
+        prompt: 'test',
+        clientMsgId: 'msg-1',
+        agentName: '../../etc/passwd',
+      }),
+    ).toThrow();
+
+    expect(() =>
+      V2SendMessage.parse({
+        type: 'send',
+        sessionId: null,
+        prompt: 'test',
+        clientMsgId: 'msg-1',
+        agentName: '../secrets',
+      }),
+    ).toThrow();
+
+    expect(() =>
+      V2SendMessage.parse({
+        type: 'send',
+        sessionId: null,
+        prompt: 'test',
+        clientMsgId: 'msg-1',
+        agentName: 'mitzo/evil',
+      }),
+    ).toThrow();
+  });
+
+  it('accepts valid agent names', () => {
+    // These should all parse successfully
+    const validNames = ['mitzo-telos', 'mitzo-calendar', 'mitzo_test', 'agent123', 'a-b_c-1'];
+
+    validNames.forEach((name) => {
+      const result = V2SendMessage.parse({
+        type: 'send',
+        sessionId: null,
+        prompt: 'test',
+        clientMsgId: 'msg-1',
+        agentName: name,
+      });
+      expect(result.agentName).toBe(name);
+    });
   });
 });

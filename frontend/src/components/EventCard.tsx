@@ -1,5 +1,8 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useMitzoStore } from '@mitzo/client/hooks';
 import type { CalendarEvent } from '../hooks/useCalendarData';
+import { buildMeetingPrepPrompt, buildMeetingContext } from '../lib/calendar-utils';
 
 function formatTime(isoStr: string): string {
   if (!isoStr.includes('T')) return '';
@@ -9,6 +12,18 @@ function formatTime(isoStr: string): string {
 
 export function EventCard({ event }: { event: CalendarEvent }) {
   const [expanded, setExpanded] = useState(false);
+  const navigate = useNavigate();
+  const setPendingSession = useMitzoStore((s) => s.setPendingSession);
+
+  function handlePrepClick(e: React.MouseEvent) {
+    e.stopPropagation();
+    setPendingSession({
+      prompt: buildMeetingPrepPrompt(event),
+      context: buildMeetingContext(event),
+      agentName: 'mitzo-calendar',
+    });
+    navigate('/chat');
+  }
 
   if (event.type === 'milestone') {
     return (
@@ -70,17 +85,22 @@ export function EventCard({ event }: { event: CalendarEvent }) {
               )}
             </div>
           )}
-          {event.hangoutLink && (
-            <a
-              className="cal-detail-link"
-              href={event.hangoutLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-            >
-              Join video call
-            </a>
-          )}
+          <div className="cal-event-actions">
+            <button className="cal-action-prep" onClick={handlePrepClick}>
+              Prep for this meeting
+            </button>
+            {event.hangoutLink && (
+              <a
+                className="cal-detail-link"
+                href={event.hangoutLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+              >
+                Join video call
+              </a>
+            )}
+          </div>
         </div>
       )}
     </div>

@@ -56,12 +56,14 @@ export interface SendMessageOptions {
   extraTools?: string;
   isolation?: boolean;
   telosTaskId?: string;
+  agentName?: string;
 }
 
 export interface PendingSession {
   prompt: string;
   context: string;
   telosTaskId?: string;
+  agentName?: string;
 }
 
 export interface MitzoStoreState {
@@ -317,6 +319,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         if (opts?.extraTools) msg.extraTools = opts.extraTools;
         if (opts?.isolation !== undefined) msg.isolation = opts.isolation;
         if (opts?.telosTaskId !== undefined) msg.telosTaskId = opts.telosTaskId;
+        if (opts?.agentName !== undefined) msg.agentName = opts.agentName;
         return msg;
       };
 
