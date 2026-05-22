@@ -156,10 +156,7 @@ export function updateSessionSdkId(repoPath: string, wtId: string, sdkSessionId:
   upsertEntry(repoPath, { id: wtId, sdk_session_id: sdkSessionId });
 }
 
-/**
- * Get the SDK session ID for a given worktree ID.
- * Returns undefined if the entry doesn't exist or sdk_session_id is not set.
- */
+/** Look up the SDK session UUID stored for a worktree ID. */
 export function getSessionSdkId(repoPath: string, wtId: string): string | undefined {
   const entries = readIndex(repoPath);
   const entry = entries.find((e) => e.id === wtId);

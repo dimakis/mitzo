@@ -63,7 +63,12 @@ export function setSessionChangeCallback(cb: SessionChangeCallback): void {
 import { EventStore } from './event-store.js';
 import { capturePromptComparison } from './prompt-compare.js';
 import { shouldAutoRename, extractRecentPrompts, generateSessionName } from './auto-rename.js';
-import { registerSession, updateSessionTitle, finalizeCloseout, getSessionSdkId } from './session-index.js';
+import {
+  registerSession,
+  updateSessionTitle,
+  finalizeCloseout,
+  getSessionSdkId,
+} from './session-index.js';
 import { createLogger } from './logger.js';
 import { withSpan, withSpanAsync } from './tracing.js';
 
@@ -904,7 +909,11 @@ async function _startChatInner(
         allowedTools: [...modeAllowed, ...mcpAllowed, ...extraTools],
         thinking: resolveThinking(options.model),
         ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
-        ...(options.resume ? { resume: getSessionSdkId(BASE_REPO, options.resume) ?? options.resume } : {}),
+        ...(options.resume
+          ? {
+              resume: (BASE_REPO && getSessionSdkId(BASE_REPO, options.resume)) ?? options.resume,
+            }
+          : {}),
         ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
         ...(hooks ? { hooks } : {}),
         canUseTool: buildPermissionHandler(clientId, registry, {
