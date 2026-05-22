@@ -1,4 +1,7 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { BootContextMeta, SectionMeta } from '@mitzo/client';
 
 interface Props {
@@ -31,7 +34,9 @@ function SectionRow({ section, dimmed }: { section: SectionMeta; dimmed?: boolea
         <span className="boot-context-pill-section-tokens">{section.tokens}t</span>
       </button>
       {open && section.content && (
-        <pre className="boot-context-pill-section-content">{section.content}</pre>
+        <div className="boot-context-pill-section-content">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{section.content}</ReactMarkdown>
+        </div>
       )}
     </div>
   );
@@ -133,29 +138,34 @@ export function BootContextPill({ context }: Props) {
         )}
       </div>
 
-      {showModal && context.fullMarkdown && (
-        <div
-          className="boot-context-modal-overlay"
-          onClick={() => setShowModal(false)}
-          onTouchStart={(e) => e.stopPropagation()}
-        >
+      {showModal &&
+        context.fullMarkdown &&
+        createPortal(
           <div
-            className="boot-context-modal"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Boot context full markdown"
+            className="boot-context-modal-overlay"
+            onClick={() => setShowModal(false)}
+            onTouchStart={(e) => e.stopPropagation()}
           >
-            <div className="boot-context-modal-header">
-              <h3>Boot Context (Full Markdown)</h3>
-              <button onClick={() => setShowModal(false)} className="boot-context-modal-close">
-                ✕
-              </button>
+            <div
+              className="boot-context-modal"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Boot context full markdown"
+            >
+              <div className="boot-context-modal-header">
+                <h3>Boot Context (Full Markdown)</h3>
+                <button onClick={() => setShowModal(false)} className="boot-context-modal-close">
+                  ✕
+                </button>
+              </div>
+              <div className="boot-context-modal-content">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{context.fullMarkdown}</ReactMarkdown>
+              </div>
             </div>
-            <pre className="boot-context-modal-content">{context.fullMarkdown}</pre>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
     </>
   );
 }

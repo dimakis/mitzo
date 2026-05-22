@@ -251,7 +251,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
       set((s) => ({
         sessions: { ...s.sessions, active: id },
-        messages: INITIAL_MESSAGES_STATE,
+        messages: { ...INITIAL_MESSAGES_STATE, bootContext: s.messages.bootContext },
         permissions: INITIAL_PERMISSIONS_STATE,
         tokens: INITIAL_TOKENS_STATE,
         progress: INITIAL_PROGRESS_STATE,
