@@ -617,14 +617,16 @@ describe('reconnected', () => {
   });
 
   it('dispatches SET_RUNNING false when active session reports not running', () => {
+    const setWsRunning = vi.fn();
     const state = makeState({ currentSessionId: 'sid-1' });
     const r = parseServerMessage(
       { type: 'reconnected', sessions: [{ sessionId: 'sid-1', replayed: 0, running: false }] },
       state,
-      makeCallbacks(),
+      makeCallbacks({ setWsRunning }),
       POOL_KEY,
     );
     expect(r.messagesActions).toContainEqual({ type: 'SET_RUNNING', running: false });
+    expect(setWsRunning).not.toHaveBeenCalled();
   });
 
   it('dispatches SET_RUNNING true when active session is still running', () => {
