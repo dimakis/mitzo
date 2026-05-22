@@ -93,6 +93,89 @@ export const eventStore = initEventStore();
 
 export type { MitzoMode } from './session-registry.js';
 
+// ── Boot context via ContexGin HTTP API ──────────────────────────
+export interface BootContextMessage {
+  type: 'boot_context';
+  source: 'contexgin' | 'local-fallback';
+  sourceCount: number;
+  tokenCount: number;
+  tokenBudget: number;
+  sources: Array<{ path: string; kind: string }>;
+  included: Array<{ source: string; heading: string; tokens: number; content: string }>;
+  trimmed: Array<{ source: string; heading: string; tokens: number; content: string }>;
+  fullMarkdown?: string;
+}
+
+const FALLBACK_BOOT_CONTEXT: BootContextMessage = {
+  type: 'boot_context',
+  source: 'local-fallback',
+  sourceCount: 0,
+  tokenCount: 0,
+  tokenBudget: 0,
+  sources: [],
+  included: [],
+  trimmed: [],
+};
+
+/**
+ * Fetch boot context from the running ContexGin server.
+ * Returns a BootContextMessage ready to send to the client.
+ * Never throws — returns a local-fallback message on any error.
+ */
+export async function fetchBootContext(
+  agentName: string,
+  contexginUrl: string = process.env.CONTEXGIN_URL || 'http://localhost:8321',
+): Promise<BootContextMessage> {
+  try {
+    const url = `${contexginUrl}/api/agents/${agentName}/context`;
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(5000),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      log.warn('ContexGin agent context request failed', {
+        status: res.status,
+        body: body.slice(0, 200),
+      });
+      return { ...FALLBACK_BOOT_CONTEXT };
+    }
+
+    const data = (await res.json()) as Record<string, unknown>;
+    const boot = data.boot as Record<string, unknown> | undefined;
+
+    if (!boot) {
+      log.warn('ContexGin response missing boot field', { keys: Object.keys(data) });
+      return { ...FALLBACK_BOOT_CONTEXT };
+    }
+
+    const bootTokens = typeof boot.tokens === 'number' ? boot.tokens : 0;
+    const rawSources = Array.isArray(boot.sources) ? boot.sources : [];
+
+    const sources: Array<{ path: string; kind: string }> = rawSources
+      .filter((s): s is string => typeof s === 'string')
+      .map((s) => ({ path: s, kind: 'reference' }));
+
+    const fullMarkdown = typeof boot.content === 'string' ? (boot.content as string) : undefined;
+
+    return {
+      type: 'boot_context',
+      source: 'contexgin',
+      sourceCount: sources.length,
+      tokenCount: bootTokens,
+      tokenBudget: bootTokens, // server compiles to its own budget — report actual
+      sources,
+      included: [],
+      trimmed: [],
+      fullMarkdown,
+    };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.info('ContexGin not reachable, boot context unavailable', { error: msg });
+    return { ...FALLBACK_BOOT_CONTEXT };
+  }
+}
+
 let mcpServers: Record<string, McpServerConfig> = {};
 try {
   mcpServers = loadMcpServers();
@@ -768,167 +851,15 @@ async function _startChatInner(
     buildWorktreeSystemPrompt(repoWorktrees) +
     buildTaskPromptForSession(clientId);
 
-  // Fire-and-forget: emit boot context metadata to client + capture prompt comparison
-  const DEFAULT_TOKEN_BUDGET = 8000;
-  (async () => {
-    // Step 1: dynamically import contexgin (optional dependency)
-    let compileModule: {
-      compile: (opts: { workspaceRoot: string; tokenBudget: number }) => Promise<unknown>;
-      loadAgentDefinition?: (path: string) => Promise<unknown>;
-    };
-    try {
-      compileModule = await import('contexgin');
-    } catch (importErr: unknown) {
-      const msg = importErr instanceof Error ? importErr.message : String(importErr);
-      log.info('contexgin not available, using fallback', { error: msg });
-      const fallback = {
-        source: 'local-fallback' as const,
-        sourceCount: 0,
-        tokenCount: 0,
-        tokenBudget: DEFAULT_TOKEN_BUDGET,
-        sources: [] as Array<{ path: string; kind: string }>,
-        included: [] as Array<{ source: string; heading: string; tokens: number; content: string }>,
-        trimmed: [] as Array<{ source: string; heading: string; tokens: number; content: string }>,
-      };
-      send(transport, { type: 'boot_context', ...fallback });
-      const s = registry.get(clientId);
-      if (s) s.bootContext = fallback;
-      return;
-    }
-
-    // Step 1b: read token budget from agent recipe if available
-    let tokenBudget = DEFAULT_TOKEN_BUDGET;
-    try {
-      if (compileModule.loadAgentDefinition) {
-        const recipePath = join(cwd, '.agents', `${agentName}.yaml`);
-        const def = (await compileModule.loadAgentDefinition(recipePath)) as Record<
-          string,
-          unknown
-        >;
-        const ctx = def.context as Record<string, unknown> | undefined;
-        const boot = ctx?.boot as Record<string, unknown> | undefined;
-        if (typeof boot?.tokenBudget === 'number') {
-          tokenBudget = boot.tokenBudget as number;
-        }
-      }
-    } catch {
-      // Recipe not found or invalid — use default
-    }
-
-    // Step 2: compile — runtime errors propagate (not swallowed as import failure)
-    try {
-      const compiled = await compileModule.compile({
-        workspaceRoot: cwd,
-        tokenBudget,
-      });
-
-      // Validate the compiled object shape
-      if (!compiled || typeof compiled !== 'object') {
-        log.warn('contexgin compile() returned unexpected shape', { compiled });
-        const fallback = {
-          source: 'local-fallback' as const,
-          sourceCount: 0,
-          tokenCount: 0,
-          tokenBudget: tokenBudget,
-          sources: [] as Array<{ path: string; kind: string }>,
-          included: [] as Array<{
-            source: string;
-            heading: string;
-            tokens: number;
-            content: string;
-          }>,
-          trimmed: [] as Array<{
-            source: string;
-            heading: string;
-            tokens: number;
-            content: string;
-          }>,
-        };
-        send(transport, { type: 'boot_context', ...fallback });
-        const s = registry.get(clientId);
-        if (s) s.bootContext = fallback;
-        return;
-      }
-
-      const obj = compiled as Record<string, unknown>;
-      const rawSources = Array.isArray(obj.sources) ? obj.sources : [];
-      const rawIncluded = Array.isArray(obj.included) ? obj.included : [];
-      const rawTrimmed = Array.isArray(obj.trimmed) ? obj.trimmed : [];
-      const bootTokens = typeof obj.bootTokens === 'number' ? obj.bootTokens : 0;
-
-      // Extract rich source metadata (path + kind)
-      const sources: Array<{ path: string; kind: string }> = [];
-      for (const s of rawSources) {
-        if (s && typeof s === 'object') {
-          const so = s as Record<string, unknown>;
-          if (typeof so.relativePath === 'string') {
-            sources.push({
-              path: so.relativePath as string,
-              kind: typeof so.kind === 'string' ? (so.kind as string) : 'reference',
-            });
-          }
-        }
-      }
-
-      // Helper to extract section metadata from ExtractedSection objects
-      const extractSections = (
-        raw: unknown[],
-      ): Array<{ source: string; heading: string; tokens: number; content: string }> => {
-        const result: Array<{ source: string; heading: string; tokens: number; content: string }> =
-          [];
-        for (const t of raw) {
-          if (t && typeof t === 'object') {
-            const to = t as Record<string, unknown>;
-            const src = to.source as Record<string, unknown> | undefined;
-            const headingPath = Array.isArray(to.headingPath) ? to.headingPath : [];
-            result.push({
-              source:
-                src && typeof src.relativePath === 'string' ? (src.relativePath as string) : '',
-              heading: headingPath.filter((h: unknown) => typeof h === 'string').join(' > '),
-              tokens: typeof to.tokenEstimate === 'number' ? (to.tokenEstimate as number) : 0,
-              content: typeof to.content === 'string' ? (to.content as string) : '',
-            });
-          }
-        }
-        return result;
-      };
-
-      const included = extractSections(rawIncluded);
-      const trimmed = extractSections(rawTrimmed);
-      const fullMarkdown = typeof obj.bootPayload === 'string' ? obj.bootPayload : undefined;
-
-      const bootPayload = {
-        source: 'contexgin' as const,
-        sourceCount: sources.length,
-        tokenCount: bootTokens,
-        tokenBudget: tokenBudget,
-        sources,
-        included,
-        trimmed,
-        fullMarkdown,
-      };
-      send(transport, { type: 'boot_context', ...bootPayload });
-
+  // Fire-and-forget: fetch boot context from running ContexGin server
+  fetchBootContext(agentName)
+    .then((msg) => {
+      send(transport, msg);
       // Cache in ManagedSession for replay on reconnect/switch
       const s = registry.get(clientId);
-      if (s) s.bootContext = bootPayload;
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      log.warn('boot context compilation failed', { error: msg });
-      const fallbackPayload = {
-        source: 'local-fallback' as const,
-        sourceCount: 0,
-        tokenCount: 0,
-        tokenBudget: tokenBudget,
-        sources: [] as Array<{ path: string; kind: string }>,
-        included: [] as Array<{ source: string; heading: string; tokens: number; content: string }>,
-        trimmed: [] as Array<{ source: string; heading: string; tokens: number; content: string }>,
-      };
-      send(transport, { type: 'boot_context', ...fallbackPayload });
-      const s = registry.get(clientId);
-      if (s) s.bootContext = fallbackPayload;
-    }
-  })();
+      if (s) s.bootContext = msg;
+    })
+    .catch(() => {});
   capturePromptComparison(wtId, cwd, systemPromptAppend, repoWorktrees).catch(() => {});
 
   // Resolve SDK session UUID for resume — worktree IDs are not valid SDK session IDs
