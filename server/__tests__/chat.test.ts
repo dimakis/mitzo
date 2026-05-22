@@ -332,6 +332,8 @@ describe('startChat stores user message for resumed sessions', () => {
   });
 });
 
+// Structural tests: resume resolution requires the Agent SDK query() pipeline,
+// so we assert against the source rather than invoking startChat() directly.
 describe('resume resolves SDK session ID', () => {
   let chatSource: string;
 
