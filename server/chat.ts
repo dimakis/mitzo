@@ -36,6 +36,7 @@ import {
   SESSION_MESSAGES_LIMIT,
   USER_CLOSEOUT_TIMEOUT_MS,
   ZERO_TURN_GRACE_MS,
+  DEFAULT_AGENT_NAME,
 } from './constants.js';
 import { INTERNAL_TOKEN } from './internal-token.js';
 import { buildTaskSystemPrompt } from './task-context.js';
@@ -725,7 +726,7 @@ async function _startChatInner(
   // Build session env with worktree paths for the agent (all repos including primary)
   const sessionEnv = sdkEnv();
   sessionEnv.MITZO_SESSION_ID = wtId;
-  const agentName = options.agentName || 'mitzo-conversational';
+  const agentName = options.agentName || DEFAULT_AGENT_NAME;
   sessionEnv.MITZO_AGENT_NAME = agentName;
   for (const [name, { path }] of repoWorktrees) {
     sessionEnv[`MITZO_REPO_${name.toUpperCase()}`] = path;
