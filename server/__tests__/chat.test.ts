@@ -345,13 +345,20 @@ describe('resume resolves SDK session ID', () => {
     expect(chatSource).toContain('getSessionSdkId(BASE_REPO, options.resume)');
   });
 
-  it('guards BASE_REPO before calling getSessionSdkId', () => {
-    expect(chatSource).toContain('BASE_REPO && getSessionSdkId(BASE_REPO');
+  it('guards BASE_REPO with ternary to avoid empty-string falsy bug', () => {
+    // Must use ternary (BASE_REPO ? ...) not && (which returns '' for empty string)
+    expect(chatSource).toContain('BASE_REPO ? getSessionSdkId(BASE_REPO');
   });
 
   it('falls back to raw options.resume when lookup returns undefined', () => {
-    // The ?? operator provides the fallback
-    expect(chatSource).toMatch(/getSessionSdkId\(.*\)\)\s*\?\?\s*options\.resume/);
+    expect(chatSource).toContain('?? options.resume');
+  });
+
+  it('resolvedResume is computed before the query() call', () => {
+    const resolveIdx = chatSource.indexOf('let resolvedResume');
+    const queryIdx = chatSource.indexOf('const q = query(');
+    expect(resolveIdx).toBeGreaterThan(-1);
+    expect(queryIdx).toBeGreaterThan(resolveIdx);
   });
 
   it('warns when REPO_PATH is unset during resume', () => {
