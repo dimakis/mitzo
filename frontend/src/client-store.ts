@@ -13,6 +13,7 @@ import { registerCapacitorLifecycle } from './lib/capacitor';
 import { configureKeyboard } from './lib/keyboard';
 import { initPushNotifications } from './lib/push';
 import { eventBus } from './lib/event-bus-singleton';
+import { getPreferredModel } from './lib/model-preference';
 
 export const clientStore = createMitzoStore({
   transport: {
@@ -25,6 +26,9 @@ export const clientStore = createMitzoStore({
     suspendUrl: `${getApiBaseUrl()}/api/sessions/suspend`,
   },
 });
+
+// Sync localStorage model preference into the store so sendMessage() includes it
+clientStore.getState().setModel(getPreferredModel());
 
 // Wire Capacitor app lifecycle → force WS reconnect on resume, send suspend on background
 registerCapacitorLifecycle(
