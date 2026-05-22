@@ -680,7 +680,6 @@ async function _startChatInner(
     // Set sessionId early so pre-assistant events are persisted (iOS reconnect).
     ...(options.resume ? { sessionId: options.resume } : {}),
     ...(options.telosTaskId ? { telosTaskId: options.telosTaskId } : {}),
-    ...(options.agentName ? { agentName: options.agentName } : {}),
   });
 
   const session = registry.get(clientId)!;
