@@ -151,7 +151,11 @@ export function ChatInput({
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      if (running && onInterrupt) {
+        handleInterrupt();
+      } else {
+        handleSend();
+      }
     }
   }
 
