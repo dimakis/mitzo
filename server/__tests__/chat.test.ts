@@ -459,6 +459,35 @@ describe('discoverSessionWorktrees integration', () => {
   });
 });
 
+describe('headless session does not pass resume on first query', () => {
+  let appSource: string;
+
+  beforeAll(async () => {
+    const { readFileSync } = await import('fs');
+    const { join } = await import('path');
+    appSource = readFileSync(join(import.meta.dirname, '..', 'app.ts'), 'utf-8');
+  });
+
+  it('headless startChat call omits resume option', () => {
+    // Find the headless startChat block (identified by NullTransport + headless clientId)
+    const headlessMarker = 'const clientId = `headless:${wtId}`';
+    const headlessIdx = appSource.indexOf(headlessMarker);
+    expect(headlessIdx).toBeGreaterThan(-1);
+
+    // Extract the startChat call after the headless marker
+    const startChatIdx = appSource.indexOf('await startChat(', headlessIdx);
+    expect(startChatIdx).toBeGreaterThan(-1);
+
+    // Get the options object passed to startChat (up to the closing paren + semicolon)
+    const callEnd = appSource.indexOf(');', startChatIdx);
+    const callRegion = appSource.slice(startChatIdx, callEnd);
+
+    // Must NOT contain resume as an option key (resume: ...)
+    expect(callRegion).not.toMatch(/resume\s*[,:]/);
+    expect(callRegion).not.toMatch(/resume\s*\?/);
+  });
+});
+
 describe('validateResumable', () => {
   it('returns valid for a CWD that passes git check', async () => {
     const { validateResumable } = await import('../chat.js');
