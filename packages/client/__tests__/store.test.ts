@@ -446,6 +446,42 @@ describe('sendMessage', () => {
       vi.useRealTimers();
     }
   });
+
+  it('timer drain reschedules for remaining FIFO queue items', () => {
+    vi.useFakeTimers();
+    try {
+      const store = createMitzoStore(makeOptions());
+      lastWs.completeHandshake();
+
+      // Start first session and queue three messages
+      store.getState().sendMessage('first');
+      lastWs.simulateMessage({ type: 'session_id', sessionId: 'sess-multi' });
+
+      const sentBeforeQueue = lastWs.sent.length;
+      store.getState().sendMessage('second');
+      store.getState().sendMessage('third');
+
+      // Advance 5s — first pending should be flushed
+      vi.advanceTimersByTime(5_000);
+      const afterFirst = lastWs.sent.slice(sentBeforeQueue).map((s) => JSON.parse(s));
+      expect(afterFirst).toHaveLength(1);
+      expect(afterFirst[0]).toMatchObject({ type: 'send', prompt: 'second' });
+
+      // Advance another 5s — second pending should be flushed
+      const sentAfterFirst = lastWs.sent.length;
+      vi.advanceTimersByTime(5_000);
+      const afterSecond = lastWs.sent.slice(sentAfterFirst).map((s) => JSON.parse(s));
+      expect(afterSecond).toHaveLength(1);
+      expect(afterSecond[0]).toMatchObject({ type: 'send', prompt: 'third' });
+
+      // Advance another 5s — queue should be empty, no more sends
+      const sentAfterSecond = lastWs.sent.length;
+      vi.advanceTimersByTime(5_000);
+      expect(lastWs.sent.length).toBe(sentAfterSecond);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('WS → store wiring', () => {
