@@ -76,7 +76,7 @@ function RawInputDetail({
   return null;
 }
 
-/** Render tool result — syntax-highlighted for read/write tools, plain for others. */
+/** Render tool result with syntax highlighting when language is known. */
 function ToolResult({
   block,
   onPopOut,
@@ -87,25 +87,17 @@ function ToolResult({
   if (block.toolResult === undefined) return null;
 
   const raw = block.rawInput;
-  // For Read tool results, show the file content with syntax highlighting
-  if (raw?.type === 'read' && block.toolResult) {
-    return (
-      <div className="tool-pill-section">
-        <CodeBlock
-          code={block.toolResult}
-          language={raw.language}
-          label={raw.path}
-          maxHeight={400}
-          onPopOut={raw.path && onPopOut ? () => onPopOut(raw.path!) : undefined}
-        />
-      </div>
-    );
-  }
+  const isRead = raw?.type === 'read';
 
   return (
     <div className="tool-pill-section">
-      <span className="tool-pill-label">Result</span>
-      <pre className="tool-pill-pre">{block.toolResult}</pre>
+      <CodeBlock
+        code={block.toolResult}
+        language={raw?.language}
+        label={isRead ? raw?.path : 'Result'}
+        maxHeight={400}
+        onPopOut={isRead && raw?.path && onPopOut ? () => onPopOut(raw.path!) : undefined}
+      />
     </div>
   );
 }

@@ -56,6 +56,25 @@ const EXT_MAP: Record<string, string> = {
   kts: 'kotlin',
   swift: 'swift',
   cs: 'csharp',
+  m: 'objectivec',
+  mm: 'objectivec',
+  dart: 'dart',
+  scala: 'scala',
+  sbt: 'scala',
+
+  // Functional
+  hs: 'haskell',
+  lhs: 'haskell',
+  ml: 'ocaml',
+  mli: 'ocaml',
+  clj: 'clojure',
+  cljs: 'clojure',
+  cljc: 'clojure',
+  edn: 'clojure',
+  ex: 'elixir',
+  exs: 'elixir',
+  erl: 'erlang',
+  hrl: 'erlang',
 
   // Scripting
   rb: 'ruby',
@@ -64,13 +83,20 @@ const EXT_MAP: Record<string, string> = {
   php: 'php',
   r: 'r',
   R: 'r',
+  ps1: 'powershell',
+  psm1: 'powershell',
+  psd1: 'powershell',
 
   // Markup / Docs
   md: 'markdown',
   mdx: 'markdown',
   tex: 'latex',
+
   // Infrastructure
   dockerfile: 'dockerfile',
+  nix: 'nix',
+  wat: 'wasm',
+  wast: 'wasm',
 
   // SQL
   sql: 'sql',
