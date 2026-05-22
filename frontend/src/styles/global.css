@@ -833,6 +833,26 @@ textarea:focus {
   text-align: center;
 }
 
+.attention-show-more {
+  width: 100%;
+  padding: var(--space-2) var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+  color: var(--primary);
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s;
+}
+
+.attention-show-more:active {
+  background: var(--hover);
+}
+
 .service-status {
   display: flex;
   gap: var(--space-4);

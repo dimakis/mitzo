@@ -175,7 +175,7 @@ describe('useAttentionFeed', () => {
     expect(result.current.items[1].tier).toBe(2);
   });
 
-  it('caps output at 5 items', async () => {
+  it('returns all items without capping', async () => {
     const items = Array.from({ length: 10 }, (_, i) =>
       makeTodo({ id: `t${i}`, summary: `Item ${i}`, starred: true, urgency: 0.9 }),
     );
@@ -190,7 +190,8 @@ describe('useAttentionFeed', () => {
       expect(result.current.loading).toBe(false);
     });
 
-    expect(result.current.items).toHaveLength(5);
+    expect(result.current.items).toHaveLength(10);
+    expect(result.current.tier1Count).toBe(10);
   });
 
   it('subscribes to SSE events for live updates', () => {
