@@ -535,6 +535,8 @@ export function handleInterruptV2(
   const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
   if (!found) return;
 
+  let activeClientId = found.clientId;
+
   // Ownership guard: reject if another connection actively drives this session
   if (isActive(found.clientId)) {
     // Cross-reference with durable EventStore to catch stale in-memory state.
@@ -567,11 +569,11 @@ export function handleInterruptV2(
         const newClientId = `${connectionId}:${msg.sessionId}`;
         if (found.clientId !== newClientId) {
           rekeyChat(found.clientId, newClientId);
-          // Update found reference for interruptChat below
-          found.clientId = newClientId;
+          activeClientId = newClientId;
           log.info('rekeyed session to new connection on interrupt', {
             connectionId,
             sessionId: msg.sessionId,
+            oldClientId: found.clientId,
             newClientId,
           });
         }
@@ -581,7 +583,7 @@ export function handleInterruptV2(
 
   ctx.connRegistry.watch(connectionId, msg.sessionId);
   ctx.connRegistry.setActive(connectionId, msg.sessionId);
-  interruptChat(found.clientId, msg.prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
+  interruptChat(activeClientId, msg.prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
   log.info('interrupt', { connectionId, sessionId: msg.sessionId });
 }
 
