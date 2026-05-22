@@ -26,9 +26,9 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
         super.init()
     }
 
-    public func activate(wsClient: MitzoWSClient, apiClient: MitzoAPIClient? = nil) {
-        state.setWSClient(wsClient)
-        state.setAPIClient(apiClient)
+    public func activate(wsClient: MitzoWSClient? = nil, apiClient: MitzoAPIClient? = nil) {
+        if let wsClient { state.setWSClient(wsClient) }
+        if let apiClient { state.setAPIClient(apiClient) }
 
         guard WCSession.isSupported() else { return }
         WCSession.default.delegate = self
