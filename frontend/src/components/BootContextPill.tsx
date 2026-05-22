@@ -34,7 +34,7 @@ function SectionRow({ section, dimmed }: { section: SectionMeta; dimmed?: boolea
         <span className="boot-context-pill-section-tokens">{section.tokens}t</span>
       </button>
       {open && section.content && (
-        <div className="boot-context-pill-section-content">
+        <div className="boot-context-pill-section-content boot-context-md">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{section.content}</ReactMarkdown>
         </div>
       )}
@@ -159,7 +159,7 @@ export function BootContextPill({ context }: Props) {
                   ✕
                 </button>
               </div>
-              <div className="boot-context-modal-content">
+              <div className="boot-context-modal-content boot-context-md">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{context.fullMarkdown}</ReactMarkdown>
               </div>
             </div>

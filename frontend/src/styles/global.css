@@ -2647,57 +2647,85 @@ textarea:focus {
   -webkit-overflow-scrolling: touch;
 }
 
-.boot-context-pill-section-content h1,
-.boot-context-pill-section-content h2,
-.boot-context-pill-section-content h3 {
-  font-size: 0.7rem;
+/* Shared markdown styles for boot context (section + modal) */
+
+.boot-context-md h1,
+.boot-context-md h2,
+.boot-context-md h3 {
   margin: 0.4rem 0 0.2rem;
   color: var(--text-secondary);
 }
 
-.boot-context-pill-section-content p {
-  margin: 0.2rem 0;
+.boot-context-md p {
+  margin: 0.3rem 0;
 }
 
-.boot-context-pill-section-content ul,
-.boot-context-pill-section-content ol {
-  margin: 0.2rem 0;
-  padding-left: 1.2rem;
+.boot-context-md ul,
+.boot-context-md ol {
+  margin: 0.3rem 0;
+  padding-left: 1.3rem;
 }
 
-.boot-context-pill-section-content code {
+.boot-context-md li {
+  margin: 0.15rem 0;
+}
+
+.boot-context-md code {
   font-family: var(--code-font);
-  font-size: 0.6rem;
+  font-size: 0.85em;
   background: rgba(255, 255, 255, 0.06);
   padding: 0.1rem 0.25rem;
   border-radius: 3px;
 }
 
-.boot-context-pill-section-content pre {
+.boot-context-md pre {
   font-family: var(--code-font);
-  font-size: 0.6rem;
+  font-size: 0.85em;
   background: rgba(255, 255, 255, 0.04);
-  padding: 0.3rem 0.4rem;
+  padding: 0.4rem 0.6rem;
   border-radius: 4px;
   overflow-x: auto;
-  margin: 0.2rem 0;
+  margin: 0.3rem 0;
 }
 
-.boot-context-pill-section-content pre code {
+.boot-context-md pre code {
   background: none;
   padding: 0;
 }
 
-.boot-context-pill-section-content table {
-  font-size: 0.6rem;
+.boot-context-md table {
   border-collapse: collapse;
   width: 100%;
+  margin: 0.3rem 0;
 }
 
-.boot-context-pill-section-content th,
-.boot-context-pill-section-content td {
+.boot-context-md th,
+.boot-context-md td {
   border: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 0.2rem 0.3rem;
+  padding: 0.2rem 0.4rem;
+  text-align: left;
+}
+
+.boot-context-md th {
+  background: rgba(255, 255, 255, 0.04);
+  font-weight: 500;
+}
+
+.boot-context-md strong {
+  color: var(--text-primary);
+}
+
+.boot-context-md hr {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin: 0.6rem 0;
+}
+
+/* Section-specific size overrides (compact) */
+.boot-context-pill-section-content h1,
+.boot-context-pill-section-content h2,
+.boot-context-pill-section-content h3 {
+  font-size: 0.7rem;
 }
 
 .boot-context-pill-trimmed-toggle {
@@ -2810,6 +2838,7 @@ textarea:focus {
   -webkit-overflow-scrolling: touch;
 }
 
+/* Modal-specific size overrides (larger) */
 .boot-context-modal-content h1 {
   font-size: var(--text-lg);
   margin: 1rem 0 0.5rem;
@@ -2827,73 +2856,6 @@ textarea:focus {
 .boot-context-modal-content h3 {
   font-size: var(--text-sm);
   margin: 0.6rem 0 0.3rem;
-  color: var(--text-secondary);
-}
-
-.boot-context-modal-content p {
-  margin: 0.4rem 0;
-}
-
-.boot-context-modal-content ul,
-.boot-context-modal-content ol {
-  margin: 0.4rem 0;
-  padding-left: 1.5rem;
-}
-
-.boot-context-modal-content li {
-  margin: 0.15rem 0;
-}
-
-.boot-context-modal-content code {
-  font-family: var(--code-font);
-  font-size: 0.85em;
-  background: rgba(255, 255, 255, 0.06);
-  padding: 0.1rem 0.3rem;
-  border-radius: 3px;
-}
-
-.boot-context-modal-content pre {
-  font-family: var(--code-font);
-  font-size: var(--text-xxs);
-  background: rgba(255, 255, 255, 0.04);
-  padding: 0.6rem 0.8rem;
-  border-radius: 6px;
-  overflow-x: auto;
-  margin: 0.5rem 0;
-}
-
-.boot-context-modal-content pre code {
-  background: none;
-  padding: 0;
-}
-
-.boot-context-modal-content table {
-  border-collapse: collapse;
-  width: 100%;
-  margin: 0.5rem 0;
-  font-size: var(--text-xxs);
-}
-
-.boot-context-modal-content th,
-.boot-context-modal-content td {
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 0.3rem 0.5rem;
-  text-align: left;
-}
-
-.boot-context-modal-content th {
-  background: rgba(255, 255, 255, 0.04);
-  font-weight: 500;
-}
-
-.boot-context-modal-content strong {
-  color: var(--text-primary);
-}
-
-.boot-context-modal-content hr {
-  border: none;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  margin: 0.8rem 0;
 }
 
 /* ===== Markdown Preview Card ===== */
