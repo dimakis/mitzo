@@ -332,6 +332,44 @@ describe('startChat stores user message for resumed sessions', () => {
   });
 });
 
+// Structural tests: resume resolution requires the Agent SDK query() pipeline,
+// so we assert against the source rather than invoking startChat() directly.
+describe('resume resolves SDK session ID', () => {
+  let chatSource: string;
+
+  beforeAll(async () => {
+    const { readFileSync } = await import('fs');
+    const { join } = await import('path');
+    chatSource = readFileSync(join(import.meta.dirname, '..', 'chat.ts'), 'utf-8');
+  });
+
+  it('calls getSessionSdkId before passing resume to query()', () => {
+    expect(chatSource).toContain('getSessionSdkId(BASE_REPO, options.resume)');
+  });
+
+  it('guards BASE_REPO with ternary to avoid empty-string falsy bug', () => {
+    // Must use ternary (BASE_REPO ? ...) not && (which returns '' for empty string)
+    expect(chatSource).toContain('BASE_REPO ? getSessionSdkId(BASE_REPO');
+  });
+
+  it('falls back to raw options.resume when lookup returns undefined', () => {
+    expect(chatSource).toContain('?? options.resume');
+  });
+
+  it('resolvedResume is computed before the query() call', () => {
+    const resolveIdx = chatSource.indexOf('let resolvedResume');
+    const queryIdx = chatSource.indexOf('const q = query(');
+    expect(resolveIdx).toBeGreaterThan(-1);
+    expect(queryIdx).toBeGreaterThan(resolveIdx);
+  });
+
+  it('warns when REPO_PATH is unset during resume', () => {
+    expect(chatSource).toContain(
+      'REPO_PATH unset — resume will use raw worktree ID, SDK may reject it',
+    );
+  });
+});
+
 describe('isIsolationEnabled', () => {
   let originalEnv: string | undefined;
 

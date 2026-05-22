@@ -63,7 +63,12 @@ export function setSessionChangeCallback(cb: SessionChangeCallback): void {
 import { EventStore } from './event-store.js';
 import { capturePromptComparison } from './prompt-compare.js';
 import { shouldAutoRename, extractRecentPrompts, generateSessionName } from './auto-rename.js';
-import { registerSession, updateSessionTitle, finalizeCloseout } from './session-index.js';
+import {
+  registerSession,
+  updateSessionTitle,
+  finalizeCloseout,
+  getSessionSdkId,
+} from './session-index.js';
 import { createLogger } from './logger.js';
 import { withSpan, withSpanAsync } from './tracing.js';
 
@@ -886,6 +891,16 @@ async function _startChatInner(
   })();
   capturePromptComparison(wtId, cwd, systemPromptAppend, repoWorktrees).catch(() => {});
 
+  // Resolve SDK session UUID for resume — worktree IDs are not valid SDK session IDs
+  let resolvedResume: string | undefined;
+  if (options.resume) {
+    if (!BASE_REPO) {
+      log.warn('REPO_PATH unset — resume will use raw worktree ID, SDK may reject it');
+    }
+    resolvedResume =
+      (BASE_REPO ? getSessionSdkId(BASE_REPO, options.resume) : undefined) ?? options.resume;
+  }
+
   try {
     const q = query({
       prompt: inputQueue as AsyncIterable<SDKUserMessage>,
@@ -904,7 +919,7 @@ async function _startChatInner(
         allowedTools: [...modeAllowed, ...mcpAllowed, ...extraTools],
         thinking: resolveThinking(options.model),
         ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
-        ...(options.resume ? { resume: options.resume } : {}),
+        ...(resolvedResume ? { resume: resolvedResume } : {}),
         ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
         ...(hooks ? { hooks } : {}),
         canUseTool: buildPermissionHandler(clientId, registry, {

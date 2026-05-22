@@ -155,3 +155,10 @@ export function updateSessionSdkId(repoPath: string, wtId: string, sdkSessionId:
 
   upsertEntry(repoPath, { id: wtId, sdk_session_id: sdkSessionId });
 }
+
+/** Look up the SDK session UUID stored for a worktree ID. */
+export function getSessionSdkId(repoPath: string, wtId: string): string | undefined {
+  const entries = readIndex(repoPath);
+  const entry = entries.find((e) => e.id === wtId);
+  return entry?.sdk_session_id;
+}

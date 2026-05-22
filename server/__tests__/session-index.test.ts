@@ -8,6 +8,7 @@ import {
   registerSession,
   updateSessionTitle,
   updateSessionSdkId,
+  getSessionSdkId,
   finalizeCloseout,
 } from '../session-index.js';
 
@@ -303,6 +304,25 @@ describe('session-index', () => {
     it('is a no-op if session does not exist', () => {
       updateSessionSdkId(repoPath, 'nonexistent', 'sdk-abc');
       expect(readIndex(repoPath)).toEqual([]);
+    });
+  });
+
+  describe('getSessionSdkId', () => {
+    it('returns the stored SDK session ID', () => {
+      upsertEntry(repoPath, { id: 'sess-1', status: 'active' });
+      updateSessionSdkId(repoPath, 'sess-1', 'f2fd42cf-5c9f-4524-be08-9b019c1cc3a2');
+
+      expect(getSessionSdkId(repoPath, 'sess-1')).toBe('f2fd42cf-5c9f-4524-be08-9b019c1cc3a2');
+    });
+
+    it('returns undefined when entry does not exist', () => {
+      expect(getSessionSdkId(repoPath, 'nonexistent')).toBeUndefined();
+    });
+
+    it('returns undefined when sdk_session_id is not set', () => {
+      upsertEntry(repoPath, { id: 'sess-1', status: 'active' });
+
+      expect(getSessionSdkId(repoPath, 'sess-1')).toBeUndefined();
     });
   });
 });
