@@ -480,7 +480,10 @@ async function handleSessionCreate(
       const clientId = `headless:${wtId}`;
       const transport = new NullTransport();
       await startChat(transport, clientId, initialPrompt, {
-        resume: wtId,
+        // No resume — this is the first query, no SDK session exists yet.
+        // The SDK session UUID is captured in query-loop after the first
+        // assistant message and stored via updateSessionSdkId() for future
+        // queries (e.g. user replies from their phone).
         mode: mode ?? 'agent',
         model,
         isolation: true,
