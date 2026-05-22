@@ -627,15 +627,17 @@ describe('reconnected', () => {
     expect(r.messagesActions).toContainEqual({ type: 'SET_RUNNING', running: false });
   });
 
-  it('does not dispatch SET_RUNNING when active session is still running', () => {
+  it('dispatches SET_RUNNING true when active session is still running', () => {
+    const setWsRunning = vi.fn();
     const state = makeState({ currentSessionId: 'sid-1' });
     const r = parseServerMessage(
       { type: 'reconnected', sessions: [{ sessionId: 'sid-1', replayed: 0, running: true }] },
       state,
-      makeCallbacks(),
+      makeCallbacks({ setWsRunning }),
       POOL_KEY,
     );
-    expect(r.messagesActions).not.toContainEqual(expect.objectContaining({ type: 'SET_RUNNING' }));
+    expect(r.messagesActions).toContainEqual({ type: 'SET_RUNNING', running: true });
+    expect(setWsRunning).toHaveBeenCalledWith(POOL_KEY, true);
   });
 
   it('no-ops when no currentSessionId', () => {
