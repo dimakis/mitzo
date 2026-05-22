@@ -6,10 +6,17 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:3100',
+      '/api': {
+        target: 'https://localhost:3100',
+        secure: false,
+        changeOrigin: true,
+        cookieDomainRewrite: 'localhost',
+      },
       '/ws': {
-        target: 'ws://localhost:3100',
+        target: 'wss://localhost:3100',
         ws: true,
+        secure: false,
+        changeOrigin: true,
       },
     },
   },
