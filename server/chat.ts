@@ -725,7 +725,7 @@ async function _startChatInner(
   // Build session env with worktree paths for the agent (all repos including primary)
   const sessionEnv = sdkEnv();
   sessionEnv.MITZO_SESSION_ID = wtId;
-  const agentName = options.agentName || DEFAULT_AGENT_NAME;
+  const agentName = options.agentName ?? DEFAULT_AGENT_NAME;
   sessionEnv.MITZO_AGENT_NAME = agentName;
   for (const [name, { path }] of repoWorktrees) {
     sessionEnv[`MITZO_REPO_${name.toUpperCase()}`] = path;

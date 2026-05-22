@@ -1,8 +1,5 @@
 import type { CalendarEvent } from '../hooks/useCalendarData';
 
-/**
- * Build a meeting prep prompt for calendar events.
- */
 export function buildMeetingPrepPrompt(event: CalendarEvent): string {
   const time = formatEventTime(event);
   const when = time ? ` at ${time}` : '';
@@ -10,9 +7,6 @@ export function buildMeetingPrepPrompt(event: CalendarEvent): string {
   return `Prepare for "${event.title}"${when}`;
 }
 
-/**
- * Build context block for meeting prep sessions.
- */
 export function buildMeetingContext(event: CalendarEvent): string {
   const lines: string[] = [];
 
