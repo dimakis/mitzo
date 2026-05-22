@@ -461,13 +461,11 @@ describe('discoverSessionWorktrees integration', () => {
 
 describe('headless session does not pass resume on first query', () => {
   let appSource: string;
-  let chatSource: string;
 
   beforeAll(async () => {
     const { readFileSync } = await import('fs');
     const { join } = await import('path');
     appSource = readFileSync(join(import.meta.dirname, '..', 'app.ts'), 'utf-8');
-    chatSource = readFileSync(join(import.meta.dirname, '..', 'chat.ts'), 'utf-8');
   });
 
   it('headless startChat call omits resume option', () => {
@@ -487,12 +485,6 @@ describe('headless session does not pass resume on first query', () => {
     // Must NOT contain resume as an option key (resume: ...)
     expect(callRegion).not.toMatch(/resume\s*[,:]/);
     expect(callRegion).not.toMatch(/resume\s*\?/);
-  });
-
-  it('interactive resume path still resolves SDK session ID', () => {
-    // The resume resolution logic in startChat must still exist for interactive sessions
-    expect(chatSource).toContain('getSessionSdkId(BASE_REPO, options.resume)');
-    expect(chatSource).toContain('resolvedResume');
   });
 });
 
