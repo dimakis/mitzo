@@ -141,7 +141,7 @@ export function parseServerMessage(
         const active = sessions.find((s) => s.sessionId === state.currentSessionId);
         if (active) {
           result.messagesActions.push({ type: 'SET_RUNNING', running: active.running });
-          if (active.running) callbacks.setWsRunning?.(poolKey, true);
+          callbacks.setWsRunning?.(poolKey, active.running);
         }
       }
       callbacks.onReconnected?.();

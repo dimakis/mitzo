@@ -626,7 +626,7 @@ describe('reconnected', () => {
       POOL_KEY,
     );
     expect(r.messagesActions).toContainEqual({ type: 'SET_RUNNING', running: false });
-    expect(setWsRunning).not.toHaveBeenCalled();
+    expect(setWsRunning).toHaveBeenCalledWith(POOL_KEY, false);
   });
 
   it('dispatches SET_RUNNING true when active session is still running', () => {
@@ -640,6 +640,19 @@ describe('reconnected', () => {
     );
     expect(r.messagesActions).toContainEqual({ type: 'SET_RUNNING', running: true });
     expect(setWsRunning).toHaveBeenCalledWith(POOL_KEY, true);
+  });
+
+  it('no-ops when currentSessionId not found in sessions list', () => {
+    const setWsRunning = vi.fn();
+    const state = makeState({ currentSessionId: 'sid-other' });
+    const r = parseServerMessage(
+      { type: 'reconnected', sessions: [{ sessionId: 'sid-1', replayed: 0, running: true }] },
+      state,
+      makeCallbacks({ setWsRunning }),
+      POOL_KEY,
+    );
+    expect(r.messagesActions).not.toContainEqual(expect.objectContaining({ type: 'SET_RUNNING' }));
+    expect(setWsRunning).not.toHaveBeenCalled();
   });
 
   it('no-ops when no currentSessionId', () => {
