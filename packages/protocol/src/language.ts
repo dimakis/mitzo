@@ -94,6 +94,7 @@ const EXT_MAP: Record<string, string> = {
 
   // Infrastructure
   dockerfile: 'dockerfile',
+  conf: 'nginx',
   nix: 'nix',
   wat: 'wasm',
   wast: 'wasm',

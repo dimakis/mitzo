@@ -174,7 +174,7 @@ describe('ToolPill', () => {
       expect(container.querySelector('.code-block-highlight')).toBeTruthy();
     });
 
-    it('renders plain pre for non-read tools', () => {
+    it('renders CodeBlock for non-read tools', () => {
       const block: FinishedBlock = {
         blockId: 'b1',
         blockType: 'tool_use',
@@ -187,8 +187,49 @@ describe('ToolPill', () => {
       fireEvent.click(screen.getByRole('button'));
 
       expect(screen.getByText('Result')).toBeTruthy();
-      expect(container.querySelector('.tool-pill-pre')).toBeTruthy();
-      expect(container.querySelector('.code-block-highlight')).toBeNull();
+      expect(container.querySelector('.code-block-highlight')).toBeTruthy();
+    });
+
+    it('renders bash-highlighted result for command tools', () => {
+      const block: FinishedBlock = {
+        blockId: 'b1',
+        blockType: 'tool_use',
+        content: '',
+        toolName: 'Bash',
+        toolInput: 'echo hello',
+        toolResult: 'hello',
+        rawInput: { type: 'command', command: 'echo hello', language: 'bash' },
+      };
+      const { container } = render(wrap(<ToolPill block={block} />));
+      fireEvent.click(screen.getByRole('button'));
+
+      // Result section uses CodeBlock with bash language
+      const codeBlocks = container.querySelectorAll('.code-block-highlight');
+      expect(codeBlocks.length).toBeGreaterThanOrEqual(2); // command input + result
+      expect(screen.getByText('Result')).toBeTruthy();
+    });
+
+    it('renders file-language-highlighted result for write tools', () => {
+      const block: FinishedBlock = {
+        blockId: 'b1',
+        blockType: 'tool_use',
+        content: '',
+        toolName: 'Write',
+        toolInput: 'test.ts',
+        toolResult: 'Wrote 50 chars',
+        rawInput: {
+          type: 'write',
+          path: '/src/test.ts',
+          contents: 'const x = 1;',
+          language: 'typescript',
+        },
+      };
+      const { container } = render(wrap(<ToolPill block={block} />));
+      fireEvent.click(screen.getByRole('button'));
+
+      // Both input and result render via CodeBlock
+      const codeBlocks = container.querySelectorAll('.code-block-highlight');
+      expect(codeBlocks.length).toBeGreaterThanOrEqual(2);
     });
 
     it('returns null when no toolResult', () => {
