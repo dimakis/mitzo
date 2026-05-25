@@ -118,13 +118,56 @@ const FALLBACK_BOOT_CONTEXT: BootContextMessage = {
 };
 
 /**
+ * Local fallback: run build_boot_context.py --json to get deterministic boot context.
+ * This is the "old way" — reads canonical source files directly, no server dependency.
+ */
+async function localBootContextFallback(repoRoot: string): Promise<BootContextMessage> {
+  const scriptPath = join(repoRoot, 'scripts', 'build_boot_context.py');
+  try {
+    const { execFile } = await import('child_process');
+    const { promisify } = await import('util');
+    const execFileAsync = promisify(execFile);
+    const { stdout } = await execFileAsync('python3', [scriptPath, '--json'], {
+      cwd: repoRoot,
+      timeout: 5000,
+    });
+    const parsed = JSON.parse(stdout) as { additionalContext?: string };
+    const content = parsed.additionalContext ?? '';
+    // Rough token estimate: ~4 chars per token
+    const tokens = Math.ceil(content.length / 4);
+    return {
+      type: 'boot_context',
+      source: 'local-fallback',
+      sourceCount: 5, // hardcoded source count from build_boot_context.py SOURCE_PATHS
+      tokenCount: tokens,
+      tokenBudget: tokens,
+      sources: [
+        { path: 'memory/Profile/Working Style.md', kind: 'profile' },
+        { path: 'memory/Profile/Communication Style.md', kind: 'profile' },
+        { path: 'memory/Profile/Principles.md', kind: 'profile' },
+        { path: 'CONSTITUTION.md', kind: 'constitution' },
+        { path: 'SERVICES.md', kind: 'reference' },
+      ],
+      included: [],
+      trimmed: [],
+      fullMarkdown: content,
+    };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.warn('Local boot context fallback failed', { error: msg });
+    return { ...FALLBACK_BOOT_CONTEXT };
+  }
+}
+
+/**
  * Fetch boot context from the running ContexGin server.
- * Returns a BootContextMessage ready to send to the client.
+ * Falls back to build_boot_context.py if the server is unreachable.
  * Never throws — returns a local-fallback message on any error.
  */
 export async function fetchBootContext(
   agentName: string,
   contexginUrl: string = process.env.CONTEXGIN_URL || 'http://localhost:8321',
+  repoRoot: string = BASE_REPO,
 ): Promise<BootContextMessage> {
   try {
     const url = `${contexginUrl}/api/agents/${agentName}/context`;
@@ -134,19 +177,21 @@ export async function fetchBootContext(
 
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      log.warn('ContexGin agent context request failed', {
+      log.warn('ContexGin agent context request failed, trying local fallback', {
         status: res.status,
         body: body.slice(0, 200),
       });
-      return { ...FALLBACK_BOOT_CONTEXT };
+      return localBootContextFallback(repoRoot);
     }
 
     const data = (await res.json()) as Record<string, unknown>;
     const boot = data.boot as Record<string, unknown> | undefined;
 
     if (!boot) {
-      log.warn('ContexGin response missing boot field', { keys: Object.keys(data) });
-      return { ...FALLBACK_BOOT_CONTEXT };
+      log.warn('ContexGin response missing boot field, trying local fallback', {
+        keys: Object.keys(data),
+      });
+      return localBootContextFallback(repoRoot);
     }
 
     const bootTokens = typeof boot.tokens === 'number' ? boot.tokens : 0;
@@ -171,8 +216,8 @@ export async function fetchBootContext(
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.info('ContexGin not reachable, boot context unavailable', { error: msg });
-    return { ...FALLBACK_BOOT_CONTEXT };
+    log.info('ContexGin not reachable, trying local fallback', { error: msg });
+    return localBootContextFallback(repoRoot);
   }
 }
 
