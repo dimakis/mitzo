@@ -5,6 +5,25 @@ import type { BootContextMessage } from '../chat.js';
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
+// Mock child_process for local fallback tests
+const mockExecFile = vi.fn();
+vi.mock('child_process', () => ({
+  execFileSync: vi.fn(),
+  execFile: mockExecFile,
+}));
+
+// Mock util.promisify to return our mock
+vi.mock('util', async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...actual,
+    promisify: (fn: unknown) => {
+      if (fn === mockExecFile) return mockExecFile;
+      return (actual.promisify as (fn: unknown) => unknown)(fn);
+    },
+  };
+});
+
 // Mock logger to suppress output
 vi.mock('../logger.js', () => ({
   createLogger: () => ({
@@ -93,38 +112,66 @@ describe('fetchBootContext', () => {
     });
   });
 
-  it('returns local-fallback when ContexGin is unreachable', async () => {
+  it('falls back to local Python script when ContexGin is unreachable', async () => {
     mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    mockExecFile.mockResolvedValueOnce({
+      stdout: JSON.stringify({ additionalContext: '# Local boot context\nFallback content.' }),
+    });
 
-    const result = await fetchBootContext('mitzo-conversational', CONTEXGIN_URL);
+    const result = await fetchBootContext('mitzo-conversational', CONTEXGIN_URL, '/fake/repo');
 
     expect(result.source).toBe('local-fallback');
-    expect(result.sourceCount).toBe(0);
-    expect(result.tokenCount).toBe(0);
+    expect(result.sourceCount).toBe(5);
+    expect(result.fullMarkdown).toBe('# Local boot context\nFallback content.');
+    expect(result.tokenCount).toBeGreaterThan(0);
+    expect(result.sources).toHaveLength(5);
+    expect(result.sources[0]).toEqual({
+      path: 'memory/Profile/Working Style.md',
+      kind: 'profile',
+    });
   });
 
-  it('returns local-fallback on non-200 response', async () => {
+  it('falls back to local Python script on non-200 response', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 404,
       text: async () => '{"error":"Agent not found"}',
     });
+    mockExecFile.mockResolvedValueOnce({
+      stdout: JSON.stringify({ additionalContext: 'fallback content' }),
+    });
 
-    const result = await fetchBootContext('nonexistent-agent', CONTEXGIN_URL);
+    const result = await fetchBootContext('nonexistent-agent', CONTEXGIN_URL, '/fake/repo');
 
     expect(result.source).toBe('local-fallback');
-    expect(result.sourceCount).toBe(0);
+    expect(result.fullMarkdown).toBe('fallback content');
   });
 
-  it('returns local-fallback when response lacks boot field', async () => {
+  it('falls back to local Python script when response lacks boot field', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ agent: 'test', identity: {} }),
     });
+    mockExecFile.mockResolvedValueOnce({
+      stdout: JSON.stringify({ additionalContext: 'fallback' }),
+    });
 
-    const result = await fetchBootContext('mitzo-conversational', CONTEXGIN_URL);
+    const result = await fetchBootContext('mitzo-conversational', CONTEXGIN_URL, '/fake/repo');
 
     expect(result.source).toBe('local-fallback');
+    expect(result.fullMarkdown).toBe('fallback');
+  });
+
+  it('returns zero-value fallback when both ContexGin and Python script fail', async () => {
+    mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    mockExecFile.mockRejectedValueOnce(new Error('script not found'));
+
+    const result = await fetchBootContext('mitzo-conversational', CONTEXGIN_URL, '/fake/repo');
+
+    expect(result.source).toBe('local-fallback');
+    expect(result.sourceCount).toBe(0);
+    expect(result.tokenCount).toBe(0);
+    expect(result.fullMarkdown).toBeUndefined();
   });
 
   it('handles empty sources array', async () => {
@@ -169,6 +216,7 @@ describe('fetchBootContext', () => {
     process.env.CONTEXGIN_URL = 'http://test-host:9999';
 
     mockFetch.mockRejectedValueOnce(new Error('timeout'));
+    mockExecFile.mockRejectedValueOnce(new Error('no script'));
 
     await fetchBootContext('mitzo-conversational');
 
