@@ -138,7 +138,8 @@ async function localBootContextFallback(repoRoot: string): Promise<BootContextMe
     return {
       type: 'boot_context',
       source: 'local-fallback',
-      sourceCount: 5, // hardcoded source count from build_boot_context.py SOURCE_PATHS
+      // Coupled to SOURCE_PATHS in scripts/build_boot_context.py — update if that list changes
+      sourceCount: 5,
       tokenCount: tokens,
       tokenBudget: tokens,
       sources: [
@@ -170,7 +171,7 @@ export async function fetchBootContext(
   repoRoot: string = BASE_REPO,
 ): Promise<BootContextMessage> {
   try {
-    const url = `${contexginUrl}/api/agents/${agentName}/context`;
+    const url = `${contexginUrl}/api/agents/${encodeURIComponent(agentName)}/context`;
     const res = await fetch(url, {
       signal: AbortSignal.timeout(5000),
     });
@@ -201,7 +202,7 @@ export async function fetchBootContext(
       .filter((s): s is string => typeof s === 'string')
       .map((s) => ({ path: s, kind: 'reference' }));
 
-    const fullMarkdown = typeof boot.content === 'string' ? (boot.content as string) : undefined;
+    const fullMarkdown = typeof boot.content === 'string' ? boot.content : undefined;
 
     return {
       type: 'boot_context',

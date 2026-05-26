@@ -211,24 +211,43 @@ describe('fetchBootContext', () => {
     expect(result.sourceCount).toBe(2);
   });
 
+  it('falls back to local script when response body is malformed JSON', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => {
+        throw new SyntaxError('Unexpected token < in JSON');
+      },
+    });
+    mockExecFile.mockResolvedValueOnce({
+      stdout: JSON.stringify({ additionalContext: 'json fallback' }),
+    });
+
+    const result = await fetchBootContext('mitzo-conversational', CONTEXGIN_URL, '/fake/repo');
+
+    expect(result.source).toBe('local-fallback');
+    expect(result.fullMarkdown).toBe('json fallback');
+  });
+
   it('uses default URL from env when not provided', async () => {
     const origUrl = process.env.CONTEXGIN_URL;
     process.env.CONTEXGIN_URL = 'http://test-host:9999';
 
-    mockFetch.mockRejectedValueOnce(new Error('timeout'));
-    mockExecFile.mockRejectedValueOnce(new Error('no script'));
+    try {
+      mockFetch.mockRejectedValueOnce(new Error('timeout'));
+      mockExecFile.mockRejectedValueOnce(new Error('no script'));
 
-    await fetchBootContext('mitzo-conversational');
+      await fetchBootContext('mitzo-conversational');
 
-    expect(mockFetch).toHaveBeenCalledWith(
-      'http://test-host:9999/api/agents/mitzo-conversational/context',
-      expect.any(Object),
-    );
-
-    if (origUrl !== undefined) {
-      process.env.CONTEXGIN_URL = origUrl;
-    } else {
-      delete process.env.CONTEXGIN_URL;
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://test-host:9999/api/agents/mitzo-conversational/context',
+        expect.any(Object),
+      );
+    } finally {
+      if (origUrl !== undefined) {
+        process.env.CONTEXGIN_URL = origUrl;
+      } else {
+        delete process.env.CONTEXGIN_URL;
+      }
     }
   });
 });
