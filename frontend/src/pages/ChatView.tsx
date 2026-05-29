@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { ChatArea } from '../components/ChatArea';
 import { ChatInput } from '../components/ChatInput';
+import { SessionBanner } from '../components/SessionBanner';
 import { VoiceSettings } from '../components/VoiceSettings';
 import { MitzoLogo } from '../components/MitzoLogo';
 import { useMessages, useConnection, useTokens, useMitzoStore } from '@mitzo/client/hooks';
@@ -271,6 +272,8 @@ export function ChatView() {
         )}
       </header>
 
+      <SessionBanner bootContext={bootContext} sessionContext={sessionContext} />
+
       <ChatArea
         messages={messages.messages}
         current={messages.current}
@@ -278,8 +281,6 @@ export function ChatView() {
         permission={messages.permission}
         onPermissionRespond={handlePermission}
         scrollRef={scrollRef}
-        sessionContext={sessionContext}
-        bootContext={bootContext}
         progressByToolId={progressByToolId}
         voice={voice}
       />
