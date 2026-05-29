@@ -62,7 +62,14 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
   }, [showModal]);
 
   // Reset expand states when context identity changes (e.g. session switch)
-  const contextKey = (bootContext?.tokenCount ?? '') + '|' + (sessionContext ?? '');
+  const contextKey =
+    (bootContext?.tokenCount ?? '') +
+    ':' +
+    (bootContext?.sourceCount ?? '') +
+    ':' +
+    (bootContext?.sources[0]?.path ?? '') +
+    '|' +
+    (sessionContext ?? '');
   useEffect(() => {
     setExpanded(false);
     setShowBootDetails(false);
@@ -119,24 +126,29 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
             {/* Boot context details */}
             {bootContext && (
               <div className="session-banner-boot">
-                <div
-                  className="session-banner-boot-toggle"
-                  role="button"
-                  tabIndex={0}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowBootDetails((d) => !d);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
+                <div className="session-banner-boot-row">
+                  <div
+                    className="session-banner-boot-toggle"
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => {
+                      e.stopPropagation();
                       setShowBootDetails((d) => !d);
-                    }
-                  }}
-                >
-                  <span className="session-banner-label">
-                    Boot Context ({isContexgin ? 'ContexGin' : 'Fallback'})
-                  </span>
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setShowBootDetails((d) => !d);
+                      }
+                    }}
+                  >
+                    <span className="session-banner-label">
+                      Boot Context ({isContexgin ? 'ContexGin' : 'Fallback'})
+                    </span>
+                    <span className="session-banner-chevron-inline">
+                      {showBootDetails ? '\u25BE' : '\u25B8'}
+                    </span>
+                  </div>
                   {bootContext.fullMarkdown && (
                     <button
                       className="session-banner-view-full"
@@ -149,9 +161,6 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
                       ⧉
                     </button>
                   )}
-                  <span className="session-banner-chevron-inline">
-                    {showBootDetails ? '\u25BE' : '\u25B8'}
-                  </span>
                 </div>
 
                 {showBootDetails && (

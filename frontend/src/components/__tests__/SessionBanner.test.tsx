@@ -52,4 +52,43 @@ describe('SessionBanner', () => {
     expect(screen.getByText(/5 sources/)).toBeTruthy();
     expect(screen.getByText(/Test task/)).toBeTruthy();
   });
+
+  it('shows boot context details on nested toggle', () => {
+    render(<SessionBanner bootContext={bootContext} />);
+    // Expand the banner first
+    fireEvent.click(screen.getByRole('button', { name: /5 sources/ }));
+    // Now toggle boot context details
+    fireEvent.click(screen.getByRole('button', { name: /Boot Context/ }));
+    expect(screen.getByText('Sources')).toBeTruthy();
+    expect(screen.getByText('CONSTITUTION.md')).toBeTruthy();
+  });
+
+  it('opens full markdown modal via view-full button', () => {
+    render(<SessionBanner bootContext={bootContext} />);
+    // Expand the banner
+    fireEvent.click(screen.getByRole('button', { name: /5 sources/ }));
+    // Click the ⧉ button
+    fireEvent.click(screen.getByTitle('View full markdown'));
+    expect(screen.getByText('Boot Context (Full Markdown)')).toBeTruthy();
+    expect(screen.getByText('# Full boot context markdown')).toBeTruthy();
+  });
+
+  it('closes modal on close button click', () => {
+    render(<SessionBanner bootContext={bootContext} />);
+    fireEvent.click(screen.getByRole('button', { name: /5 sources/ }));
+    fireEvent.click(screen.getByTitle('View full markdown'));
+    expect(screen.getByText('Boot Context (Full Markdown)')).toBeTruthy();
+    // Close the modal
+    fireEvent.click(screen.getByText('\u2715'));
+    expect(screen.queryByText('Boot Context (Full Markdown)')).toBeNull();
+  });
+
+  it('closes modal on Escape key', () => {
+    render(<SessionBanner bootContext={bootContext} />);
+    fireEvent.click(screen.getByRole('button', { name: /5 sources/ }));
+    fireEvent.click(screen.getByTitle('View full markdown'));
+    expect(screen.getByText('Boot Context (Full Markdown)')).toBeTruthy();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByText('Boot Context (Full Markdown)')).toBeNull();
+  });
 });

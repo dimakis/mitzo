@@ -2503,11 +2503,17 @@ textarea:focus {
   margin-top: 0.25rem;
 }
 
+.session-banner-boot-row {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
 .session-banner-boot-toggle {
   display: flex;
   align-items: center;
   gap: 0.3rem;
-  width: 100%;
+  flex: 1;
   padding: 0.15rem 0;
   background: transparent;
   border: none;
