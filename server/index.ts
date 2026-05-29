@@ -29,6 +29,7 @@ import {
   getRepoConfig,
   setConnectionRegistry,
   setSessionChangeCallback,
+  setSessionsChangedCallback,
   reconcileSessionsBackground,
 } from './chat.js';
 import { cleanupStaleWorktrees, countWorktrees } from './worktree.js';
@@ -269,6 +270,10 @@ setSessionChangeCallback((clientId, event, sessionId) => {
     }
   }
   overviewEmitter.scheduleBroadcast();
+});
+
+setSessionsChangedCallback(() => {
+  sseRegistry.broadcast('sessions_changed', {});
 });
 
 server.on('upgrade', async (req, socket, head) => {

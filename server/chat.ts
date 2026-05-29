@@ -61,6 +61,11 @@ let _onSessionChange: SessionChangeCallback | null = null;
 export function setSessionChangeCallback(cb: SessionChangeCallback): void {
   _onSessionChange = cb;
 }
+
+let _onSessionsChanged: (() => void) | null = null;
+export function setSessionsChangedCallback(cb: () => void): void {
+  _onSessionsChanged = cb;
+}
 import { EventStore } from './event-store.js';
 import { capturePromptComparison } from './prompt-compare.js';
 import { shouldAutoRename, extractRecentPrompts, generateSessionName } from './auto-rename.js';
@@ -1015,6 +1020,7 @@ async function tryAutoRename(sessionId: string, clientId: string): Promise<void>
 
     // Persist to EventStore first — survives SDK rename failures.
     eventStore.upsertSession({ sessionId, summary: newName });
+    _onSessionsChanged?.();
 
     // Update the SDK session name (best-effort, fire-and-forget)
     renameSessionById(sessionId, newName, false).catch((err: unknown) => {
