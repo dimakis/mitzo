@@ -17,7 +17,7 @@ npm run lint         # ESLint (server + frontend)
 npm run lint:fix     # ESLint with auto-fix
 npm run format       # Prettier (write)
 npm run format:check # Prettier (check only)
-npm test             # Vitest (22000+ tests across all packages)
+npm test             # Vitest (2587 tests across 177 suites)
 ```
 
 **Deployment:** Mitzo runs as a launchd service (`com.mitzo.server`). The server is compiled to JS via `tsc` (not live-transpiled). Run `npm run deploy` to build and restart. Logs in `logs/server-{stdout,stderr}.log`.
@@ -53,9 +53,19 @@ The production backend stays untouched on `:3100`. Only the frontend is swapped.
 
 ## Architecture
 
-Web-based command center for Claude Code sessions via the Agent SDK. Two npm projects share one repo:
+Web-based command center for Claude Code sessions via the Agent SDK. The repo uses an npm workspace with three internal packages and two main directories:
 
-**Backend** (`server/`) — Node.js + Express + TypeScript, run via `tsx`
+### Packages (`packages/`) — npm workspace
+
+| Package           | Purpose                                                                                                                                                          |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@mitzo/protocol` | Core protocol types, Zod schemas (v2 WS messages, API schemas), tool summarization, event store definitions. Exports event-store module separately.              |
+| `@mitzo/harness`  | Session registry, connection registry, permission handler, worktree guard, tool tiers, skill policy, auto-rename, notifications, logger                          |
+| `@mitzo/client`   | Frontend state management: `MitzoConnection` (single multiplexed WS), Zustand store (`createMitzoStore`), v2 protocol parser, session switching, message reducer |
+
+### Backend (`server/`) — Node.js + Express + TypeScript, run via `tsx`
+
+**Core** — Event streaming, session lifecycle, SDK integration
 
 - `index.ts` — Express app, mounts routes, HTTP server + WebSocket. Sends `client_id` on WS connect for session reattach. Runs stale worktree cleanup on startup.
 - `app.ts` — Express app factory (extracted from index.ts for testability via supertest).
@@ -64,59 +74,119 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 - `session-registry.ts` — `SessionRegistry` class: detach/reattach/rekey, TTL-based abort (10 min), `currentSnapshot` for reattach recovery, `findBySessionId` for reconnection.
 - `permission-handler.ts` — Builds the `canUseTool` callback for SDK permission flow. Checks skill policy → worktree guard → `shouldAutoAllow()` before prompting. Falls back to WS-based prompting with ntfy/Pushover notifications.
 - `async-queue.ts` — `AsyncQueue<T>` implementing `AsyncIterable<T>` for streaming-input. Supports `push()` for follow-up messages and `close()` for session teardown.
-- `tool-tiers.ts` — Tool risk classification (`safe`, `standard`, `elevated`, `unknown`). `shouldAutoAllow()` implements mode x tier matrix. `.mitzo.json` tier overrides via `applyTierOverrides()`.
-- `tool-summary.ts` — Tool input summarization. **SDK field names**: `file_path` (not `path`), `content` (not `contents`), `pattern`/`path` for Glob (not `glob_pattern`/`target_directory`).
-- `content-blocks.ts` — SDK content block parsing (text, tool_use, tool_result). Used by stream and session restore API.
-- `permissions.ts` — Permission request/response registry with tier metadata.
+
+**Skills** — Slash-command system
+
 - `skills.ts` — Skill registry: scoped discovery (bundled → user → repo), lazy metadata/body loading, deterministic precedence, collision tracking.
 - `slash-commands.ts` — Slash-command parsing, prompt expansion, skill resolution from user input.
 - `skill-policy.ts` — Per-turn tool restriction: skills declare `allowed-tools` in frontmatter, enforced as a ceiling on `canUseTool`.
 - `native-commands.ts` — Built-in native commands (`/skills`) — TypeScript product behavior, not prompt-based.
-- `auto-rename.ts` — Automatic session renaming every N user prompts via LLM summarization.
-- `event-store.ts` — Persistent event store for session message replay.
-- `hook-bridge.ts` — Bridges project-level hooks (`.claude/settings.json`) to Agent SDK sessions.
-- `api-schemas.ts` — Zod schemas for HTTP request/response validation.
-- `ws-schemas.ts` — Zod schemas for WebSocket message validation.
-- `internal-token.ts` — Internal token generation for inter-process auth. Persisted to `~/.mitzo/internal-token` at startup so session hooks can authenticate with `POST /api/sessions`.
-- `session-index.ts` — YAML session index at `<repo>/.claude/sessions/index.yaml`. Tracks active/closed sessions with repo worktree mappings.
-- `repo-mcp-server.ts` — Repo-scoped MCP server configuration.
-- `notification-helpers.ts` — Shared notification formatting utilities.
-- `inbox.ts` — Inbox integration endpoint.
+
+**Task Board** — Multi-session orchestration
+
 - `task-store.ts` — `TaskStore` class: SQLite persistence for tasks with tree queries, cascade status, DFS ordering, orphan detection. WAL mode + foreign keys.
 - `task-tools.ts` — Pure handler functions for agent task tools (TaskSet, TaskComplete, TaskStatus, TaskBlock). Never throw — return error strings.
 - `task-mcp-server.ts` — Stdio MCP server exposing task tools as `mcp__task-board__*`. Calls back to internal HTTP endpoints.
 - `task-context.ts` — XML task context builder for system prompt injection. Includes current task, siblings, parent tree, and summaries (capped at 2000 chars).
 - `task-orchestrator.ts` — `TaskOrchestrator`: event-driven state machine (idle/running/paused) with DFS sequential task assignment. Spec mode for human review of decompositions. Orphan detection reclaims tasks from dead sessions.
+
+**Worktrees & Session Isolation**
+
+- `worktree.ts` — Git worktree lifecycle: `createWorktree` (with optional dir/branch/prefix overrides), `createSessionWorktrees` (bulk creation for all repos), `removeWorktree`, `cleanupStaleWorktrees` (scans both `.claude/worktrees/` and `.cursor/worktrees/`), `listWorktrees`.
+- `session-index.ts` — YAML session index at `<repo>/.claude/sessions/index.yaml`. Tracks active/closed sessions with repo worktree mappings.
+
+**Observability**
+
+- `logger.ts` — Pino structured logging: JSON output, `LOG_LEVEL` env filtering, pino-roll daily file rotation to `logs/`, OTel trace context mixin (trace_id/span_id), pino-pretty for dev. Lazy singleton init to avoid import-time side effects in tests. Loki integration when `LOKI_HOST` is set.
+- `tracing.ts` — OpenTelemetry: BatchSpanProcessor with OTLP HTTP exporter to Jaeger. Opt-in when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+- `trace-context.ts` — Trace context utilities.
+- `health-monitor.ts` — Service health monitoring (Yapper, ContexGin).
+
+**Notifications**
+
+- `notify.ts` — ntfy push notifications.
+- `pushover.ts` — Pushover (Apple Watch) notifications.
+- `apns.ts` — Apple Push Notification Service (iOS native).
+- `notification-helpers.ts` — Shared notification formatting utilities.
+
+**WebSocket & Transport**
+
 - `ws-handler-v2.ts` — v2 WebSocket message dispatcher: hello handshake → session routing for send/stop/interrupt/permission_response/set_mode.
 - `ws-transport.ts` — `SessionTransport` adapter wrapping WebSocket connections.
-- `connection-registry.ts` (harness) — `ConnectionRegistry`: maps connectionId → transport + sessionId, broadcasts to session observers.
-- `mcp-config.ts` — Loads MCP server configs from Cursor mcp.json.
-- `worktree.ts` — Git worktree lifecycle: `createWorktree` (with optional dir/branch/prefix overrides), `createSessionWorktrees` (bulk creation for all repos), `removeWorktree`, `cleanupStaleWorktrees` (scans both `.claude/worktrees/` and `.cursor/worktrees/`), `listWorktrees`.
-- `worktree-guard.ts` (harness) — `checkWorktreePolicy()`: inspects Write/Edit/Bash tool inputs against session worktree paths. Denies out-of-bounds writes with a redirect message. Read operations pass through.
+- `null-transport.ts` — Null transport for testing.
+- `ws-schemas.ts` — Zod schemas for WebSocket message validation.
+
+**Supporting**
+
+- `tool-tiers.ts` — Tool risk classification (`safe`, `standard`, `elevated`, `unknown`). `shouldAutoAllow()` implements mode x tier matrix. `.mitzo.json` tier overrides via `applyTierOverrides()`.
+- `tool-summary.ts` — Tool input summarization. **SDK field names**: `file_path` (not `path`), `content` (not `contents`), `pattern`/`path` for Glob (not `glob_pattern`/`target_directory`).
+- `content-blocks.ts` — SDK content block parsing (text, tool_use, tool_result). Used by stream and session restore API.
+- `permissions.ts` — Permission request/response registry with tier metadata.
+- `event-store.ts` — Persistent event store for session message replay.
+- `auto-rename.ts` — Automatic session renaming every N user prompts via LLM summarization.
+- `hook-bridge.ts` — Bridges project-level hooks (`.claude/settings.json`) to Agent SDK sessions.
+- `api-schemas.ts` — Zod schemas for HTTP request/response validation.
+- `internal-token.ts` — Internal token generation for inter-process auth. Persisted to `~/.mitzo/internal-token` at startup so session hooks can authenticate with `POST /api/sessions`.
 - `repo-config.ts` — `.mitzo.json` reader for quick actions, venv paths, tier overrides, and `repos` (secondary repo paths for multi-repo worktrees).
-- `notify.ts` / `pushover.ts` — Push notifications (ntfy + Pushover/Apple Watch).
+- `mcp-config.ts` — Loads MCP server configs from Cursor mcp.json.
+- `inbox.ts` — Inbox integration endpoint.
 - `auth.ts` — Passphrase login, JWT (HS256 via jose), cookie auth.
-- `logger.ts` — Pino structured logging: JSON output, `LOG_LEVEL` env filtering, pino-roll daily file rotation to `logs/`, OTel trace context mixin (trace_id/span_id), pino-pretty for dev. Lazy singleton init to avoid import-time side effects in tests.
-- `constants.ts` — Server-wide constants (timeouts, buffer limits, defaults).
 - `git-version.ts` — Local/remote commit comparison for update detection.
 - `port-check.ts` — Prevents duplicate server instances.
+- `constants.ts` — Server-wide constants (timeouts, buffer limits, defaults).
+- `goal-client.ts` — ContexGin Goal Registry client.
+- `progress-tracker.ts` — Progress tracking utilities.
+- `prompt-compare.ts` — Prompt comparison utilities.
+- `workflow-templates.ts` — Workflow templates.
+- `workload-store.ts` — Workload persistence.
+- `session-overview.ts` — Session overview API.
+- `signal-processor.ts` — Signal processing utilities.
 
-**Packages** (`packages/`) — npm workspace packages shared between server and frontend
+### Frontend (`frontend/`) — React 19 + Vite + TypeScript
 
-- `@mitzo/protocol` — Shared types, Zod schemas (v2 WS messages, API schemas), tool summarization.
-- `@mitzo/harness` — Session registry, connection registry, permission handler, worktree guard, tool tiers, skill policy, auto-rename, notifications, logger.
-- `@mitzo/client` — Frontend state management: `MitzoConnection` (single multiplexed WS), Zustand store (`createMitzoStore`), v2 protocol parser, session switching, message reducer.
-
-**Frontend** (`frontend/`) — React 19 + Vite + TypeScript
+**Types** — `types/` directory
 
 - `types/chat.ts` — v2 types: `StreamingBlock`, `StreamingMessage`, `FinishedBlock`, `FinishedMessage`, `BlockType`, `RawToolInput`, `PermissionRequest`, `ToolTier`, `Session`, `ImageAttachment`.
 - `types/ws-messages.ts` — Typed WebSocket message unions (client → server, server → client).
 - `types/task.ts` — Task model types (`Task`, `TaskStatus`, `LoopStatus`, `SessionPolicy`).
-- `hooks/` — `useChatMessages` (useReducer for v2 protocol: MESSAGE_START/BLOCK_START/BLOCK_DELTA/BLOCK_END/TOOL_RESULT/MESSAGE_END/SESSION_END/MESSAGE_SNAPSHOT/RESTORE), `useChatSession`, `useChatConnection`, `usePermission`, `useTaskBoard` (task CRUD + loop control + WS subscriptions), `useFileNavigation`, `useFileEditor`, `useLongPress`.
-- `lib/` — `groupMessages` (tool block grouping with configurable threshold), `constants`, `formatTime`, `paste-images`, `model-preference`, `rename-session`, `resizeImage`, `swipe-reveal`, `truncate`.
-- Pages: `Login`, `SessionList`, `ChatView` (renders `current` inline + `messages[]` grouped), `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`, `TaskBoard`.
-- Components: `MessageBubble` (UserBubble/TextBubble), `ThinkingBlock`, `ToolPill`, `ToolGroup`, `PermissionBanner`, `ChatInput`, `SlashPicker`, `ErrorBoundary`, `MitzoLogo`, `TaskNode`, `TaskCreateForm`, `LoopControls`, `TaskSidebar`.
-- Auth via `ProtectedRoute` wrapper. Vite dev server proxies `/api` and `/ws` to backend.
+
+**Hooks** — `hooks/` directory (21 hooks)
+
+- `useChatMessages` — useReducer for v2 protocol: MESSAGE_START/BLOCK_START/BLOCK_DELTA/BLOCK_END/TOOL_RESULT/MESSAGE_END/SESSION_END/MESSAGE_SNAPSHOT/RESTORE
+- `useTaskBoard` — task CRUD + loop control + WS subscriptions
+- `useVoice` — STT (push-to-talk) + TTS (auto-speak toggle, voice selection, sequential chunk playback)
+- `useFileNavigation` / `useFileEditor` — file browser and editing
+- `useSessionOverview` — session metadata and statistics
+- `useAutoSpeak` — auto-speak TTS preferences
+- `useServiceHealth` — health status for Yapper, ContexGin
+- `useCalendarData`, `useTodoData`, `useSessionList`, `useSessionSearch`, `useAttentionFeed`, `useProgress`, `useDocumentReader`, `useDraft`, `useTabBadges`, `useTheme`, `useLongPress`, `useMediaQuery`, `useQueuedMessages`, `useCopyFeedback`
+
+**Lib** — `lib/` directory (27 utility files)
+
+- `groupMessages` — tool block grouping with configurable threshold
+- `tts.ts` — Text chunking at sentence boundaries, WAV synthesis via Yapper API, singleton AudioContext playback
+- `api-fetch`, `audio`, `biometric`, `capacitor`, `clipboard`, `constants`, `event-bus-singleton`, `extractText`, `file-paths`, `formatTime`, `formatTokens`, `haptics`, `inbox-utils`, `keyboard`, `model-preference`, `paste-images`, `push`, `rename-session`, `resizeImage`, `splash`, `swipe-reveal`, `todo-utils`, `tracing`, `truncate`, `watch-auth`, `yapper-ws`
+
+**Pages** — 10 pages
+
+- `Login`, `SessionList`, `ChatView` (renders `current` inline + `messages[]` grouped), `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`, `TaskBoard`
+
+**Components** — 48 components
+
+- **Message rendering:** `MessageBubble` (UserBubble/TextBubble), `ThinkingBlock`, `ToolPill`, `ToolGroup`, `PermissionBanner`
+- **Input:** `ChatInput`, `SlashPicker`, `MicButton`
+- **Task board:** `TaskNode`, `TaskCreateForm`, `LoopControls`, `TaskSidebar`, `TaskBoardSection`
+- **Navigation:** `DesktopNav`, `DesktopShell`, `MobileShell`, `TabBar`, `PageHeader`
+- **Session management:** `ActiveSessionsList`, `SessionPanel`, `SessionOverview`, `SessionSearchBar`
+- **File browser:** `FileBrowserPanel`
+- **Context:** `ContextBlock`, `ContextPanel`, `ContextPicker`, `BootContextPill`
+- **Voice:** `VoiceSettings`, `ReadAloudButton`
+- **Utilities:** `ErrorBoundary`, `MitzoLogo`, `EmptyState`, `CopyButton`, `ScrollFab`, `StatusBar`, `TokenBar`, `ServiceStatus`, `ProgressWidget`, `CollapsibleSection`
+- **Content cards:** `BriefingCard`, `EventCard`, `MarkdownPreviewCard`, `SubagentCard`, `TodoCard`
+- **Sections:** `AttentionFeed`, `InboxSection`, `TelosSection`, `CommandCenter`, `SprintBar`
+- **Forms:** `WorkflowCreateForm`
+
+Auth via `ProtectedRoute` wrapper. Vite dev server proxies `/api` and `/ws` to backend.
 
 **v2 protocol — key reducer behaviors:**
 
@@ -206,14 +276,14 @@ Web-based command center for Claude Code sessions via the Agent SDK. Two npm pro
 
 - Skills are reusable prompt packages invoked via `/slash-command` in chat input.
 - Three scopes: **Native** (TypeScript commands like `/skills`), **Skills** (markdown with YAML frontmatter), **Quick actions** (launchers from `.mitzo.json`).
-- Discovery: repo-local (`.mitzo/skills/`), user (`~/.mitzo/skills/`), bundled (`server/bundled-skills/`).
+- Discovery: repo-local (`.mitzo/skills/`), user (`~/.mitzo/skills/`), bundled (`./skills/`).
 - Resolution order: Native → Repo → User → Bundled. Deterministic precedence with collision metadata.
 - `SlashPicker` component shows available skills when user types `/` in chat input, with type badges and collision notes.
 - Skills can declare `allowed-tools` in frontmatter — enforced as a ceiling (never expands permissions) via `skill-policy.ts`.
-- Bundled skills: `/simplify` (complexity, duplication, cleanup), `/risk-scan` (failure modes, missing tests, unsafe assumptions), `/pr-review` (diff/branch code review), `/person` (people profile lookup and update), `/review-response` (triage and fix PR review comments).
+- Bundled skills: `/simplify` (complexity, duplication, cleanup), `/risk-scan` (failure modes, missing tests, unsafe assumptions), `/pr-review` (diff/branch code review), `/person` (people profile lookup and update), `/review-response` (triage and fix PR review comments), `/land-pr` (shepherd a PR from open to merged), `/pr-shepherd` (persistent PR monitoring and lifecycle).
 - `GET /api/skills` returns merged registry with collision info, scoped by `cwd` query param.
 
-**Voice integration (landing with PR #108):**
+**Voice integration:**
 
 - Client-direct architecture: frontend talks to [Yapper](~/projects/yapper/) for STT/TTS, server stays text-only.
 - `lib/tts.ts` — Text chunking at sentence boundaries, WAV synthesis via Yapper API, singleton AudioContext playback.
@@ -260,7 +330,7 @@ All feature work follows TDD. This is not optional.
 ### Running Tests
 
 ```bash
-npm test              # Vitest — full suite
+npm test              # Vitest — full suite (2587 tests across 177 suites)
 npm test -- --watch   # Watch mode during development
 npm test -- <path>    # Run specific test file
 ```
