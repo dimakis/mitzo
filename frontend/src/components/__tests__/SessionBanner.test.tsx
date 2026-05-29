@@ -9,11 +9,11 @@ import { SessionBanner } from '../SessionBanner';
 afterEach(() => cleanup());
 
 const bootContext = {
-  source: 'contexgin',
+  source: 'contexgin' as const,
   sourceCount: 5,
   tokenCount: 4200,
   tokenBudget: 8000,
-  sources: [{ kind: 'constitution', path: 'CONSTITUTION.md' }],
+  sources: [{ kind: 'constitution' as const, path: 'CONSTITUTION.md' }],
   included: [{ heading: 'Identity', tokens: 200, content: 'test content' }],
   trimmed: [],
   fullMarkdown: '# Full boot context markdown',
