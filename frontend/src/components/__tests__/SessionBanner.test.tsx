@@ -14,7 +14,9 @@ const bootContext = {
   tokenCount: 4200,
   tokenBudget: 8000,
   sources: [{ kind: 'constitution' as const, path: 'CONSTITUTION.md' }],
-  included: [{ heading: 'Identity', tokens: 200, content: 'test content' }],
+  included: [
+    { source: 'CONSTITUTION.md', heading: 'Identity', tokens: 200, content: 'test content' },
+  ],
   trimmed: [],
   fullMarkdown: '# Full boot context markdown',
 };
