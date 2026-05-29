@@ -497,6 +497,10 @@ async function _runQueryLoopInner(
                 ...(currentSession.worktreePath ? { wtId: currentSession.wtId } : {}),
                 ...(initialPrompt ? { initialPrompt } : {}),
                 ...(currentSession.telosTaskId ? { telosTaskId: currentSession.telosTaskId } : {}),
+                ...(currentSession.agentName ? { agentName: currentSession.agentName } : {}),
+                ...(currentSession.bootContext
+                  ? { bootContext: JSON.stringify(currentSession.bootContext) }
+                  : {}),
               });
               if (initialPrompt) {
                 // Store the initial prompt as a user_message event so

@@ -48,6 +48,8 @@ interface SessionRow {
   last_speaker_at: number | null;
   state: string | null;
   last_state_change: number | null;
+  agent_name: string | null;
+  boot_context: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -122,6 +124,7 @@ export class EventStore {
     this.migrateCloseTracking(db);
     this.migrateAttentionTracking(db);
     this.migrateSessionState(db);
+    this.migrateBootContext(db);
 
     this.log.info('EventStore initialized', { dbPath });
 
@@ -281,6 +284,19 @@ export class EventStore {
     }
   }
 
+  private migrateBootContext(db: Database.Database): void {
+    const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
+    const columnNames = new Set(columns.map((c) => c.name));
+    if (!columnNames.has('agent_name')) {
+      db.exec('ALTER TABLE sessions ADD COLUMN agent_name TEXT');
+      this.log.info('migrated sessions table: added agent_name');
+    }
+    if (!columnNames.has('boot_context')) {
+      db.exec('ALTER TABLE sessions ADD COLUMN boot_context TEXT');
+      this.log.info('migrated sessions table: added boot_context');
+    }
+  }
+
   close(): void {
     if (this.db) {
       this.db.close();
@@ -351,6 +367,14 @@ export class EventStore {
         fields.push('closed_by = ?');
         values.push(meta.closedBy);
       }
+      if (meta.agentName !== undefined) {
+        fields.push('agent_name = ?');
+        values.push(meta.agentName);
+      }
+      if (meta.bootContext !== undefined) {
+        fields.push('boot_context = ?');
+        values.push(meta.bootContext);
+      }
       if (meta.updatedAt !== undefined) {
         fields.push('updated_at = ?');
         values.push(meta.updatedAt);
@@ -374,6 +398,8 @@ export class EventStore {
         'goal_id',
         'telos_task_id',
         'closed_by',
+        'agent_name',
+        'boot_context',
       ];
       const vals: unknown[] = [
         meta.sessionId,
@@ -387,6 +413,8 @@ export class EventStore {
         meta.goalId ?? null,
         meta.telosTaskId ?? null,
         meta.closedBy ?? null,
+        meta.agentName ?? null,
+        meta.bootContext ?? null,
       ];
       if (meta.updatedAt !== undefined) {
         cols.push('updated_at');
@@ -653,6 +681,8 @@ function rowToSession(row: SessionRow): SessionMeta {
     lastSpeakerAt: row.last_speaker_at ?? null,
     state: (row.state as SessionMeta['state']) ?? null,
     lastStateChange: row.last_state_change ?? null,
+    agentName: row.agent_name ?? null,
+    bootContext: row.boot_context ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

@@ -675,6 +675,9 @@ async function _startChatInner(
   const mcpAllowed = buildMcpAllowedTools(clientId);
   const extraTools = options.extraTools ? options.extraTools.split(',').map((t) => t.trim()) : [];
 
+  // Resolve agent name early — needed for registration, resume upsert, and boot context.
+  const agentName = options.agentName ?? DEFAULT_AGENT_NAME;
+
   // Streaming-input queue — kept open for the session lifetime.
   const inputQueue = new AsyncQueue<SDKUserMessage>();
   inputQueue.push(makeUserMessage(fullPrompt, 'now'));
@@ -687,6 +690,7 @@ async function _startChatInner(
     wtId,
     sessionAllowList: new Set<string>(),
     worktreePath,
+    agentName,
     // Set sessionId early so pre-assistant events are persisted (iOS reconnect).
     ...(options.resume ? { sessionId: options.resume } : {}),
     ...(options.telosTaskId ? { telosTaskId: options.telosTaskId } : {}),
@@ -726,6 +730,7 @@ async function _startChatInner(
       ...(worktreePath ? { wtId } : {}),
       ...(options.telosTaskId ? { telosTaskId: options.telosTaskId } : {}),
       ...(existingMeta ? { updatedAt: existingMeta.updatedAt } : {}),
+      agentName,
     });
   }
 
@@ -741,7 +746,6 @@ async function _startChatInner(
   // Build session env with worktree paths for the agent (all repos including primary)
   const sessionEnv = sdkEnv();
   sessionEnv.MITZO_SESSION_ID = wtId;
-  const agentName = options.agentName ?? DEFAULT_AGENT_NAME;
   sessionEnv.MITZO_AGENT_NAME = agentName;
   for (const [name, { path }] of repoWorktrees) {
     sessionEnv[`MITZO_REPO_${name.toUpperCase()}`] = path;
@@ -777,16 +781,18 @@ async function _startChatInner(
     } catch (importErr: unknown) {
       const msg = importErr instanceof Error ? importErr.message : String(importErr);
       log.info('contexgin not available, using fallback', { error: msg });
-      send(transport, {
-        type: 'boot_context',
-        source: 'local-fallback',
+      const fallback = {
+        source: 'local-fallback' as const,
         sourceCount: 0,
         tokenCount: 0,
         tokenBudget: DEFAULT_TOKEN_BUDGET,
-        sources: [],
-        included: [],
-        trimmed: [],
-      });
+        sources: [] as Array<{ path: string; kind: string }>,
+        included: [] as Array<{ source: string; heading: string; tokens: number; content: string }>,
+        trimmed: [] as Array<{ source: string; heading: string; tokens: number; content: string }>,
+      };
+      send(transport, { type: 'boot_context', ...fallback });
+      const s = registry.get(clientId);
+      if (s) s.bootContext = fallback;
       return;
     }
 
@@ -819,16 +825,18 @@ async function _startChatInner(
       // Validate the compiled object shape
       if (!compiled || typeof compiled !== 'object') {
         log.warn('contexgin compile() returned unexpected shape', { compiled });
-        send(transport, {
-          type: 'boot_context',
-          source: 'local-fallback',
+        const fallback = {
+          source: 'local-fallback' as const,
           sourceCount: 0,
           tokenCount: 0,
           tokenBudget: tokenBudget,
-          sources: [],
-          included: [],
-          trimmed: [],
-        });
+          sources: [] as Array<{ path: string; kind: string }>,
+          included: [] as Array<{ source: string; heading: string; tokens: number; content: string }>,
+          trimmed: [] as Array<{ source: string; heading: string; tokens: number; content: string }>,
+        };
+        send(transport, { type: 'boot_context', ...fallback });
+        const s = registry.get(clientId);
+        if (s) s.bootContext = fallback;
         return;
       }
 
@@ -879,9 +887,8 @@ async function _startChatInner(
       const trimmed = extractSections(rawTrimmed);
       const fullMarkdown = typeof obj.bootPayload === 'string' ? obj.bootPayload : undefined;
 
-      send(transport, {
-        type: 'boot_context',
-        source: 'contexgin',
+      const bootPayload = {
+        source: 'contexgin' as const,
         sourceCount: sources.length,
         tokenCount: bootTokens,
         tokenBudget: tokenBudget,
@@ -889,20 +896,27 @@ async function _startChatInner(
         included,
         trimmed,
         fullMarkdown,
-      });
+      };
+      send(transport, { type: 'boot_context', ...bootPayload });
+
+      // Cache in ManagedSession for replay on reconnect/switch
+      const s = registry.get(clientId);
+      if (s) s.bootContext = bootPayload;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       log.warn('boot context compilation failed', { error: msg });
-      send(transport, {
-        type: 'boot_context',
-        source: 'local-fallback',
+      const fallbackPayload = {
+        source: 'local-fallback' as const,
         sourceCount: 0,
         tokenCount: 0,
         tokenBudget: tokenBudget,
-        sources: [],
-        included: [],
-        trimmed: [],
-      });
+        sources: [] as Array<{ path: string; kind: string }>,
+        included: [] as Array<{ source: string; heading: string; tokens: number; content: string }>,
+        trimmed: [] as Array<{ source: string; heading: string; tokens: number; content: string }>,
+      };
+      send(transport, { type: 'boot_context', ...fallbackPayload });
+      const s = registry.get(clientId);
+      if (s) s.bootContext = fallbackPayload;
     }
   })();
   capturePromptComparison(wtId, cwd, systemPromptAppend, repoWorktrees).catch(() => {});
