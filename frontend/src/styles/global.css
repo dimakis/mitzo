@@ -2387,7 +2387,301 @@ textarea:focus {
   opacity: 0.5;
 }
 
-/* ===== Context Block (session boot context) ===== */
+/* ===== Session Banner (persistent boot + session context) ===== */
+
+.session-banner {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-primary);
+  z-index: 10;
+}
+
+.session-banner-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.75rem;
+  width: 100%;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  font-size: var(--text-xxs);
+  font-family: inherit;
+  color: var(--text-dim);
+  min-width: 0;
+}
+
+.session-banner-header:active {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.session-banner-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.session-banner-dot--ok {
+  background: var(--status-ok);
+}
+
+.session-banner-dot--warn {
+  background: var(--status-warn);
+}
+
+.session-banner-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.session-banner-meta {
+  flex-shrink: 0;
+  font-size: var(--text-xxs);
+  white-space: nowrap;
+}
+
+.session-banner-context-hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xxs);
+  color: var(--accent, #6366f1);
+  font-style: italic;
+}
+
+.session-banner-chevron {
+  margin-left: auto;
+  font-size: 0.6rem;
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+
+.session-banner-body {
+  max-height: 40vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 0.75rem 0.5rem;
+}
+
+.session-banner-label {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.6;
+  margin-bottom: 0.25rem;
+  color: var(--text-dim);
+}
+
+.session-banner-context {
+  margin-bottom: 0.5rem;
+  border-left: 3px solid var(--accent, #6366f1);
+  padding-left: 0.5rem;
+}
+
+.session-banner-context-text {
+  font-family: var(--code-font);
+  font-size: var(--text-xxs);
+  line-height: 1.4;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  opacity: 0.8;
+}
+
+.session-banner-boot {
+  margin-top: 0.25rem;
+}
+
+.session-banner-boot-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  width: 100%;
+  padding: 0.15rem 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--text-xxs);
+  color: var(--text-dim);
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.session-banner-view-full {
+  padding: 0.1rem 0.4rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  flex-shrink: 0;
+}
+
+.session-banner-view-full:active {
+  color: var(--text-primary);
+}
+
+.session-banner-chevron-inline {
+  font-size: 0.55rem;
+  opacity: 0.7;
+  margin-left: auto;
+}
+
+.session-banner-boot-content {
+  padding: 0.2rem 0 0.2rem 0.5rem;
+  font-family: var(--code-font);
+  font-size: var(--text-xxs);
+  line-height: 1.5;
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+
+.session-banner-sub-label {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.5;
+  margin-top: 0.3rem;
+  margin-bottom: 0.15rem;
+}
+
+.session-banner-sub-label:first-child {
+  margin-top: 0;
+}
+
+.session-banner-source-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.session-banner-kind {
+  font-size: 0.55rem;
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-dim);
+}
+
+.session-banner-kind--constitution {
+  background: rgba(130, 170, 255, 0.15);
+  color: #82aaff;
+}
+.session-banner-kind--profile {
+  background: rgba(199, 146, 234, 0.15);
+  color: #c792ea;
+}
+.session-banner-kind--memory {
+  background: rgba(255, 203, 107, 0.15);
+  color: #ffcb6b;
+}
+.session-banner-kind--service {
+  background: rgba(137, 221, 255, 0.15);
+  color: #89ddff;
+}
+.session-banner-kind--reference {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.session-banner-source-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-banner-section-row {
+  margin-left: 0.2rem;
+}
+
+.session-banner-section-row--dimmed {
+  opacity: 0.5;
+}
+
+.session-banner-section-button {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  width: 100%;
+  padding: 0.1rem 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: var(--code-font);
+  font-size: var(--text-xxs);
+  color: var(--text-dim);
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.session-banner-section-heading {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.session-banner-section-tokens {
+  flex-shrink: 0;
+  font-size: 0.55rem;
+  opacity: 0.5;
+}
+
+.session-banner-section-content {
+  margin: 0.2rem 0 0.4rem 1rem;
+  padding: 0.4rem 0.5rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-left: 2px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0 4px 4px 0;
+  font-family: var(--code-font);
+  font-size: 0.65rem;
+  line-height: 1.4;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.session-banner-trimmed-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.3rem;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: var(--code-font);
+  font-size: var(--text-xxs);
+  font-style: italic;
+  color: var(--status-warn);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* ===== Context Block (session boot context — legacy) ===== */
 
 .context-block {
   align-self: flex-start;
