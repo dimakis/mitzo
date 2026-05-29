@@ -170,6 +170,7 @@ interface UserMessageMsg {
   v: 2;
   messageId: string;
   text: string;
+  sessionId?: string;
 }
 
 interface SessionRenamedMsg {

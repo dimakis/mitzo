@@ -954,7 +954,13 @@ async function _startChatInner(
       });
       eventStore.updateLastSpeaker(options.resume, 'user');
       _onSessionChange?.(clientId, 'user_message');
-      const echo = { type: 'user_message', messageId, text: fullPrompt };
+      const echo = {
+        type: 'user_message',
+        v: 2,
+        messageId,
+        text: fullPrompt,
+        sessionId: options.resume,
+      };
       send(transport, echo);
       broadcastToObservers(session.observers, echo);
     }
@@ -1081,7 +1087,13 @@ export function sendToChat(
         /* errors logged internally */
       });
     }
-    const echo = { type: 'user_message', messageId, text: fullPrompt };
+    const echo = {
+      type: 'user_message',
+      v: 2,
+      messageId,
+      text: fullPrompt,
+      ...(session.sessionId ? { sessionId: session.sessionId } : {}),
+    };
     send(session.transport, echo);
     broadcastToObservers(session.observers, echo);
     session.inputQueue.push(makeUserMessage(fullPrompt, 'next'));
@@ -1115,7 +1127,13 @@ export async function interruptChat(
       eventStore.updateLastSpeaker(session.sessionId, 'user');
       _onSessionChange?.(clientId, 'user_message');
     }
-    const echo = { type: 'user_message', messageId, text: fullPrompt };
+    const echo = {
+      type: 'user_message',
+      v: 2,
+      messageId,
+      text: fullPrompt,
+      ...(session.sessionId ? { sessionId: session.sessionId } : {}),
+    };
     send(session.transport, echo);
     broadcastToObservers(session.observers, echo);
     // Stop all active subagent tasks before interrupting the parent query.
