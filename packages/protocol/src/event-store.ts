@@ -4,11 +4,12 @@ import type {
   StoredEvent,
   SessionMeta,
   SessionSearchResult,
+  SessionState,
   EventStoreLogger,
 } from './types.js';
 
 // Re-export types for consumer convenience
-export type { StoredEvent, SessionMeta, SessionSearchResult, EventStoreLogger };
+export type { StoredEvent, SessionMeta, SessionSearchResult, SessionState, EventStoreLogger };
 
 const noopLogger: EventStoreLogger = { info() {} };
 
@@ -45,6 +46,8 @@ interface SessionRow {
   closed_by: string | null;
   last_speaker: string | null;
   last_speaker_at: number | null;
+  state: string | null;
+  last_state_change: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -75,6 +78,16 @@ const SCHEMA = `
   );
 `;
 
+const VALID_TRANSITIONS: Record<SessionState, SessionState[]> = {
+  CREATED: ['STARTING', 'ENDED'],
+  STARTING: ['ACTIVE', 'ENDED'],
+  ACTIVE: ['DETACHED', 'SUSPENDED', 'CLOSING', 'ENDED'],
+  DETACHED: ['ACTIVE', 'SUSPENDED', 'CLOSING', 'ENDED'],
+  SUSPENDED: ['ACTIVE', 'ENDED'],
+  CLOSING: ['ENDED'],
+  ENDED: ['CREATED'],
+};
+
 export class EventStore {
   private db: Database.Database | null;
   private log: EventStoreLogger;
@@ -91,6 +104,8 @@ export class EventStore {
     recordUsage: Database.Statement;
     updateLastSpeaker: Database.Statement;
     getAttentionSessions: Database.Statement;
+    setSessionState: Database.Statement;
+    getSessionState: Database.Statement;
   };
 
   constructor(dbPath: string, logger?: EventStoreLogger) {
@@ -106,6 +121,7 @@ export class EventStore {
     this.migrateWorktreeTracking(db);
     this.migrateCloseTracking(db);
     this.migrateAttentionTracking(db);
+    this.migrateSessionState(db);
 
     this.log.info('EventStore initialized', { dbPath });
 
@@ -160,6 +176,14 @@ export class EventStore {
          ORDER BY last_speaker_at DESC
          LIMIT 10`,
       ),
+      setSessionState: db.prepare(
+        `UPDATE sessions SET
+          state = ?,
+          last_state_change = ?,
+          updated_at = unixepoch('now', 'subsec') * 1000
+        WHERE session_id = ?`,
+      ),
+      getSessionState: db.prepare('SELECT state FROM sessions WHERE session_id = ?'),
     };
   }
 
@@ -241,6 +265,19 @@ export class EventStore {
     if (!columnNames.has('last_speaker_at')) {
       db.exec('ALTER TABLE sessions ADD COLUMN last_speaker_at INTEGER');
       this.log.info('migrated sessions table: added last_speaker_at');
+    }
+  }
+
+  private migrateSessionState(db: Database.Database): void {
+    const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
+    const columnNames = new Set(columns.map((c) => c.name));
+    if (!columnNames.has('state')) {
+      db.exec("ALTER TABLE sessions ADD COLUMN state TEXT DEFAULT 'ENDED'");
+      this.log.info('migrated sessions table: added state');
+    }
+    if (!columnNames.has('last_state_change')) {
+      db.exec('ALTER TABLE sessions ADD COLUMN last_state_change INTEGER');
+      this.log.info('migrated sessions table: added last_state_change');
     }
   }
 
@@ -488,6 +525,45 @@ export class EventStore {
     return (rows as SessionRow[]).map(rowToSession);
   }
 
+  /** Set session lifecycle state. Warns on invalid transitions but does not block (Phase 1). */
+  setSessionState(
+    sessionId: string,
+    newState: SessionState,
+    opts?: { clientId?: string; reason?: string; force?: boolean },
+  ): void {
+    const current = this.getSession(sessionId);
+    const fromState = (current?.state as SessionState) ?? null;
+    const now = Date.now();
+
+    if (fromState && !opts?.force) {
+      const allowed = VALID_TRANSITIONS[fromState];
+      if (!allowed?.includes(newState)) {
+        this.log.info('invalid session state transition (warn-only)', {
+          sessionId,
+          fromState,
+          toState: newState,
+          clientId: opts?.clientId,
+          reason: opts?.reason,
+        });
+      }
+    }
+
+    this.stmts.setSessionState.run(newState, now, sessionId);
+
+    this.log.info('session state transition', {
+      sessionId,
+      fromState,
+      toState: newState,
+      clientId: opts?.clientId,
+      reason: opts?.reason,
+    });
+  }
+
+  getSessionState(sessionId: string): SessionState | null {
+    const row = this.stmts.getSessionState.get(sessionId) as { state: string | null } | undefined;
+    return (row?.state as SessionState) ?? null;
+  }
+
   recordUsage(
     sessionId: string,
     usage: {
@@ -575,6 +651,8 @@ function rowToSession(row: SessionRow): SessionMeta {
     closedBy: (row.closed_by as SessionMeta['closedBy']) ?? null,
     lastSpeaker: (row.last_speaker as SessionMeta['lastSpeaker']) ?? null,
     lastSpeakerAt: row.last_speaker_at ?? null,
+    state: (row.state as SessionMeta['state']) ?? null,
+    lastStateChange: row.last_state_change ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

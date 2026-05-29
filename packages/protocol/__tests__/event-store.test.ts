@@ -527,6 +527,121 @@ describe('EventStore', () => {
     });
   });
 
+  describe('session state machine', () => {
+    const sid = 'state-test-session';
+
+    beforeEach(() => {
+      store.upsertSession({ sessionId: sid });
+    });
+
+    it('sets and gets session state', () => {
+      store.setSessionState(sid, 'CREATED', { clientId: 'c1' });
+      expect(store.getSessionState(sid)).toBe('CREATED');
+    });
+
+    it('returns null for unknown session', () => {
+      expect(store.getSessionState('nonexistent')).toBeNull();
+    });
+
+    it('includes state in session metadata', () => {
+      store.setSessionState(sid, 'ACTIVE', { clientId: 'c1' });
+      const meta = store.getSession(sid);
+      expect(meta?.state).toBe('ACTIVE');
+      expect(meta?.lastStateChange).toBeGreaterThan(0);
+    });
+
+    it('defaults to ENDED for existing sessions after migration', () => {
+      // New sessions get DEFAULT 'ENDED' from migration
+      const meta = store.getSession(sid);
+      expect(meta?.state).toBe('ENDED');
+    });
+
+    it('allows valid CREATED → STARTING transition', () => {
+      store.setSessionState(sid, 'CREATED', { clientId: 'c1', force: true });
+      store.setSessionState(sid, 'STARTING', { clientId: 'c1' });
+      expect(store.getSessionState(sid)).toBe('STARTING');
+    });
+
+    it('allows valid ACTIVE → DETACHED transition', () => {
+      store.setSessionState(sid, 'ACTIVE', { clientId: 'c1', force: true });
+      store.setSessionState(sid, 'DETACHED', { clientId: 'c1' });
+      expect(store.getSessionState(sid)).toBe('DETACHED');
+    });
+
+    it('allows ENDED → CREATED for resume', () => {
+      store.setSessionState(sid, 'ENDED', { clientId: 'c1', force: true });
+      store.setSessionState(sid, 'CREATED', { clientId: 'c1' });
+      expect(store.getSessionState(sid)).toBe('CREATED');
+    });
+
+    it('allows CREATED → ENDED for early failure', () => {
+      store.setSessionState(sid, 'CREATED', { clientId: 'c1', force: true });
+      store.setSessionState(sid, 'ENDED', { clientId: 'c1' });
+      expect(store.getSessionState(sid)).toBe('ENDED');
+    });
+
+    it('warns but does not block invalid transitions (Phase 1)', () => {
+      const messages: string[] = [];
+      const logger = { info: (msg: string) => messages.push(msg) };
+      const s = new EventStore(':memory:', logger);
+      s.upsertSession({ sessionId: 'warn-test' });
+      s.setSessionState('warn-test', 'ACTIVE', { clientId: 'c1', force: true });
+      // ACTIVE → CREATED is invalid
+      s.setSessionState('warn-test', 'CREATED', { clientId: 'c1' });
+      // Should still succeed (Phase 1 — warn only)
+      expect(s.getSessionState('warn-test')).toBe('CREATED');
+      // Should have logged the invalid transition
+      expect(messages.some((m) => m.includes('invalid'))).toBe(true);
+      s.close();
+    });
+
+    it('force flag bypasses validation', () => {
+      store.setSessionState(sid, 'ACTIVE', { clientId: 'c1', force: true });
+      // ACTIVE → CREATED is invalid but force bypasses
+      store.setSessionState(sid, 'CREATED', { clientId: 'c1', force: true });
+      expect(store.getSessionState(sid)).toBe('CREATED');
+    });
+
+    it('tracks full lifecycle: CREATED → STARTING → ACTIVE → ENDED', () => {
+      store.setSessionState(sid, 'CREATED', { clientId: 'c1', force: true });
+      store.setSessionState(sid, 'STARTING', { clientId: 'c1' });
+      store.setSessionState(sid, 'ACTIVE', { clientId: 'c1' });
+      store.setSessionState(sid, 'ENDED', { clientId: 'c1', reason: 'completed' });
+      expect(store.getSessionState(sid)).toBe('ENDED');
+    });
+
+    it('tracks detach/reattach cycle', () => {
+      store.setSessionState(sid, 'ACTIVE', { clientId: 'c1', force: true });
+      store.setSessionState(sid, 'DETACHED', { clientId: 'c1', reason: 'transport_close' });
+      expect(store.getSessionState(sid)).toBe('DETACHED');
+      store.setSessionState(sid, 'ACTIVE', { clientId: 'c1', reason: 'reattach' });
+      expect(store.getSessionState(sid)).toBe('ACTIVE');
+    });
+
+    it('tracks suspend/resume cycle', () => {
+      store.setSessionState(sid, 'ACTIVE', { clientId: 'c1', force: true });
+      store.setSessionState(sid, 'SUSPENDED', { clientId: 'c1', reason: 'ios_background' });
+      expect(store.getSessionState(sid)).toBe('SUSPENDED');
+      store.setSessionState(sid, 'ACTIVE', { clientId: 'c1', reason: 'resume' });
+      expect(store.getSessionState(sid)).toBe('ACTIVE');
+    });
+
+    it('tracks closeout flow', () => {
+      store.setSessionState(sid, 'ACTIVE', { clientId: 'c1', force: true });
+      store.setSessionState(sid, 'CLOSING', { clientId: 'c1', reason: 'detach_ttl' });
+      store.setSessionState(sid, 'ENDED', { clientId: 'c1', reason: 'closeout_complete' });
+      expect(store.getSessionState(sid)).toBe('ENDED');
+    });
+
+    it('updates lastStateChange timestamp on each transition', () => {
+      store.setSessionState(sid, 'CREATED', { clientId: 'c1', force: true });
+      const meta1 = store.getSession(sid);
+      store.setSessionState(sid, 'STARTING', { clientId: 'c1' });
+      const meta2 = store.getSession(sid);
+      expect(meta2!.lastStateChange).toBeGreaterThanOrEqual(meta1!.lastStateChange!);
+    });
+  });
+
   describe('close', () => {
     it('is safe to call multiple times', () => {
       store.close();

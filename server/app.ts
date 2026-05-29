@@ -549,6 +549,10 @@ app.post('/api/sessions/suspend', (req, res) => {
       if (ownerConnection !== connectionId) continue;
 
       registry.suspend(found.clientId, lastSeq);
+      eventStore.setSessionState(entry.sessionId, 'SUSPENDED', {
+        clientId: found.clientId,
+        reason: 'ios_background_rest',
+      });
       log.info('session suspended via REST', {
         connectionId,
         sessionId: entry.sessionId,

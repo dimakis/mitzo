@@ -16,6 +16,7 @@ export type {
   ImageAttachment,
   Session,
   SessionClosedBy,
+  SessionState,
   StoredEvent,
   SessionMeta,
   SessionSearchResult,
