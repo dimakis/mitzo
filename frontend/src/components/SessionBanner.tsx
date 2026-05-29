@@ -61,6 +61,15 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
     return () => window.removeEventListener('keydown', handleEscape);
   }, [showModal]);
 
+  // Reset expand states when context identity changes (e.g. session switch)
+  const contextKey = (bootContext?.tokenCount ?? '') + '|' + (sessionContext ?? '');
+  useEffect(() => {
+    setExpanded(false);
+    setShowBootDetails(false);
+    setShowTrimmed(false);
+    setShowModal(false);
+  }, [contextKey]);
+
   if (!bootContext && !sessionContext) return null;
 
   const isContexgin = bootContext?.source === 'contexgin';
@@ -110,11 +119,19 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
             {/* Boot context details */}
             {bootContext && (
               <div className="session-banner-boot">
-                <button
+                <div
                   className="session-banner-boot-toggle"
+                  role="button"
+                  tabIndex={0}
                   onClick={(e) => {
                     e.stopPropagation();
                     setShowBootDetails((d) => !d);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setShowBootDetails((d) => !d);
+                    }
                   }}
                 >
                   <span className="session-banner-label">
@@ -135,7 +152,7 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
                   <span className="session-banner-chevron-inline">
                     {showBootDetails ? '\u25BE' : '\u25B8'}
                   </span>
-                </button>
+                </div>
 
                 {showBootDetails && (
                   <div className="session-banner-boot-content">
