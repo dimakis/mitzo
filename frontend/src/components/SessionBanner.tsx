@@ -142,9 +142,7 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
                     <div className="session-banner-sub-label">Sources</div>
                     {bootContext.sources.map((src, idx) => (
                       <div key={idx} className="session-banner-source-row">
-                        <span
-                          className={`session-banner-kind session-banner-kind--${src.kind}`}
-                        >
+                        <span className={`session-banner-kind session-banner-kind--${src.kind}`}>
                           {KIND_LABELS[src.kind] ?? src.kind}
                         </span>
                         <span className="session-banner-source-path">{src.path}</span>
