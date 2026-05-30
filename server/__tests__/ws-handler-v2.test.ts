@@ -86,7 +86,7 @@ function mockEventStore() {
   return {
     getEventsAfter: vi.fn().mockReturnValue([]),
     getSession: vi.fn().mockReturnValue(null),
-    getSessionState: vi.fn().mockReturnValue(null),
+    getSessionState: vi.fn().mockReturnValue('ACTIVE'),
     setSessionState: vi.fn(),
   };
 }
@@ -1706,21 +1706,22 @@ describe('handleSendV2 connection ownership', () => {
   });
 });
 
-// ─── stale session — EventStore cross-reference ─────────────────────────────
+// ─── state-based routing (Phase 3) ──────────────────────────────────────────
 
-describe('handleSendV2 stale session via EventStore', () => {
-  it('allows send when in-memory registry is stale but EventStore says inactive', () => {
+describe('handleSendV2 state-based routing', () => {
+  it('aborts zombie and resumes when state is ENDED but registry still has session', () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
-    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+    (stopChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(true);
 
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-conn:sess-1', session: {} });
     sessionReg.isActive.mockReturnValue(true);
-    sessionReg.isAttached.mockReturnValue(true); // would normally reject
+    sessionReg.isAttached.mockReturnValue(true);
 
     const eventStore = mockEventStore();
-    // EventStore ground truth: session is NOT active (query loop ended)
-    eventStore.getSession.mockReturnValue({ sessionId: 'sess-1', isActive: false });
+    // State machine says ENDED — query loop should be dead
+    eventStore.getSessionState.mockReturnValue('ENDED');
 
     const ctx = createContext({
       sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
@@ -1736,17 +1737,15 @@ describe('handleSendV2 stale session via EventStore', () => {
       ctx,
     );
 
-    // Should NOT get active_elsewhere error
-    expect(transport.sent).not.toContainEqual(
-      expect.objectContaining({ code: 'active_elsewhere' }),
-    );
-    // Should fall through to resume path (startChat for resume)
+    // Should abort the zombie, not just remove
+    expect(stopChat).toHaveBeenCalledWith('old-conn:sess-1');
+    // Should fall through to resume path
     expect(startChat).toHaveBeenCalled();
 
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 
-  it('takes over even when EventStore confirms session IS active', () => {
+  it('takes over when state is ACTIVE and different owner', () => {
     (sendToChat as ReturnType<typeof vi.fn>).mockClear();
     (reattachChat as ReturnType<typeof vi.fn>).mockClear();
     (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
@@ -1761,7 +1760,7 @@ describe('handleSendV2 stale session via EventStore', () => {
     sessionReg.isAttached.mockReturnValue(true);
 
     const eventStore = mockEventStore();
-    eventStore.getSession.mockReturnValue({ sessionId: 'sess-1', isActive: true });
+    eventStore.getSessionState.mockReturnValue('ACTIVE');
 
     const ctx = createContext({
       sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
@@ -1780,30 +1779,22 @@ describe('handleSendV2 stale session via EventStore', () => {
 
     expect(oldTransport.sent).toContainEqual(expect.objectContaining({ type: 'session_takeover' }));
     expect(sendToChat).toHaveBeenCalled();
-    expect(transport.sent).not.toContainEqual(
-      expect.objectContaining({ code: 'active_elsewhere' }),
-    );
 
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 
-  it('does not remove session on rapid resume when EventStore shows isActive: true', () => {
-    // Regression test for repeated-prompt bug: when resuming a session,
-    // startChat should set isActive: true in EventStore immediately so that
-    // a second rapid send doesn't incorrectly trigger the stale removal path.
+  it('routes to sendToChat when state is ACTIVE and same owner', () => {
     (sendToChat as ReturnType<typeof vi.fn>).mockClear();
+    (stopChat as ReturnType<typeof vi.fn>).mockClear();
     (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
 
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-1', session: {} });
     sessionReg.isActive.mockReturnValue(true);
     sessionReg.isAttached.mockReturnValue(true);
-    sessionReg.remove.mockClear();
 
     const eventStore = mockEventStore();
-    // EventStore correctly reflects that the session is active
-    // (because startChat set isActive: true on resume)
-    eventStore.getSession.mockReturnValue({ sessionId: 'sess-1', isActive: true });
+    eventStore.getSessionState.mockReturnValue('ACTIVE');
 
     const ctx = createContext({
       sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
@@ -1819,9 +1810,8 @@ describe('handleSendV2 stale session via EventStore', () => {
       ctx,
     );
 
-    // Should NOT remove the session from registry (stale check should pass)
-    expect(sessionReg.remove).not.toHaveBeenCalled();
-    // Should use the active session
+    // Should NOT abort — state says ACTIVE
+    expect(stopChat).not.toHaveBeenCalled();
     expect(sendToChat).toHaveBeenCalledWith(
       'c1:sess-1',
       'hello again',
@@ -1832,20 +1822,55 @@ describe('handleSendV2 stale session via EventStore', () => {
 
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
-});
 
-describe('handleInterruptV2 stale session via EventStore', () => {
-  it('resumes via startChat when EventStore says session is inactive', () => {
-    (startChat as ReturnType<typeof vi.fn>).mockClear();
-    (interruptChat as ReturnType<typeof vi.fn>).mockClear();
+  it('reattaches own detached session when state is DETACHED', () => {
+    (sendToChat as ReturnType<typeof vi.fn>).mockClear();
+    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
     (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
 
     const sessionReg = mockSessionRegistry();
-    sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-conn:sess-1', session: {} });
-    sessionReg.isAttached.mockReturnValue(true); // would normally reject
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-1', session: {} });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(false); // detached
 
     const eventStore = mockEventStore();
-    eventStore.getSession.mockReturnValue({ sessionId: 'sess-1', isActive: false });
+    eventStore.getSessionState.mockReturnValue('DETACHED');
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleSendV2(
+      'c1',
+      transport,
+      { type: 'send' as const, sessionId: 'sess-1', prompt: 'back', clientMsgId: 'reattach-1' },
+      ctx,
+    );
+
+    expect(reattachChat).toHaveBeenCalled();
+    expect(sendToChat).toHaveBeenCalled();
+
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  });
+});
+
+describe('handleInterruptV2 state-based routing', () => {
+  it('aborts zombie and resumes when state is ENDED', () => {
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
+    (stopChat as ReturnType<typeof vi.fn>).mockClear();
+    (interruptChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(true);
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-conn:sess-1', session: {} });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(true);
+
+    const eventStore = mockEventStore();
+    eventStore.getSessionState.mockReturnValue('ENDED');
 
     const ctx = createContext({
       sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
@@ -1861,18 +1886,47 @@ describe('handleInterruptV2 stale session via EventStore', () => {
       ctx,
     );
 
-    expect(transport.sent).not.toContainEqual(
-      expect.objectContaining({ code: 'active_elsewhere' }),
-    );
-    // Should NOT call interruptChat with dead key
+    expect(stopChat).toHaveBeenCalledWith('old-conn:sess-1');
     expect(interruptChat).not.toHaveBeenCalled();
-    // Should resume via startChat with fresh sessionClientId
     expect(startChat).toHaveBeenCalledWith(
       transport,
       'c1:sess-1',
       'stop',
       expect.objectContaining({ resume: 'sess-1', clientMsgId: 'i-stale' }),
     );
+
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  });
+
+  it('routes to interruptChat when state is ACTIVE and same owner', () => {
+    (interruptChat as ReturnType<typeof vi.fn>).mockClear();
+    (stopChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-1', session: {} });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(true);
+
+    const eventStore = mockEventStore();
+    eventStore.getSessionState.mockReturnValue('ACTIVE');
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleInterruptV2(
+      'c1',
+      transport,
+      { type: 'interrupt', sessionId: 'sess-1', prompt: 'stop', clientMsgId: 'i-active' },
+      ctx,
+    );
+
+    expect(stopChat).not.toHaveBeenCalled();
+    expect(interruptChat).toHaveBeenCalled();
 
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
@@ -2523,9 +2577,10 @@ describe('stale session cleanup removes registry entry', () => {
     expect(sessionReg.remove).toHaveBeenCalledWith('old-conn:sess-1');
   });
 
-  it('handleSendV2 removes stale session from registry before resume', () => {
+  it('handleSendV2 aborts zombie session before resume', () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
-    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+    (stopChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(true);
 
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-conn:sess-1', session: {} });
@@ -2533,7 +2588,7 @@ describe('stale session cleanup removes registry entry', () => {
     sessionReg.isAttached.mockReturnValue(true);
 
     const eventStore = mockEventStore();
-    eventStore.getSession.mockReturnValue({ sessionId: 'sess-1', isActive: false });
+    eventStore.getSessionState.mockReturnValue('ENDED');
 
     const ctx = createContext({
       sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
@@ -2549,15 +2604,16 @@ describe('stale session cleanup removes registry entry', () => {
       ctx,
     );
 
-    expect(sessionReg.remove).toHaveBeenCalledWith('old-conn:sess-1');
+    expect(stopChat).toHaveBeenCalledWith('old-conn:sess-1');
     expect(startChat).toHaveBeenCalled();
 
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 
-  it('handleInterruptV2 removes stale session from registry before resume', () => {
+  it('handleInterruptV2 aborts zombie session before resume', () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
-    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+    (stopChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(true);
 
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-conn:sess-1', session: {} });
@@ -2565,7 +2621,7 @@ describe('stale session cleanup removes registry entry', () => {
     sessionReg.isAttached.mockReturnValue(true);
 
     const eventStore = mockEventStore();
-    eventStore.getSession.mockReturnValue({ sessionId: 'sess-1', isActive: false });
+    eventStore.getSessionState.mockReturnValue('ENDED');
 
     const ctx = createContext({
       sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
@@ -2581,7 +2637,7 @@ describe('stale session cleanup removes registry entry', () => {
       ctx,
     );
 
-    expect(sessionReg.remove).toHaveBeenCalledWith('old-conn:sess-1');
+    expect(stopChat).toHaveBeenCalledWith('old-conn:sess-1');
     expect(startChat).toHaveBeenCalled();
 
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
