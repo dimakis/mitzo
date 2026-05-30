@@ -163,7 +163,7 @@ async function localBootContextFallback(repoRoot: string): Promise<BootContextMe
 /**
  * Fetch boot context from the running ContexGin server.
  * Falls back to build_boot_context.py if the server is unreachable.
- * Never throws — returns a local-fallback message on any error.
+ * Never throws — returns a local-fallback BootContextMessage on any error.
  */
 export async function fetchBootContext(
   agentName: string,
@@ -900,7 +900,7 @@ async function _startChatInner(
   // Fire-and-forget: fetch boot context from running ContexGin server
   fetchBootContext(agentName)
     .then((msg) => {
-      send(transport, msg);
+      send(transport, msg as unknown as Record<string, unknown>);
       // Cache in ManagedSession for replay on reconnect/switch
       const s = registry.get(clientId);
       if (s) s.bootContext = msg;
