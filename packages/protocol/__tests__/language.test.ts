@@ -73,4 +73,57 @@ describe('languageFromPath', () => {
   it('handles dotfiles with known extension', () => {
     expect(languageFromPath('.bashrc')).toBeUndefined(); // no ext after dot
   });
+
+  // New language coverage
+  it('detects Objective-C from .m', () => {
+    expect(languageFromPath('AppDelegate.m')).toBe('objectivec');
+  });
+
+  it('detects Dart from .dart', () => {
+    expect(languageFromPath('lib/main.dart')).toBe('dart');
+  });
+
+  it('detects Scala from .scala', () => {
+    expect(languageFromPath('src/Main.scala')).toBe('scala');
+  });
+
+  it('detects Haskell from .hs', () => {
+    expect(languageFromPath('src/Main.hs')).toBe('haskell');
+  });
+
+  it('detects OCaml from .ml', () => {
+    expect(languageFromPath('lib/parser.ml')).toBe('ocaml');
+  });
+
+  it('detects Clojure from .clj', () => {
+    expect(languageFromPath('src/core.clj')).toBe('clojure');
+  });
+
+  it('detects ClojureScript from .cljs', () => {
+    expect(languageFromPath('src/app.cljs')).toBe('clojure');
+  });
+
+  it('detects Elixir from .ex', () => {
+    expect(languageFromPath('lib/app.ex')).toBe('elixir');
+  });
+
+  it('detects Erlang from .erl', () => {
+    expect(languageFromPath('src/server.erl')).toBe('erlang');
+  });
+
+  it('detects PowerShell from .ps1', () => {
+    expect(languageFromPath('scripts/deploy.ps1')).toBe('powershell');
+  });
+
+  it('detects Nix from .nix', () => {
+    expect(languageFromPath('flake.nix')).toBe('nix');
+  });
+
+  it('detects WASM text from .wat', () => {
+    expect(languageFromPath('module.wat')).toBe('wasm');
+  });
+
+  it('detects nginx from .conf', () => {
+    expect(languageFromPath('/etc/nginx/nginx.conf')).toBe('nginx');
+  });
 });
