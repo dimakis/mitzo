@@ -831,8 +831,18 @@ async function _startChatInner(
           tokenCount: 0,
           tokenBudget: tokenBudget,
           sources: [] as Array<{ path: string; kind: string }>,
-          included: [] as Array<{ source: string; heading: string; tokens: number; content: string }>,
-          trimmed: [] as Array<{ source: string; heading: string; tokens: number; content: string }>,
+          included: [] as Array<{
+            source: string;
+            heading: string;
+            tokens: number;
+            content: string;
+          }>,
+          trimmed: [] as Array<{
+            source: string;
+            heading: string;
+            tokens: number;
+            content: string;
+          }>,
         };
         send(transport, { type: 'boot_context', ...fallback });
         const s = registry.get(clientId);
