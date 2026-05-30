@@ -219,6 +219,9 @@ export interface SessionMeta {
   lastSpeakerAt: number | null;
   state: SessionState | null;
   lastStateChange: number | null;
+  agentName: string | null;
+  /** Serialized JSON of the boot_context payload (sources, tokens, sections). */
+  bootContext: string | null;
   createdAt: number;
   updatedAt: number;
 }

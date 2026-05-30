@@ -280,6 +280,14 @@ export function handleReconnect(
           running,
         });
 
+        // Re-send cached boot_context so pills reappear after reconnect
+        if (found && running && found.session?.bootContext) {
+          ctx.connRegistry.get(connectionId)?.transport.send({
+            type: 'boot_context',
+            ...found.session.bootContext,
+          });
+        }
+
         log.info('reconnect replay', {
           connectionId,
           sessionId: entry.sessionId,
@@ -370,6 +378,27 @@ export async function handleSwitchSession(
           costUsd: sessionMeta.totalCostUsd,
         },
       });
+
+      // Re-send boot_context so pills appear on session switch.
+      // Hot path: running session in SessionRegistry (in-memory cache).
+      // Cold path: ended session — read serialized JSON from EventStore.
+      const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
+      if (found?.session?.bootContext) {
+        ctx.connRegistry.get(connectionId)?.transport.send({
+          type: 'boot_context',
+          ...found.session.bootContext,
+        });
+      } else if (sessionMeta.bootContext) {
+        try {
+          const parsed = JSON.parse(sessionMeta.bootContext);
+          ctx.connRegistry.get(connectionId)?.transport.send({
+            type: 'boot_context',
+            ...parsed,
+          });
+        } catch {
+          // Invalid JSON — skip
+        }
+      }
 
       log.info('switch_session', { connectionId, sessionId: msg.sessionId });
     },

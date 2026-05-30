@@ -46,6 +46,10 @@ export interface ManagedSession {
   telosTaskId?: string;
   /** Active subagent task IDs — task_id → tool_use_id (parent_tool_use_id). */
   activeTaskIds: Map<string, string>;
+  /** Agent name used for this session (e.g. 'mitzo-conversational'). */
+  agentName?: string;
+  /** Cached boot_context payload for replay on reconnect/switch. */
+  bootContext?: Record<string, unknown>;
 }
 
 export interface ActiveSessionInfo {
