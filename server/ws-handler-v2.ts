@@ -368,13 +368,14 @@ export async function handleSwitchSession(
       ctx.connRegistry.watch(connectionId, msg.sessionId);
       ctx.connRegistry.setActive(connectionId, msg.sessionId);
 
-      // Determine running state so the client can restore its UI correctly.
-      // Without this, the client shows an idle input after switching to a
-      // session whose query loop is still generating — leading to the
-      // "double message" bug where the first send queues behind a stale
-      // running=false state.
+      // Cross-reference registry with durable state to avoid reporting
+      // a zombie query loop as running.
       const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
-      const running = found ? ctx.sessionRegistry.isActive(found.clientId) : false;
+      const storeState = ctx.eventStore.getSessionState(msg.sessionId);
+      const running =
+        found && storeState !== 'ENDED' && storeState !== 'CLOSING' && storeState !== null
+          ? ctx.sessionRegistry.isActive(found.clientId)
+          : false;
 
       ctx.connRegistry.get(connectionId)?.transport.send({
         type: 'session_switched',
@@ -497,22 +498,12 @@ export function handleSendV2(
             span.setAttribute('session.state_mismatch', mismatch.details ?? 'unknown');
           }
 
-          // --- State-based routing (Phase 3) ---
-          //
-          // Use the durable state column as the single source of truth
-          // for routing decisions. This replaces the old staleInMemory
-          // check that used the isActive boolean — that check could
-          // incorrectly kill a running query loop when the EventStore
-          // and SessionRegistry diverged, causing the "double message"
-          // bug on reattach.
-
-          // Case 1: Registry has the session AND state says it should
-          // be running (ACTIVE, DETACHED, SUSPENDED, STARTING, CREATED).
-          // Route the message to the existing query loop.
+          // State-based routing (Phase 3): durable state is the single source of truth.
           if (
             found &&
             isActive(found.clientId) &&
             storeState !== 'ENDED' &&
+            storeState !== 'CLOSING' &&
             storeState !== null
           ) {
             const ownerConnection = getOwnerConnection(found.clientId);
@@ -550,9 +541,6 @@ export function handleSendV2(
               });
             }
             applySkillPolicy(activeClientId);
-            // Watch BEFORE sending so any events emitted by the query
-            // loop reach this connection. The resume path (below) already
-            // does this correctly — match the ordering here.
             ctx.connRegistry.watch(connectionId, sessionId);
             ctx.connRegistry.setActive(connectionId, sessionId);
             sendToChat(activeClientId, prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
@@ -560,9 +548,7 @@ export function handleSendV2(
             return;
           }
 
-          // Case 2: Registry has the session but state says ENDED (or
-          // is missing). The query loop is a zombie — abort it cleanly
-          // so it doesn't leak, then fall through to resume.
+          // Zombie — abort before resume.
           if (found && isActive(found.clientId)) {
             log.info('aborting zombie session before resume', {
               connectionId,
@@ -573,7 +559,7 @@ export function handleSendV2(
             stopChat(found.clientId);
           }
 
-          // Case 3: No running query loop — resume from history.
+          // Resume from history.
           const sessionClientId = `${connectionId}:${sessionId}`;
           ctx.connRegistry.watch(connectionId, sessionId);
           ctx.connRegistry.setActive(connectionId, sessionId);
@@ -665,17 +651,12 @@ export function handleInterruptV2(
         });
       }
 
-      // --- State-based routing (Phase 3) ---
-      //
-      // Same logic as handleSendV2: use the durable state column as
-      // the single source of truth for routing decisions.
-
-      // Case 1: Registry has the session AND state says it should
-      // be running. Route the interrupt to the existing query loop.
+      // State-based routing (Phase 3): durable state is the single source of truth.
       if (
         found &&
         isActive(found.clientId) &&
         storeState !== 'ENDED' &&
+        storeState !== 'CLOSING' &&
         storeState !== null
       ) {
         const ownerConnection = getOwnerConnection(found.clientId);
@@ -721,8 +702,7 @@ export function handleInterruptV2(
         return;
       }
 
-      // Case 2: Registry has the session but state says ENDED (or
-      // is missing). The query loop is a zombie — abort it cleanly.
+      // Zombie — abort before resume.
       if (found && isActive(found.clientId)) {
         log.info('aborting zombie session before resume (interrupt)', {
           connectionId,

@@ -462,6 +462,99 @@ describe('handleSwitchSession', () => {
       }),
     );
   });
+
+  it('calls watch() before sending session_switched', async () => {
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({
+      sessionId: 'sess-1',
+      mode: 'agent',
+      cwd: '/test',
+      branch: 'main',
+      wtId: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      totalCostUsd: 0,
+    });
+
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'sess-1' }, ctx);
+
+    // watch() should have been called
+    expect(ctx.connRegistry.hasOpenWatchers('sess-1')).toBe(true);
+  });
+
+  it('returns running: true when session has active query loop', async () => {
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-1', session: {} });
+    sessionReg.isActive.mockReturnValue(true);
+
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({
+      sessionId: 'sess-1',
+      mode: 'agent',
+      cwd: '/test',
+      branch: 'main',
+      wtId: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      totalCostUsd: 0,
+    });
+    eventStore.getSessionState.mockReturnValue('ACTIVE');
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'sess-1' }, ctx);
+
+    const resp = transport.sent[0];
+    expect(resp).toHaveProperty('running', true);
+  });
+
+  it('returns running: false when store state is ENDED (zombie)', async () => {
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-1', session: {} });
+    sessionReg.isActive.mockReturnValue(true);
+
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({
+      sessionId: 'sess-1',
+      mode: 'agent',
+      cwd: '/test',
+      branch: 'main',
+      wtId: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      totalCostUsd: 0,
+    });
+    eventStore.getSessionState.mockReturnValue('ENDED');
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'sess-1' }, ctx);
+
+    const resp = transport.sent[0];
+    expect(resp).toHaveProperty('running', false);
+  });
 });
 
 // ─── handleSetModeV2 ─────────────────────────────────────────────────────────
@@ -1855,6 +1948,41 @@ describe('handleSendV2 state-based routing', () => {
 
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
+
+  it('treats CLOSING as zombie and resumes', () => {
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
+    (stopChat as ReturnType<typeof vi.fn>).mockClear();
+    (sendToChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(true);
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-1', session: {} });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(true);
+
+    const eventStore = mockEventStore();
+    eventStore.getSessionState.mockReturnValue('CLOSING');
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleSendV2(
+      'c1',
+      transport,
+      { type: 'send' as const, sessionId: 'sess-1', prompt: 'hi', clientMsgId: 'closing-1' },
+      ctx,
+    );
+
+    expect(sendToChat).not.toHaveBeenCalled();
+    expect(stopChat).toHaveBeenCalledWith('c1:sess-1');
+    expect(startChat).toHaveBeenCalled();
+
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  });
 });
 
 describe('handleInterruptV2 state-based routing', () => {
@@ -1927,6 +2055,41 @@ describe('handleInterruptV2 state-based routing', () => {
 
     expect(stopChat).not.toHaveBeenCalled();
     expect(interruptChat).toHaveBeenCalled();
+
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  });
+
+  it('treats CLOSING as zombie and resumes', () => {
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
+    (stopChat as ReturnType<typeof vi.fn>).mockClear();
+    (interruptChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(true);
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-1', session: {} });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(true);
+
+    const eventStore = mockEventStore();
+    eventStore.getSessionState.mockReturnValue('CLOSING');
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleInterruptV2(
+      'c1',
+      transport,
+      { type: 'interrupt', sessionId: 'sess-1', prompt: 'stop', clientMsgId: 'closing-i' },
+      ctx,
+    );
+
+    expect(interruptChat).not.toHaveBeenCalled();
+    expect(stopChat).toHaveBeenCalledWith('c1:sess-1');
+    expect(startChat).toHaveBeenCalled();
 
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
