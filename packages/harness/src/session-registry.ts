@@ -50,6 +50,10 @@ export interface ManagedSession {
   agentName?: string;
   /** Cached boot_context payload for replay on reconnect/switch. */
   bootContext?: Record<string, unknown>;
+  /** Parsed agent definition (recipe). Null if loading failed. */
+  agentDefinition: Record<string, unknown> | null;
+  /** Source of the agent definition: 'contexgin' | 'local' | 'fallback'. */
+  agentDefinitionSource?: string;
 }
 
 export interface ActiveSessionInfo {
@@ -114,6 +118,8 @@ export class SessionRegistry {
       | 'cumulativeCostUsd'
       | 'taskContext'
       | 'activeTaskIds'
+      | 'agentDefinition'
+      | 'agentDefinitionSource'
     > & {
       sessionId?: string;
     },
@@ -128,6 +134,8 @@ export class SessionRegistry {
       cumulativeCostUsd: 0,
       taskContext: null,
       activeTaskIds: new Map(),
+      agentDefinition: null,
+      agentDefinitionSource: undefined,
     });
     this.attached.add(clientId);
   }
