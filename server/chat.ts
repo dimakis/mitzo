@@ -1199,9 +1199,15 @@ const CLOSEOUT_PROMPT = `This session is closing in 10 minutes due to inactivity
 Please perform session closeout:
 
 1. If there is uncommitted work in any worktree, commit it now with a descriptive message
-2. If there are memory-worthy observations, decisions, or patterns — write them to memory/Observations/ or memory/Decisions/
-3. Write a 2-3 sentence summary of what was accomplished and what remains unfinished — output it as your final chat message so it appears in the conversation history
-4. Do not ask for confirmation — just do it`;
+2. Push the branch and create a pull request:
+   - Use \`gh pr create --title "<descriptive title>" --body "<summary of changes>"\`
+   - If the work is incomplete or experimental, create a draft: \`gh pr create --draft ...\`
+   - If the work is solid and complete, create a regular PR
+   - Target the main branch of each repo
+   - If push or PR creation fails, continue with the remaining steps
+3. If there are memory-worthy observations, decisions, or patterns — write them to memory/Observations/ or memory/Decisions/
+4. Write a 2-3 sentence summary of what was accomplished and what remains unfinished — output it as your final chat message so it appears in the conversation history
+5. Do not ask for confirmation — just do it`;
 
 /**
  * Graceful session closeout. Called by the registry's closeout handler

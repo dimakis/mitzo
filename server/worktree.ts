@@ -393,6 +393,121 @@ export function hasUncommittedWork(worktreePath: string): string | null {
   }
 }
 
+export interface RescueResult {
+  success: boolean;
+  prUrl?: string;
+  error?: string;
+}
+
+/**
+ * Parse a git remote URL into a GitHub owner/repo slug.
+ * Handles both SSH (git@github.com:user/repo.git) and HTTPS
+ * (https://github.com/user/repo.git) formats.
+ * Returns null if the remote cannot be resolved or the URL format is unrecognised.
+ */
+export function getRepoRemote(worktreePath: string): string | null {
+  try {
+    const url = execFileSync('git', ['-C', worktreePath, 'remote', 'get-url', 'origin'], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: WORKTREE_GIT_TIMEOUT_MS,
+    }).trim();
+
+    // SSH: git@github.com:user/repo.git
+    const sshMatch = url.match(/git@github\.com:([^/]+\/[^/]+?)(?:\.git)?$/);
+    if (sshMatch) return sshMatch[1];
+
+    // HTTPS: https://github.com/user/repo.git
+    const httpsMatch = url.match(/github\.com\/([^/]+\/[^/]+?)(?:\.git)?$/);
+    if (httpsMatch) return httpsMatch[1];
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Rescue a dirty worktree by committing, pushing, and creating a draft PR.
+ * Each step is attempted in order; if any step fails the function returns
+ * immediately with { success: false, error }.
+ */
+export function rescueDirtyWorktree(
+  worktreePath: string,
+  branch: string,
+  sessionId: string,
+): RescueResult {
+  const gitOpts = { stdio: ['pipe', 'pipe', 'pipe'] as 'pipe'[], timeout: WORKTREE_GIT_TIMEOUT_MS };
+
+  // Resolve the GitHub remote before doing any mutations
+  const repo = getRepoRemote(worktreePath);
+  if (!repo) {
+    return { success: false, error: 'Could not resolve GitHub remote for worktree' };
+  }
+
+  try {
+    // 1. Stage all changes
+    execFileSync('git', ['-C', worktreePath, 'add', '-A'], gitOpts);
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  try {
+    // 2. Commit
+    execFileSync(
+      'git',
+      [
+        '-C',
+        worktreePath,
+        'commit',
+        '-m',
+        `chore: rescue uncommitted work from session ${sessionId}`,
+      ],
+      gitOpts,
+    );
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  try {
+    // 3. Push
+    execFileSync('git', ['-C', worktreePath, 'push', 'origin', branch], gitOpts);
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  try {
+    // 4. Create draft PR
+    const prBody = `Auto-rescued uncommitted work from session \`${sessionId}\`.\n\nThis PR was created automatically by Mitzo's worktree cleanup.`;
+    const prOutput = execFileSync(
+      'gh',
+      [
+        'pr',
+        'create',
+        '--draft',
+        '--title',
+        `Rescued: ${sessionId}`,
+        '--body',
+        prBody,
+        '--repo',
+        repo,
+        '--head',
+        branch,
+      ],
+      {
+        cwd: worktreePath,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: WORKTREE_GIT_TIMEOUT_MS,
+      },
+    ).trim();
+    log.info('rescue PR created', { sessionId, prUrl: prOutput });
+    return { success: true, prUrl: prOutput };
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /**
  * Async version of hasUncommittedWork — does not block the event loop.
  * Used by SessionOverviewEmitter's background refresh loop.
@@ -425,6 +540,7 @@ function postDirtyWorktreeToInbox(
   branch: string,
   dirtyFiles: string,
   inboxDir: string,
+  prUrl?: string,
 ): void {
   const ts = new Date().toISOString().replace(/[-:]/g, '').replace('T', '_').slice(0, 15);
   const filename = `${ts}_worktree_gc_${sessionId}.md`;
@@ -442,32 +558,38 @@ function postDirtyWorktreeToInbox(
     .filter(Boolean)
     .join(', ');
 
+  const actionLine = prUrl
+    ? `**Action:** Auto-rescued — PR at ${prUrl}. Review and merge or close.`
+    : `**Action:** This worktree is ${WORKTREE_STALE_HOURS / 24}+ days old and has uncommitted changes. Rescue the work (commit/stash) or approve cleanup.`;
+
+  const tags = prUrl ? '[worktree, auto-rescued]' : '[worktree, uncommitted-work, needs-rescue]';
+
   const content = `---
 agent: worktree_gc
 timestamp: ${new Date().toISOString()}
 status: pending
-tags: [worktree, uncommitted-work, needs-rescue]
+tags: ${tags}
 ---
 
-# Stale worktree has uncommitted work
+# Stale worktree ${prUrl ? 'auto-rescued' : 'has uncommitted work'}
 
 **Session:** ${sessionId}
 **Repo:** ${repoName}
 **Branch:** ${branch}
 **Path:** ${worktreePath}
-**Files:** ${summary}
+**Files:** ${summary}${prUrl ? `\n**PR:** ${prUrl}` : ''}
 
 \`\`\`
 ${dirtyFiles}
 \`\`\`
 
-**Action:** This worktree is ${WORKTREE_STALE_HOURS / 24}+ days old and has uncommitted changes. Rescue the work (commit/stash) or approve cleanup.
+${actionLine}
 `;
 
   try {
     mkdirSync(inboxDir, { recursive: true });
     writeFileSync(join(inboxDir, filename), content);
-    log.info('posted dirty worktree to inbox', { sessionId, repo: repoName });
+    log.info('posted dirty worktree to inbox', { sessionId, repo: repoName, prUrl });
   } catch (err: unknown) {
     log.warn('failed to post dirty worktree to inbox', {
       error: err instanceof Error ? err.message : 'unknown',
@@ -521,6 +643,36 @@ export function cleanupStaleWorktrees(
           if (!alreadyNotified) {
             const branch = `${WORKTREE_BRANCH_PREFIX}${entry}`;
             const repoName = basename(baseRepo);
+
+            // Attempt automatic rescue: commit, push, and create a draft PR
+            const rescue = rescueDirtyWorktree(fullPath, branch, entry);
+            if (rescue.success) {
+              log.info('auto-rescued dirty worktree', {
+                repo: baseRepo,
+                session: entry,
+                prUrl: rescue.prUrl,
+              });
+              postDirtyWorktreeToInbox(
+                entry,
+                repoName,
+                fullPath,
+                branch,
+                dirty,
+                inboxDir,
+                rescue.prUrl,
+              );
+              // Rescue succeeded — safe to clean up the worktree directory
+              removeWorktree(entry, baseRepo);
+              cleaned++;
+              continue;
+            }
+
+            // Rescue failed — fall through to skip behavior
+            log.warn('auto-rescue failed, skipping dirty worktree', {
+              repo: baseRepo,
+              session: entry,
+              error: rescue.error,
+            });
             postDirtyWorktreeToInbox(entry, repoName, fullPath, branch, dirty, inboxDir);
           }
           skipped++;
