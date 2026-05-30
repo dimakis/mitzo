@@ -163,7 +163,7 @@ async function localBootContextFallback(repoRoot: string): Promise<BootContextMe
 /**
  * Fetch boot context from the running ContexGin server.
  * Falls back to build_boot_context.py if the server is unreachable.
- * Never throws — returns a local-fallback message on any error.
+ * Never throws — returns a local-fallback BootContextMessage on any error.
  */
 export async function fetchBootContext(
   agentName: string,
@@ -894,7 +894,9 @@ async function _startChatInner(
     buildTaskPromptForSession(clientId);
 
   // Fire-and-forget: fetch boot context from running ContexGin server
-  fetchBootContext(agentName).then((msg) => send(transport, msg)).catch(() => {});
+  fetchBootContext(agentName)
+    .then((msg) => send(transport, msg as unknown as Record<string, unknown>))
+    .catch(() => {});
   capturePromptComparison(wtId, cwd, systemPromptAppend, repoWorktrees).catch(() => {});
 
   // Resolve SDK session UUID for resume — worktree IDs are not valid SDK session IDs
