@@ -43,16 +43,23 @@ function AttentionCard({
 
 // ─── Main component ────────────────────────────────────────────────────────
 
+const DEFAULT_VISIBLE_COUNT = 5;
+
 export function AttentionFeed() {
   const { items, tier1Count, loading } = useAttentionFeed();
   const navigate = useNavigate();
 
   const hasUrgent = tier1Count > 0;
   const [manualOpen, setManualOpen] = useState<boolean | null>(null);
+  const [showAll, setShowAll] = useState(false);
   const isOpen = manualOpen ?? true; // always open by default
 
   const toggleOpen = useCallback(() => {
     setManualOpen((prev) => !(prev ?? true));
+  }, []);
+
+  const toggleShowAll = useCallback(() => {
+    setShowAll((prev) => !prev);
   }, []);
 
   const handleTap = useCallback(
@@ -68,6 +75,9 @@ export function AttentionFeed() {
   if (tier1Count > 0) summaryParts.push(`${tier1Count} needs you`);
   const t2Count = items.filter((i) => i.tier === 2).length;
   if (t2Count > 0) summaryParts.push(`${t2Count} in focus`);
+
+  const visibleItems = showAll ? items : items.slice(0, DEFAULT_VISIBLE_COUNT);
+  const hasMore = items.length > DEFAULT_VISIBLE_COUNT;
 
   return (
     <div className="attention-section">
@@ -86,9 +96,14 @@ export function AttentionFeed() {
           {!loading && items.length === 0 && (
             <div className="attention-empty">Nothing needs your attention right now.</div>
           )}
-          {items.map((item) => (
+          {visibleItems.map((item) => (
             <AttentionCard key={item.id} item={item} onTap={handleTap} />
           ))}
+          {!loading && hasMore && (
+            <button className="attention-show-more" onClick={toggleShowAll}>
+              {showAll ? 'Show less' : `Show all ${items.length}`}
+            </button>
+          )}
         </div>
       )}
     </div>

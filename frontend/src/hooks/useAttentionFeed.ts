@@ -214,8 +214,6 @@ function sortAttention(items: AttentionItem[]): AttentionItem[] {
 
 // ─── Hook ──────────────────────────────────────────────────────────────────
 
-const MAX_ITEMS = 5;
-
 export interface UseAttentionFeedReturn {
   items: AttentionItem[];
   tier1Count: number;
@@ -286,8 +284,7 @@ export function useAttentionFeed(): UseAttentionFeedReturn {
     const telosItems = telosToAttention(todos);
     const atbItems = atbToAttention(tasks);
     const sessionItems = sessionsToAttention(activities);
-    const all = sortAttention([...telosItems, ...atbItems, ...sessionItems]);
-    return all.slice(0, MAX_ITEMS);
+    return sortAttention([...telosItems, ...atbItems, ...sessionItems]);
   }, [todos, tasks, activities]);
 
   const tier1Count = useMemo(() => feed.filter((i) => i.tier === 1).length, [feed]);
