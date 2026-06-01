@@ -83,6 +83,7 @@ describe('fetchBootContext', () => {
         boot: {
           content: '# Boot payload\nContext here.',
           tokens: 11297,
+          tokenBudget: 11297,
           sources: ['CONSTITUTION.md', 'memory/Profile/Principles.md'],
         },
       }),
