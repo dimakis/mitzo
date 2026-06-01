@@ -135,20 +135,20 @@ async function localBootContextFallback(repoRoot: string): Promise<BootContextMe
     const content = parsed.additionalContext ?? '';
     // Rough token estimate: ~4 chars per token
     const tokens = Math.ceil(content.length / 4);
+    const sources = [
+      { path: 'memory/Profile/Working Style.md', kind: 'profile' },
+      { path: 'memory/Profile/Communication Style.md', kind: 'profile' },
+      { path: 'memory/Profile/Principles.md', kind: 'profile' },
+      { path: 'CONSTITUTION.md', kind: 'constitution' },
+      { path: 'SERVICES.md', kind: 'reference' },
+    ];
     return {
       type: 'boot_context',
       source: 'local-fallback',
-      // Coupled to SOURCE_PATHS in scripts/build_boot_context.py — update if that list changes
-      sourceCount: 5,
+      sourceCount: sources.length,
       tokenCount: tokens,
       tokenBudget: tokens,
-      sources: [
-        { path: 'memory/Profile/Working Style.md', kind: 'profile' },
-        { path: 'memory/Profile/Communication Style.md', kind: 'profile' },
-        { path: 'memory/Profile/Principles.md', kind: 'profile' },
-        { path: 'CONSTITUTION.md', kind: 'constitution' },
-        { path: 'SERVICES.md', kind: 'reference' },
-      ],
+      sources,
       included: [],
       trimmed: [],
       fullMarkdown: content,
@@ -196,6 +196,7 @@ export async function fetchBootContext(
     }
 
     const bootTokens = typeof boot.tokens === 'number' ? boot.tokens : 0;
+    const bootBudget = typeof boot.tokenBudget === 'number' ? boot.tokenBudget : 8000;
     const rawSources = Array.isArray(boot.sources) ? boot.sources : [];
 
     const sources: Array<{ path: string; kind: string }> = rawSources
@@ -204,15 +205,27 @@ export async function fetchBootContext(
 
     const fullMarkdown = typeof boot.content === 'string' ? boot.content : undefined;
 
+    const rawIncluded = Array.isArray(boot.included) ? boot.included : [];
+    const rawTrimmed = Array.isArray(boot.trimmed) ? boot.trimmed : [];
+    const parseSections = (arr: unknown[]) =>
+      arr
+        .filter((s): s is Record<string, unknown> => typeof s === 'object' && s !== null)
+        .map((s) => ({
+          source: String(s.source ?? ''),
+          heading: String(s.heading ?? ''),
+          tokens: typeof s.tokens === 'number' ? s.tokens : 0,
+          content: String(s.content ?? ''),
+        }));
+
     return {
       type: 'boot_context',
       source: 'contexgin',
       sourceCount: sources.length,
       tokenCount: bootTokens,
-      tokenBudget: bootTokens, // server compiles to its own budget — report actual
+      tokenBudget: bootBudget,
       sources,
-      included: [],
-      trimmed: [],
+      included: parseSections(rawIncluded),
+      trimmed: parseSections(rawTrimmed),
       fullMarkdown,
     };
   } catch (err: unknown) {
@@ -367,8 +380,8 @@ export function parseModelSpec(spec?: string): { model: string; effort: string |
 // --- Pure helper functions ---
 
 /** Send data via transport (isOpen guard is inside the transport). */
-function send(transport: SessionTransport, data: Record<string, unknown>) {
-  if (transport.isOpen()) transport.send(data);
+function send(transport: SessionTransport, data: Record<string, unknown> | BootContextMessage) {
+  if (transport.isOpen()) transport.send(data as Record<string, unknown>);
 }
 
 const IPV4_PRELOAD = join(dirname(fileURLToPath(import.meta.url)), 'ipv4-preload.cjs');
@@ -900,7 +913,7 @@ async function _startChatInner(
   // Fire-and-forget: fetch boot context from running ContexGin server
   fetchBootContext(agentName)
     .then((msg) => {
-      send(transport, msg as unknown as Record<string, unknown>);
+      send(transport, msg);
       // Cache in ManagedSession for replay on reconnect/switch
       const s = registry.get(clientId);
       if (s) s.bootContext = msg;
