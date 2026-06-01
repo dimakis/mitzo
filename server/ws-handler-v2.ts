@@ -361,7 +361,21 @@ export async function handleSwitchSession(
       if (prev && prev !== msg.sessionId) {
         ctx.connRegistry.unwatch(connectionId, prev);
       }
+      // Watch the session immediately so events from a running query loop
+      // reach this client before the first send. Without this, the client
+      // sits in a blind spot between switch_session and the first send —
+      // any events emitted by the query loop during that window are lost.
+      ctx.connRegistry.watch(connectionId, msg.sessionId);
       ctx.connRegistry.setActive(connectionId, msg.sessionId);
+
+      // Cross-reference registry with durable state to avoid reporting
+      // a zombie query loop as running.
+      const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
+      const storeState = ctx.eventStore.getSessionState(msg.sessionId);
+      const running =
+        found && storeState !== 'ENDED' && storeState !== 'CLOSING' && storeState !== null
+          ? ctx.sessionRegistry.isActive(found.clientId)
+          : false;
 
       ctx.connRegistry.get(connectionId)?.transport.send({
         type: 'session_switched',
@@ -370,6 +384,7 @@ export async function handleSwitchSession(
         cwd: sessionMeta.cwd,
         branch: sessionMeta.branch,
         wtId: sessionMeta.wtId,
+        running,
         tokens: {
           input: sessionMeta.inputTokens,
           output: sessionMeta.outputTokens,
@@ -382,7 +397,6 @@ export async function handleSwitchSession(
       // Re-send boot_context so pills appear on session switch.
       // Hot path: running session in SessionRegistry (in-memory cache).
       // Cold path: ended session — read serialized JSON from EventStore.
-      const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
       if (found?.session?.bootContext) {
         ctx.connRegistry.get(connectionId)?.transport.send({
           type: 'boot_context',
@@ -400,7 +414,7 @@ export async function handleSwitchSession(
         }
       }
 
-      log.info('switch_session', { connectionId, sessionId: msg.sessionId });
+      log.info('switch_session', { connectionId, sessionId: msg.sessionId, running });
     },
   );
 }
@@ -484,62 +498,68 @@ export function handleSendV2(
             span.setAttribute('session.state_mismatch', mismatch.details ?? 'unknown');
           }
 
-          if (found && isActive(found.clientId)) {
-            const storeMeta = ctx.eventStore.getSession(sessionId);
-            const staleInMemory = storeMeta && !storeMeta.isActive;
+          // State-based routing (Phase 3): durable state is the single source of truth.
+          if (
+            found &&
+            isActive(found.clientId) &&
+            storeState !== 'ENDED' &&
+            storeState !== 'CLOSING' &&
+            storeState !== null
+          ) {
+            const ownerConnection = getOwnerConnection(found.clientId);
+            const isOwner = ownerConnection === connectionId;
+            const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
 
-            if (staleInMemory) {
-              log.info('removing stale session from registry (send)', {
+            let activeClientId = found.clientId;
+            if (!isOwner) {
+              const oldTransport = found.session?.transport;
+              if (oldTransport?.isOpen()) {
+                oldTransport.send({ type: 'session_takeover', sessionId });
+              }
+              ctx.connRegistry.unwatch(ownerConnection, sessionId);
+              denyPendingBySession(sessionId);
+
+              reattachChat(found.clientId, transport);
+              const newClientId = `${connectionId}:${sessionId}`;
+              if (found.clientId !== newClientId) {
+                rekeyChat(found.clientId, newClientId);
+                activeClientId = newClientId;
+              }
+              log.info('takeover on send', {
                 connectionId,
                 sessionId,
-                clientId: found.clientId,
+                oldOwner: ownerConnection,
+                newClientId: activeClientId,
                 storeState,
               });
-              ctx.sessionRegistry.remove(found.clientId);
-            } else {
-              const ownerConnection = getOwnerConnection(found.clientId);
-              const isOwner = ownerConnection === connectionId;
-              const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
-
-              let activeClientId = found.clientId;
-              if (!isOwner) {
-                const oldTransport = found.session?.transport;
-                if (oldTransport?.isOpen()) {
-                  oldTransport.send({ type: 'session_takeover', sessionId });
-                }
-                ctx.connRegistry.unwatch(ownerConnection, sessionId);
-                denyPendingBySession(sessionId);
-
-                reattachChat(found.clientId, transport);
-                const newClientId = `${connectionId}:${sessionId}`;
-                if (found.clientId !== newClientId) {
-                  rekeyChat(found.clientId, newClientId);
-                  activeClientId = newClientId;
-                }
-                log.info('takeover on send', {
-                  connectionId,
-                  sessionId,
-                  oldOwner: ownerConnection,
-                  newClientId: activeClientId,
-                  storeState,
-                });
-              } else if (isDetached) {
-                reattachChat(found.clientId, transport);
-                log.info('reattached own detached session on send', {
-                  connectionId,
-                  sessionId,
-                  storeState,
-                });
-              }
-              applySkillPolicy(activeClientId);
-              sendToChat(activeClientId, prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
-              ctx.connRegistry.watch(connectionId, sessionId);
-              ctx.connRegistry.setActive(connectionId, sessionId);
-              span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');
-              return;
+            } else if (isDetached) {
+              reattachChat(found.clientId, transport);
+              log.info('reattached own detached session on send', {
+                connectionId,
+                sessionId,
+                storeState,
+              });
             }
+            applySkillPolicy(activeClientId);
+            ctx.connRegistry.watch(connectionId, sessionId);
+            ctx.connRegistry.setActive(connectionId, sessionId);
+            sendToChat(activeClientId, prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
+            span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');
+            return;
           }
 
+          // Zombie — abort before resume.
+          if (found && isActive(found.clientId)) {
+            log.info('aborting zombie session before resume', {
+              connectionId,
+              sessionId,
+              clientId: found.clientId,
+              storeState,
+            });
+            stopChat(found.clientId);
+          }
+
+          // Resume from history.
           const sessionClientId = `${connectionId}:${sessionId}`;
           ctx.connRegistry.watch(connectionId, sessionId);
           ctx.connRegistry.setActive(connectionId, sessionId);
@@ -631,61 +651,66 @@ export function handleInterruptV2(
         });
       }
 
-      if (isActive(found.clientId)) {
-        const storeMeta = ctx.eventStore.getSession(msg.sessionId);
-        const staleInMemory = storeMeta && !storeMeta.isActive;
+      // State-based routing (Phase 3): durable state is the single source of truth.
+      if (
+        found &&
+        isActive(found.clientId) &&
+        storeState !== 'ENDED' &&
+        storeState !== 'CLOSING' &&
+        storeState !== null
+      ) {
+        const ownerConnection = getOwnerConnection(found.clientId);
+        const isOwner = ownerConnection === connectionId;
+        const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
 
-        if (staleInMemory) {
-          log.info('removing stale session from registry (interrupt)', {
+        if (!isOwner) {
+          const oldTransport = found.session?.transport;
+          if (oldTransport?.isOpen()) {
+            oldTransport.send({ type: 'session_takeover', sessionId: msg.sessionId });
+          }
+          ctx.connRegistry.unwatch(ownerConnection, msg.sessionId);
+          denyPendingBySession(msg.sessionId);
+
+          reattachChat(found.clientId, transport);
+          const newClientId = `${connectionId}:${msg.sessionId}`;
+          if (found.clientId !== newClientId) {
+            rekeyChat(found.clientId, newClientId);
+            activeClientId = newClientId;
+          }
+          log.info('takeover on interrupt', {
             connectionId,
             sessionId: msg.sessionId,
-            clientId: found.clientId,
+            oldOwner: ownerConnection,
+            newClientId: activeClientId,
             storeState,
           });
-          ctx.sessionRegistry.remove(found.clientId);
-        } else {
-          const ownerConnection = getOwnerConnection(found.clientId);
-          const isOwner = ownerConnection === connectionId;
-          const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
-
-          if (!isOwner) {
-            const oldTransport = found.session?.transport;
-            if (oldTransport?.isOpen()) {
-              oldTransport.send({ type: 'session_takeover', sessionId: msg.sessionId });
-            }
-            ctx.connRegistry.unwatch(ownerConnection, msg.sessionId);
-            denyPendingBySession(msg.sessionId);
-
-            reattachChat(found.clientId, transport);
-            const newClientId = `${connectionId}:${msg.sessionId}`;
-            if (found.clientId !== newClientId) {
-              rekeyChat(found.clientId, newClientId);
-              activeClientId = newClientId;
-            }
-            log.info('takeover on interrupt', {
-              connectionId,
-              sessionId: msg.sessionId,
-              oldOwner: ownerConnection,
-              newClientId: activeClientId,
-              storeState,
-            });
-          } else if (isDetached) {
-            reattachChat(found.clientId, transport);
-          }
-
-          ctx.connRegistry.watch(connectionId, msg.sessionId);
-          ctx.connRegistry.setActive(connectionId, msg.sessionId);
-          interruptChat(
-            activeClientId,
-            msg.prompt,
-            msg.images,
-            msg.contextBlocks,
-            msg.clientMsgId,
-            msg.model,
-          );
-          log.info('interrupt', { connectionId, sessionId: msg.sessionId });
-          return;
+        } else if (isDetached) {
+          reattachChat(found.clientId, transport);
         }
+
+        ctx.connRegistry.watch(connectionId, msg.sessionId);
+        ctx.connRegistry.setActive(connectionId, msg.sessionId);
+        interruptChat(
+          activeClientId,
+          msg.prompt,
+          msg.images,
+          msg.contextBlocks,
+          msg.clientMsgId,
+          msg.model,
+        );
+        log.info('interrupt', { connectionId, sessionId: msg.sessionId });
+        return;
+      }
+
+      // Zombie — abort before resume.
+      if (found && isActive(found.clientId)) {
+        log.info('aborting zombie session before resume (interrupt)', {
+          connectionId,
+          sessionId: msg.sessionId,
+          clientId: found.clientId,
+          storeState,
+        });
+        stopChat(found.clientId);
       }
 
       const sessionClientId = `${connectionId}:${msg.sessionId}`;

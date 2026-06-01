@@ -161,6 +161,14 @@ export function parseServerMessage(
       if (tokens) {
         callbacks.onTokensHydrated?.(tokens);
       }
+      // Restore running state from the server so the client UI matches
+      // the actual session state on reattach. Without this, the client
+      // defaults to running=false after switchSession resets state,
+      // causing the first send to go through the normal path even when
+      // the session is actively generating.
+      if (typeof msg.running === 'boolean') {
+        result.messagesActions.push({ type: 'SET_RUNNING', running: msg.running });
+      }
       break;
     }
 
