@@ -17,7 +17,7 @@ npm run lint         # ESLint (server + frontend)
 npm run lint:fix     # ESLint with auto-fix
 npm run format       # Prettier (write)
 npm run format:check # Prettier (check only)
-npm test             # Vitest (2587 tests across 177 suites)
+npm test             # Vitest — full suite
 ```
 
 **Deployment:** Mitzo runs as a launchd service (`com.mitzo.server`). The server is compiled to JS via `tsc` (not live-transpiled). Run `npm run deploy` to build and restart. Logs in `logs/server-{stdout,stderr}.log`.
@@ -150,7 +150,7 @@ Web-based command center for Claude Code sessions via the Agent SDK. The repo us
 - `types/ws-messages.ts` — Typed WebSocket message unions (client → server, server → client).
 - `types/task.ts` — Task model types (`Task`, `TaskStatus`, `LoopStatus`, `SessionPolicy`).
 
-**Hooks** — `hooks/` directory (21 hooks)
+**Hooks** — `hooks/` directory
 
 - `useChatMessages` — useReducer for v2 protocol: MESSAGE_START/BLOCK_START/BLOCK_DELTA/BLOCK_END/TOOL_RESULT/MESSAGE_END/SESSION_END/MESSAGE_SNAPSHOT/RESTORE
 - `useTaskBoard` — task CRUD + loop control + WS subscriptions
@@ -161,7 +161,7 @@ Web-based command center for Claude Code sessions via the Agent SDK. The repo us
 - `useServiceHealth` — health status for Yapper, ContexGin
 - `useCalendarData`, `useTodoData`, `useSessionList`, `useSessionSearch`, `useAttentionFeed`, `useProgress`, `useDocumentReader`, `useDraft`, `useTabBadges`, `useTheme`, `useLongPress`, `useMediaQuery`, `useQueuedMessages`, `useCopyFeedback`
 
-**Lib** — `lib/` directory (27 utility files)
+**Lib** — `lib/` directory
 
 - `groupMessages` — tool block grouping with configurable threshold
 - `tts.ts` — Text chunking at sentence boundaries, WAV synthesis via Yapper API, singleton AudioContext playback
@@ -171,7 +171,7 @@ Web-based command center for Claude Code sessions via the Agent SDK. The repo us
 
 - `Login`, `SessionList`, `ChatView` (renders `current` inline + `messages[]` grouped), `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`, `TaskBoard`
 
-**Components** — 48 components
+**Components**
 
 - **Message rendering:** `MessageBubble` (UserBubble/TextBubble), `ThinkingBlock`, `ToolPill`, `ToolGroup`, `PermissionBanner`
 - **Input:** `ChatInput`, `SlashPicker`, `MicButton`
@@ -330,7 +330,7 @@ All feature work follows TDD. This is not optional.
 ### Running Tests
 
 ```bash
-npm test              # Vitest — full suite (2587 tests across 177 suites)
+npm test              # Vitest — full suite
 npm test -- --watch   # Watch mode during development
 npm test -- <path>    # Run specific test file
 ```

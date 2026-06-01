@@ -252,7 +252,7 @@ See [docs/onboarding.md](docs/onboarding.md) for a full configuration walkthroug
 
 ```bash
 npm run dev          # backend + frontend concurrently
-npm test             # vitest (2587 tests, 177 suites)
+npm test             # vitest — full suite
 npm run lint         # eslint
 npm run format:check # prettier
 ```

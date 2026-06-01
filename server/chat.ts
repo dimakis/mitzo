@@ -916,7 +916,7 @@ async function _startChatInner(
       send(transport, msg);
       // Cache in ManagedSession for replay on reconnect/switch
       const s = registry.get(clientId);
-      if (s) s.bootContext = msg;
+      if (s) s.bootContext = msg as unknown as Record<string, unknown>;
     })
     .catch(() => {});
   capturePromptComparison(wtId, cwd, systemPromptAppend, repoWorktrees).catch(() => {});
