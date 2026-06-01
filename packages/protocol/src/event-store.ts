@@ -48,6 +48,8 @@ interface SessionRow {
   last_speaker_at: number | null;
   state: string | null;
   last_state_change: number | null;
+  callback_url: string | null;
+  callback_secret: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -122,6 +124,7 @@ export class EventStore {
     this.migrateCloseTracking(db);
     this.migrateAttentionTracking(db);
     this.migrateSessionState(db);
+    this.migrateCallbackTracking(db);
 
     this.log.info('EventStore initialized', { dbPath });
 
@@ -281,6 +284,19 @@ export class EventStore {
     }
   }
 
+  private migrateCallbackTracking(db: Database.Database): void {
+    const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
+    const columnNames = new Set(columns.map((c) => c.name));
+    if (!columnNames.has('callback_url')) {
+      db.exec('ALTER TABLE sessions ADD COLUMN callback_url TEXT');
+      this.log.info('migrated sessions table: added callback_url');
+    }
+    if (!columnNames.has('callback_secret')) {
+      db.exec('ALTER TABLE sessions ADD COLUMN callback_secret TEXT');
+      this.log.info('migrated sessions table: added callback_secret');
+    }
+  }
+
   close(): void {
     if (this.db) {
       this.db.close();
@@ -351,6 +367,14 @@ export class EventStore {
         fields.push('closed_by = ?');
         values.push(meta.closedBy);
       }
+      if (meta.callbackUrl !== undefined) {
+        fields.push('callback_url = ?');
+        values.push(meta.callbackUrl);
+      }
+      if (meta.callbackSecret !== undefined) {
+        fields.push('callback_secret = ?');
+        values.push(meta.callbackSecret);
+      }
       if (meta.updatedAt !== undefined) {
         fields.push('updated_at = ?');
         values.push(meta.updatedAt);
@@ -374,6 +398,8 @@ export class EventStore {
         'goal_id',
         'telos_task_id',
         'closed_by',
+        'callback_url',
+        'callback_secret',
       ];
       const vals: unknown[] = [
         meta.sessionId,
@@ -387,6 +413,8 @@ export class EventStore {
         meta.goalId ?? null,
         meta.telosTaskId ?? null,
         meta.closedBy ?? null,
+        meta.callbackUrl ?? null,
+        meta.callbackSecret ?? null,
       ];
       if (meta.updatedAt !== undefined) {
         cols.push('updated_at');
@@ -653,6 +681,8 @@ function rowToSession(row: SessionRow): SessionMeta {
     lastSpeakerAt: row.last_speaker_at ?? null,
     state: (row.state as SessionMeta['state']) ?? null,
     lastStateChange: row.last_state_change ?? null,
+    callbackUrl: row.callback_url ?? null,
+    callbackSecret: row.callback_secret ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

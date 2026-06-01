@@ -20,6 +20,7 @@ import { createGoal, reportUsage, deriveGoalTitle } from './goal-client.js';
 import { tracer } from './tracing.js';
 import { context, trace, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { ProgressTracker } from './progress-tracker.js';
+import { fireSessionCallback } from './session-callback.js';
 const log = createLogger('query-loop');
 
 /** Truncate text for trace/log payloads, returning a truncated flag when clipped. */
@@ -1357,9 +1358,20 @@ async function _runQueryLoopInner(
       // Mark session as inactive in durable store
       if (store && resolvedSessionId) {
         store.markSessionInactive(resolvedSessionId);
+        const endReason = caughtError ? 'error' : 'completed';
         store.setSessionState(resolvedSessionId, 'ENDED', {
           clientId,
-          reason: caughtError ? 'error' : 'completed',
+          reason: endReason,
+        });
+        // Fire callback if configured (fire-and-forget)
+        fireSessionCallback(resolvedSessionId, store, {
+          reason: endReason,
+          logger: log,
+        }).catch((err) => {
+          log.error('session callback fire failed', {
+            sessionId: resolvedSessionId,
+            error: err instanceof Error ? err.message : String(err),
+          });
         });
       }
       // Clean up any open subagent spans (ERROR if catch was entered)

@@ -239,4 +239,10 @@ export const SessionCreateBody = z.object({
   mode: z.enum(['ask', 'agent', 'auto']).default('agent'),
   /** Model override. */
   model: z.string().optional(),
+  /** Agent definition name (loads .agents/<name>.yaml via ContexGin). */
+  agentName: z.string().optional(),
+  /** URL to POST structured results to when the session ends. */
+  callbackUrl: z.string().url().optional(),
+  /** HMAC shared secret for signing callback payloads (SHA-256). */
+  callbackSecret: z.string().optional(),
 });

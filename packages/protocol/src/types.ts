@@ -219,6 +219,10 @@ export interface SessionMeta {
   lastSpeakerAt: number | null;
   state: SessionState | null;
   lastStateChange: number | null;
+  /** URL to POST structured results to when the session ends. */
+  callbackUrl: string | null;
+  /** HMAC shared secret for signing callback payloads. */
+  callbackSecret: string | null;
   createdAt: number;
   updatedAt: number;
 }

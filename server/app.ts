@@ -439,9 +439,13 @@ async function handleSessionCreate(
     summary?: string;
     mode?: 'ask' | 'agent' | 'auto';
     model?: string;
+    agentName?: string;
+    callbackUrl?: string;
+    callbackSecret?: string;
   },
 ) {
-  const { source, initialPrompt, summary, mode, model } = data;
+  const { source, initialPrompt, summary, mode, model, agentName, callbackUrl, callbackSecret } =
+    data;
 
   if (!isIsolationEnabled()) {
     log.info('session isolation disabled', { source });
@@ -472,6 +476,8 @@ async function handleSessionCreate(
         initialPrompt,
         isActive: true,
         mode: mode ?? 'agent',
+        callbackUrl: callbackUrl ?? null,
+        callbackSecret: callbackSecret ?? null,
       });
 
       // Start the session headlessly — NullTransport discards WS messages
@@ -487,6 +493,7 @@ async function handleSessionCreate(
         mode: mode ?? 'agent',
         model,
         isolation: true,
+        agentName,
       });
 
       log.info('headless session started', { sessionId: wtId, prompt: initialPrompt });
