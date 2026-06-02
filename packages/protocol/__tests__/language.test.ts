@@ -75,8 +75,12 @@ describe('languageFromPath', () => {
   });
 
   // New language coverage
-  it('detects Objective-C from .m', () => {
-    expect(languageFromPath('AppDelegate.m')).toBe('objectivec');
+  it('returns undefined for ambiguous .m files', () => {
+    expect(languageFromPath('AppDelegate.m')).toBeUndefined();
+  });
+
+  it('detects Objective-C++ from .mm', () => {
+    expect(languageFromPath('AppDelegate.mm')).toBe('objectivec');
   });
 
   it('detects Dart from .dart', () => {
