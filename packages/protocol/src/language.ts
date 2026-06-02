@@ -56,7 +56,6 @@ const EXT_MAP: Record<string, string> = {
   kts: 'kotlin',
   swift: 'swift',
   cs: 'csharp',
-  m: 'objectivec',
   mm: 'objectivec',
   dart: 'dart',
   scala: 'scala',
