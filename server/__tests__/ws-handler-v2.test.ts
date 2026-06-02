@@ -3239,7 +3239,7 @@ describe('detectStateMismatch', () => {
     expect(result.details).toContain('transport detached but state=ACTIVE');
   });
 
-  it('detects detached transport but CLOSING state', () => {
+  it('ignores CLOSING state (graceful shutdown — registry state is indeterminate)', () => {
     const reg = mockSessionRegistry();
     const store = mockEventStore();
     reg.findBySessionId.mockReturnValue({ clientId: 'c1', session: {} });
@@ -3251,8 +3251,7 @@ describe('detectStateMismatch', () => {
       reg as unknown as V2HandlerContext['sessionRegistry'],
       store as unknown as V2HandlerContext['eventStore'],
     );
-    expect(result.mismatch).toBe(true);
-    expect(result.details).toContain('transport detached but state=CLOSING');
+    expect(result.mismatch).toBe(false);
   });
 
   it('allows STARTING state in registry regardless of attach state', () => {

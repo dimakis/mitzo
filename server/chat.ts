@@ -917,6 +917,12 @@ async function _startChatInner(
       // Cache in ManagedSession for replay on reconnect/switch
       const s = registry.get(clientId);
       if (s) s.bootContext = msg as unknown as Record<string, unknown>;
+      // Persist to EventStore for cold-path recovery (resumed sessions
+      // may not run the query loop long enough for it to upsert).
+      const sid = options.resume ?? s?.sessionId;
+      if (sid) {
+        eventStore.upsertSession({ sessionId: sid, bootContext: JSON.stringify(msg) });
+      }
     })
     .catch(() => {});
   capturePromptComparison(wtId, cwd, systemPromptAppend, repoWorktrees).catch(() => {});
