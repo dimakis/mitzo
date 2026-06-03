@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAttentionFeed, type AttentionItem } from '../hooks/useAttentionFeed';
 import { selectionChanged } from '../lib/haptics';
@@ -55,7 +55,11 @@ export function AttentionFeed() {
   const isOpen = manualOpen ?? true; // always open by default
 
   const toggleOpen = useCallback(() => {
-    setManualOpen((prev) => !(prev ?? true));
+    setManualOpen((prev) => {
+      const wasOpen = prev ?? true;
+      if (wasOpen) setShowAll(false); // reset on collapse
+      return !wasOpen;
+    });
   }, []);
 
   const toggleShowAll = useCallback(() => {
@@ -75,6 +79,11 @@ export function AttentionFeed() {
   if (tier1Count > 0) summaryParts.push(`${tier1Count} needs you`);
   const t2Count = items.filter((i) => i.tier === 2).length;
   if (t2Count > 0) summaryParts.push(`${t2Count} in focus`);
+
+  // Auto-reset showAll when items shrink below threshold
+  useEffect(() => {
+    if (items.length <= DEFAULT_VISIBLE_COUNT) setShowAll(false);
+  }, [items.length]);
 
   const visibleItems = showAll ? items : items.slice(0, DEFAULT_VISIBLE_COUNT);
   const hasMore = items.length > DEFAULT_VISIBLE_COUNT;
