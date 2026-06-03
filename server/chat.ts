@@ -913,12 +913,23 @@ async function _startChatInner(
   // Fire-and-forget: fetch boot context from running ContexGin server
   fetchBootContext(agentName)
     .then((msg) => {
-      send(transport, msg);
+      // Include sessionId for consistency with reconnect/switch replay paths
+      const sid = options.resume ?? registry.get(clientId)?.sessionId;
+      send(transport, { ...msg, ...(sid ? { sessionId: sid } : {}) });
       // Cache in ManagedSession for replay on reconnect/switch
       const s = registry.get(clientId);
       if (s) s.bootContext = msg as unknown as Record<string, unknown>;
+      // Persist to EventStore for cold-path recovery (resumed sessions
+      // may not run the query loop long enough for it to upsert).
+      if (sid) {
+        eventStore.upsertSession({ sessionId: sid, bootContext: JSON.stringify(msg) });
+      }
     })
-    .catch(() => {});
+    .catch((err: unknown) => {
+      log.warn('boot context fetch unexpected error', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
   capturePromptComparison(wtId, cwd, systemPromptAppend, repoWorktrees).catch(() => {});
 
   // Resolve SDK session UUID for resume — worktree IDs are not valid SDK session IDs

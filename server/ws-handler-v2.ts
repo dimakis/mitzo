@@ -114,6 +114,10 @@ export function detectStateMismatch(
   const found = registry.findBySessionId(sessionId);
   const state = store.getSessionState(sessionId);
 
+  // CLOSING sessions are in graceful shutdown — registry entry may or may not
+  // exist depending on timing, so don't flag mismatches for them.
+  if (state === 'CLOSING') return { mismatch: false };
+
   const registryHas = !!found;
   const shouldHave = state != null && state !== 'ENDED';
 
@@ -133,7 +137,7 @@ export function detectStateMismatch(
 
   if (found && state) {
     const attached = registry.isAttached(found.clientId);
-    const shouldBeAttached = state === 'ACTIVE' || state === 'CLOSING';
+    const shouldBeAttached = state === 'ACTIVE';
     const shouldBeDetached = state === 'DETACHED' || state === 'SUSPENDED';
 
     if (attached && shouldBeDetached) {
@@ -151,6 +155,47 @@ export function detectStateMismatch(
   }
 
   return { mismatch: false };
+}
+
+// ─── Boot context replay helper ─────────────────────────────────────────────
+
+/**
+ * Send cached boot_context to a connection for a given session.
+ * Hot path: in-memory ManagedSession cache.
+ * Cold path: serialized JSON from EventStore (ended/restarted sessions).
+ */
+function sendBootContext(connectionId: string, sessionId: string, ctx: V2HandlerContext): void {
+  const conn = ctx.connRegistry.get(connectionId);
+  if (!conn) return;
+
+  // Hot path: running session with in-memory cache
+  const found = ctx.sessionRegistry.findBySessionId(sessionId);
+  if (found?.session?.bootContext) {
+    conn.transport.send({
+      type: 'boot_context',
+      sessionId,
+      ...found.session.bootContext,
+    });
+    return;
+  }
+
+  // Cold path: ended/non-running session — read from EventStore
+  const meta = ctx.eventStore.getSession(sessionId);
+  if (meta?.bootContext) {
+    try {
+      const parsed = JSON.parse(meta.bootContext);
+      conn.transport.send({
+        type: 'boot_context',
+        sessionId,
+        ...parsed,
+      });
+    } catch (err) {
+      log.warn('invalid boot_context JSON in EventStore', {
+        sessionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 }
 
 // ─── Handlers ────────────────────────────────────────────────────────────────
@@ -280,13 +325,9 @@ export function handleReconnect(
           running,
         });
 
-        // Re-send cached boot_context so pills reappear after reconnect
-        if (found && running && found.session?.bootContext) {
-          ctx.connRegistry.get(connectionId)?.transport.send({
-            type: 'boot_context',
-            ...found.session.bootContext,
-          });
-        }
+        // Re-send boot_context so pills reappear after reconnect.
+        // Uses shared helper with hot (in-memory) + cold (EventStore) paths.
+        sendBootContext(connectionId, entry.sessionId, ctx);
 
         log.info('reconnect replay', {
           connectionId,
@@ -395,24 +436,8 @@ export async function handleSwitchSession(
       });
 
       // Re-send boot_context so pills appear on session switch.
-      // Hot path: running session in SessionRegistry (in-memory cache).
-      // Cold path: ended session — read serialized JSON from EventStore.
-      if (found?.session?.bootContext) {
-        ctx.connRegistry.get(connectionId)?.transport.send({
-          type: 'boot_context',
-          ...found.session.bootContext,
-        });
-      } else if (sessionMeta.bootContext) {
-        try {
-          const parsed = JSON.parse(sessionMeta.bootContext);
-          ctx.connRegistry.get(connectionId)?.transport.send({
-            type: 'boot_context',
-            ...parsed,
-          });
-        } catch {
-          // Invalid JSON — skip
-        }
-      }
+      // Uses shared helper with hot (in-memory) + cold (EventStore) paths.
+      sendBootContext(connectionId, msg.sessionId, ctx);
 
       log.info('switch_session', { connectionId, sessionId: msg.sessionId, running });
     },
@@ -499,6 +524,8 @@ export function handleSendV2(
           }
 
           // State-based routing (Phase 3): durable state is the single source of truth.
+          // ACTIVE/DETACHED/SUSPENDED → running path (send to existing query loop)
+          // CLOSING/ENDED/null → resume path (zombie cleanup first if needed)
           if (
             found &&
             isActive(found.clientId) &&
@@ -652,6 +679,8 @@ export function handleInterruptV2(
       }
 
       // State-based routing (Phase 3): durable state is the single source of truth.
+      // ACTIVE/DETACHED/SUSPENDED → running path (interrupt existing query loop)
+      // CLOSING/ENDED/null → resume path (zombie cleanup first if needed)
       if (
         found &&
         isActive(found.clientId) &&
