@@ -323,6 +323,134 @@ describe('handleReconnect', () => {
   });
 });
 
+// ─── boot_context replay (sendBootContext helper, tested via handlers) ──────
+
+describe('boot_context replay', () => {
+  it('handleReconnect sends boot_context with sessionId from in-memory cache', () => {
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'c1:sess-1',
+      session: { bootContext: { source: 'contexgin', tokenCount: 100 } },
+    });
+    sessionReg.isActive.mockReturnValue(true);
+
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ isActive: true });
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleReconnect(
+      'c1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
+      ctx,
+    );
+
+    const bootMsg = transport.sent.find((m) => m.type === 'boot_context');
+    expect(bootMsg).toBeDefined();
+    expect(bootMsg).toHaveProperty('sessionId', 'sess-1');
+    expect(bootMsg).toHaveProperty('source', 'contexgin');
+  });
+
+  it('handleReconnect uses cold-path EventStore when no in-memory cache', () => {
+    const sessionReg = mockSessionRegistry();
+    // No in-memory bootContext — session not in registry
+    sessionReg.findBySessionId.mockReturnValue(null);
+
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({
+      isActive: false,
+      bootContext: JSON.stringify({ source: 'contexgin', tokenCount: 50 }),
+    });
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleReconnect(
+      'c1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
+      ctx,
+    );
+
+    const bootMsg = transport.sent.find((m) => m.type === 'boot_context');
+    expect(bootMsg).toBeDefined();
+    expect(bootMsg).toHaveProperty('sessionId', 'sess-1');
+    expect(bootMsg).toHaveProperty('source', 'contexgin');
+  });
+
+  it('handleSwitchSession sends boot_context with sessionId', async () => {
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'c1:sess-1',
+      session: { bootContext: { source: 'local-fallback', tokenCount: 0 } },
+    });
+
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({
+      sessionId: 'sess-1',
+      mode: 'agent',
+      cwd: '/test',
+      branch: 'main',
+      wtId: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      totalCostUsd: 0,
+    });
+    eventStore.getSessionState.mockReturnValue('ACTIVE');
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'sess-1' }, ctx);
+
+    const bootMsg = transport.sent.find((m) => m.type === 'boot_context');
+    expect(bootMsg).toBeDefined();
+    expect(bootMsg).toHaveProperty('sessionId', 'sess-1');
+  });
+
+  it('logs warning on invalid JSON in EventStore cold path', () => {
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue(null);
+
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({
+      isActive: false,
+      bootContext: '{not valid json',
+    });
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    // Should not throw — logs warning instead
+    handleReconnect(
+      'c1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
+      ctx,
+    );
+
+    const bootMsg = transport.sent.find((m) => m.type === 'boot_context');
+    expect(bootMsg).toBeUndefined(); // No boot_context sent on invalid JSON
+  });
+});
+
 // ─── handleWatch / handleUnwatch ─────────────────────────────────────────────
 
 describe('handleWatch', () => {
