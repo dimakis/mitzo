@@ -14,20 +14,20 @@ vi.mock('../logger.js', () => ({
   }),
 }));
 
-// Mock fs.readFileSync for local file loading
-const mockReadFileSync = vi.fn();
-vi.mock('fs', async (importOriginal) => {
+// Mock fs/promises.readFile for local file loading
+const mockReadFile = vi.fn();
+vi.mock('fs/promises', async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
-    readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
+    readFile: (...args: unknown[]) => mockReadFile(...args),
   };
 });
 
-// Mock yaml parser
+// Mock js-yaml parser
 const mockYamlParse = vi.fn();
-vi.mock('yaml', () => ({
-  parse: (s: string) => mockYamlParse(s),
+vi.mock('js-yaml', () => ({
+  load: (s: string) => mockYamlParse(s),
 }));
 
 const { loadAgentDef, clearCache } = await import('../agent-loader.js');
@@ -86,7 +86,11 @@ describe('loadAgentDef', () => {
         json: async () => VALID_CONTEXGIN_RESPONSE,
       });
 
-      const result = await loadAgentDef('mitzo-conversational', '/fake/cwd', 'http://localhost:8321');
+      const result = await loadAgentDef(
+        'mitzo-conversational',
+        '/fake/cwd',
+        'http://localhost:8321',
+      );
 
       expect(mockFetch).toHaveBeenCalledOnce();
       expect(mockFetch).toHaveBeenCalledWith(
@@ -109,7 +113,11 @@ describe('loadAgentDef', () => {
         json: async () => VALID_CONTEXGIN_RESPONSE,
       });
 
-      const result = await loadAgentDef('mitzo-conversational', '/fake/cwd', 'http://localhost:8321');
+      const result = await loadAgentDef(
+        'mitzo-conversational',
+        '/fake/cwd',
+        'http://localhost:8321',
+      );
 
       expect(result.definition.context?.budget).toBe(12000);
     });
@@ -118,7 +126,7 @@ describe('loadAgentDef', () => {
   describe('local override source', () => {
     it('falls back to local .agents/ when ContexGin is unreachable', async () => {
       mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
-      mockReadFileSync.mockReturnValueOnce('yaml content');
+      mockReadFile.mockResolvedValueOnce('yaml content');
       mockYamlParse.mockReturnValueOnce(VALID_LOCAL_YAML);
 
       const result = await loadAgentDef('test-agent', '/workspace', 'http://localhost:8321');
@@ -127,31 +135,24 @@ describe('loadAgentDef', () => {
       expect(result.definition.identity.name).toBe('test-agent');
       expect(result.definition.identity.mode).toBe('narrow');
       expect(result.definition.context?.budget).toBe(8000);
-      expect(result.definition.governance?.boundaries).toEqual([
-        { spoke: 'data', access: 'none' },
-      ]);
+      expect(result.definition.governance?.boundaries).toEqual([{ spoke: 'data', access: 'none' }]);
     });
 
     it('reads from correct local path', async () => {
       mockFetch.mockRejectedValueOnce(new Error('timeout'));
-      mockReadFileSync.mockReturnValueOnce('yaml');
+      mockReadFile.mockResolvedValueOnce('yaml');
       mockYamlParse.mockReturnValueOnce(VALID_LOCAL_YAML);
 
       await loadAgentDef('my-agent', '/my/workspace', 'http://localhost:8321');
 
-      expect(mockReadFileSync).toHaveBeenCalledWith(
-        '/my/workspace/.agents/my-agent.yaml',
-        'utf-8',
-      );
+      expect(mockReadFile).toHaveBeenCalledWith('/my/workspace/.agents/my-agent.yaml', 'utf-8');
     });
   });
 
   describe('bundled fallback', () => {
     it('returns DEFAULT_AGENT_DEFINITION when all sources fail', async () => {
       mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
-      mockReadFileSync.mockImplementationOnce(() => {
-        throw new Error('ENOENT');
-      });
+      mockReadFile.mockRejectedValueOnce(new Error('ENOENT'));
 
       const result = await loadAgentDef('mitzo-conversational', '/fake', 'http://localhost:8321');
 
@@ -212,9 +213,7 @@ describe('loadAgentDef', () => {
   describe('error handling', () => {
     it('handles ContexGin 404 gracefully', async () => {
       mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
-      mockReadFileSync.mockImplementationOnce(() => {
-        throw new Error('ENOENT');
-      });
+      mockReadFile.mockRejectedValueOnce(new Error('ENOENT'));
 
       const result = await loadAgentDef('unknown', '/fake', 'http://localhost:8321');
       expect(result.source).toBe('fallback');
@@ -225,9 +224,7 @@ describe('loadAgentDef', () => {
         ok: true,
         json: async () => ({ boot: { tokens: 100 } }), // no identity
       });
-      mockReadFileSync.mockImplementationOnce(() => {
-        throw new Error('ENOENT');
-      });
+      mockReadFile.mockRejectedValueOnce(new Error('ENOENT'));
 
       const result = await loadAgentDef('bad', '/fake', 'http://localhost:8321');
       expect(result.source).toBe('fallback');
@@ -235,7 +232,7 @@ describe('loadAgentDef', () => {
 
     it('handles malformed local YAML', async () => {
       mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
-      mockReadFileSync.mockReturnValueOnce('not: valid: yaml: {{');
+      mockReadFile.mockResolvedValueOnce('not: valid: yaml: {{');
       mockYamlParse.mockReturnValueOnce(null);
 
       const result = await loadAgentDef('bad', '/fake', 'http://localhost:8321');
@@ -244,7 +241,7 @@ describe('loadAgentDef', () => {
 
     it('handles local YAML missing identity fields', async () => {
       mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
-      mockReadFileSync.mockReturnValueOnce('yaml');
+      mockReadFile.mockResolvedValueOnce('yaml');
       mockYamlParse.mockReturnValueOnce({ identity: { name: 'test' } }); // missing description
 
       const result = await loadAgentDef('bad', '/fake', 'http://localhost:8321');
@@ -253,7 +250,7 @@ describe('loadAgentDef', () => {
 
     it('never throws — all errors result in fallback', async () => {
       mockFetch.mockRejectedValueOnce(new Error('network error'));
-      mockReadFileSync.mockImplementationOnce(() => {
+      mockReadFile.mockImplementationOnce(() => {
         throw new Error('fs error');
       });
 

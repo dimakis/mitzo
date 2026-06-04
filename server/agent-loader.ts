@@ -9,9 +9,9 @@
  * Never blocks session start. All failures are graceful.
  */
 
-import { readFileSync } from 'fs';
-import { join } from 'path';
-import { parse as parseYaml } from 'yaml';
+import { readFile } from 'fs/promises';
+import { resolve } from 'path';
+import { load as parseYaml } from 'js-yaml';
 import { createLogger } from './logger.js';
 import { DEFAULT_AGENT_DEFINITION } from './constants.js';
 
@@ -159,10 +159,17 @@ async function loadFromContexGin(
  * Try to load agent definition from a local .agents/{name}.yaml file.
  * Returns null if file doesn't exist or is malformed.
  */
-function loadFromLocal(agentName: string, cwd: string): LoadedAgentDefinition | null {
+async function loadFromLocal(
+  agentName: string,
+  cwd: string,
+): Promise<LoadedAgentDefinition | null> {
   try {
-    const filePath = join(cwd, '.agents', `${agentName}.yaml`);
-    const raw = readFileSync(filePath, 'utf-8');
+    // Path traversal guard: ensure resolved path stays under .agents/
+    const agentsDir = resolve(cwd, '.agents');
+    const filePath = resolve(agentsDir, `${agentName}.yaml`);
+    if (!filePath.startsWith(agentsDir + '/')) return null;
+
+    const raw = await readFile(filePath, 'utf-8');
     const parsed = parseYaml(raw) as Record<string, unknown>;
 
     if (!parsed || typeof parsed !== 'object') return null;
@@ -205,7 +212,7 @@ export async function loadAgentDef(
   contexginUrl: string = process.env.CONTEXGIN_URL || 'http://localhost:8321',
 ): Promise<LoadedAgentDefinition> {
   // Check cache
-  const cacheKey = `${agentName}:${cwd}`;
+  const cacheKey = `${agentName}:${cwd}:${contexginUrl ?? 'default'}`;
   const cached = cache.get(cacheKey);
   if (cached && Date.now() < cached.expiresAt) {
     return cached.result;
@@ -223,7 +230,7 @@ export async function loadAgentDef(
   }
 
   // 2. Try local override
-  const fromLocal = loadFromLocal(agentName, cwd);
+  const fromLocal = await loadFromLocal(agentName, cwd);
   if (fromLocal) {
     log.info('agent definition loaded from local .agents/', {
       agent: agentName,
@@ -236,7 +243,10 @@ export async function loadAgentDef(
   // 3. Bundled fallback
   log.info('using bundled agent definition fallback', { agent: agentName });
   const fallback: LoadedAgentDefinition = {
-    definition: DEFAULT_AGENT_DEFINITION,
+    definition: {
+      ...DEFAULT_AGENT_DEFINITION,
+      identity: { ...DEFAULT_AGENT_DEFINITION.identity, name: agentName },
+    },
     source: 'fallback',
   };
   cache.set(cacheKey, { result: fallback, expiresAt: Date.now() + CACHE_TTL_MS });

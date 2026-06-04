@@ -9,6 +9,8 @@ import {
 } from './constants.js';
 import { createLogger } from './logger.js';
 
+export type AgentDefinitionSource = 'contexgin' | 'local' | 'fallback';
+
 const log = createLogger('session-registry');
 
 export type { MitzoMode, SnapshotBlock, MessageSnapshot, RawToolInput } from '@mitzo/protocol';
@@ -53,7 +55,7 @@ export interface ManagedSession {
   /** Parsed agent definition (recipe). Null if loading failed. */
   agentDefinition: Record<string, unknown> | null;
   /** Source of the agent definition: 'contexgin' | 'local' | 'fallback'. */
-  agentDefinitionSource?: string;
+  agentDefinitionSource?: AgentDefinitionSource;
 }
 
 export interface ActiveSessionInfo {
