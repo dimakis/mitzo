@@ -917,6 +917,24 @@ async function _startChatInner(
   // Load project hooks from .claude/settings.json (e.g. SessionStart boot context)
   const hooks = loadProjectHooks(cwd);
 
+  // Fetch boot context BEFORE building system prompt so it's part of the
+  // system prompt append and survives SDK context compaction.
+  const bootContextMsg = await fetchBootContext(agentName);
+  const bootContextAppend = bootContextMsg.fullMarkdown
+    ? `\n\n# Boot Context\n${bootContextMsg.fullMarkdown}`
+    : '';
+
+  // Send boot context to UI for display (separate from system prompt injection)
+  const bootSid = options.resume ?? registry.get(clientId)?.sessionId;
+  send(transport, { ...bootContextMsg, ...(bootSid ? { sessionId: bootSid } : {}) });
+  // Cache in ManagedSession for replay on reconnect/switch
+  const bootSession = registry.get(clientId);
+  if (bootSession) bootSession.bootContext = bootContextMsg as unknown as Record<string, unknown>;
+  // Persist to EventStore for cold-path recovery
+  if (bootSid) {
+    eventStore.upsertSession({ sessionId: bootSid, bootContext: JSON.stringify(bootContextMsg) });
+  }
+
   // Build the system prompt append string (used by both query and comparison)
   const systemPromptAppend =
     'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
@@ -925,36 +943,9 @@ async function _startChatInner(
     '- Keep responses concise — small screen.\n' +
     '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.' +
     buildWorktreeSystemPrompt(repoWorktrees) +
-    buildTaskPromptForSession(clientId);
+    buildTaskPromptForSession(clientId) +
+    bootContextAppend;
 
-  // Fire-and-forget: fetch boot context from running ContexGin server.
-  // The callback may fire after the session ends (registry cleaned up) or
-  // before the SDK assigns a sessionId (new sessions). We include agentName
-  // in the upsert as a safety net so it's never null in the DB.
-  fetchBootContext(agentName)
-    .then((msg) => {
-      const session = registry.get(clientId);
-      const sid = options.resume ?? session?.sessionId;
-      // Send to client if transport still connected
-      if (session) {
-        send(transport, { ...msg, ...(sid ? { sessionId: sid } : {}) });
-        session.bootContext = msg as unknown as Record<string, unknown>;
-      }
-      // Persist to EventStore — include agentName as safety net since
-      // this upsert may be the last write for short-lived sessions.
-      if (sid) {
-        eventStore.upsertSession({
-          sessionId: sid,
-          bootContext: JSON.stringify(msg),
-          agentName,
-        });
-      }
-    })
-    .catch((err: unknown) => {
-      log.warn('boot context fetch unexpected error', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
   capturePromptComparison(wtId, cwd, systemPromptAppend, repoWorktrees).catch(() => {});
 
   // Resolve SDK session UUID for resume — worktree IDs are not valid SDK session IDs

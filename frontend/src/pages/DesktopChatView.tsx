@@ -5,7 +5,7 @@ import { SessionPanel } from '../components/SessionPanel';
 import { CommandCenter } from '../components/CommandCenter';
 import { ChatArea } from '../components/ChatArea';
 import { ChatInput } from '../components/ChatInput';
-import { SessionBanner } from '../components/SessionBanner';
+
 import { ScrollFab } from '../components/ScrollFab';
 import { StatusBar } from '../components/StatusBar';
 import { VoiceSettings } from '../components/VoiceSettings';
@@ -242,7 +242,6 @@ export function DesktopChatView() {
               onVoiceChange={voice.setVoice}
             />
           </header>
-          <SessionBanner bootContext={bootContext} sessionContext={sessionContext} />
           <ChatArea
             messages={messages.messages}
             current={messages.current}
@@ -252,6 +251,8 @@ export function DesktopChatView() {
             scrollRef={scrollRef}
             progressByToolId={progressByToolId}
             voice={voice}
+            bootContext={bootContext}
+            sessionContext={sessionContext}
           />
           <ScrollFab scrollRef={scrollRef} />
           <ChatInput
