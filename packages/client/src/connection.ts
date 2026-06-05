@@ -170,6 +170,14 @@ export class MitzoConnection {
       this.ws.onclose = null;
       this.ws.onmessage = null;
       this.ws.onerror = null;
+      // Explicitly close the socket to avoid orphaning a live connection
+      // on the server side (e.g. desktop tab switch where the socket is
+      // still healthy). No-op if the socket is already dead.
+      try {
+        this.ws.close();
+      } catch {
+        // Socket may already be in a broken state — ignore.
+      }
       this.ws = null;
     }
   }
@@ -325,16 +333,19 @@ export class MitzoConnection {
   }
 
   /**
-   * Force a reconnect — call from native lifecycle hooks (e.g. Capacitor
-   * appStateChange) and browser visibility events.
+   * Check connectivity and reconnect if needed.
    *
-   * iOS kills WebSocket connections during background without updating
-   * readyState, so we NEVER trust the old socket after a foreground
-   * transition. Always tear down and create a fresh connection. Any
-   * sends that arrive during the reconnect window queue in pendingSends
-   * and flush after the welcome handshake completes.
+   * @param force — when true, always tear down and reconnect regardless of
+   *   readyState. Required for iOS where the OS kills WebSocket connections
+   *   during background without updating readyState. Capacitor lifecycle
+   *   hooks pass force=true; browser visibility events use the default
+   *   (false) which only reconnects when the socket is visibly dead.
+   *
+   *   Sends arriving during the reconnect window queue in pendingSends
+   *   and flush after the welcome handshake completes.
    */
-  checkAndReconnect(): void {
+  checkAndReconnect(force = false): void {
+    if (!force && this.ws?.readyState === WS_READY_STATE.OPEN) return;
     if (this.reconnectTimer) return;
     this.defuseOldWs();
     this._connected = false;

@@ -412,6 +412,114 @@ describe('MitzoConnection', () => {
     });
   });
 
+  describe('checkAndReconnect', () => {
+    it('forces reconnect even when WS appears OPEN (iOS stale socket)', () => {
+      vi.useFakeTimers();
+      const conn = createConnection();
+      conn.onMessage(() => {});
+      const ws1 = openWithHandshake(conn);
+      expect(ws1.readyState).toBe(1); // OPEN
+
+      // Force reconnect — simulates iOS foreground return
+      conn.checkAndReconnect(true);
+
+      // Old socket should be closed and defused
+      expect(ws1.close).toHaveBeenCalled();
+      expect(ws1.onclose).toBeNull();
+
+      // New socket should be created
+      const ws2 = lastWs!;
+      expect(ws2).not.toBe(ws1);
+      expect(conn.isConnected()).toBe(false);
+
+      vi.useRealTimers();
+    });
+
+    it('preserves healthy socket when force=false (default)', () => {
+      const conn = createConnection();
+      conn.onMessage(() => {});
+      const ws = openWithHandshake(conn);
+
+      conn.checkAndReconnect(); // default: force=false
+
+      // Same socket, still connected
+      expect(lastWs).toBe(ws);
+      expect(conn.isConnected()).toBe(true);
+    });
+
+    it('reconnects when WS is dead and force=false', () => {
+      vi.useFakeTimers();
+      const conn = createConnection();
+      conn.onMessage(() => {});
+      const ws1 = openWithHandshake(conn);
+
+      // Simulate dead socket (readyState updated)
+      ws1.readyState = 3;
+      conn.checkAndReconnect(false);
+
+      expect(lastWs).not.toBe(ws1);
+      expect(conn.isConnected()).toBe(false);
+
+      vi.useRealTimers();
+    });
+
+    it('is a no-op when reconnectTimer is already set', () => {
+      vi.useFakeTimers();
+      const conn = createConnection();
+      conn.onMessage(() => {});
+      const ws1 = openWithHandshake(conn);
+
+      // Trigger a close to start the reconnect timer
+      ws1.simulateClose();
+      const wsAfterClose = lastWs;
+
+      // Force check — should be a no-op because timer is pending
+      conn.checkAndReconnect(true);
+      expect(lastWs).toBe(wsAfterClose);
+
+      vi.useRealTimers();
+    });
+
+    it('queues sends during forced reconnect and flushes after welcome', () => {
+      vi.useFakeTimers();
+      const conn = createConnection();
+      conn.onMessage(() => {});
+      openWithHandshake(conn);
+
+      // Force reconnect (iOS resume)
+      conn.checkAndReconnect(true);
+
+      // Send while reconnecting — should queue
+      const sent = conn.send({ type: 'send', prompt: 'first message' });
+      expect(sent).toBe(true);
+
+      // Complete handshake on new socket
+      const ws2 = lastWs!;
+      ws2.simulateOpen();
+      ws2.simulateMessage({ type: 'welcome', protocolVersion: 2, connectionId: 'conn-2' });
+
+      // Queued message should have been flushed
+      const calls = ws2.send.mock.calls.map((c: string[]) => JSON.parse(c[0]));
+      expect(calls).toContainEqual({ type: 'send', prompt: 'first message' });
+
+      vi.useRealTimers();
+    });
+
+    it('closes the old socket to prevent server-side connection leak', () => {
+      vi.useFakeTimers();
+      const conn = createConnection();
+      conn.onMessage(() => {});
+      const ws = openWithHandshake(conn);
+
+      conn.checkAndReconnect(true);
+
+      // ws.close() must have been called — not just handler-nulled
+      expect(ws.close).toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+  });
+
   describe('sendSuspend', () => {
     it('sends session_suspend via WS with all tracked sessions', () => {
       const conn = createConnection();
