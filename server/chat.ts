@@ -924,15 +924,17 @@ async function _startChatInner(
     ? `\n\n# Boot Context\n${bootContextMsg.fullMarkdown}`
     : '';
 
-  // Send boot context to UI for display (separate from system prompt injection)
-  const bootSid = options.resume ?? registry.get(clientId)?.sessionId;
-  send(transport, { ...bootContextMsg, ...(bootSid ? { sessionId: bootSid } : {}) });
+  // Send boot context to UI for display (separate from system prompt injection).
+  // stateSessionId is the worktree-level session ID, already computed above.
+  send(transport, { ...bootContextMsg, ...(stateSessionId ? { sessionId: stateSessionId } : {}) });
   // Cache in ManagedSession for replay on reconnect/switch
-  const bootSession = registry.get(clientId);
-  if (bootSession) bootSession.bootContext = bootContextMsg as unknown as Record<string, unknown>;
+  session.bootContext = bootContextMsg as unknown as Record<string, unknown>;
   // Persist to EventStore for cold-path recovery
-  if (bootSid) {
-    eventStore.upsertSession({ sessionId: bootSid, bootContext: JSON.stringify(bootContextMsg) });
+  if (stateSessionId) {
+    eventStore.upsertSession({
+      sessionId: stateSessionId,
+      bootContext: JSON.stringify(bootContextMsg),
+    });
   }
 
   // Build the system prompt append string (used by both query and comparison)

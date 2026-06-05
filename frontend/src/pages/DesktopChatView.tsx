@@ -5,7 +5,6 @@ import { SessionPanel } from '../components/SessionPanel';
 import { CommandCenter } from '../components/CommandCenter';
 import { ChatArea } from '../components/ChatArea';
 import { ChatInput } from '../components/ChatInput';
-
 import { ScrollFab } from '../components/ScrollFab';
 import { StatusBar } from '../components/StatusBar';
 import { VoiceSettings } from '../components/VoiceSettings';

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { ChatArea } from '../components/ChatArea';
 import { ChatInput } from '../components/ChatInput';
-
 import { VoiceSettings } from '../components/VoiceSettings';
 import { MitzoLogo } from '../components/MitzoLogo';
 import { useMessages, useConnection, useTokens, useMitzoStore } from '@mitzo/client/hooks';
