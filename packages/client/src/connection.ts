@@ -324,14 +324,21 @@ export class MitzoConnection {
     }
   }
 
-  /** Force a reconnect check — call from native lifecycle hooks (e.g. Capacitor appStateChange). */
+  /**
+   * Force a reconnect — call from native lifecycle hooks (e.g. Capacitor
+   * appStateChange) and browser visibility events.
+   *
+   * iOS kills WebSocket connections during background without updating
+   * readyState, so we NEVER trust the old socket after a foreground
+   * transition. Always tear down and create a fresh connection. Any
+   * sends that arrive during the reconnect window queue in pendingSends
+   * and flush after the welcome handshake completes.
+   */
   checkAndReconnect(): void {
-    if (!this.ws || this.ws.readyState !== WS_READY_STATE.OPEN) {
-      if (this.reconnectTimer) return;
-      this.defuseOldWs();
-      this._connected = false;
-      this.listener?.({ type: '_close' });
-      this.doConnect();
-    }
+    if (this.reconnectTimer) return;
+    this.defuseOldWs();
+    this._connected = false;
+    this.listener?.({ type: '_close' });
+    this.doConnect();
   }
 }
