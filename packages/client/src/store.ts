@@ -614,7 +614,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     forceReconnect() {
-      connection.checkAndReconnect();
+      connection.checkAndReconnect(true);
     },
 
     sendSuspend() {
