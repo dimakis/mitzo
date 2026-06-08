@@ -191,6 +191,32 @@ describe('fetchBootContext', () => {
     expect(result.tokenCount).toBe(100);
   });
 
+  it('falls back to bootTokens when tokenBudget is absent', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        boot: { content: 'payload', tokens: 11297, sources: ['a.md'] },
+      }),
+    });
+
+    const result = await fetchBootContext('mitzo-conversational', CONTEXGIN_URL);
+
+    expect(result.tokenBudget).toBe(11297);
+  });
+
+  it('uses tokenBudget from ContexGin when provided', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        boot: { content: 'payload', tokens: 11297, tokenBudget: 12000, sources: ['a.md'] },
+      }),
+    });
+
+    const result = await fetchBootContext('mitzo-conversational', CONTEXGIN_URL);
+
+    expect(result.tokenBudget).toBe(12000);
+  });
+
   it('filters non-string sources gracefully', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
