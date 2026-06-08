@@ -196,7 +196,7 @@ export async function fetchBootContext(
     }
 
     const bootTokens = typeof boot.tokens === 'number' ? boot.tokens : 0;
-    const bootBudget = typeof boot.tokenBudget === 'number' ? boot.tokenBudget : 8000;
+    const bootBudget = typeof boot.tokenBudget === 'number' ? boot.tokenBudget : bootTokens;
     const rawSources = Array.isArray(boot.sources) ? boot.sources : [];
 
     const sources: Array<{ path: string; kind: string }> = rawSources
