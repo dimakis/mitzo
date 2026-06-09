@@ -927,19 +927,27 @@ async function _startChatInner(
     buildWorktreeSystemPrompt(repoWorktrees) +
     buildTaskPromptForSession(clientId);
 
-  // Fire-and-forget: fetch boot context from running ContexGin server
+  // Fire-and-forget: fetch boot context from running ContexGin server.
+  // The callback may fire after the session ends (registry cleaned up) or
+  // before the SDK assigns a sessionId (new sessions). We include agentName
+  // in the upsert as a safety net so it's never null in the DB.
   fetchBootContext(agentName)
     .then((msg) => {
-      // Include sessionId for consistency with reconnect/switch replay paths
-      const sid = options.resume ?? registry.get(clientId)?.sessionId;
-      send(transport, { ...msg, ...(sid ? { sessionId: sid } : {}) });
-      // Cache in ManagedSession for replay on reconnect/switch
-      const s = registry.get(clientId);
-      if (s) s.bootContext = msg as unknown as Record<string, unknown>;
-      // Persist to EventStore for cold-path recovery (resumed sessions
-      // may not run the query loop long enough for it to upsert).
+      const session = registry.get(clientId);
+      const sid = options.resume ?? session?.sessionId;
+      // Send to client if transport still connected
+      if (session) {
+        send(transport, { ...msg, ...(sid ? { sessionId: sid } : {}) });
+        session.bootContext = msg as unknown as Record<string, unknown>;
+      }
+      // Persist to EventStore — include agentName as safety net since
+      // this upsert may be the last write for short-lived sessions.
       if (sid) {
-        eventStore.upsertSession({ sessionId: sid, bootContext: JSON.stringify(msg) });
+        eventStore.upsertSession({
+          sessionId: sid,
+          bootContext: JSON.stringify(msg),
+          agentName,
+        });
       }
     })
     .catch((err: unknown) => {

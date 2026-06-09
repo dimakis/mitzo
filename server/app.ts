@@ -35,7 +35,7 @@ import {
   createSessionWorktrees as createAllWorktrees,
   listWorktrees,
 } from './worktree.js';
-import { GIT_BRANCH_TIMEOUT_MS } from './constants.js';
+import { DEFAULT_AGENT_NAME, GIT_BRANCH_TIMEOUT_MS } from './constants.js';
 import { INTERNAL_TOKEN } from './internal-token.js';
 import { getLocalCommit, isUpdateAvailable } from './git-version.js';
 import { resolvePending } from './permissions.js';
@@ -472,6 +472,7 @@ async function handleSessionCreate(
         initialPrompt,
         isActive: true,
         mode: mode ?? 'agent',
+        agentName: DEFAULT_AGENT_NAME,
       });
 
       // Start the session headlessly — NullTransport discards WS messages
@@ -487,6 +488,7 @@ async function handleSessionCreate(
         mode: mode ?? 'agent',
         model,
         isolation: true,
+        agentName: DEFAULT_AGENT_NAME,
       });
 
       log.info('headless session started', { sessionId: wtId, prompt: initialPrompt });
