@@ -1,1 +1,1 @@
-export { extractToolResultText, parseContentBlocks } from '@mitzo/protocol';
+export { extractToolResultText, extractToolResultImages, parseContentBlocks } from '@mitzo/protocol';
