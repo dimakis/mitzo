@@ -250,6 +250,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         connection.clearSession(oldId);
       }
       parserState.currentSessionId = id;
+      parserState.pendingSend = [];
+      clearPendingSendTimer();
+      connection.clearPendingSends();
 
       set((s) => ({
         sessions: { ...s.sessions, active: id },
@@ -281,6 +284,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       parserState.currentSessionId = undefined;
       parserState.pendingSend = [];
       clearPendingSendTimer();
+      connection.clearPendingSends();
       connection.send({ type: 'switch_session', sessionId: null });
       set({
         sessions: { ...get().sessions, active: null },

@@ -254,6 +254,45 @@ describe('newSession', () => {
     expect(store.getState().progress.toolIndex).toEqual({});
   });
 
+  it('clears WS pending sends to prevent cross-session message leaks', () => {
+    vi.useFakeTimers();
+    try {
+      const store = createMitzoStore(makeOptions());
+      const ws1 = lastWs;
+      ws1.completeHandshake();
+
+      // Complete a turn so running=false
+      store.getState().sendMessage('hello');
+      lastWs.simulateMessage({ type: 'session_id', sessionId: 'sess-old' });
+      lastWs.simulateMessage({ type: 'session_end', sessionId: 'sess-old' });
+      expect(store.getState().messages.running).toBe(false);
+
+      // WS dies (iOS background)
+      ws1.simulateClose();
+
+      // User sends while WS is down and running=false → goes to connection.pendingSends
+      store.getState().sendMessage('stale message');
+      expect(store.getState().sendError).toBeNull(); // confirms message was queued, not dropped
+
+      // User starts a new session — should clear the WS queue
+      store.getState().newSession();
+
+      // WS reconnects (default reconnectDelayMs is 500ms)
+      vi.advanceTimersByTime(600);
+      const ws2 = lastWs;
+      expect(ws2).not.toBe(ws1); // verify a new WS was created
+      ws2.completeHandshake();
+
+      // The stale message should NOT have been flushed to the new session
+      const flushed = ws2
+        .parsedSent()
+        .filter((m) => m.type === 'send' && m.prompt === 'stale message');
+      expect(flushed).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('isolates new session from old session messages via sessionId filter', async () => {
     const store = createReadyStore();
     await store.getState().switchSession('old-session');
