@@ -1,6 +1,6 @@
 import type { SessionTransport, ConnectionRegistry } from '@mitzo/harness';
 import { summarizeToolInput, getRawInput } from './tool-summary.js';
-import { extractToolResultText } from './content-blocks.js';
+import { extractToolResultText, extractToolResultImages } from './content-blocks.js';
 import {
   TOOL_RESULT_MAX_CHARS,
   CONTEXT_CEILING_TOKENS,
@@ -1258,6 +1258,7 @@ async function _runQueryLoopInner(
             for (const block of content) {
               if (block.type === 'tool_result') {
                 const resultText = extractToolResultText(block.content);
+                const resultImages = extractToolResultImages(block.content);
                 const trResult = truncateForTrace(resultText);
 
                 // Check if this is a subagent tool result
@@ -1269,6 +1270,7 @@ async function _runQueryLoopInner(
                       toolId: block.tool_use_id || '',
                       result: resultText.slice(0, TOOL_RESULT_MAX_CHARS),
                       isError: block.is_error === true,
+                      ...(resultImages.length > 0 ? { images: resultImages } : {}),
                     }),
                   );
                   log.info('subagent tool result', {
@@ -1305,6 +1307,7 @@ async function _runQueryLoopInner(
                     toolId: block.tool_use_id || '',
                     result: resultText.slice(0, TOOL_RESULT_MAX_CHARS),
                     isError: block.is_error === true,
+                    ...(resultImages.length > 0 ? { images: resultImages } : {}),
                   }),
                 );
               }

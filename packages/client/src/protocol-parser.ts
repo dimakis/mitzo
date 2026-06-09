@@ -15,6 +15,7 @@ import type {
   BlockType,
   ToolTier,
   RawToolInput,
+  ToolResultImage,
 } from '@mitzo/protocol';
 import type { MessagesAction } from './slices/messages.js';
 import type { WsMsg } from './server-messages.js';
@@ -337,6 +338,7 @@ export function parseServerMessage(
         toolId: msg.toolId as string,
         result: msg.result as string,
         isError: (msg.isError as boolean) ?? false,
+        images: msg.images as ToolResultImage[] | undefined,
       });
       break;
 
@@ -600,6 +602,7 @@ export function parseServerMessage(
         toolId: msg.toolId as string,
         result: msg.result as string,
         isError: (msg.isError as boolean) ?? false,
+        images: msg.images as ToolResultImage[] | undefined,
       });
       break;
 

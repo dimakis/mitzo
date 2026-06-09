@@ -14,6 +14,7 @@ export type {
   FinishedMessage,
   PermissionRequest,
   ImageAttachment,
+  ToolResultImage,
   Session,
   SessionClosedBy,
   SessionState,
@@ -55,7 +56,7 @@ export { getRawInput, summarizeToolInput } from './tool-summary.js';
 export { languageFromPath } from './language.js';
 
 // Content blocks
-export { extractToolResultText, parseContentBlocks } from './content-blocks.js';
+export { extractToolResultText, extractToolResultImages, parseContentBlocks } from './content-blocks.js';
 
 // Async queue
 export { AsyncQueue } from './async-queue.js';

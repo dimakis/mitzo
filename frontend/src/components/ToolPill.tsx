@@ -92,20 +92,37 @@ function ToolResult({
   block: StreamingBlock | FinishedBlock;
   onPopOut?: (path: string) => void;
 }) {
-  if (block.toolResult === undefined) return null;
+  const hasText = block.toolResult !== undefined && block.toolResult.length > 0;
+  const hasImages = block.toolResultImages && block.toolResultImages.length > 0;
+
+  if (!hasText && !hasImages) return null;
 
   const raw = block.rawInput;
   const isRead = raw?.type === 'read';
 
   return (
     <div className="tool-pill-section">
-      <CodeBlock
-        code={block.toolResult}
-        language={raw?.language}
-        label={isRead ? raw?.path : 'Result'}
-        maxHeight={400}
-        onPopOut={isRead && raw?.path && onPopOut ? () => onPopOut(raw.path!) : undefined}
-      />
+      {hasImages && (
+        <div className="tool-pill-images">
+          {block.toolResultImages!.map((img, i) => (
+            <img
+              key={i}
+              src={`data:${img.mediaType};base64,${img.data}`}
+              alt={`Result image ${i + 1}`}
+              className="tool-pill-result-img"
+            />
+          ))}
+        </div>
+      )}
+      {hasText && (
+        <CodeBlock
+          code={block.toolResult!}
+          language={raw?.language}
+          label={isRead ? raw?.path : 'Result'}
+          maxHeight={400}
+          onPopOut={isRead && raw?.path && onPopOut ? () => onPopOut(raw.path!) : undefined}
+        />
+      )}
     </div>
   );
 }
@@ -114,7 +131,7 @@ export function ToolPill({ block }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
   const [expanded, setExpanded] = useState(false);
-  const done = block.toolResult !== undefined;
+  const done = block.toolResult !== undefined || (block.toolResultImages && block.toolResultImages.length > 0);
   const hasError = (block as StreamingBlock).toolError === true;
   const input = block.toolInput || '';
 
