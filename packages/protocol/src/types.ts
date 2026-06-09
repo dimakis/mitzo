@@ -113,8 +113,15 @@ export interface ImageAttachment {
   preview: string;
 }
 
-// --- Tool result image (reference to server-stored image) ---
+// --- Tool result image ---
 
+/** Raw image extracted from SDK tool result content blocks (base64 data). */
+export interface RawToolResultImage {
+  data: string;
+  mediaType: string;
+}
+
+/** Reference to a server-stored image (sent over WS / persisted in blocks). */
 export interface ToolResultImage {
   id: string;
   mediaType: string;

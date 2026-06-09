@@ -9,6 +9,9 @@ import { randomUUID } from 'node:crypto';
 
 const ALLOWED_MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
+/** Max decoded image size: 10 MB. */
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+
 interface StoredImage {
   data: Buffer;
   mediaType: string;
@@ -25,9 +28,11 @@ export function storeImage(
   mediaType: string,
 ): string | null {
   if (!ALLOWED_MEDIA_TYPES.has(mediaType)) return null;
+  const buf = Buffer.from(base64Data, 'base64');
+  if (buf.length > MAX_IMAGE_BYTES) return null;
   const id = randomUUID();
   images.set(id, {
-    data: Buffer.from(base64Data, 'base64'),
+    data: buf,
     mediaType,
     sessionId,
     createdAt: Date.now(),
@@ -50,4 +55,9 @@ export function clearSessionImages(sessionId: string): number {
     }
   }
   return count;
+}
+
+/** Reset the entire store. Test-only. */
+export function _resetForTest(): void {
+  images.clear();
 }

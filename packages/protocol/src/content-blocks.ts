@@ -1,6 +1,6 @@
 import { summarizeToolInput } from './tool-summary.js';
 import { TOOL_RESULT_MAX_CHARS } from './constants.js';
-import type { ToolResultImage } from './types.js';
+import type { RawToolResultImage } from './types.js';
 
 interface ContentBlock {
   type: string;
@@ -47,9 +47,9 @@ export function extractToolResultText(content: string | ContentItem[] | undefine
 
 export function extractToolResultImages(
   content: string | ContentItem[] | undefined,
-): ToolResultImage[] {
+): RawToolResultImage[] {
   if (typeof content === 'string' || !Array.isArray(content)) return [];
-  const images: ToolResultImage[] = [];
+  const images: RawToolResultImage[] = [];
   for (const c of content) {
     if (c.type === 'image' && c.source?.type === 'base64' && c.source.data && c.source.media_type) {
       images.push({ data: c.source.data, mediaType: c.source.media_type });

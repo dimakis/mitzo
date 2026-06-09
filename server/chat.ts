@@ -29,6 +29,7 @@ import { loadRepoConfig } from './repo-config.js';
 import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
 import { runQueryLoop, broadcastToObservers } from './query-loop.js';
+import { clearSessionImages } from './image-store.js';
 import { AsyncQueue } from './async-queue.js';
 import {
   GIT_BRANCH_TIMEOUT_MS,
@@ -1399,6 +1400,7 @@ export function closeSessionByUser(clientId: string): void {
 
     if (!session.inputQueue) {
       // No active agent — finalize immediately
+      if (session.sessionId) clearSessionImages(session.sessionId);
       if (session.wtId) {
         try {
           finalizeCloseout(BASE_REPO, session.wtId, {
@@ -1465,6 +1467,7 @@ export function stopChat(clientId: string) {
     const session = registry.get(clientId);
     if (session) {
       cleanupSessionWorktrees(session);
+      if (session.sessionId) clearSessionImages(session.sessionId);
       session.inputQueue?.close();
       session.queryInstance?.close();
     }

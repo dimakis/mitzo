@@ -14,6 +14,7 @@ export type {
   FinishedMessage,
   PermissionRequest,
   ImageAttachment,
+  RawToolResultImage,
   ToolResultImage,
   Session,
   SessionClosedBy,

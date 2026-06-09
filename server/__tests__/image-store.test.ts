@@ -1,8 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { storeImage, getImage, clearSessionImages } from '../image-store.js';
+import { storeImage, getImage, clearSessionImages, _resetForTest } from '../image-store.js';
 
 describe('image-store', () => {
   const SESSION = 'test-session';
+
+  beforeEach(() => {
+    _resetForTest();
+  });
 
   it('stores and retrieves an image', () => {
     const id = storeImage(SESSION, 'aGVsbG8=', 'image/png');
@@ -42,5 +46,11 @@ describe('image-store', () => {
     expect(cleared).toBe(1);
     expect(getImage(id1)).toBeNull();
     expect(getImage(id2)).not.toBeNull();
+  });
+
+  it('rejects images exceeding 10 MB', () => {
+    // Create base64 string that decodes to >10 MB
+    const bigData = Buffer.alloc(10 * 1024 * 1024 + 1).toString('base64');
+    expect(storeImage(SESSION, bigData, 'image/png')).toBeNull();
   });
 });
