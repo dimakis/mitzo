@@ -27,12 +27,14 @@ import {
   registry,
   eventStore,
   getRepoConfig,
+  generateWtId,
   setConnectionRegistry,
   setSessionChangeCallback,
   setSessionsChangedCallback,
   reconcileSessionsBackground,
 } from './chat.js';
-import { cleanupStaleWorktrees, countWorktrees } from './worktree.js';
+import { cleanupStaleWorktrees, countWorktrees, createSessionWorktrees } from './worktree.js';
+import { NullTransport } from './null-transport.js';
 import { getWorktreeGuardStats, resetWorktreeGuardStats } from '@mitzo/harness';
 import {
   HEARTBEAT_INTERVAL_MS,
@@ -237,6 +239,40 @@ const orchestrator = new TaskOrchestrator({
       if (session?.sessionId) ids.add(session.sessionId);
     }
     return ids;
+  },
+  spawnSession: async (taskId: string, prompt: string, goalId: string) => {
+    const wtId = generateWtId();
+    const clientId = `headless:${wtId}`;
+    const config = getRepoConfig();
+
+    try {
+      createSessionWorktrees(wtId, BASE_REPO, config.repos);
+
+      eventStore.upsertSession({
+        sessionId: wtId,
+        summary: `Task: ${taskId.slice(0, 8)}`,
+        initialPrompt: prompt,
+        isActive: true,
+        mode: 'agent',
+        telosTaskId: goalId,
+      });
+
+      const transport = new NullTransport();
+      await startChat(transport, clientId, prompt, {
+        mode: 'agent',
+        isolation: true,
+      });
+
+      log.info('spawned headless session for task', { taskId, sessionId: wtId, clientId });
+      sseRegistry.broadcast('sessions_changed', {});
+      return clientId;
+    } catch (err) {
+      log.error('failed to spawn session for task', {
+        taskId,
+        error: (err as Error).message,
+      });
+      return null;
+    }
   },
 });
 orchestratorRef = orchestrator;

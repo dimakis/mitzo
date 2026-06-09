@@ -170,6 +170,55 @@ describe('SignalProcessor', () => {
     expect(processor.isWatching(t2.id)).toBe(false);
   });
 
+  describe('findActiveSignalTasks', () => {
+    it('finds active wait_for_signal tasks by gate type', () => {
+      const goal = store.create({ title: 'Goal' });
+      const t1 = store.create({
+        title: 'Centaur review',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'centaur_review', repo: 'dimakis/mitzo', pr: 360 },
+      });
+      store.update(t1.id, { status: 'active' });
+
+      const t2 = store.create({
+        title: 'CI check',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'gh_ci', repo: 'dimakis/mitzo', pr: 360 },
+      });
+      store.update(t2.id, { status: 'active' });
+
+      const centaurTasks = store.findActiveSignalTasks('centaur_review');
+      expect(centaurTasks).toHaveLength(1);
+      expect(centaurTasks[0].id).toBe(t1.id);
+
+      const ciTasks = store.findActiveSignalTasks('gh_ci');
+      expect(ciTasks).toHaveLength(1);
+      expect(ciTasks[0].id).toBe(t2.id);
+    });
+
+    it('ignores non-active or non-signal tasks', () => {
+      const goal = store.create({ title: 'Goal' });
+      store.create({
+        title: 'Pending signal',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'centaur_review', repo: 'dimakis/mitzo', pr: 1 },
+      });
+
+      const t2 = store.create({
+        title: 'Agent task',
+        parentId: goal.id,
+        stageType: 'agent_work',
+      });
+      store.update(t2.id, { status: 'active' });
+
+      const results = store.findActiveSignalTasks('centaur_review');
+      expect(results).toHaveLength(0);
+    });
+  });
+
   it('stores failure artifacts in annotations on retry', () => {
     const goal = store.create({ title: 'Goal' });
     const agent = store.create({

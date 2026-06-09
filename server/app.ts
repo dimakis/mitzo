@@ -64,6 +64,7 @@ import {
   WorkflowInstantiateBody,
   TemplateCreateBody,
   SignalBody,
+  SignalResolveBody,
   WorkSignalBody,
   WorkSignalBatchBody,
   WorkloadItemUpdateBody,
@@ -990,6 +991,67 @@ app.post('/api/tasks/:id/signal', (req, res) => {
   });
   res.json({ ok: true });
   onTaskBroadcast?.({ type: 'task_state', tasks: taskStore.getTree() });
+});
+
+/**
+ * Resolve a signal by gate metadata (type + repo/PR).
+ * External agents (e.g. Centaur) POST here after completing work —
+ * they don't need to know task IDs, just the gate parameters.
+ */
+app.post('/api/signals/resolve', (req, res) => {
+  if (!verifyInternalToken(req)) {
+    res.status(401).json({ error: 'Internal token required' });
+    return;
+  }
+  if (!signalProcessor) {
+    res.status(503).json({ error: 'Signal processor not initialized' });
+    return;
+  }
+  const body = SignalResolveBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.issues[0]?.message ?? 'Invalid input' });
+    return;
+  }
+
+  const { type, repo, pr, pr_url, status, artifacts } = body.data;
+
+  // Find active wait_for_signal tasks matching this gate type
+  const candidates = taskStore.findActiveSignalTasks(type);
+  const matched: string[] = [];
+
+  for (const task of candidates) {
+    const gc = task.gateConfig;
+    if (!gc) continue;
+
+    let isMatch = false;
+    switch (type) {
+      case 'centaur_review': {
+        const taskPrUrl = (gc as Record<string, unknown>).pr_url as string | undefined;
+        const taskRepo = (gc as Record<string, unknown>).repo as string | undefined;
+        const taskPr = (gc as Record<string, unknown>).pr as number | undefined;
+        if (pr_url && taskPrUrl && taskPrUrl === pr_url) isMatch = true;
+        if (repo && pr && taskRepo === repo && taskPr === pr) isMatch = true;
+        break;
+      }
+      case 'gh_ci':
+      case 'gh_review': {
+        const taskRepo = (gc as Record<string, unknown>).repo as string | undefined;
+        const taskPr = (gc as Record<string, unknown>).pr as number | undefined;
+        if (repo && pr && taskRepo === repo && taskPr === pr) isMatch = true;
+        break;
+      }
+    }
+
+    if (isMatch) {
+      signalProcessor.resolveSignal(task.id, { status, artifacts });
+      matched.push(task.id);
+    }
+  }
+
+  res.json({ ok: true, matched });
+  if (matched.length > 0) {
+    onTaskBroadcast?.({ type: 'task_state', tasks: taskStore.getTree() });
+  }
 });
 
 app.post('/api/auth/login', loginLimiter, async (req, res) => {

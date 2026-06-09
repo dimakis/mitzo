@@ -550,4 +550,103 @@ describe('TaskOrchestrator', () => {
       expect(orch.getStatus().state).toBe('idle');
     });
   });
+
+  describe('session_policy: spawn', () => {
+    it('calls spawnSession for tasks with session_policy spawn', async () => {
+      const spawnSession = vi.fn().mockResolvedValue('spawned-client-1');
+      const deps = createTestDeps(store);
+      deps.spawnSession = spawnSession;
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Goal' });
+      store.create({
+        title: 'Spawn task',
+        parentId: goal.id,
+        sessionPolicy: 'spawn',
+      });
+
+      orch.start(goal.id);
+
+      await vi.waitFor(() => {
+        expect(spawnSession).toHaveBeenCalled();
+      });
+
+      const [, prompt, goalArg] = spawnSession.mock.calls[0];
+      expect(goalArg).toBe(goal.id);
+      expect(prompt).toContain('Spawn task');
+    });
+
+    it('does not set activeTaskId for spawned tasks', () => {
+      const spawnSession = vi.fn().mockResolvedValue('spawned-client-1');
+      const deps = createTestDeps(store);
+      deps.spawnSession = spawnSession;
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Goal' });
+      store.create({
+        title: 'Spawn task',
+        parentId: goal.id,
+        sessionPolicy: 'spawn',
+      });
+
+      orch.start(goal.id);
+
+      expect(orch.getStatus().activeTaskId).toBeNull();
+    });
+
+    it('falls back to pinned session when spawnSession is not provided', () => {
+      const deps = createTestDeps(store);
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Spawn task',
+        parentId: goal.id,
+        sessionPolicy: 'spawn',
+      });
+
+      orch.start(goal.id);
+
+      expect(orch.getStatus().activeTaskId).toBe(task.id);
+      expect(deps.setTaskContext).toHaveBeenCalledWith(task.id, goal.id);
+    });
+
+    it('marks task active before spawning', () => {
+      const spawnSession = vi.fn().mockResolvedValue('spawned-client-1');
+      const deps = createTestDeps(store);
+      deps.spawnSession = spawnSession;
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Spawn task',
+        parentId: goal.id,
+        sessionPolicy: 'spawn',
+      });
+
+      orch.start(goal.id);
+
+      expect(store.get(task.id)!.status).toBe('active');
+    });
+
+    it('reuse policy tasks use pinned session as before', () => {
+      const spawnSession = vi.fn().mockResolvedValue('spawned-client-1');
+      const deps = createTestDeps(store);
+      deps.spawnSession = spawnSession;
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Reuse task',
+        parentId: goal.id,
+        sessionPolicy: 'reuse',
+      });
+
+      orch.start(goal.id);
+
+      expect(spawnSession).not.toHaveBeenCalled();
+      expect(orch.getStatus().activeTaskId).toBe(task.id);
+      expect(deps.setTaskContext).toHaveBeenCalledWith(task.id, goal.id);
+    });
+  });
 });

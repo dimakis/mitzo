@@ -37,6 +37,8 @@ export interface OrchestratorDeps {
   getActiveSessionIds?: () => Set<string>;
   /** Register a signal watch for a wait_for_signal task */
   watchSignal?: (taskId: string, gateConfig: GateConfig) => void;
+  /** Spawn a new headless session for a task. Returns clientId or null on failure. */
+  spawnSession?: (taskId: string, prompt: string, goalId: string) => Promise<string | null>;
 }
 
 export class TaskOrchestrator {
@@ -333,17 +335,50 @@ export class TaskOrchestrator {
 
       case 'agent_work':
       default: {
-        // Original behavior: assign to session, send prompt
-        this.activeTaskId = next.id;
-        this.deps.store.update(next.id, { status: 'active' });
-        this.deps.store.cascadeStatus(next.id);
-        this.deps.setTaskContext(next.id, this.goalId);
-        this.deps.broadcastTasks();
-        this.deps.broadcastStatus(this.getStatus());
+        const policy = next.sessionPolicy ?? 'reuse';
 
-        if (this.pinnedClientId) {
+        if (policy === 'spawn' && this.deps.spawnSession) {
+          // Spawn a dedicated headless session for this task
+          this.deps.store.update(next.id, { status: 'active' });
+          this.deps.store.cascadeStatus(next.id);
+          this.deps.broadcastTasks();
+          this.deps.broadcastStatus(this.getStatus());
+
           const prompt = this.buildTaskPrompt(next);
-          sendToChat(this.pinnedClientId, prompt);
+          this.deps.spawnSession(next.id, prompt, this.goalId).then(
+            (clientId) => {
+              if (clientId) {
+                this.deps.store.setSessionId(next.id, clientId);
+                log.info('spawned session for task', { taskId: next.id, clientId });
+              } else {
+                log.error('failed to spawn session, falling back to pinned', { taskId: next.id });
+                this.deps.setTaskContext(next.id, this.goalId!);
+                if (this.pinnedClientId) sendToChat(this.pinnedClientId, prompt);
+              }
+            },
+            (err) => {
+              log.error('spawnSession threw', { taskId: next.id, error: (err as Error).message });
+              this.deps.store.update(next.id, { status: 'pending' });
+              this.deps.store.cascadeStatus(next.id);
+            },
+          );
+
+          // Don't set activeTaskId — spawned tasks run independently.
+          // Continue ticking to find more parallel work.
+          this.tick();
+        } else {
+          // Reuse pinned session (original behavior)
+          this.activeTaskId = next.id;
+          this.deps.store.update(next.id, { status: 'active' });
+          this.deps.store.cascadeStatus(next.id);
+          this.deps.setTaskContext(next.id, this.goalId);
+          this.deps.broadcastTasks();
+          this.deps.broadcastStatus(this.getStatus());
+
+          if (this.pinnedClientId) {
+            const prompt = this.buildTaskPrompt(next);
+            sendToChat(this.pinnedClientId, prompt);
+          }
         }
         break;
       }
