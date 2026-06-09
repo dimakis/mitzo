@@ -1,8 +1,6 @@
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import rehypeRaw from 'rehype-raw';
-import rehypeSanitize from 'rehype-sanitize';
+import { remarkPlugins, rehypePlugins, markdownComponents } from '../lib/markdown-config';
 import { MitzoLogo } from '../components/MitzoLogo';
 import { useFileNavigation } from '../hooks/useFileNavigation';
 import { useFileEditor } from '../hooks/useFileEditor';
@@ -156,15 +154,9 @@ export function FileViewer() {
         {!state.loading && !state.error && state.isViewing && !editor.editing && isMarkdown && (
           <div className="viewer-markdown">
             <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeRaw, rehypeSanitize]}
-              components={{
-                table: ({ children, ...props }) => (
-                  <div className="table-scroll-wrapper">
-                    <table {...props}>{children}</table>
-                  </div>
-                ),
-              }}
+              remarkPlugins={remarkPlugins}
+              rehypePlugins={rehypePlugins}
+              components={markdownComponents}
             >
               {state.content}
             </ReactMarkdown>

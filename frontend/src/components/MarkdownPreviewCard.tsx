@@ -1,8 +1,6 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import rehypeRaw from 'rehype-raw';
-import rehypeSanitize from 'rehype-sanitize';
+import { remarkPlugins, rehypePlugins, markdownComponents } from '../lib/markdown-config';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { apiFetch } from '../lib/api-fetch';
 
@@ -65,15 +63,9 @@ export function MarkdownPreviewCard({ filePath }: Props) {
           {content !== null && (
             <div className="md-preview-card-body">
               <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeRaw, rehypeSanitize]}
-                components={{
-                  table: ({ children, ...props }) => (
-                    <div className="table-scroll-wrapper">
-                      <table {...props}>{children}</table>
-                    </div>
-                  ),
-                }}
+                remarkPlugins={remarkPlugins}
+                rehypePlugins={rehypePlugins}
+                components={markdownComponents}
               >
                 {content}
               </ReactMarkdown>
