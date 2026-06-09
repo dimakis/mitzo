@@ -4312,7 +4312,7 @@ textarea:focus {
 .viewer-markdown table {
   border-collapse: collapse;
   width: 100%;
-  margin: 0.5em 0;
+  margin: 0;
   font-size: 0.85em;
 }
 
@@ -4340,7 +4340,8 @@ textarea:focus {
   text-underline-offset: 2px;
 }
 
-.viewer-markdown img {
+.viewer-markdown img,
+.md-preview-card-body img {
   max-width: 100%;
   height: auto;
   border-radius: 6px;
