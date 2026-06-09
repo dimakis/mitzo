@@ -921,12 +921,14 @@ async function _startChatInner(
   // system prompt append and survives SDK context compaction.
   // fetchBootContext never throws and has a 5s AbortSignal timeout internally.
   // Race with a 2s deadline so session startup isn't blocked when ContexGin is slow.
+  let raceTimer: ReturnType<typeof setTimeout> | undefined;
   const bootContextMsg = await Promise.race([
     fetchBootContext(agentName),
-    new Promise<Awaited<ReturnType<typeof fetchBootContext>>>((resolve) =>
-      setTimeout(() => resolve({ ...FALLBACK_BOOT_CONTEXT }), 2000),
-    ),
+    new Promise<Awaited<ReturnType<typeof fetchBootContext>>>((resolve) => {
+      raceTimer = setTimeout(() => resolve({ ...FALLBACK_BOOT_CONTEXT }), 2000);
+    }),
   ]);
+  clearTimeout(raceTimer);
   const bootContextAppend = bootContextMsg.fullMarkdown
     ? `\n\n# Boot Context\n${bootContextMsg.fullMarkdown}`
     : '';
@@ -1029,11 +1031,13 @@ async function _startChatInner(
       {
         connRegistry: _connRegistry ?? undefined,
         onSessionResolved: (sessionId: string) => {
-          // Persist boot context to EventStore now that we have a real session ID
-          eventStore.upsertSession({
-            sessionId,
-            bootContext: JSON.stringify(bootContextMsg),
-          });
+          // Persist boot context for new sessions (resume sessions already persisted above)
+          if (!options.resume) {
+            eventStore.upsertSession({
+              sessionId,
+              bootContext: JSON.stringify(bootContextMsg),
+            });
+          }
           options.onSessionResolved?.(sessionId);
         },
         onInitialPrompt: (sessionId: string) => {
