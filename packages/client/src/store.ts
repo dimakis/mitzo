@@ -250,8 +250,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         connection.clearSession(oldId);
       }
       parserState.currentSessionId = id;
-      // Drain stale pending sends from the previous session's WS queue.
-      connection.clearPendingSends();
 
       set((s) => ({
         sessions: { ...s.sessions, active: id },
@@ -283,9 +281,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       parserState.currentSessionId = undefined;
       parserState.pendingSend = [];
       clearPendingSendTimer();
-      // Drain the WS pending-send queue to prevent stale messages from the
-      // old session leaking into the new one on reconnect (iOS background).
-      connection.clearPendingSends();
       connection.send({ type: 'switch_session', sessionId: null });
       set({
         sessions: { ...get().sessions, active: null },

@@ -520,44 +520,6 @@ describe('MitzoConnection', () => {
     });
   });
 
-  describe('clearPendingSends', () => {
-    it('drains queued messages so they are not flushed on reconnect', () => {
-      vi.useFakeTimers();
-      const conn = createConnection();
-      conn.onMessage(() => {});
-      const ws1 = openWithHandshake(conn);
-      ws1.simulateClose();
-
-      // Queue messages while disconnected
-      conn.send({ type: 'send', sessionId: 'old-sess', prompt: 'stale' });
-      conn.send({ type: 'send', sessionId: 'old-sess', prompt: 'also stale' });
-
-      // Clear the queue (simulating newSession)
-      conn.clearPendingSends();
-
-      // Reconnect
-      vi.advanceTimersByTime(100);
-      const ws2 = lastWs!;
-      ws2.simulateOpen();
-      ws2.simulateMessage({ type: 'welcome', protocolVersion: 2, connectionId: 'conn-2' });
-
-      // Only hello + reconnect should be on the wire — no stale messages
-      const calls = ws2.send.mock.calls.map((c: string[]) => JSON.parse(c[0]));
-      expect(calls.some((c: Record<string, unknown>) => c.prompt === 'stale')).toBe(false);
-      expect(calls.some((c: Record<string, unknown>) => c.prompt === 'also stale')).toBe(false);
-
-      vi.useRealTimers();
-    });
-
-    it('is safe to call when queue is already empty', () => {
-      const conn = createConnection();
-      conn.onMessage(() => {});
-      openWithHandshake(conn);
-
-      expect(() => conn.clearPendingSends()).not.toThrow();
-    });
-  });
-
   describe('sendSuspend', () => {
     it('sends session_suspend via WS with all tracked sessions', () => {
       const conn = createConnection();

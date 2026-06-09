@@ -110,11 +110,6 @@ export class MitzoConnection {
     this.seqBySession.delete(sessionId);
   }
 
-  /** Drain the pending-send queue (e.g. on session switch to avoid cross-session message leaks). */
-  clearPendingSends(): void {
-    this.pendingSends = [];
-  }
-
   getTrackedSessions(): string[] {
     return Array.from(this.seqBySession.keys());
   }
