@@ -4302,6 +4302,13 @@ textarea:focus {
   color: var(--text-dim);
 }
 
+.viewer-markdown .table-scroll-wrapper,
+.md-preview-card-body .table-scroll-wrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0.5em 0;
+}
+
 .viewer-markdown table {
   border-collapse: collapse;
   width: 100%;
