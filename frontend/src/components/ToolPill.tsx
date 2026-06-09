@@ -107,7 +107,7 @@ function ToolResult({
           {block.toolResultImages!.map((img, i) => (
             <img
               key={i}
-              src={`data:${img.mediaType};base64,${img.data}`}
+              src={`/api/images/${img.id}`}
               alt={`Result image ${i + 1}`}
               className="tool-pill-result-img"
             />

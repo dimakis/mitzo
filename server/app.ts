@@ -30,6 +30,7 @@ import {
   generateWtId,
 } from './chat.js';
 import { NullTransport } from './null-transport.js';
+import { getImage } from './image-store.js';
 import {
   createWorktree,
   createSessionWorktrees as createAllWorktrees,
@@ -1357,6 +1358,19 @@ app.get('/api/files/read', (req, res) => {
     });
     res.status(500).json({ error: 'Failed to read file' });
   }
+});
+
+// ── Tool result images (served from in-memory store) ──────────────────────
+app.get('/api/images/:imageId', (req, res) => {
+  const img = getImage(req.params.imageId);
+  if (!img) {
+    res.status(404).json({ error: 'Image not found' });
+    return;
+  }
+  res.setHeader('Content-Type', img.mediaType);
+  res.setHeader('Content-Length', img.data.length);
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+  res.send(img.data);
 });
 
 app.get('/api/files/download', (req, res) => {

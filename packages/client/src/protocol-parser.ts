@@ -338,7 +338,7 @@ export function parseServerMessage(
         toolId: msg.toolId as string,
         result: msg.result as string,
         isError: (msg.isError as boolean) ?? false,
-        images: msg.images as ToolResultImage[] | undefined,
+        images: Array.isArray(msg.images) ? (msg.images as ToolResultImage[]) : undefined,
       });
       break;
 
@@ -602,7 +602,7 @@ export function parseServerMessage(
         toolId: msg.toolId as string,
         result: msg.result as string,
         isError: (msg.isError as boolean) ?? false,
-        images: msg.images as ToolResultImage[] | undefined,
+        images: Array.isArray(msg.images) ? (msg.images as ToolResultImage[]) : undefined,
       });
       break;
 

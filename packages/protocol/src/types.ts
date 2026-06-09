@@ -113,10 +113,10 @@ export interface ImageAttachment {
   preview: string;
 }
 
-// --- Tool result image (from SDK image content blocks) ---
+// --- Tool result image (reference to server-stored image) ---
 
 export interface ToolResultImage {
-  data: string;
+  id: string;
   mediaType: string;
 }
 

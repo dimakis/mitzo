@@ -378,6 +378,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
           toolInput: b.toolInput,
           rawInput: b.rawInput,
           toolResult: b.toolResult,
+          toolResultImages: b.toolResultImages,
           toolError: b.toolError,
         });
         blockOrder.push(b.blockId);
