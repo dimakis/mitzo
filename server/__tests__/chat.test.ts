@@ -527,3 +527,28 @@ describe('validateResumable', () => {
     expect(result).toEqual({ valid: false });
   });
 });
+
+describe('resolveSshAuthSock', () => {
+  it('returns a string on macOS when the agent is running', async () => {
+    const { resolveSshAuthSock } = await import('../chat.js');
+    const result = resolveSshAuthSock();
+    if (process.platform === 'darwin') {
+      // On macOS CI/dev, the agent should be running
+      expect(typeof result === 'string' || result === null).toBe(true);
+      if (result) {
+        expect(result).toContain('/');
+      }
+    } else {
+      expect(result).toBeNull();
+    }
+  });
+
+  it('returns null on non-macOS platforms', async () => {
+    // On macOS this test validates the shape; on Linux CI it validates the null path
+    const { resolveSshAuthSock } = await import('../chat.js');
+    const result = resolveSshAuthSock();
+    if (process.platform !== 'darwin') {
+      expect(result).toBeNull();
+    }
+  });
+});

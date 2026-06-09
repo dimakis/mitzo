@@ -386,6 +386,25 @@ function send(transport: SessionTransport, data: Record<string, unknown> | BootC
 
 const IPV4_PRELOAD = join(dirname(fileURLToPath(import.meta.url)), 'ipv4-preload.cjs');
 
+/**
+ * Resolve the live SSH agent socket on macOS via launchctl.
+ * The server process may have started with a socket that became stale after
+ * sleep/wake — launchctl always returns the current one.
+ * Returns null on non-macOS or if the agent isn't running.
+ */
+export function resolveSshAuthSock(): string | null {
+  if (platform() !== 'darwin') return null;
+  try {
+    const sock = execFileSync('launchctl', ['getenv', 'SSH_AUTH_SOCK'], {
+      encoding: 'utf8',
+      timeout: 500,
+    }).trim();
+    return sock || null;
+  } catch {
+    return null;
+  }
+}
+
 function sdkEnv(): Record<string, string> {
   const env = { ...process.env } as Record<string, string>;
   env.CLAUDE_CODE_USE_VERTEX = process.env.CLAUDE_CODE_USE_VERTEX || '1';
@@ -406,20 +425,8 @@ function sdkEnv(): Record<string, string> {
   const venvPaths = getRepoConfig().resolvedVenvPaths;
   env.PATH = [...venvPaths, existingPath].join(':');
 
-  // Resolve the current SSH agent socket on macOS. The server process may have
-  // started with a socket that became stale after sleep/wake — launchctl always
-  // returns the live one.
-  if (platform() === 'darwin') {
-    try {
-      const sock = execFileSync('launchctl', ['getenv', 'SSH_AUTH_SOCK'], {
-        encoding: 'utf8',
-        timeout: 2000,
-      }).trim();
-      if (sock) env.SSH_AUTH_SOCK = sock;
-    } catch {
-      // launchctl unavailable or no agent — leave inherited value
-    }
-  }
+  const sock = resolveSshAuthSock();
+  if (sock) env.SSH_AUTH_SOCK = sock;
 
   delete env.AUTH_PASSPHRASE;
   delete env.AUTH_SECRET;
