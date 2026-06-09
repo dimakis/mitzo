@@ -386,12 +386,7 @@ function send(transport: SessionTransport, data: Record<string, unknown> | BootC
 
 const IPV4_PRELOAD = join(dirname(fileURLToPath(import.meta.url)), 'ipv4-preload.cjs');
 
-/**
- * Resolve the live SSH agent socket on macOS via launchctl.
- * The server process may have started with a socket that became stale after
- * sleep/wake — launchctl always returns the current one.
- * Returns null on non-macOS or if the agent isn't running.
- */
+// launchctl resolves the live socket — the inherited one goes stale after sleep/wake.
 export function resolveSshAuthSock(): string | null {
   if (platform() !== 'darwin') return null;
   try {

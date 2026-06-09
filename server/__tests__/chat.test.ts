@@ -529,26 +529,67 @@ describe('validateResumable', () => {
 });
 
 describe('resolveSshAuthSock', () => {
-  it('returns a string on macOS when the agent is running', async () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns trimmed socket path on macOS', async () => {
+    vi.resetModules();
+    vi.doMock('os', async (importOriginal) => {
+      const actual = (await importOriginal()) as Record<string, unknown>;
+      return { ...actual, platform: () => 'darwin' };
+    });
+    vi.doMock('child_process', async (importOriginal) => {
+      const actual = (await importOriginal()) as Record<string, unknown>;
+      return {
+        ...actual,
+        execFileSync: vi.fn().mockReturnValue('  /private/tmp/com.apple.launchd.xxx/Listeners  \n'),
+      };
+    });
     const { resolveSshAuthSock } = await import('../chat.js');
-    const result = resolveSshAuthSock();
-    if (process.platform === 'darwin') {
-      // On macOS CI/dev, the agent should be running
-      expect(typeof result === 'string' || result === null).toBe(true);
-      if (result) {
-        expect(result).toContain('/');
-      }
-    } else {
-      expect(result).toBeNull();
-    }
+    expect(resolveSshAuthSock()).toBe('/private/tmp/com.apple.launchd.xxx/Listeners');
+  });
+
+  it('returns null when launchctl returns empty string', async () => {
+    vi.resetModules();
+    vi.doMock('os', async (importOriginal) => {
+      const actual = (await importOriginal()) as Record<string, unknown>;
+      return { ...actual, platform: () => 'darwin' };
+    });
+    vi.doMock('child_process', async (importOriginal) => {
+      const actual = (await importOriginal()) as Record<string, unknown>;
+      return { ...actual, execFileSync: vi.fn().mockReturnValue('  \n') };
+    });
+    const { resolveSshAuthSock } = await import('../chat.js');
+    expect(resolveSshAuthSock()).toBeNull();
+  });
+
+  it('returns null when execFileSync throws', async () => {
+    vi.resetModules();
+    vi.doMock('os', async (importOriginal) => {
+      const actual = (await importOriginal()) as Record<string, unknown>;
+      return { ...actual, platform: () => 'darwin' };
+    });
+    vi.doMock('child_process', async (importOriginal) => {
+      const actual = (await importOriginal()) as Record<string, unknown>;
+      return {
+        ...actual,
+        execFileSync: vi.fn().mockImplementation(() => {
+          throw new Error('launchctl not found');
+        }),
+      };
+    });
+    const { resolveSshAuthSock } = await import('../chat.js');
+    expect(resolveSshAuthSock()).toBeNull();
   });
 
   it('returns null on non-macOS platforms', async () => {
-    // On macOS this test validates the shape; on Linux CI it validates the null path
+    vi.resetModules();
+    vi.doMock('os', async (importOriginal) => {
+      const actual = (await importOriginal()) as Record<string, unknown>;
+      return { ...actual, platform: () => 'linux' };
+    });
     const { resolveSshAuthSock } = await import('../chat.js');
-    const result = resolveSshAuthSock();
-    if (process.platform !== 'darwin') {
-      expect(result).toBeNull();
-    }
+    expect(resolveSshAuthSock()).toBeNull();
   });
 });
