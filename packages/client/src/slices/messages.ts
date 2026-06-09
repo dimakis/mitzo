@@ -238,7 +238,12 @@ export function patchToolResult(
     for (const block of current.blocks.values()) {
       if (block.toolId === toolId) {
         const newBlocks = new Map(current.blocks);
-        newBlocks.set(block.blockId, { ...block, toolResult: result, toolError: isError, ...imgPatch });
+        newBlocks.set(block.blockId, {
+          ...block,
+          toolResult: result,
+          toolError: isError,
+          ...imgPatch,
+        });
         return { messages, current: { ...current, blocks: newBlocks } };
       }
     }
@@ -703,7 +708,8 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
       if (!sub) return state;
 
       // Find the tool block with matching toolId
-      const imgPatch = action.images && action.images.length > 0 ? { toolResultImages: action.images } : {};
+      const imgPatch =
+        action.images && action.images.length > 0 ? { toolResultImages: action.images } : {};
       for (const [blockId, subBlock] of sub.blocks) {
         if (subBlock.toolId === action.toolId) {
           const newSubBlocks = new Map(sub.blocks);

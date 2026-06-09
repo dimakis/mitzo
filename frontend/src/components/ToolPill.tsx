@@ -131,7 +131,8 @@ export function ToolPill({ block }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
   const [expanded, setExpanded] = useState(false);
-  const done = block.toolResult !== undefined || (block.toolResultImages && block.toolResultImages.length > 0);
+  const done =
+    block.toolResult !== undefined || (block.toolResultImages && block.toolResultImages.length > 0);
   const hasError = (block as StreamingBlock).toolError === true;
   const input = block.toolInput || '';
 

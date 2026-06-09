@@ -35,9 +35,7 @@ interface ParsedContent {
   toolResults: ParsedToolResult[];
 }
 
-export function extractToolResultText(
-  content: string | ContentItem[] | undefined,
-): string {
+export function extractToolResultText(content: string | ContentItem[] | undefined): string {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
   let text = '';
