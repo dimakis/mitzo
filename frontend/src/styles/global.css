@@ -4333,6 +4333,13 @@ textarea:focus {
   text-underline-offset: 2px;
 }
 
+.viewer-markdown img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin: 0.5em 0;
+}
+
 .viewer-markdown hr {
   border: none;
   border-top: 1px solid var(--border);

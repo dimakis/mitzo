@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { apiFetch } from '../lib/api-fetch';
 
@@ -62,7 +63,19 @@ export function MarkdownPreviewCard({ filePath }: Props) {
           {error && <p className="md-preview-card-status md-preview-card-status--error">{error}</p>}
           {content !== null && (
             <div className="md-preview-card-body">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeRaw]}
+                components={{
+                  table: ({ children, ...props }) => (
+                    <div className="table-scroll-wrapper">
+                      <table {...props}>{children}</table>
+                    </div>
+                  ),
+                }}
+              >
+                {content}
+              </ReactMarkdown>
             </div>
           )}
         </div>
