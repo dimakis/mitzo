@@ -12,7 +12,7 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
-import { homedir } from 'os';
+import { homedir, platform } from 'os';
 import {
   createWorktree,
   createWorktreeAsync,
@@ -386,6 +386,20 @@ function send(transport: SessionTransport, data: Record<string, unknown> | BootC
 
 const IPV4_PRELOAD = join(dirname(fileURLToPath(import.meta.url)), 'ipv4-preload.cjs');
 
+// launchctl resolves the live socket — the inherited one goes stale after sleep/wake.
+export function resolveSshAuthSock(): string | null {
+  if (platform() !== 'darwin') return null;
+  try {
+    const sock = execFileSync('launchctl', ['getenv', 'SSH_AUTH_SOCK'], {
+      encoding: 'utf8',
+      timeout: 500,
+    }).trim();
+    return sock || null;
+  } catch {
+    return null;
+  }
+}
+
 function sdkEnv(): Record<string, string> {
   const env = { ...process.env } as Record<string, string>;
   env.CLAUDE_CODE_USE_VERTEX = process.env.CLAUDE_CODE_USE_VERTEX || '1';
@@ -405,6 +419,9 @@ function sdkEnv(): Record<string, string> {
   const existingPath = env.PATH || '/usr/bin:/bin:/usr/local/bin';
   const venvPaths = getRepoConfig().resolvedVenvPaths;
   env.PATH = [...venvPaths, existingPath].join(':');
+
+  const sock = resolveSshAuthSock();
+  if (sock) env.SSH_AUTH_SOCK = sock;
 
   delete env.AUTH_PASSPHRASE;
   delete env.AUTH_SECRET;
