@@ -12,7 +12,7 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
-import { homedir } from 'os';
+import { homedir, platform } from 'os';
 import {
   createWorktree,
   createWorktreeAsync,
@@ -405,6 +405,21 @@ function sdkEnv(): Record<string, string> {
   const existingPath = env.PATH || '/usr/bin:/bin:/usr/local/bin';
   const venvPaths = getRepoConfig().resolvedVenvPaths;
   env.PATH = [...venvPaths, existingPath].join(':');
+
+  // Resolve the current SSH agent socket on macOS. The server process may have
+  // started with a socket that became stale after sleep/wake — launchctl always
+  // returns the live one.
+  if (platform() === 'darwin') {
+    try {
+      const sock = execFileSync('launchctl', ['getenv', 'SSH_AUTH_SOCK'], {
+        encoding: 'utf8',
+        timeout: 2000,
+      }).trim();
+      if (sock) env.SSH_AUTH_SOCK = sock;
+    } catch {
+      // launchctl unavailable or no agent — leave inherited value
+    }
+  }
 
   delete env.AUTH_PASSPHRASE;
   delete env.AUTH_SECRET;
