@@ -271,16 +271,13 @@ describe('fetchBootContext', () => {
 
     const result = await fetchBootContext('mitzo-conversational', CONTEXGIN_URL);
 
+    // fullMarkdown must be the exact content string — chat.ts appends it to the system prompt
     expect(result.fullMarkdown).toBe(markdown);
-    // Verify the append pattern matches what chat.ts does:
-    // `\n\n# Boot Context\n${fullMarkdown}`
-    const append = result.fullMarkdown ? `\n\n# Boot Context\n${result.fullMarkdown}` : '';
-    expect(append).toContain('# Boot Context');
-    expect(append).toContain('# Identity');
-    expect(append).toContain('Be concise.');
+    expect(typeof result.fullMarkdown).toBe('string');
+    expect(result.fullMarkdown!.length).toBeGreaterThan(0);
   });
 
-  it('returns empty string for append when fullMarkdown is missing', async () => {
+  it('returns undefined fullMarkdown when boot.content is missing', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -290,9 +287,8 @@ describe('fetchBootContext', () => {
 
     const result = await fetchBootContext('mitzo-conversational', CONTEXGIN_URL);
 
+    // chat.ts checks `bootContextMsg.fullMarkdown` — undefined means no append
     expect(result.fullMarkdown).toBeUndefined();
-    const append = result.fullMarkdown ? `\n\n# Boot Context\n${result.fullMarkdown}` : '';
-    expect(append).toBe('');
   });
 
   it('uses default URL from env when not provided', async () => {

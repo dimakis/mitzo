@@ -919,17 +919,25 @@ async function _startChatInner(
 
   // Fetch boot context BEFORE building system prompt so it's part of the
   // system prompt append and survives SDK context compaction.
-  const bootContextMsg = await fetchBootContext(agentName);
+  // fetchBootContext never throws and has a 5s AbortSignal timeout internally.
+  // Race with a 2s deadline so session startup isn't blocked when ContexGin is slow.
+  const bootContextMsg = await Promise.race([
+    fetchBootContext(agentName),
+    new Promise<Awaited<ReturnType<typeof fetchBootContext>>>((resolve) =>
+      setTimeout(() => resolve({ ...FALLBACK_BOOT_CONTEXT }), 2000),
+    ),
+  ]);
   const bootContextAppend = bootContextMsg.fullMarkdown
     ? `\n\n# Boot Context\n${bootContextMsg.fullMarkdown}`
     : '';
 
-  // Send boot context to UI for display (separate from system prompt injection).
-  // stateSessionId is the worktree-level session ID, already computed above.
+  // Send boot context to UI immediately (sessionId may be undefined for new sessions — OK,
+  // it's a display-only hint; the client doesn't key on it for boot context).
   send(transport, { ...bootContextMsg, ...(stateSessionId ? { sessionId: stateSessionId } : {}) });
   // Cache in ManagedSession for replay on reconnect/switch
   session.bootContext = bootContextMsg as unknown as Record<string, unknown>;
-  // Persist to EventStore for cold-path recovery
+  // For resumed sessions, persist immediately (sessionId is known).
+  // For new sessions, persist in onSessionResolved once SDK assigns the ID.
   if (stateSessionId) {
     eventStore.upsertSession({
       sessionId: stateSessionId,
@@ -1020,7 +1028,14 @@ async function _startChatInner(
       options.resume ? undefined : fullPrompt,
       {
         connRegistry: _connRegistry ?? undefined,
-        onSessionResolved: options.onSessionResolved,
+        onSessionResolved: (sessionId: string) => {
+          // Persist boot context to EventStore now that we have a real session ID
+          eventStore.upsertSession({
+            sessionId,
+            bootContext: JSON.stringify(bootContextMsg),
+          });
+          options.onSessionResolved?.(sessionId);
+        },
         onInitialPrompt: (sessionId: string) => {
           tryAutoRename(sessionId, clientId).catch(() => {
             /* errors logged internally */
