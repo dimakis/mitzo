@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { remarkPlugins, rehypePlugins, markdownComponents } from '../lib/markdown-config';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { apiFetch } from '../lib/api-fetch';
 
@@ -62,7 +62,13 @@ export function MarkdownPreviewCard({ filePath }: Props) {
           {error && <p className="md-preview-card-status md-preview-card-status--error">{error}</p>}
           {content !== null && (
             <div className="md-preview-card-body">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+              <ReactMarkdown
+                remarkPlugins={remarkPlugins}
+                rehypePlugins={rehypePlugins}
+                components={markdownComponents}
+              >
+                {content}
+              </ReactMarkdown>
             </div>
           )}
         </div>
