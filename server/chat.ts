@@ -931,6 +931,13 @@ async function _startChatInner(
   // The callback may fire after the session ends (registry cleaned up) or
   // before the SDK assigns a sessionId (new sessions). We include agentName
   // in the upsert as a safety net so it's never null in the DB.
+  //
+  // For new sessions the SDK session ID typically arrives 1–5s after query()
+  // starts, while ContexGin responds in ~100ms. The in-memory cache
+  // (session.bootContext) bridges the gap — the query-loop upsert reads it
+  // when the session ID is resolved. But if the SDK is faster (cache hit) or
+  // ContexGin is slow, the cache may not be set yet. We handle that by
+  // polling once after a short delay when sid is initially unavailable.
   fetchBootContext(agentName)
     .then((msg) => {
       const session = registry.get(clientId);
@@ -948,6 +955,26 @@ async function _startChatInner(
           bootContext: JSON.stringify(msg),
           agentName,
         });
+      } else {
+        // Session ID not yet available (new session, SDK hasn't responded).
+        // The in-memory cache is set above; the query-loop upsert will read
+        // it when the ID arrives. As a belt-and-suspenders fallback, poll
+        // once after a short delay in case the query-loop upsert missed it.
+        setTimeout(() => {
+          const s = registry.get(clientId);
+          const deferredSid = s?.sessionId;
+          if (deferredSid) {
+            // Only persist if the query-loop hasn't already done it
+            const existing = eventStore.getSession(deferredSid);
+            if (!existing?.bootContext) {
+              eventStore.upsertSession({
+                sessionId: deferredSid,
+                bootContext: JSON.stringify(msg),
+                agentName,
+              });
+            }
+          }
+        }, 5000);
       }
     })
     .catch((err: unknown) => {

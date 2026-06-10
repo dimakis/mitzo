@@ -497,7 +497,9 @@ async function _runQueryLoopInner(
                 ...(currentSession.worktreePath ? { wtId: currentSession.wtId } : {}),
                 ...(initialPrompt ? { initialPrompt } : {}),
                 ...(currentSession.telosTaskId ? { telosTaskId: currentSession.telosTaskId } : {}),
-                ...(currentSession.agentName ? { agentName: currentSession.agentName } : {}),
+                // Always persist agentName — truthiness guard previously caused
+                // sessions to end up with null agent_name in the DB.
+                agentName: currentSession.agentName ?? null,
                 ...(currentSession.bootContext
                   ? { bootContext: JSON.stringify(currentSession.bootContext) }
                   : {}),

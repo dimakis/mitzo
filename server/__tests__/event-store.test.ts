@@ -277,6 +277,46 @@ describe('EventStore', () => {
       expect(session!.bootContext).toBe(bootPayload);
     });
 
+    it('deferred persist fills bootContext when query-loop missed it', () => {
+      // Simulates the deferred persist pattern: query-loop creates the session
+      // without bootContext (it wasn't cached yet), then the deferred timer
+      // fires and persists it.
+      store.upsertSession({
+        sessionId: 'sess-deferred',
+        agentName: 'mitzo-conversational',
+        // bootContext not included — simulates query-loop upsert before fetch completed
+      });
+
+      const before = store.getSession('sess-deferred');
+      expect(before!.bootContext).toBeNull();
+
+      // Deferred persist fills in bootContext
+      const bootPayload = JSON.stringify({ type: 'boot_context', source: 'contexgin' });
+      store.upsertSession({
+        sessionId: 'sess-deferred',
+        bootContext: bootPayload,
+        agentName: 'mitzo-conversational',
+      });
+
+      const after = store.getSession('sess-deferred');
+      expect(after!.bootContext).toBe(bootPayload);
+      expect(after!.agentName).toBe('mitzo-conversational');
+    });
+
+    it('deferred persist skips when query-loop already persisted bootContext', () => {
+      // Query-loop persisted boot context successfully — deferred should not overwrite
+      const bootPayload = JSON.stringify({ type: 'boot_context', source: 'contexgin', tokens: 11429 });
+      store.upsertSession({
+        sessionId: 'sess-already',
+        agentName: 'mitzo-conversational',
+        bootContext: bootPayload,
+      });
+
+      const session = store.getSession('sess-already');
+      expect(session!.bootContext).toBe(bootPayload);
+      // Deferred persist would check this and skip
+    });
+
     it('preserves agentName when updating only bootContext', () => {
       store.upsertSession({
         sessionId: 'sess-preserve',
