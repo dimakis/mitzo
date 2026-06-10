@@ -9,7 +9,7 @@ const sanitizeSchema = {
   ...defaultSchema,
   attributes: {
     ...defaultSchema.attributes,
-    img: [...(defaultSchema.attributes?.img ?? []), 'alt', 'width', 'height'],
+    img: [...(defaultSchema.attributes?.img ?? []), 'width', 'height'],
   },
 };
 
