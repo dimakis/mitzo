@@ -235,6 +235,63 @@ describe('EventStore', () => {
       expect(session).not.toBeNull();
       expect(session!.cwd).toBeNull();
     });
+
+    it('persists agentName on insert', () => {
+      store.upsertSession({
+        sessionId: 'sess-agent',
+        agentName: 'mitzo-conversational',
+      });
+
+      const session = store.getSession('sess-agent');
+      expect(session).not.toBeNull();
+      expect(session!.agentName).toBe('mitzo-conversational');
+    });
+
+    it('updates agentName on existing session', () => {
+      store.upsertSession({ sessionId: 'sess-1', summary: 'Test' });
+      expect(store.getSession('sess-1')!.agentName).toBeNull();
+
+      store.upsertSession({ sessionId: 'sess-1', agentName: 'mitzo-conversational' });
+      expect(store.getSession('sess-1')!.agentName).toBe('mitzo-conversational');
+    });
+
+    it('persists bootContext and agentName together (fire-and-forget safety net)', () => {
+      // Simulates the pattern from chat.ts: boot context callback stores
+      // both bootContext and agentName in a single upsert to ensure
+      // agentName is never null even for short-lived sessions.
+      store.upsertSession({ sessionId: 'sess-boot', summary: 'Boot test' });
+
+      const bootPayload = JSON.stringify({
+        type: 'boot_context',
+        source: 'contexgin',
+        sourceCount: 7,
+      });
+      store.upsertSession({
+        sessionId: 'sess-boot',
+        bootContext: bootPayload,
+        agentName: 'mitzo-conversational',
+      });
+
+      const session = store.getSession('sess-boot');
+      expect(session!.agentName).toBe('mitzo-conversational');
+      expect(session!.bootContext).toBe(bootPayload);
+    });
+
+    it('preserves agentName when updating only bootContext', () => {
+      store.upsertSession({
+        sessionId: 'sess-preserve',
+        agentName: 'mitzo-conversational',
+      });
+
+      store.upsertSession({
+        sessionId: 'sess-preserve',
+        bootContext: '{"type":"boot_context"}',
+      });
+
+      const session = store.getSession('sess-preserve');
+      expect(session!.agentName).toBe('mitzo-conversational');
+      expect(session!.bootContext).toBe('{"type":"boot_context"}');
+    });
   });
 
   describe('getSession', () => {

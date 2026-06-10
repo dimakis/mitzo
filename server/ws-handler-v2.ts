@@ -751,6 +751,8 @@ export function handleInterruptV2(
         images: msg.images,
         contextBlocks: msg.contextBlocks,
         clientMsgId: msg.clientMsgId,
+        agentName: found.session?.agentName,
+        telosTaskId: found.session?.telosTaskId,
       });
       log.info('interrupt_resume', { connectionId, sessionId: msg.sessionId });
     },
