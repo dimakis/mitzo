@@ -12,11 +12,12 @@ describe('bundled skills', () => {
   const registry = new SkillRegistry({ bundledDir: SKILLS_DIR });
   const skills = registry.list();
 
-  it('discovers all seven bundled skills', () => {
+  it('discovers all bundled skills', () => {
     const names = skills.map((s) => s.name).sort();
     expect(names).toEqual([
       'land-pr',
       'person',
+      'plugin',
       'pr-review',
       'pr-shepherd',
       'review-response',
@@ -213,5 +214,26 @@ describe('bundled skills', () => {
     expect(rendered).not.toContain('$ARGUMENTS');
     // Envelope present
     expect(rendered).toContain('[Skill: /simplify | source: bundled]');
+  });
+
+  it('/plugin is a mutating skill with Bash and Write access', () => {
+    const plugin = skills.find((s) => s.name === 'plugin');
+    expect(plugin).toBeDefined();
+    expect(plugin!.mutating).toBe(true);
+    expect(plugin!.allowedTools).toBeDefined();
+    expect(plugin!.allowedTools).toContain('Bash');
+    expect(plugin!.allowedTools).toContain('Write');
+    expect(plugin!.allowedTools).toContain('Read');
+    expect(plugin!.allowedTools).toContain('Glob');
+    expect(plugin!.allowedTools).toContain('AskUserQuestion');
+  });
+
+  it('/plugin body references marketplace config paths and $ARGUMENTS', () => {
+    const body = registry.getBody('plugin')!;
+    expect(body).toBeDefined();
+    expect(body).toContain('$ARGUMENTS');
+    expect(body).toContain('~/.mitzo/plugins/config.json');
+    expect(body).toContain('~/.mitzo/plugins/installed.json');
+    expect(body).toContain('registry.yaml');
   });
 });

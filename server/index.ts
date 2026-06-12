@@ -6,7 +6,7 @@ import dns from 'node:dns';
 dns.setDefaultResultOrder('ipv4first');
 
 import './tracing.js';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync } from 'fs';
 import { createServer } from 'http';
 import { createServer as createHttpsServer } from 'https';
 import type { Socket } from 'net';
@@ -54,14 +54,19 @@ import {
   setSignalProcessor,
   setOverviewEmitter,
   setHealthMonitor,
+  setSkillWatcher,
   runUpdateCheck,
   buildSkillRegistry,
+  invalidateSkillRegistries,
+  BUNDLED_SKILLS_DIR,
+  USER_SKILLS_DIR,
   NATIVE_COMMAND_NAMES,
   isAllowedPath,
   yapperWsProxy,
   taskStore,
   workloadStore,
 } from './app.js';
+import { SkillWatcher } from './skill-watcher.js';
 import { WorkflowTemplateStore, seedBuiltInTemplates } from './workflow-templates.js';
 import { SignalProcessor } from './signal-processor.js';
 import { TaskOrchestrator } from './task-orchestrator.js';
@@ -849,9 +854,20 @@ function handleChatWs(
   });
 }
 
+// --- Skill file watcher ---
+// Ensure user skills directory exists so the watcher can monitor it from the
+// start. Plugin installs write here, and the SKILL.md promises auto-reload.
+mkdirSync(USER_SKILLS_DIR, { recursive: true });
+const skillWatcher = new SkillWatcher(
+  [BUNDLED_SKILLS_DIR, USER_SKILLS_DIR],
+  invalidateSkillRegistries,
+);
+setSkillWatcher(skillWatcher);
+
 function shutdown(signal: string) {
   log.info(`${signal} received — shutting down gracefully`);
   server.close();
+  skillWatcher.destroy();
   signalProc.unwatchAll();
   wfTemplateStore.close();
   healthMonitor.destroy();
