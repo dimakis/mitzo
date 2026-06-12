@@ -67,6 +67,13 @@ export type { MitzoConnectionConfig, ConnectionListener } from './connection.js'
 export { WsPool } from './ws-connection.js';
 export type { WsPoolConfig, WebSocketLike, MsgListener } from './ws-connection.js';
 
+// Chat connection interface (transport-agnostic)
+export type { ChatConnection } from './chat-connection.js';
+
+// SSE chat connection (v2 — SSE + HTTP POST transport)
+export { SseConnection } from './sse-connection.js';
+export type { SseConnectionConfig } from './sse-connection.js';
+
 // SSE event bus (broadcast events)
 export { EventBus } from './event-bus.js';
 export type {
