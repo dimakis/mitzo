@@ -1,5 +1,5 @@
 ---
-description: "Manage skill marketplaces — browse, install, and remove plugins"
+description: 'Manage skill marketplaces — browse, install, and remove plugins'
 mutating: true
 allowed-tools:
   - Bash

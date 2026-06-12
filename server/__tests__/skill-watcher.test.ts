@@ -5,10 +5,7 @@ import { tmpdir } from 'os';
 import { SkillWatcher } from '../skill-watcher.js';
 
 // fs.watch events are async — helper to wait for debounced callback
-function waitFor(
-  fn: () => boolean,
-  { timeout = 5000, interval = 50 } = {},
-): Promise<void> {
+function waitFor(fn: () => boolean, { timeout = 5000, interval = 50 } = {}): Promise<void> {
   return new Promise((resolve, reject) => {
     const start = Date.now();
     const check = () => {
@@ -27,10 +24,7 @@ function makeTempDir(): string {
 function writeSkill(dir: string, name: string): void {
   const skillDir = join(dir, name);
   mkdirSync(skillDir, { recursive: true });
-  writeFileSync(
-    join(skillDir, 'SKILL.md'),
-    '---\ndescription: "test skill"\n---\n\nTest body',
-  );
+  writeFileSync(join(skillDir, 'SKILL.md'), '---\ndescription: "test skill"\n---\n\nTest body');
 }
 
 describe('SkillWatcher', () => {
