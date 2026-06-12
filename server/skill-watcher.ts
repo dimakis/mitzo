@@ -47,7 +47,7 @@ export class SkillWatcher {
     } catch (err) {
       log.warn('failed to watch skill directory', {
         dir,
-        error: (err as Error).message,
+        error: err instanceof Error ? err.message : String(err),
       });
     }
   }
@@ -61,6 +61,7 @@ export class SkillWatcher {
   }
 
   private scheduleInvalidation(dir: string, filename: string): void {
+    if (this.destroyed) return;
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
