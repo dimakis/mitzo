@@ -198,7 +198,7 @@ export class SseConnection {
     let url = `${this.config.baseUrl}/api/chat/events`;
     if (this._isReconnect && this.seqBySession.size > 0) {
       const sessionsParam = Array.from(this.seqBySession.entries())
-        .map(([sid, seq]) => `${sid}:${seq}`)
+        .map(([sid, seq]) => `${sid}|${seq}`)
         .join(',');
       url += `?sessions=${encodeURIComponent(sessionsParam)}`;
     }
@@ -222,49 +222,22 @@ export class SseConnection {
       this.listener?.({ type: '_open' });
     });
 
-    // All other session events — dispatch to listener
-    const eventTypes = [
-      'message_start',
-      'block_start',
-      'block_delta',
-      'block_stop',
-      'message_stop',
-      'session_end',
-      'session_start',
-      'session_state',
-      'session_list',
-      'permission_request',
-      'task_state',
-      'todo_state',
-      'tool_use',
-      'tool_result',
-      'tool_event',
-      'error',
-      'tokens',
-      'progress',
-      'boot_context_meta',
-      'config',
-      'calendar',
-      'inbox_state',
-    ];
+    // Catch-all for session events. Server sends all non-welcome events as
+    // `event: message`, so es.onmessage handles everything — no allowlist needed.
+    es.onmessage = (e: MessageEvent) => {
+      let msg: Record<string, unknown>;
+      try {
+        msg = JSON.parse(e.data);
+      } catch {
+        return;
+      }
 
-    for (const eventType of eventTypes) {
-      es.addEventListener(eventType, (e: MessageEvent) => {
-        let msg: Record<string, unknown>;
-        try {
-          msg = JSON.parse(e.data);
-        } catch {
-          return;
-        }
+      if (typeof msg.seq === 'number' && typeof msg.sessionId === 'string') {
+        this.seqBySession.set(msg.sessionId as string, msg.seq as number);
+      }
 
-        // Track seq for reconnect replay
-        if (typeof msg.seq === 'number' && typeof msg.sessionId === 'string') {
-          this.seqBySession.set(msg.sessionId as string, msg.seq as number);
-        }
-
-        this.listener?.(msg);
-      });
-    }
+      this.listener?.(msg);
+    };
 
     es.onerror = () => {
       // EventSource auto-reconnects on error. We only need to update

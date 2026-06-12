@@ -26,7 +26,6 @@ export class SessionSseRegistry {
     }
 
     this.streams.set(connectionId, res);
-    log.info('SSE chat stream connected', { connectionId, total: this.streams.size });
 
     if (this.streams.size === 1) {
       this.startHeartbeat();
@@ -59,7 +58,10 @@ export class SessionSseRegistry {
     if (!res) return false;
 
     try {
-      const eventType = (data.type as string) || 'message';
+      // Use named event only for 'welcome' (handshake). All other events
+      // go as default 'message' — the client uses es.onmessage as a catch-all,
+      // eliminating any event type allowlist maintenance.
+      const eventType = (data.type as string) === 'welcome' ? 'welcome' : 'message';
       let frame = '';
       if (id !== undefined) {
         frame += `id: ${id}\n`;

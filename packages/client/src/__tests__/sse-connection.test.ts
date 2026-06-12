@@ -13,6 +13,7 @@ class MockEventSource {
   readyState = 0; // CONNECTING
   private listeners = new Map<string, ESListener[]>();
   onerror: (() => void) | null = null;
+  onmessage: ((e: MessageEvent) => void) | null = null;
 
   constructor(url: string) {
     this.url = url;
@@ -39,15 +40,20 @@ class MockEventSource {
 
   // ─── Test helpers ────────────────────────────────────────────────────────
 
-  /** Simulate the server sending an SSE event */
+  /** Simulate the server sending an SSE event.
+   *  Named events (welcome) go to addEventListener listeners.
+   *  All others go to onmessage (matching server behavior). */
   _emit(type: string, data: Record<string, unknown>): void {
     const event = new MessageEvent(type, { data: JSON.stringify(data) });
-    for (const listener of this.listeners.get(type) ?? []) {
-      listener(event);
+    if (type === 'welcome') {
+      for (const listener of this.listeners.get(type) ?? []) {
+        listener(event);
+      }
+    } else {
+      this.onmessage?.(event);
     }
   }
 
-  /** Simulate an error (triggers auto-reconnect in real EventSource) */
   _triggerError(): void {
     this.onerror?.();
   }
@@ -297,7 +303,7 @@ describe('SseConnection', () => {
 
     const newES = lastES();
     expect(newES.url).toContain('sessions=');
-    expect(newES.url).toContain('sess-1%3A10');
+    expect(newES.url).toContain('sess-1%7C10');
   });
 
   it('checkAndReconnect(false) is no-op when connected', () => {

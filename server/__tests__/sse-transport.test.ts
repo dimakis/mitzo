@@ -67,6 +67,17 @@ describe('SessionSseRegistry', () => {
     expect(frame.endsWith('\n\n')).toBe(true);
   });
 
+  it('sends non-welcome events as event: message', () => {
+    const res = mockResponse() as Response & { _chunks: string[] };
+    registry.add('conn-1', res);
+
+    registry.sendTo('conn-1', { type: 'block_delta', delta: 'hello' });
+
+    const frame = res._chunks[0];
+    expect(frame).toContain('event: message');
+    expect(frame).not.toContain('event: block_delta');
+  });
+
   it('includes SSE id field when seq provided', () => {
     const res = mockResponse() as Response & { _chunks: string[] };
     registry.add('conn-1', res);
@@ -75,7 +86,7 @@ describe('SessionSseRegistry', () => {
 
     const frame = res._chunks[0];
     expect(frame).toContain('id: 42');
-    expect(frame).toContain('event: block_delta');
+    expect(frame).toContain('event: message');
   });
 
   it('omits id field when no seq', () => {
@@ -146,7 +157,7 @@ describe('SseTransport', () => {
     transport.send({ type: 'message_start', messageId: 'msg-1' });
 
     expect(res._chunks).toHaveLength(1);
-    expect(res._chunks[0]).toContain('event: message_start');
+    expect(res._chunks[0]).toContain('event: message');
   });
 
   it('passes seq as SSE id field', () => {

@@ -388,7 +388,9 @@ app.get('/api/chat/events', (req, res) => {
   if (sessionsParam) {
     try {
       const sessions = sessionsParam.split(',').map((entry) => {
-        const [sessionId, seqStr] = entry.split(':');
+        const sep = entry.lastIndexOf('|');
+        const sessionId = sep > 0 ? entry.slice(0, sep) : entry;
+        const seqStr = sep > 0 ? entry.slice(sep + 1) : '0';
         return { sessionId, lastSeq: parseInt(seqStr, 10) || 0 };
       });
       handleReconnect(connectionId, { type: 'reconnect', sessions }, v2Ctx);
