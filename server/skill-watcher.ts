@@ -26,7 +26,11 @@ export class SkillWatcher {
     }
     try {
       const watcher = watch(dir, { recursive: true }, (_eventType, filename) => {
-        if (filename && !filename.endsWith('SKILL.md')) return;
+        // Only invalidate for SKILL.md changes. Null filenames (emitted by
+        // some platforms for directory operations) are skipped to avoid
+        // spurious invalidations — the debounced rediscovery on the next
+        // real SKILL.md event will catch anything missed.
+        if (!filename || !filename.endsWith('SKILL.md')) return;
         this.scheduleInvalidation(dir, filename);
       });
       watcher.on('error', (err) => {

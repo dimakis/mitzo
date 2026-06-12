@@ -119,12 +119,13 @@ Download a plugin's skills from its source repo into `~/.mitzo/skills/`.
 Remove an installed plugin.
 
 1. Read `installed.json` → find the plugin → get its skill list
-2. Delete each skill directory:
+2. **Validate each skill name**: reject any name containing `/`, `..`, or path separators. Only delete directories directly inside `~/.mitzo/skills/`.
+3. Delete each skill directory:
    ```bash
    rm -rf ~/.mitzo/skills/<skill-name>
    ```
-3. Remove the plugin entry from `installed.json`
-4. Report removed skills
+4. Remove the plugin entry from `installed.json`
+5. Report removed skills
 
 ### `update [plugin-name]`
 
