@@ -44,6 +44,9 @@ import type { WsMsg } from './server-messages.js';
 import { MitzoApiClient } from './api-client.js';
 import { MitzoConnection } from './connection.js';
 import type { MitzoConnectionConfig } from './connection.js';
+import { SseConnection } from './sse-connection.js';
+import type { SseConnectionConfig } from './sse-connection.js';
+import type { ChatConnection } from './chat-connection.js';
 
 // ─── Store state ─────────────────────────────────────────────────────────────
 
@@ -138,6 +141,8 @@ export interface MitzoStoreState {
 export interface MitzoStoreOptions {
   transport: TransportAdapter;
   wsConfig: MitzoConnectionConfig;
+  /** When provided, the store uses SSE + HTTP POST instead of WebSocket. */
+  sseConfig?: SseConnectionConfig;
 }
 
 // ─── Tree helpers ───────────────────────────────────────────────────────────
@@ -173,7 +178,9 @@ const PENDING_SEND_TIMEOUT_MS = 5_000;
 
 export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStoreState> {
   const api = new MitzoApiClient(options.transport.fetch.bind(options.transport));
-  const connection = new MitzoConnection(options.wsConfig);
+  const connection: ChatConnection = options.sseConfig
+    ? new SseConnection(options.sseConfig)
+    : new MitzoConnection(options.wsConfig);
 
   const parserState: ProtocolParserState & {
     pendingSendTimer?: ReturnType<typeof setTimeout>;

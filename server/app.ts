@@ -89,6 +89,7 @@ import { mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { TaskStore, type TaskCreateInput, type TaskUpdateInput } from './task-store.js';
 import { SseRegistry } from '@mitzo/harness';
+import { SessionSseRegistry } from './session-sse-registry.js';
 import { WorkloadStore, type WorkSignal, type TodoItemUpdateInput } from './workload-store.js';
 
 const log = createLogger('server');
@@ -270,6 +271,7 @@ export const workloadStore = new WorkloadStore(taskStore.getDatabase());
 setTokenStorePath(join(mitzoDir, 'device-tokens.json'));
 
 export const sseRegistry = new SseRegistry();
+export const chatSseRegistry = new SessionSseRegistry();
 
 export function setUpdateBroadcast(fn: () => void) {
   onUpdateAvailable = fn;

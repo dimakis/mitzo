@@ -45,6 +45,7 @@ import { createLogger } from './logger.js';
 import {
   app,
   sseRegistry,
+  chatSseRegistry,
   setUpdateBroadcast,
   setInboxBroadcast,
   setTaskBroadcast,
@@ -81,11 +82,14 @@ import { ConnectionRegistry } from '@mitzo/harness';
 import {
   isHelloHandshake,
   handleHello,
+  handleReconnect,
   dispatchV2Message,
   type V2HandlerContext,
 } from './ws-handler-v2.js';
 import { withSpan, withSpanAsync } from './tracing.js';
 import { contextFromTraceparent } from './trace-context.js';
+import { SseTransport } from './sse-transport.js';
+import { createChatRestRouter } from './chat-rest-handler.js';
 
 const log = createLogger('server');
 
@@ -358,6 +362,86 @@ const v2Ctx: V2HandlerContext = {
   eventStore,
   nativeCommands,
 };
+
+// ─── SSE Chat Transport ──────────────────────────────────────────────────────
+// SSE (server→client) + HTTP POST (client→server) transport for chat events.
+// Runs alongside WS during migration. Feature-flagged on the client side.
+
+app.get('/api/chat/events', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+
+  const connectionId = `conn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const transport = new SseTransport(connectionId, chatSseRegistry);
+
+  chatSseRegistry.add(connectionId, res);
+  connRegistry.register(connectionId, transport);
+
+  // Send welcome with connectionId — client uses this in X-Connection-ID header on POSTs
+  chatSseRegistry.sendTo(connectionId, {
+    type: 'welcome',
+    protocolVersion: 2,
+    connectionId,
+  });
+
+  // Handle reconnect if sessions provided as query param
+  const sessionsParam = req.query.sessions as string | undefined;
+  if (sessionsParam) {
+    try {
+      const sessions = sessionsParam.split(',').map((entry) => {
+        const sep = entry.lastIndexOf('|');
+        const sessionId = sep > 0 ? entry.slice(0, sep) : entry;
+        const seqStr = sep > 0 ? entry.slice(sep + 1) : '0';
+        return { sessionId, lastSeq: parseInt(seqStr, 10) || 0 };
+      });
+      handleReconnect(connectionId, { type: 'reconnect', sessions }, v2Ctx);
+    } catch (err) {
+      log.warn('SSE chat reconnect parse error', { connectionId, error: String(err) });
+    }
+  }
+
+  log.info('SSE chat stream connected', { connectionId });
+
+  req.on('close', () => {
+    chatSseRegistry.remove(connectionId);
+
+    const conn = connRegistry.get(connectionId);
+    const watchedSessions = conn ? [...conn.watchedSessions] : [];
+
+    connRegistry.remove(connectionId);
+    registry.removeObserver(transport);
+
+    withSpan('sse.disconnect', { 'sse.connectionId': connectionId }, () => {
+      for (const sessionId of watchedSessions) {
+        const found = registry.findBySessionId(sessionId);
+        if (!found) continue;
+
+        if (registry.isSuspended(found.clientId)) {
+          log.info('SSE closed for suspended session (expected)', { connectionId, sessionId });
+          continue;
+        }
+
+        const session = registry.get(found.clientId);
+        if (session && session.transport === transport && registry.isAttached(found.clientId)) {
+          detachChat(found.clientId);
+          overviewEmitter.touch(found.clientId);
+          overviewEmitter.scheduleBroadcast();
+          log.info('SSE session detached (surviving)', { connectionId, sessionId });
+        }
+      }
+    });
+
+    log.info('SSE chat stream disconnected', { connectionId });
+  });
+});
+
+// Mount HTTP POST chat endpoints (authenticated)
+const chatRestRouter = createChatRestRouter(chatSseRegistry, v2Ctx);
+app.use('/api/chat', chatRestRouter);
 
 /**
  * Handle a v2 WebSocket connection (after hello handshake detected).
@@ -873,6 +957,7 @@ function shutdown(signal: string) {
   healthMonitor.destroy();
   overviewEmitter.destroy();
   sseRegistry.destroy();
+  chatSseRegistry.destroy();
   connRegistry.dispose(); // Stop periodic sync + clear state
   registry.dispose();
   for (const client of wss.clients) {

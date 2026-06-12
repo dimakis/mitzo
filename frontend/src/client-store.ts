@@ -8,12 +8,30 @@
  */
 
 import { createMitzoStore } from '@mitzo/client';
+import type { SseConnectionConfig } from '@mitzo/client';
 import { apiFetch, getApiBaseUrl, getWsChatUrl } from './lib/api-fetch';
 import { registerCapacitorLifecycle } from './lib/capacitor';
 import { configureKeyboard } from './lib/keyboard';
 import { initPushNotifications } from './lib/push';
 import { eventBus } from './lib/event-bus-singleton';
 import { getPreferredModel } from './lib/model-preference';
+
+/**
+ * Transport selector — set localStorage 'mitzo:transport' to 'sse' to use
+ * SSE + HTTP POST instead of WebSocket. Default is 'ws'.
+ *
+ * Toggle from console: localStorage.setItem('mitzo:transport', 'sse'); location.reload();
+ * Revert:              localStorage.removeItem('mitzo:transport'); location.reload();
+ */
+const useSSE = typeof window !== 'undefined' && localStorage.getItem('mitzo:transport') === 'sse';
+
+const sseConfig: SseConnectionConfig | undefined = useSSE
+  ? {
+      baseUrl: getApiBaseUrl(),
+      fetch: (url, init) => apiFetch(url, init),
+      suspendUrl: `${getApiBaseUrl()}/api/sessions/suspend`,
+    }
+  : undefined;
 
 export const clientStore = createMitzoStore({
   transport: {
@@ -25,6 +43,7 @@ export const clientStore = createMitzoStore({
     reconnectDelayMs: 500,
     suspendUrl: `${getApiBaseUrl()}/api/sessions/suspend`,
   },
+  ...(sseConfig ? { sseConfig } : {}),
 });
 
 // Sync localStorage model preference into the store so sendMessage() includes it
