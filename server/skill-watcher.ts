@@ -66,6 +66,7 @@ export class SkillWatcher {
     log.debug('skill file event', { dir, filename });
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.debounceTimer = setTimeout(() => {
+      if (this.destroyed) return;
       this.debounceTimer = null;
       log.info('skill files changed — invalidating registries', { dir });
       this.onInvalidate();
