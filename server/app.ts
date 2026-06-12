@@ -83,6 +83,7 @@ import {
 } from './inbox.js';
 import { registerToken, removeToken, setTokenStorePath } from './apns.js';
 import { SkillRegistry } from './skills.js';
+import type { SkillWatcher } from './skill-watcher.js';
 
 import { mkdirSync } from 'fs';
 import { homedir } from 'os';
@@ -95,14 +96,21 @@ const log = createLogger('server');
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Skill registry directories
-const BUNDLED_SKILLS_DIR = join(__dirname, '..', 'skills');
-const USER_SKILLS_DIR = join(homedir(), '.mitzo', 'skills');
+export const BUNDLED_SKILLS_DIR = join(__dirname, '..', 'skills');
+export const USER_SKILLS_DIR = join(homedir(), '.mitzo', 'skills');
 
 /** Reserved native command names — skills with these names are ignored. */
 export const NATIVE_COMMAND_NAMES = new Set(['skills']);
 
 /** Cached registries keyed by cwd — avoids re-scanning the filesystem on every request. */
 const registryCache = new Map<string, SkillRegistry>();
+
+let skillWatcher: SkillWatcher | null = null;
+
+/** Register the skill file watcher so new repo dirs get watched automatically. */
+export function setSkillWatcher(watcher: SkillWatcher): void {
+  skillWatcher = watcher;
+}
 
 /** Build or retrieve a cached SkillRegistry for a given cwd (repo root). */
 export function buildSkillRegistry(cwd?: string): SkillRegistry {
@@ -111,6 +119,12 @@ export function buildSkillRegistry(cwd?: string): SkillRegistry {
   if (cached) return cached;
 
   const repoDir = cwd ? join(cwd, '.mitzo', 'skills') : undefined;
+
+  // Watch repo skill dir for changes (idempotent)
+  if (repoDir && skillWatcher) {
+    skillWatcher.watchDir(repoDir);
+  }
+
   const registry = new SkillRegistry({
     bundledDir: BUNDLED_SKILLS_DIR,
     userDir: USER_SKILLS_DIR,

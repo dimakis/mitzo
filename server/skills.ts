@@ -271,9 +271,7 @@ export class SkillRegistry {
     return this.list().map(({ filePath: _, ...rest }) => rest);
   }
 
-  /** Clear cached data — forces rediscovery on next list() call.
-   *  TODO: Add file-watcher for hot-reload so skill changes on disk
-   *  don't require a server restart or explicit invalidate() call. */
+  /** Clear cached data — forces rediscovery on next list() call. */
   invalidate(): void {
     this.cache = null;
     this.bodyCache.clear();

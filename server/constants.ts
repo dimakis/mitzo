@@ -40,6 +40,7 @@ export const HEARTBEAT_INTERVAL_MS = 15_000;
 export const PORT_DEFAULT = 3100;
 export const SHUTDOWN_GRACE_MS = 5_000;
 export const GUARD_STATS_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+export const SKILL_WATCHER_DEBOUNCE_MS = 300;
 export const WORKTREE_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 // --- Agent Selection ---
