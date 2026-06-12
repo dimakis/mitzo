@@ -125,7 +125,7 @@ Remove an installed plugin.
    rm -rf ~/.mitzo/skills/<skill-name>
    ```
 4. Remove the plugin entry from `installed.json`
-5. Report removed skills
+5. Report removed skills. The file watcher ensures these changes take effect immediately.
 
 ### `update [plugin-name]`
 

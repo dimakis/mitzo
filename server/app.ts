@@ -120,7 +120,9 @@ export function buildSkillRegistry(cwd?: string): SkillRegistry {
 
   const repoDir = cwd ? join(cwd, '.mitzo', 'skills') : undefined;
 
-  // Watch repo skill dir for changes (idempotent)
+  // Watch repo skill dir for changes (idempotent). If the directory doesn't
+  // exist yet, watchDir silently skips it. A later invalidation (e.g. from a
+  // change in bundled/user skill dirs) will rebuild the registry and retry.
   if (repoDir && skillWatcher) {
     skillWatcher.watchDir(repoDir);
   }

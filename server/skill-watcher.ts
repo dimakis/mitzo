@@ -77,10 +77,8 @@ export class SkillWatcher {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
     }
-    for (const [dir] of this.watchers) {
+    for (const [dir, watcher] of this.watchers) {
       log.debug('stopped watching skill directory', { dir });
-    }
-    for (const watcher of this.watchers.values()) {
       watcher.close();
     }
     this.watchers.clear();

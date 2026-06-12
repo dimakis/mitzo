@@ -186,6 +186,25 @@ describe('SkillWatcher', () => {
     watcher.watchDir(newDir);
   });
 
+  it('scheduleInvalidation is a no-op after destroy()', async () => {
+    const dir = createTempDir();
+    mkdirSync(dir, { recursive: true });
+
+    const onInvalidate = vi.fn();
+    const watcher = createWatcher([dir], onInvalidate);
+
+    // Write a skill so the watcher sees a SKILL.md event
+    writeSkill(dir, 'deploy');
+
+    // Destroy immediately — any in-flight scheduleInvalidation call should be
+    // suppressed by the destroyed guard even if the timer hadn't been cleared.
+    watcher.destroy();
+
+    // Wait well past the debounce window
+    await new Promise((r) => setTimeout(r, 600));
+    expect(onInvalidate).not.toHaveBeenCalled();
+  });
+
   it('detects changes across multiple watched directories', async () => {
     const dir1 = createTempDir();
     const dir2 = createTempDir();
