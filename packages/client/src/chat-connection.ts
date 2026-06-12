@@ -1,13 +1,4 @@
-/**
- * ChatConnection — transport-agnostic interface for bidirectional chat.
- *
- * Both MitzoConnection (WebSocket) and SseConnection (SSE + HTTP POST)
- * implement this interface. The store and UI code depend only on this
- * contract, making the transport swappable via feature flag.
- *
- * Provider-agnostic: this interface carries protocol-level events
- * regardless of the inference provider behind them.
- */
+// Transport-agnostic chat connection interface (WS and SSE both implement this).
 
 import type { ConnectionListener } from './connection.js';
 

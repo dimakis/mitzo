@@ -38,7 +38,6 @@ export class SessionSseRegistry {
   remove(connectionId: string): void {
     if (!this.streams.has(connectionId)) return;
     this.streams.delete(connectionId);
-    log.info('SSE chat stream disconnected', { connectionId, total: this.streams.size });
 
     if (this.streams.size === 0) {
       this.stopHeartbeat();

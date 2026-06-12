@@ -14,6 +14,7 @@
  */
 
 import type { ConnectionListener } from './connection.js';
+import type { ChatConnection } from './chat-connection.js';
 
 export interface SseConnectionConfig {
   /** Base URL for API endpoints (e.g. "https://host:3100"). No trailing slash. */
@@ -29,7 +30,7 @@ export interface SseConnectionConfig {
 
 const MAX_PENDING_SENDS = 100;
 
-export class SseConnection {
+export class SseConnection implements ChatConnection {
   private es: EventSource | null = null;
   private _connectionId: string | null = null;
   private _connected = false;

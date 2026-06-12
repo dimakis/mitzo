@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Response } from 'express';
 import { SessionSseRegistry } from '../session-sse-registry.js';
 import { SseTransport } from '../sse-transport.js';
@@ -26,7 +26,13 @@ describe('SessionSseRegistry', () => {
   let registry: SessionSseRegistry;
 
   beforeEach(() => {
+    vi.useFakeTimers();
     registry = new SessionSseRegistry();
+  });
+
+  afterEach(() => {
+    registry.destroy();
+    vi.useRealTimers();
   });
 
   it('registers and tracks connections', () => {
@@ -137,6 +143,26 @@ describe('SessionSseRegistry', () => {
     expect(res2.end).toHaveBeenCalled();
     expect(registry.size).toBe(0);
   });
+
+  it('heartbeat writes comment frames and cleans dead connections', () => {
+    const alive = mockResponse();
+    const dead = mockResponse();
+    (dead.write as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new Error('broken pipe');
+    });
+
+    registry.add('conn-alive', alive);
+    registry.add('conn-dead', dead);
+    expect(registry.size).toBe(2);
+
+    // Advance past heartbeat interval (30s)
+    vi.advanceTimersByTime(30_000);
+
+    expect(alive.write).toHaveBeenCalledWith(':heartbeat\n\n');
+    expect(registry.size).toBe(1);
+    expect(registry.isOpen('conn-alive')).toBe(true);
+    expect(registry.isOpen('conn-dead')).toBe(false);
+  });
 });
 
 // ─── SseTransport ────────────────────────────────────────────────────────────
@@ -151,6 +177,10 @@ describe('SseTransport', () => {
     res = mockResponse() as Response & { _chunks: string[] };
     sseRegistry.add('conn-1', res);
     transport = new SseTransport('conn-1', sseRegistry);
+  });
+
+  afterEach(() => {
+    sseRegistry.destroy();
   });
 
   it('implements SessionTransport.send()', () => {
