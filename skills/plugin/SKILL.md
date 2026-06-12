@@ -85,7 +85,7 @@ Download a plugin's skills from its source repo into `~/.mitzo/skills/`.
    - `source.repo` — the GitHub repo containing the skills
    - `source.ref` — the git ref (default: `main`)
    - `skills_dir` — subdirectory containing skills (default: `.claude/skills`)
-4. **Validate each skill name** from the registry: reject any name containing `/`, `..`, or path separators. Only create directories directly inside `~/.mitzo/skills/`.
+4. **Validate each skill name** from the registry: only allow names matching `[a-zA-Z0-9._-]+`. Reject any name containing `/`, `..`, spaces, or shell metacharacters. Only create directories directly inside `~/.mitzo/skills/`.
 5. List skill directories in the source repo:
    ```bash
    gh api repos/<source-repo>/contents/<skills_dir>?ref=<ref> --jq '.[].name'
@@ -94,10 +94,10 @@ Download a plugin's skills from its source repo into `~/.mitzo/skills/`.
    ```bash
    gh api repos/<source-repo>/contents/<skills_dir>/<skill-name>?ref=<ref> --jq '.[] | "\(.name)\t\(.download_url)"'
    ```
-7. Download each file and write to `~/.mitzo/skills/<skill-name>/`:
+7. Download each file and write to `~/.mitzo/skills/<skill-name>/`. Always quote URLs to prevent shell injection:
    ```bash
    mkdir -p ~/.mitzo/skills/<skill-name>
-   curl -sL "<download_url>" -o ~/.mitzo/skills/<skill-name>/<filename>
+   curl -sL "<download_url>" -o "~/.mitzo/skills/<skill-name>/<filename>"
    ```
 8. Update `installed.json` with:
    ```json

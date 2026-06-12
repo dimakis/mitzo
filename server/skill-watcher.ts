@@ -33,7 +33,7 @@ export class SkillWatcher {
         // some platforms for directory operations) are skipped to avoid
         // spurious invalidations — the debounced rediscovery on the next
         // real SKILL.md event will catch anything missed.
-        if (!filename || !filename.endsWith('SKILL.md')) return;
+        if (!filename || !(filename === 'SKILL.md' || filename.endsWith('/SKILL.md'))) return;
         this.scheduleInvalidation(dir, filename);
       });
       watcher.on('error', (err) => {
@@ -42,6 +42,8 @@ export class SkillWatcher {
           error: err.message,
         });
         this.unwatchDir(dir);
+        // Flush stale caches so the next registry build retries the watch.
+        this.onInvalidate();
       });
       this.watchers.set(dir, watcher);
       log.debug('watching skill directory', { dir });
