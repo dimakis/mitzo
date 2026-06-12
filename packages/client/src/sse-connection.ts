@@ -195,14 +195,11 @@ export class SseConnection implements ChatConnection {
       this.reconnectTimer = null;
     }
 
-    // Build URL with reconnect sessions if this is a reconnect
-    let url = `${this.config.baseUrl}/api/chat/events`;
-    if (this._isReconnect && this.seqBySession.size > 0) {
-      const sessionsParam = Array.from(this.seqBySession.entries())
-        .map(([sid, seq]) => `${sid}|${seq}`)
-        .join(',');
-      url += `?sessions=${encodeURIComponent(sessionsParam)}`;
-    }
+    // Always use the base URL — reconnect sessions are sent via POST in the
+    // welcome handler. This avoids the bug where EventSource auto-reconnect
+    // reuses the original URL (missing ?sessions=), and eliminates double
+    // handleReconnect when doConnect() AND welcome both trigger it.
+    const url = `${this.config.baseUrl}/api/chat/events`;
 
     const es = this.config.createEventSource(url);
     this.es = es;
@@ -217,6 +214,21 @@ export class SseConnection implements ChatConnection {
       }
       this._connectionId = msg.connectionId as string;
       this._connected = true;
+
+      // Always send reconnect on welcome if we have tracked sessions.
+      // Native EventSource auto-reconnect reuses the original URL (without
+      // ?sessions= param), so the server never runs handleReconnect — no
+      // watch, no reattach, no event replay. This POST ensures every
+      // reconnect (auto or explicit) triggers the full server-side
+      // reconnect flow: watch + reattach + event replay.
+      if (this._isReconnect && this.seqBySession.size > 0) {
+        this.doPost('reconnect', {
+          type: 'reconnect',
+          sessions: Array.from(this.seqBySession.entries()).map(
+            ([sessionId, lastSeq]) => ({ sessionId, lastSeq }),
+          ),
+        });
+      }
       this._isReconnect = true;
 
       this.flushPendingSends();

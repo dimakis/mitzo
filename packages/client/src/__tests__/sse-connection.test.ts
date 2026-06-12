@@ -290,20 +290,63 @@ describe('SseConnection', () => {
     expect(conn.isConnected()).toBe(false);
   });
 
-  it('includes sessions in reconnect URL', () => {
-    const conn = new SseConnection(createConfig());
+  it('sends reconnect POST on welcome when has tracked sessions', () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
     conn.connect();
     lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
 
     // Track a session
     conn.trackSeq('sess-1', 10);
 
+    // Force reconnect — creates new EventSource
+    conn.checkAndReconnect(true);
+    mockFetch.mockClear();
+
+    // New welcome arrives — should trigger reconnect POST
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://localhost:3100/api/chat/reconnect',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'reconnect',
+          sessions: [{ sessionId: 'sess-1', lastSeq: 10 }],
+        }),
+      }),
+    );
+  });
+
+  it('does not send reconnect POST on first connection', () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.connect();
+
+    // Track a session BEFORE welcome (simulating a pre-existing session)
+    conn.trackSeq('sess-1', 5);
+
+    // First welcome — _isReconnect is false, so no reconnect POST
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+
+    expect(mockFetch).not.toHaveBeenCalledWith(
+      'https://localhost:3100/api/chat/reconnect',
+      expect.any(Object),
+    );
+  });
+
+  it('reconnect URL never includes sessions query param', () => {
+    const conn = new SseConnection(createConfig());
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+    conn.trackSeq('sess-1', 10);
+
     // Force reconnect
     conn.checkAndReconnect(true);
 
+    // URL should be clean — reconnect is handled via POST, not query param
     const newES = lastES();
-    expect(newES.url).toContain('sessions=');
-    expect(newES.url).toContain('sess-1%7C10');
+    expect(newES.url).toBe('https://localhost:3100/api/chat/events');
   });
 
   it('checkAndReconnect(false) is no-op when connected', () => {
