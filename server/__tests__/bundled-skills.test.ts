@@ -224,6 +224,7 @@ describe('bundled skills', () => {
     expect(plugin!.allowedTools).toContain('Bash');
     expect(plugin!.allowedTools).toContain('Write');
     expect(plugin!.allowedTools).toContain('Read');
+    expect(plugin!.allowedTools).toContain('Glob');
     expect(plugin!.allowedTools).toContain('AskUserQuestion');
   });
 
