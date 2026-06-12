@@ -85,20 +85,21 @@ Download a plugin's skills from its source repo into `~/.mitzo/skills/`.
    - `source.repo` — the GitHub repo containing the skills
    - `source.ref` — the git ref (default: `main`)
    - `skills_dir` — subdirectory containing skills (default: `.claude/skills`)
-4. List skill directories in the source repo:
+4. **Validate each skill name** from the registry: reject any name containing `/`, `..`, or path separators. Only create directories directly inside `~/.mitzo/skills/`.
+5. List skill directories in the source repo:
    ```bash
    gh api repos/<source-repo>/contents/<skills_dir>?ref=<ref> --jq '.[].name'
    ```
-5. For each skill directory, list its files:
+6. For each skill directory, list its files:
    ```bash
    gh api repos/<source-repo>/contents/<skills_dir>/<skill-name>?ref=<ref> --jq '.[] | "\(.name)\t\(.download_url)"'
    ```
-6. Download each file and write to `~/.mitzo/skills/<skill-name>/`:
+7. Download each file and write to `~/.mitzo/skills/<skill-name>/`:
    ```bash
    mkdir -p ~/.mitzo/skills/<skill-name>
    curl -sL "<download_url>" -o ~/.mitzo/skills/<skill-name>/<filename>
    ```
-7. Update `installed.json` with:
+8. Update `installed.json` with:
    ```json
    {
      "name": "<plugin-name>",
@@ -110,7 +111,7 @@ Download a plugin's skills from its source repo into `~/.mitzo/skills/`.
      "installedAt": "<ISO timestamp>"
    }
    ```
-8. Report installed skills. They are immediately available — the file watcher auto-reloads.
+9. Report installed skills. They are immediately available — the file watcher auto-reloads.
 
 **Important**: If the plugin has `depends_on` entries in the registry, warn the user and suggest installing dependencies first.
 
@@ -132,7 +133,7 @@ Remove an installed plugin.
 Re-install a plugin (or all plugins) to get the latest version.
 
 1. Read `installed.json` → get plugin(s) to update
-2. For each: re-run the install flow (step 4-7 from `install`)
+2. For each: re-run the install flow (steps 4-8 from `install`)
 3. Update the version and `installedAt` in `installed.json`
 4. Report what changed
 

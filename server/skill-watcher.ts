@@ -27,6 +27,7 @@ export class SkillWatcher {
       return;
     }
     try {
+      // recursive: true requires Node ≥19.1 on Linux (macOS/Windows: all versions).
       const watcher = watch(dir, { recursive: true }, (_eventType, filename) => {
         // Only invalidate for SKILL.md changes. Null filenames (emitted by
         // some platforms for directory operations) are skipped to avoid
@@ -62,10 +63,11 @@ export class SkillWatcher {
 
   private scheduleInvalidation(dir: string, filename: string): void {
     if (this.destroyed) return;
+    log.debug('skill file event', { dir, filename });
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
-      log.info('skill files changed — invalidating registries', { dir, filename });
+      log.info('skill files changed — invalidating registries', { dir });
       this.onInvalidate();
     }, SKILL_WATCHER_DEBOUNCE_MS);
   }
