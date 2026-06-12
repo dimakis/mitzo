@@ -9,6 +9,7 @@ export class SkillWatcher {
   private watchers = new Map<string, FSWatcher>();
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private onInvalidate: () => void;
+  private destroyed = false;
 
   constructor(dirs: string[], onInvalidate: () => void) {
     this.onInvalidate = onInvalidate;
@@ -19,6 +20,7 @@ export class SkillWatcher {
 
   /** Add a directory to the watch set. Idempotent — safe to call repeatedly. */
   watchDir(dir: string): void {
+    if (this.destroyed) return;
     if (this.watchers.has(dir)) return;
     if (!existsSync(dir)) {
       log.debug('skipping non-existent skill directory', { dir });
@@ -58,7 +60,7 @@ export class SkillWatcher {
     }
   }
 
-  private scheduleInvalidation(dir: string, filename: string | null): void {
+  private scheduleInvalidation(dir: string, filename: string): void {
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
@@ -67,8 +69,9 @@ export class SkillWatcher {
     }, SKILL_WATCHER_DEBOUNCE_MS);
   }
 
-  /** Stop all watchers and clear pending timers. */
+  /** Stop all watchers and clear pending timers. Late watchDir() calls are ignored. */
   destroy(): void {
+    this.destroyed = true;
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;

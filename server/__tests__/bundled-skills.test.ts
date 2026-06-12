@@ -215,4 +215,24 @@ describe('bundled skills', () => {
     // Envelope present
     expect(rendered).toContain('[Skill: /simplify | source: bundled]');
   });
+
+  it('/plugin is a mutating skill with Bash and Write access', () => {
+    const plugin = skills.find((s) => s.name === 'plugin');
+    expect(plugin).toBeDefined();
+    expect(plugin!.mutating).toBe(true);
+    expect(plugin!.allowedTools).toBeDefined();
+    expect(plugin!.allowedTools).toContain('Bash');
+    expect(plugin!.allowedTools).toContain('Write');
+    expect(plugin!.allowedTools).toContain('Read');
+    expect(plugin!.allowedTools).toContain('AskUserQuestion');
+  });
+
+  it('/plugin body references marketplace config paths and $ARGUMENTS', () => {
+    const body = registry.getBody('plugin')!;
+    expect(body).toBeDefined();
+    expect(body).toContain('$ARGUMENTS');
+    expect(body).toContain('~/.mitzo/plugins/config.json');
+    expect(body).toContain('~/.mitzo/plugins/installed.json');
+    expect(body).toContain('registry.yaml');
+  });
 });

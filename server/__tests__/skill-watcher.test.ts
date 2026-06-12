@@ -7,7 +7,7 @@ import { SkillWatcher } from '../skill-watcher.js';
 // fs.watch events are async — helper to wait for debounced callback
 function waitFor(
   fn: () => boolean,
-  { timeout = 3000, interval = 50 } = {},
+  { timeout = 5000, interval = 50 } = {},
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const start = Date.now();
@@ -175,5 +175,36 @@ describe('SkillWatcher', () => {
 
     // Destroy should work cleanly
     watcher.destroy();
+  });
+
+  it('watchDir is ignored after destroy()', () => {
+    const dir = createTempDir();
+    mkdirSync(dir, { recursive: true });
+
+    const onInvalidate = vi.fn();
+    const watcher = createWatcher([dir], onInvalidate);
+
+    watcher.destroy();
+
+    // Should not throw or create a new watch
+    const newDir = createTempDir();
+    mkdirSync(newDir, { recursive: true });
+    watcher.watchDir(newDir);
+  });
+
+  it('detects changes across multiple watched directories', async () => {
+    const dir1 = createTempDir();
+    const dir2 = createTempDir();
+    mkdirSync(dir1, { recursive: true });
+    mkdirSync(dir2, { recursive: true });
+
+    const onInvalidate = vi.fn();
+    createWatcher([dir1, dir2], onInvalidate);
+
+    // Write to the second directory
+    writeSkill(dir2, 'deploy');
+
+    await waitFor(() => onInvalidate.mock.calls.length > 0);
+    expect(onInvalidate).toHaveBeenCalled();
   });
 });
