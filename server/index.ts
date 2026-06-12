@@ -402,32 +402,32 @@ app.get('/api/chat/events', (req, res) => {
   req.on('close', () => {
     chatSseRegistry.remove(connectionId);
 
-    // Detach owned sessions — same logic as WS close handler
-    withSpan(
-      'sse.disconnect',
-      { 'sse.connectionId': connectionId },
-      (span) => {
-        // Find all sessions owned by this connection and detach them
-        for (const sessionId of [...(connRegistry.get(connectionId)?.watchedSessions ?? [])]) {
-          const found = registry.findBySessionId(sessionId);
-          if (!found) continue;
-          const ownerConnection = found.clientId.split(':')[0];
-          if (ownerConnection === connectionId && isActive(found.clientId)) {
-            detachChat(found.clientId);
-            overviewEmitter.touch(found.clientId);
-            span.setAttribute('sse.disconnect.detached', true);
-            log.info('SSE session detached (surviving)', {
-              connectionId,
-              sessionId,
-              clientId: found.clientId,
-            });
-          }
-        }
-        overviewEmitter.scheduleBroadcast();
-      },
-    );
+    const conn = connRegistry.get(connectionId);
+    const watchedSessions = conn ? [...conn.watchedSessions] : [];
 
     connRegistry.remove(connectionId);
+    registry.removeObserver(transport);
+
+    withSpan('sse.disconnect', { 'sse.connectionId': connectionId }, () => {
+      for (const sessionId of watchedSessions) {
+        const found = registry.findBySessionId(sessionId);
+        if (!found) continue;
+
+        if (registry.isSuspended(found.clientId)) {
+          log.info('SSE closed for suspended session (expected)', { connectionId, sessionId });
+          continue;
+        }
+
+        const session = registry.get(found.clientId);
+        if (session && session.transport === transport && registry.isAttached(found.clientId)) {
+          detachChat(found.clientId);
+          overviewEmitter.touch(found.clientId);
+          overviewEmitter.scheduleBroadcast();
+          log.info('SSE session detached (surviving)', { connectionId, sessionId });
+        }
+      }
+    });
+
     log.info('SSE chat stream disconnected', { connectionId });
   });
 });

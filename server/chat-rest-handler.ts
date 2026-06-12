@@ -1,16 +1,4 @@
-/**
- * chat-rest-handler.ts — HTTP POST endpoints for chat operations.
- *
- * Each endpoint is a thin wrapper around the existing handler functions
- * in ws-handler-v2.ts. The handlers are transport-agnostic — they take
- * (connectionId, transport, msg, ctx) and work identically whether the
- * transport is WsTransport or SseTransport.
- *
- * Client→server sends become stateless HTTP POST requests.
- * Server→client responses stream back via the SSE connection.
- *
- * The X-Connection-ID header binds each POST to the correct SSE stream.
- */
+// HTTP POST endpoints for chat operations — thin wrappers around ws-handler-v2.
 
 import { Router } from 'express';
 import type { Request, Response } from 'express';
@@ -25,8 +13,8 @@ import {
   SwitchSessionMessage,
   SessionSuspendMessage,
   SessionCloseMessage,
+  ReconnectMessage,
 } from '@mitzo/protocol';
-import type { ConnectionRegistry } from '@mitzo/harness';
 import type { V2HandlerContext } from './ws-handler-v2.js';
 import {
   handleSendV2,
@@ -47,10 +35,6 @@ import { createLogger } from './logger.js';
 
 const log = createLogger('chat-rest');
 
-/**
- * Extract and validate the X-Connection-ID header.
- * Returns the connectionId or sends a 400 error.
- */
 function getConnectionId(req: Request, res: Response): string | null {
   const connectionId = req.headers['x-connection-id'] as string | undefined;
   if (!connectionId) {
@@ -60,14 +44,10 @@ function getConnectionId(req: Request, res: Response): string | null {
   return connectionId;
 }
 
-/**
- * Look up the SseTransport for a connection.
- * Returns the transport or sends a 404 error.
- */
 function getTransport(
   connectionId: string,
   sseRegistry: SessionSseRegistry,
-  connRegistry: ConnectionRegistry,
+  connRegistry: V2HandlerContext['connRegistry'],
   res: Response,
 ): SseTransport | null {
   if (!sseRegistry.isOpen(connectionId)) {
@@ -82,10 +62,19 @@ function getTransport(
   return conn.transport as SseTransport;
 }
 
-/**
- * Validate request body against a Zod schema.
- * Returns the parsed value or sends a 400 error.
- */
+/** Verify the connection exists in the registry. */
+function requireConnection(
+  connectionId: string,
+  connRegistry: V2HandlerContext['connRegistry'],
+  res: Response,
+): boolean {
+  if (!connRegistry.get(connectionId)) {
+    res.status(404).json({ ok: false, error: 'Connection not registered' });
+    return false;
+  }
+  return true;
+}
+
 function validateBody<T>(
   schema: { safeParse: (data: unknown) => { success: boolean; data?: T; error?: unknown } },
   body: unknown,
@@ -105,17 +94,13 @@ export function createChatRestRouter(
 ): Router {
   const router = Router();
 
-  // POST /api/chat/send
   router.post('/send', (req, res) => {
     const connectionId = getConnectionId(req, res);
     if (!connectionId) return;
-
     const transport = getTransport(connectionId, sseRegistry, ctx.connRegistry, res);
     if (!transport) return;
-
     const msg = validateBody(V2SendMessage, req.body, res);
     if (!msg) return;
-
     try {
       handleSendV2(connectionId, transport, msg, ctx);
       res.status(202).json({ ok: true });
@@ -125,17 +110,13 @@ export function createChatRestRouter(
     }
   });
 
-  // POST /api/chat/interrupt
   router.post('/interrupt', (req, res) => {
     const connectionId = getConnectionId(req, res);
     if (!connectionId) return;
-
     const transport = getTransport(connectionId, sseRegistry, ctx.connRegistry, res);
     if (!transport) return;
-
     const msg = validateBody(V2InterruptMessage, req.body, res);
     if (!msg) return;
-
     try {
       handleInterruptV2(connectionId, transport, msg, ctx);
       res.status(202).json({ ok: true });
@@ -145,14 +126,12 @@ export function createChatRestRouter(
     }
   });
 
-  // POST /api/chat/stop
   router.post('/stop', (req, res) => {
     const connectionId = getConnectionId(req, res);
     if (!connectionId) return;
-
+    if (!requireConnection(connectionId, ctx.connRegistry, res)) return;
     const msg = validateBody(V2StopMessage, req.body, res);
     if (!msg) return;
-
     try {
       handleStopV2(connectionId, msg, ctx);
       res.json({ ok: true });
@@ -162,14 +141,12 @@ export function createChatRestRouter(
     }
   });
 
-  // POST /api/chat/permission
   router.post('/permission', (req, res) => {
     const connectionId = getConnectionId(req, res);
     if (!connectionId) return;
-
+    if (!requireConnection(connectionId, ctx.connRegistry, res)) return;
     const msg = validateBody(V2PermissionResponseMessage, req.body, res);
     if (!msg) return;
-
     try {
       handlePermissionResponseV2(connectionId, msg, ctx);
       res.json({ ok: true });
@@ -179,14 +156,12 @@ export function createChatRestRouter(
     }
   });
 
-  // POST /api/chat/mode
   router.post('/mode', (req, res) => {
     const connectionId = getConnectionId(req, res);
     if (!connectionId) return;
-
+    if (!requireConnection(connectionId, ctx.connRegistry, res)) return;
     const msg = validateBody(V2SetModeMessage, req.body, res);
     if (!msg) return;
-
     try {
       handleSetModeV2(connectionId, msg, ctx);
       res.json({ ok: true });
@@ -196,14 +171,12 @@ export function createChatRestRouter(
     }
   });
 
-  // POST /api/chat/watch
   router.post('/watch', (req, res) => {
     const connectionId = getConnectionId(req, res);
     if (!connectionId) return;
-
+    if (!requireConnection(connectionId, ctx.connRegistry, res)) return;
     const msg = validateBody(WatchMessage, req.body, res);
     if (!msg) return;
-
     try {
       handleWatch(connectionId, msg, ctx);
       res.json({ ok: true });
@@ -213,14 +186,12 @@ export function createChatRestRouter(
     }
   });
 
-  // POST /api/chat/unwatch
   router.post('/unwatch', (req, res) => {
     const connectionId = getConnectionId(req, res);
     if (!connectionId) return;
-
+    if (!requireConnection(connectionId, ctx.connRegistry, res)) return;
     const msg = validateBody(UnwatchMessage, req.body, res);
     if (!msg) return;
-
     try {
       handleUnwatch(connectionId, msg, ctx);
       res.json({ ok: true });
@@ -230,14 +201,12 @@ export function createChatRestRouter(
     }
   });
 
-  // POST /api/chat/switch
   router.post('/switch', async (req, res) => {
     const connectionId = getConnectionId(req, res);
     if (!connectionId) return;
-
+    if (!requireConnection(connectionId, ctx.connRegistry, res)) return;
     const msg = validateBody(SwitchSessionMessage, req.body, res);
     if (!msg) return;
-
     try {
       await handleSwitchSession(connectionId, msg, ctx);
       res.json({ ok: true });
@@ -247,14 +216,12 @@ export function createChatRestRouter(
     }
   });
 
-  // POST /api/chat/suspend
   router.post('/suspend', (req, res) => {
     const connectionId = getConnectionId(req, res);
     if (!connectionId) return;
-
+    if (!requireConnection(connectionId, ctx.connRegistry, res)) return;
     const msg = validateBody(SessionSuspendMessage, req.body, res);
     if (!msg) return;
-
     try {
       handleSessionSuspend(connectionId, msg, ctx);
       res.json({ ok: true });
@@ -264,14 +231,12 @@ export function createChatRestRouter(
     }
   });
 
-  // POST /api/chat/close
   router.post('/close', (req, res) => {
     const connectionId = getConnectionId(req, res);
     if (!connectionId) return;
-
+    if (!requireConnection(connectionId, ctx.connRegistry, res)) return;
     const msg = validateBody(SessionCloseMessage, req.body, res);
     if (!msg) return;
-
     try {
       handleSessionClose(connectionId, msg, ctx);
       res.json({ ok: true });
@@ -281,19 +246,14 @@ export function createChatRestRouter(
     }
   });
 
-  // POST /api/chat/reconnect
   router.post('/reconnect', (req, res) => {
     const connectionId = getConnectionId(req, res);
     if (!connectionId) return;
-
-    const body = req.body as { sessions?: Array<{ sessionId: string; lastSeq: number }> };
-    if (!body.sessions || !Array.isArray(body.sessions)) {
-      res.status(400).json({ ok: false, error: 'Missing sessions array' });
-      return;
-    }
-
+    if (!requireConnection(connectionId, ctx.connRegistry, res)) return;
+    const msg = validateBody(ReconnectMessage, req.body, res);
+    if (!msg) return;
     try {
-      handleReconnect(connectionId, { type: 'reconnect', sessions: body.sessions }, ctx);
+      handleReconnect(connectionId, msg, ctx);
       res.json({ ok: true });
     } catch (err) {
       log.error('POST /chat/reconnect failed', { connectionId, error: String(err) });

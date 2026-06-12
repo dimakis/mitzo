@@ -1,12 +1,4 @@
-/**
- * SessionSseRegistry — manages per-connection SSE streams for chat events.
- *
- * Distinct from the global SseRegistry (packages/harness/src/sse-registry.ts)
- * which handles broadcast events (session_activity, health, task_state).
- * This registry manages the SSE streams that carry session-scoped chat events
- * (message_start, block_delta, session_end, etc.) as part of the
- * SSE + HTTP POST transport migration replacing WebSocket chat transport.
- */
+// Per-connection SSE stream registry for chat events (distinct from broadcast SseRegistry).
 
 import type { Response } from 'express';
 import { createLogger } from './logger.js';

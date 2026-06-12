@@ -104,11 +104,20 @@ describe('chat-rest-handler', () => {
     expect(res.body.error).toContain('X-Connection-ID');
   });
 
-  it('rejects requests with unknown connection', async () => {
+  it('rejects requests with unknown connection (getTransport path)', async () => {
     const res = await request(testApp)
       .post('/api/chat/send')
       .set('X-Connection-ID', 'conn-nonexistent')
       .send({ prompt: 'hello', clientMsgId: 'msg-1' });
+
+    expect(res.status).toBe(404);
+  });
+
+  it('rejects requests with unknown connection (requireConnection path)', async () => {
+    const res = await request(testApp)
+      .post('/api/chat/stop')
+      .set('X-Connection-ID', 'conn-nonexistent')
+      .send({ type: 'stop', sessionId: 'sess-1' });
 
     expect(res.status).toBe(404);
   });
@@ -270,6 +279,7 @@ describe('chat-rest-handler', () => {
       .post('/api/chat/reconnect')
       .set('X-Connection-ID', CONNECTION_ID)
       .send({
+        type: 'reconnect',
         sessions: [
           { sessionId: 'sess-1', lastSeq: 10 },
           { sessionId: 'sess-2', lastSeq: 20 },
@@ -297,7 +307,7 @@ describe('chat-rest-handler', () => {
       .send({});
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toContain('sessions');
+    expect(res.body.error).toContain('Invalid request body');
   });
 
   // ─── Error handling ─────────────────────────────────────────────────────
