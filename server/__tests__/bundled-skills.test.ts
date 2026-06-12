@@ -12,11 +12,12 @@ describe('bundled skills', () => {
   const registry = new SkillRegistry({ bundledDir: SKILLS_DIR });
   const skills = registry.list();
 
-  it('discovers all seven bundled skills', () => {
+  it('discovers all bundled skills', () => {
     const names = skills.map((s) => s.name).sort();
     expect(names).toEqual([
       'land-pr',
       'person',
+      'plugin',
       'pr-review',
       'pr-shepherd',
       'review-response',
