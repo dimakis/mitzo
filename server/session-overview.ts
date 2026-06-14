@@ -2,8 +2,9 @@
  * Session Overview — computes SessionActivity[] from server-side registries
  * and broadcasts via SSE with coalescing.
  *
- * State is derived lazily at broadcast time — no stored state, no timers for
- * timeout transitions. This avoids divergence across multiple clients.
+ * State is derived lazily at broadcast time. An idle-transition timer ensures
+ * that "done" sessions are re-evaluated and broadcast as "idle" after
+ * DONE_TIMEOUT_MS, even when no other events occur.
  */
 
 import type { SessionRegistry, ActiveSessionInfo } from '@mitzo/harness';
@@ -82,6 +83,8 @@ export class SessionOverviewEmitter {
   private uncommittedRefreshTimer: ReturnType<typeof setInterval> | null = null;
   /** Guard against overlapping refresh runs. */
   private refreshInFlight = false;
+  /** Timer that fires when the next "done" session should transition to "idle". */
+  private idleTransitionTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(deps: SessionOverviewDeps) {
     this.deps = deps;
@@ -91,9 +94,25 @@ export class SessionOverviewEmitter {
   /**
    * Record an event time for a session (call on turn start/end, attach, etc.).
    * Used for Done → Idle timeout derivation.
+   * Also schedules a future broadcast so that done → idle fires on time.
    */
   touch(clientId: string): void {
     this.lastEventTimes.set(clientId, Date.now());
+    this.scheduleIdleTransition();
+  }
+
+  /**
+   * Schedule a broadcast at DONE_TIMEOUT_MS so that sessions entering "done"
+   * transition to "idle" even when no other events occur. Resets any existing
+   * timer — only the most recent touch matters since compute() evaluates all
+   * sessions at broadcast time.
+   */
+  private scheduleIdleTransition(): void {
+    if (this.idleTransitionTimer) clearTimeout(this.idleTransitionTimer);
+    this.idleTransitionTimer = setTimeout(() => {
+      this.idleTransitionTimer = null;
+      this.scheduleBroadcast();
+    }, DONE_TIMEOUT_MS);
   }
 
   /**
@@ -282,27 +301,33 @@ export class SessionOverviewEmitter {
   /**
    * Convert a persistent SessionMeta (from EventStore) to a SessionActivity.
    * These are sessions not currently live but awaiting user reply.
+   * Applies the same DONE_TIMEOUT_MS check as live sessions — persistent
+   * sessions older than the timeout are returned as "idle" so they disappear
+   * from the active list.
    */
   private persistentToActivity(meta: SessionMeta, now: number): SessionActivity {
     const title = meta.summary || meta.sessionId.slice(-8);
     const repo = meta.cwd ? extractRepoName(meta.cwd) : undefined;
     const lastEventAt = meta.lastSpeakerAt ?? meta.updatedAt;
-    const idleMinutes = Math.max(0, Math.round((now - lastEventAt) / 60_000));
+    const elapsed = now - lastEventAt;
+    const idleMinutes = Math.max(0, Math.round(elapsed / 60_000));
 
     // Check for uncommitted work (from background cache)
     const uncommittedWork = meta.cwd ? this.checkUncommittedCached(meta.cwd) : false;
+
+    const state: SessionActivityState = elapsed < DONE_TIMEOUT_MS ? 'done' : 'idle';
 
     return {
       sessionId: meta.sessionId,
       clientId: meta.sessionId, // No live clientId — use sessionId
       title,
       repo,
-      state: 'done',
+      state,
       flags: [],
       lastEventAt,
       taskId: meta.goalId ?? undefined,
       uncommittedWork,
-      awaitingReply: true, // By definition — sourced from getAttentionSessions()
+      awaitingReply: state === 'done', // Only meaningful while still active
       idleMinutes,
     };
   }
@@ -420,6 +445,10 @@ export class SessionOverviewEmitter {
     if (this.coalesceTimer) {
       clearTimeout(this.coalesceTimer);
       this.coalesceTimer = null;
+    }
+    if (this.idleTransitionTimer) {
+      clearTimeout(this.idleTransitionTimer);
+      this.idleTransitionTimer = null;
     }
     if (this.uncommittedRefreshTimer) {
       clearInterval(this.uncommittedRefreshTimer);

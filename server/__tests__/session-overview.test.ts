@@ -547,14 +547,15 @@ describe('SessionOverviewEmitter', () => {
 
   // ─── Persistent attention sessions ────────────────────────────────────────
 
-  it('includes persistent sessions from getAttentionSessions', () => {
+  it('includes recent persistent sessions as done', () => {
+    const now = Date.now();
     const persistentMeta = {
       sessionId: 'persistent-1',
       summary: 'Fix auth bug',
       cwd: '/Users/test/tools/mitzo',
       lastSpeaker: 'assistant',
-      lastSpeakerAt: Date.now() - 60_000,
-      updatedAt: Date.now() - 60_000,
+      lastSpeakerAt: now - 60_000, // 1 minute ago — within timeout
+      updatedAt: now - 60_000,
       goalId: null,
     } as SessionMeta;
 
@@ -572,6 +573,32 @@ describe('SessionOverviewEmitter', () => {
     expect(activities[0].title).toBe('Fix auth bug');
     expect(activities[0].state).toBe('done');
     expect(activities[0].awaitingReply).toBe(true);
+  });
+
+  it('transitions persistent sessions to idle after timeout', () => {
+    const now = Date.now();
+    const persistentMeta = {
+      sessionId: 'persistent-old',
+      summary: 'Stale session',
+      cwd: '/Users/test/tools/mitzo',
+      lastSpeaker: 'assistant',
+      lastSpeakerAt: now - 10 * 60 * 1000, // 10 minutes ago — past timeout
+      updatedAt: now - 10 * 60 * 1000,
+      goalId: null,
+    } as SessionMeta;
+
+    deps = makeDeps({
+      eventStore: {
+        getSession: vi.fn(() => null),
+        getAttentionSessions: vi.fn(() => [persistentMeta]),
+      } as unknown as SessionOverviewDeps['eventStore'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+
+    const activities = emitter.getSnapshot();
+    expect(activities).toHaveLength(1);
+    expect(activities[0].state).toBe('idle');
+    expect(activities[0].awaitingReply).toBe(false);
   });
 
   it('does not duplicate persistent sessions that are also live', () => {
@@ -756,5 +783,54 @@ describe('SessionOverviewEmitter', () => {
     emitter.touch('client-1');
     emitter.getSnapshot();
     expect(getSessionMock).toHaveBeenCalled();
+  });
+
+  // ─── Idle transition timer ──────────────────────────────────────────────
+
+  it('broadcasts idle transition after DONE_TIMEOUT_MS', () => {
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => [makeActiveSession({ hasSnapshot: false, attached: true })]),
+      } as unknown as SessionOverviewDeps['registry'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    const broadcast = deps.sseRegistry.broadcast as ReturnType<typeof vi.fn>;
+
+    emitter.touch('client-1');
+    broadcast.mockClear();
+
+    // Advance past the 5-minute idle transition timer
+    vi.advanceTimersByTime(5 * 60 * 1000);
+    // Coalesce timer (200ms) fires after the idle transition schedules it
+    vi.advanceTimersByTime(200);
+
+    // Should have broadcast with the session now in "idle" state
+    expect(broadcast).toHaveBeenCalled();
+    const lastCall = broadcast.mock.calls[broadcast.mock.calls.length - 1];
+    const activities = lastCall[1] as SessionActivity[];
+    expect(activities[0].state).toBe('idle');
+  });
+
+  it('resets idle transition timer on subsequent touch', () => {
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => [makeActiveSession({ hasSnapshot: false, attached: true })]),
+      } as unknown as SessionOverviewDeps['registry'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    const broadcast = deps.sseRegistry.broadcast as ReturnType<typeof vi.fn>;
+
+    emitter.touch('client-1');
+    broadcast.mockClear();
+
+    // Advance 4 minutes, then touch again (resets timer)
+    vi.advanceTimersByTime(4 * 60 * 1000);
+    emitter.touch('client-1');
+    broadcast.mockClear();
+
+    // Advance 4 more minutes — should still be "done" (only 4 min since last touch)
+    vi.advanceTimersByTime(4 * 60 * 1000);
+    const snapshot = emitter.getSnapshot();
+    expect(snapshot[0].state).toBe('done');
   });
 });
