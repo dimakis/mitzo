@@ -1123,7 +1123,7 @@ function storeAndEchoIfNew(
   text: string,
   clientId: string,
   transport: SessionTransport,
-  observers?: Set<SessionTransport>,
+  observers: Set<SessionTransport>,
 ): boolean {
   if (eventStore.hasUserMessage(sessionId, messageId)) {
     return true;
@@ -1139,7 +1139,7 @@ function storeAndEchoIfNew(
   _onSessionChange?.(clientId, 'user_message');
   const echo = { type: 'user_message', v: 2, messageId, text, sessionId };
   send(transport, echo);
-  if (observers) broadcastToObservers(observers, echo);
+  broadcastToObservers(observers, echo);
   return false;
 }
 
@@ -1170,6 +1170,9 @@ export function sendToChat(
         /* errors logged internally */
       });
     } else {
+      // Pre-session-resolve: no eventStore to dedup against.
+      // The frontend deduplicates echoes by messageId, and server-generated
+      // fallback IDs include randomUUID, so duplicates are not possible in practice.
       const echo = { type: 'user_message', v: 2, messageId, text: fullPrompt };
       send(session.transport, echo);
       broadcastToObservers(session.observers, echo);
@@ -1194,11 +1197,11 @@ export async function interruptChat(
     if (model) session.model = model;
     const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-interrupt`;
-    // Store and echo the user message, but always proceed with the interrupt
-    // even if the message is a duplicate — a retried interrupt must still stop
-    // the agent, just without re-storing the echo.
+    // Store and echo the user message. A retried interrupt must still stop
+    // the agent — only the echo/store is skipped on duplicate.
+    let isDup = false;
     if (session.sessionId) {
-      storeAndEchoIfNew(
+      isDup = storeAndEchoIfNew(
         session.sessionId,
         messageId,
         fullPrompt,
@@ -1207,6 +1210,7 @@ export async function interruptChat(
         session.observers,
       );
     } else {
+      // Pre-session-resolve: no eventStore to dedup against (see sendToChat).
       const echo = { type: 'user_message', v: 2, messageId, text: fullPrompt };
       send(session.transport, echo);
       broadcastToObservers(session.observers, echo);
@@ -1223,7 +1227,11 @@ export async function interruptChat(
       await Promise.allSettled(stops);
     }
     await session.queryInstance.interrupt();
-    session.inputQueue.push(makeUserMessage(fullPrompt, 'now'));
+    // Only push to inputQueue on first delivery — a retried interrupt should
+    // still call interrupt() (to halt the agent) but not double-queue the prompt.
+    if (!isDup) {
+      session.inputQueue.push(makeUserMessage(fullPrompt, 'now'));
+    }
     return true;
   });
 }

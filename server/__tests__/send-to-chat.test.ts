@@ -279,6 +279,8 @@ describe('interruptChat emits user_message via transport', () => {
       (m: Record<string, unknown>) => m.type === 'user_message',
     );
     expect(userMsgs).toHaveLength(1);
+    // inputQueue should only get ONE push (no double-queue on retry)
+    expect(pushSpy).toHaveBeenCalledTimes(1);
   });
 
   it('calls stopTask for active subagent tasks before interrupt', async () => {
