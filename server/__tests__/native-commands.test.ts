@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -47,20 +47,27 @@ describe('NativeCommandRegistry', () => {
     expect(registry.has('skills')).toBe(true);
   });
 
+  it('has /deliberate and /fuse registered', () => {
+    expect(registry.has('deliberate')).toBe(true);
+    expect(registry.has('fuse')).toBe(true);
+  });
+
   it('returns the set of registered native names', () => {
     const names = registry.names();
     expect(names.has('skills')).toBe(true);
+    expect(names.has('deliberate')).toBe(true);
+    expect(names.has('fuse')).toBe(true);
   });
 
   describe('/skills command', () => {
-    it('executes and lists available skills', () => {
+    it('executes and lists available skills', async () => {
       const dir = createTempDir();
       const skillsDir = join(dir, 'skills');
       writeSkill(skillsDir, 'deploy', { description: 'Deploy the app' });
       writeSkill(skillsDir, 'review', { description: 'Review code' });
 
       const skillRegistry = new SkillRegistry({ bundledDir: skillsDir });
-      const result = registry.execute('skills', '', skillRegistry);
+      const result = await registry.execute('skills', '', skillRegistry);
 
       expect(result).toBeDefined();
       expect(result!.content).toContain('deploy');
@@ -68,7 +75,7 @@ describe('NativeCommandRegistry', () => {
       expect(result!.command).toBe('skills');
     });
 
-    it('shows details for a specific skill name', () => {
+    it('shows details for a specific skill name', async () => {
       const dir = createTempDir();
       const skillsDir = join(dir, 'skills');
       writeSkill(skillsDir, 'deploy', {
@@ -77,32 +84,32 @@ describe('NativeCommandRegistry', () => {
       });
 
       const skillRegistry = new SkillRegistry({ bundledDir: skillsDir });
-      const result = registry.execute('skills', 'deploy', skillRegistry);
+      const result = await registry.execute('skills', 'deploy', skillRegistry);
 
       expect(result).toBeDefined();
       expect(result!.content).toContain('deploy');
       expect(result!.content).toContain('Deploy the app');
     });
 
-    it('handles empty skill registry', () => {
+    it('handles empty skill registry', async () => {
       const skillRegistry = new SkillRegistry({});
-      const result = registry.execute('skills', '', skillRegistry);
+      const result = await registry.execute('skills', '', skillRegistry);
 
       expect(result).toBeDefined();
       expect(result!.content).toContain('No skills');
     });
 
-    it('handles unknown skill name lookup', () => {
+    it('handles unknown skill name lookup', async () => {
       const skillRegistry = new SkillRegistry({});
-      const result = registry.execute('skills', 'nonexistent', skillRegistry);
+      const result = await registry.execute('skills', 'nonexistent', skillRegistry);
 
       expect(result).toBeDefined();
       expect(result!.content).toContain('not found');
     });
 
-    it('does not hit the model path', () => {
+    it('does not hit the model path', async () => {
       const skillRegistry = new SkillRegistry({});
-      const result = registry.execute('skills', '', skillRegistry);
+      const result = await registry.execute('skills', '', skillRegistry);
 
       // Result is a NativeCommandResult, not a prompt — it's rendered directly
       expect(result).toBeDefined();
@@ -110,9 +117,50 @@ describe('NativeCommandRegistry', () => {
     });
   });
 
-  it('returns undefined for unknown native commands', () => {
+  describe('/deliberate command', () => {
+    it('returns usage help when called with empty args', async () => {
+      const skillRegistry = new SkillRegistry({});
+      const result = await registry.execute('deliberate', '', skillRegistry);
+
+      expect(result).toBeDefined();
+      expect(result!.command).toBe('deliberate');
+      expect(result!.content).toContain('Usage');
+      expect(result!.content).toContain('/deliberate');
+    });
+
+    it('returns usage help for whitespace-only args', async () => {
+      const skillRegistry = new SkillRegistry({});
+      const result = await registry.execute('deliberate', '   ', skillRegistry);
+
+      expect(result).toBeDefined();
+      expect(result!.content).toContain('Usage');
+    });
+  });
+
+  describe('/fuse command', () => {
+    it('returns usage help when called with empty args', async () => {
+      const skillRegistry = new SkillRegistry({});
+      const result = await registry.execute('fuse', '', skillRegistry);
+
+      expect(result).toBeDefined();
+      expect(result!.command).toBe('fuse');
+      expect(result!.content).toContain('Usage');
+      expect(result!.content).toContain('/fuse');
+      expect(result!.content).toContain('--self');
+    });
+
+    it('returns usage help for whitespace-only args', async () => {
+      const skillRegistry = new SkillRegistry({});
+      const result = await registry.execute('fuse', '   ', skillRegistry);
+
+      expect(result).toBeDefined();
+      expect(result!.content).toContain('Usage');
+    });
+  });
+
+  it('returns undefined for unknown native commands', async () => {
     const skillRegistry = new SkillRegistry({});
-    const result = registry.execute('unknown', '', skillRegistry);
+    const result = await registry.execute('unknown', '', skillRegistry);
     expect(result).toBeUndefined();
   });
 });
