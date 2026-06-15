@@ -273,6 +273,7 @@ export class DeliberationOrchestrator {
     return response.content;
   }
 
+  /** Budget is checked post-hoc — actual spend may exceed budget by one call's cost. */
   private budgetExhausted(): boolean {
     return this.totalCost >= this.config.budgetUsd;
   }

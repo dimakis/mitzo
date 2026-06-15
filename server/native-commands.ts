@@ -186,21 +186,21 @@ async function deliberateCommand(
 
 // --- /fuse command ---
 
+const FUSE_USAGE: NativeCommandResult = {
+  command: 'fuse',
+  content:
+    '**Usage:** `/fuse <task>`\n\nRuns parallel multi-model fusion. ' +
+    'Fan-out to 3 models, judge analyzes consensus/contradictions, synthesizer writes final answer.\n\n' +
+    'Options:\n- `/fuse --self <task>` — self-fusion (same model x2, cheapest)\n\n' +
+    'Example: `/fuse What are the tradeoffs of event sourcing vs CRUD for our order system?`',
+};
+
 async function fuseCommand(
   args: string,
   _skillRegistry: SkillRegistry,
   ctx: NativeCommandContext,
 ): Promise<NativeCommandResult> {
-  if (!args.trim()) {
-    return {
-      command: 'fuse',
-      content:
-        '**Usage:** `/fuse <task>`\n\nRuns parallel multi-model fusion. ' +
-        'Fan-out to 3 models, judge analyzes consensus/contradictions, synthesizer writes final answer.\n\n' +
-        'Options:\n- `/fuse --self <task>` — self-fusion (same model x2, cheapest)\n\n' +
-        'Example: `/fuse What are the tradeoffs of event sourcing vs CRUD for our order system?`',
-    };
-  }
+  if (!args.trim()) return FUSE_USAGE;
 
   // Parse --self flag
   let task = args.trim();
@@ -210,16 +210,7 @@ async function fuseCommand(
     fusionConfig = SELF_FUSION_CONFIG;
   }
 
-  if (!task) {
-    return {
-      command: 'fuse',
-      content:
-        '**Usage:** `/fuse <task>`\n\nRuns parallel multi-model fusion. ' +
-        'Fan-out to 3 models, judge analyzes consensus/contradictions, synthesizer writes final answer.\n\n' +
-        'Options:\n- `/fuse --self <task>` — self-fusion (same model x2, cheapest)\n\n' +
-        'Example: `/fuse What are the tradeoffs of event sourcing vs CRUD for our order system?`',
-    };
-  }
+  if (!task) return FUSE_USAGE;
 
   const onEvent = buildEventEmitter(ctx.transport, 'fusion');
 
