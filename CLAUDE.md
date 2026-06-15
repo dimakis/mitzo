@@ -247,7 +247,7 @@ Auth via `ProtectedRoute` wrapper. Vite dev server proxies `/api` and `/ws` to b
 - **Tracing:** OpenTelemetry via `server/tracing.ts`, opt-in when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. BatchSpanProcessor with OTLP HTTP exporter to Jaeger. Currently instrumented: `ws.switch_session`, `ws.send`, `ws.reconnect`. Deep instrumentation roadmap in `docs/design/otel-deep-instrumentation.md`.
 - **Infrastructure:** Three containers via `docker-compose.yml` (podman). Start with `npm run tracing:up`, stop with `npm run tracing:down`.
   - Jaeger: http://localhost:16686 (trace viewer, OTLP receiver on :4318)
-  - Grafana: http://localhost:3001 (log viewer + dashboards, no login required)
+  - Grafana: http://localhost:3002 (log viewer + dashboards, no login required)
   - Loki: http://localhost:3200 (log aggregation backend)
 - **Env vars:** `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318`, `LOKI_HOST=http://localhost:3200`, `LOG_LEVEL=info` (default).
 - **Log-to-trace correlation:** Grafana Loki datasource parses `trace_id` from log lines and links to Jaeger traces. In Grafana Explore, query `{app="mitzo"}` for all logs, `{app="mitzo", module="query-loop"}` to filter by module.
