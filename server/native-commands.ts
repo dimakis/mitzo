@@ -221,7 +221,10 @@ async function fuseCommand(
     const result = await orchestrator.run(task, '');
 
     const panelSummary = result.panelResponses
-      .map((r: { model: string; response: string }, i: number) => `**Panel ${i + 1}** (${r.model}): ${r.response.slice(0, 200)}...`)
+      .map(
+        (r: { model: string; response: string }, i: number) =>
+          `**Panel ${i + 1}** (${r.model}): ${r.response.slice(0, 200)}...`,
+      )
       .join('\n\n');
 
     const analysisSummary = [

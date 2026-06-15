@@ -18,12 +18,7 @@
 import { createLogger } from '../logger.js';
 import { createProvider } from '../providers/index.js';
 import type { ModelProvider } from '../providers/types.js';
-import type {
-  FusionConfig,
-  FusionResult,
-  JudgeAnalysis,
-  TranscriptEntry,
-} from './types.js';
+import type { FusionConfig, FusionResult, JudgeAnalysis, TranscriptEntry } from './types.js';
 
 const log = createLogger('fusion');
 
@@ -74,12 +69,16 @@ export class FusionOrchestrator {
       log.warn('Budget exhausted after fan-out, returning best panel response');
       onEvent?.({ type: 'reasoning_end', mode: 'fusion', totalCost: this.totalCost });
       // Return the longest panel response as a reasonable fallback
-      const best = panelResponses.reduce((a, b) =>
-        a.response.length > b.response.length ? a : b,
-      );
+      const best = panelResponses.reduce((a, b) => (a.response.length > b.response.length ? a : b));
       return {
         finalOutput: best.response,
-        judgeAnalysis: { consensus: [], contradictions: [], partialCoverage: [], uniqueInsights: [], blindSpots: [] },
+        judgeAnalysis: {
+          consensus: [],
+          contradictions: [],
+          partialCoverage: [],
+          uniqueInsights: [],
+          blindSpots: [],
+        },
         panelResponses,
         totalCost: this.totalCost,
         transcript: this.transcript,
@@ -194,9 +193,7 @@ export class FusionOrchestrator {
       .map((r, i) => `### Panel Member ${i + 1} (${r.model})\n${r.response}`)
       .join('\n\n---\n\n');
 
-    const judgeSystemPrompt =
-      this.config.judgeModel.systemPrompt ??
-      JUDGE_SYSTEM_PROMPT;
+    const judgeSystemPrompt = this.config.judgeModel.systemPrompt ?? JUDGE_SYSTEM_PROMPT;
 
     const prompt = `## Original Task\n${task}\n\n## Context\n${context}\n\n## Panel Responses\n\n${responsesBlock}\n\n## Your Task\nAnalyze all panel responses and produce a structured comparison. Output a JSON object with this exact structure:\n\n{\n  "consensus": ["point 1", "point 2"],\n  "contradictions": [\n    {\n      "topic": "what they disagree about",\n      "positions": [\n        { "model": "model-name", "position": "their stance" }\n      ]\n    }\n  ],\n  "partial_coverage": ["topic only some addressed"],\n  "unique_insights": [\n    { "model": "model-name", "insight": "what they uniquely contributed" }\n  ],\n  "blind_spots": ["question none addressed"]\n}\n\nBe thorough and specific. Every entry should reference concrete content from the panel responses.`;
 
@@ -372,10 +369,7 @@ export const DEFAULT_FUSION_CONFIG: Omit<FusionConfig, 'onEvent'> = {
 
 /** Self-fusion preset: same model twice, cheapest way to get synthesis gains. */
 export const SELF_FUSION_CONFIG: Omit<FusionConfig, 'onEvent'> = {
-  panelModels: [
-    { model: 'claude-opus-4-6' },
-    { model: 'claude-opus-4-6' },
-  ],
+  panelModels: [{ model: 'claude-opus-4-6' }, { model: 'claude-opus-4-6' }],
   judgeModel: { model: 'claude-opus-4-6' },
   budgetUsd: 3.0,
 };

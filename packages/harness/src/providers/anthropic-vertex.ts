@@ -58,15 +58,15 @@ export class AnthropicVertexModelProvider implements ModelProvider {
     const systemMessages = messages.filter((m) => m.role === 'system');
     const conversationMessages = messages.filter((m) => m.role !== 'system');
 
-    const apiModel = this.isVertex
-      ? (VERTEX_MODEL_MAP[this.model] ?? this.model)
-      : this.model;
+    const apiModel = this.isVertex ? (VERTEX_MODEL_MAP[this.model] ?? this.model) : this.model;
 
     const response = await this.client.messages.create({
       model: apiModel,
       max_tokens: options?.maxTokens ?? 4096,
       temperature: options?.temperature ?? 0.7,
-      ...(systemMessages.length > 0 && { system: systemMessages.map((m) => m.content).join('\n\n') }),
+      ...(systemMessages.length > 0 && {
+        system: systemMessages.map((m) => m.content).join('\n\n'),
+      }),
       messages: conversationMessages.map((m) => ({
         role: m.role as 'user' | 'assistant',
         content: m.content,

@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { FusionOrchestrator, DEFAULT_FUSION_CONFIG, SELF_FUSION_CONFIG } from '../src/reasoning/fusion.js';
+import {
+  FusionOrchestrator,
+  DEFAULT_FUSION_CONFIG,
+  SELF_FUSION_CONFIG,
+} from '../src/reasoning/fusion.js';
 import type { FusionConfig, ReasoningEvent } from '../src/reasoning/types.js';
 
 // Mock provider factory
@@ -39,11 +43,12 @@ vi.mock('../src/providers/index.js', () => ({
           }),
           model: 'judge-model',
           usage: { inputTokens: 2000, outputTokens: 1000 },
-          costUsd: 0.10,
+          costUsd: 0.1,
         };
       } else {
         return {
-          content: 'Final synthesis: Use Redis with TTL-based caching. Consider Memcached for simple key-value at extreme scale.',
+          content:
+            'Final synthesis: Use Redis with TTL-based caching. Consider Memcached for simple key-value at extreme scale.',
           model: 'synth-model',
           usage: { inputTokens: 1500, outputTokens: 800 },
           costUsd: 0.08,

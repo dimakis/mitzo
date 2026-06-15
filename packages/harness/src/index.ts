@@ -87,12 +87,21 @@ export { createLogger } from './logger.js';
 
 // Providers — multi-model adapter layer
 export { createProvider, createProviders } from './providers/index.js';
-export type { ModelProvider, ProviderMessage, ProviderResponse, CallOptions } from './providers/index.js';
+export type {
+  ModelProvider,
+  ProviderMessage,
+  ProviderResponse,
+  CallOptions,
+} from './providers/index.js';
 export { MODEL_COSTS, calculateCost } from './providers/index.js';
 
 // Reasoning — deliberation + fusion orchestrators
 export { DeliberationOrchestrator, DEFAULT_DELIBERATION_CONFIG } from './reasoning/index.js';
-export { FusionOrchestrator, DEFAULT_FUSION_CONFIG, SELF_FUSION_CONFIG } from './reasoning/index.js';
+export {
+  FusionOrchestrator,
+  DEFAULT_FUSION_CONFIG,
+  SELF_FUSION_CONFIG,
+} from './reasoning/index.js';
 export type {
   DeliberationConfig,
   DeliberationResult,

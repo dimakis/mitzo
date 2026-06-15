@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { DeliberationOrchestrator, DEFAULT_DELIBERATION_CONFIG } from '../src/reasoning/deliberation.js';
+import {
+  DeliberationOrchestrator,
+  DEFAULT_DELIBERATION_CONFIG,
+} from '../src/reasoning/deliberation.js';
 import type { DeliberationConfig, ReasoningEvent } from '../src/reasoning/types.js';
 
 // Track call counts per model to return appropriate responses
