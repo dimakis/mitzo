@@ -118,5 +118,3 @@ describe('DEFAULT_DELIBERATION_CONFIG', () => {
     expect(DEFAULT_DELIBERATION_CONFIG.challenger.name).toBe('critic');
   });
 });
-
-import { beforeEach } from 'vitest';

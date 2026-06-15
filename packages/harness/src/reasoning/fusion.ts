@@ -53,6 +53,10 @@ export class FusionOrchestrator {
   }
 
   async run(task: string, context: string): Promise<FusionResult> {
+    // Reset instance state for safe reuse
+    this.transcript = [];
+    this.totalCost = 0;
+
     const { onEvent } = this.config;
 
     log.info('Starting fusion', {

@@ -63,5 +63,5 @@ export function createProviders(models: string[]): Map<string, ModelProvider> {
 // Re-export everything
 export type { ModelProvider, ProviderMessage, ProviderResponse, CallOptions, CostRate, TokenUsage } from './types.js';
 export { calculateCost, MODEL_COSTS } from './types.js';
-export { AnthropicVertexProvider, AnthropicVertexModelProvider } from './anthropic-vertex.js';
+export { AnthropicVertexModelProvider } from './anthropic-vertex.js';
 export { GoogleVertexModelProvider } from './google-vertex.js';

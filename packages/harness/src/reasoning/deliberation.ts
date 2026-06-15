@@ -37,6 +37,10 @@ export class DeliberationOrchestrator {
   }
 
   async run(task: string, context: string): Promise<DeliberationResult> {
+    // Reset instance state for safe reuse
+    this.transcript = [];
+    this.totalCost = 0;
+
     const { onEvent } = this.config;
 
     log.info('Starting deliberation', {

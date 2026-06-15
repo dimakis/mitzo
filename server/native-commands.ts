@@ -49,26 +49,20 @@ export class NativeCommandRegistry {
     return new Set(this.commands.keys());
   }
 
-  execute(
+  /**
+   * Execute a native command. Always returns a Promise for uniform handling.
+   * Callers must await the result — async handlers (deliberate, fuse) return
+   * Promises that would otherwise be silently dropped.
+   */
+  async execute(
     name: string,
     args: string,
     skillRegistry: SkillRegistry,
-  ): NativeCommandResult | undefined {
-    const handler = this.commands.get(name);
-    if (!handler) return undefined;
-    // Sync-only path (backwards compat)
-    return handler(args, skillRegistry, {}) as NativeCommandResult;
-  }
-
-  async executeAsync(
-    name: string,
-    args: string,
-    skillRegistry: SkillRegistry,
-    ctx: NativeCommandContext,
+    ctx: NativeCommandContext = {},
   ): Promise<NativeCommandResult | undefined> {
     const handler = this.commands.get(name);
     if (!handler) return undefined;
-    return handler(args, skillRegistry, ctx) as NativeCommandResult | Promise<NativeCommandResult>;
+    return handler(args, skillRegistry, ctx);
   }
 }
 

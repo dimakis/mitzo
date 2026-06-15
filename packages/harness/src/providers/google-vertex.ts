@@ -126,14 +126,28 @@ export class GoogleVertexModelProvider implements ModelProvider {
     }));
   }
 
-  /** Get an access token from Application Default Credentials. */
+  /** Cached token + expiry (4 min TTL to stay inside gcloud's 60 min window). */
+  private cachedToken: { token: string; expiresAt: number } | null = null;
+
+  /** Get an access token from Application Default Credentials (cached). */
   private async getAccessToken(): Promise<string> {
-    // Use gcloud to get a token — this works with ADC and service accounts
-    const { execSync } = await import('node:child_process');
-    const token = execSync('gcloud auth print-access-token', {
+    const now = Date.now();
+    if (this.cachedToken && now < this.cachedToken.expiresAt) {
+      return this.cachedToken.token;
+    }
+
+    const { execFile } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const execFileAsync = promisify(execFile);
+
+    const { stdout } = await execFileAsync('gcloud', ['auth', 'print-access-token'], {
       encoding: 'utf-8',
       timeout: 5000,
-    }).trim();
+    });
+    const token = stdout.trim();
+
+    // Cache for 4 minutes (gcloud tokens last ~60 min)
+    this.cachedToken = { token, expiresAt: now + 4 * 60 * 1000 };
     return token;
   }
 }

@@ -759,7 +759,7 @@ function handleChatWs(
 
             if (resolution.type === 'native') {
               void nativeCommands
-                .executeAsync(resolution.name, resolution.arguments, skillRegistry, { transport })
+                .execute(resolution.name, resolution.arguments, skillRegistry, { transport })
                 .then((result) => {
                   if (result) {
                     transport.send({

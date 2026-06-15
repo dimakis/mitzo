@@ -461,9 +461,8 @@ export function handleSendV2(
         const resolution = resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
 
         if (resolution.type === 'native') {
-          // Use async execution path for commands that need it (deliberate, fuse)
           void ctx.nativeCommands
-            .executeAsync(resolution.name, resolution.arguments, skillRegistry, { transport })
+            .execute(resolution.name, resolution.arguments, skillRegistry, { transport })
             .then((result) => {
               if (result) {
                 transport.send({
