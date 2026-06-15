@@ -156,6 +156,23 @@ describe('NativeCommandRegistry', () => {
       expect(result).toBeDefined();
       expect(result!.content).toContain('Usage');
     });
+
+    it('returns usage help for --self without a task', async () => {
+      const skillRegistry = new SkillRegistry({});
+      const result = await registry.execute('fuse', '--self', skillRegistry);
+
+      expect(result).toBeDefined();
+      expect(result!.command).toBe('fuse');
+      expect(result!.content).toContain('Usage');
+    });
+
+    it('returns usage help for --self with only whitespace after', async () => {
+      const skillRegistry = new SkillRegistry({});
+      const result = await registry.execute('fuse', '--self   ', skillRegistry);
+
+      expect(result).toBeDefined();
+      expect(result!.content).toContain('Usage');
+    });
   });
 
   it('returns undefined for unknown native commands', async () => {

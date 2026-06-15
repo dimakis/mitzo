@@ -776,6 +776,7 @@ function handleChatWs(
                     error: `Command /${resolution.name} failed: ${err instanceof Error ? err.message : 'unknown'}`,
                   });
                 });
+              return;
             } else if (resolution.type === 'error') {
               transport.send({ type: 'error', error: resolution.message });
             } else if (resolution.type === 'skill') {

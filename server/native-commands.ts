@@ -153,7 +153,7 @@ async function deliberateCommand(
 
     const roundsSummary = result.rounds
       .map(
-        (r: { roundNum: number; positionChanged: boolean; changeDetail?: string }) =>
+        (r) =>
           `**Round ${r.roundNum}:** ${r.positionChanged ? 'Position CHANGED' : 'Position HELD'}` +
           (r.changeDetail ? ` — ${r.changeDetail}` : ''),
       )
@@ -205,9 +205,20 @@ async function fuseCommand(
   // Parse --self flag
   let task = args.trim();
   let fusionConfig = DEFAULT_FUSION_CONFIG;
-  if (task.startsWith('--self ')) {
-    task = task.slice('--self '.length).trim();
+  if (task === '--self' || task.startsWith('--self ')) {
+    task = task.slice('--self'.length).trim();
     fusionConfig = SELF_FUSION_CONFIG;
+  }
+
+  if (!task) {
+    return {
+      command: 'fuse',
+      content:
+        '**Usage:** `/fuse <task>`\n\nRuns parallel multi-model fusion. ' +
+        'Fan-out to 3 models, judge analyzes consensus/contradictions, synthesizer writes final answer.\n\n' +
+        'Options:\n- `/fuse --self <task>` — self-fusion (same model x2, cheapest)\n\n' +
+        'Example: `/fuse What are the tradeoffs of event sourcing vs CRUD for our order system?`',
+    };
   }
 
   const onEvent = buildEventEmitter(ctx.transport, 'fusion');
@@ -221,10 +232,7 @@ async function fuseCommand(
     const result = await orchestrator.run(task, '');
 
     const panelSummary = result.panelResponses
-      .map(
-        (r: { model: string; response: string }, i: number) =>
-          `**Panel ${i + 1}** (${r.model}): ${r.response.slice(0, 200)}...`,
-      )
+      .map((r, i) => `**Panel ${i + 1}** (${r.model}): ${r.response.slice(0, 200)}...`)
       .join('\n\n');
 
     const analysisSummary = [
@@ -232,10 +240,10 @@ async function fuseCommand(
         ? `**Consensus (${result.judgeAnalysis.consensus.length}):** ${result.judgeAnalysis.consensus.join('; ')}`
         : null,
       result.judgeAnalysis.contradictions.length > 0
-        ? `**Contradictions (${result.judgeAnalysis.contradictions.length}):** ${result.judgeAnalysis.contradictions.map((c: { topic: string }) => c.topic).join('; ')}`
+        ? `**Contradictions (${result.judgeAnalysis.contradictions.length}):** ${result.judgeAnalysis.contradictions.map((c) => c.topic).join('; ')}`
         : null,
       result.judgeAnalysis.uniqueInsights.length > 0
-        ? `**Unique insights (${result.judgeAnalysis.uniqueInsights.length}):** ${result.judgeAnalysis.uniqueInsights.map((u: { model: string; insight: string }) => `${u.model}: ${u.insight}`).join('; ')}`
+        ? `**Unique insights (${result.judgeAnalysis.uniqueInsights.length}):** ${result.judgeAnalysis.uniqueInsights.map((u) => `${u.model}: ${u.insight}`).join('; ')}`
         : null,
       result.judgeAnalysis.blindSpots.length > 0
         ? `**Blind spots:** ${result.judgeAnalysis.blindSpots.join('; ')}`
@@ -248,7 +256,7 @@ async function fuseCommand(
       `## Fusion Result`,
       '',
       `**Task:** ${task}`,
-      `**Panel:** ${result.panelResponses.map((r: { model: string }) => r.model).join(', ')}`,
+      `**Panel:** ${result.panelResponses.map((r) => r.model).join(', ')}`,
       `**Cost:** $${result.totalCost.toFixed(4)}`,
       '',
       '### Judge Analysis',

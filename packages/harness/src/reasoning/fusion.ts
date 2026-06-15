@@ -89,7 +89,16 @@ export class FusionOrchestrator {
     const judgeAnalysis = await this.judge(panelResponses, task, context);
 
     if (this.budgetExhausted()) {
-      log.warn('Budget exhausted after judge, synthesizing from analysis only');
+      log.warn('Budget exhausted after judge, skipping synthesis');
+      onEvent?.({ type: 'reasoning_end', mode: 'fusion', totalCost: this.totalCost });
+      const best = panelResponses.reduce((a, b) => (a.response.length > b.response.length ? a : b));
+      return {
+        finalOutput: best.response,
+        judgeAnalysis,
+        panelResponses,
+        totalCost: this.totalCost,
+        transcript: this.transcript,
+      };
     }
 
     // Phase 3: Synthesize final answer
