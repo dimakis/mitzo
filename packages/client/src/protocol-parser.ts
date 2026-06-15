@@ -415,6 +415,12 @@ export function parseServerMessage(
       });
       break;
 
+    case 'reasoning_event':
+      // Reasoning events stream during /deliberate and /fuse execution.
+      // v1: no-op (final result arrives as native_command_result).
+      // v2: ReasoningThread component will consume these for live streaming.
+      break;
+
     case 'session_close_ack':
       if (msg.accepted) {
         result.messagesActions.push({

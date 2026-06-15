@@ -157,6 +157,24 @@ interface NativeCommandResultMsg {
   content: string;
 }
 
+/** Reasoning event streamed during /deliberate or /fuse execution. */
+interface ReasoningEventMsg {
+  type: 'reasoning_event';
+  v: 2;
+  mode: 'deliberation' | 'fusion';
+  event: {
+    type: 'reasoning_start' | 'phase_start' | 'phase_delta' | 'phase_end' | 'reasoning_end';
+    phase?: string;
+    speaker?: string;
+    model?: string;
+    task?: string;
+    delta?: string;
+    content?: string;
+    costUsd?: number;
+    totalCost?: number;
+  };
+}
+
 interface SkillInvokedMsg {
   type: 'skill_invoked';
   v: 2;
@@ -222,6 +240,7 @@ export type ServerMessage =
   | UpdateAvailableMsg
   | WorktreeOpenedMsg
   | NativeCommandResultMsg
+  | ReasoningEventMsg
   | SkillInvokedMsg
   | UserMessageMsg
   | SessionRenamedMsg
