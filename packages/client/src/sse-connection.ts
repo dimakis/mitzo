@@ -224,9 +224,10 @@ export class SseConnection implements ChatConnection {
       if (this._isReconnect && this.seqBySession.size > 0) {
         this.doPost('reconnect', {
           type: 'reconnect',
-          sessions: Array.from(this.seqBySession.entries()).map(
-            ([sessionId, lastSeq]) => ({ sessionId, lastSeq }),
-          ),
+          sessions: Array.from(this.seqBySession.entries()).map(([sessionId, lastSeq]) => ({
+            sessionId,
+            lastSeq,
+          })),
         });
       }
       this._isReconnect = true;
