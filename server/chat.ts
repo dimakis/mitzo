@@ -1006,8 +1006,9 @@ async function _startChatInner(
     // in the event store — making user messages invisible after WS reconnect.
     // Store and echo it here so the frontend can replay it.
     if (options.resume) {
-      const messageId = options.clientMsgId || `umsg-${Date.now()}-resume`;
-      storeAndEchoUserMessage(
+      const messageId =
+        options.clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-resume`;
+      storeAndEchoIfNew(
         options.resume,
         messageId,
         fullPrompt,
@@ -1113,10 +1114,10 @@ async function tryAutoRename(sessionId: string, clientId: string): Promise<void>
 }
 
 /**
- * Deduplicated store-and-echo for user messages.
+ * Store and echo a user message only if it hasn't been stored before.
  * Returns true if the message was a duplicate (already stored), false if newly stored.
  */
-function storeAndEchoUserMessage(
+function storeAndEchoIfNew(
   sessionId: string,
   messageId: string,
   text: string,
@@ -1154,9 +1155,9 @@ export function sendToChat(
     const session = registry.get(clientId);
     if (!session?.inputQueue) return false;
     const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
-    const messageId = clientMsgId || `umsg-${Date.now()}-send`;
+    const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-send`;
     if (session.sessionId) {
-      const isDup = storeAndEchoUserMessage(
+      const isDup = storeAndEchoIfNew(
         session.sessionId,
         messageId,
         fullPrompt,
@@ -1192,9 +1193,12 @@ export async function interruptChat(
     if (!session?.queryInstance || !session?.inputQueue) return false;
     if (model) session.model = model;
     const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
-    const messageId = clientMsgId || `umsg-${Date.now()}-interrupt`;
+    const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-interrupt`;
+    // Store and echo the user message, but always proceed with the interrupt
+    // even if the message is a duplicate — a retried interrupt must still stop
+    // the agent, just without re-storing the echo.
     if (session.sessionId) {
-      const isDup = storeAndEchoUserMessage(
+      storeAndEchoIfNew(
         session.sessionId,
         messageId,
         fullPrompt,
@@ -1202,7 +1206,6 @@ export async function interruptChat(
         session.transport,
         session.observers,
       );
-      if (isDup) return true;
     } else {
       const echo = { type: 'user_message', v: 2, messageId, text: fullPrompt };
       send(session.transport, echo);

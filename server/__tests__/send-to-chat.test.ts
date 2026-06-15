@@ -145,6 +145,32 @@ describe('sendToChat emits user_message via transport', () => {
     sendToChat(CLIENT_ID, 'Follow-up');
     expect(pushSpy).toHaveBeenCalledTimes(1);
   });
+
+  it('sends echo without sessionId when session.sessionId is falsy', () => {
+    const transport = mockTransport();
+    const pushSpy = vi.fn();
+
+    registry.register(CLIENT_ID, {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+
+    const session = registry.get(CLIENT_ID)!;
+    // Deliberately leave sessionId unset (falsy)
+    session.inputQueue = { push: pushSpy, close: vi.fn() };
+
+    const result = sendToChat(CLIENT_ID, 'Before session resolved');
+    expect(result).toBe(true);
+
+    const userMsgs = transport._sent.filter(
+      (m: Record<string, unknown>) => m.type === 'user_message',
+    );
+    expect(userMsgs).toHaveLength(1);
+    expect(userMsgs[0]).not.toHaveProperty('sessionId');
+    expect(pushSpy).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('interruptChat emits user_message via transport', () => {
@@ -218,7 +244,7 @@ describe('interruptChat emits user_message via transport', () => {
     expect((userMsgEvents[0] as Record<string, unknown>).messageId).toBe(clientMsgId);
   });
 
-  it('skips duplicate when same clientMsgId is sent twice', async () => {
+  it('deduplicates echo but still interrupts on retried clientMsgId', async () => {
     const transport = mockTransport();
     const pushSpy = vi.fn();
     const interruptSpy = vi.fn().mockResolvedValue(undefined);
@@ -243,12 +269,12 @@ describe('interruptChat emits user_message via transport', () => {
     expect(await interruptChat(CLIENT_ID, 'First', undefined, undefined, clientMsgId)).toBe(true);
     expect(interruptSpy).toHaveBeenCalledTimes(1);
 
-    // Second interrupt with same clientMsgId — should be silently deduplicated
+    // Second interrupt with same clientMsgId — echo is deduplicated but
+    // the interrupt side-effect still fires (a retried interrupt must stop the agent)
     const result = await interruptChat(CLIENT_ID, 'First', undefined, undefined, clientMsgId);
     expect(result).toBe(true);
-    // interrupt() should NOT be called again
-    expect(interruptSpy).toHaveBeenCalledTimes(1);
-    // transport should only have ONE user_message echo
+    expect(interruptSpy).toHaveBeenCalledTimes(2);
+    // transport should only have ONE user_message echo (deduped)
     const userMsgs = transport._sent.filter(
       (m: Record<string, unknown>) => m.type === 'user_message',
     );

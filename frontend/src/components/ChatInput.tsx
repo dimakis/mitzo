@@ -144,12 +144,12 @@ export function ChatInput({
       clearDraft();
       setImages([]);
       if (!useExternal) setContextBlocks([]);
+      autoResize();
+      textareaRef.current?.focus();
     }
     requestAnimationFrame(() => {
       sendGuard.current = false;
     });
-    autoResize();
-    textareaRef.current?.focus();
   }
 
   function handleKeyDown(e: KeyboardEvent) {
