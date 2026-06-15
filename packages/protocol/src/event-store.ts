@@ -95,6 +95,7 @@ export class EventStore {
   private log: EventStoreLogger;
   private stmts: {
     append: Database.Statement;
+    hasUserMessage: Database.Statement;
     eventsAfter: Database.Statement;
     eventsAfterLimited: Database.Statement;
     sessionEvents: Database.Statement;
@@ -130,6 +131,12 @@ export class EventStore {
 
     this.stmts = {
       append: db.prepare('INSERT INTO events (session_id, type, payload) VALUES (?, ?, ?)'),
+      hasUserMessage: db.prepare(
+        `SELECT 1 FROM events
+         WHERE session_id = ? AND type = 'user_message'
+           AND json_extract(payload, '$.messageId') = ?
+         LIMIT 1`,
+      ),
       eventsAfter: db.prepare(
         'SELECT seq, session_id, type, payload, created_at FROM events WHERE session_id = ? AND seq > ? ORDER BY seq',
       ),
@@ -307,6 +314,11 @@ export class EventStore {
   append(sessionId: string, type: string, payload: Record<string, unknown>): number {
     const result = this.stmts.append.run(sessionId, type, JSON.stringify(payload));
     return Number(result.lastInsertRowid);
+  }
+
+  /** Check if a user_message with the given messageId already exists for this session. */
+  hasUserMessage(sessionId: string, messageId: string): boolean {
+    return this.stmts.hasUserMessage.get(sessionId, messageId) != null;
   }
 
   getEventsAfter(sessionId: string, afterSeq: number, limit?: number): StoredEvent[] {

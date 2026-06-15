@@ -1007,24 +1007,27 @@ async function _startChatInner(
     // Store and echo it here so the frontend can replay it.
     if (options.resume) {
       const messageId = options.clientMsgId || `umsg-${Date.now()}-resume`;
-      eventStore.append(options.resume, 'user_message', {
-        v: 2,
-        type: 'user_message',
-        ts: Date.now(),
-        messageId,
-        text: fullPrompt,
-      });
-      eventStore.updateLastSpeaker(options.resume, 'user');
-      _onSessionChange?.(clientId, 'user_message');
-      const echo = {
-        type: 'user_message',
-        v: 2,
-        messageId,
-        text: fullPrompt,
-        sessionId: options.resume,
-      };
-      send(transport, echo);
-      broadcastToObservers(session.observers, echo);
+      // Idempotency guard: skip if this user_message was already stored (e.g. retried POST)
+      if (!eventStore.hasUserMessage(options.resume, messageId)) {
+        eventStore.append(options.resume, 'user_message', {
+          v: 2,
+          type: 'user_message',
+          ts: Date.now(),
+          messageId,
+          text: fullPrompt,
+        });
+        eventStore.updateLastSpeaker(options.resume, 'user');
+        _onSessionChange?.(clientId, 'user_message');
+        const echo = {
+          type: 'user_message',
+          v: 2,
+          messageId,
+          text: fullPrompt,
+          sessionId: options.resume,
+        };
+        send(transport, echo);
+        broadcastToObservers(session.observers, echo);
+      }
     }
 
     await runQueryLoop(
@@ -1136,6 +1139,10 @@ export function sendToChat(
     const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
     const messageId = clientMsgId || `umsg-${Date.now()}-send`;
     if (session.sessionId) {
+      // Idempotency guard: skip if this user_message was already stored (e.g. retried POST)
+      if (eventStore.hasUserMessage(session.sessionId, messageId)) {
+        return true;
+      }
       eventStore.append(session.sessionId, 'user_message', {
         v: 2,
         type: 'user_message',
@@ -1179,6 +1186,10 @@ export async function interruptChat(
     const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
     const messageId = clientMsgId || `umsg-${Date.now()}-interrupt`;
     if (session.sessionId) {
+      // Idempotency guard: skip if this user_message was already stored (e.g. retried POST)
+      if (eventStore.hasUserMessage(session.sessionId, messageId)) {
+        return true;
+      }
       eventStore.append(session.sessionId, 'user_message', {
         v: 2,
         type: 'user_message',

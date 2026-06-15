@@ -61,17 +61,18 @@ describe('sendToChat emits user_message via transport', () => {
     });
 
     const session = registry.get(CLIENT_ID)!;
-    session.sessionId = 'sess-client-id';
+    session.sessionId = `sess-client-id-${Date.now()}`;
     session.inputQueue = { push: pushSpy, close: vi.fn() };
 
-    const result = sendToChat(CLIENT_ID, 'Hello', undefined, undefined, 'user-1234-abc');
+    const clientMsgId = `user-${Date.now()}-abc`;
+    const result = sendToChat(CLIENT_ID, 'Hello', undefined, undefined, clientMsgId);
     expect(result).toBe(true);
 
     const userMsgEvents = transport._sent.filter(
       (m: Record<string, unknown>) => m.type === 'user_message',
     );
     expect(userMsgEvents).toHaveLength(1);
-    expect((userMsgEvents[0] as Record<string, unknown>).messageId).toBe('user-1234-abc');
+    expect((userMsgEvents[0] as Record<string, unknown>).messageId).toBe(clientMsgId);
   });
 
   it('does not crash when transport is not open', () => {
@@ -93,6 +94,37 @@ describe('sendToChat emits user_message via transport', () => {
     expect(result).toBe(true);
     // send() guards on isOpen(), so no message should be sent
     expect(transport.send).not.toHaveBeenCalled();
+  });
+
+  it('skips duplicate when same clientMsgId is sent twice', () => {
+    const transport = mockTransport();
+    const pushSpy = vi.fn();
+
+    registry.register(CLIENT_ID, {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+
+    const session = registry.get(CLIENT_ID)!;
+    session.sessionId = `sess-dedup-${Date.now()}`;
+    session.inputQueue = { push: pushSpy, close: vi.fn() };
+
+    // First send — should succeed
+    expect(sendToChat(CLIENT_ID, 'Hello', undefined, undefined, 'user-dedup-1')).toBe(true);
+    expect(pushSpy).toHaveBeenCalledTimes(1);
+
+    // Second send with same clientMsgId — should be silently deduplicated
+    const result = sendToChat(CLIENT_ID, 'Hello', undefined, undefined, 'user-dedup-1');
+    expect(result).toBe(true);
+    // inputQueue should NOT get a second push
+    expect(pushSpy).toHaveBeenCalledTimes(1);
+    // transport should only have ONE user_message echo
+    const userMsgs = transport._sent.filter(
+      (m: Record<string, unknown>) => m.type === 'user_message',
+    );
+    expect(userMsgs).toHaveLength(1);
   });
 
   it('still pushes to inputQueue even when transport send happens', () => {
@@ -167,7 +199,7 @@ describe('interruptChat emits user_message via transport', () => {
     });
 
     const session = registry.get(CLIENT_ID)!;
-    session.sessionId = 'sess-int-2';
+    session.sessionId = `sess-int-${Date.now()}`;
     session.inputQueue = { push: pushSpy, close: vi.fn() };
     session.queryInstance = {
       interrupt: vi.fn().mockResolvedValue(undefined),
@@ -175,14 +207,15 @@ describe('interruptChat emits user_message via transport', () => {
       stopTask: vi.fn().mockResolvedValue(undefined),
     };
 
-    const result = await interruptChat(CLIENT_ID, 'Urgent', undefined, undefined, 'user-5678-def');
+    const clientMsgId = `user-${Date.now()}-def`;
+    const result = await interruptChat(CLIENT_ID, 'Urgent', undefined, undefined, clientMsgId);
     expect(result).toBe(true);
 
     const userMsgEvents = transport._sent.filter(
       (m: Record<string, unknown>) => m.type === 'user_message',
     );
     expect(userMsgEvents).toHaveLength(1);
-    expect((userMsgEvents[0] as Record<string, unknown>).messageId).toBe('user-5678-def');
+    expect((userMsgEvents[0] as Record<string, unknown>).messageId).toBe(clientMsgId);
   });
 
   it('calls stopTask for active subagent tasks before interrupt', async () => {
