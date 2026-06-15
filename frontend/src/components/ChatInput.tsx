@@ -147,9 +147,9 @@ export function ChatInput({
     }
     requestAnimationFrame(() => {
       sendGuard.current = false;
-      autoResize();
-      textareaRef.current?.focus();
     });
+    autoResize();
+    textareaRef.current?.focus();
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -270,9 +270,11 @@ export function ChatInput({
   }
 
   function handleInterrupt() {
+    if (sendGuard.current) return;
     if (!onInterrupt) return;
     const trimmed = text.trim();
     if (!trimmed && images.length === 0) return;
+    sendGuard.current = true;
     onInterrupt(
       trimmed || 'What do you see in this image?',
       images.length > 0 ? images : undefined,
@@ -282,9 +284,10 @@ export function ChatInput({
     setImages([]);
     if (!useExternal) setContextBlocks([]);
     requestAnimationFrame(() => {
-      autoResize();
-      textareaRef.current?.focus();
+      sendGuard.current = false;
     });
+    autoResize();
+    textareaRef.current?.focus();
   }
 
   return (

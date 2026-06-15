@@ -83,6 +83,23 @@ describe('EventStore', () => {
       store.append('sess-1', 'message_start', { messageId: 'msg-1' });
       expect(store.hasUserMessage('sess-1', 'msg-1')).toBe(false);
     });
+
+    it('prevents duplicate resume-path user messages', () => {
+      const resumeId = 'umsg-1234567890-resume';
+      store.append('sess-resume', 'user_message', {
+        v: 2,
+        type: 'user_message',
+        ts: Date.now(),
+        messageId: resumeId,
+        text: 'Resumed prompt',
+      });
+      // First check — exists
+      expect(store.hasUserMessage('sess-resume', resumeId)).toBe(true);
+      // A retried POST with the same messageId should be caught
+      expect(store.hasUserMessage('sess-resume', resumeId)).toBe(true);
+      // Different messageId on same session — not a duplicate
+      expect(store.hasUserMessage('sess-resume', 'umsg-9999-resume')).toBe(false);
+    });
   });
 
   describe('getEventsAfter', () => {

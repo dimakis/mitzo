@@ -218,6 +218,43 @@ describe('interruptChat emits user_message via transport', () => {
     expect((userMsgEvents[0] as Record<string, unknown>).messageId).toBe(clientMsgId);
   });
 
+  it('skips duplicate when same clientMsgId is sent twice', async () => {
+    const transport = mockTransport();
+    const pushSpy = vi.fn();
+    const interruptSpy = vi.fn().mockResolvedValue(undefined);
+
+    registry.register(CLIENT_ID, {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+
+    const session = registry.get(CLIENT_ID)!;
+    session.sessionId = `sess-int-dedup-${Date.now()}`;
+    session.inputQueue = { push: pushSpy, close: vi.fn() };
+    session.queryInstance = {
+      interrupt: interruptSpy,
+      close: vi.fn(),
+      stopTask: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const clientMsgId = `user-int-dedup-${Date.now()}`;
+    expect(await interruptChat(CLIENT_ID, 'First', undefined, undefined, clientMsgId)).toBe(true);
+    expect(interruptSpy).toHaveBeenCalledTimes(1);
+
+    // Second interrupt with same clientMsgId — should be silently deduplicated
+    const result = await interruptChat(CLIENT_ID, 'First', undefined, undefined, clientMsgId);
+    expect(result).toBe(true);
+    // interrupt() should NOT be called again
+    expect(interruptSpy).toHaveBeenCalledTimes(1);
+    // transport should only have ONE user_message echo
+    const userMsgs = transport._sent.filter(
+      (m: Record<string, unknown>) => m.type === 'user_message',
+    );
+    expect(userMsgs).toHaveLength(1);
+  });
+
   it('calls stopTask for active subagent tasks before interrupt', async () => {
     const transport = mockTransport();
     const pushSpy = vi.fn();

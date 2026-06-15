@@ -126,6 +126,7 @@ export class EventStore {
     this.migrateAttentionTracking(db);
     this.migrateSessionState(db);
     this.migrateBootContext(db);
+    this.migrateUserMessageIndex(db);
 
     this.log.info('EventStore initialized', { dbPath });
 
@@ -302,6 +303,13 @@ export class EventStore {
       db.exec('ALTER TABLE sessions ADD COLUMN boot_context TEXT');
       this.log.info('migrated sessions table: added boot_context');
     }
+  }
+
+  private migrateUserMessageIndex(db: Database.Database): void {
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_events_user_msg_dedup
+       ON events (session_id, type, json_extract(payload, '$.messageId'))`,
+    );
   }
 
   close(): void {
