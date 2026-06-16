@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { SessionOverviewEmitter, type SessionOverviewDeps } from '../session-overview.js';
+import {
+  SessionOverviewEmitter,
+  type SessionOverviewDeps,
+  type SessionActivity,
+} from '../session-overview.js';
 import type { ActiveSessionInfo } from '@mitzo/harness';
 import type { SessionMeta } from '@mitzo/protocol';
 import type { LoopStatus } from '../task-orchestrator.js';
