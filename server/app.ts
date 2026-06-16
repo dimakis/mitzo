@@ -101,7 +101,7 @@ export const BUNDLED_SKILLS_DIR = join(__dirname, '..', 'skills');
 export const USER_SKILLS_DIR = join(homedir(), '.mitzo', 'skills');
 
 /** Reserved native command names — skills with these names are ignored. */
-export const NATIVE_COMMAND_NAMES = new Set(['skills']);
+export const NATIVE_COMMAND_NAMES = new Set(['skills', 'deliberate', 'fuse']);
 
 /** Cached registries keyed by cwd — avoids re-scanning the filesystem on every request. */
 const registryCache = new Map<string, SkillRegistry>();
