@@ -52,8 +52,8 @@ export interface ManagedSession {
   agentName?: string;
   /** Cached boot_context payload for replay on reconnect/switch. */
   bootContext?: Record<string, unknown>;
-  /** Parsed agent definition (recipe). Null if loading failed. */
-  agentDefinition: Record<string, unknown> | null;
+  /** Parsed agent definition (recipe). Populated asynchronously after session start. */
+  agentDefinition?: Record<string, unknown> | null;
   /** Source of the agent definition: 'contexgin' | 'local' | 'fallback'. */
   agentDefinitionSource?: AgentDefinitionSource;
 }

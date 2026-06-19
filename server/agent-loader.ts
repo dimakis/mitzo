@@ -86,7 +86,8 @@ export interface AgentDefinition {
   output?: AgentOutput;
 }
 
-export type AgentDefinitionSource = 'contexgin' | 'local' | 'fallback';
+// Re-export from harness to avoid duplicate definition
+export type { AgentDefinitionSource } from '@mitzo/harness';
 
 export interface LoadedAgentDefinition {
   definition: AgentDefinition;
@@ -164,7 +165,9 @@ async function loadFromLocal(
   cwd: string,
 ): Promise<LoadedAgentDefinition | null> {
   try {
-    // Path traversal guard: ensure resolved path stays under .agents/
+    // Validate agent name to prevent path traversal
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(agentName)) return null;
+
     const agentsDir = resolve(cwd, '.agents');
     const filePath = resolve(agentsDir, `${agentName}.yaml`);
     if (!filePath.startsWith(agentsDir + '/')) return null;
@@ -212,7 +215,7 @@ export async function loadAgentDef(
   contexginUrl: string = process.env.CONTEXGIN_URL || 'http://localhost:8321',
 ): Promise<LoadedAgentDefinition> {
   // Check cache
-  const cacheKey = `${agentName}:${cwd}:${contexginUrl ?? 'default'}`;
+  const cacheKey = `${agentName}:${cwd}:${contexginUrl}`;
   const cached = cache.get(cacheKey);
   if (cached && Date.now() < cached.expiresAt) {
     return cached.result;
