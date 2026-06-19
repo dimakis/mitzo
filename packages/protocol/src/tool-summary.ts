@@ -89,9 +89,11 @@ export function summarizeToolInput(toolName: string, input: Record<string, unkno
       const desc = String(input.description || '');
       const stype = String(input.subagent_type || '');
       if (stype && desc) {
-        // Split budget evenly so neither field is lost when both are long
-        const half = Math.floor((TOOL_SUMMARY_MAX_CHARS - 3) / 2);
-        return `${stype.slice(0, half)} · ${desc.slice(0, half)}`;
+        // Give the shorter field its full length, allocate the rest to the longer
+        const budget = TOOL_SUMMARY_MAX_CHARS - 3; // account for ' · '
+        const stypeLen = Math.min(stype.length, Math.max(Math.floor(budget / 2), budget - desc.length));
+        const descLen = budget - stypeLen;
+        return `${stype.slice(0, stypeLen)} · ${desc.slice(0, descLen)}`;
       }
       return (desc || stype || 'subagent').slice(0, TOOL_SUMMARY_MAX_CHARS);
     }

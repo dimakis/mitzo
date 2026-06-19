@@ -107,14 +107,25 @@ describe('summarizeToolInput', () => {
       description: longDesc,
     });
     expect(result.length).toBeLessThanOrEqual(200);
-    // Both fields must be present even when each exceeds the budget
     expect(result).toContain('T');
     expect(result).toContain('D');
     expect(result).toContain(' · ');
-    // Each half gets ~98 chars (floor((200-3)/2))
     const [left, right] = result.split(' · ');
     expect(left.length).toBeGreaterThan(0);
     expect(right.length).toBeGreaterThan(0);
+  });
+
+  it('gives short field full length and allocates remainder to long field', () => {
+    const result = summarizeToolInput('Agent', {
+      subagent_type: 'Explore',
+      description: 'D'.repeat(200),
+    });
+    expect(result.length).toBeLessThanOrEqual(200);
+    // 'Explore' (7 chars) should appear untruncated
+    expect(result.startsWith('Explore · ')).toBe(true);
+    // Description gets the remaining budget (200 - 7 - 3 = 190 chars)
+    const desc = result.split(' · ')[1];
+    expect(desc.length).toBe(190);
   });
 
   it('summarizes task MCP tools', () => {
