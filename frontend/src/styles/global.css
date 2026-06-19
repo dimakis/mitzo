@@ -2369,6 +2369,18 @@ textarea:focus {
   border-left: 3px solid rgba(76, 175, 80, 0.4);
 }
 
+.tool-pill-agent-prompt {
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  max-height: 300px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 /* ===== Thinking Block (now uses tool-pill pattern) ===== */
 
 .thinking-block-name {

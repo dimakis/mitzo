@@ -73,6 +73,13 @@ function RawInputDetail({
       </div>
     );
   }
+  if (raw.type === 'agent') {
+    return (
+      <div className="tool-pill-section">
+        {raw.prompt && <p className="tool-pill-agent-prompt">{raw.prompt}</p>}
+      </div>
+    );
+  }
   return null;
 }
 
@@ -146,7 +153,12 @@ export function ToolPill({ block }: Props) {
           <ToolResult block={block} onPopOut={handlePopOut} />
         </div>
       )}
-      {block.subagent && <SubagentCard subagent={block.subagent} />}
+      {block.subagent && (
+        <SubagentCard
+          subagent={block.subagent}
+          description={block.rawInput?.type === 'agent' ? block.rawInput.description : undefined}
+        />
+      )}
     </div>
   );
 }

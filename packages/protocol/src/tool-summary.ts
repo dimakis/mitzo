@@ -42,6 +42,13 @@ export function getRawInput(
         command: String(input.command || ''),
         language: 'bash',
       };
+    case 'Agent':
+      return {
+        type: 'agent',
+        description: String(input.description || ''),
+        subagent_type: String(input.subagent_type || ''),
+        prompt: String(input.prompt || '').slice(0, RAW_INPUT_MAX_CHARS),
+      };
     default:
       return undefined;
   }
@@ -74,6 +81,12 @@ export function summarizeToolInput(toolName: string, input: Record<string, unkno
       return 'get status';
     case 'mcp__task-board__TaskBlock':
       return `${String(input.reason || '').slice(0, 60)}`;
+    case 'Agent': {
+      const desc = String(input.description || '');
+      const type = String(input.subagent_type || '');
+      if (type && desc) return `${type} · ${desc}`.slice(0, TOOL_SUMMARY_MAX_CHARS);
+      return (desc || type || 'subagent').slice(0, TOOL_SUMMARY_MAX_CHARS);
+    }
     default:
       return JSON.stringify(input).slice(0, TOOL_SUMMARY_MAX_CHARS);
   }

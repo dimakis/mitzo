@@ -11,7 +11,7 @@ export type ToolTier = 'safe' | 'standard' | 'elevated' | 'unknown';
 // --- Tool input ---
 
 export interface RawToolInput {
-  type: 'write' | 'diff' | 'command' | 'read';
+  type: 'write' | 'diff' | 'command' | 'read' | 'agent';
   path?: string;
   contents?: string;
   old_string?: string;
@@ -19,6 +19,12 @@ export interface RawToolInput {
   command?: string;
   /** Language hint derived from file extension (e.g. 'typescript', 'python'). */
   language?: string;
+  /** Agent tool: description of what the subagent is doing. */
+  description?: string;
+  /** Agent tool: the type of subagent (e.g. 'Explore', 'Plan'). */
+  subagent_type?: string;
+  /** Agent tool: the full prompt sent to the subagent. */
+  prompt?: string;
 }
 
 // --- Snapshot (server-side current message state) ---
