@@ -74,9 +74,10 @@ function RawInputDetail({
     );
   }
   if (raw.type === 'agent') {
+    if (!raw.prompt) return null;
     return (
       <div className="tool-pill-section">
-        {raw.prompt && <p className="tool-pill-agent-prompt">{raw.prompt}</p>}
+        <p className="tool-pill-agent-prompt">{raw.prompt}</p>
       </div>
     );
   }

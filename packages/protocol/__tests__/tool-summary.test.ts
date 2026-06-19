@@ -77,6 +77,28 @@ describe('summarizeToolInput', () => {
     expect(summarizeToolInput('Glob', {})).toBe(' in workspace');
   });
 
+  it('summarizes Agent tool with type and description', () => {
+    expect(
+      summarizeToolInput('Agent', {
+        subagent_type: 'Explore',
+        description: 'Find meeting transcript',
+        prompt: 'Search for...',
+      }),
+    ).toBe('Explore · Find meeting transcript');
+  });
+
+  it('summarizes Agent tool with only description', () => {
+    expect(summarizeToolInput('Agent', { description: 'Search codebase' })).toBe('Search codebase');
+  });
+
+  it('summarizes Agent tool with only subagent_type', () => {
+    expect(summarizeToolInput('Agent', { subagent_type: 'Plan' })).toBe('Plan');
+  });
+
+  it('summarizes Agent tool with no fields as "subagent"', () => {
+    expect(summarizeToolInput('Agent', {})).toBe('subagent');
+  });
+
   it('summarizes task MCP tools', () => {
     expect(summarizeToolInput('mcp__task-board__TaskSet', { tasks: [{}, {}, {}] })).toBe(
       '3 subtasks',
@@ -165,5 +187,31 @@ describe('getRawInput', () => {
     expect(
       (result?.old_string?.length || 0) + (result?.new_string?.length || 0),
     ).toBeLessThanOrEqual(100_000);
+  });
+
+  it('returns agent type for Agent tool', () => {
+    const result = getRawInput('Agent', {
+      description: 'Find transcript',
+      subagent_type: 'Explore',
+      prompt: 'Search for meeting notes',
+    });
+    expect(result).toEqual({
+      type: 'agent',
+      description: 'Find transcript',
+      subagent_type: 'Explore',
+      prompt: 'Search for meeting notes',
+    });
+  });
+
+  it('caps Agent prompt at RAW_INPUT_MAX_CHARS', () => {
+    const bigPrompt = 'z'.repeat(60_000);
+    const result = getRawInput('Agent', { prompt: bigPrompt });
+    expect(result?.prompt?.length).toBeLessThanOrEqual(50_000);
+  });
+
+  it('caps Agent description at TOOL_SUMMARY_MAX_CHARS', () => {
+    const bigDesc = 'a'.repeat(300);
+    const result = getRawInput('Agent', { description: bigDesc });
+    expect(result?.description?.length).toBeLessThanOrEqual(200);
   });
 });
