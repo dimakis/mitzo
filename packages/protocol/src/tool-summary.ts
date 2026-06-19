@@ -42,13 +42,17 @@ export function getRawInput(
         command: String(input.command || ''),
         language: 'bash',
       };
-    case 'Agent':
+    case 'Agent': {
+      const desc = String(input.description || '');
+      const stype = String(input.subagent_type || '');
+      const prompt = String(input.prompt || '');
       return {
-        type: 'agent',
-        description: String(input.description || '').slice(0, TOOL_SUMMARY_MAX_CHARS),
-        subagent_type: String(input.subagent_type || '').slice(0, TOOL_SUMMARY_MAX_CHARS),
-        prompt: String(input.prompt || '').slice(0, RAW_INPUT_MAX_CHARS),
+        type: 'agent' as const,
+        ...(desc && { description: desc.slice(0, TOOL_SUMMARY_MAX_CHARS) }),
+        ...(stype && { subagent_type: stype.slice(0, TOOL_SUMMARY_MAX_CHARS) }),
+        ...(prompt && { prompt: prompt.slice(0, RAW_INPUT_MAX_CHARS) }),
       };
+    }
     default:
       return undefined;
   }

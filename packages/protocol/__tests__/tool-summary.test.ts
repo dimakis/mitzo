@@ -214,4 +214,17 @@ describe('getRawInput', () => {
     const result = getRawInput('Agent', { description: bigDesc });
     expect(result?.description?.length).toBeLessThanOrEqual(200);
   });
+
+  it('caps Agent subagent_type at TOOL_SUMMARY_MAX_CHARS', () => {
+    const bigType = 'b'.repeat(300);
+    const result = getRawInput('Agent', { subagent_type: bigType });
+    expect(result?.subagent_type?.length).toBeLessThanOrEqual(200);
+  });
+
+  it('omits empty Agent fields', () => {
+    const result = getRawInput('Agent', { description: 'Search' });
+    expect(result).toEqual({ type: 'agent', description: 'Search' });
+    expect(result).not.toHaveProperty('subagent_type');
+    expect(result).not.toHaveProperty('prompt');
+  });
 });
