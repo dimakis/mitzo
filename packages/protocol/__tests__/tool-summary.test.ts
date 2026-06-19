@@ -128,6 +128,19 @@ describe('summarizeToolInput', () => {
     expect(desc.length).toBe(190);
   });
 
+  it('gives short description full length and allocates remainder to long type', () => {
+    const result = summarizeToolInput('Agent', {
+      subagent_type: 'T'.repeat(200),
+      description: 'short',
+    });
+    expect(result.length).toBeLessThanOrEqual(200);
+    // 'short' (5 chars) should appear untruncated at end
+    expect(result.endsWith('short')).toBe(true);
+    // Type gets the remaining budget (200 - 5 - 3 = 192 chars)
+    const stype = result.split(' · ')[0];
+    expect(stype.length).toBe(192);
+  });
+
   it('summarizes task MCP tools', () => {
     expect(summarizeToolInput('mcp__task-board__TaskSet', { tasks: [{}, {}, {}] })).toBe(
       '3 subtasks',
