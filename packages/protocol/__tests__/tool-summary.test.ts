@@ -99,6 +99,20 @@ describe('summarizeToolInput', () => {
     expect(summarizeToolInput('Agent', {})).toBe('subagent');
   });
 
+  it('truncates long Agent type + description individually before combining', () => {
+    const longType = 'T'.repeat(150);
+    const longDesc = 'D'.repeat(150);
+    const result = summarizeToolInput('Agent', {
+      subagent_type: longType,
+      description: longDesc,
+    });
+    expect(result.length).toBeLessThanOrEqual(200);
+    // Both fields should be present (not one entirely clipped by the other)
+    expect(result).toContain('T');
+    expect(result).toContain('D');
+    expect(result).toContain(' · ');
+  });
+
   it('summarizes task MCP tools', () => {
     expect(summarizeToolInput('mcp__task-board__TaskSet', { tasks: [{}, {}, {}] })).toBe(
       '3 subtasks',

@@ -77,7 +77,7 @@ function RawInputDetail({
     if (!raw.prompt) return null;
     return (
       <div className="tool-pill-section">
-        <p className="tool-pill-agent-prompt">{raw.prompt}</p>
+        <CodeBlock code={raw.prompt} label="Prompt" maxHeight={300} />
       </div>
     );
   }
