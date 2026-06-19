@@ -86,10 +86,14 @@ export function summarizeToolInput(toolName: string, input: Record<string, unkno
     case 'mcp__task-board__TaskBlock':
       return `${String(input.reason || '').slice(0, 60)}`;
     case 'Agent': {
-      const desc = String(input.description || '').slice(0, TOOL_SUMMARY_MAX_CHARS);
-      const stype = String(input.subagent_type || '').slice(0, TOOL_SUMMARY_MAX_CHARS);
-      if (stype && desc) return `${stype} · ${desc}`.slice(0, TOOL_SUMMARY_MAX_CHARS);
-      return desc || stype || 'subagent';
+      const desc = String(input.description || '');
+      const stype = String(input.subagent_type || '');
+      if (stype && desc) {
+        // Split budget evenly so neither field is lost when both are long
+        const half = Math.floor((TOOL_SUMMARY_MAX_CHARS - 3) / 2);
+        return `${stype.slice(0, half)} · ${desc.slice(0, half)}`;
+      }
+      return (desc || stype || 'subagent').slice(0, TOOL_SUMMARY_MAX_CHARS);
     }
     default:
       return JSON.stringify(input).slice(0, TOOL_SUMMARY_MAX_CHARS);
