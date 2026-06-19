@@ -965,7 +965,7 @@ async function _startChatInner(
     .then((loaded) => {
       const s = registry.get(clientId);
       if (s) {
-        s.agentDefinition = loaded.definition as Record<string, unknown>;
+        s.agentDefinition = loaded.definition as unknown as Record<string, unknown>;
         s.agentDefinitionSource = loaded.source;
         log.info('agent definition stored', {
           agent: agentName,

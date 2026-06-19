@@ -86,8 +86,7 @@ export interface AgentDefinition {
   output?: AgentOutput;
 }
 
-// Re-export from harness to avoid duplicate definition
-export type { AgentDefinitionSource } from '@mitzo/harness';
+export type AgentDefinitionSource = 'contexgin' | 'local' | 'fallback';
 
 export interface LoadedAgentDefinition {
   definition: AgentDefinition;
