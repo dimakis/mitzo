@@ -46,7 +46,7 @@ export function getRawInput(
       return {
         type: 'agent',
         description: String(input.description || '').slice(0, TOOL_SUMMARY_MAX_CHARS),
-        subagent_type: String(input.subagent_type || ''),
+        subagent_type: String(input.subagent_type || '').slice(0, TOOL_SUMMARY_MAX_CHARS),
         prompt: String(input.prompt || '').slice(0, RAW_INPUT_MAX_CHARS),
       };
     default:
