@@ -77,6 +77,70 @@ describe('summarizeToolInput', () => {
     expect(summarizeToolInput('Glob', {})).toBe(' in workspace');
   });
 
+  it('summarizes Agent tool with type and description', () => {
+    expect(
+      summarizeToolInput('Agent', {
+        subagent_type: 'Explore',
+        description: 'Find meeting transcript',
+        prompt: 'Search for...',
+      }),
+    ).toBe('Explore · Find meeting transcript');
+  });
+
+  it('summarizes Agent tool with only description', () => {
+    expect(summarizeToolInput('Agent', { description: 'Search codebase' })).toBe('Search codebase');
+  });
+
+  it('summarizes Agent tool with only subagent_type', () => {
+    expect(summarizeToolInput('Agent', { subagent_type: 'Plan' })).toBe('Plan');
+  });
+
+  it('summarizes Agent tool with no fields as "subagent"', () => {
+    expect(summarizeToolInput('Agent', {})).toBe('subagent');
+  });
+
+  it('balances truncation so both type and description are visible', () => {
+    const longType = 'T'.repeat(200);
+    const longDesc = 'D'.repeat(200);
+    const result = summarizeToolInput('Agent', {
+      subagent_type: longType,
+      description: longDesc,
+    });
+    expect(result.length).toBeLessThanOrEqual(200);
+    expect(result).toContain('T');
+    expect(result).toContain('D');
+    expect(result).toContain(' · ');
+    const [left, right] = result.split(' · ');
+    expect(left.length).toBeGreaterThan(0);
+    expect(right.length).toBeGreaterThan(0);
+  });
+
+  it('gives short field full length and allocates remainder to long field', () => {
+    const result = summarizeToolInput('Agent', {
+      subagent_type: 'Explore',
+      description: 'D'.repeat(200),
+    });
+    expect(result.length).toBeLessThanOrEqual(200);
+    // 'Explore' (7 chars) should appear untruncated
+    expect(result.startsWith('Explore · ')).toBe(true);
+    // Description gets the remaining budget (200 - 7 - 3 = 190 chars)
+    const desc = result.split(' · ')[1];
+    expect(desc.length).toBe(190);
+  });
+
+  it('gives short description full length and allocates remainder to long type', () => {
+    const result = summarizeToolInput('Agent', {
+      subagent_type: 'T'.repeat(200),
+      description: 'short',
+    });
+    expect(result.length).toBeLessThanOrEqual(200);
+    // 'short' (5 chars) should appear untruncated at end
+    expect(result.endsWith('short')).toBe(true);
+    // Type gets the remaining budget (200 - 5 - 3 = 192 chars)
+    const stype = result.split(' · ')[0];
+    expect(stype.length).toBe(192);
+  });
+
   it('summarizes task MCP tools', () => {
     expect(summarizeToolInput('mcp__task-board__TaskSet', { tasks: [{}, {}, {}] })).toBe(
       '3 subtasks',
@@ -165,5 +229,44 @@ describe('getRawInput', () => {
     expect(
       (result?.old_string?.length || 0) + (result?.new_string?.length || 0),
     ).toBeLessThanOrEqual(100_000);
+  });
+
+  it('returns agent type for Agent tool', () => {
+    const result = getRawInput('Agent', {
+      description: 'Find transcript',
+      subagent_type: 'Explore',
+      prompt: 'Search for meeting notes',
+    });
+    expect(result).toEqual({
+      type: 'agent',
+      description: 'Find transcript',
+      subagent_type: 'Explore',
+      prompt: 'Search for meeting notes',
+    });
+  });
+
+  it('caps Agent prompt at RAW_INPUT_MAX_CHARS', () => {
+    const bigPrompt = 'z'.repeat(60_000);
+    const result = getRawInput('Agent', { prompt: bigPrompt });
+    expect(result?.prompt?.length).toBeLessThanOrEqual(50_000);
+  });
+
+  it('caps Agent description at TOOL_SUMMARY_MAX_CHARS', () => {
+    const bigDesc = 'a'.repeat(300);
+    const result = getRawInput('Agent', { description: bigDesc });
+    expect(result?.description?.length).toBeLessThanOrEqual(200);
+  });
+
+  it('caps Agent subagent_type at TOOL_SUMMARY_MAX_CHARS', () => {
+    const bigType = 'b'.repeat(300);
+    const result = getRawInput('Agent', { subagent_type: bigType });
+    expect(result?.subagent_type?.length).toBeLessThanOrEqual(200);
+  });
+
+  it('omits empty Agent fields', () => {
+    const result = getRawInput('Agent', { description: 'Search' });
+    expect(result).toEqual({ type: 'agent', description: 'Search' });
+    expect(result).not.toHaveProperty('subagent_type');
+    expect(result).not.toHaveProperty('prompt');
   });
 });

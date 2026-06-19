@@ -73,6 +73,14 @@ function RawInputDetail({
       </div>
     );
   }
+  if (raw.type === 'agent') {
+    if (!raw.prompt) return null;
+    return (
+      <div className="tool-pill-section">
+        <CodeBlock code={raw.prompt} label="Prompt" maxHeight={300} />
+      </div>
+    );
+  }
   return null;
 }
 
@@ -146,7 +154,12 @@ export function ToolPill({ block }: Props) {
           <ToolResult block={block} onPopOut={handlePopOut} />
         </div>
       )}
-      {block.subagent && <SubagentCard subagent={block.subagent} />}
+      {block.subagent && (
+        <SubagentCard
+          subagent={block.subagent}
+          description={block.rawInput?.type === 'agent' ? block.rawInput.description : undefined}
+        />
+      )}
     </div>
   );
 }
