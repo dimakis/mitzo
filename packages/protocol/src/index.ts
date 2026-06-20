@@ -35,6 +35,18 @@ export type {
   FinishedSubagentState,
   SubagentState,
   SubagentUsage,
+  AgentDefinitionSource,
+  AgentDefinition,
+  AgentIdentity,
+  AgentProvider,
+  AgentProviderTiering,
+  AgentContextConfig,
+  AgentGovernance,
+  GovernanceBoundary,
+  GovernanceApproval,
+  AgentMemoryConfig,
+  AgentOutput,
+  AgentOutputConventions,
 } from './types.js';
 
 // Constants

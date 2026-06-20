@@ -628,3 +628,27 @@ describe('resolveSshAuthSock', () => {
     expect(resolveSshAuthSock()).toBeNull();
   });
 });
+
+describe('agent definition wiring', () => {
+  it('loadAgentDef result is assignable to ManagedSession fields', async () => {
+    // Verify the fire-and-forget contract: loadAgentDef returns a shape
+    // that chat.ts can assign directly to session.agentDefinition and
+    // session.agentDefinitionSource without casts.
+    const { DEFAULT_AGENT_DEFINITION } = await import('../constants.js');
+    const loaded = {
+      definition: structuredClone(DEFAULT_AGENT_DEFINITION),
+      source: 'fallback' as const,
+    };
+
+    // Simulate what chat.ts does in the fire-and-forget block
+    const session: Partial<ManagedSession> = {};
+    session.agentDefinition = loaded.definition;
+    session.agentDefinitionSource = loaded.source;
+
+    expect(session.agentDefinition).toBeDefined();
+    expect(session.agentDefinition!.identity).toBeDefined();
+    expect(session.agentDefinition!.identity.description).toBeTruthy();
+    expect(session.agentDefinition!.provider.default).toBeTruthy();
+    expect(['contexgin', 'local', 'fallback']).toContain(session.agentDefinitionSource);
+  });
+});

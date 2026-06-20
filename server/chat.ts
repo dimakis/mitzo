@@ -42,6 +42,7 @@ import {
 import { INTERNAL_TOKEN } from './internal-token.js';
 import { buildTaskSystemPrompt } from './task-context.js';
 import type { TaskStore } from './task-store.js';
+import { loadAgentDef } from './agent-loader.js';
 
 let _taskStore: TaskStore | null = null;
 export function setTaskStore(store: TaskStore): void {
@@ -958,6 +959,32 @@ async function _startChatInner(
     buildWorktreeSystemPrompt(repoWorktrees) +
     buildTaskPromptForSession(clientId) +
     bootContextAppend;
+
+  // Fire-and-forget: load agent definition and store in session registry.
+  loadAgentDef(agentName, cwd)
+    .then((loaded) => {
+      const s = registry.get(clientId);
+      if (s) {
+        s.agentDefinition = loaded.definition;
+        s.agentDefinitionSource = loaded.source;
+        log.info('agent definition stored', {
+          agent: agentName,
+          source: loaded.source,
+          identity: loaded.definition.identity.description,
+        });
+      } else {
+        log.warn('agent definition loaded but session already torn down', {
+          agent: agentName,
+          source: loaded.source,
+        });
+      }
+    })
+    .catch((err: unknown) => {
+      log.warn('agent definition load failed', {
+        agent: agentName,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
 
   capturePromptComparison(wtId, cwd, systemPromptAppend, repoWorktrees).catch(() => {});
 

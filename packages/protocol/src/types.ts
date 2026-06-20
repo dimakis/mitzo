@@ -7,6 +7,74 @@
 export type MitzoMode = 'ask' | 'agent' | 'auto';
 export type BlockType = 'text' | 'thinking' | 'redacted_thinking' | 'tool_use';
 export type ToolTier = 'safe' | 'standard' | 'elevated' | 'unknown';
+export type AgentDefinitionSource = 'contexgin' | 'local' | 'fallback';
+
+// --- Agent definition (shared between agent-loader and session-registry) ---
+
+export interface AgentIdentity {
+  name: string;
+  description: string;
+  mode?: 'narrow' | 'dynamic';
+  role?: string;
+}
+
+export interface AgentProviderTiering {
+  fast?: string | null;
+  standard?: string | null;
+  capable?: string | null;
+}
+
+export interface AgentProvider {
+  default: string;
+  tiering?: AgentProviderTiering;
+}
+
+export interface AgentContextConfig {
+  budget?: number;
+  sources?: { hubs?: Array<{ path: string; spokes?: string[] }> };
+  priority?: string[];
+  exclude?: string[];
+  profile?: string;
+}
+
+export interface GovernanceBoundary {
+  spoke: string;
+  access: 'none' | 'read' | 'write';
+}
+
+export interface GovernanceApproval {
+  required_for?: string[];
+  auto_allow?: string[];
+}
+
+export interface AgentGovernance {
+  boundaries?: GovernanceBoundary[];
+  approval?: GovernanceApproval;
+}
+
+export interface AgentMemoryConfig {
+  scope: 'none' | 'read' | 'read-write';
+  vault?: string;
+}
+
+export interface AgentOutputConventions {
+  commit_style?: string;
+  response_format?: string | null;
+}
+
+export interface AgentOutput {
+  conventions?: AgentOutputConventions;
+  guides?: string[];
+}
+
+export interface AgentDefinition {
+  identity: AgentIdentity;
+  provider: AgentProvider;
+  context?: AgentContextConfig;
+  governance?: AgentGovernance;
+  memory?: AgentMemoryConfig;
+  output?: AgentOutput;
+}
 
 // --- Tool input ---
 
