@@ -542,7 +542,7 @@ Mitzo includes a local observability stack for debugging and performance analysi
 | Service | URL                    | Purpose                            |
 | ------- | ---------------------- | ---------------------------------- |
 | Jaeger  | http://localhost:16686 | Trace viewer                       |
-| Grafana | http://localhost:3001  | Log viewer + dashboards (no login) |
+| Grafana | http://localhost:3002  | Log viewer + dashboards (no login) |
 | Loki    | http://localhost:3200  | Log aggregation backend            |
 
 ### Quick start
