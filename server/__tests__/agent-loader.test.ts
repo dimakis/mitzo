@@ -285,10 +285,9 @@ describe('loadAgentDef', () => {
 
       await loadAgentDef('MyAgent', '/fake', 'http://localhost:8321');
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:8321/api/agents/myagent/context',
-        { signal: expect.any(AbortSignal) },
-      );
+      expect(mockFetch).toHaveBeenCalledWith('http://localhost:8321/api/agents/myagent/context', {
+        signal: expect.any(AbortSignal),
+      });
     });
 
     it('normalizes underscores to hyphens', async () => {
@@ -299,10 +298,9 @@ describe('loadAgentDef', () => {
 
       await loadAgentDef('my_agent', '/fake', 'http://localhost:8321');
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:8321/api/agents/my-agent/context',
-        { signal: expect.any(AbortSignal) },
-      );
+      expect(mockFetch).toHaveBeenCalledWith('http://localhost:8321/api/agents/my-agent/context', {
+        signal: expect.any(AbortSignal),
+      });
     });
 
     it('normalizes mixed case + underscores', async () => {
