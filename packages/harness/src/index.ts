@@ -102,7 +102,16 @@ export {
   DEFAULT_FUSION_CONFIG,
   SELF_FUSION_CONFIG,
 } from './reasoning/index.js';
+export {
+  buildDeliberationConfig,
+  buildDeliberationConfigFromAgent,
+  buildFusionConfig,
+} from './reasoning/index.js';
 export type {
+  AgentDeliberationBlock,
+  AgentDefinitionInput,
+  BuildDeliberationConfigOptions,
+  BuildFusionConfigOptions,
   DeliberationConfig,
   DeliberationResult,
   FusionConfig,

@@ -8,6 +8,17 @@
 
 export { DeliberationOrchestrator, DEFAULT_DELIBERATION_CONFIG } from './deliberation.js';
 export { FusionOrchestrator, DEFAULT_FUSION_CONFIG, SELF_FUSION_CONFIG } from './fusion.js';
+export {
+  buildDeliberationConfig,
+  buildDeliberationConfigFromAgent,
+  buildFusionConfig,
+} from './schema-loader.js';
+export type {
+  AgentDeliberationBlock,
+  AgentDefinitionInput,
+  BuildDeliberationConfigOptions,
+  BuildFusionConfigOptions,
+} from './schema-loader.js';
 export type {
   // Shared
   TranscriptEntry,
