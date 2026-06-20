@@ -12,6 +12,9 @@ const ALLOWED_MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'im
 /** Max decoded image size: 10 MB. */
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
+/** Max images per session to prevent unbounded accumulation. */
+const MAX_IMAGES_PER_SESSION = 50;
+
 interface StoredImage {
   data: Buffer;
   mediaType: string;
@@ -28,6 +31,14 @@ export function storeImage(
   mediaType: string,
 ): string | null {
   if (!ALLOWED_MEDIA_TYPES.has(mediaType)) return null;
+
+  // Enforce per-session image count limit
+  let sessionCount = 0;
+  for (const img of images.values()) {
+    if (img.sessionId === sessionId) sessionCount++;
+  }
+  if (sessionCount >= MAX_IMAGES_PER_SESSION) return null;
+
   const buf = Buffer.from(base64Data, 'base64');
   if (buf.length > MAX_IMAGE_BYTES) return null;
   const id = randomUUID();

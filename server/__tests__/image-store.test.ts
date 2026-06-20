@@ -53,4 +53,15 @@ describe('image-store', () => {
     const bigData = Buffer.alloc(10 * 1024 * 1024 + 1).toString('base64');
     expect(storeImage(SESSION, bigData, 'image/png')).toBeNull();
   });
+
+  it('enforces per-session image limit of 50', () => {
+    for (let i = 0; i < 50; i++) {
+      expect(storeImage(SESSION, 'dGVzdA==', 'image/png')).toBeTruthy();
+    }
+    // 51st should be rejected
+    expect(storeImage(SESSION, 'dGVzdA==', 'image/png')).toBeNull();
+
+    // Different session should still work
+    expect(storeImage('other-session', 'dGVzdA==', 'image/png')).toBeTruthy();
+  });
 });

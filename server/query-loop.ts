@@ -1265,6 +1265,9 @@ async function _runQueryLoopInner(
                 // Store images server-side and build reference array
                 const sid = resolvedSessionId || registry.get(clientId)?.sessionId;
                 let imageRefs: { id: string; mediaType: string }[] | undefined;
+                if (resultImages.length > 0 && !sid) {
+                  log.warn('dropping tool result images — no sessionId', { clientId });
+                }
                 if (resultImages.length > 0 && sid) {
                   imageRefs = [];
                   for (const img of resultImages) {

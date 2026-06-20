@@ -1318,6 +1318,7 @@ function _closeoutSessionInner(clientId: string): void {
   const session = registry.get(clientId);
   if (!session?.inputQueue) {
     // No active session or input queue — just finalize as abandoned
+    if (session?.sessionId) clearSessionImages(session.sessionId);
     if (session?.wtId) {
       try {
         finalizeCloseout(BASE_REPO, session.wtId, {
@@ -1353,6 +1354,7 @@ function _closeoutSessionInner(clientId: string): void {
   if (session.wtId) {
     const wtId = session.wtId;
     const onAbort = () => {
+      if (session.sessionId) clearSessionImages(session.sessionId);
       const status = registry.isClosingOut(clientId) ? 'abandoned' : 'closed';
       const closedBy = registry.isUserClose(clientId)
         ? 'user'
@@ -1433,6 +1435,7 @@ export function closeSessionByUser(clientId: string): void {
     if (session.wtId) {
       const wtId = session.wtId;
       const onAbort = () => {
+        if (session.sessionId) clearSessionImages(session.sessionId);
         try {
           finalizeCloseout(BASE_REPO, wtId, {
             status: 'closed',
