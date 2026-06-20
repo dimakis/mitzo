@@ -9,12 +9,21 @@ import {
 } from './constants.js';
 import { createLogger } from './logger.js';
 
-export type AgentDefinitionSource = 'contexgin' | 'local' | 'fallback';
-
 const log = createLogger('session-registry');
 
-export type { MitzoMode, SnapshotBlock, MessageSnapshot, RawToolInput } from '@mitzo/protocol';
-import type { MitzoMode, MessageSnapshot } from '@mitzo/protocol';
+export type {
+  MitzoMode,
+  SnapshotBlock,
+  MessageSnapshot,
+  RawToolInput,
+  AgentDefinitionSource,
+} from '@mitzo/protocol';
+import type {
+  MitzoMode,
+  MessageSnapshot,
+  AgentDefinitionSource,
+  AgentDefinition,
+} from '@mitzo/protocol';
 
 export interface ManagedSession {
   transport: SessionTransport;
@@ -53,7 +62,7 @@ export interface ManagedSession {
   /** Cached boot_context payload for replay on reconnect/switch. */
   bootContext?: Record<string, unknown>;
   /** Parsed agent definition (recipe). Populated asynchronously after session start. */
-  agentDefinition?: Record<string, unknown> | null;
+  agentDefinition?: AgentDefinition | null;
   /** Source of the agent definition: 'contexgin' | 'local' | 'fallback'. */
   agentDefinitionSource?: AgentDefinitionSource;
 }

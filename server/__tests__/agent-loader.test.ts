@@ -268,11 +268,10 @@ describe('loadAgentDef', () => {
       ['has spaces', 'spaces'],
       ['has/slash', 'slash'],
     ])('rejects invalid agent name %s (%s)', async (name, _reason) => {
-      mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
-
       const result = await loadAgentDef(name, '/fake', 'http://localhost:8321');
 
-      // Should skip local and fall through to fallback — readFile never called
+      // Validation at entry point — no source attempted
+      expect(mockFetch).not.toHaveBeenCalled();
       expect(mockReadFile).not.toHaveBeenCalled();
       expect(result.source).toBe('fallback');
     });
@@ -297,6 +296,74 @@ describe('loadAgentDef', () => {
       expect(mockFetch).toHaveBeenCalledTimes(2);
 
       vi.useRealTimers();
+    });
+  });
+
+  describe('chat.ts wiring contract', () => {
+    // chat.ts fire-and-forget does: s.agentDefinition = loaded.definition;
+    // s.agentDefinitionSource = loaded.source; — these tests verify the contract.
+
+    it('ContexGin result has identity.description for session log line', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => VALID_CONTEXGIN_RESPONSE,
+      });
+
+      const result = await loadAgentDef('mitzo-conversational', '/fake', 'http://localhost:8321');
+
+      // chat.ts logs: loaded.definition.identity.description
+      expect(typeof result.definition.identity.description).toBe('string');
+      expect(result.definition.identity.description.length).toBeGreaterThan(0);
+    });
+
+    it('fallback result has identity.description for session log line', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+      mockReadFile.mockRejectedValueOnce(new Error('ENOENT'));
+
+      const result = await loadAgentDef('my-agent', '/fake', 'http://localhost:8321');
+
+      expect(typeof result.definition.identity.description).toBe('string');
+      expect(result.definition.identity.description.length).toBeGreaterThan(0);
+    });
+
+    it('source is always a valid AgentDefinitionSource', async () => {
+      // ContexGin path
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => VALID_CONTEXGIN_RESPONSE,
+      });
+      const cg = await loadAgentDef('agent-a', '/fake', 'http://localhost:8321');
+      expect(['contexgin', 'local', 'fallback']).toContain(cg.source);
+
+      clearCache();
+
+      // Fallback path
+      mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+      mockReadFile.mockRejectedValueOnce(new Error('ENOENT'));
+      const fb = await loadAgentDef('agent-b', '/fake', 'http://localhost:8321');
+      expect(['contexgin', 'local', 'fallback']).toContain(fb.source);
+    });
+
+    it('definition.provider always has a default model', async () => {
+      // ContexGin with explicit provider
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => VALID_CONTEXGIN_RESPONSE,
+      });
+      const cg = await loadAgentDef('agent-a', '/fake', 'http://localhost:8321');
+      expect(typeof cg.definition.provider.default).toBe('string');
+
+      clearCache();
+
+      // ContexGin without provider (should default)
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          identity: { name: 'minimal', description: 'Minimal agent' },
+        }),
+      });
+      const minimal = await loadAgentDef('agent-b', '/fake', 'http://localhost:8321');
+      expect(typeof minimal.definition.provider.default).toBe('string');
     });
   });
 });

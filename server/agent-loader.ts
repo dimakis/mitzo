@@ -12,82 +12,36 @@
 import { readFile } from 'fs/promises';
 import path from 'path';
 import { load as parseYaml } from 'js-yaml';
+import { z } from 'zod';
 import { createLogger } from './logger.js';
 import { DEFAULT_AGENT_DEFINITION } from './constants.js';
+import type {
+  AgentDefinitionSource,
+  AgentDefinition,
+  AgentIdentity,
+  AgentProvider,
+  AgentContextConfig,
+  AgentGovernance,
+  AgentMemoryConfig,
+  AgentOutput,
+} from '@mitzo/protocol';
+
+// Re-export from @mitzo/protocol — single source of truth
+export type {
+  AgentDefinitionSource,
+  AgentDefinition,
+  AgentIdentity,
+  AgentProvider,
+  AgentContextConfig,
+  AgentGovernance,
+  AgentMemoryConfig,
+  AgentOutput,
+} from '@mitzo/protocol';
 
 const log = createLogger('agent-loader');
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
-export interface AgentIdentity {
-  name: string;
-  description: string;
-  mode?: 'narrow' | 'dynamic';
-  role?: string;
-}
-
-export interface AgentProviderTiering {
-  fast?: string | null;
-  standard?: string | null;
-  capable?: string | null;
-}
-
-export interface AgentProvider {
-  default: string;
-  tiering?: AgentProviderTiering;
-}
-
-export interface AgentContextConfig {
-  budget?: number;
-  sources?: {
-    hubs?: Array<{ path: string; spokes?: string[] }>;
-  };
-  priority?: string[];
-  exclude?: string[];
-  profile?: string;
-}
-
-export interface GovernanceBoundary {
-  spoke: string;
-  access: 'none' | 'read' | 'write';
-}
-
-export interface GovernanceApproval {
-  required_for?: string[];
-  auto_allow?: string[];
-}
-
-export interface AgentGovernance {
-  boundaries?: GovernanceBoundary[];
-  approval?: GovernanceApproval;
-}
-
-export interface AgentMemoryConfig {
-  scope: 'none' | 'read' | 'read-write';
-  vault?: string;
-}
-
-export interface AgentOutputConventions {
-  commit_style?: string;
-  response_format?: string | null;
-}
-
-export interface AgentOutput {
-  conventions?: AgentOutputConventions;
-  guides?: string[];
-}
-
-export interface AgentDefinition {
-  identity: AgentIdentity;
-  provider: AgentProvider;
-  context?: AgentContextConfig;
-  governance?: AgentGovernance;
-  memory?: AgentMemoryConfig;
-  output?: AgentOutput;
-}
-
-/** @see packages/harness/src/session-registry.ts for the canonical copy. */
-export type AgentDefinitionSource = 'contexgin' | 'local' | 'fallback';
+/** Validates agent names: lowercase alphanumeric + hyphens, no leading dash. */
+const AGENT_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 export interface LoadedAgentDefinition {
   definition: AgentDefinition;
@@ -102,7 +56,71 @@ interface CacheEntry {
 }
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const FALLBACK_CACHE_TTL_MS = 30 * 1000; // 30 seconds — allow faster recovery
 const cache = new Map<string, CacheEntry>();
+
+// ─── Zod schemas for ContexGin response validation ─────────────────────────
+
+const ContexGinIdentitySchema = z.object({
+  name: z.string().min(1),
+  description: z.string().min(1),
+  mode: z.enum(['narrow', 'dynamic']).optional(),
+  role: z.string().optional(),
+});
+
+const ContexGinResponseSchema = z.object({
+  identity: ContexGinIdentitySchema,
+  provider: z
+    .object({
+      default: z.string(),
+      tiering: z
+        .object({
+          fast: z.string().nullable().optional(),
+          standard: z.string().nullable().optional(),
+          capable: z.string().nullable().optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+  governance: z
+    .object({
+      boundaries: z
+        .array(z.object({ spoke: z.string(), access: z.enum(['none', 'read', 'write']) }))
+        .optional(),
+      approval: z
+        .object({
+          required_for: z.array(z.string()).optional(),
+          auto_allow: z.array(z.string()).optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+  memory: z
+    .object({
+      scope: z.enum(['none', 'read', 'read-write']),
+      vault: z.string().optional(),
+    })
+    .optional(),
+  output: z
+    .object({
+      conventions: z
+        .object({
+          commit_style: z.string().optional(),
+          response_format: z.string().nullable().optional(),
+        })
+        .optional(),
+      guides: z.array(z.string()).optional(),
+    })
+    .optional(),
+  boot: z
+    .object({
+      tokens: z.number().optional(),
+      content: z.string().optional(),
+      sources: z.array(z.string()).optional(),
+    })
+    .passthrough()
+    .optional(),
+});
 
 /** Clear the agent definition cache (for testing). */
 export function clearCache(): void {
@@ -125,21 +143,19 @@ async function loadFromContexGin(
 
     if (!res.ok) return null;
 
-    const data = (await res.json()) as Record<string, unknown>;
+    const raw = await res.json();
+    const parsed = ContexGinResponseSchema.safeParse(raw);
+    if (!parsed.success) {
+      log.warn('ContexGin response failed validation', {
+        agent: agentName,
+        errors: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`),
+      });
+      return null;
+    }
 
-    // ContexGin returns identity, provider, governance, memory at the top level
-    const identity = data.identity as AgentIdentity | undefined;
-    if (!identity?.name || !identity?.description) return null;
-
-    const provider = data.provider as AgentProvider | undefined;
-    const governance = data.governance as AgentGovernance | undefined;
-    const memory = data.memory as AgentMemoryConfig | undefined;
-    const output = data.output as AgentOutput | undefined;
-
-    // Extract context config from boot response
-    const boot = data.boot as Record<string, unknown> | undefined;
-    const context: AgentContextConfig | undefined = boot
-      ? { budget: typeof boot.tokens === 'number' ? boot.tokens : undefined }
+    const { identity, provider, governance, memory, output, boot } = parsed.data;
+    const context: AgentContextConfig | undefined = boot?.tokens
+      ? { budget: boot.tokens }
       : undefined;
 
     return {
@@ -167,9 +183,6 @@ async function loadFromLocal(
   cwd: string,
 ): Promise<LoadedAgentDefinition | null> {
   try {
-    // Validate agent name format (alphanumeric + hyphens only)
-    if (!/^[a-z0-9][a-z0-9-]*$/.test(agentName)) return null;
-
     const agentsDir = path.resolve(cwd, '.agents');
     const filePath = path.resolve(agentsDir, `${agentName}.yaml`);
     const rel = path.relative(agentsDir, filePath);
@@ -217,6 +230,15 @@ export async function loadAgentDef(
   cwd: string,
   contexginUrl: string = process.env.CONTEXGIN_URL || 'http://localhost:8321',
 ): Promise<LoadedAgentDefinition> {
+  // Validate agent name early — reject before any source attempt
+  if (!AGENT_NAME_RE.test(agentName)) {
+    log.warn('invalid agent name rejected', { agent: agentName });
+    return {
+      definition: DEFAULT_AGENT_DEFINITION,
+      source: 'fallback',
+    };
+  }
+
   // Check cache
   const cacheKey = `${agentName}:${cwd}:${contexginUrl}`;
   const cached = cache.get(cacheKey);
@@ -246,7 +268,7 @@ export async function loadAgentDef(
     return fromLocal;
   }
 
-  // 3. Bundled fallback
+  // 3. Bundled fallback — shorter TTL so we recover faster when ContexGin comes back
   log.info('using bundled agent definition fallback', { agent: agentName });
   const fallback: LoadedAgentDefinition = {
     definition: {
@@ -255,6 +277,6 @@ export async function loadAgentDef(
     },
     source: 'fallback',
   };
-  cache.set(cacheKey, { result: fallback, expiresAt: Date.now() + CACHE_TTL_MS });
+  cache.set(cacheKey, { result: fallback, expiresAt: Date.now() + FALLBACK_CACHE_TTL_MS });
   return fallback;
 }
