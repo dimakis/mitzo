@@ -917,6 +917,36 @@ async function _startChatInner(
   // Load project hooks from .claude/settings.json (e.g. SessionStart boot context)
   const hooks = loadProjectHooks(cwd);
 
+  // Fetch boot context BEFORE building system prompt so it's part of the
+  // system prompt append and survives SDK context compaction.
+  // fetchBootContext never throws and has a 5s AbortSignal timeout internally.
+  // Race with a 2s deadline so session startup isn't blocked when ContexGin is slow.
+  let raceTimer: ReturnType<typeof setTimeout> | undefined;
+  const bootContextMsg = await Promise.race([
+    fetchBootContext(agentName),
+    new Promise<Awaited<ReturnType<typeof fetchBootContext>>>((resolve) => {
+      raceTimer = setTimeout(() => resolve({ ...FALLBACK_BOOT_CONTEXT }), 2000);
+    }),
+  ]);
+  clearTimeout(raceTimer);
+  const bootContextAppend = bootContextMsg.fullMarkdown
+    ? `\n\n# Boot Context\n${bootContextMsg.fullMarkdown}`
+    : '';
+
+  // Send boot context to UI immediately (sessionId may be undefined for new sessions — OK,
+  // it's a display-only hint; the client doesn't key on it for boot context).
+  send(transport, { ...bootContextMsg, ...(stateSessionId ? { sessionId: stateSessionId } : {}) });
+  // Cache in ManagedSession for replay on reconnect/switch
+  session.bootContext = bootContextMsg as unknown as Record<string, unknown>;
+  // For resumed sessions, persist immediately (sessionId is known).
+  // For new sessions, persist in onSessionResolved once SDK assigns the ID.
+  if (stateSessionId) {
+    eventStore.upsertSession({
+      sessionId: stateSessionId,
+      bootContext: JSON.stringify(bootContextMsg),
+    });
+  }
+
   // Build the system prompt append string (used by both query and comparison)
   const systemPromptAppend =
     'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
@@ -925,36 +955,9 @@ async function _startChatInner(
     '- Keep responses concise — small screen.\n' +
     '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.' +
     buildWorktreeSystemPrompt(repoWorktrees) +
-    buildTaskPromptForSession(clientId);
+    buildTaskPromptForSession(clientId) +
+    bootContextAppend;
 
-  // Fire-and-forget: fetch boot context from running ContexGin server.
-  // The callback may fire after the session ends (registry cleaned up) or
-  // before the SDK assigns a sessionId (new sessions). We include agentName
-  // in the upsert as a safety net so it's never null in the DB.
-  fetchBootContext(agentName)
-    .then((msg) => {
-      const session = registry.get(clientId);
-      const sid = options.resume ?? session?.sessionId;
-      // Send to client if transport still connected
-      if (session) {
-        send(transport, { ...msg, ...(sid ? { sessionId: sid } : {}) });
-        session.bootContext = msg as unknown as Record<string, unknown>;
-      }
-      // Persist to EventStore — include agentName as safety net since
-      // this upsert may be the last write for short-lived sessions.
-      if (sid) {
-        eventStore.upsertSession({
-          sessionId: sid,
-          bootContext: JSON.stringify(msg),
-          agentName,
-        });
-      }
-    })
-    .catch((err: unknown) => {
-      log.warn('boot context fetch unexpected error', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
   capturePromptComparison(wtId, cwd, systemPromptAppend, repoWorktrees).catch(() => {});
 
   // Resolve SDK session UUID for resume — worktree IDs are not valid SDK session IDs
@@ -1027,7 +1030,16 @@ async function _startChatInner(
       options.resume ? undefined : fullPrompt,
       {
         connRegistry: _connRegistry ?? undefined,
-        onSessionResolved: options.onSessionResolved,
+        onSessionResolved: (sessionId: string) => {
+          // Persist boot context for new sessions (resume sessions already persisted above)
+          if (!options.resume) {
+            eventStore.upsertSession({
+              sessionId,
+              bootContext: JSON.stringify(bootContextMsg),
+            });
+          }
+          options.onSessionResolved?.(sessionId);
+        },
         onInitialPrompt: (sessionId: string) => {
           tryAutoRename(sessionId, clientId).catch(() => {
             /* errors logged internally */

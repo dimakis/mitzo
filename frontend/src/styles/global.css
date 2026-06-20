@@ -2410,10 +2410,11 @@ textarea:focus {
 /* ===== Session Banner (persistent boot + session context) ===== */
 
 .session-banner {
-  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 10;
   border-bottom: 1px solid var(--border);
   background: var(--bg-primary);
-  z-index: 10;
 }
 
 .session-banner-header {
