@@ -29,6 +29,11 @@ export interface AgentDeliberationBlock {
   role: 'proposer' | 'challenger';
   counterpart: string;
   protocol?: {
+    /**
+     * Declared for schema fidelity with Centaur agent definitions.
+     * Not consumed by the orchestrator yet — the deliberation protocol
+     * is fixed at 4 phases (propose, challenge, respond, converge).
+     */
     phases?: string[];
     max_rounds?: number;
     convergence?: 'fixed-rounds' | 'explicit-agreement';
