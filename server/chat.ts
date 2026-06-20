@@ -1266,8 +1266,6 @@ export function cleanupSessionWorktrees(
     const repoPath = config.repos[repoName];
     if (!repoPath) continue;
     // Guard: never remove a secondary whose path matches the primary worktree.
-    // This can happen when the base repo is also listed in .mitzo.json repos
-    // (e.g. "mgmt"), causing discoverSessionWorktrees to add both entries.
     if (primaryPath && resolve(path) === resolve(primaryPath)) {
       log.info('skipping secondary cleanup — path matches primary worktree', {
         repoName,

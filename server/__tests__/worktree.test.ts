@@ -613,6 +613,19 @@ describe('discoverSessionWorktrees', () => {
     expect(result.has('primary')).toBe(true);
     expect(result.has('mgmt')).toBe(false);
   });
+
+  it('deduplicates even with trailing slash differences', () => {
+    const wtId = '2026-04-20-abc123def456';
+    mkdirSync(join(primaryRepo, '.claude', 'worktrees', wtId), { recursive: true });
+
+    const result = discoverSessionWorktrees(wtId, primaryRepo, {
+      mgmt: primaryRepo + '/',
+    });
+
+    expect(result.size).toBe(1);
+    expect(result.has('primary')).toBe(true);
+    expect(result.has('mgmt')).toBe(false);
+  });
 });
 
 describe('cleanupStaleWorktrees', () => {
