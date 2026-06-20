@@ -1,21 +1,4 @@
-/**
- * Schema loader — converts Centaur agent definition YAML into
- * DeliberationConfig and FusionConfig for the reasoning orchestrators.
- *
- * Centaur agent definitions describe deliberation participants declaratively:
- *
- *   deliberation:
- *     role: proposer | challenger
- *     counterpart: deliberation-challenger
- *     protocol:
- *       phases: [propose, challenge, respond, converge]
- *       max_rounds: 2
- *       convergence: fixed-rounds
- *
- * This module resolves a proposer + challenger pair into a ready-to-run
- * DeliberationConfig, pulling model names from each agent's provider block
- * and applying sensible defaults for system prompts and budget.
- */
+/** Schema loader — converts Centaur agent definition YAML into DeliberationConfig / FusionConfig. */
 
 import { createLogger } from '../logger.js';
 import type { AgentRole, DeliberationConfig, FusionConfig, PanelMember } from './types.js';

@@ -96,13 +96,12 @@ export type {
 export { MODEL_COSTS, calculateCost } from './providers/index.js';
 
 // Reasoning — deliberation + fusion orchestrators
-export { DeliberationOrchestrator, DEFAULT_DELIBERATION_CONFIG } from './reasoning/index.js';
 export {
+  DeliberationOrchestrator,
+  DEFAULT_DELIBERATION_CONFIG,
   FusionOrchestrator,
   DEFAULT_FUSION_CONFIG,
   SELF_FUSION_CONFIG,
-} from './reasoning/index.js';
-export {
   buildDeliberationConfig,
   buildDeliberationConfigFromAgent,
   buildFusionConfig,

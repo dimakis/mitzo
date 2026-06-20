@@ -257,6 +257,24 @@ describe('buildDeliberationConfigFromAgent', () => {
       'expected "challenger"',
     );
   });
+
+  it('throws when challenger input resolves another challenger (symmetric)', async () => {
+    // Challenger input whose resolver returns another challenger instead of a proposer
+    const anotherChallenger: AgentDefinitionInput = {
+      identity: { name: 'another-challenger', description: 'Also challenges' },
+      provider: { default: 'claude-sonnet-4-6' },
+      deliberation: {
+        role: 'challenger',
+        counterpart: 'deliberation-challenger',
+      },
+    };
+
+    const resolve = async () => anotherChallenger;
+
+    await expect(buildDeliberationConfigFromAgent(challengerDef, resolve)).rejects.toThrow(
+      'expected "proposer"',
+    );
+  });
 });
 
 // ─── buildFusionConfig ──────────────────────────────────────────────────────
