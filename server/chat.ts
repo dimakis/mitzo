@@ -1260,10 +1260,19 @@ export function cleanupSessionWorktrees(
   session: import('./session-registry.js').ManagedSession,
 ): void {
   const config = getRepoConfig();
-  for (const [repoName, { wtId }] of session.worktreePaths) {
+  const primaryPath = session.worktreePaths.get('primary')?.path;
+  for (const [repoName, { wtId, path }] of session.worktreePaths) {
     if (repoName === 'primary') continue;
     const repoPath = config.repos[repoName];
     if (!repoPath) continue;
+    // Guard: never remove a secondary whose path matches the primary worktree.
+    if (primaryPath && resolve(path) === resolve(primaryPath)) {
+      log.info('skipping secondary cleanup — path matches primary worktree', {
+        repoName,
+        path,
+      });
+      continue;
+    }
     try {
       removeWorktree(wtId, repoPath);
     } catch (err: unknown) {

@@ -14,7 +14,7 @@ import {
   unlinkSync,
 } from 'fs';
 import { mkdir } from 'fs/promises';
-import { join, basename } from 'path';
+import { join, basename, resolve } from 'path';
 
 const execFileAsync = promisify(execFileCb);
 import {
@@ -237,6 +237,10 @@ export function discoverSessionWorktrees(
 
   const allRepos: Array<[string, string]> = [['primary', primaryRepo]];
   for (const [name, repoPath] of Object.entries(secondaryRepos)) {
+    // Skip secondary repos that resolve to the same path as the primary —
+    // otherwise both "primary" and "mgmt" map to the same worktree, and
+    // cleanupSessionWorktrees removes the primary thinking it's a secondary.
+    if (resolve(repoPath) === resolve(primaryRepo)) continue;
     allRepos.push([name, repoPath]);
   }
 

@@ -211,6 +211,41 @@ describe('cleanupSessionWorktrees', () => {
 
     expect(session.worktreePaths.size).toBe(0);
   });
+
+  it('skips secondary whose path matches primary worktree', async () => {
+    const { loadRepoConfig } = await import('../repo-config.js');
+    (loadRepoConfig as ReturnType<typeof vi.fn>).mockReturnValue({
+      repos: { mgmt: '/repo', mitzo: '/tools/mitzo' },
+      isolation: true,
+    });
+
+    const realNow = Date.now;
+    Date.now = () => realNow() + 10_000;
+
+    const { cleanupSessionWorktrees } = await import('../chat.js');
+
+    // "mgmt" secondary points to the same path as "primary" —
+    // simulates discoverSessionWorktrees adding both entries
+    const session = {
+      worktreePaths: new Map([
+        ['primary', { path: '/repo/.claude/worktrees/abc', wtId: 'abc' }],
+        ['mgmt', { path: '/repo/.claude/worktrees/abc', wtId: 'abc' }],
+        ['mitzo', { path: '/tools/mitzo/.claude/worktrees/abc', wtId: 'abc' }],
+      ]),
+    } as unknown as ManagedSession;
+
+    cleanupSessionWorktrees(session);
+
+    // mgmt should NOT be removed (same path as primary), mitzo should be removed
+    expect(removeWorktreeMock).toHaveBeenCalledWith('abc', '/tools/mitzo');
+    expect(removeWorktreeMock).toHaveBeenCalledTimes(1);
+
+    expect(session.worktreePaths.has('primary')).toBe(true);
+    expect(session.worktreePaths.size).toBe(1);
+
+    Date.now = realNow;
+    vi.restoreAllMocks();
+  });
 });
 
 describe('createSessionWorktrees — lazy secondary creation', () => {
