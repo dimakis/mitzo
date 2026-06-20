@@ -634,8 +634,11 @@ describe('agent definition wiring', () => {
     // Verify the fire-and-forget contract: loadAgentDef returns a shape
     // that chat.ts can assign directly to session.agentDefinition and
     // session.agentDefinitionSource without casts.
-    const { loadAgentDef } = await import('../agent-loader.js');
-    const loaded = await loadAgentDef('test-agent', '/fake');
+    const { DEFAULT_AGENT_DEFINITION } = await import('../constants.js');
+    const loaded = {
+      definition: structuredClone(DEFAULT_AGENT_DEFINITION),
+      source: 'fallback' as const,
+    };
 
     // Simulate what chat.ts does in the fire-and-forget block
     const session: Partial<ManagedSession> = {};

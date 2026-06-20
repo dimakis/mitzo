@@ -50,7 +50,7 @@ export const DEFAULT_AGENT_NAME = 'mitzo-conversational';
 /** Bundled fallback agent definition — used when ContexGin is unreachable and no local override. */
 export const DEFAULT_AGENT_DEFINITION = {
   identity: {
-    name: 'mitzo-conversational',
+    name: DEFAULT_AGENT_NAME,
     description: 'Primary conversational assistant via Mitzo iOS with full domain context',
     mode: 'dynamic' as const,
   },

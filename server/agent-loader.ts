@@ -116,7 +116,6 @@ const ContexGinResponseSchema = z.object({
       content: z.string().optional(),
       sources: z.array(z.string()).optional(),
     })
-    .passthrough()
     .optional(),
 });
 
@@ -281,13 +280,9 @@ export async function loadAgentDef(
 
   // 3. Bundled fallback — shorter TTL so we recover faster when ContexGin comes back
   log.info('using bundled agent definition fallback', { agent: name });
-  const fallback: LoadedAgentDefinition = {
-    definition: {
-      ...DEFAULT_AGENT_DEFINITION,
-      identity: { ...DEFAULT_AGENT_DEFINITION.identity, name },
-    },
-    source: 'fallback',
-  };
+  const definition = structuredClone(DEFAULT_AGENT_DEFINITION) as AgentDefinition;
+  definition.identity.name = name;
+  const fallback: LoadedAgentDefinition = { definition, source: 'fallback' };
   cache.set(cacheKey, { result: fallback, expiresAt: Date.now() + FALLBACK_CACHE_TTL_MS });
   return fallback;
 }
