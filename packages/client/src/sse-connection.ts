@@ -215,12 +215,11 @@ export class SseConnection implements ChatConnection {
       this._connectionId = msg.connectionId as string;
       this._connected = true;
 
-      // Always send reconnect on welcome if we have tracked sessions.
-      // Native EventSource auto-reconnect reuses the original URL (without
-      // ?sessions= param), so the server never runs handleReconnect — no
-      // watch, no reattach, no event replay. This POST ensures every
-      // reconnect (auto or explicit) triggers the full server-side
-      // reconnect flow: watch + reattach + event replay.
+      // Send reconnect POST before flushing queued sends so the server
+      // sets up watches/reattach before receiving client messages.
+      // Flush uses .finally() so queued sends still go out even if
+      // reconnect POST fails. _open fires after flush to match WS
+      // transport convention (ready = flushed + connected).
       if (this._isReconnect && this.seqBySession.size > 0) {
         this.doPost('reconnect', {
           type: 'reconnect',
@@ -228,12 +227,15 @@ export class SseConnection implements ChatConnection {
             sessionId,
             lastSeq,
           })),
+        }).finally(() => {
+          this.flushPendingSends();
+          this.listener?.({ type: '_open' });
         });
+      } else {
+        this.flushPendingSends();
+        this.listener?.({ type: '_open' });
       }
       this._isReconnect = true;
-
-      this.flushPendingSends();
-      this.listener?.({ type: '_open' });
     });
 
     // Catch-all for session events. Server sends all non-welcome events as
