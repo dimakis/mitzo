@@ -80,7 +80,30 @@ describe('buildDeliberationConfig', () => {
     expect(config.challenger.temperature).toBe(0.9);
   });
 
-  it('uses defaults when protocol is not specified', () => {
+  it('uses defaults when neither agent specifies protocol', () => {
+    const proposerNoProtocol: AgentDefinitionInput = {
+      ...proposerDef,
+      deliberation: {
+        role: 'proposer',
+        counterpart: 'deliberation-challenger',
+      },
+    };
+
+    const challengerNoProtocol: AgentDefinitionInput = {
+      ...challengerDef,
+      deliberation: {
+        role: 'challenger',
+        counterpart: 'deliberation-architect',
+      },
+    };
+
+    const config = buildDeliberationConfig(proposerNoProtocol, challengerNoProtocol);
+
+    expect(config.maxRounds).toBe(2);
+    expect(config.convergence).toBe('fixed-rounds');
+  });
+
+  it('falls back to challenger protocol when proposer has none', () => {
     const proposerNoProtocol: AgentDefinitionInput = {
       ...proposerDef,
       deliberation: {
@@ -91,7 +114,8 @@ describe('buildDeliberationConfig', () => {
 
     const config = buildDeliberationConfig(proposerNoProtocol, challengerDef);
 
-    expect(config.maxRounds).toBe(2);
+    // Should use challenger's protocol settings
+    expect(config.maxRounds).toBe(3);
     expect(config.convergence).toBe('fixed-rounds');
   });
 
@@ -131,6 +155,29 @@ describe('buildDeliberationConfig', () => {
     };
 
     expect(() => buildDeliberationConfig(proposerDef, wrongRole)).toThrow('expected "challenger"');
+  });
+
+  it('warns but does not throw on counterpart name mismatch', () => {
+    const mismatchedProposer: AgentDefinitionInput = {
+      ...proposerDef,
+      deliberation: {
+        ...proposerDef.deliberation!,
+        counterpart: 'some-other-agent',
+      },
+    };
+
+    const mismatchedChallenger: AgentDefinitionInput = {
+      ...challengerDef,
+      deliberation: {
+        ...challengerDef.deliberation!,
+        counterpart: 'some-other-agent',
+      },
+    };
+
+    // Should not throw — mismatched counterparts are a warning, not an error
+    const config = buildDeliberationConfig(mismatchedProposer, mismatchedChallenger);
+    expect(config.proposer.name).toBe('deliberation-architect');
+    expect(config.challenger.name).toBe('deliberation-challenger');
   });
 });
 
@@ -182,6 +229,34 @@ describe('buildDeliberationConfigFromAgent', () => {
 
     expect(config.budgetUsd).toBe(10.0);
   });
+
+  it('propagates resolver rejection', async () => {
+    const resolve = async (): Promise<AgentDefinitionInput> => {
+      throw new Error('ContexGin unreachable');
+    };
+
+    await expect(buildDeliberationConfigFromAgent(proposerDef, resolve)).rejects.toThrow(
+      'ContexGin unreachable',
+    );
+  });
+
+  it('throws when resolved counterpart has wrong role', async () => {
+    // Resolver returns another proposer instead of a challenger
+    const anotherProposer: AgentDefinitionInput = {
+      identity: { name: 'another-proposer', description: 'Also proposes' },
+      provider: { default: 'claude-sonnet-4-6' },
+      deliberation: {
+        role: 'proposer',
+        counterpart: 'deliberation-architect',
+      },
+    };
+
+    const resolve = async () => anotherProposer;
+
+    await expect(buildDeliberationConfigFromAgent(proposerDef, resolve)).rejects.toThrow(
+      'expected "challenger"',
+    );
+  });
 });
 
 // ─── buildFusionConfig ──────────────────────────────────────────────────────
@@ -221,5 +296,16 @@ describe('buildFusionConfig', () => {
 
   it('throws on empty array', () => {
     expect(() => buildFusionConfig([])).toThrow('at least 2 panel models');
+  });
+
+  it('allows judge model that is not in the panel list', () => {
+    const config = buildFusionConfig(['claude-opus-4-6', 'gemini-2.5-pro'], {
+      judgeModel: 'claude-sonnet-4-6',
+    });
+
+    expect(config.judgeModel.model).toBe('claude-sonnet-4-6');
+    expect(config.panelModels).toHaveLength(2);
+    // Judge is not in panel — this is allowed behavior
+    expect(config.panelModels.map((p) => p.model)).not.toContain('claude-sonnet-4-6');
   });
 });

@@ -118,7 +118,7 @@ export function buildDeliberationConfig(
   }
 
   // Extract protocol settings (proposer's take precedence)
-  const protocol = proposerDef.deliberation.protocol ?? {};
+  const protocol = proposerDef.deliberation.protocol ?? challengerDef.deliberation.protocol ?? {};
   const maxRounds = protocol.max_rounds ?? 2;
   const convergence = protocol.convergence ?? 'fixed-rounds';
 
@@ -188,7 +188,7 @@ export interface BuildFusionConfigOptions {
   budgetUsd?: number;
   /** Override judge model (defaults to first panel model). */
   judgeModel?: string;
-  /** Override synthesizer model (defaults to judge model). */
+  /** Optional synthesizer model. If omitted, no separate synthesis step is performed. */
   synthesizerModel?: string;
 }
 
