@@ -837,4 +837,83 @@ describe('SessionOverviewEmitter', () => {
     const snapshot = emitter.getSnapshot();
     expect(snapshot[0].state).toBe('done');
   });
+
+  it('transitions staggered sessions on their own schedule', () => {
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => [
+          makeActiveSession({
+            clientId: 'client-a',
+            sessionId: 'sess-a',
+            hasSnapshot: false,
+            attached: true,
+          }),
+          makeActiveSession({
+            clientId: 'client-b',
+            sessionId: 'sess-b',
+            hasSnapshot: false,
+            attached: true,
+          }),
+        ]),
+      } as unknown as SessionOverviewDeps['registry'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    const broadcast = deps.sseRegistry.broadcast as ReturnType<typeof vi.fn>;
+
+    // Session A touched at T=0
+    emitter.touch('client-a');
+    // Session B touched at T=3min
+    vi.advanceTimersByTime(3 * 60 * 1000);
+    emitter.touch('client-b');
+    broadcast.mockClear();
+
+    // At T=5min (2min after B touch), session A should be idle
+    vi.advanceTimersByTime(2 * 60 * 1000);
+    vi.advanceTimersByTime(200); // coalesce
+    expect(broadcast).toHaveBeenCalled();
+    const firstBroadcast = broadcast.mock.calls[broadcast.mock.calls.length - 1];
+    const activities = firstBroadcast[1] as SessionActivity[];
+    const sessA = activities.find((a) => a.sessionId === 'sess-a');
+    const sessB = activities.find((a) => a.sessionId === 'sess-b');
+    expect(sessA?.state).toBe('idle');
+    expect(sessB?.state).toBe('done');
+  });
+
+  it('transitions persistent sessions to idle via timer', () => {
+    const now = Date.now();
+    const persistentMeta = {
+      sessionId: 'persistent-timed',
+      summary: 'Awaiting reply',
+      cwd: '/Users/test/tools/mitzo',
+      lastSpeaker: 'assistant',
+      lastSpeakerAt: now - 60_000, // 1 minute ago
+      updatedAt: now - 60_000,
+      goalId: null,
+    } as SessionMeta;
+
+    deps = makeDeps({
+      eventStore: {
+        getSession: vi.fn(() => null),
+        getAttentionSessions: vi.fn(() => [persistentMeta]),
+      } as unknown as SessionOverviewDeps['eventStore'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    const broadcast = deps.sseRegistry.broadcast as ReturnType<typeof vi.fn>;
+
+    // Touch to start the idle transition timer — timer fires at
+    // DONE_TIMEOUT_MS from this touch, at which point the persistent
+    // session's lastSpeakerAt will be 6 min ago (past the 5 min threshold).
+    emitter.touch('persistent-timed');
+    broadcast.mockClear();
+
+    // Advance past DONE_TIMEOUT_MS from the touch
+    vi.advanceTimersByTime(5 * 60 * 1000);
+    vi.advanceTimersByTime(200); // coalesce
+
+    expect(broadcast).toHaveBeenCalled();
+    const lastCall = broadcast.mock.calls[broadcast.mock.calls.length - 1];
+    const activities = lastCall[1] as SessionActivity[];
+    const persistent = activities.find((a) => a.sessionId === 'persistent-timed');
+    expect(persistent?.state).toBe('idle');
+  });
 });

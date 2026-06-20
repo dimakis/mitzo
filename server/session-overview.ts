@@ -102,17 +102,30 @@ export class SessionOverviewEmitter {
   }
 
   /**
-   * Schedule a broadcast at DONE_TIMEOUT_MS so that sessions entering "done"
-   * transition to "idle" even when no other events occur. Resets any existing
-   * timer — only the most recent touch matters since compute() evaluates all
-   * sessions at broadcast time.
+   * Schedule a broadcast when the earliest tracked session should transition
+   * from "done" to "idle". Picks the minimum remaining time across all
+   * tracked sessions so that staggered touches don't delay earlier transitions.
    */
   private scheduleIdleTransition(): void {
     if (this.idleTransitionTimer) clearTimeout(this.idleTransitionTimer);
+
+    const now = Date.now();
+    let earliest = DONE_TIMEOUT_MS;
+    for (const touchedAt of this.lastEventTimes.values()) {
+      const remaining = DONE_TIMEOUT_MS - (now - touchedAt);
+      if (remaining < earliest) earliest = remaining;
+    }
+    // Clamp to at least 0 (session already past timeout)
+    const delay = Math.max(0, earliest);
+
     this.idleTransitionTimer = setTimeout(() => {
       this.idleTransitionTimer = null;
       this.scheduleBroadcast();
-    }, DONE_TIMEOUT_MS);
+      // Re-schedule if there are still sessions that haven't timed out yet
+      if (this.lastEventTimes.size > 0) {
+        this.scheduleIdleTransition();
+      }
+    }, delay);
   }
 
   /**
