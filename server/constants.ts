@@ -13,6 +13,7 @@ export {
   MAX_OBSERVERS_PER_SESSION,
   CONTEXT_CEILING_TOKENS,
 } from '@mitzo/protocol';
+import type { AgentDefinition } from '@mitzo/protocol';
 
 // --- Session & Permission ---
 // Re-export session lifecycle constants from harness (canonical source).
@@ -49,7 +50,7 @@ export const DEFAULT_AGENT_NAME = 'mitzo-conversational';
 /** Bundled fallback agent definition — used when ContexGin is unreachable and no local override. */
 export const DEFAULT_AGENT_DEFINITION = {
   identity: {
-    name: 'mitzo-conversational' as const,
+    name: 'mitzo-conversational',
     description: 'Primary conversational assistant via Mitzo iOS with full domain context',
     mode: 'dynamic' as const,
   },
@@ -59,7 +60,7 @@ export const DEFAULT_AGENT_DEFINITION = {
   context: {
     budget: 12000,
   },
-} as const;
+} as const satisfies AgentDefinition;
 
 // --- Session List ---
 /** Grace period for zero-turn inactive sessions — recently created ones stay visible. */

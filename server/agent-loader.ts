@@ -33,17 +33,68 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const FALLBACK_CACHE_TTL_MS = 30 * 1000; // 30 seconds — allow faster recovery
 const cache = new Map<string, CacheEntry>();
 
-// ─── Zod schemas for ContexGin response validation ─────────────────────────
+// ─── Shared Zod sub-schemas ────────────────────────────────────────────────
 
-const ContexGinIdentitySchema = z.object({
+const IdentitySchema = z.object({
   name: z.string().min(1),
   description: z.string().min(1),
   mode: z.enum(['narrow', 'dynamic']).optional(),
   role: z.string().optional(),
 });
 
+const GovernanceSchema = z
+  .object({
+    boundaries: z
+      .array(z.object({ spoke: z.string(), access: z.enum(['none', 'read', 'write']) }))
+      .optional(),
+    approval: z
+      .object({
+        required_for: z.array(z.string()).optional(),
+        auto_allow: z.array(z.string()).optional(),
+      })
+      .optional(),
+  })
+  .optional();
+
+const MemorySchema = z
+  .object({
+    scope: z.enum(['none', 'read', 'read-write']),
+    vault: z.string().optional(),
+  })
+  .optional();
+
+const OutputSchema = z
+  .object({
+    conventions: z
+      .object({
+        commit_style: z.string().optional(),
+        response_format: z.string().nullable().optional(),
+      })
+      .optional(),
+    guides: z.array(z.string()).optional(),
+  })
+  .optional();
+
+const ContextSchema = z
+  .object({
+    budget: z.number().optional(),
+    sources: z
+      .object({
+        hubs: z
+          .array(z.object({ path: z.string(), spokes: z.array(z.string()).optional() }))
+          .optional(),
+      })
+      .optional(),
+    priority: z.array(z.string()).optional(),
+    exclude: z.array(z.string()).optional(),
+    profile: z.string().optional(),
+  })
+  .optional();
+
+// ─── Composite schemas ────────────────────────────────────────────────────
+
 const ContexGinResponseSchema = z.object({
-  identity: ContexGinIdentitySchema,
+  identity: IdentitySchema,
   provider: z
     .object({
       default: z.string(),
@@ -56,36 +107,9 @@ const ContexGinResponseSchema = z.object({
         .optional(),
     })
     .optional(),
-  governance: z
-    .object({
-      boundaries: z
-        .array(z.object({ spoke: z.string(), access: z.enum(['none', 'read', 'write']) }))
-        .optional(),
-      approval: z
-        .object({
-          required_for: z.array(z.string()).optional(),
-          auto_allow: z.array(z.string()).optional(),
-        })
-        .optional(),
-    })
-    .optional(),
-  memory: z
-    .object({
-      scope: z.enum(['none', 'read', 'read-write']),
-      vault: z.string().optional(),
-    })
-    .optional(),
-  output: z
-    .object({
-      conventions: z
-        .object({
-          commit_style: z.string().optional(),
-          response_format: z.string().nullable().optional(),
-        })
-        .optional(),
-      guides: z.array(z.string()).optional(),
-    })
-    .optional(),
+  governance: GovernanceSchema,
+  memory: MemorySchema,
+  output: OutputSchema,
   boot: z
     .object({
       tokens: z.number().optional(),
@@ -97,39 +121,12 @@ const ContexGinResponseSchema = z.object({
 });
 
 const LocalYamlSchema = z.object({
-  identity: ContexGinIdentitySchema,
-  provider: z.object({ default: z.string() }).passthrough().optional(),
-  context: z.object({ budget: z.number().optional() }).passthrough().optional(),
-  governance: z
-    .object({
-      boundaries: z
-        .array(z.object({ spoke: z.string(), access: z.enum(['none', 'read', 'write']) }))
-        .optional(),
-      approval: z
-        .object({
-          required_for: z.array(z.string()).optional(),
-          auto_allow: z.array(z.string()).optional(),
-        })
-        .optional(),
-    })
-    .optional(),
-  memory: z
-    .object({
-      scope: z.enum(['none', 'read', 'read-write']),
-      vault: z.string().optional(),
-    })
-    .optional(),
-  output: z
-    .object({
-      conventions: z
-        .object({
-          commit_style: z.string().optional(),
-          response_format: z.string().nullable().optional(),
-        })
-        .optional(),
-      guides: z.array(z.string()).optional(),
-    })
-    .optional(),
+  identity: IdentitySchema,
+  provider: z.object({ default: z.string() }).optional(),
+  context: ContextSchema,
+  governance: GovernanceSchema,
+  memory: MemorySchema,
+  output: OutputSchema,
 });
 
 /** Clear the agent definition cache (for testing). */
@@ -239,28 +236,30 @@ export async function loadAgentDef(
   contexginUrl: string = process.env.CONTEXGIN_URL || 'http://localhost:8321',
 ): Promise<LoadedAgentDefinition> {
   // Normalize name from WS protocol format (uppercase, underscores) to loader format.
-  const normalized = normalizeAgentName(agentName);
-  if (!AGENT_NAME_RE.test(normalized)) {
-    log.warn('invalid agent name rejected', { agent: agentName, normalized });
+  const name = normalizeAgentName(agentName);
+  if (!AGENT_NAME_RE.test(name)) {
+    log.warn('invalid agent name rejected', { agent: agentName, normalized: name });
     return {
-      definition: DEFAULT_AGENT_DEFINITION,
+      definition: {
+        ...DEFAULT_AGENT_DEFINITION,
+        identity: { ...DEFAULT_AGENT_DEFINITION.identity },
+      },
       source: 'fallback',
     };
   }
-  agentName = normalized;
 
   // Check cache
-  const cacheKey = `${agentName}:${cwd}:${contexginUrl}`;
+  const cacheKey = `${name}:${cwd}:${contexginUrl}`;
   const cached = cache.get(cacheKey);
   if (cached && Date.now() < cached.expiresAt) {
     return cached.result;
   }
 
   // 1. Try ContexGin
-  const fromContexGin = await loadFromContexGin(agentName, contexginUrl);
+  const fromContexGin = await loadFromContexGin(name, contexginUrl);
   if (fromContexGin) {
     log.info('agent definition loaded from ContexGin', {
-      agent: agentName,
+      agent: name,
       identity: fromContexGin.definition.identity.description,
     });
     cache.set(cacheKey, { result: fromContexGin, expiresAt: Date.now() + CACHE_TTL_MS });
@@ -268,10 +267,10 @@ export async function loadAgentDef(
   }
 
   // 2. Try local override
-  const fromLocal = await loadFromLocal(agentName, cwd);
+  const fromLocal = await loadFromLocal(name, cwd);
   if (fromLocal) {
     log.info('agent definition loaded from local .agents/', {
-      agent: agentName,
+      agent: name,
       identity: fromLocal.definition.identity.description,
     });
     cache.set(cacheKey, { result: fromLocal, expiresAt: Date.now() + CACHE_TTL_MS });
@@ -279,11 +278,11 @@ export async function loadAgentDef(
   }
 
   // 3. Bundled fallback — shorter TTL so we recover faster when ContexGin comes back
-  log.info('using bundled agent definition fallback', { agent: agentName });
+  log.info('using bundled agent definition fallback', { agent: name });
   const fallback: LoadedAgentDefinition = {
     definition: {
       ...DEFAULT_AGENT_DEFINITION,
-      identity: { ...DEFAULT_AGENT_DEFINITION.identity, name: agentName },
+      identity: { ...DEFAULT_AGENT_DEFINITION.identity, name },
     },
     source: 'fallback',
   };
