@@ -10,7 +10,7 @@
  */
 
 import { readFile } from 'fs/promises';
-import { resolve } from 'path';
+import path from 'path';
 import { load as parseYaml } from 'js-yaml';
 import { createLogger } from './logger.js';
 import { DEFAULT_AGENT_DEFINITION } from './constants.js';
@@ -86,6 +86,7 @@ export interface AgentDefinition {
   output?: AgentOutput;
 }
 
+/** @see packages/harness/src/session-registry.ts for the canonical copy. */
 export type AgentDefinitionSource = 'contexgin' | 'local' | 'fallback';
 
 export interface LoadedAgentDefinition {
@@ -164,12 +165,13 @@ async function loadFromLocal(
   cwd: string,
 ): Promise<LoadedAgentDefinition | null> {
   try {
-    // Validate agent name to prevent path traversal
+    // Validate agent name format (alphanumeric + hyphens only)
     if (!/^[a-z0-9][a-z0-9-]*$/.test(agentName)) return null;
 
-    const agentsDir = resolve(cwd, '.agents');
-    const filePath = resolve(agentsDir, `${agentName}.yaml`);
-    if (!filePath.startsWith(agentsDir + '/')) return null;
+    const agentsDir = path.resolve(cwd, '.agents');
+    const filePath = path.resolve(agentsDir, `${agentName}.yaml`);
+    const rel = path.relative(agentsDir, filePath);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) return null;
 
     const raw = await readFile(filePath, 'utf-8');
     const parsed = parseYaml(raw) as Record<string, unknown>;
