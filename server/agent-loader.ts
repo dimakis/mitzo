@@ -241,10 +241,7 @@ export async function loadAgentDef(
   if (!AGENT_NAME_RE.test(name)) {
     log.warn('invalid agent name rejected', { agent: agentName, normalized: name });
     return {
-      definition: {
-        ...DEFAULT_AGENT_DEFINITION,
-        identity: { ...DEFAULT_AGENT_DEFINITION.identity },
-      },
+      definition: structuredClone(DEFAULT_AGENT_DEFINITION) as AgentDefinition,
       source: 'fallback',
     };
   }
