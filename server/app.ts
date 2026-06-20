@@ -1023,21 +1023,22 @@ app.post('/api/signals/resolve', (req, res) => {
     const gc = task.gateConfig;
     if (!gc) continue;
 
+    const { repo: taskRepo, pr: taskPr, pr_url: taskPrUrl } = gc as Record<string, unknown>;
     let isMatch = false;
     switch (type) {
       case 'centaur_review': {
-        const taskPrUrl = (gc as Record<string, unknown>).pr_url as string | undefined;
-        const taskRepo = (gc as Record<string, unknown>).repo as string | undefined;
-        const taskPr = (gc as Record<string, unknown>).pr as number | undefined;
         if (pr_url && taskPrUrl && taskPrUrl === pr_url) isMatch = true;
         if (repo && pr && taskRepo === repo && taskPr === pr) isMatch = true;
         break;
       }
       case 'gh_ci':
       case 'gh_review': {
-        const taskRepo = (gc as Record<string, unknown>).repo as string | undefined;
-        const taskPr = (gc as Record<string, unknown>).pr as number | undefined;
         if (repo && pr && taskRepo === repo && taskPr === pr) isMatch = true;
+        break;
+      }
+      case 'human_approval': {
+        // human_approval signals match any active task of this gate type
+        isMatch = true;
         break;
       }
     }

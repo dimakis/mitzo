@@ -42,12 +42,16 @@ export interface OrchestratorDeps {
 }
 
 export class TaskOrchestrator {
+  /** Maximum concurrent spawn dispatches per tick chain to prevent runaway loops. */
+  private static readonly MAX_SPAWN_DEPTH = 50;
+
   private state: LoopState = 'idle';
   private goalId: string | null = null;
   private activeTaskId: string | null = null;
   private specMode = false;
   private awaitingApproval = false;
   private pinnedClientId: string | null = null;
+  private spawnDepth = 0;
   private deps: OrchestratorDeps;
 
   constructor(deps: OrchestratorDeps) {
@@ -143,6 +147,7 @@ export class TaskOrchestrator {
     this.specMode = false;
     this.awaitingApproval = false;
     this.pinnedClientId = null;
+    this.spawnDepth = 0;
     this.deps.clearTaskContext();
     log.info('orchestrator stopped');
     this.deps.broadcastStatus(this.getStatus());
@@ -189,6 +194,7 @@ export class TaskOrchestrator {
   onTaskCompleted(taskId: string): void {
     if (this.state !== 'running') return;
     log.info('task completed, triggering tick', { taskId });
+    this.spawnDepth = 0;
     this.tick();
   }
 
@@ -196,6 +202,7 @@ export class TaskOrchestrator {
   onTaskBlocked(taskId: string): void {
     if (this.state !== 'running') return;
     log.info('task blocked, triggering tick', { taskId });
+    this.spawnDepth = 0;
     this.tick();
   }
 
@@ -344,28 +351,64 @@ export class TaskOrchestrator {
           this.deps.broadcastTasks();
           this.deps.broadcastStatus(this.getStatus());
 
+          // Capture state before async boundary — stop()+start() could change
+          // goalId/pinnedClientId to a different goal while spawn is in-flight.
+          const capturedGoalId = this.goalId;
+          const capturedPinnedClientId = this.pinnedClientId;
+
           const prompt = this.buildTaskPrompt(next);
-          this.deps.spawnSession(next.id, prompt, this.goalId).then(
+          this.deps.spawnSession(next.id, prompt, capturedGoalId).then(
             (clientId) => {
+              // Guard: orchestrator moved on (stop or new goal)
+              if (this.goalId !== capturedGoalId) return;
+
               if (clientId) {
                 this.deps.store.setSessionId(next.id, clientId);
                 log.info('spawned session for task', { taskId: next.id, clientId });
               } else {
+                // Spawn returned null (e.g. worktree failure) — fall back to pinned session
                 log.error('failed to spawn session, falling back to pinned', { taskId: next.id });
-                this.deps.setTaskContext(next.id, this.goalId!);
-                if (this.pinnedClientId) sendToChat(this.pinnedClientId, prompt);
+                // Only claim pinned session if no other task has it
+                if (!this.activeTaskId) {
+                  this.activeTaskId = next.id;
+                  this.deps.setTaskContext(next.id, capturedGoalId);
+                  this.deps.broadcastStatus(this.getStatus());
+                  if (capturedPinnedClientId) sendToChat(capturedPinnedClientId, prompt);
+                } else {
+                  // Pinned session busy — mark blocked so it's retried later
+                  log.warn('pinned session busy, blocking spawn-failed task', { taskId: next.id });
+                  this.deps.store.update(next.id, { status: 'blocked' });
+                  this.deps.store.cascadeStatus(next.id);
+                  this.deps.broadcastTasks();
+                }
               }
             },
             (err) => {
+              // Guard: orchestrator moved on (stop or new goal)
+              if (this.goalId !== capturedGoalId) return;
+
               log.error('spawnSession threw', { taskId: next.id, error: (err as Error).message });
-              this.deps.store.update(next.id, { status: 'pending' });
+              // Mark as blocked (not pending) to prevent infinite retry via tick loop
+              const annotations = [
+                ...(this.deps.store.get(next.id)?.annotations ?? []),
+                `spawn_error: ${(err as Error).message}`,
+              ];
+              this.deps.store.update(next.id, { status: 'blocked', annotations });
               this.deps.store.cascadeStatus(next.id);
+              this.deps.broadcastTasks();
             },
           );
 
           // Don't set activeTaskId — spawned tasks run independently.
-          // Continue ticking to find more parallel work.
-          this.tick();
+          // Continue ticking to find more parallel work, with depth guard.
+          this.spawnDepth++;
+          if (this.spawnDepth < TaskOrchestrator.MAX_SPAWN_DEPTH) {
+            queueMicrotask(() => this.tick());
+          } else {
+            log.warn('spawn depth limit reached, deferring further dispatch', {
+              depth: this.spawnDepth,
+            });
+          }
         } else {
           // Reuse pinned session (original behavior)
           this.activeTaskId = next.id;
@@ -386,6 +429,7 @@ export class TaskOrchestrator {
   }
 
   private broadcastAndTick(): void {
+    this.spawnDepth = 0;
     this.deps.broadcastStatus(this.getStatus());
     this.tick();
   }

@@ -629,6 +629,194 @@ describe('TaskOrchestrator', () => {
       expect(store.get(task.id)!.status).toBe('active');
     });
 
+    it('blocks task when spawnSession rejects', async () => {
+      const spawnSession = vi.fn().mockRejectedValue(new Error('worktree failure'));
+      const deps = createTestDeps(store);
+      deps.spawnSession = spawnSession;
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Spawn task',
+        parentId: goal.id,
+        sessionPolicy: 'spawn',
+      });
+
+      orch.start(goal.id);
+
+      await vi.waitFor(() => {
+        expect(store.get(task.id)!.status).toBe('blocked');
+      });
+
+      const updated = store.get(task.id)!;
+      expect(updated.annotations.some((a) => a.includes('spawn_error'))).toBe(true);
+      expect(deps.broadcastTasks).toHaveBeenCalled();
+    });
+
+    it('falls back to pinned session when spawnSession returns null', async () => {
+      const spawnSession = vi.fn().mockResolvedValue(null);
+      const deps = createTestDeps(store);
+      deps.spawnSession = spawnSession;
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Spawn task',
+        parentId: goal.id,
+        sessionPolicy: 'spawn',
+      });
+
+      orch.start(goal.id);
+
+      await vi.waitFor(() => {
+        expect(deps.setTaskContext).toHaveBeenCalledWith(task.id, goal.id);
+      });
+
+      expect(orch.getStatus().activeTaskId).toBe(task.id);
+    });
+
+    it('ignores spawn callback if stop() was called during spawn', async () => {
+      let resolveSpawn: (v: string | null) => void;
+      const spawnSession = vi.fn().mockImplementation(
+        () =>
+          new Promise<string | null>((r) => {
+            resolveSpawn = r;
+          }),
+      );
+      const deps = createTestDeps(store);
+      deps.spawnSession = spawnSession;
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Goal' });
+      store.create({
+        title: 'Spawn task',
+        parentId: goal.id,
+        sessionPolicy: 'spawn',
+      });
+
+      orch.start(goal.id);
+      orch.stop();
+
+      // Resolve after stop — callback should be a no-op
+      resolveSpawn!(null);
+      await vi.waitFor(() => {
+        expect(spawnSession).toHaveBeenCalled();
+      });
+
+      expect(orch.getStatus().state).toBe('idle');
+      expect(deps.setTaskContext).not.toHaveBeenCalled();
+    });
+
+    it('ignores spawn callback if orchestrator restarted with different goal', async () => {
+      let resolveSpawn: (v: string | null) => void;
+      const spawnSession = vi.fn().mockImplementation(
+        () =>
+          new Promise<string | null>((r) => {
+            resolveSpawn = r;
+          }),
+      );
+      const deps = createTestDeps(store);
+      deps.spawnSession = spawnSession;
+      const orch = new TaskOrchestrator(deps);
+
+      const goal1 = store.create({ title: 'Goal 1' });
+      store.create({
+        title: 'Spawn task',
+        parentId: goal1.id,
+        sessionPolicy: 'spawn',
+      });
+
+      const goal2 = store.create({ title: 'Goal 2' });
+      const reuse = store.create({ title: 'Reuse task', parentId: goal2.id });
+
+      // Start goal1 (spawns), stop, start goal2
+      orch.start(goal1.id);
+      orch.stop();
+      orch.start(goal2.id);
+
+      expect(orch.getStatus().goalId).toBe(goal2.id);
+      expect(orch.getStatus().activeTaskId).toBe(reuse.id);
+
+      // Resolve old spawn — should be ignored (goalId changed)
+      resolveSpawn!(null);
+      await vi.waitFor(() => {
+        expect(spawnSession).toHaveBeenCalled();
+      });
+
+      // activeTaskId should still be the goal2 task, not clobbered
+      expect(orch.getStatus().activeTaskId).toBe(reuse.id);
+    });
+
+    it('blocks spawn-failed task when pinned session is busy', async () => {
+      const calls: Array<(v: string | null) => void> = [];
+      const spawnSession = vi.fn().mockImplementation(
+        () =>
+          new Promise<string | null>((r) => {
+            calls.push(r);
+          }),
+      );
+      const deps = createTestDeps(store);
+      deps.spawnSession = spawnSession;
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Goal' });
+      store.create({
+        title: 'Spawn task 1',
+        parentId: goal.id,
+        sessionPolicy: 'spawn',
+      });
+      store.create({
+        title: 'Spawn task 2',
+        parentId: goal.id,
+        sessionPolicy: 'spawn',
+      });
+
+      orch.start(goal.id);
+
+      await vi.waitFor(() => {
+        expect(calls).toHaveLength(2);
+      });
+
+      // First spawn fails — claims pinned session
+      calls[0](null);
+      await vi.waitFor(() => {
+        expect(orch.getStatus().activeTaskId).not.toBeNull();
+      });
+
+      // Second spawn also fails — pinned session busy, should block
+      calls[1](null);
+      await vi.waitFor(() => {
+        const tasks = store.getChildren(goal.id);
+        const blocked = tasks.filter((t) => t.status === 'blocked');
+        expect(blocked).toHaveLength(1);
+      });
+    });
+
+    it('dispatches multiple spawn tasks via queueMicrotask', async () => {
+      const spawnSession = vi.fn().mockResolvedValue('spawned-client');
+      const deps = createTestDeps(store);
+      deps.spawnSession = spawnSession;
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Goal' });
+      store.create({
+        title: 'Spawn task 1',
+        parentId: goal.id,
+        sessionPolicy: 'spawn',
+      });
+      store.create({
+        title: 'Spawn task 2',
+        parentId: goal.id,
+        sessionPolicy: 'spawn',
+      });
+
+      orch.start(goal.id);
+
+      await vi.waitFor(() => {
+        expect(spawnSession).toHaveBeenCalledTimes(2);
+      });
+    });
+
     it('reuse policy tasks use pinned session as before', () => {
       const spawnSession = vi.fn().mockResolvedValue('spawned-client-1');
       const deps = createTestDeps(store);
