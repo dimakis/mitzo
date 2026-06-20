@@ -239,6 +239,18 @@ describe('loadAgentDef', () => {
       expect(result.source).toBe('fallback');
     });
 
+    it('rejects local YAML with wrong kind value', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+      mockReadFile.mockResolvedValueOnce('yaml');
+      mockYamlParse.mockReturnValueOnce({
+        ...VALID_LOCAL_YAML,
+        kind: 'SomethingElse',
+      });
+
+      const result = await loadAgentDef('bad', '/fake', 'http://localhost:8321');
+      expect(result.source).toBe('fallback');
+    });
+
     it('handles local YAML missing identity fields', async () => {
       mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
       mockReadFile.mockResolvedValueOnce('yaml');
@@ -273,6 +285,8 @@ describe('loadAgentDef', () => {
       expect(mockFetch).not.toHaveBeenCalled();
       expect(mockReadFile).not.toHaveBeenCalled();
       expect(result.source).toBe('fallback');
+      // Invalid names return DEFAULT_AGENT_DEFINITION identity (not overridden with agentName)
+      expect(result.definition.identity.name).toBe('mitzo-conversational');
     });
   });
 
@@ -334,6 +348,29 @@ describe('loadAgentDef', () => {
       vi.advanceTimersByTime(5 * 60 * 1000 + 1);
 
       await loadAgentDef('mitzo-conversational', '/fake', 'http://localhost:8321');
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      vi.useRealTimers();
+    });
+
+    it('uses shorter 30s TTL for fallback results so recovery is faster', async () => {
+      vi.useFakeTimers();
+
+      // All sources fail → fallback
+      mockFetch.mockRejectedValue(new Error('ECONNREFUSED'));
+      mockReadFile.mockRejectedValue(new Error('ENOENT'));
+
+      await loadAgentDef('my-agent', '/fake', 'http://localhost:8321');
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      // Before 30s — still cached
+      vi.advanceTimersByTime(29_000);
+      await loadAgentDef('my-agent', '/fake', 'http://localhost:8321');
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      // After 30s — re-fetches
+      vi.advanceTimersByTime(2_000);
+      await loadAgentDef('my-agent', '/fake', 'http://localhost:8321');
       expect(mockFetch).toHaveBeenCalledTimes(2);
 
       vi.useRealTimers();

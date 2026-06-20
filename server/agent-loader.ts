@@ -121,6 +121,8 @@ const ContexGinResponseSchema = z.object({
 });
 
 const LocalYamlSchema = z.object({
+  kind: z.literal('AgentDefinition').optional(),
+  version: z.string().optional(),
   identity: IdentitySchema,
   provider: z.object({ default: z.string() }).optional(),
   context: ContextSchema,
