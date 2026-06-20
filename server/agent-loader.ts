@@ -134,6 +134,7 @@ async function loadFromContexGin(
     const provider = data.provider as AgentProvider | undefined;
     const governance = data.governance as AgentGovernance | undefined;
     const memory = data.memory as AgentMemoryConfig | undefined;
+    const output = data.output as AgentOutput | undefined;
 
     // Extract context config from boot response
     const boot = data.boot as Record<string, unknown> | undefined;
@@ -148,6 +149,7 @@ async function loadFromContexGin(
         context,
         governance,
         memory,
+        output,
       },
       source: 'contexgin',
     };

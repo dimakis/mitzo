@@ -259,5 +259,44 @@ describe('loadAgentDef', () => {
       expect(result).toBeDefined();
       expect(result.source).toBe('fallback');
     });
+
+    it.each([
+      ['../evil', 'path traversal'],
+      ['UPPER', 'uppercase'],
+      ['has.dot', 'dot in name'],
+      ['-starts-with-dash', 'leading dash'],
+      ['has spaces', 'spaces'],
+      ['has/slash', 'slash'],
+    ])('rejects invalid agent name %s (%s)', async (name, _reason) => {
+      mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+
+      const result = await loadAgentDef(name, '/fake', 'http://localhost:8321');
+
+      // Should skip local and fall through to fallback — readFile never called
+      expect(mockReadFile).not.toHaveBeenCalled();
+      expect(result.source).toBe('fallback');
+    });
+  });
+
+  describe('cache TTL expiration', () => {
+    it('re-fetches after cache entry expires', async () => {
+      vi.useFakeTimers();
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => VALID_CONTEXGIN_RESPONSE,
+      });
+
+      await loadAgentDef('mitzo-conversational', '/fake', 'http://localhost:8321');
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      // Advance past 5-minute TTL
+      vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+
+      await loadAgentDef('mitzo-conversational', '/fake', 'http://localhost:8321');
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      vi.useRealTimers();
+    });
   });
 });
