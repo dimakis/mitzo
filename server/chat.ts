@@ -985,6 +985,7 @@ async function _startChatInner(
         error: err instanceof Error ? err.message : String(err),
       });
     });
+
   capturePromptComparison(wtId, cwd, systemPromptAppend, repoWorktrees).catch(() => {});
 
   // Resolve SDK session UUID for resume — worktree IDs are not valid SDK session IDs

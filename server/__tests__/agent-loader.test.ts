@@ -262,7 +262,6 @@ describe('loadAgentDef', () => {
 
     it.each([
       ['../evil', 'path traversal'],
-      ['UPPER', 'uppercase'],
       ['has.dot', 'dot in name'],
       ['-starts-with-dash', 'leading dash'],
       ['has spaces', 'spaces'],
@@ -274,6 +273,50 @@ describe('loadAgentDef', () => {
       expect(mockFetch).not.toHaveBeenCalled();
       expect(mockReadFile).not.toHaveBeenCalled();
       expect(result.source).toBe('fallback');
+    });
+  });
+
+  describe('name normalization', () => {
+    it('normalizes uppercase names from WS protocol', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => VALID_CONTEXGIN_RESPONSE,
+      });
+
+      await loadAgentDef('MyAgent', '/fake', 'http://localhost:8321');
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:8321/api/agents/myagent/context',
+        { signal: expect.any(AbortSignal) },
+      );
+    });
+
+    it('normalizes underscores to hyphens', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => VALID_CONTEXGIN_RESPONSE,
+      });
+
+      await loadAgentDef('my_agent', '/fake', 'http://localhost:8321');
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:8321/api/agents/my-agent/context',
+        { signal: expect.any(AbortSignal) },
+      );
+    });
+
+    it('normalizes mixed case + underscores', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => VALID_CONTEXGIN_RESPONSE,
+      });
+
+      await loadAgentDef('My_Agent_Name', '/fake', 'http://localhost:8321');
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:8321/api/agents/my-agent-name/context',
+        { signal: expect.any(AbortSignal) },
+      );
     });
   });
 
@@ -364,6 +407,25 @@ describe('loadAgentDef', () => {
       });
       const minimal = await loadAgentDef('agent-b', '/fake', 'http://localhost:8321');
       expect(typeof minimal.definition.provider.default).toBe('string');
+    });
+  });
+
+  describe('concurrent requests', () => {
+    it('both concurrent calls succeed even without deduplication', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => VALID_CONTEXGIN_RESPONSE,
+      });
+
+      const [a, b] = await Promise.all([
+        loadAgentDef('mitzo-conversational', '/fake', 'http://localhost:8321'),
+        loadAgentDef('mitzo-conversational', '/fake', 'http://localhost:8321'),
+      ]);
+
+      // Both get valid results — two fetches fire (no dedup yet)
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(a.source).toBe('contexgin');
+      expect(b.source).toBe('contexgin');
     });
   });
 });

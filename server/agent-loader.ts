@@ -1,13 +1,4 @@
-/**
- * Agent definition loader — discover, load, and cache agent recipes.
- *
- * Resolution order:
- * 1. ContexGin API — GET /api/agents/:name/context (preferred)
- * 2. Local override — .agents/{name}.yaml in workspace root (dev/testing)
- * 3. Bundled fallback — DEFAULT_AGENT_DEFINITION from constants
- *
- * Never blocks session start. All failures are graceful.
- */
+// Agent definition loader — ContexGin → local .agents/ → bundled fallback.
 
 import { readFile } from 'fs/promises';
 import path from 'path';
@@ -15,33 +6,16 @@ import { load as parseYaml } from 'js-yaml';
 import { z } from 'zod';
 import { createLogger } from './logger.js';
 import { DEFAULT_AGENT_DEFINITION } from './constants.js';
-import type {
-  AgentDefinitionSource,
-  AgentDefinition,
-  AgentIdentity,
-  AgentProvider,
-  AgentContextConfig,
-  AgentGovernance,
-  AgentMemoryConfig,
-  AgentOutput,
-} from '@mitzo/protocol';
-
-// Re-export from @mitzo/protocol — single source of truth
-export type {
-  AgentDefinitionSource,
-  AgentDefinition,
-  AgentIdentity,
-  AgentProvider,
-  AgentContextConfig,
-  AgentGovernance,
-  AgentMemoryConfig,
-  AgentOutput,
-} from '@mitzo/protocol';
+import type { AgentDefinitionSource, AgentDefinition, AgentContextConfig } from '@mitzo/protocol';
 
 const log = createLogger('agent-loader');
 
-/** Validates agent names: lowercase alphanumeric + hyphens, no leading dash. */
 const AGENT_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+/** Normalize agent names from WS protocol (uppercase, underscores) to loader format. */
+function normalizeAgentName(name: string): string {
+  return name.toLowerCase().replace(/_/g, '-');
+}
 
 export interface LoadedAgentDefinition {
   definition: AgentDefinition;
@@ -122,6 +96,42 @@ const ContexGinResponseSchema = z.object({
     .optional(),
 });
 
+const LocalYamlSchema = z.object({
+  identity: ContexGinIdentitySchema,
+  provider: z.object({ default: z.string() }).passthrough().optional(),
+  context: z.object({ budget: z.number().optional() }).passthrough().optional(),
+  governance: z
+    .object({
+      boundaries: z
+        .array(z.object({ spoke: z.string(), access: z.enum(['none', 'read', 'write']) }))
+        .optional(),
+      approval: z
+        .object({
+          required_for: z.array(z.string()).optional(),
+          auto_allow: z.array(z.string()).optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+  memory: z
+    .object({
+      scope: z.enum(['none', 'read', 'read-write']),
+      vault: z.string().optional(),
+    })
+    .optional(),
+  output: z
+    .object({
+      conventions: z
+        .object({
+          commit_style: z.string().optional(),
+          response_format: z.string().nullable().optional(),
+        })
+        .optional(),
+      guides: z.array(z.string()).optional(),
+    })
+    .optional(),
+});
+
 /** Clear the agent definition cache (for testing). */
 export function clearCache(): void {
   cache.clear();
@@ -189,19 +199,17 @@ async function loadFromLocal(
     if (rel.startsWith('..') || path.isAbsolute(rel)) return null;
 
     const raw = await readFile(filePath, 'utf-8');
-    const parsed = parseYaml(raw) as Record<string, unknown>;
+    const yamlData = parseYaml(raw);
+    const parsed = LocalYamlSchema.safeParse(yamlData);
+    if (!parsed.success) {
+      log.warn('local YAML failed validation', {
+        agent: agentName,
+        errors: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`),
+      });
+      return null;
+    }
 
-    if (!parsed || typeof parsed !== 'object') return null;
-
-    const identity = parsed.identity as AgentIdentity | undefined;
-    if (!identity?.name || !identity?.description) return null;
-
-    // Map the Centaur schema to our internal types
-    const provider = parsed.provider as AgentProvider | undefined;
-    const context = parsed.context as AgentContextConfig | undefined;
-    const governance = parsed.governance as AgentGovernance | undefined;
-    const memory = parsed.memory as AgentMemoryConfig | undefined;
-    const output = parsed.output as AgentOutput | undefined;
+    const { identity, provider, governance, memory, output, context } = parsed.data;
 
     return {
       definition: {
@@ -230,14 +238,16 @@ export async function loadAgentDef(
   cwd: string,
   contexginUrl: string = process.env.CONTEXGIN_URL || 'http://localhost:8321',
 ): Promise<LoadedAgentDefinition> {
-  // Validate agent name early — reject before any source attempt
-  if (!AGENT_NAME_RE.test(agentName)) {
-    log.warn('invalid agent name rejected', { agent: agentName });
+  // Normalize name from WS protocol format (uppercase, underscores) to loader format.
+  const normalized = normalizeAgentName(agentName);
+  if (!AGENT_NAME_RE.test(normalized)) {
+    log.warn('invalid agent name rejected', { agent: agentName, normalized });
     return {
       definition: DEFAULT_AGENT_DEFINITION,
       source: 'fallback',
     };
   }
+  agentName = normalized;
 
   // Check cache
   const cacheKey = `${agentName}:${cwd}:${contexginUrl}`;
