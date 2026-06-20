@@ -57,6 +57,7 @@ export interface StreamingBlock {
   toolInput?: string;
   rawInput?: RawToolInput;
   toolResult?: string;
+  toolResultImages?: ToolResultImage[];
   toolError?: boolean;
   subagent?: StreamingSubagentState | FinishedSubagentState;
 }
@@ -78,6 +79,7 @@ export interface FinishedBlock {
   toolInput?: string;
   rawInput?: RawToolInput;
   toolResult?: string;
+  toolResultImages?: ToolResultImage[];
   toolError?: boolean;
   subagent?: FinishedSubagentState;
 }
@@ -109,6 +111,20 @@ export interface ImageAttachment {
   data: string;
   mediaType: string;
   preview: string;
+}
+
+// --- Tool result image ---
+
+/** Raw image extracted from SDK tool result content blocks (base64 data). */
+export interface RawToolResultImage {
+  data: string;
+  mediaType: string;
+}
+
+/** Reference to a server-stored image (sent over WS / persisted in blocks). */
+export interface ToolResultImage {
+  id: string;
+  mediaType: string;
 }
 
 // --- Session (client-facing) ---

@@ -1,6 +1,7 @@
 import type { SessionTransport, ConnectionRegistry } from '@mitzo/harness';
 import { summarizeToolInput, getRawInput } from './tool-summary.js';
-import { extractToolResultText } from './content-blocks.js';
+import { extractToolResultText, extractToolResultImages } from './content-blocks.js';
+import { storeImage } from './image-store.js';
 import {
   TOOL_RESULT_MAX_CHARS,
   CONTEXT_CEILING_TOKENS,
@@ -1258,7 +1259,23 @@ async function _runQueryLoopInner(
             for (const block of content) {
               if (block.type === 'tool_result') {
                 const resultText = extractToolResultText(block.content);
+                const resultImages = extractToolResultImages(block.content);
                 const trResult = truncateForTrace(resultText);
+
+                // Store images server-side and build reference array
+                const sid = resolvedSessionId || registry.get(clientId)?.sessionId;
+                let imageRefs: { id: string; mediaType: string }[] | undefined;
+                if (resultImages.length > 0 && !sid) {
+                  log.warn('dropping tool result images — no sessionId', { clientId });
+                }
+                if (resultImages.length > 0 && sid) {
+                  imageRefs = [];
+                  for (const img of resultImages) {
+                    const imgId = storeImage(sid, img.data, img.mediaType);
+                    if (imgId) imageRefs.push({ id: imgId, mediaType: img.mediaType });
+                  }
+                  if (imageRefs.length === 0) imageRefs = undefined;
+                }
 
                 // Check if this is a subagent tool result
                 if (subagent) {
@@ -1269,6 +1286,7 @@ async function _runQueryLoopInner(
                       toolId: block.tool_use_id || '',
                       result: resultText.slice(0, TOOL_RESULT_MAX_CHARS),
                       isError: block.is_error === true,
+                      ...(imageRefs ? { images: imageRefs } : {}),
                     }),
                   );
                   log.info('subagent tool result', {
@@ -1292,6 +1310,7 @@ async function _runQueryLoopInner(
                   toolId: block.tool_use_id || '',
                   isError: block.is_error === true,
                   resultLength: resultText.length,
+                  imageCount: imageRefs?.length ?? 0,
                 });
                 log.debug('tool result content', {
                   clientId,
@@ -1305,6 +1324,7 @@ async function _runQueryLoopInner(
                     toolId: block.tool_use_id || '',
                     result: resultText.slice(0, TOOL_RESULT_MAX_CHARS),
                     isError: block.is_error === true,
+                    ...(imageRefs ? { images: imageRefs } : {}),
                   }),
                 );
               }
