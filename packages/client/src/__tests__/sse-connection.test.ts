@@ -349,6 +349,67 @@ describe('SseConnection', () => {
     expect(newES.url).toBe('https://localhost:3100/api/chat/events');
   });
 
+  it('flushes pending sends only after reconnect POST completes', async () => {
+    let resolveReconnect!: () => void;
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/reconnect')) {
+        return new Promise<{ ok: boolean }>((resolve) => {
+          resolveReconnect = () => resolve({ ok: true });
+        });
+      }
+      return Promise.resolve({ ok: true });
+    });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+    conn.trackSeq('sess-1', 10);
+
+    // Force reconnect — connection drops, then queue a send while disconnected
+    conn.checkAndReconnect(true);
+    conn.send({ type: 'send', text: 'hello' });
+    mockFetch.mockClear();
+
+    // Welcome arrives — reconnect POST fires but hasn't resolved
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
+
+    // Only the reconnect POST should have been called, not the queued send
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0][0]).toContain('/reconnect');
+
+    // Resolve the reconnect POST — flush should follow
+    resolveReconnect();
+    await vi.waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+    expect(mockFetch.mock.calls[1][0]).toContain('/send');
+  });
+
+  it('flushes pending sends even if reconnect POST fails', async () => {
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/reconnect')) {
+        return Promise.reject(new Error('network error'));
+      }
+      return Promise.resolve({ ok: true });
+    });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+    conn.trackSeq('sess-1', 10);
+
+    // Force reconnect, then queue a send while disconnected
+    conn.checkAndReconnect(true);
+    conn.send({ type: 'send', text: 'hello' });
+    mockFetch.mockClear();
+
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
+
+    // Even though reconnect POST fails, pending sends should still flush
+    await vi.waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+    expect(mockFetch.mock.calls[1][0]).toContain('/send');
+  });
+
   it('checkAndReconnect(false) is no-op when connected', () => {
     const conn = new SseConnection(createConfig());
     conn.connect();
