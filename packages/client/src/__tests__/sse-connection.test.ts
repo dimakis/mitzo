@@ -669,7 +669,52 @@ describe('SseConnection', () => {
     warnSpy.mockRestore();
   });
 
-  it('recovers via checkAndReconnect(false) when POST fails but SSE stays up', async () => {
+  it('stale doReconnectPost does not set _connected when checkAndReconnect fires mid-flight', async () => {
+    let resolveReconnect!: (v: { ok: boolean }) => void;
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/reconnect')) {
+        return new Promise((resolve) => {
+          resolveReconnect = resolve;
+        });
+      }
+      return Promise.resolve({ ok: true });
+    });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+    conn.trackSeq('sess-1', 10);
+
+    // Force reconnect — creates ES2
+    conn.checkAndReconnect(true);
+
+    // ES2 welcome — doReconnectPost(conn-def) starts
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
+
+    // checkAndReconnect fires again while POST is in-flight — creates ES3
+    conn.checkAndReconnect(true);
+
+    // Stale POST resolves successfully — must NOT set _connected
+    resolveReconnect({ ok: true });
+    await vi.runAllTimersAsync();
+
+    // ES3 hasn't welcomed yet, so _connected must remain false
+    expect(conn.isConnected()).toBe(false);
+  });
+
+  it('does not emit _close when checkAndReconnect called while already disconnected', () => {
+    const conn = new SseConnection(createConfig());
+    const listener = vi.fn();
+    conn.onMessage(listener);
+    conn.connect();
+    // Don't send welcome — _connected stays false
+
+    conn.checkAndReconnect(true);
+
+    // _close should NOT have been emitted since we were never connected
+    expect(listener).not.toHaveBeenCalledWith({ type: '_close' });
+  });
+
+  it('recovers via scheduleReconnect after repeated POST failures', async () => {
     let reconnectCallCount = 0;
     const mockFetch = vi.fn().mockImplementation((url: string) => {
       if (url.includes('/reconnect')) {

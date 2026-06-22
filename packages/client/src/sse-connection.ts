@@ -219,10 +219,11 @@ export class SseConnection implements ChatConnection {
 
       // _connected deferred until doReconnectPost succeeds — prevents
       // external send() from bypassing the pending queue mid-reconnect.
-      // welcomeConnectionId is a staleness guard for concurrent welcomes.
+      // Capture both connectionId and ES instance for the staleness guard.
       const welcomeConnectionId = this._connectionId;
+      const welcomeEs = this.es;
       if (this._isReconnect && this.seqBySession.size > 0) {
-        this.doReconnectPost(welcomeConnectionId);
+        this.doReconnectPost(welcomeConnectionId, welcomeEs);
       } else {
         this._connected = true;
         this.flushPendingSends();
@@ -269,7 +270,10 @@ export class SseConnection implements ChatConnection {
    * flushing pending sends into the void when the server never ran
    * handleReconnect (no watch, no reattach, no replay).
    */
-  private async doReconnectPost(welcomeConnectionId: string): Promise<void> {
+  private async doReconnectPost(
+    welcomeConnectionId: string,
+    welcomeEs: EventSource | null,
+  ): Promise<void> {
     try {
       const res = await this.config.fetch(`${this.config.baseUrl}/api/chat/reconnect`, {
         method: 'POST',
@@ -286,9 +290,9 @@ export class SseConnection implements ChatConnection {
         }),
       });
 
-      // Guard: bail if disconnect() was called or a newer welcome
-      // arrived while the POST was in-flight.
-      if (!this.es || this._connectionId !== welcomeConnectionId) return;
+      // Guard: bail if disconnect() was called, a newer welcome arrived,
+      // or checkAndReconnect replaced the EventSource while in-flight.
+      if (!this.es || this.es !== welcomeEs || this._connectionId !== welcomeConnectionId) return;
 
       if (res.ok) {
         this._connected = true;
@@ -299,7 +303,7 @@ export class SseConnection implements ChatConnection {
         this.scheduleReconnect();
       }
     } catch (err) {
-      if (!this.es || this._connectionId !== welcomeConnectionId) return;
+      if (!this.es || this.es !== welcomeEs || this._connectionId !== welcomeConnectionId) return;
       console.warn('[SseConnection] reconnect POST failed', err);
       this.scheduleReconnect();
     }
