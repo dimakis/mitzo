@@ -224,7 +224,10 @@ export class SseConnection implements ChatConnection {
       // _connected is deferred until reconnect completes — setting it earlier
       // lets external send() bypass the pending queue before the server has
       // reattached the session.
-      const welcomeConnectionId = msg.connectionId as string;
+      // Snapshot the current connectionId for the staleness guard in
+      // doReconnectPost — if a newer welcome arrives while the POST is
+      // in-flight, the callback bails out.
+      const welcomeConnectionId = this._connectionId;
       if (this._isReconnect && this.seqBySession.size > 0) {
         this.doReconnectPost(welcomeConnectionId);
       } else {

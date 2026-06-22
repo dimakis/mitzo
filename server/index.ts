@@ -82,7 +82,6 @@ import { ConnectionRegistry } from '@mitzo/harness';
 import {
   isHelloHandshake,
   handleHello,
-  handleReconnect,
   dispatchV2Message,
   type V2HandlerContext,
 } from './ws-handler-v2.js';
@@ -388,21 +387,10 @@ app.get('/api/chat/events', (req, res) => {
     connectionId,
   });
 
-  // Handle reconnect if sessions provided as query param
-  const sessionsParam = req.query.sessions as string | undefined;
-  if (sessionsParam) {
-    try {
-      const sessions = sessionsParam.split(',').map((entry) => {
-        const sep = entry.lastIndexOf('|');
-        const sessionId = sep > 0 ? entry.slice(0, sep) : entry;
-        const seqStr = sep > 0 ? entry.slice(sep + 1) : '0';
-        return { sessionId, lastSeq: parseInt(seqStr, 10) || 0 };
-      });
-      handleReconnect(connectionId, { type: 'reconnect', sessions }, v2Ctx);
-    } catch (err) {
-      log.warn('SSE chat reconnect parse error', { connectionId, error: String(err) });
-    }
-  }
+  // Reconnect is handled via POST /api/chat/reconnect — the client sends
+  // a reconnect POST on every welcome event. The old ?sessions= query param
+  // path was removed because EventSource auto-reconnect reuses the original
+  // URL (without the param), making it unreliable.
 
   log.info('SSE chat stream connected', { connectionId });
 
