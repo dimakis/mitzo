@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { validateConfig, authMiddleware, verifyToken } from '../auth.js';
+import { validateConfig, authMiddleware } from '../auth.js';
 import { INTERNAL_TOKEN } from '../internal-token.js';
 
 describe('validateConfig', () => {
