@@ -224,6 +224,7 @@ export class SseConnection implements ChatConnection {
       // _connected is deferred until reconnect completes — setting it earlier
       // lets external send() bypass the pending queue before the server has
       // reattached the session.
+      const welcomeConnectionId = msg.connectionId as string;
       if (this._isReconnect && this.seqBySession.size > 0) {
         this.doPost('reconnect', {
           type: 'reconnect',
@@ -232,6 +233,9 @@ export class SseConnection implements ChatConnection {
             lastSeq,
           })),
         }).finally(() => {
+          // Guard: bail if disconnect() was called or a newer welcome
+          // arrived while the POST was in-flight.
+          if (!this.es || this._connectionId !== welcomeConnectionId) return;
           this._connected = true;
           this.flushPendingSends();
           this.listener?.({ type: '_open' });
