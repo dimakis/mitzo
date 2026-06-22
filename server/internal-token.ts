@@ -16,7 +16,8 @@ try {
 }
 
 /** Constant-time check for internal token validity. */
-export function isValidInternalToken(candidate: string | undefined): boolean {
-  if (!candidate || candidate.length !== INTERNAL_TOKEN.length) return false;
+export function isValidInternalToken(candidate: string | string[] | undefined): boolean {
+  if (!candidate || Array.isArray(candidate)) return false;
+  if (candidate.length !== INTERNAL_TOKEN.length) return false;
   return timingSafeEqual(Buffer.from(candidate), Buffer.from(INTERNAL_TOKEN));
 }

@@ -342,7 +342,7 @@ app.post('/api/permission/:permId/respond', (req, res) => {
 // --- Repo registry API (internal-token auth, no cookie needed) ---
 
 function verifyInternalToken(req: express.Request): boolean {
-  return isValidInternalToken(req.headers['x-internal-token'] as string | undefined);
+  return isValidInternalToken(req.headers['x-internal-token']);
 }
 
 app.get('/api/repos', (req, res) => {

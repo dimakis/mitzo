@@ -64,7 +64,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
   // Allow internal-token auth for programmatic access (agents, CLI).
   // All /api/* routes are accessible with the internal token — this is
   // intentional to support task board, template, and loop endpoints.
-  if (isValidInternalToken(req.headers['x-internal-token'] as string | undefined)) {
+  if (isValidInternalToken(req.headers['x-internal-token'])) {
     return next();
   }
 
