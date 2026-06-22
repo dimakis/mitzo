@@ -226,20 +226,7 @@ export class SseConnection implements ChatConnection {
       // reattached the session.
       const welcomeConnectionId = msg.connectionId as string;
       if (this._isReconnect && this.seqBySession.size > 0) {
-        this.doPost('reconnect', {
-          type: 'reconnect',
-          sessions: Array.from(this.seqBySession.entries()).map(([sessionId, lastSeq]) => ({
-            sessionId,
-            lastSeq,
-          })),
-        }).finally(() => {
-          // Guard: bail if disconnect() was called or a newer welcome
-          // arrived while the POST was in-flight.
-          if (!this.es || this._connectionId !== welcomeConnectionId) return;
-          this._connected = true;
-          this.flushPendingSends();
-          this.listener?.({ type: '_open' });
-        });
+        this.doReconnectPost(welcomeConnectionId);
       } else {
         this._connected = true;
         this.flushPendingSends();
@@ -276,6 +263,48 @@ export class SseConnection implements ChatConnection {
 
     // EventSource fires 'open' when the connection is established,
     // but we wait for the 'welcome' event before marking as connected.
+  }
+
+  /**
+   * Send the reconnect POST and only mark connected on success.
+   *
+   * On failure the client stays disconnected — the next EventSource
+   * auto-reconnect will trigger a fresh welcome + retry. This prevents
+   * flushing pending sends into the void when the server never ran
+   * handleReconnect (no watch, no reattach, no replay).
+   */
+  private async doReconnectPost(welcomeConnectionId: string): Promise<void> {
+    try {
+      const res = await this.config.fetch(`${this.config.baseUrl}/api/chat/reconnect`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Connection-ID': welcomeConnectionId,
+        },
+        body: JSON.stringify({
+          type: 'reconnect',
+          sessions: Array.from(this.seqBySession.entries()).map(([sessionId, lastSeq]) => ({
+            sessionId,
+            lastSeq,
+          })),
+        }),
+      });
+
+      // Guard: bail if disconnect() was called or a newer welcome
+      // arrived while the POST was in-flight.
+      if (!this.es || this._connectionId !== welcomeConnectionId) return;
+
+      if (res.ok) {
+        this._connected = true;
+        this.flushPendingSends();
+        this.listener?.({ type: '_open' });
+      }
+      // On !res.ok: stay disconnected. EventSource auto-reconnect will
+      // trigger a new welcome and retry the reconnect POST.
+    } catch {
+      // Network error: same as !res.ok — stay disconnected, let
+      // EventSource auto-reconnect handle retry.
+    }
   }
 
   private async doPost(endpoint: string, body: Record<string, unknown>): Promise<void> {

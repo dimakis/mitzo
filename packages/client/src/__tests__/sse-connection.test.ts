@@ -475,6 +475,94 @@ describe('SseConnection', () => {
     expect(postEndpoints).toEqual(['reconnect', 'send']);
   });
 
+  it('stays disconnected when reconnect POST fails', async () => {
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/reconnect')) {
+        return Promise.resolve({ ok: false, status: 500 });
+      }
+      return Promise.resolve({ ok: true });
+    });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    const listener = vi.fn();
+    conn.onMessage(listener);
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+    conn.trackSeq('sess-1', 10);
+
+    // Force reconnect
+    conn.checkAndReconnect(true);
+    conn.send({ type: 'send', prompt: 'should stay queued', clientMsgId: 'q-1' });
+    listener.mockClear();
+
+    // New welcome — reconnect POST will fail
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
+    await vi.runAllTimersAsync();
+
+    // Must stay disconnected — server never ran handleReconnect
+    expect(conn.isConnected()).toBe(false);
+    expect(listener).not.toHaveBeenCalledWith({ type: '_open' });
+  });
+
+  it('stays disconnected when reconnect POST throws network error', async () => {
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/reconnect')) {
+        return Promise.reject(new Error('network error'));
+      }
+      return Promise.resolve({ ok: true });
+    });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    const listener = vi.fn();
+    conn.onMessage(listener);
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+    conn.trackSeq('sess-1', 10);
+
+    conn.checkAndReconnect(true);
+    listener.mockClear();
+
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
+    await vi.runAllTimersAsync();
+
+    expect(conn.isConnected()).toBe(false);
+    expect(listener).not.toHaveBeenCalledWith({ type: '_open' });
+  });
+
+  it('recovers after failed reconnect when EventSource auto-reconnects', async () => {
+    let callCount = 0;
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/reconnect')) {
+        callCount++;
+        // First reconnect fails, second succeeds
+        if (callCount === 1) return Promise.resolve({ ok: false, status: 500 });
+        return Promise.resolve({ ok: true });
+      }
+      return Promise.resolve({ ok: true });
+    });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    const listener = vi.fn();
+    conn.onMessage(listener);
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+    conn.trackSeq('sess-1', 10);
+
+    // Force reconnect
+    conn.checkAndReconnect(true);
+    listener.mockClear();
+
+    // First welcome — reconnect POST fails
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
+    await vi.runAllTimersAsync();
+    expect(conn.isConnected()).toBe(false);
+
+    // EventSource auto-reconnect fires a new welcome
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-ghi' });
+    await vi.runAllTimersAsync();
+
+    // Second attempt succeeds
+    expect(conn.isConnected()).toBe(true);
+    expect(listener).toHaveBeenCalledWith({ type: '_open' });
+  });
+
   it('does not send reconnect POST on first connection', () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true });
     const conn = new SseConnection(createConfig({ fetch: mockFetch }));
