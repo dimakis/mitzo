@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from '
 import { join, dirname, resolve, extname, basename } from 'path';
 import { execFileSync, execFile } from 'child_process';
 import { promisify } from 'util';
-import { createHash, randomUUID } from 'crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'crypto';
 import { fileURLToPath } from 'url';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { login, authMiddleware, verifyToken, COOKIE_NAME, MAX_AGE_HOURS } from './auth.js';
@@ -342,7 +342,9 @@ app.post('/api/permission/:permId/respond', (req, res) => {
 // --- Repo registry API (internal-token auth, no cookie needed) ---
 
 function verifyInternalToken(req: express.Request): boolean {
-  return req.headers['x-internal-token'] === INTERNAL_TOKEN;
+  const token = req.headers['x-internal-token'] as string | undefined;
+  if (!token || token.length !== INTERNAL_TOKEN.length) return false;
+  return timingSafeEqual(Buffer.from(token), Buffer.from(INTERNAL_TOKEN));
 }
 
 app.get('/api/repos', (req, res) => {

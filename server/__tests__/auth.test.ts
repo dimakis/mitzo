@@ -115,8 +115,21 @@ describe('authMiddleware — internal token', () => {
     expect(res.json).not.toHaveBeenCalled();
   });
 
-  it('rejects invalid internal token', () => {
+  it('rejects invalid internal token (wrong length)', () => {
     const req = mockReq({ 'x-internal-token': 'wrong-token' });
+    const res = mockRes();
+    const next = vi.fn();
+
+    authMiddleware(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('rejects invalid internal token (same length, wrong value)', () => {
+    // INTERNAL_TOKEN is 64 hex chars — use a same-length string to exercise timingSafeEqual
+    const fakeToken = '0'.repeat(INTERNAL_TOKEN.length);
+    const req = mockReq({ 'x-internal-token': fakeToken });
     const res = mockRes();
     const next = vi.fn();
 
