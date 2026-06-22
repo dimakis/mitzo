@@ -641,7 +641,7 @@ describe('SseConnection', () => {
     expect(postEndpoints).toEqual(['reconnect', 'send']);
   });
 
-  it('forces reconnect when reconnect POST fails (SSE stream stays up)', async () => {
+  it('schedules delayed reconnect when reconnect POST fails', async () => {
     const mockFetch = vi.fn().mockImplementation((url: string) => {
       if (url.includes('/reconnect')) {
         return Promise.resolve({ ok: false, status: 500 });
@@ -656,17 +656,15 @@ describe('SseConnection', () => {
 
     // Force reconnect
     conn.checkAndReconnect(true);
+    const esCountBefore = MockEventSource.instances.length;
 
     // Welcome — reconnect POST will fail
     lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
     await vi.runAllTimersAsync();
 
-    // Should have forced a new reconnect (new EventSource created)
-    // The failed POST triggers checkAndReconnect(true), which closes
-    // the old ES and creates a new one
+    // Should have scheduled a delayed reconnect (new ES after timer)
     expect(conn.isConnected()).toBe(false);
-    const esCount = MockEventSource.instances.length;
-    expect(esCount).toBeGreaterThanOrEqual(3); // initial + reconnect + forced retry
+    expect(MockEventSource.instances.length).toBeGreaterThan(esCountBefore);
 
     warnSpy.mockRestore();
   });

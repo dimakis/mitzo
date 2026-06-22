@@ -180,8 +180,11 @@ export class SseConnection implements ChatConnection {
       this.es.close();
       this.es = null;
     }
+    const wasConnected = this._connected;
     this._connected = false;
-    this.listener?.({ type: '_close' });
+    if (wasConnected) {
+      this.listener?.({ type: '_close' });
+    }
     this.doConnect();
   }
 
@@ -293,13 +296,26 @@ export class SseConnection implements ChatConnection {
         this.listener?.({ type: '_open' });
       } else {
         console.warn('[SseConnection] reconnect POST returned', res.status);
-        this.checkAndReconnect(true);
+        this.scheduleReconnect();
       }
     } catch (err) {
       if (!this.es || this._connectionId !== welcomeConnectionId) return;
       console.warn('[SseConnection] reconnect POST failed', err);
-      this.checkAndReconnect(true);
+      this.scheduleReconnect();
     }
+  }
+
+  /** Tear down and reconnect after a delay to avoid tight retry loops. */
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer) return;
+    if (this.es) {
+      this.es.close();
+      this.es = null;
+    }
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.doConnect();
+    }, this.config.reconnectDelayMs);
   }
 
   private async doPost(endpoint: string, body: Record<string, unknown>): Promise<void> {
