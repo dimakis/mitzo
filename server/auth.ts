@@ -1,5 +1,6 @@
 import { SignJWT, jwtVerify } from 'jose';
 import type { Request, Response, NextFunction } from 'express';
+import { INTERNAL_TOKEN } from './internal-token.js';
 
 const INSECURE_PASSPHRASES = ['change-me', 'change-me-to-something-secure'];
 const INSECURE_SECRETS = [
@@ -59,6 +60,9 @@ function extractBearerToken(req: Request): string | undefined {
 
 export function authMiddleware(req: Request, res: Response, next: NextFunction) {
   if (req.path === '/auth/login') return next();
+
+  // Allow internal-token auth for programmatic access (agents, CLI)
+  if (req.headers['x-internal-token'] === INTERNAL_TOKEN) return next();
 
   const token = req.cookies?.[COOKIE_NAME] || extractBearerToken(req);
   if (!token) {
