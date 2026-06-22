@@ -214,19 +214,9 @@ export class SseConnection implements ChatConnection {
       }
       this._connectionId = msg.connectionId as string;
 
-      // Always send reconnect on welcome if we have tracked sessions.
-      // Native EventSource auto-reconnect reuses the original URL (without
-      // ?sessions= param), so the server never runs handleReconnect — no
-      // watch, no reattach, no event replay. This POST ensures every
-      // reconnect (auto or explicit) triggers the full server-side
-      // reconnect flow: watch + reattach + event replay.
-      //
-      // _connected is deferred until reconnect completes — setting it earlier
-      // lets external send() bypass the pending queue before the server has
-      // reattached the session.
-      // Snapshot the current connectionId for the staleness guard in
-      // doReconnectPost — if a newer welcome arrives while the POST is
-      // in-flight, the callback bails out.
+      // _connected deferred until doReconnectPost succeeds — prevents
+      // external send() from bypassing the pending queue mid-reconnect.
+      // welcomeConnectionId is a staleness guard for concurrent welcomes.
       const welcomeConnectionId = this._connectionId;
       if (this._isReconnect && this.seqBySession.size > 0) {
         this.doReconnectPost(welcomeConnectionId);
@@ -301,13 +291,14 @@ export class SseConnection implements ChatConnection {
         this._connected = true;
         this.flushPendingSends();
         this.listener?.({ type: '_open' });
+      } else {
+        console.warn('[SseConnection] reconnect POST returned', res.status);
+        this.checkAndReconnect(true);
       }
-      // On !res.ok: stay disconnected. EventSource auto-reconnect will
-      // trigger a new welcome and retry the reconnect POST.
     } catch (err) {
-      // Network error: same as !res.ok — stay disconnected, let
-      // EventSource auto-reconnect handle retry.
-      console.warn('[SseConnection] reconnect POST failed, will retry on next welcome', err);
+      if (!this.es || this._connectionId !== welcomeConnectionId) return;
+      console.warn('[SseConnection] reconnect POST failed', err);
+      this.checkAndReconnect(true);
     }
   }
 
