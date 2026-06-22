@@ -304,9 +304,10 @@ export class SseConnection implements ChatConnection {
       }
       // On !res.ok: stay disconnected. EventSource auto-reconnect will
       // trigger a new welcome and retry the reconnect POST.
-    } catch {
+    } catch (err) {
       // Network error: same as !res.ok — stay disconnected, let
       // EventSource auto-reconnect handle retry.
+      console.warn('[SseConnection] reconnect POST failed, will retry on next welcome', err);
     }
   }
 

@@ -356,7 +356,7 @@ describe('SseConnection', () => {
     expect(listener).toHaveBeenCalledWith({ type: '_open' });
   });
 
-  it('discards dangling .finally() if disconnect() called during reconnect POST', async () => {
+  it('bails out if disconnect() called during in-flight reconnect POST', async () => {
     let resolveReconnect!: (v: { ok: true }) => void;
     const mockFetch = vi.fn().mockImplementation((_url: string) => {
       if (_url.includes('/reconnect')) {
@@ -393,7 +393,7 @@ describe('SseConnection', () => {
     expect(listener).not.toHaveBeenCalledWith({ type: '_open' });
   });
 
-  it('discards stale .finally() when a newer welcome arrives', async () => {
+  it('ignores stale reconnect POST when a newer welcome arrives', async () => {
     const reconnectCalls: Array<(v: { ok: true }) => void> = [];
     const mockFetch = vi.fn().mockImplementation((_url: string) => {
       if (_url.includes('/reconnect')) {
@@ -639,6 +639,31 @@ describe('SseConnection', () => {
     await vi.runAllTimersAsync();
     expect(conn.isConnected()).toBe(true);
     expect(postEndpoints).toEqual(['reconnect', 'send']);
+  });
+
+  it('connects immediately on reconnect when seqBySession is empty', () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    const listener = vi.fn();
+    conn.onMessage(listener);
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+
+    // Track and then clear — simulates all sessions being closed
+    conn.trackSeq('sess-1', 10);
+    conn.clearSession('sess-1');
+
+    // Force reconnect — _isReconnect=true but seqBySession is empty
+    conn.checkAndReconnect(true);
+    mockFetch.mockClear();
+    listener.mockClear();
+
+    // New welcome — should skip reconnect POST and connect immediately
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(conn.isConnected()).toBe(true);
+    expect(listener).toHaveBeenCalledWith({ type: '_open' });
   });
 
   it('does not send reconnect POST on first connection', () => {
