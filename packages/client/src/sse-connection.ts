@@ -213,7 +213,6 @@ export class SseConnection implements ChatConnection {
         return;
       }
       this._connectionId = msg.connectionId as string;
-      this._connected = true;
 
       // Always send reconnect on welcome if we have tracked sessions.
       // Native EventSource auto-reconnect reuses the original URL (without
@@ -221,6 +220,10 @@ export class SseConnection implements ChatConnection {
       // watch, no reattach, no event replay. This POST ensures every
       // reconnect (auto or explicit) triggers the full server-side
       // reconnect flow: watch + reattach + event replay.
+      //
+      // _connected is deferred until reconnect completes — setting it earlier
+      // lets external send() bypass the pending queue before the server has
+      // reattached the session.
       if (this._isReconnect && this.seqBySession.size > 0) {
         this.doPost('reconnect', {
           type: 'reconnect',
@@ -229,10 +232,12 @@ export class SseConnection implements ChatConnection {
             lastSeq,
           })),
         }).finally(() => {
+          this._connected = true;
           this.flushPendingSends();
           this.listener?.({ type: '_open' });
         });
       } else {
+        this._connected = true;
         this.flushPendingSends();
         this.listener?.({ type: '_open' });
       }
