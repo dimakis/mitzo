@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto';
+import { randomBytes, timingSafeEqual } from 'crypto';
 import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
@@ -13,4 +13,10 @@ try {
   writeFileSync(join(dir, 'internal-token'), INTERNAL_TOKEN, { mode: 0o600 });
 } catch {
   // Non-fatal — hooks will fall back gracefully
+}
+
+/** Constant-time check for internal token validity. */
+export function isValidInternalToken(candidate: string | undefined): boolean {
+  if (!candidate || candidate.length !== INTERNAL_TOKEN.length) return false;
+  return timingSafeEqual(Buffer.from(candidate), Buffer.from(INTERNAL_TOKEN));
 }

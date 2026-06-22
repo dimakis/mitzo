@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { validateConfig, authMiddleware } from '../auth.js';
+import { validateConfig, authMiddleware, verifyToken } from '../auth.js';
 import { INTERNAL_TOKEN } from '../internal-token.js';
 
 describe('validateConfig', () => {
@@ -158,5 +158,18 @@ describe('authMiddleware — internal token', () => {
     authMiddleware(req, res, next);
 
     expect(next).toHaveBeenCalledOnce();
+  });
+
+  it('falls through to JWT auth when no internal token', async () => {
+    const { login } = await import('../auth.js');
+    const jwt = await login(process.env.AUTH_PASSPHRASE!);
+    const req = mockReq({ authorization: `Bearer ${jwt}` });
+    const res = mockRes();
+    const next = vi.fn();
+
+    authMiddleware(req, res, next);
+
+    // verifyToken is async — wait for it to resolve
+    await vi.waitFor(() => expect(next).toHaveBeenCalledOnce());
   });
 });

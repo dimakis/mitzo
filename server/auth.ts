@@ -1,7 +1,6 @@
-import { timingSafeEqual } from 'crypto';
 import { SignJWT, jwtVerify } from 'jose';
 import type { Request, Response, NextFunction } from 'express';
-import { INTERNAL_TOKEN } from './internal-token.js';
+import { isValidInternalToken } from './internal-token.js';
 
 const INSECURE_PASSPHRASES = ['change-me', 'change-me-to-something-secure'];
 const INSECURE_SECRETS = [
@@ -65,12 +64,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
   // Allow internal-token auth for programmatic access (agents, CLI).
   // All /api/* routes are accessible with the internal token — this is
   // intentional to support task board, template, and loop endpoints.
-  const internalToken = req.headers['x-internal-token'] as string | undefined;
-  if (
-    internalToken &&
-    internalToken.length === INTERNAL_TOKEN.length &&
-    timingSafeEqual(Buffer.from(internalToken), Buffer.from(INTERNAL_TOKEN))
-  ) {
+  if (isValidInternalToken(req.headers['x-internal-token'] as string | undefined)) {
     return next();
   }
 
