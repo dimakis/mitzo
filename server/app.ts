@@ -37,7 +37,7 @@ import {
   listWorktrees,
 } from './worktree.js';
 import { DEFAULT_AGENT_NAME, GIT_BRANCH_TIMEOUT_MS } from './constants.js';
-import { INTERNAL_TOKEN } from './internal-token.js';
+import { isValidInternalToken } from './internal-token.js';
 import { getLocalCommit, isUpdateAvailable } from './git-version.js';
 import { resolvePending } from './permissions.js';
 import { createLogger } from './logger.js';
@@ -342,7 +342,7 @@ app.post('/api/permission/:permId/respond', (req, res) => {
 // --- Repo registry API (internal-token auth, no cookie needed) ---
 
 function verifyInternalToken(req: express.Request): boolean {
-  return req.headers['x-internal-token'] === INTERNAL_TOKEN;
+  return isValidInternalToken(req.headers['x-internal-token']);
 }
 
 app.get('/api/repos', (req, res) => {
