@@ -30,13 +30,14 @@ import {
   generateWtId,
 } from './chat.js';
 import { NullTransport } from './null-transport.js';
+import { getImage } from './image-store.js';
 import {
   createWorktree,
   createSessionWorktrees as createAllWorktrees,
   listWorktrees,
 } from './worktree.js';
 import { DEFAULT_AGENT_NAME, GIT_BRANCH_TIMEOUT_MS } from './constants.js';
-import { INTERNAL_TOKEN } from './internal-token.js';
+import { isValidInternalToken } from './internal-token.js';
 import { getLocalCommit, isUpdateAvailable } from './git-version.js';
 import { resolvePending } from './permissions.js';
 import { createLogger } from './logger.js';
@@ -101,7 +102,7 @@ export const BUNDLED_SKILLS_DIR = join(__dirname, '..', 'skills');
 export const USER_SKILLS_DIR = join(homedir(), '.mitzo', 'skills');
 
 /** Reserved native command names — skills with these names are ignored. */
-export const NATIVE_COMMAND_NAMES = new Set(['skills']);
+export const NATIVE_COMMAND_NAMES = new Set(['skills', 'deliberate', 'fuse']);
 
 /** Cached registries keyed by cwd — avoids re-scanning the filesystem on every request. */
 const registryCache = new Map<string, SkillRegistry>();
@@ -341,7 +342,7 @@ app.post('/api/permission/:permId/respond', (req, res) => {
 // --- Repo registry API (internal-token auth, no cookie needed) ---
 
 function verifyInternalToken(req: express.Request): boolean {
-  return req.headers['x-internal-token'] === INTERNAL_TOKEN;
+  return isValidInternalToken(req.headers['x-internal-token']);
 }
 
 app.get('/api/repos', (req, res) => {
@@ -1357,6 +1358,19 @@ app.get('/api/files/read', (req, res) => {
     });
     res.status(500).json({ error: 'Failed to read file' });
   }
+});
+
+// ── Tool result images (served from in-memory store) ──────────────────────
+app.get('/api/images/:imageId', (req, res) => {
+  const img = getImage(req.params.imageId);
+  if (!img) {
+    res.status(404).json({ error: 'Image not found' });
+    return;
+  }
+  res.setHeader('Content-Type', img.mediaType);
+  res.setHeader('Content-Length', img.data.length);
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+  res.send(img.data);
 });
 
 app.get('/api/files/download', (req, res) => {

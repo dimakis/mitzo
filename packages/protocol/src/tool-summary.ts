@@ -42,6 +42,17 @@ export function getRawInput(
         command: String(input.command || ''),
         language: 'bash',
       };
+    case 'Agent': {
+      const desc = String(input.description || '');
+      const stype = String(input.subagent_type || '');
+      const prompt = String(input.prompt || '');
+      return {
+        type: 'agent',
+        ...(desc && { description: desc.slice(0, TOOL_SUMMARY_MAX_CHARS) }),
+        ...(stype && { subagent_type: stype.slice(0, TOOL_SUMMARY_MAX_CHARS) }),
+        ...(prompt && { prompt: prompt.slice(0, RAW_INPUT_MAX_CHARS) }),
+      };
+    }
     default:
       return undefined;
   }
@@ -74,6 +85,21 @@ export function summarizeToolInput(toolName: string, input: Record<string, unkno
       return 'get status';
     case 'mcp__task-board__TaskBlock':
       return `${String(input.reason || '').slice(0, 60)}`;
+    case 'Agent': {
+      const desc = String(input.description || '');
+      const stype = String(input.subagent_type || '');
+      if (stype && desc) {
+        // Give the shorter field its full length, allocate the rest to the longer
+        const budget = TOOL_SUMMARY_MAX_CHARS - 3; // account for ' · '
+        const stypeLen = Math.min(
+          stype.length,
+          Math.max(Math.floor(budget / 2), budget - desc.length),
+        );
+        const descLen = budget - stypeLen;
+        return `${stype.slice(0, stypeLen)} · ${desc.slice(0, descLen)}`;
+      }
+      return (desc || stype || 'subagent').slice(0, TOOL_SUMMARY_MAX_CHARS);
+    }
     default:
       return JSON.stringify(input).slice(0, TOOL_SUMMARY_MAX_CHARS);
   }

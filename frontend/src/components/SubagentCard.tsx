@@ -6,6 +6,7 @@ import { TextBubble } from './MessageBubble';
 
 interface SubagentCardProps {
   subagent: FinishedSubagentState | StreamingSubagentState;
+  description?: string;
 }
 
 function formatTokens(usage?: { inputTokens: number; outputTokens: number }): string {
@@ -14,11 +15,13 @@ function formatTokens(usage?: { inputTokens: number; outputTokens: number }): st
   return `${fmt(usage.inputTokens)}↓ ${fmt(usage.outputTokens)}↑`;
 }
 
-export function SubagentCard({ subagent }: SubagentCardProps) {
+export function SubagentCard({ subagent, description }: SubagentCardProps) {
   const [expanded, setExpanded] = useState(false);
 
   const isRunning = 'running' in subagent && subagent.running;
-  const summary = isRunning ? 'Working...' : subagent.summary || 'Complete';
+  const summary = isRunning
+    ? description || 'Working...'
+    : subagent.summary || description || 'Complete';
   const usage = 'usage' in subagent ? subagent.usage : undefined;
   const done = !isRunning;
 

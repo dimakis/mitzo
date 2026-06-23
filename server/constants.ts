@@ -13,6 +13,7 @@ export {
   MAX_OBSERVERS_PER_SESSION,
   CONTEXT_CEILING_TOKENS,
 } from '@mitzo/protocol';
+import type { AgentDefinition } from '@mitzo/protocol';
 
 // --- Session & Permission ---
 // Re-export session lifecycle constants from harness (canonical source).
@@ -45,6 +46,21 @@ export const WORKTREE_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 // --- Agent Selection ---
 export const DEFAULT_AGENT_NAME = 'mitzo-conversational';
+
+/** Bundled fallback agent definition — used when ContexGin is unreachable and no local override. */
+export const DEFAULT_AGENT_DEFINITION = {
+  identity: {
+    name: DEFAULT_AGENT_NAME,
+    description: 'Primary conversational assistant via Mitzo iOS with full domain context',
+    mode: 'dynamic' as const,
+  },
+  provider: {
+    default: 'claude-opus-4',
+  },
+  context: {
+    budget: 12000,
+  },
+} as const satisfies AgentDefinition;
 
 // --- Session List ---
 /** Grace period for zero-turn inactive sessions — recently created ones stay visible. */

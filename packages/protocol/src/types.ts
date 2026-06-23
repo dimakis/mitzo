@@ -7,11 +7,79 @@
 export type MitzoMode = 'ask' | 'agent' | 'auto';
 export type BlockType = 'text' | 'thinking' | 'redacted_thinking' | 'tool_use';
 export type ToolTier = 'safe' | 'standard' | 'elevated' | 'unknown';
+export type AgentDefinitionSource = 'contexgin' | 'local' | 'fallback';
+
+// --- Agent definition (shared between agent-loader and session-registry) ---
+
+export interface AgentIdentity {
+  name: string;
+  description: string;
+  mode?: 'narrow' | 'dynamic';
+  role?: string;
+}
+
+export interface AgentProviderTiering {
+  fast?: string | null;
+  standard?: string | null;
+  capable?: string | null;
+}
+
+export interface AgentProvider {
+  default: string;
+  tiering?: AgentProviderTiering;
+}
+
+export interface AgentContextConfig {
+  budget?: number;
+  sources?: { hubs?: Array<{ path: string; spokes?: string[] }> };
+  priority?: string[];
+  exclude?: string[];
+  profile?: string;
+}
+
+export interface GovernanceBoundary {
+  spoke: string;
+  access: 'none' | 'read' | 'write';
+}
+
+export interface GovernanceApproval {
+  required_for?: string[];
+  auto_allow?: string[];
+}
+
+export interface AgentGovernance {
+  boundaries?: GovernanceBoundary[];
+  approval?: GovernanceApproval;
+}
+
+export interface AgentMemoryConfig {
+  scope: 'none' | 'read' | 'read-write';
+  vault?: string;
+}
+
+export interface AgentOutputConventions {
+  commit_style?: string;
+  response_format?: string | null;
+}
+
+export interface AgentOutput {
+  conventions?: AgentOutputConventions;
+  guides?: string[];
+}
+
+export interface AgentDefinition {
+  identity: AgentIdentity;
+  provider: AgentProvider;
+  context?: AgentContextConfig;
+  governance?: AgentGovernance;
+  memory?: AgentMemoryConfig;
+  output?: AgentOutput;
+}
 
 // --- Tool input ---
 
 export interface RawToolInput {
-  type: 'write' | 'diff' | 'command' | 'read';
+  type: 'write' | 'diff' | 'command' | 'read' | 'agent';
   path?: string;
   contents?: string;
   old_string?: string;
@@ -19,6 +87,12 @@ export interface RawToolInput {
   command?: string;
   /** Language hint derived from file extension (e.g. 'typescript', 'python'). */
   language?: string;
+  /** Agent tool: description of what the subagent is doing. */
+  description?: string;
+  /** Agent tool: the type of subagent (e.g. 'Explore', 'Plan'). */
+  subagent_type?: string;
+  /** Agent tool: the full prompt sent to the subagent. */
+  prompt?: string;
 }
 
 // --- Snapshot (server-side current message state) ---
@@ -51,6 +125,7 @@ export interface StreamingBlock {
   toolInput?: string;
   rawInput?: RawToolInput;
   toolResult?: string;
+  toolResultImages?: ToolResultImage[];
   toolError?: boolean;
   subagent?: StreamingSubagentState | FinishedSubagentState;
 }
@@ -72,6 +147,7 @@ export interface FinishedBlock {
   toolInput?: string;
   rawInput?: RawToolInput;
   toolResult?: string;
+  toolResultImages?: ToolResultImage[];
   toolError?: boolean;
   subagent?: FinishedSubagentState;
 }
@@ -103,6 +179,20 @@ export interface ImageAttachment {
   data: string;
   mediaType: string;
   preview: string;
+}
+
+// --- Tool result image ---
+
+/** Raw image extracted from SDK tool result content blocks (base64 data). */
+export interface RawToolResultImage {
+  data: string;
+  mediaType: string;
+}
+
+/** Reference to a server-stored image (sent over WS / persisted in blocks). */
+export interface ToolResultImage {
+  id: string;
+  mediaType: string;
 }
 
 // --- Session (client-facing) ---

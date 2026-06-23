@@ -73,6 +73,14 @@ function RawInputDetail({
       </div>
     );
   }
+  if (raw.type === 'agent') {
+    if (!raw.prompt) return null;
+    return (
+      <div className="tool-pill-section">
+        <CodeBlock code={raw.prompt} label="Prompt" maxHeight={300} />
+      </div>
+    );
+  }
   return null;
 }
 
@@ -84,20 +92,37 @@ function ToolResult({
   block: StreamingBlock | FinishedBlock;
   onPopOut?: (path: string) => void;
 }) {
-  if (block.toolResult === undefined) return null;
+  const hasText = block.toolResult !== undefined && block.toolResult.length > 0;
+  const hasImages = block.toolResultImages && block.toolResultImages.length > 0;
+
+  if (!hasText && !hasImages) return null;
 
   const raw = block.rawInput;
   const isRead = raw?.type === 'read';
 
   return (
     <div className="tool-pill-section">
-      <CodeBlock
-        code={block.toolResult}
-        language={raw?.language}
-        label={isRead ? raw?.path : 'Result'}
-        maxHeight={400}
-        onPopOut={isRead && raw?.path && onPopOut ? () => onPopOut(raw.path!) : undefined}
-      />
+      {hasImages && (
+        <div className="tool-pill-images">
+          {block.toolResultImages!.map((img, i) => (
+            <img
+              key={i}
+              src={`/api/images/${img.id}`}
+              alt={`Result image ${i + 1}`}
+              className="tool-pill-result-img"
+            />
+          ))}
+        </div>
+      )}
+      {hasText && (
+        <CodeBlock
+          code={block.toolResult!}
+          language={raw?.language}
+          label={isRead ? raw?.path : 'Result'}
+          maxHeight={400}
+          onPopOut={isRead && raw?.path && onPopOut ? () => onPopOut(raw.path!) : undefined}
+        />
+      )}
     </div>
   );
 }
@@ -106,7 +131,8 @@ export function ToolPill({ block }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
   const [expanded, setExpanded] = useState(false);
-  const done = block.toolResult !== undefined;
+  const done =
+    block.toolResult !== undefined || (block.toolResultImages && block.toolResultImages.length > 0);
   const hasError = (block as StreamingBlock).toolError === true;
   const input = block.toolInput || '';
 
@@ -146,7 +172,12 @@ export function ToolPill({ block }: Props) {
           <ToolResult block={block} onPopOut={handlePopOut} />
         </div>
       )}
-      {block.subagent && <SubagentCard subagent={block.subagent} />}
+      {block.subagent && (
+        <SubagentCard
+          subagent={block.subagent}
+          description={block.rawInput?.type === 'agent' ? block.rawInput.description : undefined}
+        />
+      )}
     </div>
   );
 }

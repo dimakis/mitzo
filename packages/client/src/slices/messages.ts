@@ -15,6 +15,7 @@ import type {
   BlockType,
   StreamingSubagentState,
   FinishedSubagentState,
+  ToolResultImage,
 } from '@mitzo/protocol';
 
 // ─── State ───────────────────────────────────────────────────────────────────
@@ -101,6 +102,7 @@ export type MessagesAction =
       toolId: string;
       result: string;
       isError: boolean;
+      images?: ToolResultImage[];
     }
   | { type: 'MESSAGE_END'; messageId: string; sessionId?: string }
   | { type: 'SESSION_END'; sessionId?: string }
@@ -129,6 +131,7 @@ export type MessagesAction =
       toolId: string;
       result: string;
       isError: boolean;
+      images?: ToolResultImage[];
     }
   | {
       type: 'SUBAGENT_END';
@@ -195,6 +198,7 @@ function finishSubagent(
         toolInput: b.toolInput,
         rawInput: b.rawInput,
         toolResult: b.toolResult,
+        toolResultImages: b.toolResultImages,
         toolError: b.toolError,
       })),
   };
@@ -212,6 +216,7 @@ export function finishCurrent(current: StreamingMessage): FinishedMessage {
       toolInput: b.toolInput,
       rawInput: b.rawInput,
       toolResult: b.toolResult,
+      toolResultImages: b.toolResultImages,
       toolError: b.toolError,
       subagent: b.subagent ? finishSubagent(b.subagent) : undefined,
     };
@@ -225,13 +230,20 @@ export function patchToolResult(
   toolId: string,
   result: string,
   isError: boolean,
+  images?: ToolResultImage[],
 ): { messages: FinishedMessage[]; current: StreamingMessage | null } {
+  const imgPatch = images && images.length > 0 ? { toolResultImages: images } : {};
   // Check current first (tool result may arrive before message_end in edge cases).
   if (current) {
     for (const block of current.blocks.values()) {
       if (block.toolId === toolId) {
         const newBlocks = new Map(current.blocks);
-        newBlocks.set(block.blockId, { ...block, toolResult: result, toolError: isError });
+        newBlocks.set(block.blockId, {
+          ...block,
+          toolResult: result,
+          toolError: isError,
+          ...imgPatch,
+        });
         return { messages, current: { ...current, blocks: newBlocks } };
       }
     }
@@ -241,7 +253,7 @@ export function patchToolResult(
     const idx = msg.blocks.findIndex((b) => b.toolId === toolId);
     if (idx === -1) return msg;
     const newBlocks = [...msg.blocks];
-    newBlocks[idx] = { ...newBlocks[idx], toolResult: result, toolError: isError };
+    newBlocks[idx] = { ...newBlocks[idx], toolResult: result, toolError: isError, ...imgPatch };
     return { ...msg, blocks: newBlocks };
   });
   return { messages: newMessages, current };
@@ -322,6 +334,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
         action.toolId,
         action.result,
         action.isError,
+        action.images,
       );
       return { ...state, messages, current };
     }
@@ -365,6 +378,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
           toolInput: b.toolInput,
           rawInput: b.rawInput,
           toolResult: b.toolResult,
+          toolResultImages: b.toolResultImages,
           toolError: b.toolError,
         });
         blockOrder.push(b.blockId);
@@ -695,6 +709,8 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
       if (!sub) return state;
 
       // Find the tool block with matching toolId
+      const imgPatch =
+        action.images && action.images.length > 0 ? { toolResultImages: action.images } : {};
       for (const [blockId, subBlock] of sub.blocks) {
         if (subBlock.toolId === action.toolId) {
           const newSubBlocks = new Map(sub.blocks);
@@ -702,6 +718,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
             ...subBlock,
             toolResult: action.result,
             toolError: action.isError,
+            ...imgPatch,
           });
 
           const newBlocks = new Map(state.current.blocks);
@@ -739,6 +756,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
             toolInput: b.toolInput,
             rawInput: b.rawInput,
             toolResult: b.toolResult,
+            toolResultImages: b.toolResultImages,
             toolError: b.toolError,
           })),
         summary: action.summary,

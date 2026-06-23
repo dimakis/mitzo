@@ -52,6 +52,56 @@ describe('EventStore', () => {
     });
   });
 
+  describe('hasUserMessage', () => {
+    it('returns false when no matching event exists', () => {
+      expect(store.hasUserMessage('sess-1', 'umsg-123')).toBe(false);
+    });
+
+    it('returns true when a user_message with the given messageId exists', () => {
+      store.append('sess-1', 'user_message', {
+        v: 2,
+        type: 'user_message',
+        ts: Date.now(),
+        messageId: 'user-abc-123',
+        text: 'Hello',
+      });
+      expect(store.hasUserMessage('sess-1', 'user-abc-123')).toBe(true);
+    });
+
+    it('does not match across different sessions', () => {
+      store.append('sess-1', 'user_message', {
+        v: 2,
+        type: 'user_message',
+        ts: Date.now(),
+        messageId: 'user-abc-123',
+        text: 'Hello',
+      });
+      expect(store.hasUserMessage('sess-2', 'user-abc-123')).toBe(false);
+    });
+
+    it('does not match non-user_message events', () => {
+      store.append('sess-1', 'message_start', { messageId: 'msg-1' });
+      expect(store.hasUserMessage('sess-1', 'msg-1')).toBe(false);
+    });
+
+    it('prevents duplicate resume-path user messages', () => {
+      const resumeId = 'umsg-1234567890-resume';
+      store.append('sess-resume', 'user_message', {
+        v: 2,
+        type: 'user_message',
+        ts: Date.now(),
+        messageId: resumeId,
+        text: 'Resumed prompt',
+      });
+      // First check — exists
+      expect(store.hasUserMessage('sess-resume', resumeId)).toBe(true);
+      // A retried POST with the same messageId should be caught
+      expect(store.hasUserMessage('sess-resume', resumeId)).toBe(true);
+      // Different messageId on same session — not a duplicate
+      expect(store.hasUserMessage('sess-resume', 'umsg-9999-resume')).toBe(false);
+    });
+  });
+
   describe('getEventsAfter', () => {
     it('returns all events for a session when afterSeq is 0', () => {
       store.append('sess-1', 'message_start', { messageId: 'm1' });

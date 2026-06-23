@@ -255,6 +255,42 @@ describe('fetchBootContext', () => {
     expect(result.fullMarkdown).toBe('json fallback');
   });
 
+  it('returns fullMarkdown suitable for system prompt append', async () => {
+    const markdown = '# Identity\nYou are a helpful assistant.\n\n# Preferences\nBe concise.';
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        boot: {
+          content: markdown,
+          tokens: 200,
+          tokenBudget: 8000,
+          sources: ['profile.md'],
+        },
+      }),
+    });
+
+    const result = await fetchBootContext('mitzo-conversational', CONTEXGIN_URL);
+
+    // fullMarkdown must be the exact content string — chat.ts appends it to the system prompt
+    expect(result.fullMarkdown).toBe(markdown);
+    expect(typeof result.fullMarkdown).toBe('string');
+    expect(result.fullMarkdown!.length).toBeGreaterThan(0);
+  });
+
+  it('returns undefined fullMarkdown when boot.content is missing', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        boot: { tokens: 0, sources: [] },
+      }),
+    });
+
+    const result = await fetchBootContext('mitzo-conversational', CONTEXGIN_URL);
+
+    // chat.ts checks `bootContextMsg.fullMarkdown` — undefined means no append
+    expect(result.fullMarkdown).toBeUndefined();
+  });
+
   it('uses default URL from env when not provided', async () => {
     const origUrl = process.env.CONTEXGIN_URL;
     process.env.CONTEXGIN_URL = 'http://test-host:9999';

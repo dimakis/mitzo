@@ -1,5 +1,6 @@
 import { SignJWT, jwtVerify } from 'jose';
 import type { Request, Response, NextFunction } from 'express';
+import { isValidInternalToken } from './internal-token.js';
 
 const INSECURE_PASSPHRASES = ['change-me', 'change-me-to-something-secure'];
 const INSECURE_SECRETS = [
@@ -59,6 +60,13 @@ function extractBearerToken(req: Request): string | undefined {
 
 export function authMiddleware(req: Request, res: Response, next: NextFunction) {
   if (req.path === '/auth/login') return next();
+
+  // Allow internal-token auth for programmatic access (agents, CLI).
+  // All /api/* routes are accessible with the internal token — this is
+  // intentional to support task board, template, and loop endpoints.
+  if (isValidInternalToken(req.headers['x-internal-token'])) {
+    return next();
+  }
 
   const token = req.cookies?.[COOKIE_NAME] || extractBearerToken(req);
   if (!token) {

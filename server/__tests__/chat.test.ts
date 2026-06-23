@@ -211,6 +211,41 @@ describe('cleanupSessionWorktrees', () => {
 
     expect(session.worktreePaths.size).toBe(0);
   });
+
+  it('skips secondary whose path matches primary worktree', async () => {
+    const { loadRepoConfig } = await import('../repo-config.js');
+    (loadRepoConfig as ReturnType<typeof vi.fn>).mockReturnValue({
+      repos: { mgmt: '/repo', mitzo: '/tools/mitzo' },
+      isolation: true,
+    });
+
+    const realNow = Date.now;
+    Date.now = () => realNow() + 10_000;
+
+    const { cleanupSessionWorktrees } = await import('../chat.js');
+
+    // "mgmt" secondary points to the same path as "primary" —
+    // simulates discoverSessionWorktrees adding both entries
+    const session = {
+      worktreePaths: new Map([
+        ['primary', { path: '/repo/.claude/worktrees/abc', wtId: 'abc' }],
+        ['mgmt', { path: '/repo/.claude/worktrees/abc', wtId: 'abc' }],
+        ['mitzo', { path: '/tools/mitzo/.claude/worktrees/abc', wtId: 'abc' }],
+      ]),
+    } as unknown as ManagedSession;
+
+    cleanupSessionWorktrees(session);
+
+    // mgmt should NOT be removed (same path as primary), mitzo should be removed
+    expect(removeWorktreeMock).toHaveBeenCalledWith('abc', '/tools/mitzo');
+    expect(removeWorktreeMock).toHaveBeenCalledTimes(1);
+
+    expect(session.worktreePaths.has('primary')).toBe(true);
+    expect(session.worktreePaths.size).toBe(1);
+
+    Date.now = realNow;
+    vi.restoreAllMocks();
+  });
 });
 
 describe('createSessionWorktrees — lazy secondary creation', () => {
@@ -591,5 +626,29 @@ describe('resolveSshAuthSock', () => {
     });
     const { resolveSshAuthSock } = await import('../chat.js');
     expect(resolveSshAuthSock()).toBeNull();
+  });
+});
+
+describe('agent definition wiring', () => {
+  it('loadAgentDef result is assignable to ManagedSession fields', async () => {
+    // Verify the fire-and-forget contract: loadAgentDef returns a shape
+    // that chat.ts can assign directly to session.agentDefinition and
+    // session.agentDefinitionSource without casts.
+    const { DEFAULT_AGENT_DEFINITION } = await import('../constants.js');
+    const loaded = {
+      definition: structuredClone(DEFAULT_AGENT_DEFINITION),
+      source: 'fallback' as const,
+    };
+
+    // Simulate what chat.ts does in the fire-and-forget block
+    const session: Partial<ManagedSession> = {};
+    session.agentDefinition = loaded.definition;
+    session.agentDefinitionSource = loaded.source;
+
+    expect(session.agentDefinition).toBeDefined();
+    expect(session.agentDefinition!.identity).toBeDefined();
+    expect(session.agentDefinition!.identity.description).toBeTruthy();
+    expect(session.agentDefinition!.provider.default).toBeTruthy();
+    expect(['contexgin', 'local', 'fallback']).toContain(session.agentDefinitionSource);
   });
 });

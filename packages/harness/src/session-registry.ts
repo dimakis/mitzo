@@ -11,8 +11,19 @@ import { createLogger } from './logger.js';
 
 const log = createLogger('session-registry');
 
-export type { MitzoMode, SnapshotBlock, MessageSnapshot, RawToolInput } from '@mitzo/protocol';
-import type { MitzoMode, MessageSnapshot } from '@mitzo/protocol';
+export type {
+  MitzoMode,
+  SnapshotBlock,
+  MessageSnapshot,
+  RawToolInput,
+  AgentDefinitionSource,
+} from '@mitzo/protocol';
+import type {
+  MitzoMode,
+  MessageSnapshot,
+  AgentDefinitionSource,
+  AgentDefinition,
+} from '@mitzo/protocol';
 
 export interface ManagedSession {
   transport: SessionTransport;
@@ -50,6 +61,10 @@ export interface ManagedSession {
   agentName?: string;
   /** Cached boot_context payload for replay on reconnect/switch. */
   bootContext?: Record<string, unknown>;
+  /** Parsed agent definition (recipe). Populated asynchronously after session start. */
+  agentDefinition?: AgentDefinition | null;
+  /** Source of the agent definition: 'contexgin' | 'local' | 'fallback'. */
+  agentDefinitionSource?: AgentDefinitionSource;
 }
 
 export interface ActiveSessionInfo {
@@ -114,6 +129,8 @@ export class SessionRegistry {
       | 'cumulativeCostUsd'
       | 'taskContext'
       | 'activeTaskIds'
+      | 'agentDefinition'
+      | 'agentDefinitionSource'
     > & {
       sessionId?: string;
     },
@@ -128,6 +145,8 @@ export class SessionRegistry {
       cumulativeCostUsd: 0,
       taskContext: null,
       activeTaskIds: new Map(),
+      agentDefinition: null,
+      agentDefinitionSource: undefined,
     });
     this.attached.add(clientId);
   }

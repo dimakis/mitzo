@@ -29,6 +29,7 @@ import { loadRepoConfig } from './repo-config.js';
 import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
 import { runQueryLoop, broadcastToObservers } from './query-loop.js';
+import { clearSessionImages } from './image-store.js';
 import { AsyncQueue } from './async-queue.js';
 import {
   GIT_BRANCH_TIMEOUT_MS,
@@ -41,6 +42,7 @@ import {
 import { INTERNAL_TOKEN } from './internal-token.js';
 import { buildTaskSystemPrompt } from './task-context.js';
 import type { TaskStore } from './task-store.js';
+import { loadAgentDef } from './agent-loader.js';
 
 let _taskStore: TaskStore | null = null;
 export function setTaskStore(store: TaskStore): void {
@@ -917,6 +919,36 @@ async function _startChatInner(
   // Load project hooks from .claude/settings.json (e.g. SessionStart boot context)
   const hooks = loadProjectHooks(cwd);
 
+  // Fetch boot context BEFORE building system prompt so it's part of the
+  // system prompt append and survives SDK context compaction.
+  // fetchBootContext never throws and has a 5s AbortSignal timeout internally.
+  // Race with a 2s deadline so session startup isn't blocked when ContexGin is slow.
+  let raceTimer: ReturnType<typeof setTimeout> | undefined;
+  const bootContextMsg = await Promise.race([
+    fetchBootContext(agentName),
+    new Promise<Awaited<ReturnType<typeof fetchBootContext>>>((resolve) => {
+      raceTimer = setTimeout(() => resolve({ ...FALLBACK_BOOT_CONTEXT }), 2000);
+    }),
+  ]);
+  clearTimeout(raceTimer);
+  const bootContextAppend = bootContextMsg.fullMarkdown
+    ? `\n\n# Boot Context\n${bootContextMsg.fullMarkdown}`
+    : '';
+
+  // Send boot context to UI immediately (sessionId may be undefined for new sessions — OK,
+  // it's a display-only hint; the client doesn't key on it for boot context).
+  send(transport, { ...bootContextMsg, ...(stateSessionId ? { sessionId: stateSessionId } : {}) });
+  // Cache in ManagedSession for replay on reconnect/switch
+  session.bootContext = bootContextMsg as unknown as Record<string, unknown>;
+  // For resumed sessions, persist immediately (sessionId is known).
+  // For new sessions, persist in onSessionResolved once SDK assigns the ID.
+  if (stateSessionId) {
+    eventStore.upsertSession({
+      sessionId: stateSessionId,
+      bootContext: JSON.stringify(bootContextMsg),
+    });
+  }
+
   // Build the system prompt append string (used by both query and comparison)
   const systemPromptAppend =
     'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
@@ -925,36 +957,35 @@ async function _startChatInner(
     '- Keep responses concise — small screen.\n' +
     '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.' +
     buildWorktreeSystemPrompt(repoWorktrees) +
-    buildTaskPromptForSession(clientId);
+    buildTaskPromptForSession(clientId) +
+    bootContextAppend;
 
-  // Fire-and-forget: fetch boot context from running ContexGin server.
-  // The callback may fire after the session ends (registry cleaned up) or
-  // before the SDK assigns a sessionId (new sessions). We include agentName
-  // in the upsert as a safety net so it's never null in the DB.
-  fetchBootContext(agentName)
-    .then((msg) => {
-      const session = registry.get(clientId);
-      const sid = options.resume ?? session?.sessionId;
-      // Send to client if transport still connected
-      if (session) {
-        send(transport, { ...msg, ...(sid ? { sessionId: sid } : {}) });
-        session.bootContext = msg as unknown as Record<string, unknown>;
-      }
-      // Persist to EventStore — include agentName as safety net since
-      // this upsert may be the last write for short-lived sessions.
-      if (sid) {
-        eventStore.upsertSession({
-          sessionId: sid,
-          bootContext: JSON.stringify(msg),
-          agentName,
+  // Fire-and-forget: load agent definition and store in session registry.
+  loadAgentDef(agentName, cwd)
+    .then((loaded) => {
+      const s = registry.get(clientId);
+      if (s) {
+        s.agentDefinition = loaded.definition;
+        s.agentDefinitionSource = loaded.source;
+        log.info('agent definition stored', {
+          agent: agentName,
+          source: loaded.source,
+          identity: loaded.definition.identity.description,
+        });
+      } else {
+        log.warn('agent definition loaded but session already torn down', {
+          agent: agentName,
+          source: loaded.source,
         });
       }
     })
     .catch((err: unknown) => {
-      log.warn('boot context fetch unexpected error', {
+      log.warn('agent definition load failed', {
+        agent: agentName,
         error: err instanceof Error ? err.message : String(err),
       });
     });
+
   capturePromptComparison(wtId, cwd, systemPromptAppend, repoWorktrees).catch(() => {});
 
   // Resolve SDK session UUID for resume — worktree IDs are not valid SDK session IDs
@@ -1006,25 +1037,16 @@ async function _startChatInner(
     // in the event store — making user messages invisible after WS reconnect.
     // Store and echo it here so the frontend can replay it.
     if (options.resume) {
-      const messageId = options.clientMsgId || `umsg-${Date.now()}-resume`;
-      eventStore.append(options.resume, 'user_message', {
-        v: 2,
-        type: 'user_message',
-        ts: Date.now(),
+      const messageId =
+        options.clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-resume`;
+      storeAndEchoIfNew(
+        options.resume,
         messageId,
-        text: fullPrompt,
-      });
-      eventStore.updateLastSpeaker(options.resume, 'user');
-      _onSessionChange?.(clientId, 'user_message');
-      const echo = {
-        type: 'user_message',
-        v: 2,
-        messageId,
-        text: fullPrompt,
-        sessionId: options.resume,
-      };
-      send(transport, echo);
-      broadcastToObservers(session.observers, echo);
+        fullPrompt,
+        clientId,
+        transport,
+        session.observers,
+      );
     }
 
     await runQueryLoop(
@@ -1036,7 +1058,16 @@ async function _startChatInner(
       options.resume ? undefined : fullPrompt,
       {
         connRegistry: _connRegistry ?? undefined,
-        onSessionResolved: options.onSessionResolved,
+        onSessionResolved: (sessionId: string) => {
+          // Persist boot context for new sessions (resume sessions already persisted above)
+          if (!options.resume) {
+            eventStore.upsertSession({
+              sessionId,
+              bootContext: JSON.stringify(bootContextMsg),
+            });
+          }
+          options.onSessionResolved?.(sessionId);
+        },
         onInitialPrompt: (sessionId: string) => {
           tryAutoRename(sessionId, clientId).catch(() => {
             /* errors logged internally */
@@ -1122,6 +1153,36 @@ async function tryAutoRename(sessionId: string, clientId: string): Promise<void>
   }
 }
 
+/**
+ * Store and echo a user message only if it hasn't been stored before.
+ * Returns true if the message was a duplicate (already stored), false if newly stored.
+ */
+function storeAndEchoIfNew(
+  sessionId: string,
+  messageId: string,
+  text: string,
+  clientId: string,
+  transport: SessionTransport,
+  observers: Set<SessionTransport>,
+): boolean {
+  if (eventStore.hasUserMessage(sessionId, messageId)) {
+    return true;
+  }
+  eventStore.append(sessionId, 'user_message', {
+    v: 2,
+    type: 'user_message',
+    ts: Date.now(),
+    messageId,
+    text,
+  });
+  eventStore.updateLastSpeaker(sessionId, 'user');
+  _onSessionChange?.(clientId, 'user_message');
+  const echo = { type: 'user_message', v: 2, messageId, text, sessionId };
+  send(transport, echo);
+  broadcastToObservers(observers, echo);
+  return false;
+}
+
 /** Push a follow-up message into a running session. */
 export function sendToChat(
   clientId: string,
@@ -1134,30 +1195,28 @@ export function sendToChat(
     const session = registry.get(clientId);
     if (!session?.inputQueue) return false;
     const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
-    const messageId = clientMsgId || `umsg-${Date.now()}-send`;
+    const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-send`;
     if (session.sessionId) {
-      eventStore.append(session.sessionId, 'user_message', {
-        v: 2,
-        type: 'user_message',
-        ts: Date.now(),
+      const isDup = storeAndEchoIfNew(
+        session.sessionId,
         messageId,
-        text: fullPrompt,
-      });
-      eventStore.updateLastSpeaker(session.sessionId, 'user');
-      _onSessionChange?.(clientId, 'user_message');
+        fullPrompt,
+        clientId,
+        session.transport,
+        session.observers,
+      );
+      if (isDup) return true;
       tryAutoRename(session.sessionId, clientId).catch(() => {
         /* errors logged internally */
       });
+    } else {
+      // Pre-session-resolve: no eventStore to dedup against.
+      // The frontend deduplicates echoes by messageId, and server-generated
+      // fallback IDs include randomUUID, so duplicates are not possible in practice.
+      const echo = { type: 'user_message', v: 2, messageId, text: fullPrompt };
+      send(session.transport, echo);
+      broadcastToObservers(session.observers, echo);
     }
-    const echo = {
-      type: 'user_message',
-      v: 2,
-      messageId,
-      text: fullPrompt,
-      ...(session.sessionId ? { sessionId: session.sessionId } : {}),
-    };
-    send(session.transport, echo);
-    broadcastToObservers(session.observers, echo);
     session.inputQueue.push(makeUserMessage(fullPrompt, 'next'));
     return true;
   });
@@ -1177,27 +1236,25 @@ export async function interruptChat(
     if (!session?.queryInstance || !session?.inputQueue) return false;
     if (model) session.model = model;
     const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
-    const messageId = clientMsgId || `umsg-${Date.now()}-interrupt`;
+    const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-interrupt`;
+    // Store and echo the user message. A retried interrupt must still stop
+    // the agent — only the echo/store is skipped on duplicate.
+    let isDup = false;
     if (session.sessionId) {
-      eventStore.append(session.sessionId, 'user_message', {
-        v: 2,
-        type: 'user_message',
-        ts: Date.now(),
+      isDup = storeAndEchoIfNew(
+        session.sessionId,
         messageId,
-        text: fullPrompt,
-      });
-      eventStore.updateLastSpeaker(session.sessionId, 'user');
-      _onSessionChange?.(clientId, 'user_message');
+        fullPrompt,
+        clientId,
+        session.transport,
+        session.observers,
+      );
+    } else {
+      // Pre-session-resolve: no eventStore to dedup against (see sendToChat).
+      const echo = { type: 'user_message', v: 2, messageId, text: fullPrompt };
+      send(session.transport, echo);
+      broadcastToObservers(session.observers, echo);
     }
-    const echo = {
-      type: 'user_message',
-      v: 2,
-      messageId,
-      text: fullPrompt,
-      ...(session.sessionId ? { sessionId: session.sessionId } : {}),
-    };
-    send(session.transport, echo);
-    broadcastToObservers(session.observers, echo);
     // Stop all active subagent tasks before interrupting the parent query.
     // Without this, interrupt() only halts the parent — which is blocked
     // waiting for the subagent, so the session hangs.
@@ -1210,7 +1267,11 @@ export async function interruptChat(
       await Promise.allSettled(stops);
     }
     await session.queryInstance.interrupt();
-    session.inputQueue.push(makeUserMessage(fullPrompt, 'now'));
+    // Only push to inputQueue on first delivery — a retried interrupt should
+    // still call interrupt() (to halt the agent) but not double-queue the prompt.
+    if (!isDup) {
+      session.inputQueue.push(makeUserMessage(fullPrompt, 'now'));
+    }
     return true;
   });
 }
@@ -1227,10 +1288,19 @@ export function cleanupSessionWorktrees(
   session: import('./session-registry.js').ManagedSession,
 ): void {
   const config = getRepoConfig();
-  for (const [repoName, { wtId }] of session.worktreePaths) {
+  const primaryPath = session.worktreePaths.get('primary')?.path;
+  for (const [repoName, { wtId, path }] of session.worktreePaths) {
     if (repoName === 'primary') continue;
     const repoPath = config.repos[repoName];
     if (!repoPath) continue;
+    // Guard: never remove a secondary whose path matches the primary worktree.
+    if (primaryPath && resolve(path) === resolve(primaryPath)) {
+      log.info('skipping secondary cleanup — path matches primary worktree', {
+        repoName,
+        path,
+      });
+      continue;
+    }
     try {
       removeWorktree(wtId, repoPath);
     } catch (err: unknown) {
@@ -1275,6 +1345,7 @@ function _closeoutSessionInner(clientId: string): void {
   const session = registry.get(clientId);
   if (!session?.inputQueue) {
     // No active session or input queue — just finalize as abandoned
+    if (session?.sessionId) clearSessionImages(session.sessionId);
     if (session?.wtId) {
       try {
         finalizeCloseout(BASE_REPO, session.wtId, {
@@ -1310,6 +1381,7 @@ function _closeoutSessionInner(clientId: string): void {
   if (session.wtId) {
     const wtId = session.wtId;
     const onAbort = () => {
+      if (session.sessionId) clearSessionImages(session.sessionId);
       const status = registry.isClosingOut(clientId) ? 'abandoned' : 'closed';
       const closedBy = registry.isUserClose(clientId)
         ? 'user'
@@ -1357,6 +1429,7 @@ export function closeSessionByUser(clientId: string): void {
 
     if (!session.inputQueue) {
       // No active agent — finalize immediately
+      if (session.sessionId) clearSessionImages(session.sessionId);
       if (session.wtId) {
         try {
           finalizeCloseout(BASE_REPO, session.wtId, {
@@ -1389,6 +1462,7 @@ export function closeSessionByUser(clientId: string): void {
     if (session.wtId) {
       const wtId = session.wtId;
       const onAbort = () => {
+        if (session.sessionId) clearSessionImages(session.sessionId);
         try {
           finalizeCloseout(BASE_REPO, wtId, {
             status: 'closed',
@@ -1423,6 +1497,7 @@ export function stopChat(clientId: string) {
     const session = registry.get(clientId);
     if (session) {
       cleanupSessionWorktrees(session);
+      if (session.sessionId) clearSessionImages(session.sessionId);
       session.inputQueue?.close();
       session.queryInstance?.close();
     }

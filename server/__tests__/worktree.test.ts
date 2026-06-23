@@ -598,6 +598,34 @@ describe('discoverSessionWorktrees', () => {
     expect(result.has('primary')).toBe(true);
     expect(result.has('secondary')).toBe(false);
   });
+
+  it('deduplicates secondary repos that match primaryRepo', () => {
+    const wtId = '2026-04-20-abc123def456';
+    mkdirSync(join(primaryRepo, '.claude', 'worktrees', wtId), { recursive: true });
+
+    // Pass primaryRepo as a secondary too (simulates mgmt in .mitzo.json repos)
+    const result = discoverSessionWorktrees(wtId, primaryRepo, {
+      mgmt: primaryRepo,
+    });
+
+    // Should only have "primary", not "mgmt" — dedup prevents double-mapping
+    expect(result.size).toBe(1);
+    expect(result.has('primary')).toBe(true);
+    expect(result.has('mgmt')).toBe(false);
+  });
+
+  it('deduplicates even with trailing slash differences', () => {
+    const wtId = '2026-04-20-abc123def456';
+    mkdirSync(join(primaryRepo, '.claude', 'worktrees', wtId), { recursive: true });
+
+    const result = discoverSessionWorktrees(wtId, primaryRepo, {
+      mgmt: primaryRepo + '/',
+    });
+
+    expect(result.size).toBe(1);
+    expect(result.has('primary')).toBe(true);
+    expect(result.has('mgmt')).toBe(false);
+  });
 });
 
 describe('cleanupStaleWorktrees', () => {

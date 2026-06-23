@@ -746,19 +746,25 @@ function handleChatWs(
             span.setAttribute('ws.send.resolution', resolution.type);
 
             if (resolution.type === 'native') {
-              const result = nativeCommands.execute(
-                resolution.name,
-                resolution.arguments,
-                skillRegistry,
-              );
-              if (result) {
-                transport.send({
-                  type: 'native_command_result',
-                  v: 2,
-                  command: result.command,
-                  content: result.content,
+              void nativeCommands
+                .execute(resolution.name, resolution.arguments, skillRegistry, { transport })
+                .then((result) => {
+                  if (result) {
+                    transport.send({
+                      type: 'native_command_result',
+                      v: 2,
+                      command: result.command,
+                      content: result.content,
+                    });
+                  }
+                })
+                .catch((err: unknown) => {
+                  transport.send({
+                    type: 'error',
+                    error: `Command /${resolution.name} failed: ${err instanceof Error ? err.message : 'unknown'}`,
+                  });
                 });
-              }
+              return;
             } else if (resolution.type === 'error') {
               transport.send({ type: 'error', error: resolution.message });
             } else if (resolution.type === 'skill') {

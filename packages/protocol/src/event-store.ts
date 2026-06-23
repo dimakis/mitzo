@@ -95,6 +95,7 @@ export class EventStore {
   private log: EventStoreLogger;
   private stmts: {
     append: Database.Statement;
+    hasUserMessage: Database.Statement;
     eventsAfter: Database.Statement;
     eventsAfterLimited: Database.Statement;
     sessionEvents: Database.Statement;
@@ -125,11 +126,18 @@ export class EventStore {
     this.migrateAttentionTracking(db);
     this.migrateSessionState(db);
     this.migrateBootContext(db);
+    this.migrateUserMessageIndex(db);
 
     this.log.info('EventStore initialized', { dbPath });
 
     this.stmts = {
       append: db.prepare('INSERT INTO events (session_id, type, payload) VALUES (?, ?, ?)'),
+      hasUserMessage: db.prepare(
+        `SELECT 1 FROM events
+         WHERE session_id = ? AND type = 'user_message'
+           AND json_extract(payload, '$.messageId') = ?
+         LIMIT 1`,
+      ),
       eventsAfter: db.prepare(
         'SELECT seq, session_id, type, payload, created_at FROM events WHERE session_id = ? AND seq > ? ORDER BY seq',
       ),
@@ -297,6 +305,13 @@ export class EventStore {
     }
   }
 
+  private migrateUserMessageIndex(db: Database.Database): void {
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_events_user_msg_dedup
+       ON events (session_id, type, json_extract(payload, '$.messageId'))`,
+    );
+  }
+
   close(): void {
     if (this.db) {
       this.db.close();
@@ -307,6 +322,11 @@ export class EventStore {
   append(sessionId: string, type: string, payload: Record<string, unknown>): number {
     const result = this.stmts.append.run(sessionId, type, JSON.stringify(payload));
     return Number(result.lastInsertRowid);
+  }
+
+  /** Check if a user_message with the given messageId already exists for this session. */
+  hasUserMessage(sessionId: string, messageId: string): boolean {
+    return this.stmts.hasUserMessage.get(sessionId, messageId) != null;
   }
 
   getEventsAfter(sessionId: string, afterSeq: number, limit?: number): StoredEvent[] {
