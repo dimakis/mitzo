@@ -180,8 +180,11 @@ export class SseConnection implements ChatConnection {
       this.es.close();
       this.es = null;
     }
+    const wasConnected = this._connected;
     this._connected = false;
-    this.listener?.({ type: '_close' });
+    if (wasConnected) {
+      this.listener?.({ type: '_close' });
+    }
     this.doConnect();
   }
 
@@ -213,25 +216,16 @@ export class SseConnection implements ChatConnection {
         return;
       }
       this._connectionId = msg.connectionId as string;
-      this._connected = true;
 
-      // Send reconnect POST before flushing queued sends so the server
-      // sets up watches/reattach before receiving client messages.
-      // Flush uses .finally() so queued sends still go out even if
-      // reconnect POST fails. _open fires after flush to match WS
-      // transport convention (ready = flushed + connected).
+      // _connected deferred until doReconnectPost succeeds — prevents
+      // external send() from bypassing the pending queue mid-reconnect.
+      // Capture both connectionId and ES instance for the staleness guard.
+      const welcomeConnectionId = this._connectionId;
+      const welcomeEs = this.es;
       if (this._isReconnect && this.seqBySession.size > 0) {
-        this.doPost('reconnect', {
-          type: 'reconnect',
-          sessions: Array.from(this.seqBySession.entries()).map(([sessionId, lastSeq]) => ({
-            sessionId,
-            lastSeq,
-          })),
-        }).finally(() => {
-          this.flushPendingSends();
-          this.listener?.({ type: '_open' });
-        });
+        this.doReconnectPost(welcomeConnectionId, welcomeEs);
       } else {
+        this._connected = true;
         this.flushPendingSends();
         this.listener?.({ type: '_open' });
       }
@@ -266,6 +260,66 @@ export class SseConnection implements ChatConnection {
 
     // EventSource fires 'open' when the connection is established,
     // but we wait for the 'welcome' event before marking as connected.
+  }
+
+  /**
+   * Send the reconnect POST and only mark connected on success.
+   *
+   * On failure the client stays disconnected — the next EventSource
+   * auto-reconnect will trigger a fresh welcome + retry. This prevents
+   * flushing pending sends into the void when the server never ran
+   * handleReconnect (no watch, no reattach, no replay).
+   */
+  private async doReconnectPost(
+    welcomeConnectionId: string,
+    welcomeEs: EventSource | null,
+  ): Promise<void> {
+    try {
+      const res = await this.config.fetch(`${this.config.baseUrl}/api/chat/reconnect`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Connection-ID': welcomeConnectionId,
+        },
+        body: JSON.stringify({
+          type: 'reconnect',
+          sessions: Array.from(this.seqBySession.entries()).map(([sessionId, lastSeq]) => ({
+            sessionId,
+            lastSeq,
+          })),
+        }),
+      });
+
+      // Guard: bail if disconnect() was called, a newer welcome arrived,
+      // or checkAndReconnect replaced the EventSource while in-flight.
+      if (!this.es || this.es !== welcomeEs || this._connectionId !== welcomeConnectionId) return;
+
+      if (res.ok) {
+        this._connected = true;
+        this.flushPendingSends();
+        this.listener?.({ type: '_open' });
+      } else {
+        console.warn('[SseConnection] reconnect POST returned', res.status);
+        this.scheduleReconnect();
+      }
+    } catch (err) {
+      if (!this.es || this.es !== welcomeEs || this._connectionId !== welcomeConnectionId) return;
+      console.warn('[SseConnection] reconnect POST failed', err);
+      this.scheduleReconnect();
+    }
+  }
+
+  /** Tear down and reconnect after a delay to avoid tight retry loops. */
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer) return;
+    if (this.es) {
+      this.es.close();
+      this.es = null;
+    }
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.doConnect();
+    }, this.config.reconnectDelayMs);
   }
 
   private async doPost(endpoint: string, body: Record<string, unknown>): Promise<void> {
