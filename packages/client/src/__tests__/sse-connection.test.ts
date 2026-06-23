@@ -384,7 +384,7 @@ describe('SseConnection', () => {
     expect(conn.isConnected()).toBe(false);
     listener.mockClear();
 
-    // Resolve the reconnect POST — .finally() should bail out
+    // Resolve the reconnect POST — staleness guard should bail out
     resolveReconnect({ ok: true });
     await vi.runAllTimersAsync();
 
