@@ -877,14 +877,10 @@ describe('SseConnection', () => {
 
   it('re-queues send POST on HTTP error (e.g. 404 from stale connectionId)', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    let callCount = 0;
-    const mockFetch = vi.fn().mockImplementation((url: string) => {
-      callCount++;
-      if (url.includes('/send') && callCount === 1) {
-        return Promise.resolve({ ok: false, status: 404 });
-      }
-      return Promise.resolve({ ok: true });
-    });
+    const mockFetch = vi
+      .fn()
+      .mockImplementationOnce(() => Promise.resolve({ ok: false, status: 404 }))
+      .mockImplementation(() => Promise.resolve({ ok: true }));
     const conn = new SseConnection(createConfig({ fetch: mockFetch }));
     conn.connect();
     lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
@@ -912,14 +908,10 @@ describe('SseConnection', () => {
 
   it('re-queues send POST on network error', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    let callCount = 0;
-    const mockFetch = vi.fn().mockImplementation((url: string) => {
-      callCount++;
-      if (url.includes('/send') && callCount === 1) {
-        return Promise.reject(new Error('network error'));
-      }
-      return Promise.resolve({ ok: true });
-    });
+    const mockFetch = vi
+      .fn()
+      .mockImplementationOnce(() => Promise.reject(new Error('network error')))
+      .mockImplementation(() => Promise.resolve({ ok: true }));
     const conn = new SseConnection(createConfig({ fetch: mockFetch }));
     conn.connect();
     lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
