@@ -453,7 +453,7 @@ describe('ConnectionRegistry', () => {
       expect(t.send).not.toHaveBeenCalled();
     });
 
-    it('skips ended sessions when isSessionActive is provided', async () => {
+    it('skips sessions where shouldSync returns false', async () => {
       vi.useFakeTimers();
       const t = mockTransport(true);
       const store = mockEventStore([
@@ -461,33 +461,36 @@ describe('ConnectionRegistry', () => {
         { seq: 10, payload: { type: 'msg2' } },
       ]);
 
-      // Add isSessionActive — sess-ended is inactive, sess-active is active
-      (store as EventStoreAdapter & { isSessionActive?: (id: string) => boolean }).isSessionActive =
-        (id: string) => id !== 'sess-ended';
+      // shouldSync returns false for ended/suspended/detached sessions
+      (store as EventStoreAdapter & { shouldSync?: (id: string) => boolean }).shouldSync = (
+        id: string,
+      ) => id !== 'sess-ended' && id !== 'sess-suspended';
 
       registry.setEventStore(store);
       registry.register('conn-1', t);
       registry.watch('conn-1', 'sess-ended');
+      registry.watch('conn-1', 'sess-suspended');
       registry.watch('conn-1', 'sess-active');
       registry.startPeriodicSync();
 
       await vi.advanceTimersByTimeAsync(5000);
 
-      // Should only fetch events for sess-active, not sess-ended
+      // Should only fetch events for sess-active
       const calls = (store.getEventsAfter as ReturnType<typeof vi.fn>).mock.calls;
       const sessionIds = calls.map((c: unknown[]) => c[0]);
       expect(sessionIds).toContain('sess-active');
       expect(sessionIds).not.toContain('sess-ended');
+      expect(sessionIds).not.toContain('sess-suspended');
 
       registry.stopPeriodicSync();
     });
 
-    it('still syncs all sessions when isSessionActive is not provided', async () => {
+    it('still syncs all sessions when shouldSync is not provided', async () => {
       vi.useFakeTimers();
       const t = mockTransport(true);
       const store = mockEventStore([{ seq: 5, payload: { type: 'msg1' } }]);
 
-      // No isSessionActive — backwards compatible
+      // No shouldSync — backwards compatible
       registry.setEventStore(store);
       registry.register('conn-1', t);
       registry.watch('conn-1', 'sess-a');
@@ -501,6 +504,56 @@ describe('ConnectionRegistry', () => {
       const sessionIds = calls.map((c: unknown[]) => c[0]);
       expect(sessionIds).toContain('sess-a');
       expect(sessionIds).toContain('sess-b');
+
+      registry.stopPeriodicSync();
+    });
+
+    it('caps replay depth when cursor is far behind head', async () => {
+      vi.useFakeTimers();
+      const t = mockTransport(true);
+      // Events at seq 9990-10000 (tail end of a 10K event session)
+      const tailEvents = Array.from({ length: 10 }, (_, i) => ({
+        seq: 9991 + i,
+        payload: { type: 'msg', i },
+      }));
+      const store = mockEventStore(tailEvents);
+      // getHeadSeq returns 10000
+      (store as EventStoreAdapter & { getHeadSeq?: (id: string) => number }).getHeadSeq = () =>
+        10000;
+
+      registry.setEventStore(store);
+      registry.register('conn-1', t);
+      registry.watch('conn-1', 'sess-a');
+      // Cursor at 0 — gap of 10000 >> MAX_REPLAY_GAP (200)
+      registry.startPeriodicSync();
+
+      await vi.advanceTimersByTimeAsync(5000);
+
+      // Should have fetched from 9800 (head - 200), not from 0
+      const calls = (store.getEventsAfter as ReturnType<typeof vi.fn>).mock.calls;
+      expect(calls[0][1]).toBe(9800); // afterSeq should be head - MAX_REPLAY_GAP
+    });
+
+    it('does not cap replay when gap is within MAX_REPLAY_GAP', async () => {
+      vi.useFakeTimers();
+      const t = mockTransport(true);
+      const store = mockEventStore([
+        { seq: 95, payload: { type: 'msg1' } },
+        { seq: 100, payload: { type: 'msg2' } },
+      ]);
+      (store as EventStoreAdapter & { getHeadSeq?: (id: string) => number }).getHeadSeq = () => 100;
+
+      registry.setEventStore(store);
+      registry.register('conn-1', t);
+      registry.watch('conn-1', 'sess-a');
+      // Cursor at 0, head at 100 — gap of 100 < MAX_REPLAY_GAP (200)
+      registry.startPeriodicSync();
+
+      await vi.advanceTimersByTimeAsync(5000);
+
+      // Should fetch from cursor (0), not skip ahead
+      const calls = (store.getEventsAfter as ReturnType<typeof vi.fn>).mock.calls;
+      expect(calls[0][1]).toBe(0);
 
       registry.stopPeriodicSync();
     });

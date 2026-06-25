@@ -325,7 +325,7 @@ export class SseConnection implements ChatConnection {
   private async doPost(endpoint: string, body: Record<string, unknown>): Promise<void> {
     if (!this._connectionId) return;
     try {
-      await this.config.fetch(`${this.config.baseUrl}/api/chat/${endpoint}`, {
+      const res = await this.config.fetch(`${this.config.baseUrl}/api/chat/${endpoint}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -333,9 +333,19 @@ export class SseConnection implements ChatConnection {
         },
         body: JSON.stringify(body),
       });
+      if (!res.ok && endpoint === 'send') {
+        // Message delivery failed (e.g. 404 from stale connectionId).
+        // Re-queue so it flushes on the next successful reconnect.
+        console.warn(`[SseConnection] POST /${endpoint} returned ${res.status}, re-queuing`);
+        this.pendingSends.push({ endpoint, body });
+      }
     } catch {
-      // POST failures are non-fatal — the server may be temporarily
-      // unreachable. The SSE stream will reconnect and replay missed events.
+      if (endpoint === 'send') {
+        // Network error — re-queue for retry after reconnect.
+        console.warn(`[SseConnection] POST /${endpoint} failed, re-queuing`);
+        this.pendingSends.push({ endpoint, body });
+      }
+      // Non-send POST failures (stop, interrupt, etc.) are non-fatal.
     }
   }
 

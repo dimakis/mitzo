@@ -38,15 +38,22 @@ export interface EventStoreAdapter {
     seq: number;
     payload: Record<string, unknown>;
   }>;
-  /** Optional: check if a session is still active. When provided, periodic sync
-   *  skips ended sessions to avoid unnecessary EventStore queries. */
-  isSessionActive?(sessionId: string): boolean;
+  /** Check if a session should receive periodic sync delivery.
+   *  When provided, periodic sync skips sessions where this returns false
+   *  (e.g. ENDED, SUSPENDED, DETACHED). */
+  shouldSync?(sessionId: string): boolean;
+  /** Return the latest seq number for a session, used to cap replay depth. */
+  getHeadSeq?(sessionId: string): number;
 }
 
 // Periodic sync fires every 5s to retry missed events
 const SYNC_INTERVAL_MS = 5000;
 // Limit events per sync round per connection to avoid overwhelming slow clients
 const SYNC_BATCH_LIMIT = 50;
+// Maximum gap between cursor and head before we skip ahead.
+// Prevents replay storms after server restart or long disconnects.
+// Client can lazy-load older events via the /api/sessions/:id/events API.
+const MAX_REPLAY_GAP = 200;
 
 export class ConnectionRegistry {
   private connections = new Map<string, Connection>();
@@ -221,12 +228,31 @@ export class ConnectionRegistry {
         if (!connCursors) continue;
 
         for (const sessionId of conn.watchedSessions) {
-          // Skip ended sessions to avoid unnecessary EventStore queries
-          if (this.eventStore.isSessionActive && !this.eventStore.isSessionActive(sessionId)) {
+          // Skip sessions that don't need sync (ENDED, SUSPENDED, DETACHED)
+          if (this.eventStore.shouldSync && !this.eventStore.shouldSync(sessionId)) {
             continue;
           }
 
-          const cursor = connCursors.get(sessionId) ?? 0;
+          let cursor = connCursors.get(sessionId) ?? 0;
+
+          // Cap replay depth: if cursor is far behind head, skip ahead.
+          // Prevents replay storms after server restart or long disconnects.
+          if (this.eventStore.getHeadSeq) {
+            const head = this.eventStore.getHeadSeq(sessionId);
+            if (head - cursor > MAX_REPLAY_GAP) {
+              const newCursor = head - MAX_REPLAY_GAP;
+              log.warn('periodic sync: cursor too far behind, skipping ahead', {
+                connectionId,
+                sessionId,
+                oldCursor: cursor,
+                newCursor,
+                head,
+                skipped: newCursor - cursor,
+              });
+              connCursors.set(sessionId, newCursor);
+              cursor = newCursor;
+            }
+          }
 
           // Fetch missed events from EventStore
           let missedEvents: Array<{ seq: number; payload: Record<string, unknown> }>;
