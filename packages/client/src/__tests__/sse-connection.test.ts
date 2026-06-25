@@ -1041,7 +1041,7 @@ describe('SseConnection', () => {
     warnSpy.mockRestore();
   });
 
-  it('drops message after MAX_SEND_RETRIES (3) exhausted across reconnects', async () => {
+  it('drops message after MAX_SEND_ATTEMPTS (3) exhausted across reconnects', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const mockFetch = vi.fn().mockImplementation((url: string) => {
       if (typeof url === 'string' && url.includes('/send')) {
@@ -1078,7 +1078,9 @@ describe('SseConnection', () => {
     );
     expect(sendCalls).toHaveLength(0);
     // Verify drop was logged
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('dropping /send after 3 retries'));
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('dropping /send after 3 attempts'),
+    );
     warnSpy.mockRestore();
   });
 

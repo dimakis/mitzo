@@ -29,7 +29,7 @@ export interface SseConnectionConfig {
 }
 
 const MAX_PENDING_SENDS = 100;
-const MAX_SEND_RETRIES = 3;
+const MAX_SEND_ATTEMPTS = 3;
 
 interface PendingSend {
   endpoint: string;
@@ -378,11 +378,15 @@ export class SseConnection implements ChatConnection {
 
     this._flushPromise = (async () => {
       try {
-        const toFlush = this.pendingSends;
-        this.pendingSends = [];
-        // Sequential to preserve message ordering after reconnect.
-        for (const { endpoint, body, retries } of toFlush) {
-          await this.doPost(endpoint, body, retries);
+        // Loop: re-check after each batch in case doPost failures re-queued
+        // new items during the flush (e.g. concurrent welcome + partial failure).
+        while (this.pendingSends.length > 0) {
+          const toFlush = this.pendingSends;
+          this.pendingSends = [];
+          // Sequential to preserve message ordering after reconnect.
+          for (const { endpoint, body, retries } of toFlush) {
+            await this.doPost(endpoint, body, retries);
+          }
         }
       } finally {
         this._flushPromise = null;
@@ -393,8 +397,8 @@ export class SseConnection implements ChatConnection {
 
   /** Enqueue a pending send with the same MAX_PENDING_SENDS cap as send(). */
   private enqueuePending(endpoint: string, body: Record<string, unknown>, retries = 0): void {
-    if (retries >= MAX_SEND_RETRIES) {
-      console.warn(`[SseConnection] dropping /${endpoint} after ${retries} retries`);
+    if (retries >= MAX_SEND_ATTEMPTS) {
+      console.warn(`[SseConnection] dropping /${endpoint} after ${retries} attempts`);
       return;
     }
     if (this.pendingSends.length >= MAX_PENDING_SENDS) {
