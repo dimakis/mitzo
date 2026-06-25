@@ -1041,6 +1041,47 @@ describe('SseConnection', () => {
     warnSpy.mockRestore();
   });
 
+  it('drops message after MAX_SEND_RETRIES (3) exhausted across reconnects', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (typeof url === 'string' && url.includes('/send')) {
+        return Promise.resolve({ ok: false, status: 500 });
+      }
+      return Promise.resolve({ ok: true });
+    });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-1' });
+
+    // Attempt 1: send fails, re-queued with retries=1
+    conn.send({ type: 'send', prompt: 'doomed', clientMsgId: 'msg-1' });
+    await vi.runAllTimersAsync();
+
+    // Attempt 2: reconnect + flush, fails again, re-queued with retries=2
+    conn.checkAndReconnect(true);
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-2' });
+    await vi.runAllTimersAsync();
+
+    // Attempt 3: reconnect + flush, fails again, retries=3 → dropped
+    conn.checkAndReconnect(true);
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-3' });
+    await vi.runAllTimersAsync();
+
+    // Attempt 4: reconnect — nothing to flush, message was dropped
+    conn.checkAndReconnect(true);
+    mockFetch.mockClear();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-4' });
+    await vi.runAllTimersAsync();
+
+    const sendCalls = mockFetch.mock.calls.filter(
+      (c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).includes('/send'),
+    );
+    expect(sendCalls).toHaveLength(0);
+    // Verify drop was logged
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('dropping /send after 3 retries'));
+    warnSpy.mockRestore();
+  });
+
   it('re-queues permission_response POST on transient error', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const mockFetch = vi

@@ -45,6 +45,7 @@ export class SseConnection implements ChatConnection {
   private listener: ConnectionListener | null = null;
   private seqBySession = new Map<string, number>();
   private pendingSends: PendingSend[] = [];
+  private _flushing = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private boundOnVisibility: (() => void) | null = null;
   private boundOnPageShow: ((e: PageTransitionEvent) => void) | null = null;
@@ -366,12 +367,17 @@ export class SseConnection implements ChatConnection {
   }
 
   private async flushPendingSends(): Promise<void> {
-    if (this.pendingSends.length === 0) return;
-    const toFlush = this.pendingSends;
-    this.pendingSends = [];
-    // Sequential to preserve message ordering after reconnect.
-    for (const { endpoint, body, retries } of toFlush) {
-      await this.doPost(endpoint, body, retries);
+    if (this.pendingSends.length === 0 || this._flushing) return;
+    this._flushing = true;
+    try {
+      const toFlush = this.pendingSends;
+      this.pendingSends = [];
+      // Sequential to preserve message ordering after reconnect.
+      for (const { endpoint, body, retries } of toFlush) {
+        await this.doPost(endpoint, body, retries);
+      }
+    } finally {
+      this._flushing = false;
     }
   }
 
