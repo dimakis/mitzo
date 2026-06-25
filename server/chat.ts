@@ -1309,21 +1309,38 @@ export function cleanupSessionWorktrees(
     try {
       const dirty = hasUncommittedWork(path);
       if (dirty) {
-        const branch = `session/${wtId}`;
-        const rescue = rescueDirtyWorktree(path, branch, wtId);
-        if (!rescue.success) {
-          log.warn('skipping dirty secondary worktree — rescue failed', {
-            repoName,
-            wtId,
-            error: rescue.error,
-          });
-          continue;
-        }
-        log.info('auto-rescued dirty secondary worktree', {
-          repoName,
-          wtId,
-          prUrl: rescue.prUrl,
-        });
+        // Defer rescue to avoid blocking the event loop — rescueDirtyWorktree
+        // makes up to 4 sync git/gh calls (~30s timeout each).
+        const capturedRepoName = repoName;
+        const capturedPath = path;
+        const capturedWtId = wtId;
+        const capturedRepoPath = repoPath;
+        setTimeout(() => {
+          try {
+            const branch = `session/${capturedWtId}`;
+            const rescue = rescueDirtyWorktree(capturedPath, branch, capturedWtId);
+            if (!rescue.success) {
+              log.warn('skipping dirty secondary worktree — rescue failed', {
+                repoName: capturedRepoName,
+                wtId: capturedWtId,
+                error: rescue.error,
+              });
+              return;
+            }
+            log.info('auto-rescued dirty secondary worktree', {
+              repoName: capturedRepoName,
+              wtId: capturedWtId,
+              prUrl: rescue.prUrl,
+            });
+            removeWorktree(capturedWtId, capturedRepoPath);
+          } catch (err: unknown) {
+            log.warn('deferred rescue failed for secondary worktree', {
+              repoName: capturedRepoName,
+              error: err instanceof Error ? err.message : 'unknown',
+            });
+          }
+        }, 0);
+        continue;
       }
       removeWorktree(wtId, repoPath);
     } catch (err: unknown) {

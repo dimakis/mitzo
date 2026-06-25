@@ -250,6 +250,8 @@ describe('cleanupSessionWorktrees', () => {
   });
 
   it('skips dirty secondary when rescue fails', async () => {
+    vi.useFakeTimers();
+
     const { loadRepoConfig } = await import('../repo-config.js');
     (loadRepoConfig as ReturnType<typeof vi.fn>).mockReturnValue({
       repos: { mitzo: '/tools/mitzo' },
@@ -262,9 +264,6 @@ describe('cleanupSessionWorktrees', () => {
     hasUncommittedWorkMock.mockReturnValue('M  server/chat.ts');
     rescueDirtyWorktreeMock.mockReturnValue({ success: false, error: 'no remote' });
 
-    const realNow = Date.now;
-    Date.now = () => realNow() + 10_000;
-
     const { cleanupSessionWorktrees } = await import('../chat.js');
 
     const session = {
@@ -275,19 +274,23 @@ describe('cleanupSessionWorktrees', () => {
     } as unknown as ManagedSession;
 
     cleanupSessionWorktrees(session);
+    // Rescue is deferred via setTimeout(0) — flush it
+    vi.runAllTimers();
 
-    // Dirty + rescue failed → worktree must NOT be removed
+    // Dirty + rescue failed → worktree directory must NOT be removed from disk
     expect(removeWorktreeMock).not.toHaveBeenCalled();
-    // The mitzo entry should still be in the map (not cleared)
+    // Map is still cleared (only primary preserved) — the directory on disk is what matters
     expect(session.worktreePaths.has('primary')).toBe(true);
 
-    Date.now = realNow;
     hasUncommittedWorkMock.mockReturnValue(null);
     rescueDirtyWorktreeMock.mockReturnValue({ success: true });
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
   it('removes dirty secondary after successful rescue', async () => {
+    vi.useFakeTimers();
+
     const { loadRepoConfig } = await import('../repo-config.js');
     (loadRepoConfig as ReturnType<typeof vi.fn>).mockReturnValue({
       repos: { mitzo: '/tools/mitzo' },
@@ -300,9 +303,6 @@ describe('cleanupSessionWorktrees', () => {
     hasUncommittedWorkMock.mockReturnValue('M  server/chat.ts');
     rescueDirtyWorktreeMock.mockReturnValue({ success: true, prUrl: 'https://github.com/pr/1' });
 
-    const realNow = Date.now;
-    Date.now = () => realNow() + 10_000;
-
     const { cleanupSessionWorktrees } = await import('../chat.js');
 
     const session = {
@@ -313,14 +313,16 @@ describe('cleanupSessionWorktrees', () => {
     } as unknown as ManagedSession;
 
     cleanupSessionWorktrees(session);
+    // Rescue is deferred via setTimeout(0) — flush it
+    vi.runAllTimers();
 
     // Dirty but rescue succeeded → worktree should be removed
     expect(removeWorktreeMock).toHaveBeenCalledWith('abc', '/tools/mitzo');
     expect(removeWorktreeMock).toHaveBeenCalledTimes(1);
 
-    Date.now = realNow;
     hasUncommittedWorkMock.mockReturnValue(null);
     rescueDirtyWorktreeMock.mockReturnValue({ success: true });
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 });

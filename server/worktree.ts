@@ -440,7 +440,7 @@ export function getRepoRemote(worktreePath: string): string | null {
 export function rescueDirtyWorktree(
   worktreePath: string,
   branch: string,
-  sessionId: string,
+  wtId: string,
 ): RescueResult {
   const gitOpts = { stdio: ['pipe', 'pipe', 'pipe'] as 'pipe'[], timeout: WORKTREE_GIT_TIMEOUT_MS };
 
@@ -451,8 +451,9 @@ export function rescueDirtyWorktree(
   }
 
   try {
-    // 1. Stage all changes
-    execFileSync('git', ['-C', worktreePath, 'add', '-A'], gitOpts);
+    // 1. Stage tracked file changes only (-u avoids staging untracked files
+    //    that may contain secrets like .env or credentials)
+    execFileSync('git', ['-C', worktreePath, 'add', '-u'], gitOpts);
   } catch (err: unknown) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -466,7 +467,7 @@ export function rescueDirtyWorktree(
         worktreePath,
         'commit',
         '-m',
-        `chore: rescue uncommitted work from session ${sessionId}`,
+        `chore: rescue uncommitted work from session ${wtId}`,
       ],
       gitOpts,
     );
@@ -483,7 +484,7 @@ export function rescueDirtyWorktree(
 
   try {
     // 4. Create draft PR
-    const prBody = `Auto-rescued uncommitted work from session \`${sessionId}\`.\n\nThis PR was created automatically by Mitzo's worktree cleanup.`;
+    const prBody = `Auto-rescued uncommitted work from session \`${wtId}\`.\n\nThis PR was created automatically by Mitzo's worktree cleanup.`;
     const prOutput = execFileSync(
       'gh',
       [
@@ -491,7 +492,7 @@ export function rescueDirtyWorktree(
         'create',
         '--draft',
         '--title',
-        `Rescued: ${sessionId}`,
+        `Rescued: ${wtId}`,
         '--body',
         prBody,
         '--repo',
@@ -506,7 +507,7 @@ export function rescueDirtyWorktree(
         timeout: WORKTREE_GIT_TIMEOUT_MS,
       },
     ).trim();
-    log.info('rescue PR created', { sessionId, prUrl: prOutput });
+    log.info('rescue PR created', { wtId, prUrl: prOutput });
     return { success: true, prUrl: prOutput };
   } catch (err: unknown) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };

@@ -119,10 +119,10 @@ describe('rescueDirtyWorktree', () => {
     expect(result.success).toBe(true);
     expect(result.prUrl).toBe('https://github.com/dimakis/mgmt/pull/42');
 
-    // Verify git add was called
+    // Verify git add -u was called (not -A, to avoid staging untracked secrets)
     expect(mockExecFileSync).toHaveBeenCalledWith(
       'git',
-      ['-C', '/tmp/worktree', 'add', '-A'],
+      ['-C', '/tmp/worktree', 'add', '-u'],
       expect.objectContaining({ timeout: 30_000 }),
     );
 
@@ -169,7 +169,7 @@ describe('rescueDirtyWorktree', () => {
   it('returns failure when git add fails', () => {
     // Step 0: getRepoRemote
     mockExecFileSync.mockReturnValueOnce('git@github.com:dimakis/mgmt.git\n' as never);
-    // Step 1: git add -A fails
+    // Step 1: git add -u fails
     mockExecFileSync.mockImplementationOnce(() => {
       throw new Error('git add failed');
     });
