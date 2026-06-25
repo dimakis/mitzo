@@ -242,7 +242,7 @@ describe('SseConnection', () => {
     );
   });
 
-  it('drops oldest when queue exceeds MAX_PENDING_SENDS', () => {
+  it('drops oldest when queue exceeds MAX_PENDING_SENDS', async () => {
     const conn = new SseConnection(createConfig());
     conn.connect();
 
@@ -256,6 +256,7 @@ describe('SseConnection', () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true });
     (conn as unknown as { config: { fetch: typeof mockFetch } }).config.fetch = mockFetch;
     lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+    await vi.runAllTimersAsync();
 
     // Should have 100 sends, not 101
     expect(mockFetch).toHaveBeenCalledTimes(100);
@@ -906,6 +907,34 @@ describe('SseConnection', () => {
     warnSpy.mockRestore();
   });
 
+  it('re-queues send POST on 429 (rate limited)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const mockFetch = vi
+      .fn()
+      .mockImplementationOnce(() => Promise.resolve({ ok: false, status: 429 }))
+      .mockImplementation(() => Promise.resolve({ ok: true }));
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+
+    conn.send({ type: 'send', prompt: 'hello', clientMsgId: 'msg-1' });
+    await vi.runAllTimersAsync();
+
+    // Reconnect — 429'd message should be re-queued and flushed
+    conn.checkAndReconnect(true);
+    mockFetch.mockClear();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
+    await vi.runAllTimersAsync();
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://localhost:3100/api/chat/send',
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'X-Connection-ID': 'conn-def' }),
+      }),
+    );
+    warnSpy.mockRestore();
+  });
+
   it('re-queues send POST on network error', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const mockFetch = vi
@@ -1010,5 +1039,35 @@ describe('SseConnection', () => {
     // flushed again in the same cycle — it waits for the next reconnect.
     expect(sendCallCount).toBe(1);
     warnSpy.mockRestore();
+  });
+
+  it('flushes re-queued sends sequentially to preserve ordering', async () => {
+    const order: string[] = [];
+    const mockFetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      if (typeof url === 'string' && url.includes('/send')) {
+        const body = JSON.parse(init?.body as string);
+        order.push(body.clientMsgId);
+        // Small delay to verify sequential (not concurrent) execution
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      return { ok: true };
+    });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+
+    // Disconnect, queue messages while offline
+    lastES().onerror?.();
+    conn.send({ type: 'send', prompt: 'first', clientMsgId: 'msg-A' });
+    conn.send({ type: 'send', prompt: 'second', clientMsgId: 'msg-B' });
+    conn.send({ type: 'send', prompt: 'third', clientMsgId: 'msg-C' });
+
+    // Reconnect — flush should preserve A, B, C order
+    conn.checkAndReconnect(true);
+    mockFetch.mockClear();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
+    await vi.runAllTimersAsync();
+
+    expect(order).toEqual(['msg-A', 'msg-B', 'msg-C']);
   });
 });

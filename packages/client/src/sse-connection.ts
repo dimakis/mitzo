@@ -341,10 +341,14 @@ export class SseConnection implements ChatConnection {
         },
         body: JSON.stringify(body),
       });
-      if (!res.ok && endpoint === 'send' && (res.status === 404 || res.status >= 500)) {
-        // Transient failure (404 = stale connectionId, 5xx = server error).
-        // Re-queue so it flushes on the next successful reconnect.
-        // Non-transient errors (400 = invalid body) are not retried.
+      if (
+        !res.ok &&
+        endpoint === 'send' &&
+        (res.status === 404 || res.status === 429 || res.status >= 500)
+      ) {
+        // Transient failure (404 = stale connectionId, 429 = rate limited,
+        // 5xx = server error). Re-queue so it flushes on the next successful
+        // reconnect. Non-transient errors (400 = invalid body) are not retried.
         console.warn(`[SseConnection] POST /${endpoint} returned ${res.status}, re-queuing`);
         this.enqueuePending(endpoint, body, retries + 1);
       }
@@ -358,12 +362,13 @@ export class SseConnection implements ChatConnection {
     }
   }
 
-  private flushPendingSends(): void {
+  private async flushPendingSends(): Promise<void> {
     if (this.pendingSends.length === 0) return;
     const toFlush = this.pendingSends;
     this.pendingSends = [];
+    // Sequential to preserve message ordering after reconnect.
     for (const { endpoint, body, retries } of toFlush) {
-      this.doPost(endpoint, body, retries);
+      await this.doPost(endpoint, body, retries);
     }
   }
 
