@@ -94,10 +94,7 @@ export class SseConnection implements ChatConnection {
 
     // Queue if reconnecting
     if (this.reconnectTimer || this.es) {
-      if (this.pendingSends.length >= MAX_PENDING_SENDS) {
-        this.pendingSends.shift();
-      }
-      this.pendingSends.push({ endpoint, body: msg });
+      this.enqueuePending(endpoint, msg);
       return true;
     }
 
@@ -333,9 +330,10 @@ export class SseConnection implements ChatConnection {
         },
         body: JSON.stringify(body),
       });
-      if (!res.ok && endpoint === 'send') {
-        // Message delivery failed (e.g. 404 from stale connectionId).
+      if (!res.ok && endpoint === 'send' && (res.status === 404 || res.status >= 500)) {
+        // Transient failure (404 = stale connectionId, 5xx = server error).
         // Re-queue so it flushes on the next successful reconnect.
+        // Non-transient errors (400 = invalid body) are not retried.
         console.warn(`[SseConnection] POST /${endpoint} returned ${res.status}, re-queuing`);
         this.enqueuePending(endpoint, body);
       }

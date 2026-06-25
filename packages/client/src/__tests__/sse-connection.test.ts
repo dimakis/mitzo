@@ -963,4 +963,52 @@ describe('SseConnection', () => {
     expect(stopCalls).toHaveLength(0);
     warnSpy.mockRestore();
   });
+
+  it('does not re-queue on non-transient 4xx errors (e.g. 400 bad request)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 400 });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+
+    conn.send({ type: 'send', prompt: 'bad body', clientMsgId: 'msg-1' });
+    await vi.runAllTimersAsync();
+
+    // Reconnect — should NOT flush the 400'd message (it's permanently invalid)
+    conn.checkAndReconnect(true);
+    mockFetch.mockClear();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
+    await vi.runAllTimersAsync();
+
+    const sendCalls = mockFetch.mock.calls.filter(
+      (c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).includes('/send'),
+    );
+    expect(sendCalls).toHaveLength(0);
+    warnSpy.mockRestore();
+  });
+
+  it('re-queued sends do not cause infinite retry within one flush cycle', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let sendCallCount = 0;
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (typeof url === 'string' && url.includes('/send')) {
+        sendCallCount++;
+        // Always fail with 404 — would cause infinite loop without atomic capture
+        return Promise.resolve({ ok: false, status: 404 });
+      }
+      return Promise.resolve({ ok: true });
+    });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+
+    conn.send({ type: 'send', prompt: 'will keep failing', clientMsgId: 'msg-1' });
+    await vi.runAllTimersAsync();
+
+    // The message was sent once (failed), re-queued. flushPendingSends atomically
+    // captures the queue before iterating, so the re-queued message won't be
+    // flushed again in the same cycle — it waits for the next reconnect.
+    expect(sendCallCount).toBe(1);
+    warnSpy.mockRestore();
+  });
 });
