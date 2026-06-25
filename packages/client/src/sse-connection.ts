@@ -45,7 +45,7 @@ export class SseConnection implements ChatConnection {
   private listener: ConnectionListener | null = null;
   private seqBySession = new Map<string, number>();
   private pendingSends: PendingSend[] = [];
-  private _flushing = false;
+  private _flushPromise: Promise<void> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private boundOnVisibility: (() => void) | null = null;
   private boundOnPageShow: ((e: PageTransitionEvent) => void) | null = null;
@@ -231,11 +231,13 @@ export class SseConnection implements ChatConnection {
         this.doReconnectPost(welcomeConnectionId, welcomeEs);
       } else {
         this._connected = true;
-        if (this.pendingSends.length > 0) {
+        if (this.pendingSends.length > 0 || this._flushPromise) {
           // Flush must complete before _open fires to preserve message ordering.
-          void this.flushPendingSends().then(() => {
-            this.listener?.({ type: '_open' });
-          });
+          void this.flushPendingSends()
+            .catch(() => {})
+            .then(() => {
+              this.listener?.({ type: '_open' });
+            });
         } else {
           this.listener?.({ type: '_open' });
         }
@@ -366,19 +368,27 @@ export class SseConnection implements ChatConnection {
     }
   }
 
-  private async flushPendingSends(): Promise<void> {
-    if (this.pendingSends.length === 0 || this._flushing) return;
-    this._flushing = true;
-    try {
-      const toFlush = this.pendingSends;
-      this.pendingSends = [];
-      // Sequential to preserve message ordering after reconnect.
-      for (const { endpoint, body, retries } of toFlush) {
-        await this.doPost(endpoint, body, retries);
-      }
-    } finally {
-      this._flushing = false;
+  private flushPendingSends(): Promise<void> {
+    if (this.pendingSends.length === 0) {
+      return this._flushPromise ?? Promise.resolve();
     }
+    // If a flush is in progress, wait for it instead of skipping — this
+    // ensures _open only fires after the current flush completes.
+    if (this._flushPromise) return this._flushPromise;
+
+    this._flushPromise = (async () => {
+      try {
+        const toFlush = this.pendingSends;
+        this.pendingSends = [];
+        // Sequential to preserve message ordering after reconnect.
+        for (const { endpoint, body, retries } of toFlush) {
+          await this.doPost(endpoint, body, retries);
+        }
+      } finally {
+        this._flushPromise = null;
+      }
+    })();
+    return this._flushPromise;
   }
 
   /** Enqueue a pending send with the same MAX_PENDING_SENDS cap as send(). */

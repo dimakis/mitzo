@@ -1169,4 +1169,41 @@ describe('SseConnection', () => {
 
     expect(order).toEqual(['msg-A', 'msg-B', 'msg-C']);
   });
+
+  it('concurrent flush waits for in-progress flush before firing _open', async () => {
+    const events: string[] = [];
+    const mockFetch = vi.fn().mockImplementation(async (url: string) => {
+      if (typeof url === 'string' && url.includes('/send')) {
+        events.push('post');
+        // Slow flush — gives time for a second welcome to arrive
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      return { ok: true };
+    });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.onMessage((msg) => {
+      if ((msg as Record<string, unknown>).type === '_open') events.push('_open');
+    });
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+    events.length = 0;
+
+    // Disconnect, queue a message
+    lastES().onerror?.();
+    conn.send({ type: 'send', prompt: 'queued', clientMsgId: 'msg-1' });
+
+    // First reconnect — starts flush (slow POST)
+    conn.checkAndReconnect(true);
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-2' });
+
+    // Second rapid reconnect while first flush is in-progress
+    conn.checkAndReconnect(true);
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-3' });
+
+    await vi.runAllTimersAsync();
+
+    // _open must fire AFTER the flush completes, not immediately
+    // when the second welcome sees _flushPromise and waits for it
+    expect(events.indexOf('post')).toBeLessThan(events.indexOf('_open'));
+  });
 });
