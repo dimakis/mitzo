@@ -93,6 +93,7 @@ import { TaskStore, type TaskCreateInput, type TaskUpdateInput } from './task-st
 import { SseRegistry } from '@mitzo/harness';
 import { SessionSseRegistry } from './session-sse-registry.js';
 import { WorkloadStore, type WorkSignal, type TodoItemUpdateInput } from './workload-store.js';
+import { TelosStore } from './telos-store.js';
 
 const log = createLogger('server');
 
@@ -270,6 +271,14 @@ try {
 export const taskStore = new TaskStore(join(mitzoDir, 'tasks.db'));
 setTaskStore(taskStore);
 export const workloadStore = new WorkloadStore(taskStore.getDatabase());
+
+// Telos: read-only access to the strategic task DB (smart_todo.db)
+const TELOS_DB = join(BASE_REPO, 'command_center', 'data', 'smart_todo.db');
+const TELOS_PROFILES_DIR = join(BASE_REPO, 'command_center', 'config', 'todo_profiles');
+export const telosStore = existsSync(TELOS_DB)
+  ? new TelosStore(TELOS_DB, TELOS_PROFILES_DIR)
+  : null;
+
 setTokenStorePath(join(mitzoDir, 'device-tokens.json'));
 
 export const sseRegistry = new SseRegistry();
@@ -1719,34 +1728,47 @@ app.get('/api/todos', async (req, res) => {
   const profile = req.query.profile as string | undefined;
   const refresh = req.query.refresh === 'true';
 
-  if (!existsSync(TODO_SCRIPT)) {
-    log.warn('todo script not found', { path: TODO_SCRIPT });
-    res.json({ profiles: [], items: [] });
+  // Refresh delegates to Python (runs source fetchers: Jira, GitHub, Gmail, etc.)
+  if (refresh && profile && existsSync(TODO_SCRIPT)) {
+    try {
+      await execFileAsync('python3', [TODO_SCRIPT, '--refresh', '--profile', profile], {
+        timeout: TODO_TIMEOUT_MS,
+      });
+    } catch (err: unknown) {
+      log.warn('todo refresh failed', {
+        error: err instanceof Error ? err.message : 'unknown',
+      });
+    }
+    // Fall through to read from TelosStore after refresh
+  }
+
+  // Read directly from Telos SQLite (no Python subprocess for reads)
+  if (!telosStore) {
+    // Fallback: delegate to Python if TelosStore not available
+    if (!existsSync(TODO_SCRIPT)) {
+      res.json({ profiles: [], items: [] });
+      return;
+    }
+    try {
+      const args = [TODO_SCRIPT, '--list'];
+      if (profile) args.push('--profile', profile);
+      const { stdout } = await execFileAsync('python3', args, {
+        timeout: TODO_TIMEOUT_MS,
+      });
+      const parsed = TodoListResponse.safeParse(JSON.parse(stdout));
+      res.json(parsed.success ? parsed.data : { profiles: [], items: [] });
+    } catch {
+      res.json({ profiles: [], items: [] });
+    }
     return;
   }
 
   try {
-    const args = [TODO_SCRIPT];
-    if (refresh && profile) {
-      args.push('--refresh', '--profile', profile);
-    } else {
-      args.push('--list');
-      if (profile) args.push('--profile', profile);
-    }
-
-    const { stdout } = await execFileAsync('python3', args, {
-      timeout: TODO_TIMEOUT_MS,
-    });
-    const parsed = TodoListResponse.safeParse(JSON.parse(stdout));
-    if (!parsed.success) {
-      log.warn('todo API returned unexpected shape', { error: parsed.error.message });
-      res.json({ profiles: [], items: [] });
-      return;
-    }
-    res.json(parsed.data);
+    const items = telosStore.listItems(profile, ['active', 'acknowledged']);
+    const profiles = telosStore.listProfiles();
+    res.json({ profiles, items });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    log.warn('todo API failed', { error: message });
+    log.warn('telos read failed', { error: err instanceof Error ? err.message : 'unknown' });
     res.json({ profiles: [], items: [] });
   }
 });
@@ -1916,52 +1938,71 @@ app.post('/api/workload/items/:id/promote', (req, res) => {
     return;
   }
 
-  const item = workloadStore.get(req.params.id);
+  // Try WorkloadStore first (UUID items from work signals)
+  const workloadItem = workloadStore.get(req.params.id);
 
-  // Resolve title and context from workloadStore item or fallback body data (Telos items)
-  const title = item?.title ?? body.data.title;
-  if (!title) {
-    res.status(404).json({ error: 'Item not found and no title provided' });
-    return;
-  }
-
-  const hints = item?.contextHints ?? body.data.contextHints;
-  const taskHint = hints?.taskHint ?? undefined;
-
-  // Build description from item context
-  const descParts: string[] = [];
-  if (body.data.description) descParts.push(body.data.description);
-  if (taskHint) descParts.push(taskHint);
-  if (hints) {
-    const hintsWithValues = Object.entries(hints)
+  if (workloadItem) {
+    const descParts: string[] = [];
+    if (body.data.description) descParts.push(body.data.description);
+    if (workloadItem.contextHints.taskHint) descParts.push(workloadItem.contextHints.taskHint);
+    const hintsWithValues = Object.entries(workloadItem.contextHints)
       .filter(([k, v]) => k !== 'taskHint' && Array.isArray(v) && v.length > 0)
       .map(([k, v]) => `${k}: ${(v as string[]).join(', ')}`);
     if (hintsWithValues.length > 0) descParts.push(hintsWithValues.join('\n'));
+
+    const task = taskStore.create({
+      title: workloadItem.title,
+      description: descParts.join('\n\n') || undefined,
+      annotations: workloadItem.sources.map(
+        (s) => `Source: [${s.sourceType}] ${s.title} — ${s.url}`,
+      ),
+    });
+
+    workloadStore.setGoalId(workloadItem.id, task.id);
+    const updatedItem = workloadStore.get(workloadItem.id);
+    res.status(201).json({ task, item: updatedItem });
+    onTaskBroadcast?.({ type: 'task_state', tasks: taskStore.getTree() });
+    onWorkloadBroadcast?.({ type: 'workload_item_updated', item: updatedItem });
+    return;
   }
 
-  // Build annotations from sources
-  const annotations: string[] = item
-    ? item.sources.map((s) => `Source: [${s.sourceType}] ${s.title} — ${s.url}`)
-    : (body.data.sources ?? []).map((s) => `Source: [${s.type}] ${s.title} — ${s.url}`);
+  // Fallback: try TelosStore (SHA256 items from strategic task tracker)
+  const telosItem = telosStore?.getItem(req.params.id);
+  if (!telosItem) {
+    res.status(404).json({ error: 'Item not found' });
+    return;
+  }
 
-  // Create root task (goal) from item
+  const descParts: string[] = [];
+  if (body.data.description) descParts.push(body.data.description);
+  if (telosItem.contextHints.taskHint) descParts.push(telosItem.contextHints.taskHint);
+  const hintsWithValues = Object.entries(telosItem.contextHints)
+    .filter(
+      ([k, v]) => k !== 'taskHint' && k !== 'sessionIds' && Array.isArray(v) && v.length > 0,
+    )
+    .map(([k, v]) => `${k}: ${(v as string[]).join(', ')}`);
+  if (hintsWithValues.length > 0) descParts.push(hintsWithValues.join('\n'));
+
   const task = taskStore.create({
-    title,
+    title: telosItem.summary,
     description: descParts.join('\n\n') || undefined,
-    annotations,
+    annotations: telosItem.sources.map((s) => `Source: [${s.type}] ${s.title} — ${s.url}`),
   });
 
-  // Link item to goal only if it exists in workloadStore
-  if (item) {
-    workloadStore.setGoalId(item.id, task.id);
+  // Bridge: set goal_id on the Telos item via Python (fire-and-forget)
+  if (existsSync(TODO_SCRIPT)) {
+    execFileAsync('python3', [TODO_SCRIPT, '--set-goal', telosItem.id, task.id], {
+      timeout: TODO_TIMEOUT_MS,
+    }).catch((err) => {
+      log.warn('failed to set goal on telos item', {
+        itemId: telosItem.id,
+        error: err instanceof Error ? err.message : 'unknown',
+      });
+    });
   }
 
-  const updatedItem = item ? workloadStore.get(item.id) : undefined;
-  res.status(201).json(updatedItem ? { task, item: updatedItem } : { task });
+  res.status(201).json({ task, item: null });
   onTaskBroadcast?.({ type: 'task_state', tasks: taskStore.getTree() });
-  if (updatedItem) {
-    onWorkloadBroadcast?.({ type: 'workload_item_updated', item: updatedItem });
-  }
 });
 
 // --- Static files ---
