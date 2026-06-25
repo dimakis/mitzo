@@ -78,7 +78,31 @@ describe('parseWorktreeAge', () => {
     expect(parseWorktreeAge('2026-04-31-abc123')).toBeNull();
   });
 
-  it('returns null for names without 6-char hex suffix', () => {
+  it('parses age from 12-char hex IDs (generateWtId format)', () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const age = parseWorktreeAge(`${today}-0f2e5bbfaeff`);
+    expect(age).not.toBeNull();
+    expect(age!).toBeLessThan(24 * 60 * 60 * 1000);
+    expect(age!).toBeGreaterThanOrEqual(0);
+  });
+
+  it('accepts hex suffixes between 6 and 12 chars', () => {
+    const today = new Date().toISOString().slice(0, 10);
+    // 6 chars
+    expect(parseWorktreeAge(`${today}-abcdef`)).not.toBeNull();
+    // 8 chars
+    expect(parseWorktreeAge(`${today}-abcdef01`)).not.toBeNull();
+    // 12 chars
+    expect(parseWorktreeAge(`${today}-abcdef012345`)).not.toBeNull();
+  });
+
+  it('returns null for hex suffixes shorter than 6 or longer than 12', () => {
+    const today = new Date().toISOString().slice(0, 10);
+    expect(parseWorktreeAge(`${today}-abcde`)).toBeNull();
+    expect(parseWorktreeAge(`${today}-abcdef0123456`)).toBeNull();
+  });
+
+  it('returns null for names without valid hex suffix', () => {
     expect(parseWorktreeAge('2026-04-20-ws-fix')).toBeNull();
     expect(parseWorktreeAge('2026-04-20-')).toBeNull();
     expect(parseWorktreeAge('2026-04-20')).toBeNull();

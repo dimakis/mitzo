@@ -71,11 +71,12 @@ function worktreesDir(baseRepo: string): string {
 }
 
 /**
- * Parse creation age from a worktree directory name (YYYY-MM-DD-XXXXXX format).
+ * Parse creation age from a worktree directory name (YYYY-MM-DD-<hex> format).
+ * Accepts 6–12 hex chars after the date (generateWtId produces 12).
  * Returns age in milliseconds, or null if the name doesn't match the convention.
  */
 export function parseWorktreeAge(entry: string): number | null {
-  const match = entry.match(/^(\d{4})-(\d{2})-(\d{2})-[a-f0-9]{6}$/);
+  const match = entry.match(/^(\d{4})-(\d{2})-(\d{2})-[a-f0-9]{6,12}$/);
   if (!match) return null;
   const [, year, month, day] = match;
   const created = new Date(`${year}-${month}-${day}T00:00:00Z`);

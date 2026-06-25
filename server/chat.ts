@@ -17,6 +17,8 @@ import {
   createWorktree,
   createWorktreeAsync,
   removeWorktree,
+  hasUncommittedWork,
+  rescueDirtyWorktree,
   symlinkRuntimeDirs,
   discoverSessionWorktrees,
 } from './worktree.js';
@@ -1283,6 +1285,9 @@ export async function interruptChat(
  * Primary worktree is preserved — the SDK encodes conversation data by CWD
  * path, so removing it breaks resume. Stale GC handles primary lifecycle.
  * Branches are always preserved for PRs.
+ *
+ * Dirty secondaries are auto-rescued (commit + push + draft PR) before removal.
+ * If rescue fails the worktree is kept on disk to avoid data loss.
  */
 export function cleanupSessionWorktrees(
   session: import('./session-registry.js').ManagedSession,
@@ -1302,6 +1307,24 @@ export function cleanupSessionWorktrees(
       continue;
     }
     try {
+      const dirty = hasUncommittedWork(path);
+      if (dirty) {
+        const branch = `session/${wtId}`;
+        const rescue = rescueDirtyWorktree(path, branch, wtId);
+        if (!rescue.success) {
+          log.warn('skipping dirty secondary worktree — rescue failed', {
+            repoName,
+            wtId,
+            error: rescue.error,
+          });
+          continue;
+        }
+        log.info('auto-rescued dirty secondary worktree', {
+          repoName,
+          wtId,
+          prUrl: rescue.prUrl,
+        });
+      }
       removeWorktree(wtId, repoPath);
     } catch (err: unknown) {
       log.warn('failed to clean up session worktree', {
