@@ -29,6 +29,13 @@ import { createLogger } from './logger.js';
 const log = createLogger('worktree');
 
 /**
+ * Files that are not meaningful work — rescue should skip if these are the only changes.
+ * Matched via exact path from `git diff --cached --name-only` (root-relative).
+ * Only root-level files are supported; subdirectory paths would need `subdir/file` entries.
+ */
+const RESCUE_NOISE_FILES = new Set(['.mitzo-session']);
+
+/**
  * Detect the default branch of a repo (e.g. 'main' or 'master').
  * Prefers origin/HEAD (remote truth) since session worktrees should branch
  * from the canonical default, not whatever is locally checked out.
@@ -461,6 +468,28 @@ export function rescueDirtyWorktree(
     execFileSync('git', ['-C', worktreePath, 'add', '-u'], gitOpts);
   } catch (err: unknown) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  // 1b. Check if staged changes contain meaningful work (not just noise markers)
+  try {
+    const staged = execFileSync('git', ['-C', worktreePath, 'diff', '--cached', '--name-only'], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: WORKTREE_GIT_TIMEOUT_MS,
+    }).trim();
+    const files = staged ? staged.split('\n') : [];
+    if (files.length === 0 || files.every((f) => RESCUE_NOISE_FILES.has(f))) {
+      log.info('rescue skipped — only noise files changed', { wtId, files });
+      // Unstage so the worktree can be cleaned up without leaving staged changes
+      try {
+        execFileSync('git', ['-C', worktreePath, 'reset', 'HEAD'], gitOpts);
+      } catch {
+        // Non-fatal — worktree is about to be removed anyway
+      }
+      return { success: false, error: 'no meaningful changes to rescue' };
+    }
+  } catch {
+    // If we can't inspect staged files, proceed with the rescue anyway — safer than skipping
   }
 
   try {

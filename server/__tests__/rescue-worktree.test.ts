@@ -107,6 +107,8 @@ describe('rescueDirtyWorktree', () => {
     mockExecFileSync.mockReturnValueOnce('git@github.com:dimakis/mgmt.git\n' as never);
     // Step 1: git add -u
     mockExecFileSync.mockReturnValueOnce('' as never);
+    // Step 1b: git diff --cached --name-only → meaningful file
+    mockExecFileSync.mockReturnValueOnce('src/feature.ts\n' as never);
     // Step 2: git commit
     mockExecFileSync.mockReturnValueOnce('' as never);
     // Step 3: git push
@@ -186,6 +188,8 @@ describe('rescueDirtyWorktree', () => {
     mockExecFileSync.mockReturnValueOnce('git@github.com:dimakis/mgmt.git\n' as never);
     // Step 1: git add -u succeeds
     mockExecFileSync.mockReturnValueOnce('' as never);
+    // Step 1b: git diff --cached --name-only → meaningful file
+    mockExecFileSync.mockReturnValueOnce('src/feature.ts\n' as never);
     // Step 2: git commit fails
     mockExecFileSync.mockImplementationOnce(() => {
       throw new Error('nothing to commit');
@@ -202,6 +206,8 @@ describe('rescueDirtyWorktree', () => {
     mockExecFileSync.mockReturnValueOnce('git@github.com:dimakis/mgmt.git\n' as never);
     // Step 1: git add -u
     mockExecFileSync.mockReturnValueOnce('' as never);
+    // Step 1b: git diff --cached --name-only → meaningful file
+    mockExecFileSync.mockReturnValueOnce('src/feature.ts\n' as never);
     // Step 2: git commit
     mockExecFileSync.mockReturnValueOnce('' as never);
     // Step 3: git push fails
@@ -220,6 +226,8 @@ describe('rescueDirtyWorktree', () => {
     mockExecFileSync.mockReturnValueOnce('git@github.com:dimakis/mgmt.git\n' as never);
     // Step 1: git add
     mockExecFileSync.mockReturnValueOnce('' as never);
+    // Step 1b: git diff --cached --name-only → meaningful file
+    mockExecFileSync.mockReturnValueOnce('src/feature.ts\n' as never);
     // Step 2: git commit
     mockExecFileSync.mockReturnValueOnce('' as never);
     // Step 3: git push
@@ -252,14 +260,68 @@ describe('rescueDirtyWorktree', () => {
     mockExecFileSync.mockReturnValueOnce('git@github.com:dimakis/mgmt.git\n' as never);
     // Step 1: git add -u succeeds (but stages nothing — only untracked files)
     mockExecFileSync.mockReturnValueOnce('' as never);
-    // Step 2: git commit fails — nothing staged
-    mockExecFileSync.mockImplementationOnce(() => {
-      throw new Error('nothing to commit, working tree clean');
-    });
+    // Step 1b: git diff --cached --name-only → empty (nothing staged)
+    mockExecFileSync.mockReturnValueOnce('' as never);
+    // Step 1b: git reset HEAD (unstage)
+    mockExecFileSync.mockReturnValueOnce('' as never);
 
     const result = rescueDirtyWorktree('/tmp/worktree', 'session/test-123', 'test-123');
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain('nothing to commit');
+    expect(result.error).toContain('no meaningful changes');
+  });
+
+  it('skips rescue when only noise files (.mitzo-session) are staged', () => {
+    // Step 0: getRepoRemote
+    mockExecFileSync.mockReturnValueOnce('git@github.com:dimakis/mgmt.git\n' as never);
+    // Step 1: git add -A
+    mockExecFileSync.mockReturnValueOnce('' as never);
+    // Step 1b: git diff --cached --name-only → only .mitzo-session
+    mockExecFileSync.mockReturnValueOnce('.mitzo-session\n' as never);
+    // Step 1b: git reset HEAD (unstage)
+    mockExecFileSync.mockReturnValueOnce('' as never);
+
+    const result = rescueDirtyWorktree('/tmp/worktree', 'session/test-123', 'test-123');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('no meaningful changes');
+    // Should NOT have called commit, push, or pr create
+    expect(mockExecFileSync).toHaveBeenCalledTimes(4); // remote + add + diff + reset
+  });
+
+  it('proceeds with rescue when meaningful files are staged alongside noise files', () => {
+    // Step 0: getRepoRemote
+    mockExecFileSync.mockReturnValueOnce('git@github.com:dimakis/mgmt.git\n' as never);
+    // Step 1: git add -A
+    mockExecFileSync.mockReturnValueOnce('' as never);
+    // Step 1b: git diff --cached --name-only → noise + real file
+    mockExecFileSync.mockReturnValueOnce('.mitzo-session\nsrc/feature.ts\n' as never);
+    // Step 2: git commit
+    mockExecFileSync.mockReturnValueOnce('' as never);
+    // Step 3: git push
+    mockExecFileSync.mockReturnValueOnce('' as never);
+    // Step 4: gh pr create
+    mockExecFileSync.mockReturnValueOnce('https://github.com/dimakis/mgmt/pull/99\n' as never);
+
+    const result = rescueDirtyWorktree('/tmp/worktree', 'session/test-123', 'test-123');
+
+    expect(result.success).toBe(true);
+    expect(result.prUrl).toBe('https://github.com/dimakis/mgmt/pull/99');
+  });
+
+  it('skips rescue when no files are staged', () => {
+    // Step 0: getRepoRemote
+    mockExecFileSync.mockReturnValueOnce('git@github.com:dimakis/mgmt.git\n' as never);
+    // Step 1: git add -A
+    mockExecFileSync.mockReturnValueOnce('' as never);
+    // Step 1b: git diff --cached --name-only → empty
+    mockExecFileSync.mockReturnValueOnce('' as never);
+    // Step 1b: git reset HEAD (unstage)
+    mockExecFileSync.mockReturnValueOnce('' as never);
+
+    const result = rescueDirtyWorktree('/tmp/worktree', 'session/test-123', 'test-123');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('no meaningful changes');
   });
 });
