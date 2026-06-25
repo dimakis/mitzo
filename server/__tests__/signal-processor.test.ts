@@ -380,6 +380,108 @@ describe('SignalProcessor', () => {
     });
   });
 
+  describe('centaur callback registration', () => {
+    it('registers callback with Centaur on watch for centaur_review', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      );
+
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Wait for Centaur review',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'centaur_review', pr_url: 'https://github.com/org/repo/pull/1' },
+      });
+      store.update(task.id, { status: 'active' });
+
+      processor.watch(task.id, task.gateConfig!);
+
+      // Allow async registration to complete
+      await vi.waitFor(() => {
+        expect(fetchSpy).toHaveBeenCalledWith(
+          'http://localhost:8642/api/signals/register',
+          expect.objectContaining({
+            method: 'POST',
+            body: expect.stringContaining(task.id),
+          }),
+        );
+      });
+
+      fetchSpy.mockRestore();
+    });
+
+    it('deregisters callback on unwatch for centaur_review', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      );
+
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Wait for Centaur review',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'centaur_review', pr_url: 'https://github.com/org/repo/pull/1' },
+      });
+      store.update(task.id, { status: 'active' });
+
+      processor.watch(task.id, task.gateConfig!);
+      processor.unwatch(task.id);
+
+      await vi.waitFor(() => {
+        expect(fetchSpy).toHaveBeenCalledWith(
+          `http://localhost:8642/api/signals/${task.id}`,
+          expect.objectContaining({ method: 'DELETE' }),
+        );
+      });
+
+      fetchSpy.mockRestore();
+    });
+
+    it('does not register callback for non-centaur gate types', () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Wait for CI',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'gh_ci', repo: 'org/repo', pr: 1 },
+      });
+      store.update(task.id, { status: 'active' });
+
+      processor.watch(task.id, task.gateConfig!);
+
+      // fetch should not have been called for registration (only polling uses execFile, not fetch)
+      const registerCalls = fetchSpy.mock.calls.filter(
+        (call) => typeof call[0] === 'string' && call[0].includes('/api/signals/'),
+      );
+      expect(registerCalls).toHaveLength(0);
+
+      fetchSpy.mockRestore();
+    });
+
+    it('handles Centaur being unavailable gracefully', () => {
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ECONNREFUSED'));
+
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Wait for Centaur review',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'centaur_review', pr_url: 'https://github.com/org/repo/pull/1' },
+      });
+      store.update(task.id, { status: 'active' });
+
+      // Should not throw — fire-and-forget registration
+      expect(() => processor.watch(task.id, task.gateConfig!)).not.toThrow();
+      // Polling interval should still be set
+      expect(processor.isWatching(task.id)).toBe(true);
+
+      vi.restoreAllMocks();
+    });
+  });
+
   it('stores failure artifacts in annotations on retry', () => {
     const goal = store.create({ title: 'Goal' });
     const agent = store.create({
