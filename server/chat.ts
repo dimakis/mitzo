@@ -17,6 +17,8 @@ import {
   createWorktree,
   createWorktreeAsync,
   removeWorktree,
+  hasUncommittedWork,
+  rescueDirtyWorktree,
   symlinkRuntimeDirs,
   discoverSessionWorktrees,
 } from './worktree.js';
@@ -1283,6 +1285,9 @@ export async function interruptChat(
  * Primary worktree is preserved — the SDK encodes conversation data by CWD
  * path, so removing it breaks resume. Stale GC handles primary lifecycle.
  * Branches are always preserved for PRs.
+ *
+ * Dirty secondaries are auto-rescued (commit + push + draft PR) before removal.
+ * If rescue fails the worktree is kept on disk to avoid data loss.
  */
 export function cleanupSessionWorktrees(
   session: import('./session-registry.js').ManagedSession,
@@ -1302,6 +1307,41 @@ export function cleanupSessionWorktrees(
       continue;
     }
     try {
+      const dirty = hasUncommittedWork(path);
+      if (dirty) {
+        // Defer rescue so the cleanup loop can finish first — rescueDirtyWorktree
+        // makes up to 4 sync git/gh calls (~30s timeout each).
+        // Note: for...of with const destructuring creates per-iteration bindings,
+        // so closing over repoName/path/wtId/repoPath directly is safe.
+        setTimeout(() => {
+          try {
+            const branch = `session/${wtId}`;
+            const rescue = rescueDirtyWorktree(path, branch, wtId);
+            if (!rescue.success) {
+              // Worktree is orphaned from the session map (already cleared) but
+              // preserved on disk — stale GC will handle it after 96h.
+              log.warn('dirty secondary worktree rescue failed — preserved on disk for stale GC', {
+                repoName,
+                wtId,
+                error: rescue.error,
+              });
+              return;
+            }
+            log.info('auto-rescued dirty secondary worktree', {
+              repoName,
+              wtId,
+              prUrl: rescue.prUrl,
+            });
+            removeWorktree(wtId, repoPath);
+          } catch (err: unknown) {
+            log.warn('deferred rescue failed for secondary worktree', {
+              repoName,
+              error: err instanceof Error ? err.message : 'unknown',
+            });
+          }
+        }, 0);
+        continue;
+      }
       removeWorktree(wtId, repoPath);
     } catch (err: unknown) {
       log.warn('failed to clean up session worktree', {

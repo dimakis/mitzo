@@ -71,11 +71,12 @@ function worktreesDir(baseRepo: string): string {
 }
 
 /**
- * Parse creation age from a worktree directory name (YYYY-MM-DD-XXXXXX format).
+ * Parse creation age from a worktree directory name (YYYY-MM-DD-<hex> format).
+ * Accepts 6–12 hex chars after the date (generateWtId produces 12).
  * Returns age in milliseconds, or null if the name doesn't match the convention.
  */
 export function parseWorktreeAge(entry: string): number | null {
-  const match = entry.match(/^(\d{4})-(\d{2})-(\d{2})-[a-f0-9]{6}$/);
+  const match = entry.match(/^(\d{4})-(\d{2})-(\d{2})-[a-f0-9]{6,12}$/);
   if (!match) return null;
   const [, year, month, day] = match;
   const created = new Date(`${year}-${month}-${day}T00:00:00Z`);
@@ -435,11 +436,16 @@ export function getRepoRemote(worktreePath: string): string | null {
  * Rescue a dirty worktree by committing, pushing, and creating a draft PR.
  * Each step is attempted in order; if any step fails the function returns
  * immediately with { success: false, error }.
+ *
+ * Note: uses `git add -u` (tracked files only) while `hasUncommittedWork`
+ * detects untracked files too. If a worktree is dirty only due to untracked
+ * files, the commit will fail with "nothing to commit" and the worktree is
+ * preserved on disk — this is intentional (safe, no data loss).
  */
 export function rescueDirtyWorktree(
   worktreePath: string,
   branch: string,
-  sessionId: string,
+  wtId: string,
 ): RescueResult {
   const gitOpts = { stdio: ['pipe', 'pipe', 'pipe'] as 'pipe'[], timeout: WORKTREE_GIT_TIMEOUT_MS };
 
@@ -450,8 +456,9 @@ export function rescueDirtyWorktree(
   }
 
   try {
-    // 1. Stage all changes
-    execFileSync('git', ['-C', worktreePath, 'add', '-A'], gitOpts);
+    // 1. Stage tracked file changes only (-u avoids staging untracked files
+    //    that may contain secrets like .env or credentials)
+    execFileSync('git', ['-C', worktreePath, 'add', '-u'], gitOpts);
   } catch (err: unknown) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -460,13 +467,7 @@ export function rescueDirtyWorktree(
     // 2. Commit
     execFileSync(
       'git',
-      [
-        '-C',
-        worktreePath,
-        'commit',
-        '-m',
-        `chore: rescue uncommitted work from session ${sessionId}`,
-      ],
+      ['-C', worktreePath, 'commit', '-m', `chore: rescue uncommitted work from session ${wtId}`],
       gitOpts,
     );
   } catch (err: unknown) {
@@ -482,7 +483,7 @@ export function rescueDirtyWorktree(
 
   try {
     // 4. Create draft PR
-    const prBody = `Auto-rescued uncommitted work from session \`${sessionId}\`.\n\nThis PR was created automatically by Mitzo's worktree cleanup.`;
+    const prBody = `Auto-rescued uncommitted work from session \`${wtId}\`.\n\nThis PR was created automatically by Mitzo's worktree cleanup.`;
     const prOutput = execFileSync(
       'gh',
       [
@@ -490,7 +491,7 @@ export function rescueDirtyWorktree(
         'create',
         '--draft',
         '--title',
-        `Rescued: ${sessionId}`,
+        `Rescued: ${wtId}`,
         '--body',
         prBody,
         '--repo',
@@ -505,7 +506,7 @@ export function rescueDirtyWorktree(
         timeout: WORKTREE_GIT_TIMEOUT_MS,
       },
     ).trim();
-    log.info('rescue PR created', { sessionId, prUrl: prOutput });
+    log.info('rescue PR created', { wtId, prUrl: prOutput });
     return { success: true, prUrl: prOutput };
   } catch (err: unknown) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };

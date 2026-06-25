@@ -105,7 +105,7 @@ describe('rescueDirtyWorktree', () => {
   it('succeeds when all four steps work (add, commit, push, gh pr create)', () => {
     // Step 0: getRepoRemote — git remote get-url origin
     mockExecFileSync.mockReturnValueOnce('git@github.com:dimakis/mgmt.git\n' as never);
-    // Step 1: git add -A
+    // Step 1: git add -u
     mockExecFileSync.mockReturnValueOnce('' as never);
     // Step 2: git commit
     mockExecFileSync.mockReturnValueOnce('' as never);
@@ -119,10 +119,10 @@ describe('rescueDirtyWorktree', () => {
     expect(result.success).toBe(true);
     expect(result.prUrl).toBe('https://github.com/dimakis/mgmt/pull/42');
 
-    // Verify git add was called
+    // Verify git add -u was called (not -A, to avoid staging untracked secrets)
     expect(mockExecFileSync).toHaveBeenCalledWith(
       'git',
-      ['-C', '/tmp/worktree', 'add', '-A'],
+      ['-C', '/tmp/worktree', 'add', '-u'],
       expect.objectContaining({ timeout: 30_000 }),
     );
 
@@ -169,7 +169,7 @@ describe('rescueDirtyWorktree', () => {
   it('returns failure when git add fails', () => {
     // Step 0: getRepoRemote
     mockExecFileSync.mockReturnValueOnce('git@github.com:dimakis/mgmt.git\n' as never);
-    // Step 1: git add -A fails
+    // Step 1: git add -u fails (staging tracked files)
     mockExecFileSync.mockImplementationOnce(() => {
       throw new Error('git add failed');
     });
@@ -184,7 +184,7 @@ describe('rescueDirtyWorktree', () => {
   it('returns failure when git commit fails', () => {
     // Step 0: getRepoRemote
     mockExecFileSync.mockReturnValueOnce('git@github.com:dimakis/mgmt.git\n' as never);
-    // Step 1: git add -A succeeds
+    // Step 1: git add -u succeeds
     mockExecFileSync.mockReturnValueOnce('' as never);
     // Step 2: git commit fails
     mockExecFileSync.mockImplementationOnce(() => {
@@ -200,7 +200,7 @@ describe('rescueDirtyWorktree', () => {
   it('returns failure when git push fails', () => {
     // Step 0: getRepoRemote
     mockExecFileSync.mockReturnValueOnce('git@github.com:dimakis/mgmt.git\n' as never);
-    // Step 1: git add -A
+    // Step 1: git add -u
     mockExecFileSync.mockReturnValueOnce('' as never);
     // Step 2: git commit
     mockExecFileSync.mockReturnValueOnce('' as never);
@@ -245,5 +245,21 @@ describe('rescueDirtyWorktree', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('resolve GitHub remote');
+  });
+
+  it('fails gracefully when only untracked files exist (git add -u stages nothing)', () => {
+    // Step 0: getRepoRemote
+    mockExecFileSync.mockReturnValueOnce('git@github.com:dimakis/mgmt.git\n' as never);
+    // Step 1: git add -u succeeds (but stages nothing — only untracked files)
+    mockExecFileSync.mockReturnValueOnce('' as never);
+    // Step 2: git commit fails — nothing staged
+    mockExecFileSync.mockImplementationOnce(() => {
+      throw new Error('nothing to commit, working tree clean');
+    });
+
+    const result = rescueDirtyWorktree('/tmp/worktree', 'session/test-123', 'test-123');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('nothing to commit');
   });
 });
