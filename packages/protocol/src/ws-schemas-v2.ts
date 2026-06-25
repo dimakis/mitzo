@@ -134,7 +134,7 @@ export const TerminalCreateMessage = z.object({
 export const TerminalInputMessage = z.object({
   type: z.literal('terminal_input'),
   terminalId: z.string().min(1),
-  data: z.string(),
+  data: z.string().max(65536),
 });
 
 export const TerminalResizeMessage = z.object({

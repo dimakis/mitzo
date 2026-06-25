@@ -945,7 +945,8 @@ export function handleTerminalCreate(
 
       // Resolve cwd from session metadata (worktree path or base repo)
       const sessionMeta = ctx.eventStore.getSession(msg.sessionId);
-      const cwd = sessionMeta?.cwd || BASE_REPO || process.cwd();
+      const rawCwd = sessionMeta?.cwd || BASE_REPO || process.cwd();
+      const cwd = isAllowedPath(rawCwd) ? rawCwd : BASE_REPO || process.cwd();
 
       try {
         const info = createTerminal(msg.sessionId, cwd, {
@@ -1042,7 +1043,9 @@ export function handleTerminalDestroy(
   ctx: V2HandlerContext,
 ): void {
   const ok = destroyTerminal(msg.terminalId);
-  if (!ok) {
+  if (ok) {
+    log.info('terminal destroyed via ws', { connectionId, terminalId: msg.terminalId });
+  } else {
     const conn = ctx.connRegistry.get(connectionId);
     conn?.transport.send({
       type: 'terminal_error',
@@ -1050,7 +1053,6 @@ export function handleTerminalDestroy(
       error: 'Terminal not found',
     });
   }
-  log.info('terminal destroyed via ws', { connectionId, terminalId: msg.terminalId });
 }
 
 // ─── Dispatcher ──────────────────────────────────────────────────────────────

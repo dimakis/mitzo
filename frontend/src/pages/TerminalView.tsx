@@ -1,9 +1,4 @@
-/**
- * TerminalView — full-page interactive shell terminal.
- *
- * Creates a PTY on the server scoped to the current session's worktree,
- * renders it via xterm.js, and provides a mobile-friendly key toolbar.
- */
+/** TerminalView — full-page interactive shell terminal. */
 
 import { useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -15,7 +10,7 @@ export function TerminalView() {
   const navigate = useNavigate();
   const termRef = useRef<{ write: (data: string) => void } | null>(null);
 
-  const resolvedSessionId = sessionId || 'default';
+  const resolvedSessionId = sessionId || `terminal-${Date.now()}`;
 
   const { state, connect, writeInput, resize, destroy } = useTerminal({
     sessionId: resolvedSessionId,

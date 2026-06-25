@@ -1,10 +1,4 @@
-/**
- * Terminal — xterm.js wrapper with mobile keyboard toolbar.
- *
- * Renders a full-screen terminal emulator using xterm.js, connected to a
- * server-side PTY via the useTerminal hook. Includes a touch-friendly toolbar
- * with special keys (Tab, Ctrl, arrows, Esc) for mobile use.
- */
+/** Terminal — xterm.js wrapper with mobile keyboard toolbar. */
 
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';

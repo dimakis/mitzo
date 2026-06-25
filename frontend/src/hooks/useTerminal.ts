@@ -1,10 +1,4 @@
-/**
- * useTerminal — manages a WebSocket connection to the terminal backend.
- *
- * Shares the same WS endpoint as chat (/ws/chat) but sends terminal-specific
- * message types (terminal_create, terminal_input, terminal_resize, terminal_destroy).
- * The v2 protocol dispatcher routes these to the terminal handlers.
- */
+/** useTerminal — manages a WebSocket connection to the terminal backend. */
 
 import { useRef, useCallback, useEffect, useState } from 'react';
 import { getWsChatUrl } from '../lib/api-fetch';
@@ -45,9 +39,13 @@ export function useTerminal({
   const onDataRef = useRef(onData);
   const onExitRef = useRef(onExit);
   const onErrorRef = useRef(onError);
+  const colsRef = useRef(cols);
+  const rowsRef = useRef(rows);
   onDataRef.current = onData;
   onExitRef.current = onExit;
   onErrorRef.current = onError;
+  colsRef.current = cols;
+  rowsRef.current = rows;
 
   const send = useCallback((msg: Record<string, unknown>) => {
     const ws = wsRef.current;
@@ -81,8 +79,8 @@ export function useTerminal({
           send({
             type: 'terminal_create',
             sessionId,
-            cols,
-            rows,
+            cols: colsRef.current,
+            rows: rowsRef.current,
           });
           setState((s) => ({ ...s, connected: true }));
           break;
@@ -121,7 +119,7 @@ export function useTerminal({
     ws.onclose = () => {
       setState((s) => ({ ...s, connected: false }));
     };
-  }, [sessionId, cols, rows, send]);
+  }, [sessionId, send]);
 
   const writeInput = useCallback(
     (data: string) => {

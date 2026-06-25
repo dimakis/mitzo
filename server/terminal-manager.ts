@@ -1,10 +1,4 @@
-/**
- * Terminal Manager — PTY lifecycle management for interactive shell terminals.
- *
- * Spawns node-pty processes, routes I/O to WebSocket connections, and handles
- * resize/cleanup. Each terminal is scoped to a session and inherits the
- * session's worktree cwd.
- */
+/** Terminal Manager — PTY lifecycle for interactive shell terminals. */
 
 import * as pty from 'node-pty';
 import { createLogger } from './logger.js';
@@ -35,6 +29,9 @@ interface ManagedTerminal {
   onExit: ((exitCode: number, signal?: number) => void) | null;
 }
 
+const MAX_TERMINALS_PER_SESSION = 5;
+const MAX_TERMINALS_GLOBAL = 50;
+
 let terminalCounter = 0;
 
 /** Active terminals keyed by terminal ID. */
@@ -53,6 +50,14 @@ export function createTerminal(
   cwd: string,
   opts?: { cols?: number; rows?: number; env?: Record<string, string> },
 ): TerminalInfo {
+  if (terminals.size >= MAX_TERMINALS_GLOBAL) {
+    throw new Error(`Global terminal limit reached (${MAX_TERMINALS_GLOBAL})`);
+  }
+  const sessionCount = [...terminals.values()].filter((t) => t.sessionId === sessionId).length;
+  if (sessionCount >= MAX_TERMINALS_PER_SESSION) {
+    throw new Error(`Session terminal limit reached (${MAX_TERMINALS_PER_SESSION})`);
+  }
+
   const id = generateTerminalId();
   const cols = opts?.cols ?? 80;
   const rows = opts?.rows ?? 24;
