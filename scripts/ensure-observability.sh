@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Ensure the observability stack (Jaeger + Loki + Grafana) is running.
+# Ensure the observability stack (Jaeger + Loki + Grafana + MLflow) is running.
 # Called by the com.mitzo.podman-machine launchd agent after machine start,
 # and can be run manually: ./scripts/ensure-observability.sh
 set -euo pipefail
@@ -23,7 +23,7 @@ echo "[ensure-observability] Starting observability containers..."
 "$PODMAN" compose -f "$COMPOSE_FILE" up -d 2>&1
 
 # 3. Verify
-for svc in jaeger loki grafana; do
+for svc in jaeger loki grafana mlflow; do
   container="mitzo_${svc}_1"
   if "$PODMAN" ps --filter "name=$container" --format '{{.Names}}' 2>/dev/null | grep -q "$container"; then
     echo "[ensure-observability] $container: running"
