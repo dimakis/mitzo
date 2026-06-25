@@ -18,6 +18,7 @@ export interface TerminalInfo {
 interface ManagedTerminal {
   id: string;
   sessionId: string;
+  connectionId: string;
   process: pty.IPty;
   cols: number;
   rows: number;
@@ -28,6 +29,24 @@ interface ManagedTerminal {
   /** Callback when the terminal process exits. */
   onExit: ((exitCode: number, signal?: number) => void) | null;
 }
+
+/** Safe env vars to inherit — everything else is stripped. */
+const SAFE_ENV_KEYS = new Set([
+  'PATH',
+  'HOME',
+  'USER',
+  'LOGNAME',
+  'SHELL',
+  'LANG',
+  'TERM',
+  'COLORTERM',
+  'EDITOR',
+  'VISUAL',
+  'PAGER',
+  'TMPDIR',
+  'TZ',
+]);
+const SAFE_ENV_PREFIXES = ['LC_', 'XDG_'];
 
 const MAX_TERMINALS_PER_SESSION = 5;
 const MAX_TERMINALS_GLOBAL = 50;
@@ -45,8 +64,23 @@ function getDefaultShell(): string {
   return process.env.SHELL || (process.platform === 'win32' ? 'powershell.exe' : '/bin/zsh');
 }
 
+function buildSafeEnv(extra?: Record<string, string>): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, val] of Object.entries(process.env)) {
+    if (val == null) continue;
+    if (SAFE_ENV_KEYS.has(key) || SAFE_ENV_PREFIXES.some((p) => key.startsWith(p))) {
+      env[key] = val;
+    }
+  }
+  env.TERM = 'xterm-256color';
+  env.COLORTERM = 'truecolor';
+  if (extra) Object.assign(env, extra);
+  return env;
+}
+
 export function createTerminal(
   sessionId: string,
+  connectionId: string,
   cwd: string,
   opts?: { cols?: number; rows?: number; env?: Record<string, string> },
 ): TerminalInfo {
@@ -68,17 +102,13 @@ export function createTerminal(
     cols,
     rows,
     cwd,
-    env: {
-      ...process.env,
-      TERM: 'xterm-256color',
-      COLORTERM: 'truecolor',
-      ...opts?.env,
-    } as Record<string, string>,
+    env: buildSafeEnv(opts?.env),
   });
 
   const managed: ManagedTerminal = {
     id,
     sessionId,
+    connectionId,
     process: proc,
     cols,
     rows,
@@ -173,6 +203,25 @@ export function destroySessionTerminals(sessionId: string): number {
     log.info('destroyed session terminals', { sessionId, count });
   }
   return count;
+}
+
+export function destroyConnectionTerminals(connectionId: string): number {
+  let count = 0;
+  for (const [id, term] of terminals.entries()) {
+    if (term.connectionId === connectionId) {
+      term.process.kill();
+      terminals.delete(id);
+      count++;
+    }
+  }
+  if (count > 0) {
+    log.info('destroyed connection terminals', { connectionId, count });
+  }
+  return count;
+}
+
+export function getTerminalOwner(id: string): string | null {
+  return terminals.get(id)?.connectionId ?? null;
 }
 
 export function setTerminalCallbacks(

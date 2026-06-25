@@ -1,6 +1,6 @@
 /** TerminalView — full-page interactive shell terminal. */
 
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Terminal } from '../components/Terminal';
 import { useTerminal } from '../hooks/useTerminal';
@@ -10,7 +10,7 @@ export function TerminalView() {
   const navigate = useNavigate();
   const termRef = useRef<{ write: (data: string) => void } | null>(null);
 
-  const resolvedSessionId = sessionId || `terminal-${Date.now()}`;
+  const resolvedSessionId = useMemo(() => sessionId || `terminal-${Date.now()}`, [sessionId]);
 
   const { state, connect, writeInput, resize, destroy } = useTerminal({
     sessionId: resolvedSessionId,

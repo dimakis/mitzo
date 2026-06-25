@@ -127,8 +127,8 @@ export const V2SetModeMessage = z.object({
 export const TerminalCreateMessage = z.object({
   type: z.literal('terminal_create'),
   sessionId: z.string().min(1),
-  cols: z.number().int().min(1).optional(),
-  rows: z.number().int().min(1).optional(),
+  cols: z.number().int().min(1).max(500).optional(),
+  rows: z.number().int().min(1).max(500).optional(),
 });
 
 export const TerminalInputMessage = z.object({
@@ -140,8 +140,8 @@ export const TerminalInputMessage = z.object({
 export const TerminalResizeMessage = z.object({
   type: z.literal('terminal_resize'),
   terminalId: z.string().min(1),
-  cols: z.number().int().min(1),
-  rows: z.number().int().min(1),
+  cols: z.number().int().min(1).max(500),
+  rows: z.number().int().min(1).max(500),
 });
 
 export const TerminalDestroyMessage = z.object({

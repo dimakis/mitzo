@@ -71,6 +71,7 @@ import {
   resizeTerminal,
   destroyTerminal,
   setTerminalCallbacks,
+  getTerminalOwner,
 } from './terminal-manager.js';
 import { createLogger } from './logger.js';
 
@@ -949,7 +950,7 @@ export function handleTerminalCreate(
       const cwd = isAllowedPath(rawCwd) ? rawCwd : BASE_REPO || process.cwd();
 
       try {
-        const info = createTerminal(msg.sessionId, cwd, {
+        const info = createTerminal(msg.sessionId, connectionId, cwd, {
           cols: msg.cols,
           rows: msg.rows,
         });
@@ -1005,20 +1006,38 @@ export function handleTerminalCreate(
   );
 }
 
+function verifyTerminalOwner(
+  connectionId: string,
+  terminalId: string,
+  ctx: V2HandlerContext,
+): boolean {
+  const owner = getTerminalOwner(terminalId);
+  if (owner === null) {
+    ctx.connRegistry.get(connectionId)?.transport.send({
+      type: 'terminal_error',
+      terminalId,
+      error: 'Terminal not found',
+    });
+    return false;
+  }
+  if (owner !== connectionId) {
+    ctx.connRegistry.get(connectionId)?.transport.send({
+      type: 'terminal_error',
+      terminalId,
+      error: 'Not terminal owner',
+    });
+    return false;
+  }
+  return true;
+}
+
 export function handleTerminalInput(
   connectionId: string,
   msg: TerminalInputMsg,
   ctx: V2HandlerContext,
 ): void {
-  const ok = writeTerminal(msg.terminalId, msg.data);
-  if (!ok) {
-    const conn = ctx.connRegistry.get(connectionId);
-    conn?.transport.send({
-      type: 'terminal_error',
-      terminalId: msg.terminalId,
-      error: 'Terminal not found',
-    });
-  }
+  if (!verifyTerminalOwner(connectionId, msg.terminalId, ctx)) return;
+  writeTerminal(msg.terminalId, msg.data);
 }
 
 export function handleTerminalResize(
@@ -1026,15 +1045,8 @@ export function handleTerminalResize(
   msg: TerminalResizeMsg,
   ctx: V2HandlerContext,
 ): void {
-  const ok = resizeTerminal(msg.terminalId, msg.cols, msg.rows);
-  if (!ok) {
-    const conn = ctx.connRegistry.get(connectionId);
-    conn?.transport.send({
-      type: 'terminal_error',
-      terminalId: msg.terminalId,
-      error: 'Terminal not found',
-    });
-  }
+  if (!verifyTerminalOwner(connectionId, msg.terminalId, ctx)) return;
+  resizeTerminal(msg.terminalId, msg.cols, msg.rows);
 }
 
 export function handleTerminalDestroy(
@@ -1042,17 +1054,9 @@ export function handleTerminalDestroy(
   msg: TerminalDestroyMsg,
   ctx: V2HandlerContext,
 ): void {
-  const ok = destroyTerminal(msg.terminalId);
-  if (ok) {
-    log.info('terminal destroyed via ws', { connectionId, terminalId: msg.terminalId });
-  } else {
-    const conn = ctx.connRegistry.get(connectionId);
-    conn?.transport.send({
-      type: 'terminal_error',
-      terminalId: msg.terminalId,
-      error: 'Terminal not found',
-    });
-  }
+  if (!verifyTerminalOwner(connectionId, msg.terminalId, ctx)) return;
+  destroyTerminal(msg.terminalId);
+  log.info('terminal destroyed via ws', { connectionId, terminalId: msg.terminalId });
 }
 
 // ─── Dispatcher ──────────────────────────────────────────────────────────────
