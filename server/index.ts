@@ -101,14 +101,18 @@ const connRegistry = new ConnectionRegistry();
 setConnectionRegistry(connRegistry);
 
 // Wire up EventStore for periodic sync (enables delivery guarantee).
-// Provide isSessionActive so periodic sync skips ended sessions (P1: use state, not is_active).
+// shouldSync skips ENDED/SUSPENDED/DETACHED sessions to prevent replay storms.
+// getHeadSeq caps replay depth so post-crash reconnects don't flood clients.
 connRegistry.setEventStore({
   getEventsAfter: (sessionId, afterSeq, limit) =>
     eventStore.getEventsAfter(sessionId, afterSeq, limit),
-  isSessionActive: (sessionId) => {
+  shouldSync: (sessionId) => {
     const state = eventStore.getSessionState(sessionId);
-    return state !== null && state !== 'ENDED' && state !== 'CLOSING';
+    // Only sync sessions that are actively running or starting.
+    // ENDED/SUSPENDED/DETACHED/CLOSING don't need delivery retries.
+    return state === 'ACTIVE' || state === 'STARTING' || state === 'CREATED';
   },
+  getHeadSeq: (sessionId) => eventStore.getHeadSeq(sessionId),
 });
 
 // Resolve cert paths relative to the project root (where package.json lives)
@@ -402,9 +406,10 @@ const v2Ctx: V2HandlerContext = {
   nativeCommands,
 };
 
-// ─── SSE Chat Transport ──────────────────────────────────────────────────────
+// ─── SSE Chat Transport (primary) ────────────────────────────────────────────
 // SSE (server→client) + HTTP POST (client→server) transport for chat events.
-// Runs alongside WS during migration. Feature-flagged on the client side.
+// Default transport — eliminates the iOS silent WebSocket death bug class.
+// WS transport remains as a fallback (opt-in via localStorage 'mitzo:transport'='ws').
 
 app.get('/api/chat/events', (req, res) => {
   res.writeHead(200, {

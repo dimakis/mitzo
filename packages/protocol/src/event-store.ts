@@ -140,6 +140,7 @@ export class EventStore {
     getAttentionSessions: Database.Statement;
     setSessionState: Database.Statement;
     getSessionState: Database.Statement;
+    getHeadSeq: Database.Statement;
   };
 
   constructor(dbPath: string, logger?: EventStoreLogger) {
@@ -227,6 +228,7 @@ export class EventStore {
         WHERE session_id = ?`,
       ),
       getSessionState: db.prepare('SELECT state FROM sessions WHERE session_id = ?'),
+      getHeadSeq: db.prepare('SELECT MAX(seq) as head FROM events WHERE session_id = ?'),
     };
   }
 
@@ -688,6 +690,12 @@ export class EventStore {
     }
 
     return rows.length;
+  }
+
+  /** Return the highest seq number for a session, or 0 if no events exist. */
+  getHeadSeq(sessionId: string): number {
+    const row = this.stmts.getHeadSeq.get(sessionId) as { head: number | null } | undefined;
+    return row?.head ?? 0;
   }
 
   recordUsage(

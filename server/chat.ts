@@ -1273,7 +1273,17 @@ export async function interruptChat(
       );
       await Promise.allSettled(stops);
     }
-    await session.queryInstance.interrupt();
+    try {
+      await session.queryInstance.interrupt();
+    } catch (err) {
+      // Guard against ProcessTransport crashes (e.g. "not ready for writing").
+      // Without this, an unhandled error kills the server, losing all in-memory
+      // state and triggering replay storms on client reconnect.
+      log.error('queryInstance.interrupt() failed', {
+        clientId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
     // Only push to inputQueue on first delivery — a retried interrupt should
     // still call interrupt() (to halt the agent) but not double-queue the prompt.
     if (!isDup) {
