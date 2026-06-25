@@ -1309,7 +1309,7 @@ export function cleanupSessionWorktrees(
     try {
       const dirty = hasUncommittedWork(path);
       if (dirty) {
-        // Defer rescue to avoid blocking the event loop — rescueDirtyWorktree
+        // Defer rescue so the cleanup loop can finish first — rescueDirtyWorktree
         // makes up to 4 sync git/gh calls (~30s timeout each).
         const capturedRepoName = repoName;
         const capturedPath = path;

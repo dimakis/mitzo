@@ -258,6 +258,9 @@ describe('cleanupSessionWorktrees', () => {
       isolation: true,
     });
 
+    // Advance fake clock to bust getRepoConfig TTL cache
+    vi.advanceTimersByTime(10_000);
+
     const worktreeMod = await import('../worktree.js');
     const hasUncommittedWorkMock = worktreeMod.hasUncommittedWork as ReturnType<typeof vi.fn>;
     const rescueDirtyWorktreeMock = worktreeMod.rescueDirtyWorktree as ReturnType<typeof vi.fn>;
@@ -297,6 +300,9 @@ describe('cleanupSessionWorktrees', () => {
       isolation: true,
     });
 
+    // Advance fake clock to bust getRepoConfig TTL cache
+    vi.advanceTimersByTime(10_000);
+
     const worktreeMod = await import('../worktree.js');
     const hasUncommittedWorkMock = worktreeMod.hasUncommittedWork as ReturnType<typeof vi.fn>;
     const rescueDirtyWorktreeMock = worktreeMod.rescueDirtyWorktree as ReturnType<typeof vi.fn>;
@@ -319,6 +325,45 @@ describe('cleanupSessionWorktrees', () => {
     // Dirty but rescue succeeded → worktree should be removed
     expect(removeWorktreeMock).toHaveBeenCalledWith('abc', '/tools/mitzo');
     expect(removeWorktreeMock).toHaveBeenCalledTimes(1);
+
+    hasUncommittedWorkMock.mockReturnValue(null);
+    rescueDirtyWorktreeMock.mockReturnValue({ success: true });
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('preserves worktree when hasUncommittedWork returns git-failure sentinel', async () => {
+    vi.useFakeTimers();
+
+    const { loadRepoConfig } = await import('../repo-config.js');
+    (loadRepoConfig as ReturnType<typeof vi.fn>).mockReturnValue({
+      repos: { mitzo: '/tools/mitzo' },
+      isolation: true,
+    });
+
+    vi.advanceTimersByTime(10_000);
+
+    const worktreeMod = await import('../worktree.js');
+    const hasUncommittedWorkMock = worktreeMod.hasUncommittedWork as ReturnType<typeof vi.fn>;
+    const rescueDirtyWorktreeMock = worktreeMod.rescueDirtyWorktree as ReturnType<typeof vi.fn>;
+    // Sentinel from git status failure — treated as dirty
+    hasUncommittedWorkMock.mockReturnValue('[git status failed: timeout]');
+    rescueDirtyWorktreeMock.mockReturnValue({ success: false, error: 'broken worktree' });
+
+    const { cleanupSessionWorktrees } = await import('../chat.js');
+
+    const session = {
+      worktreePaths: new Map([
+        ['primary', { path: '/repo/.claude/worktrees/abc', wtId: 'abc' }],
+        ['mitzo', { path: '/tools/mitzo/.claude/worktrees/abc', wtId: 'abc' }],
+      ]),
+    } as unknown as ManagedSession;
+
+    cleanupSessionWorktrees(session);
+    vi.runAllTimers();
+
+    // Git failure sentinel triggers rescue attempt; rescue fails → preserve worktree
+    expect(removeWorktreeMock).not.toHaveBeenCalled();
 
     hasUncommittedWorkMock.mockReturnValue(null);
     rescueDirtyWorktreeMock.mockReturnValue({ success: true });
