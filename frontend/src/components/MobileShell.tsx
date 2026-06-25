@@ -2,7 +2,7 @@ import { useLocation } from 'react-router-dom';
 import { useIsDesktop } from '../hooks/useMediaQuery';
 import { TabBar } from './TabBar';
 
-const HIDE_TAB_BAR = ['/login', '/chat'];
+const HIDE_TAB_BAR = ['/login', '/chat', '/terminal'];
 
 function shouldHideTabBar(pathname: string): boolean {
   return HIDE_TAB_BAR.some((p) => pathname === p || pathname.startsWith(p + '/'));

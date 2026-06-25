@@ -106,6 +106,10 @@ export {
   V2StopMessage,
   V2PermissionResponseMessage,
   V2SetModeMessage,
+  TerminalCreateMessage,
+  TerminalInputMessage,
+  TerminalResizeMessage,
+  TerminalDestroyMessage,
   IncomingWsMessageV2,
 } from './ws-schemas-v2.js';
 

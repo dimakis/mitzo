@@ -1,0 +1,132 @@
+/* Terminal view + component styles */
+
+.terminal-view {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  background: #1a1a2e;
+  color: #e0e0e0;
+}
+
+.terminal-header {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background: #16162a;
+  border-bottom: 1px solid #2a2a4e;
+  flex-shrink: 0;
+  /* Safe area for iOS notch */
+  padding-top: max(8px, env(safe-area-inset-top));
+}
+
+.terminal-back-btn {
+  background: none;
+  border: none;
+  color: var(--accent, #74c0fc);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+  margin-right: 8px;
+}
+
+.terminal-title {
+  font-size: 15px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.terminal-header-spacer {
+  flex: 1;
+}
+
+.terminal-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.terminal-status--live {
+  background: #51cf66;
+}
+
+.terminal-status-text {
+  font-size: 12px;
+  font-weight: 400;
+  color: #888;
+}
+
+/* Terminal container — fills remaining space */
+.terminal-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.terminal-xterm {
+  flex: 1;
+  min-height: 0;
+  padding: 4px;
+}
+
+/* Make xterm fill its container */
+.terminal-xterm .xterm {
+  height: 100%;
+}
+
+.terminal-xterm .xterm-viewport {
+  overflow-y: auto !important;
+}
+
+/* Mobile keyboard toolbar */
+.terminal-toolbar {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  padding-bottom: max(6px, env(safe-area-inset-bottom));
+  background: #16162a;
+  border-top: 1px solid #2a2a4e;
+  overflow-x: auto;
+  flex-shrink: 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.terminal-toolbar-key {
+  background: #2a2a4e;
+  border: 1px solid #3a3a5e;
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 13px;
+  font-family: inherit;
+  padding: 8px 12px;
+  min-width: 40px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  flex-shrink: 0;
+}
+
+.terminal-toolbar-key:active {
+  background: #3a3a5e;
+}
+
+.terminal-toolbar-key--active {
+  background: var(--accent, #74c0fc);
+  color: #1a1a2e;
+  border-color: var(--accent, #74c0fc);
+}
+
+/* Desktop: hide toolbar (real keyboard available) */
+@media (min-width: 768px) {
+  .terminal-toolbar {
+    display: none;
+  }
+
+  .terminal-xterm {
+    padding: 8px;
+  }
+}

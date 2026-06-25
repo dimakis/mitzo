@@ -24,6 +24,10 @@ import {
   V2InterruptMessage,
   V2PermissionResponseMessage,
   V2SetModeMessage,
+  TerminalCreateMessage,
+  TerminalInputMessage,
+  TerminalResizeMessage,
+  TerminalDestroyMessage,
 } from '@mitzo/protocol';
 import type { z } from 'zod';
 
@@ -37,6 +41,10 @@ type StopMsg = z.infer<typeof V2StopMessage>;
 type InterruptMsg = z.infer<typeof V2InterruptMessage>;
 type PermissionMsg = z.infer<typeof V2PermissionResponseMessage>;
 type SetModeMsg = z.infer<typeof V2SetModeMessage>;
+type TerminalCreateMsg = z.infer<typeof TerminalCreateMessage>;
+type TerminalInputMsg = z.infer<typeof TerminalInputMessage>;
+type TerminalResizeMsg = z.infer<typeof TerminalResizeMessage>;
+type TerminalDestroyMsg = z.infer<typeof TerminalDestroyMessage>;
 import { randomUUID } from 'crypto';
 import { withSpan, withSpanAsync } from './tracing.js';
 import { SpanStatusCode } from '@opentelemetry/api';
@@ -57,6 +65,13 @@ import { setSkillPolicy, clearSkillPolicy } from './skill-policy.js';
 import { resolveSlashCommand } from './slash-commands.js';
 import { buildSkillRegistry, isAllowedPath, NATIVE_COMMAND_NAMES } from './app.js';
 import type { NativeCommandRegistry } from './native-commands.js';
+import {
+  createTerminal,
+  writeTerminal,
+  resizeTerminal,
+  destroyTerminal,
+  setTerminalCallbacks,
+} from './terminal-manager.js';
 import { createLogger } from './logger.js';
 
 const log = createLogger('ws-v2');
@@ -914,6 +929,130 @@ export function handleSessionClose(
   );
 }
 
+// ─── Terminal handlers ──────────────────────────────────────────────────────
+
+export function handleTerminalCreate(
+  connectionId: string,
+  msg: TerminalCreateMsg,
+  ctx: V2HandlerContext,
+): void {
+  withSpan(
+    'ws.terminal_create',
+    { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId },
+    () => {
+      const conn = ctx.connRegistry.get(connectionId);
+      if (!conn) return;
+
+      // Resolve cwd from session metadata (worktree path or base repo)
+      const sessionMeta = ctx.eventStore.getSession(msg.sessionId);
+      const cwd = sessionMeta?.cwd || BASE_REPO || process.cwd();
+
+      try {
+        const info = createTerminal(msg.sessionId, cwd, {
+          cols: msg.cols,
+          rows: msg.rows,
+        });
+
+        // Wire PTY output → WS broadcast to connection
+        setTerminalCallbacks(
+          info.id,
+          (data) => {
+            conn.transport.send({
+              type: 'terminal_output',
+              terminalId: info.id,
+              data,
+            });
+          },
+          (exitCode, signal) => {
+            conn.transport.send({
+              type: 'terminal_exit',
+              terminalId: info.id,
+              exitCode,
+              ...(signal !== undefined ? { signal } : {}),
+            });
+          },
+        );
+
+        conn.transport.send({
+          type: 'terminal_created',
+          terminalId: info.id,
+          sessionId: msg.sessionId,
+          pid: info.pid,
+          cols: info.cols,
+          rows: info.rows,
+        });
+
+        log.info('terminal created via ws', {
+          connectionId,
+          sessionId: msg.sessionId,
+          terminalId: info.id,
+          cwd,
+        });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        conn.transport.send({
+          type: 'terminal_error',
+          error: `Failed to create terminal: ${message}`,
+        });
+        log.error('terminal create failed', {
+          connectionId,
+          sessionId: msg.sessionId,
+          error: message,
+        });
+      }
+    },
+  );
+}
+
+export function handleTerminalInput(
+  connectionId: string,
+  msg: TerminalInputMsg,
+  ctx: V2HandlerContext,
+): void {
+  const ok = writeTerminal(msg.terminalId, msg.data);
+  if (!ok) {
+    const conn = ctx.connRegistry.get(connectionId);
+    conn?.transport.send({
+      type: 'terminal_error',
+      terminalId: msg.terminalId,
+      error: 'Terminal not found',
+    });
+  }
+}
+
+export function handleTerminalResize(
+  connectionId: string,
+  msg: TerminalResizeMsg,
+  ctx: V2HandlerContext,
+): void {
+  const ok = resizeTerminal(msg.terminalId, msg.cols, msg.rows);
+  if (!ok) {
+    const conn = ctx.connRegistry.get(connectionId);
+    conn?.transport.send({
+      type: 'terminal_error',
+      terminalId: msg.terminalId,
+      error: 'Terminal not found',
+    });
+  }
+}
+
+export function handleTerminalDestroy(
+  connectionId: string,
+  msg: TerminalDestroyMsg,
+  ctx: V2HandlerContext,
+): void {
+  const ok = destroyTerminal(msg.terminalId);
+  if (!ok) {
+    const conn = ctx.connRegistry.get(connectionId);
+    conn?.transport.send({
+      type: 'terminal_error',
+      terminalId: msg.terminalId,
+      error: 'Terminal not found',
+    });
+  }
+  log.info('terminal destroyed via ws', { connectionId, terminalId: msg.terminalId });
+}
+
 // ─── Dispatcher ──────────────────────────────────────────────────────────────
 
 /**
@@ -981,6 +1120,18 @@ export async function dispatchV2Message(
       break;
     case 'set_mode':
       handleSetModeV2(connectionId, msg, ctx);
+      break;
+    case 'terminal_create':
+      handleTerminalCreate(connectionId, msg, ctx);
+      break;
+    case 'terminal_input':
+      handleTerminalInput(connectionId, msg, ctx);
+      break;
+    case 'terminal_resize':
+      handleTerminalResize(connectionId, msg, ctx);
+      break;
+    case 'terminal_destroy':
+      handleTerminalDestroy(connectionId, msg, ctx);
       break;
   }
 }

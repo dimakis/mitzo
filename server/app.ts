@@ -41,6 +41,7 @@ import { isValidInternalToken } from './internal-token.js';
 import { getLocalCommit, isUpdateAvailable } from './git-version.js';
 import { resolvePending } from './permissions.js';
 import { createLogger } from './logger.js';
+import { listTerminals } from './terminal-manager.js';
 import {
   handleTaskSet,
   handleTaskComplete,
@@ -620,6 +621,13 @@ app.get('/api/events', (req, res) => {
 // REST fallback for service health (iOS WebKit can't do SSE with self-signed certs)
 app.get('/api/service-health', (_req, res) => {
   res.json(healthMonitor?.getSnapshot() ?? { services: [], checkedAt: 0 });
+});
+
+// --- Terminal API ---
+
+app.get('/api/terminals', (req, res) => {
+  const sessionId = req.query.sessionId as string | undefined;
+  res.json({ terminals: listTerminals(sessionId) });
 });
 
 // --- Task Board API ---

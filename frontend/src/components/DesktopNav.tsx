@@ -19,6 +19,7 @@ export function DesktopNav() {
     },
     { label: 'Calendar', path: '/calendar', match: (p) => p.startsWith('/calendar') },
     { label: 'Files', path: '/files', match: (p) => p.startsWith('/files') },
+    { label: 'Terminal', path: '/terminal', match: (p) => p.startsWith('/terminal') },
   ];
 
   return (
