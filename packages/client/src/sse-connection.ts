@@ -29,6 +29,13 @@ export interface SseConnectionConfig {
 }
 
 const MAX_PENDING_SENDS = 100;
+const MAX_SEND_RETRIES = 3;
+
+interface PendingSend {
+  endpoint: string;
+  body: Record<string, unknown>;
+  retries: number;
+}
 
 export class SseConnection implements ChatConnection {
   private es: EventSource | null = null;
@@ -37,7 +44,7 @@ export class SseConnection implements ChatConnection {
   private _isReconnect = false;
   private listener: ConnectionListener | null = null;
   private seqBySession = new Map<string, number>();
-  private pendingSends: Array<{ endpoint: string; body: Record<string, unknown> }> = [];
+  private pendingSends: PendingSend[] = [];
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private boundOnVisibility: (() => void) | null = null;
   private boundOnPageShow: ((e: PageTransitionEvent) => void) | null = null;
@@ -319,7 +326,11 @@ export class SseConnection implements ChatConnection {
     }, this.config.reconnectDelayMs);
   }
 
-  private async doPost(endpoint: string, body: Record<string, unknown>): Promise<void> {
+  private async doPost(
+    endpoint: string,
+    body: Record<string, unknown>,
+    retries = 0,
+  ): Promise<void> {
     if (!this._connectionId) return;
     try {
       const res = await this.config.fetch(`${this.config.baseUrl}/api/chat/${endpoint}`, {
@@ -335,13 +346,13 @@ export class SseConnection implements ChatConnection {
         // Re-queue so it flushes on the next successful reconnect.
         // Non-transient errors (400 = invalid body) are not retried.
         console.warn(`[SseConnection] POST /${endpoint} returned ${res.status}, re-queuing`);
-        this.enqueuePending(endpoint, body);
+        this.enqueuePending(endpoint, body, retries + 1);
       }
     } catch {
       if (endpoint === 'send') {
         // Network error — re-queue for retry after reconnect.
         console.warn(`[SseConnection] POST /${endpoint} failed, re-queuing`);
-        this.enqueuePending(endpoint, body);
+        this.enqueuePending(endpoint, body, retries + 1);
       }
       // Non-send POST failures (stop, interrupt, etc.) are non-fatal.
     }
@@ -351,17 +362,21 @@ export class SseConnection implements ChatConnection {
     if (this.pendingSends.length === 0) return;
     const toFlush = this.pendingSends;
     this.pendingSends = [];
-    for (const { endpoint, body } of toFlush) {
-      this.doPost(endpoint, body);
+    for (const { endpoint, body, retries } of toFlush) {
+      this.doPost(endpoint, body, retries);
     }
   }
 
   /** Enqueue a pending send with the same MAX_PENDING_SENDS cap as send(). */
-  private enqueuePending(endpoint: string, body: Record<string, unknown>): void {
+  private enqueuePending(endpoint: string, body: Record<string, unknown>, retries = 0): void {
+    if (retries >= MAX_SEND_RETRIES) {
+      console.warn(`[SseConnection] dropping /${endpoint} after ${retries} retries`);
+      return;
+    }
     if (this.pendingSends.length >= MAX_PENDING_SENDS) {
       this.pendingSends.shift();
     }
-    this.pendingSends.push({ endpoint, body });
+    this.pendingSends.push({ endpoint, body, retries });
   }
 
   /**

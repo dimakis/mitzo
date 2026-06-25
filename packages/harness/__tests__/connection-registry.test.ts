@@ -557,6 +557,31 @@ describe('ConnectionRegistry', () => {
 
       registry.stopPeriodicSync();
     });
+
+    it('replays from cursor when getHeadSeq is not provided (backward compat)', async () => {
+      vi.useFakeTimers();
+      const t = mockTransport(true);
+      // Many events — gap would exceed MAX_REPLAY_GAP if getHeadSeq were present
+      const manyEvents = Array.from({ length: 50 }, (_, i) => ({
+        seq: i + 1,
+        payload: { type: 'msg', i },
+      }));
+      const store = mockEventStore(manyEvents);
+      // No getHeadSeq — backward compatible
+
+      registry.setEventStore(store);
+      registry.register('conn-1', t);
+      registry.watch('conn-1', 'sess-a');
+      registry.startPeriodicSync();
+
+      await vi.advanceTimersByTimeAsync(5000);
+
+      // Should fetch from cursor (0) — no gap capping without getHeadSeq
+      const calls = (store.getEventsAfter as ReturnType<typeof vi.fn>).mock.calls;
+      expect(calls[0][1]).toBe(0);
+
+      registry.stopPeriodicSync();
+    });
   });
 
   describe('dispose', () => {

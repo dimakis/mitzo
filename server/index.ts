@@ -108,9 +108,11 @@ connRegistry.setEventStore({
     eventStore.getEventsAfter(sessionId, afterSeq, limit),
   shouldSync: (sessionId) => {
     const state = eventStore.getSessionState(sessionId);
-    // Only sync sessions that are actively running or starting.
-    // ENDED/SUSPENDED/DETACHED/CLOSING don't need delivery retries.
-    return state === 'ACTIVE' || state === 'STARTING' || state === 'CREATED';
+    // Only sync sessions that are actively running or closing.
+    // ENDED/SUSPENDED/DETACHED don't need delivery retries.
+    // CLOSING is included because the agent is still producing events
+    // (closeout summary, final commits) during that short-lived state.
+    return state === 'ACTIVE' || state === 'STARTING' || state === 'CREATED' || state === 'CLOSING';
   },
   getHeadSeq: (sessionId) => eventStore.getHeadSeq(sessionId),
 });
