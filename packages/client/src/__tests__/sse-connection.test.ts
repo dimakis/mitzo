@@ -1041,6 +1041,64 @@ describe('SseConnection', () => {
     warnSpy.mockRestore();
   });
 
+  it('re-queues permission_response POST on transient error', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const mockFetch = vi
+      .fn()
+      .mockImplementationOnce(() => Promise.resolve({ ok: false, status: 500 }))
+      .mockImplementation(() => Promise.resolve({ ok: true }));
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+
+    conn.send({ type: 'permission_response', allow: true });
+    await vi.runAllTimersAsync();
+
+    // Reconnect — permission response should be re-queued and flushed
+    conn.checkAndReconnect(true);
+    mockFetch.mockClear();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
+    await vi.runAllTimersAsync();
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://localhost:3100/api/chat/permission',
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'X-Connection-ID': 'conn-def' }),
+      }),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('fires _open listener only after flush completes', async () => {
+    const events: string[] = [];
+    const mockFetch = vi.fn().mockImplementation(async (url: string) => {
+      if (typeof url === 'string' && url.includes('/send')) {
+        events.push('flush');
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      return { ok: true };
+    });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.onMessage((msg) => {
+      if ((msg as Record<string, unknown>).type === '_open') events.push('_open');
+    });
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+    events.length = 0; // clear _open from initial connect
+
+    // Disconnect, queue a message
+    lastES().onerror?.();
+    conn.send({ type: 'send', prompt: 'queued', clientMsgId: 'msg-1' });
+
+    // Reconnect — _open must fire AFTER flush
+    conn.checkAndReconnect(true);
+    mockFetch.mockClear();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
+    await vi.runAllTimersAsync();
+
+    expect(events).toEqual(['flush', '_open']);
+  });
+
   it('flushes re-queued sends sequentially to preserve ordering', async () => {
     const order: string[] = [];
     const mockFetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {

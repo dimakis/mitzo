@@ -230,8 +230,14 @@ export class SseConnection implements ChatConnection {
         this.doReconnectPost(welcomeConnectionId, welcomeEs);
       } else {
         this._connected = true;
-        this.flushPendingSends();
-        this.listener?.({ type: '_open' });
+        if (this.pendingSends.length > 0) {
+          // Flush must complete before _open fires to preserve message ordering.
+          void this.flushPendingSends().then(() => {
+            this.listener?.({ type: '_open' });
+          });
+        } else {
+          this.listener?.({ type: '_open' });
+        }
       }
       this._isReconnect = true;
     });
@@ -300,7 +306,7 @@ export class SseConnection implements ChatConnection {
 
       if (res.ok) {
         this._connected = true;
-        this.flushPendingSends();
+        await this.flushPendingSends();
         this.listener?.({ type: '_open' });
       } else {
         console.warn('[SseConnection] reconnect POST returned', res.status);
@@ -341,11 +347,8 @@ export class SseConnection implements ChatConnection {
         },
         body: JSON.stringify(body),
       });
-      if (
-        !res.ok &&
-        endpoint === 'send' &&
-        (res.status === 404 || res.status === 429 || res.status >= 500)
-      ) {
+      const retryable = endpoint === 'send' || endpoint === 'permission';
+      if (!res.ok && retryable && (res.status === 404 || res.status === 429 || res.status >= 500)) {
         // Transient failure (404 = stale connectionId, 429 = rate limited,
         // 5xx = server error). Re-queue so it flushes on the next successful
         // reconnect. Non-transient errors (400 = invalid body) are not retried.
@@ -353,12 +356,12 @@ export class SseConnection implements ChatConnection {
         this.enqueuePending(endpoint, body, retries + 1);
       }
     } catch {
-      if (endpoint === 'send') {
+      if (endpoint === 'send' || endpoint === 'permission') {
         // Network error — re-queue for retry after reconnect.
         console.warn(`[SseConnection] POST /${endpoint} failed, re-queuing`);
         this.enqueuePending(endpoint, body, retries + 1);
       }
-      // Non-send POST failures (stop, interrupt, etc.) are non-fatal.
+      // Non-retryable POST failures (stop, interrupt, etc.) are non-fatal.
     }
   }
 
