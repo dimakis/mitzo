@@ -462,13 +462,7 @@ export function rescueDirtyWorktree(
     // 2. Commit
     execFileSync(
       'git',
-      [
-        '-C',
-        worktreePath,
-        'commit',
-        '-m',
-        `chore: rescue uncommitted work from session ${wtId}`,
-      ],
+      ['-C', worktreePath, 'commit', '-m', `chore: rescue uncommitted work from session ${wtId}`],
       gitOpts,
     );
   } catch (err: unknown) {
