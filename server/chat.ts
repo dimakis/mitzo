@@ -1320,14 +1320,11 @@ export function cleanupSessionWorktrees(
             if (!rescue.success) {
               // Worktree is orphaned from the session map (already cleared) but
               // preserved on disk — stale GC will handle it after 96h.
-              log.warn(
-                'dirty secondary worktree rescue failed — preserved on disk for stale GC',
-                {
-                  repoName,
-                  wtId,
-                  error: rescue.error,
-                },
-              );
+              log.warn('dirty secondary worktree rescue failed — preserved on disk for stale GC', {
+                repoName,
+                wtId,
+                error: rescue.error,
+              });
               return;
             }
             log.info('auto-rescued dirty secondary worktree', {
