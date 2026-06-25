@@ -131,11 +131,24 @@ describe('getMessages', () => {
 
 describe('cleanupSessionWorktrees', () => {
   let removeWorktreeMock: ReturnType<typeof vi.fn>;
+  let hasUncommittedWorkMock: ReturnType<typeof vi.fn>;
+  let rescueDirtyWorktreeMock: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     const worktreeMod = await import('../worktree.js');
     removeWorktreeMock = worktreeMod.removeWorktree as ReturnType<typeof vi.fn>;
+    hasUncommittedWorkMock = worktreeMod.hasUncommittedWork as ReturnType<typeof vi.fn>;
+    rescueDirtyWorktreeMock = worktreeMod.rescueDirtyWorktree as ReturnType<typeof vi.fn>;
     removeWorktreeMock.mockReset();
+    hasUncommittedWorkMock.mockReset();
+    hasUncommittedWorkMock.mockReturnValue(null);
+    rescueDirtyWorktreeMock.mockReset();
+    rescueDirtyWorktreeMock.mockReturnValue({ success: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it('skips primary worktree and only removes secondaries', async () => {
@@ -258,12 +271,8 @@ describe('cleanupSessionWorktrees', () => {
       isolation: true,
     });
 
-    // Advance fake clock to bust getRepoConfig TTL cache
     vi.advanceTimersByTime(10_000);
 
-    const worktreeMod = await import('../worktree.js');
-    const hasUncommittedWorkMock = worktreeMod.hasUncommittedWork as ReturnType<typeof vi.fn>;
-    const rescueDirtyWorktreeMock = worktreeMod.rescueDirtyWorktree as ReturnType<typeof vi.fn>;
     hasUncommittedWorkMock.mockReturnValue('M  server/chat.ts');
     rescueDirtyWorktreeMock.mockReturnValue({ success: false, error: 'no remote' });
 
@@ -277,18 +286,11 @@ describe('cleanupSessionWorktrees', () => {
     } as unknown as ManagedSession;
 
     cleanupSessionWorktrees(session);
-    // Rescue is deferred via setTimeout(0) — flush it
     vi.runAllTimers();
 
     // Dirty + rescue failed → worktree directory must NOT be removed from disk
     expect(removeWorktreeMock).not.toHaveBeenCalled();
-    // Map is still cleared (only primary preserved) — the directory on disk is what matters
     expect(session.worktreePaths.has('primary')).toBe(true);
-
-    hasUncommittedWorkMock.mockReturnValue(null);
-    rescueDirtyWorktreeMock.mockReturnValue({ success: true });
-    vi.useRealTimers();
-    vi.restoreAllMocks();
   });
 
   it('removes dirty secondary after successful rescue', async () => {
@@ -300,12 +302,8 @@ describe('cleanupSessionWorktrees', () => {
       isolation: true,
     });
 
-    // Advance fake clock to bust getRepoConfig TTL cache
     vi.advanceTimersByTime(10_000);
 
-    const worktreeMod = await import('../worktree.js');
-    const hasUncommittedWorkMock = worktreeMod.hasUncommittedWork as ReturnType<typeof vi.fn>;
-    const rescueDirtyWorktreeMock = worktreeMod.rescueDirtyWorktree as ReturnType<typeof vi.fn>;
     hasUncommittedWorkMock.mockReturnValue('M  server/chat.ts');
     rescueDirtyWorktreeMock.mockReturnValue({ success: true, prUrl: 'https://github.com/pr/1' });
 
@@ -319,17 +317,10 @@ describe('cleanupSessionWorktrees', () => {
     } as unknown as ManagedSession;
 
     cleanupSessionWorktrees(session);
-    // Rescue is deferred via setTimeout(0) — flush it
     vi.runAllTimers();
 
-    // Dirty but rescue succeeded → worktree should be removed
     expect(removeWorktreeMock).toHaveBeenCalledWith('abc', '/tools/mitzo');
     expect(removeWorktreeMock).toHaveBeenCalledTimes(1);
-
-    hasUncommittedWorkMock.mockReturnValue(null);
-    rescueDirtyWorktreeMock.mockReturnValue({ success: true });
-    vi.useRealTimers();
-    vi.restoreAllMocks();
   });
 
   it('preserves worktree when hasUncommittedWork returns git-failure sentinel', async () => {
@@ -343,10 +334,6 @@ describe('cleanupSessionWorktrees', () => {
 
     vi.advanceTimersByTime(10_000);
 
-    const worktreeMod = await import('../worktree.js');
-    const hasUncommittedWorkMock = worktreeMod.hasUncommittedWork as ReturnType<typeof vi.fn>;
-    const rescueDirtyWorktreeMock = worktreeMod.rescueDirtyWorktree as ReturnType<typeof vi.fn>;
-    // Sentinel from git status failure — treated as dirty
     hasUncommittedWorkMock.mockReturnValue('[git status failed: timeout]');
     rescueDirtyWorktreeMock.mockReturnValue({ success: false, error: 'broken worktree' });
 
@@ -362,13 +349,7 @@ describe('cleanupSessionWorktrees', () => {
     cleanupSessionWorktrees(session);
     vi.runAllTimers();
 
-    // Git failure sentinel triggers rescue attempt; rescue fails → preserve worktree
     expect(removeWorktreeMock).not.toHaveBeenCalled();
-
-    hasUncommittedWorkMock.mockReturnValue(null);
-    rescueDirtyWorktreeMock.mockReturnValue({ success: true });
-    vi.useRealTimers();
-    vi.restoreAllMocks();
   });
 
   it('handles hasUncommittedWork throwing an exception gracefully', async () => {
@@ -382,9 +363,6 @@ describe('cleanupSessionWorktrees', () => {
 
     vi.advanceTimersByTime(10_000);
 
-    const worktreeMod = await import('../worktree.js');
-    const hasUncommittedWorkMock = worktreeMod.hasUncommittedWork as ReturnType<typeof vi.fn>;
-    // Simulate ENOENT or other JS exception (not a git-status sentinel)
     hasUncommittedWorkMock.mockImplementation(() => {
       throw new Error('ENOENT: no such file or directory');
     });
@@ -398,17 +376,47 @@ describe('cleanupSessionWorktrees', () => {
       ]),
     } as unknown as ManagedSession;
 
-    // Should not throw — caught by outer try/catch
     cleanupSessionWorktrees(session);
     vi.runAllTimers();
 
-    // Exception prevents both rescue and removal
     expect(removeWorktreeMock).not.toHaveBeenCalled();
     expect(session.worktreePaths.has('primary')).toBe(true);
+  });
 
-    hasUncommittedWorkMock.mockReturnValue(null);
-    vi.useRealTimers();
-    vi.restoreAllMocks();
+  it('handles multiple dirty secondaries — one rescue succeeds, one fails', async () => {
+    vi.useFakeTimers();
+
+    const { loadRepoConfig } = await import('../repo-config.js');
+    (loadRepoConfig as ReturnType<typeof vi.fn>).mockReturnValue({
+      repos: { mitzo: '/tools/mitzo', centaur: '/projects/centaur' },
+      isolation: true,
+    });
+
+    vi.advanceTimersByTime(10_000);
+
+    hasUncommittedWorkMock.mockReturnValue('M  file.ts');
+    // First call (mitzo) fails rescue, second call (centaur) succeeds
+    rescueDirtyWorktreeMock
+      .mockReturnValueOnce({ success: false, error: 'no remote' })
+      .mockReturnValueOnce({ success: true, prUrl: 'https://github.com/pr/2' });
+
+    const { cleanupSessionWorktrees } = await import('../chat.js');
+
+    const session = {
+      worktreePaths: new Map([
+        ['primary', { path: '/repo/.claude/worktrees/abc', wtId: 'abc' }],
+        ['mitzo', { path: '/tools/mitzo/.claude/worktrees/abc', wtId: 'abc' }],
+        ['centaur', { path: '/projects/centaur/.claude/worktrees/abc', wtId: 'abc' }],
+      ]),
+    } as unknown as ManagedSession;
+
+    cleanupSessionWorktrees(session);
+    // Both deferred rescues fire after the loop
+    vi.runAllTimers();
+
+    // Only centaur (rescue succeeded) should be removed; mitzo preserved
+    expect(removeWorktreeMock).toHaveBeenCalledWith('abc', '/projects/centaur');
+    expect(removeWorktreeMock).toHaveBeenCalledTimes(1);
   });
 });
 
