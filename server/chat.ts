@@ -1311,31 +1311,34 @@ export function cleanupSessionWorktrees(
       if (dirty) {
         // Defer rescue so the cleanup loop can finish first — rescueDirtyWorktree
         // makes up to 4 sync git/gh calls (~30s timeout each).
-        const capturedRepoName = repoName;
-        const capturedPath = path;
-        const capturedWtId = wtId;
-        const capturedRepoPath = repoPath;
+        // Note: for...of with const destructuring creates per-iteration bindings,
+        // so closing over repoName/path/wtId/repoPath directly is safe.
         setTimeout(() => {
           try {
-            const branch = `session/${capturedWtId}`;
-            const rescue = rescueDirtyWorktree(capturedPath, branch, capturedWtId);
+            const branch = `session/${wtId}`;
+            const rescue = rescueDirtyWorktree(path, branch, wtId);
             if (!rescue.success) {
-              log.warn('skipping dirty secondary worktree — rescue failed', {
-                repoName: capturedRepoName,
-                wtId: capturedWtId,
-                error: rescue.error,
-              });
+              // Worktree is orphaned from the session map (already cleared) but
+              // preserved on disk — stale GC will handle it after 96h.
+              log.warn(
+                'dirty secondary worktree rescue failed — preserved on disk for stale GC',
+                {
+                  repoName,
+                  wtId,
+                  error: rescue.error,
+                },
+              );
               return;
             }
             log.info('auto-rescued dirty secondary worktree', {
-              repoName: capturedRepoName,
-              wtId: capturedWtId,
+              repoName,
+              wtId,
               prUrl: rescue.prUrl,
             });
-            removeWorktree(capturedWtId, capturedRepoPath);
+            removeWorktree(wtId, repoPath);
           } catch (err: unknown) {
             log.warn('deferred rescue failed for secondary worktree', {
-              repoName: capturedRepoName,
+              repoName,
               error: err instanceof Error ? err.message : 'unknown',
             });
           }

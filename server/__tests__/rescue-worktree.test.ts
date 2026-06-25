@@ -246,4 +246,20 @@ describe('rescueDirtyWorktree', () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain('resolve GitHub remote');
   });
+
+  it('fails gracefully when only untracked files exist (git add -u stages nothing)', () => {
+    // Step 0: getRepoRemote
+    mockExecFileSync.mockReturnValueOnce('git@github.com:dimakis/mgmt.git\n' as never);
+    // Step 1: git add -u succeeds (but stages nothing — only untracked files)
+    mockExecFileSync.mockReturnValueOnce('' as never);
+    // Step 2: git commit fails — nothing staged
+    mockExecFileSync.mockImplementationOnce(() => {
+      throw new Error('nothing to commit, working tree clean');
+    });
+
+    const result = rescueDirtyWorktree('/tmp/worktree', 'session/test-123', 'test-123');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('nothing to commit');
+  });
 });

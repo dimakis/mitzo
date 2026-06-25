@@ -436,6 +436,11 @@ export function getRepoRemote(worktreePath: string): string | null {
  * Rescue a dirty worktree by committing, pushing, and creating a draft PR.
  * Each step is attempted in order; if any step fails the function returns
  * immediately with { success: false, error }.
+ *
+ * Note: uses `git add -u` (tracked files only) while `hasUncommittedWork`
+ * detects untracked files too. If a worktree is dirty only due to untracked
+ * files, the commit will fail with "nothing to commit" and the worktree is
+ * preserved on disk — this is intentional (safe, no data loss).
  */
 export function rescueDirtyWorktree(
   worktreePath: string,

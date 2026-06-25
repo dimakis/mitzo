@@ -370,6 +370,46 @@ describe('cleanupSessionWorktrees', () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
+
+  it('handles hasUncommittedWork throwing an exception gracefully', async () => {
+    vi.useFakeTimers();
+
+    const { loadRepoConfig } = await import('../repo-config.js');
+    (loadRepoConfig as ReturnType<typeof vi.fn>).mockReturnValue({
+      repos: { mitzo: '/tools/mitzo' },
+      isolation: true,
+    });
+
+    vi.advanceTimersByTime(10_000);
+
+    const worktreeMod = await import('../worktree.js');
+    const hasUncommittedWorkMock = worktreeMod.hasUncommittedWork as ReturnType<typeof vi.fn>;
+    // Simulate ENOENT or other JS exception (not a git-status sentinel)
+    hasUncommittedWorkMock.mockImplementation(() => {
+      throw new Error('ENOENT: no such file or directory');
+    });
+
+    const { cleanupSessionWorktrees } = await import('../chat.js');
+
+    const session = {
+      worktreePaths: new Map([
+        ['primary', { path: '/repo/.claude/worktrees/abc', wtId: 'abc' }],
+        ['mitzo', { path: '/tools/mitzo/.claude/worktrees/abc', wtId: 'abc' }],
+      ]),
+    } as unknown as ManagedSession;
+
+    // Should not throw — caught by outer try/catch
+    cleanupSessionWorktrees(session);
+    vi.runAllTimers();
+
+    // Exception prevents both rescue and removal
+    expect(removeWorktreeMock).not.toHaveBeenCalled();
+    expect(session.worktreePaths.has('primary')).toBe(true);
+
+    hasUncommittedWorkMock.mockReturnValue(null);
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
 });
 
 describe('createSessionWorktrees — lazy secondary creation', () => {
