@@ -642,6 +642,28 @@ describe('EventStore', () => {
     });
   });
 
+  describe('getHeadSeq', () => {
+    it('returns 0 when no events exist for the session', () => {
+      expect(store.getHeadSeq('nonexistent')).toBe(0);
+    });
+
+    it('returns the seq of a single event', () => {
+      store.upsertSession({ sessionId: 'head-1', summary: 'test', cwd: '.', mode: 'agent' });
+      store.append('head-1', 'test', { data: 1 });
+      expect(store.getHeadSeq('head-1')).toBeGreaterThan(0);
+    });
+
+    it('returns the max seq across multiple events', () => {
+      store.upsertSession({ sessionId: 'head-2', summary: 'test', cwd: '.', mode: 'agent' });
+      store.append('head-2', 'msg', { data: 'a' });
+      store.append('head-2', 'msg', { data: 'b' });
+      store.append('head-2', 'msg', { data: 'c' });
+      const head = store.getHeadSeq('head-2');
+      const events = store.getEventsAfter('head-2', 0);
+      expect(head).toBe(events[events.length - 1].seq);
+    });
+  });
+
   describe('close', () => {
     it('is safe to call multiple times', () => {
       store.close();

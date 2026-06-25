@@ -337,13 +337,13 @@ export class SseConnection implements ChatConnection {
         // Message delivery failed (e.g. 404 from stale connectionId).
         // Re-queue so it flushes on the next successful reconnect.
         console.warn(`[SseConnection] POST /${endpoint} returned ${res.status}, re-queuing`);
-        this.pendingSends.push({ endpoint, body });
+        this.enqueuePending(endpoint, body);
       }
     } catch {
       if (endpoint === 'send') {
         // Network error — re-queue for retry after reconnect.
         console.warn(`[SseConnection] POST /${endpoint} failed, re-queuing`);
-        this.pendingSends.push({ endpoint, body });
+        this.enqueuePending(endpoint, body);
       }
       // Non-send POST failures (stop, interrupt, etc.) are non-fatal.
     }
@@ -356,6 +356,14 @@ export class SseConnection implements ChatConnection {
     for (const { endpoint, body } of toFlush) {
       this.doPost(endpoint, body);
     }
+  }
+
+  /** Enqueue a pending send with the same MAX_PENDING_SENDS cap as send(). */
+  private enqueuePending(endpoint: string, body: Record<string, unknown>): void {
+    if (this.pendingSends.length >= MAX_PENDING_SENDS) {
+      this.pendingSends.shift();
+    }
+    this.pendingSends.push({ endpoint, body });
   }
 
   /**

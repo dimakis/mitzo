@@ -314,4 +314,32 @@ describe('interruptChat emits user_message via transport', () => {
     expect(stopTaskSpy).toHaveBeenCalledWith('task-def');
     expect(interruptSpy).toHaveBeenCalledTimes(1);
   });
+
+  it('survives when queryInstance.interrupt() throws (ProcessTransport crash)', async () => {
+    const transport = mockTransport();
+    const pushSpy = vi.fn();
+
+    registry.register(CLIENT_ID, {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+
+    const session = registry.get(CLIENT_ID)!;
+    session.sessionId = `sess-int-crash-${Date.now()}`;
+    session.inputQueue = { push: pushSpy, close: vi.fn() };
+    session.queryInstance = {
+      interrupt: vi.fn().mockRejectedValue(new Error('ProcessTransport is not ready for writing')),
+      close: vi.fn(),
+      stopTask: vi.fn().mockResolvedValue(undefined),
+    };
+
+    // Should not throw — the try/catch must absorb the error
+    const result = await interruptChat(CLIENT_ID, 'Message after crash');
+    expect(result).toBe(true);
+
+    // Message should still be pushed to inputQueue despite interrupt failure
+    expect(pushSpy).toHaveBeenCalledTimes(1);
+  });
 });
