@@ -872,4 +872,103 @@ describe('SseConnection', () => {
 
     expect(mockFetch).not.toHaveBeenCalled();
   });
+
+  // ─── POST retry on failure ───────────────────────────────────────────────
+
+  it('re-queues send POST on HTTP error (e.g. 404 from stale connectionId)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let callCount = 0;
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      callCount++;
+      if (url.includes('/send') && callCount === 1) {
+        return Promise.resolve({ ok: false, status: 404 });
+      }
+      return Promise.resolve({ ok: true });
+    });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+
+    // Send a message — will get 404
+    conn.send({ type: 'send', prompt: 'hello', clientMsgId: 'msg-1' });
+    await vi.runAllTimersAsync();
+
+    // Force reconnect — queued message should flush with new connectionId
+    conn.checkAndReconnect(true);
+    mockFetch.mockClear();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
+
+    await vi.runAllTimersAsync();
+
+    // Should have flushed the re-queued send
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://localhost:3100/api/chat/send',
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'X-Connection-ID': 'conn-def' }),
+      }),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('re-queues send POST on network error', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let callCount = 0;
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      callCount++;
+      if (url.includes('/send') && callCount === 1) {
+        return Promise.reject(new Error('network error'));
+      }
+      return Promise.resolve({ ok: true });
+    });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+
+    conn.send({ type: 'send', prompt: 'hello', clientMsgId: 'msg-1' });
+    await vi.runAllTimersAsync();
+
+    // Reconnect — message should be re-queued and flushed
+    conn.checkAndReconnect(true);
+    mockFetch.mockClear();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
+    await vi.runAllTimersAsync();
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://localhost:3100/api/chat/send',
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'X-Connection-ID': 'conn-def' }),
+      }),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('does not re-queue non-send POSTs on failure', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/stop')) {
+        return Promise.resolve({ ok: false, status: 404 });
+      }
+      return Promise.resolve({ ok: true });
+    });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+
+    // Stop POST fails — should NOT re-queue
+    conn.send({ type: 'stop', sessionId: 'sess-1' });
+    await vi.runAllTimersAsync();
+
+    // Reconnect — no pending sends should flush
+    conn.checkAndReconnect(true);
+    mockFetch.mockClear();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
+    await vi.runAllTimersAsync();
+
+    // Only reconnect-related calls, no /stop retry
+    const stopCalls = mockFetch.mock.calls.filter(
+      (c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).includes('/stop'),
+    );
+    expect(stopCalls).toHaveLength(0);
+    warnSpy.mockRestore();
+  });
 });
