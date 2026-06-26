@@ -2013,7 +2013,6 @@ app.post('/api/workload/items/:id/promote', (req, res) => {
   };
   res.status(201).json({ task, item: mappedItem });
   onTaskBroadcast?.({ type: 'task_state', tasks: taskStore.getTree() });
-  onWorkloadBroadcast?.({ type: 'workload_item_updated', item: mappedItem });
 });
 
 // --- Static files ---
