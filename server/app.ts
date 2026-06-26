@@ -1973,6 +1973,13 @@ app.post('/api/workload/items/:id/promote', (req, res) => {
     return;
   }
 
+  // Guard: if already promoted, return existing goal link instead of creating duplicate
+  if (telosItem.goalId) {
+    const existingTask = taskStore.get(telosItem.goalId);
+    res.status(200).json({ task: existingTask ?? { id: telosItem.goalId }, item: telosItem });
+    return;
+  }
+
   const descParts: string[] = [];
   if (body.data.description) descParts.push(body.data.description);
   if (telosItem.contextHints.taskHint) descParts.push(telosItem.contextHints.taskHint);
@@ -1999,15 +2006,14 @@ app.post('/api/workload/items/:id/promote', (req, res) => {
     });
   }
 
-  // Return the Telos item mapped to workload shape so frontend can update state
+  // Return Telos item with goalId so frontend can update state
   const mappedItem = {
-    id: telosItem.id,
-    title: telosItem.summary,
-    status: telosItem.status,
+    ...telosItem,
     goalId: task.id,
   };
   res.status(201).json({ task, item: mappedItem });
   onTaskBroadcast?.({ type: 'task_state', tasks: taskStore.getTree() });
+  onWorkloadBroadcast?.({ type: 'workload_item_updated', item: mappedItem });
 });
 
 // --- Static files ---

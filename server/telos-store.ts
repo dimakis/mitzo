@@ -97,20 +97,22 @@ interface LinkRow {
 
 // --- Helpers ---
 
-const EMPTY_HINTS: TelosContextHints = Object.freeze({
-  repos: [],
-  paths: [],
-  issues: [],
-  docIds: [],
-  people: [],
-  jiraKeys: [],
-  keywords: [],
-  taskHint: '',
-  sessionIds: [],
-}) as TelosContextHints;
+function emptyHints(): TelosContextHints {
+  return {
+    repos: [],
+    paths: [],
+    issues: [],
+    docIds: [],
+    people: [],
+    jiraKeys: [],
+    keywords: [],
+    taskHint: '',
+    sessionIds: [],
+  };
+}
 
 function parseContextHints(raw: string | null): TelosContextHints {
-  if (!raw) return { ...EMPTY_HINTS };
+  if (!raw) return emptyHints();
   try {
     const d = JSON.parse(raw);
     return {
@@ -125,7 +127,7 @@ function parseContextHints(raw: string | null): TelosContextHints {
       sessionIds: d.session_ids ?? [],
     };
   } catch {
-    return { ...EMPTY_HINTS };
+    return emptyHints();
   }
 }
 

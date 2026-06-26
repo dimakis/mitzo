@@ -353,6 +353,35 @@ describe('TelosStore', () => {
       expect(items[0].goalId).toBe('task-uuid-123');
       store.close();
     });
+
+    it('nests active child under active parent without duplicating', () => {
+      const db = createTelosDb();
+      insertItem(db, { id: 'parent-active', status: 'active' });
+      insertItem(db, { id: 'child-active', status: 'active', parent_id: 'parent-active' });
+      db.close();
+
+      const store = new TelosStore(dbPath, profilesDir);
+      const items = store.listItems(undefined, ['active']);
+      // Child should be nested, not a separate root
+      expect(items).toHaveLength(1);
+      expect(items[0].id).toBe('parent-active');
+      expect(items[0].children).toHaveLength(1);
+      expect(items[0].children[0].id).toBe('child-active');
+      store.close();
+    });
+
+    it('returns all items when statuses array is empty', () => {
+      const db = createTelosDb();
+      insertItem(db, { id: 'a-active', status: 'active' });
+      insertItem(db, { id: 'b-completed', status: 'completed' });
+      insertItem(db, { id: 'c-snoozed', status: 'snoozed' });
+      db.close();
+
+      const store = new TelosStore(dbPath, profilesDir);
+      const items = store.listItems(undefined, []);
+      expect(items).toHaveLength(3);
+      store.close();
+    });
   });
 
   describe('getItem', () => {
