@@ -764,11 +764,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     const result = parseServerMessage(msg as WsMsg, parserState, callbacks, 'v2');
 
-    // Server event arrived — clear any stale send error. This covers the
-    // case where a retried POST succeeded: the server starts processing and
-    // sends events, confirming delivery. Without this, the "retrying..."
-    // banner would persist until the next sendMessage() call.
-    if (store.getState().sendError) {
+    // Session event arrived — clear any stale send error. Only clear on
+    // session-scoped events (eventSessionId present), not global events
+    // like task_state or inbox_updated which don't confirm message delivery.
+    if (eventSessionId && store.getState().sendError) {
       store.setState({ sendError: null });
     }
 
