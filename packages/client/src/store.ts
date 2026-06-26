@@ -705,6 +705,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // Foreground recovery: when the page becomes visible again (iOS may have
     // evicted it from memory, losing in-memory state), re-fetch messages from
     // the REST API if we have an active session but no messages in the store.
+    if (msg.type === '_open') {
+      // Reconnect succeeded — clear any stale send error from prior failures
+      if (store.getState().sendError) {
+        store.setState({ sendError: null });
+      }
+      return;
+    }
+
     if (msg.type === '_foreground') {
       const { sessions } = store.getState();
       if (sessions.active) fetchAndRestoreMessages(sessions.active);
@@ -712,7 +720,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     if (msg.type === '_send_failed') {
-      const willRetry = (msg as Record<string, unknown>).willRetry !== false;
+      const willRetry = msg.willRetry !== false;
       store.setState((s) => ({
         sendError: willRetry
           ? 'Message delivery delayed — retrying on reconnect...'

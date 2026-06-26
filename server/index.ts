@@ -414,6 +414,9 @@ app.get('/api/chat/events', (req, res) => {
   const isStableCid =
     clientCid != null &&
     /^cid-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientCid);
+  if (clientCid != null && !isStableCid) {
+    log.warn('SSE connection: invalid cid format rejected', { cid: clientCid });
+  }
   const connectionId = isStableCid
     ? clientCid
     : `conn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
