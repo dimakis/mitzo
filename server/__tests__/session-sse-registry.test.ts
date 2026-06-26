@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { Response } from 'express';
 import { SessionSseRegistry } from '../session-sse-registry.js';
 
 function mockResponse(writableEnded = false) {
@@ -6,7 +7,7 @@ function mockResponse(writableEnded = false) {
     write: vi.fn(),
     end: vi.fn(),
     writableEnded,
-  } as never;
+  } as unknown as Response & { end: ReturnType<typeof vi.fn> };
 }
 
 describe('SessionSseRegistry', () => {
