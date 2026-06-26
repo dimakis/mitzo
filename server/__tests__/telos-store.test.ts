@@ -201,9 +201,9 @@ describe('TelosStore', () => {
     });
 
     it('throws when DB does not exist', () => {
-      expect(
-        () => new TelosStore(join(TEST_DIR, 'nonexistent.db'), profilesDir),
-      ).toThrow('Telos DB not found');
+      expect(() => new TelosStore(join(TEST_DIR, 'nonexistent.db'), profilesDir)).toThrow(
+        'Telos DB not found',
+      );
     });
   });
 

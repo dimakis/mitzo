@@ -1977,9 +1977,7 @@ app.post('/api/workload/items/:id/promote', (req, res) => {
   if (body.data.description) descParts.push(body.data.description);
   if (telosItem.contextHints.taskHint) descParts.push(telosItem.contextHints.taskHint);
   const hintsWithValues = Object.entries(telosItem.contextHints)
-    .filter(
-      ([k, v]) => k !== 'taskHint' && k !== 'sessionIds' && Array.isArray(v) && v.length > 0,
-    )
+    .filter(([k, v]) => k !== 'taskHint' && k !== 'sessionIds' && Array.isArray(v) && v.length > 0)
     .map(([k, v]) => `${k}: ${(v as string[]).join(', ')}`);
   if (hintsWithValues.length > 0) descParts.push(hintsWithValues.join('\n'));
 

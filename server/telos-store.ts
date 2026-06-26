@@ -204,10 +204,7 @@ export class TelosStore {
    * then tries to backfill completed children, this method fetches ALL children
    * of matched items regardless of status, ensuring correct counts.
    */
-  listItems(
-    profile?: string,
-    statuses: string[] = ['active', 'acknowledged'],
-  ): TelosItem[] {
+  listItems(profile?: string, statuses: string[] = ['active', 'acknowledged']): TelosItem[] {
     const db = this.getDb();
 
     // Step 1: fetch root-eligible items (matching status filter)
@@ -225,9 +222,7 @@ export class TelosStore {
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const rootRows = db
-      .prepare(
-        `SELECT * FROM items ${where} ORDER BY starred DESC, urgency DESC, first_seen ASC`,
-      )
+      .prepare(`SELECT * FROM items ${where} ORDER BY starred DESC, urgency DESC, first_seen ASC`)
       .all(...params) as ItemRow[];
 
     if (rootRows.length === 0) {
@@ -336,9 +331,7 @@ export class TelosStore {
     const db = this.getDb();
     const placeholders = itemIds.map(() => '?').join(',');
     const rows = db
-      .prepare(
-        `SELECT * FROM sources WHERE item_id IN (${placeholders}) ORDER BY timestamp DESC`,
-      )
+      .prepare(`SELECT * FROM sources WHERE item_id IN (${placeholders}) ORDER BY timestamp DESC`)
       .all(...itemIds) as SourceRow[];
 
     const map = new Map<string, TelosSource[]>();
@@ -419,9 +412,7 @@ export class TelosStore {
     for (const item of itemsById.values()) {
       if (item.children.length > 0) {
         item.childCount = item.children.length;
-        item.completedChildCount = item.children.filter(
-          (c) => c.status === 'completed',
-        ).length;
+        item.completedChildCount = item.children.filter((c) => c.status === 'completed').length;
       }
     }
 
