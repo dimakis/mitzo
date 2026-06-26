@@ -373,6 +373,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         const sent = connection.send(msg);
         if (!sent) {
           set({ sendError: 'Not connected. Message will be sent when reconnected.' });
+        } else {
+          // Optimistic: show "thinking" immediately. The server will confirm
+          // via events, or the send-timeout safety net will reset on failure.
+          set((s) => ({
+            messages: messagesReducer(s.messages, { type: 'SET_RUNNING', running: true }),
+          }));
         }
       }
     },
@@ -702,6 +708,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     if (msg.type === '_foreground') {
       const { sessions } = store.getState();
       if (sessions.active) fetchAndRestoreMessages(sessions.active);
+      return;
+    }
+
+    if (msg.type === '_send_failed') {
+      store.setState({
+        sendError: 'Message delivery delayed — retrying on reconnect...',
+      });
       return;
     }
 

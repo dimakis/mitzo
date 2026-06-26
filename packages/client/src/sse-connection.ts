@@ -26,13 +26,20 @@ export interface SseConnectionConfig {
   reconnectDelayMs?: number;
   /** URL for the sendBeacon suspend fallback. */
   suspendUrl?: string;
+  /**
+   * Client-generated stable connectionId. Survives SSE reconnects so the
+   * server sees the same owner across transport drops — eliminates the
+   * reattach race that causes the "send twice to wake agent" bug.
+   * If not provided, a UUID is generated automatically.
+   */
+  connectionId?: string;
 }
 
 const MAX_PENDING_SENDS = 100;
 
 export class SseConnection implements ChatConnection {
   private es: EventSource | null = null;
-  private _connectionId: string | null = null;
+  private _connectionId: string;
   private _connected = false;
   private _isReconnect = false;
   private listener: ConnectionListener | null = null;
@@ -42,7 +49,7 @@ export class SseConnection implements ChatConnection {
   private boundOnVisibility: (() => void) | null = null;
   private boundOnPageShow: ((e: PageTransitionEvent) => void) | null = null;
   private boundOnPageHide: (() => void) | null = null;
-  private config: Required<SseConnectionConfig>;
+  private config: Required<Omit<SseConnectionConfig, 'connectionId'>>;
 
   constructor(config: SseConnectionConfig) {
     this.config = {
@@ -51,6 +58,10 @@ export class SseConnection implements ChatConnection {
       suspendUrl: '',
       ...config,
     };
+    // Stable connectionId — survives SSE reconnects. The server uses this
+    // to identify the same client across transport drops, eliminating the
+    // ownership race in handleReconnect.
+    this._connectionId = config.connectionId ?? `cid-${crypto.randomUUID()}`;
   }
 
   connect(): void {
@@ -87,7 +98,7 @@ export class SseConnection implements ChatConnection {
     const endpoint = this.messageTypeToEndpoint(msg.type as string);
     if (!endpoint) return false;
 
-    if (this._connected && this._connectionId) {
+    if (this._connected) {
       this.doPost(endpoint, msg);
       return true;
     }
@@ -149,17 +160,13 @@ export class SseConnection implements ChatConnection {
     }));
 
     // Try POST first
-    if (this._connected && this._connectionId) {
+    if (this._connected) {
       this.doPost('suspend', { type: 'session_suspend', sessions });
       return;
     }
 
     // sendBeacon fallback
-    if (
-      this.config.suspendUrl &&
-      this._connectionId &&
-      typeof globalThis.navigator?.sendBeacon === 'function'
-    ) {
+    if (this.config.suspendUrl && typeof globalThis.navigator?.sendBeacon === 'function') {
       const payload = JSON.stringify({ connectionId: this._connectionId, sessions });
       globalThis.navigator.sendBeacon(
         this.config.suspendUrl,
@@ -198,16 +205,16 @@ export class SseConnection implements ChatConnection {
       this.reconnectTimer = null;
     }
 
-    // Always use the base URL — reconnect sessions are sent via POST in the
-    // welcome handler. This avoids the bug where EventSource auto-reconnect
-    // reuses the original URL (missing ?sessions=), and eliminates double
-    // handleReconnect when doConnect() AND welcome both trigger it.
-    const url = `${this.config.baseUrl}/api/chat/events`;
+    // Send our stable connectionId as a query param so the server can reuse
+    // it across reconnects. The createEventSource callback may append auth
+    // params — it must handle the existing query string.
+    const url = `${this.config.baseUrl}/api/chat/events?cid=${encodeURIComponent(this._connectionId)}`;
 
     const es = this.config.createEventSource(url);
     this.es = es;
 
-    // Welcome event — server sends connectionId
+    // Welcome event — server echoes our connectionId (or assigns a new one
+    // if the server doesn't support client-provided cids).
     es.addEventListener('welcome', (e: MessageEvent) => {
       let msg: Record<string, unknown>;
       try {
@@ -215,7 +222,11 @@ export class SseConnection implements ChatConnection {
       } catch {
         return;
       }
-      this._connectionId = msg.connectionId as string;
+      const serverCid = msg.connectionId as string;
+      if (serverCid !== this._connectionId) {
+        // Old server that doesn't support stable cid — fall back
+        this._connectionId = serverCid;
+      }
 
       // _connected deferred until doReconnectPost succeeds — prevents
       // external send() from bypassing the pending queue mid-reconnect.
@@ -323,9 +334,8 @@ export class SseConnection implements ChatConnection {
   }
 
   private async doPost(endpoint: string, body: Record<string, unknown>): Promise<void> {
-    if (!this._connectionId) return;
     try {
-      await this.config.fetch(`${this.config.baseUrl}/api/chat/${endpoint}`, {
+      const res = await this.config.fetch(`${this.config.baseUrl}/api/chat/${endpoint}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -333,9 +343,27 @@ export class SseConnection implements ChatConnection {
         },
         body: JSON.stringify(body),
       });
+      if (!res.ok && endpoint === 'send') {
+        // Transient failure — re-queue for retry on next reconnect
+        if (res.status === 404 || res.status === 429 || res.status >= 500) {
+          this.pendingSends.push({ endpoint, body });
+          this.listener?.({
+            type: '_send_failed',
+            clientMsgId: body.clientMsgId,
+            willRetry: true,
+          });
+        }
+      }
     } catch {
-      // POST failures are non-fatal — the server may be temporarily
-      // unreachable. The SSE stream will reconnect and replay missed events.
+      // Network error on send — re-queue and notify
+      if (endpoint === 'send') {
+        this.pendingSends.push({ endpoint, body });
+        this.listener?.({
+          type: '_send_failed',
+          clientMsgId: body.clientMsgId,
+          willRetry: true,
+        });
+      }
     }
   }
 
