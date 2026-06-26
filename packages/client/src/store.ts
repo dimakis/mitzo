@@ -706,10 +706,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // evicted it from memory, losing in-memory state), re-fetch messages from
     // the REST API if we have an active session but no messages in the store.
     if (msg.type === '_open') {
-      // Reconnect succeeded — clear any stale send error from prior failures
-      if (store.getState().sendError) {
-        store.setState({ sendError: null });
-      }
+      // Don't clear sendError here — flushed retry POSTs haven't resolved
+      // yet. The session-scoped event clearing below handles it once the
+      // server actually processes the message.
       return;
     }
 
@@ -764,10 +763,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     const result = parseServerMessage(msg as WsMsg, parserState, callbacks, 'v2');
 
-    // Session event arrived — clear any stale send error. Only clear on
-    // session-scoped events (eventSessionId present), not global events
-    // like task_state or inbox_updated which don't confirm message delivery.
-    if (eventSessionId && store.getState().sendError) {
+    // Session event for the active session — clear any stale send error.
+    // Only clear when the event matches the active session, not background
+    // activity from other sessions or global events.
+    if (
+      eventSessionId &&
+      eventSessionId === store.getState().sessions.active &&
+      store.getState().sendError
+    ) {
       store.setState({ sendError: null });
     }
 
