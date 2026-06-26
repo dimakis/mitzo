@@ -267,6 +267,22 @@ export function handleReconnect(
           });
           ctx.sessionRegistry.remove(found!.clientId);
         }
+        // Distinguish "query loop alive but idle" from "agent actively
+        // processing a turn". lastSpeaker === 'assistant' means the agent
+        // completed its last turn and is waiting for input — report as
+        // not-running so the client sends messages immediately instead of
+        // queuing them behind a 5-second fallback timer.
+        if (running) {
+          const storeMeta = ctx.eventStore.getSession(entry.sessionId);
+          if (storeMeta?.lastSpeaker === 'assistant') {
+            running = false;
+            log.info('session alive but idle (last speaker: assistant)', {
+              connectionId,
+              sessionId: entry.sessionId,
+              clientId: found!.clientId,
+            });
+          }
+        }
         if (found && running && !ctx.sessionRegistry.isAttached(found.clientId)) {
           const ownerConnection = getOwnerConnection(found.clientId);
           const ownerGone = !ctx.connRegistry.get(ownerConnection);

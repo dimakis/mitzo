@@ -1114,6 +1114,104 @@ describe('handleReconnect reconnected summary (P1)', () => {
     expect(reattachChat).not.toHaveBeenCalled();
   });
 
+  it('reports running=false when session is active but idle (lastSpeaker=assistant)', () => {
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1' });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(false);
+
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ isActive: true, lastSpeaker: 'assistant' });
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleReconnect(
+      'c1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-idle', lastSeq: 0 }] },
+      ctx,
+    );
+
+    const summary = transport.sent.find((m) => m.type === 'reconnected') as {
+      sessions: Array<{ sessionId: string; running: boolean }>;
+    };
+    expect(summary.sessions[0].running).toBe(false);
+  });
+
+  it('reports running=true when session is active and mid-turn (lastSpeaker=user)', () => {
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1' });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(false);
+
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ isActive: true, lastSpeaker: 'user' });
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleReconnect(
+      'c1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-busy', lastSeq: 0 }] },
+      ctx,
+    );
+
+    const summary = transport.sent.find((m) => m.type === 'reconnected') as {
+      sessions: Array<{ sessionId: string; running: boolean }>;
+    };
+    expect(summary.sessions[0].running).toBe(true);
+  });
+
+  it('handles mixed running states across multiple sessions', () => {
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId
+      .mockReturnValueOnce({ clientId: 'driver-1' })
+      .mockReturnValueOnce(null)
+      .mockReturnValueOnce({ clientId: 'driver-3' });
+    sessionReg.isActive.mockReturnValueOnce(true).mockReturnValueOnce(false);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleReconnect(
+      'c1',
+      {
+        type: 'reconnect',
+        sessions: [
+          { sessionId: 'sess-1', lastSeq: 0 },
+          { sessionId: 'sess-2', lastSeq: 0 },
+          { sessionId: 'sess-3', lastSeq: 0 },
+        ],
+      },
+      ctx,
+    );
+
+    const summary = transport.sent.find((m) => m.type === 'reconnected') as {
+      sessions: Array<{ sessionId: string; running: boolean }>;
+    };
+    expect(summary.sessions).toHaveLength(3);
+    expect(summary.sessions[0]).toEqual(
+      expect.objectContaining({ sessionId: 'sess-1', running: true }),
+    );
+    expect(summary.sessions[1]).toEqual(
+      expect.objectContaining({ sessionId: 'sess-2', running: false }),
+    );
+    expect(summary.sessions[2]).toEqual(
+      expect.objectContaining({ sessionId: 'sess-3', running: false }),
+    );
+  });
+
   it('replays multiple events in sequence order', () => {
     const eventStore = mockEventStore();
     eventStore.getEventsAfter.mockReturnValue([
