@@ -712,9 +712,15 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     if (msg.type === '_send_failed') {
-      store.setState({
-        sendError: 'Message delivery delayed — retrying on reconnect...',
-      });
+      const willRetry = (msg as Record<string, unknown>).willRetry !== false;
+      store.setState((s) => ({
+        sendError: willRetry
+          ? 'Message delivery delayed — retrying on reconnect...'
+          : 'Message could not be delivered.',
+        ...(willRetry
+          ? {}
+          : { messages: messagesReducer(s.messages, { type: 'SET_RUNNING', running: false }) }),
+      }));
       return;
     }
 

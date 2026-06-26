@@ -1095,6 +1095,49 @@ describe('SseConnection', () => {
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
+    it('emits _send_failed with willRetry:false for 404 (permanent failure)', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+      const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+      const listener = vi.fn();
+      conn.onMessage(listener);
+      conn.connect();
+      lastES()._emit('welcome', {
+        type: 'welcome',
+        protocolVersion: 2,
+        connectionId: 'cid-test',
+      });
+
+      conn.send({ type: 'send', prompt: 'hello', clientMsgId: 'msg-404' });
+      await vi.runAllTimersAsync();
+
+      expect(listener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: '_send_failed',
+          clientMsgId: 'msg-404',
+          willRetry: false,
+        }),
+      );
+    });
+
+    it('silently swallows 4xx errors other than 404/429 for send endpoint', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 400 });
+      const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+      const listener = vi.fn();
+      conn.onMessage(listener);
+      conn.connect();
+      lastES()._emit('welcome', {
+        type: 'welcome',
+        protocolVersion: 2,
+        connectionId: 'cid-test',
+      });
+
+      conn.send({ type: 'send', prompt: 'bad request', clientMsgId: 'msg-400' });
+      await vi.runAllTimersAsync();
+
+      // 400 is a client error — not retryable, not surfaced as _send_failed
+      expect(listener).not.toHaveBeenCalledWith(expect.objectContaining({ type: '_send_failed' }));
+    });
+
     it('emits _send_failed on 429 rate limit', async () => {
       const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 429 });
       const conn = new SseConnection(createConfig({ fetch: mockFetch }));

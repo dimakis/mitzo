@@ -360,7 +360,8 @@ export class SseConnection implements ChatConnection {
         body: JSON.stringify(body),
       });
       if (!res.ok && endpoint === 'send') {
-        if (res.status === 404 || res.status === 429 || res.status >= 500) {
+        if (res.status === 429 || res.status >= 500) {
+          // Transient failure — retry up to MAX_SEND_RETRIES
           const willRetry = retries < MAX_SEND_RETRIES;
           if (willRetry) {
             this.pendingSends.push({ endpoint, body, retries: retries + 1 });
@@ -369,6 +370,13 @@ export class SseConnection implements ChatConnection {
             type: '_send_failed',
             clientMsgId: body.clientMsgId,
             willRetry,
+          });
+        } else if (res.status === 404) {
+          // Permanent failure — session/route doesn't exist, no retry
+          this.listener?.({
+            type: '_send_failed',
+            clientMsgId: body.clientMsgId,
+            willRetry: false,
           });
         }
       }
