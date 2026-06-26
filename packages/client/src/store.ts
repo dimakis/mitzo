@@ -764,6 +764,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     const result = parseServerMessage(msg as WsMsg, parserState, callbacks, 'v2');
 
+    // Server event arrived — clear any stale send error. This covers the
+    // case where a retried POST succeeded: the server starts processing and
+    // sends events, confirming delivery. Without this, the "retrying..."
+    // banner would persist until the next sendMessage() call.
+    if (store.getState().sendError) {
+      store.setState({ sendError: null });
+    }
+
     // If the queue is now empty, cancel the safety-net timer — the normal
     // session_end flush path handled it.
     if (parserState.pendingSend.length === 0 && parserState.pendingSendTimer) {

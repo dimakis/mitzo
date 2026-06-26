@@ -22,6 +22,18 @@ describe('SessionSseRegistry', () => {
     vi.useRealTimers();
   });
 
+  describe('add', () => {
+    it('closes existing stream when reconnecting with the same connectionId', () => {
+      const oldRes = mockResponse();
+      const newRes = mockResponse();
+      registry.add('conn-1', oldRes);
+      registry.add('conn-1', newRes);
+
+      expect(oldRes.end).toHaveBeenCalledTimes(1);
+      expect(registry.isOpen('conn-1')).toBe(true);
+    });
+  });
+
   describe('removeIfCurrent', () => {
     it('removes and returns true when res matches current stream', () => {
       const res = mockResponse();
