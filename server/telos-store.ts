@@ -1,14 +1,4 @@
-/**
- * Read-only access to the Telos (smart_todo) SQLite database.
- *
- * Telos is the strategic task tracker owned by the mgmt Python codebase.
- * This store opens the same `smart_todo.db` file via better-sqlite3 in
- * readonly mode, eliminating the Python subprocess for reads while keeping
- * writes delegated to `todo_api.py`.
- *
- * Concurrency: Telos uses WAL journal mode, which permits unlimited
- * concurrent readers alongside a single writer.
- */
+/** Readonly better-sqlite3 reader for Telos smart_todo.db. Writes stay in todo_api.py. */
 
 import Database from 'better-sqlite3';
 import { existsSync, readdirSync } from 'fs';
@@ -120,7 +110,7 @@ const EMPTY_HINTS: TelosContextHints = Object.freeze({
 }) as TelosContextHints;
 
 function parseContextHints(raw: string | null): TelosContextHints {
-  if (!raw) return { ...EMPTY_HINTS, sessionIds: [] };
+  if (!raw) return { ...EMPTY_HINTS };
   try {
     const d = JSON.parse(raw);
     return {
@@ -135,7 +125,7 @@ function parseContextHints(raw: string | null): TelosContextHints {
       sessionIds: d.session_ids ?? [],
     };
   } catch {
-    return { ...EMPTY_HINTS, sessionIds: [] };
+    return { ...EMPTY_HINTS };
   }
 }
 
@@ -170,6 +160,7 @@ export class TelosStore {
   private db: Database.Database | null;
   private profilesDir: string;
   private hasGoalId: boolean;
+  private hasLinksTable: boolean;
 
   constructor(dbPath: string, profilesDir: string) {
     if (!existsSync(dbPath)) {
@@ -179,11 +170,17 @@ export class TelosStore {
     this.db = new Database(dbPath, { readonly: true });
     this.db.pragma('busy_timeout = 5000');
 
-    // Check if goal_id column exists (migration may not have run yet)
+    // Cache schema checks — DB is readonly so these won't change
     const cols = new Set(
       (this.db.pragma('table_info(items)') as { name: string }[]).map((c) => c.name),
     );
     this.hasGoalId = cols.has('goal_id');
+    this.hasLinksTable =
+      (
+        this.db
+          .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='links'")
+          .all() as { name: string }[]
+      ).length > 0;
 
     log.info('TelosStore initialized (readonly)', { dbPath, hasGoalId: this.hasGoalId });
   }
@@ -354,14 +351,8 @@ export class TelosStore {
   }
 
   private loadLinksForItems(itemIds: string[]): Map<string, TelosLink[]> {
-    if (itemIds.length === 0) return new Map();
+    if (itemIds.length === 0 || !this.hasLinksTable) return new Map();
     const db = this.getDb();
-
-    // Check if links table exists (pre-migration DBs may not have it)
-    const tables = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='links'")
-      .all();
-    if (tables.length === 0) return new Map();
 
     const placeholders = itemIds.map(() => '?').join(',');
     const rows = db

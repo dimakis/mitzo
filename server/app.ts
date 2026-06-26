@@ -1989,7 +1989,7 @@ app.post('/api/workload/items/:id/promote', (req, res) => {
     annotations: telosItem.sources.map((s) => `Source: [${s.type}] ${s.title} — ${s.url}`),
   });
 
-  // Bridge: set goal_id on the Telos item via Python (fire-and-forget)
+  // Bridge: set goal_id on the Telos item via Python (fire-and-forget, requires mgmt PR #202)
   if (existsSync(TODO_SCRIPT)) {
     execFileAsync('python3', [TODO_SCRIPT, '--set-goal', telosItem.id, task.id], {
       timeout: TODO_TIMEOUT_MS,
@@ -2001,7 +2001,14 @@ app.post('/api/workload/items/:id/promote', (req, res) => {
     });
   }
 
-  res.status(201).json({ task, item: null });
+  // Return the Telos item mapped to workload shape so frontend can update state
+  const mappedItem = {
+    id: telosItem.id,
+    title: telosItem.summary,
+    status: telosItem.status,
+    goalId: task.id,
+  };
+  res.status(201).json({ task, item: mappedItem });
   onTaskBroadcast?.({ type: 'task_state', tasks: taskStore.getTree() });
 });
 
