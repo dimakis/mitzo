@@ -32,6 +32,7 @@ const POLL_INTERVALS: Record<string, number> = {
  */
 export class SignalProcessor {
   private watches = new Map<string, WatchEntry>();
+  private pendingRegistrations = new Map<string, Promise<void>>();
   private store: TaskStore;
   private onSignalResolved: (taskId: string) => void;
   private centaurBaseUrl: string;
@@ -69,7 +70,12 @@ export class SignalProcessor {
 
     // Register callback with Centaur for push-based resolution
     if (gateConfig.type === 'centaur_review') {
-      this.registerCentaurCallback(taskId, gateConfig as GateConfig & { pr_url: string });
+      const registration = this.registerCentaurCallback(
+        taskId,
+        gateConfig as GateConfig & { pr_url: string },
+      );
+      this.pendingRegistrations.set(taskId, registration);
+      registration.finally(() => this.pendingRegistrations.delete(taskId));
     }
   }
 
@@ -175,10 +181,7 @@ export class SignalProcessor {
   }
 
   /** Register a callback URL with Centaur so it pushes ReviewCompleted events. */
-  private async registerCentaurCallback(
-    taskId: string,
-    config: { pr_url: string },
-  ): Promise<void> {
+  private async registerCentaurCallback(taskId: string, config: { pr_url: string }): Promise<void> {
     const callbackUrl = `${this.mitzoBaseUrl}/api/tasks/${taskId}/signal`;
     try {
       const res = await fetch(`${this.centaurBaseUrl}/api/signals/register`, {
@@ -199,13 +202,19 @@ export class SignalProcessor {
       // Centaur might not be running — polling fallback covers this case
       log.warn('centaur callback registration error', {
         taskId,
-        error: (err as Error).message,
+        error: err instanceof Error ? err.message : String(err),
       });
     }
   }
 
   /** Deregister a callback with Centaur. Best-effort. */
   private async deregisterCentaurCallback(taskId: string): Promise<void> {
+    // Wait for any in-flight registration to finish before sending DELETE,
+    // otherwise DELETE arrives first and the registration creates a dangling entry.
+    const pending = this.pendingRegistrations.get(taskId);
+    if (pending) {
+      await pending.catch(() => {});
+    }
     try {
       await fetch(`${this.centaurBaseUrl}/api/signals/${taskId}`, {
         method: 'DELETE',

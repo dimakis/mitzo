@@ -181,9 +181,14 @@ setTemplateStore(wfTemplateStore);
 // SignalProcessor + orchestrator have a circular dep: signal resolution triggers tick(),
 // tick() registers watches. Break the cycle with a late-bound callback.
 let orchestratorRef: TaskOrchestrator | null = null;
-const signalProc = new SignalProcessor(taskStore, () => {
-  orchestratorRef?.tick();
-});
+const signalProc = new SignalProcessor(
+  taskStore,
+  () => {
+    orchestratorRef?.tick();
+  },
+  process.env.CENTAUR_URL || 'http://localhost:8642',
+  process.env.MITZO_URL || `http://localhost:${PORT}`,
+);
 setSignalProcessor(signalProc);
 
 // --- Task Orchestrator ---

@@ -172,9 +172,9 @@ describe('SignalProcessor', () => {
 
   describe('centaur callback registration', () => {
     it('registers callback with Centaur on watch for centaur_review', async () => {
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(JSON.stringify({ ok: true }), { status: 200 }),
-      );
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
 
       const goal = store.create({ title: 'Goal' });
       const task = store.create({
@@ -202,9 +202,9 @@ describe('SignalProcessor', () => {
     });
 
     it('deregisters callback on unwatch for centaur_review', async () => {
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(JSON.stringify({ ok: true }), { status: 200 }),
-      );
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
 
       const goal = store.create({ title: 'Goal' });
       const task = store.create({
