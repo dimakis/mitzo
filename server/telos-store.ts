@@ -12,7 +12,7 @@
 
 import Database from 'better-sqlite3';
 import { existsSync, readdirSync } from 'fs';
-import { basename, join } from 'path';
+import { basename } from 'path';
 import { createLogger } from './logger.js';
 
 const log = createLogger('telos-store');
