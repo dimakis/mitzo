@@ -1047,6 +1047,54 @@ describe('SseConnection', () => {
       expect(listener).not.toHaveBeenCalledWith(expect.objectContaining({ type: '_send_failed' }));
     });
 
+    it('drops message after max retries and emits willRetry: false', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 500 });
+      const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+      const listener = vi.fn();
+      conn.onMessage(listener);
+      conn.connect();
+      lastES()._emit('welcome', {
+        type: 'welcome',
+        protocolVersion: 2,
+        connectionId: 'cid-test',
+      });
+
+      // Initial send fails → queued with retries:1
+      conn.send({ type: 'send', prompt: 'persistent fail', clientMsgId: 'pf-1' });
+      await vi.runAllTimersAsync();
+
+      // 3 reconnect cycles — each flush retries and fails again
+      for (let i = 0; i < 3; i++) {
+        conn.checkAndReconnect(true);
+        lastES()._emit('welcome', {
+          type: 'welcome',
+          protocolVersion: 2,
+          connectionId: 'cid-test',
+        });
+        await vi.runAllTimersAsync();
+      }
+
+      // 4 _send_failed events: 3 willRetry:true + 1 willRetry:false
+      const failedEvents = listener.mock.calls
+        .map((c: unknown[]) => c[0] as Record<string, unknown>)
+        .filter((m) => m.type === '_send_failed');
+
+      expect(failedEvents).toHaveLength(4);
+      expect(failedEvents[3]).toEqual(expect.objectContaining({ willRetry: false }));
+
+      // One more reconnect — message should NOT be retried (was dropped)
+      mockFetch.mockClear();
+      conn.checkAndReconnect(true);
+      lastES()._emit('welcome', {
+        type: 'welcome',
+        protocolVersion: 2,
+        connectionId: 'cid-test',
+      });
+      await vi.runAllTimersAsync();
+
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
     it('emits _send_failed on 429 rate limit', async () => {
       const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 429 });
       const conn = new SseConnection(createConfig({ fetch: mockFetch }));

@@ -36,6 +36,14 @@ export interface SseConnectionConfig {
 }
 
 const MAX_PENDING_SENDS = 100;
+const MAX_SEND_RETRIES = 3;
+
+/** Synthetic event emitted when a POST to the send endpoint fails. */
+export interface SendFailedEvent {
+  type: '_send_failed';
+  clientMsgId: unknown;
+  willRetry: boolean;
+}
 
 export class SseConnection implements ChatConnection {
   private es: EventSource | null = null;
@@ -44,7 +52,11 @@ export class SseConnection implements ChatConnection {
   private _isReconnect = false;
   private listener: ConnectionListener | null = null;
   private seqBySession = new Map<string, number>();
-  private pendingSends: Array<{ endpoint: string; body: Record<string, unknown> }> = [];
+  private pendingSends: Array<{
+    endpoint: string;
+    body: Record<string, unknown>;
+    retries: number;
+  }> = [];
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private boundOnVisibility: (() => void) | null = null;
   private boundOnPageShow: ((e: PageTransitionEvent) => void) | null = null;
@@ -108,7 +120,7 @@ export class SseConnection implements ChatConnection {
       if (this.pendingSends.length >= MAX_PENDING_SENDS) {
         this.pendingSends.shift();
       }
-      this.pendingSends.push({ endpoint, body: msg });
+      this.pendingSends.push({ endpoint, body: msg, retries: 0 });
       return true;
     }
 
@@ -333,7 +345,11 @@ export class SseConnection implements ChatConnection {
     }, this.config.reconnectDelayMs);
   }
 
-  private async doPost(endpoint: string, body: Record<string, unknown>): Promise<void> {
+  private async doPost(
+    endpoint: string,
+    body: Record<string, unknown>,
+    retries = 0,
+  ): Promise<void> {
     try {
       const res = await this.config.fetch(`${this.config.baseUrl}/api/chat/${endpoint}`, {
         method: 'POST',
@@ -344,24 +360,28 @@ export class SseConnection implements ChatConnection {
         body: JSON.stringify(body),
       });
       if (!res.ok && endpoint === 'send') {
-        // Transient failure — re-queue for retry on next reconnect
         if (res.status === 404 || res.status === 429 || res.status >= 500) {
-          this.pendingSends.push({ endpoint, body });
+          const willRetry = retries < MAX_SEND_RETRIES;
+          if (willRetry) {
+            this.pendingSends.push({ endpoint, body, retries: retries + 1 });
+          }
           this.listener?.({
             type: '_send_failed',
             clientMsgId: body.clientMsgId,
-            willRetry: true,
+            willRetry,
           });
         }
       }
     } catch {
-      // Network error on send — re-queue and notify
       if (endpoint === 'send') {
-        this.pendingSends.push({ endpoint, body });
+        const willRetry = retries < MAX_SEND_RETRIES;
+        if (willRetry) {
+          this.pendingSends.push({ endpoint, body, retries: retries + 1 });
+        }
         this.listener?.({
           type: '_send_failed',
           clientMsgId: body.clientMsgId,
-          willRetry: true,
+          willRetry,
         });
       }
     }
@@ -371,8 +391,8 @@ export class SseConnection implements ChatConnection {
     if (this.pendingSends.length === 0) return;
     const toFlush = this.pendingSends;
     this.pendingSends = [];
-    for (const { endpoint, body } of toFlush) {
-      this.doPost(endpoint, body);
+    for (const { endpoint, body, retries } of toFlush) {
+      this.doPost(endpoint, body, retries);
     }
   }
 

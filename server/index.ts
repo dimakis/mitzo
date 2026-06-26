@@ -113,6 +113,16 @@ connRegistry.setOnExpired((connectionId, watchedSessions) => {
   for (const sessionId of watchedSessions) {
     const found = registry.findBySessionId(sessionId);
     if (!found) continue;
+    // Skip if another connection has taken over this session
+    const ownerCid = found.clientId.substring(0, found.clientId.indexOf(':'));
+    if (ownerCid !== connectionId) {
+      log.info('skipping detach — session now owned by different connection', {
+        connectionId,
+        sessionId,
+        currentOwner: ownerCid,
+      });
+      continue;
+    }
     if (registry.isSuspended(found.clientId)) continue;
     const session = registry.get(found.clientId);
     if (session && registry.isAttached(found.clientId)) {
@@ -400,7 +410,7 @@ app.get('/api/chat/events', (req, res) => {
   // ownership race. Client sends ?cid=<uuid>; server reuses it across
   // SSE reconnects so the clientId (connectionId:sessionId) never changes.
   const clientCid = req.query.cid as string | undefined;
-  const isStableCid = clientCid != null && /^cid-[0-9a-f-]{36}$/.test(clientCid);
+  const isStableCid = clientCid != null && /^cid-[0-9a-f-]{36}$/i.test(clientCid);
   const connectionId = isStableCid
     ? clientCid
     : `conn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -440,6 +450,7 @@ app.get('/api/chat/events', (req, res) => {
       // connectionId — markInactive starts a 60s TTL. If the TTL expires,
       // the onExpired callback triggers session detach.
       connRegistry.markInactive(connectionId);
+      registry.removeObserver(transport);
       log.info('SSE closed for stable-cid connection, deferring cleanup', { connectionId });
     } else {
       // Legacy server-generated connectionId: immediate cleanup
