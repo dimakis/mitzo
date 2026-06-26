@@ -54,6 +54,11 @@ export class ConnectionRegistry {
   private cursors = new Map<string, Map<string, number>>();
   private syncTimer: ReturnType<typeof setInterval> | null = null;
   private eventStore: EventStoreAdapter | null = null;
+  private inactiveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private onExpiredCallback: ((connectionId: string, watchedSessions: Set<string>) => void) | null =
+    null;
+
+  static readonly INACTIVE_TTL_MS = 60_000; // 60s grace period for reconnect
 
   register(connectionId: string, transport: SessionTransport): void {
     this.connections.set(connectionId, {
@@ -74,6 +79,65 @@ export class ConnectionRegistry {
     this.connections.delete(connectionId);
     // Clean up cursors for this connection
     this.cursors.delete(connectionId);
+    this.clearInactiveTimer(connectionId);
+  }
+
+  /**
+   * Swap the transport for an existing connection (SSE reconnect with same
+   * client-generated connectionId). Preserves watchedSessions and delivery
+   * cursors — no clientId rekey needed.
+   */
+  reconnect(connectionId: string, transport: SessionTransport): void {
+    const conn = this.connections.get(connectionId);
+    if (!conn) {
+      // Inactive TTL already expired — register fresh
+      this.register(connectionId, transport);
+      return;
+    }
+    conn.transport = transport;
+    this.clearInactiveTimer(connectionId);
+    log.info('connection transport swapped (reconnect)', { connectionId });
+  }
+
+  /**
+   * Mark a connection as inactive (SSE stream closed). Starts a TTL timer
+   * so a quick reconnect with the same connectionId preserves state.
+   * On TTL expiry, fires the onExpired callback and removes the connection.
+   */
+  markInactive(connectionId: string): void {
+    const conn = this.connections.get(connectionId);
+    if (!conn) return;
+
+    this.clearInactiveTimer(connectionId);
+    this.inactiveTimers.set(
+      connectionId,
+      setTimeout(() => {
+        this.inactiveTimers.delete(connectionId);
+        const current = this.connections.get(connectionId);
+        if (current && !current.transport.isOpen()) {
+          log.info('inactive connection TTL expired, cleaning up', { connectionId });
+          const watched = new Set(current.watchedSessions);
+          this.remove(connectionId);
+          this.onExpiredCallback?.(connectionId, watched);
+        }
+      }, ConnectionRegistry.INACTIVE_TTL_MS),
+    );
+  }
+
+  /**
+   * Register a callback fired when an inactive connection's TTL expires.
+   * Used by the server to trigger session detach on expired connections.
+   */
+  setOnExpired(cb: (connectionId: string, watchedSessions: Set<string>) => void): void {
+    this.onExpiredCallback = cb;
+  }
+
+  private clearInactiveTimer(connectionId: string): void {
+    const timer = this.inactiveTimers.get(connectionId);
+    if (timer) {
+      clearTimeout(timer);
+      this.inactiveTimers.delete(connectionId);
+    }
   }
 
   /**
@@ -290,6 +354,10 @@ export class ConnectionRegistry {
    */
   dispose(): void {
     this.stopPeriodicSync();
+    for (const timer of this.inactiveTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.inactiveTimers.clear();
     this.connections.clear();
     this.cursors.clear();
   }

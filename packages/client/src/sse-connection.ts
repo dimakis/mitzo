@@ -26,23 +26,44 @@ export interface SseConnectionConfig {
   reconnectDelayMs?: number;
   /** URL for the sendBeacon suspend fallback. */
   suspendUrl?: string;
+  /**
+   * Client-generated stable connectionId. Survives SSE reconnects so the
+   * server sees the same owner across transport drops — eliminates the
+   * reattach race that causes the "send twice to wake agent" bug.
+   * If not provided, a UUID is generated automatically.
+   */
+  connectionId?: string;
 }
 
 const MAX_PENDING_SENDS = 100;
+const MAX_SEND_RETRIES = 3;
+const RETRY_FLUSH_DELAY_MS = 3000;
+
+/** Synthetic event emitted when a POST to the send endpoint fails. */
+export interface SendFailedEvent {
+  type: '_send_failed';
+  clientMsgId: unknown;
+  willRetry: boolean;
+}
 
 export class SseConnection implements ChatConnection {
   private es: EventSource | null = null;
-  private _connectionId: string | null = null;
+  private _connectionId: string;
   private _connected = false;
   private _isReconnect = false;
   private listener: ConnectionListener | null = null;
   private seqBySession = new Map<string, number>();
-  private pendingSends: Array<{ endpoint: string; body: Record<string, unknown> }> = [];
+  private pendingSends: Array<{
+    endpoint: string;
+    body: Record<string, unknown>;
+    retries: number;
+  }> = [];
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private retryFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private boundOnVisibility: (() => void) | null = null;
   private boundOnPageShow: ((e: PageTransitionEvent) => void) | null = null;
   private boundOnPageHide: (() => void) | null = null;
-  private config: Required<SseConnectionConfig>;
+  private config: Required<Omit<SseConnectionConfig, 'connectionId'>>;
 
   constructor(config: SseConnectionConfig) {
     this.config = {
@@ -51,6 +72,10 @@ export class SseConnection implements ChatConnection {
       suspendUrl: '',
       ...config,
     };
+    // Stable connectionId — survives SSE reconnects. The server uses this
+    // to identify the same client across transport drops, eliminating the
+    // ownership race in handleReconnect.
+    this._connectionId = config.connectionId ?? `cid-${crypto.randomUUID()}`;
   }
 
   connect(): void {
@@ -63,6 +88,10 @@ export class SseConnection implements ChatConnection {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+    if (this.retryFlushTimer) {
+      clearTimeout(this.retryFlushTimer);
+      this.retryFlushTimer = null;
     }
     if (this.es) {
       this.es.close();
@@ -87,7 +116,7 @@ export class SseConnection implements ChatConnection {
     const endpoint = this.messageTypeToEndpoint(msg.type as string);
     if (!endpoint) return false;
 
-    if (this._connected && this._connectionId) {
+    if (this._connected) {
       this.doPost(endpoint, msg);
       return true;
     }
@@ -97,7 +126,7 @@ export class SseConnection implements ChatConnection {
       if (this.pendingSends.length >= MAX_PENDING_SENDS) {
         this.pendingSends.shift();
       }
-      this.pendingSends.push({ endpoint, body: msg });
+      this.pendingSends.push({ endpoint, body: msg, retries: 0 });
       return true;
     }
 
@@ -149,17 +178,13 @@ export class SseConnection implements ChatConnection {
     }));
 
     // Try POST first
-    if (this._connected && this._connectionId) {
+    if (this._connected) {
       this.doPost('suspend', { type: 'session_suspend', sessions });
       return;
     }
 
     // sendBeacon fallback
-    if (
-      this.config.suspendUrl &&
-      this._connectionId &&
-      typeof globalThis.navigator?.sendBeacon === 'function'
-    ) {
+    if (this.config.suspendUrl && typeof globalThis.navigator?.sendBeacon === 'function') {
       const payload = JSON.stringify({ connectionId: this._connectionId, sessions });
       globalThis.navigator.sendBeacon(
         this.config.suspendUrl,
@@ -198,16 +223,16 @@ export class SseConnection implements ChatConnection {
       this.reconnectTimer = null;
     }
 
-    // Always use the base URL — reconnect sessions are sent via POST in the
-    // welcome handler. This avoids the bug where EventSource auto-reconnect
-    // reuses the original URL (missing ?sessions=), and eliminates double
-    // handleReconnect when doConnect() AND welcome both trigger it.
-    const url = `${this.config.baseUrl}/api/chat/events`;
+    // Send our stable connectionId as a query param so the server can reuse
+    // it across reconnects. The createEventSource callback may append auth
+    // params — it must handle the existing query string.
+    const url = `${this.config.baseUrl}/api/chat/events?cid=${encodeURIComponent(this._connectionId)}`;
 
     const es = this.config.createEventSource(url);
     this.es = es;
 
-    // Welcome event — server sends connectionId
+    // Welcome event — server echoes our connectionId (or assigns a new one
+    // if the server doesn't support client-provided cids).
     es.addEventListener('welcome', (e: MessageEvent) => {
       let msg: Record<string, unknown>;
       try {
@@ -215,7 +240,11 @@ export class SseConnection implements ChatConnection {
       } catch {
         return;
       }
-      this._connectionId = msg.connectionId as string;
+      const serverCid = msg.connectionId as string;
+      if (serverCid !== this._connectionId) {
+        // Old server that doesn't support stable cid — fall back
+        this._connectionId = serverCid;
+      }
 
       // _connected deferred until doReconnectPost succeeds — prevents
       // external send() from bypassing the pending queue mid-reconnect.
@@ -322,10 +351,13 @@ export class SseConnection implements ChatConnection {
     }, this.config.reconnectDelayMs);
   }
 
-  private async doPost(endpoint: string, body: Record<string, unknown>): Promise<void> {
-    if (!this._connectionId) return;
+  private async doPost(
+    endpoint: string,
+    body: Record<string, unknown>,
+    retries = 0,
+  ): Promise<void> {
     try {
-      await this.config.fetch(`${this.config.baseUrl}/api/chat/${endpoint}`, {
+      const res = await this.config.fetch(`${this.config.baseUrl}/api/chat/${endpoint}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -333,19 +365,71 @@ export class SseConnection implements ChatConnection {
         },
         body: JSON.stringify(body),
       });
+      if (!res.ok && endpoint === 'send') {
+        if (res.status === 429 || res.status >= 500) {
+          // Transient failure — retry up to MAX_SEND_RETRIES
+          const willRetry = retries < MAX_SEND_RETRIES;
+          if (willRetry) {
+            this.pendingSends.push({ endpoint, body, retries: retries + 1 });
+            this.scheduleRetryFlush();
+          }
+          this.listener?.({
+            type: '_send_failed',
+            clientMsgId: body.clientMsgId,
+            willRetry,
+          });
+        } else {
+          // Permanent failure (4xx) — no retry. Covers 400, 401, 403, 404, etc.
+          this.listener?.({
+            type: '_send_failed',
+            clientMsgId: body.clientMsgId,
+            willRetry: false,
+          });
+        }
+      }
     } catch {
-      // POST failures are non-fatal — the server may be temporarily
-      // unreachable. The SSE stream will reconnect and replay missed events.
+      if (endpoint === 'send') {
+        const willRetry = retries < MAX_SEND_RETRIES;
+        if (willRetry) {
+          this.pendingSends.push({ endpoint, body, retries: retries + 1 });
+          this.scheduleRetryFlush();
+        }
+        this.listener?.({
+          type: '_send_failed',
+          clientMsgId: body.clientMsgId,
+          willRetry,
+        });
+      }
     }
   }
 
   private flushPendingSends(): void {
+    if (this.retryFlushTimer) {
+      clearTimeout(this.retryFlushTimer);
+      this.retryFlushTimer = null;
+    }
     if (this.pendingSends.length === 0) return;
     const toFlush = this.pendingSends;
     this.pendingSends = [];
-    for (const { endpoint, body } of toFlush) {
-      this.doPost(endpoint, body);
+    for (const { endpoint, body, retries } of toFlush) {
+      this.doPost(endpoint, body, retries);
     }
+  }
+
+  /**
+   * Schedule a delayed retry flush for messages that failed while the SSE
+   * stream is still connected. Without this, failed POSTs would sit in the
+   * queue until a reconnect event — which may never come if SSE stays healthy.
+   */
+  private scheduleRetryFlush(): void {
+    if (this.retryFlushTimer) return;
+    if (!this._connected) return;
+    this.retryFlushTimer = setTimeout(() => {
+      this.retryFlushTimer = null;
+      if (this._connected && this.pendingSends.length > 0) {
+        this.flushPendingSends();
+      }
+    }, RETRY_FLUSH_DELAY_MS);
   }
 
   /**

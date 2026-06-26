@@ -373,6 +373,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         const sent = connection.send(msg);
         if (!sent) {
           set({ sendError: 'Not connected. Message will be sent when reconnected.' });
+        } else {
+          // Optimistic: show "thinking" immediately. The server will confirm
+          // via events, or the send-timeout safety net will reset on failure.
+          set((s) => ({
+            messages: messagesReducer(s.messages, { type: 'SET_RUNNING', running: true }),
+          }));
         }
       }
     },
@@ -699,9 +705,29 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // Foreground recovery: when the page becomes visible again (iOS may have
     // evicted it from memory, losing in-memory state), re-fetch messages from
     // the REST API if we have an active session but no messages in the store.
+    if (msg.type === '_open') {
+      // Don't clear sendError here — flushed retry POSTs haven't resolved
+      // yet. The session-scoped event clearing below handles it once the
+      // server actually processes the message.
+      return;
+    }
+
     if (msg.type === '_foreground') {
       const { sessions } = store.getState();
       if (sessions.active) fetchAndRestoreMessages(sessions.active);
+      return;
+    }
+
+    if (msg.type === '_send_failed') {
+      const willRetry = msg.willRetry !== false;
+      store.setState((s) => ({
+        sendError: willRetry
+          ? 'Message delivery delayed — retrying...'
+          : 'Message could not be delivered.',
+        ...(willRetry
+          ? {}
+          : { messages: messagesReducer(s.messages, { type: 'SET_RUNNING', running: false }) }),
+      }));
       return;
     }
 
@@ -736,6 +762,17 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     const result = parseServerMessage(msg as WsMsg, parserState, callbacks, 'v2');
+
+    // Session event for the active session — clear any stale send error.
+    // Only clear when the event matches the active session, not background
+    // activity from other sessions or global events.
+    if (
+      eventSessionId &&
+      eventSessionId === store.getState().sessions.active &&
+      store.getState().sendError
+    ) {
+      store.setState({ sendError: null });
+    }
 
     // If the queue is now empty, cancel the safety-net timer — the normal
     // session_end flush path handled it.
