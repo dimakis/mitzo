@@ -454,15 +454,21 @@ app.get('/api/chat/events', (req, res) => {
     // chatSseRegistry.add() closes the old response — its async close
     // handler fires here. Without this guard, it would remove the NEW
     // response that replaced it, breaking event delivery.
-    chatSseRegistry.removeIfCurrent(connectionId, res);
+    const wasCurrentStream = chatSseRegistry.removeIfCurrent(connectionId, res);
 
     if (isStableCid) {
-      // Stable cid: defer cleanup. The client will reconnect with the same
-      // connectionId — markInactive starts a 60s TTL. If the TTL expires,
-      // the onExpired callback triggers session detach.
-      connRegistry.markInactive(connectionId);
+      // Only start the inactive TTL if this was the actual current stream.
+      // If removeIfCurrent returned false, a new stream already replaced us
+      // via reconnect() — starting markInactive here would race against the
+      // fresh connection.
+      if (wasCurrentStream) {
+        connRegistry.markInactive(connectionId);
+      }
       registry.removeObserver(transport);
-      log.info('SSE closed for stable-cid connection, deferring cleanup', { connectionId });
+      log.info('SSE closed for stable-cid connection, deferring cleanup', {
+        connectionId,
+        wasCurrentStream,
+      });
     } else {
       // Legacy server-generated connectionId: immediate cleanup
       const conn = connRegistry.get(connectionId);
