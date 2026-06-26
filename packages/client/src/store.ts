@@ -723,7 +723,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       const willRetry = msg.willRetry !== false;
       store.setState((s) => ({
         sendError: willRetry
-          ? 'Message delivery delayed — retrying on reconnect...'
+          ? 'Message delivery delayed — retrying...'
           : 'Message could not be delivered.',
         ...(willRetry
           ? {}

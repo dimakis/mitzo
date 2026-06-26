@@ -378,8 +378,8 @@ export class SseConnection implements ChatConnection {
             clientMsgId: body.clientMsgId,
             willRetry,
           });
-        } else if (res.status === 404) {
-          // Permanent failure — session/route doesn't exist, no retry
+        } else {
+          // Permanent failure (4xx) — no retry. Covers 400, 401, 403, 404, etc.
           this.listener?.({
             type: '_send_failed',
             clientMsgId: body.clientMsgId,
