@@ -37,6 +37,7 @@ export interface SseConnectionConfig {
 
 const MAX_PENDING_SENDS = 100;
 const MAX_SEND_RETRIES = 3;
+const RETRY_FLUSH_DELAY_MS = 3000;
 
 /** Synthetic event emitted when a POST to the send endpoint fails. */
 export interface SendFailedEvent {
@@ -58,6 +59,7 @@ export class SseConnection implements ChatConnection {
     retries: number;
   }> = [];
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private retryFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private boundOnVisibility: (() => void) | null = null;
   private boundOnPageShow: ((e: PageTransitionEvent) => void) | null = null;
   private boundOnPageHide: (() => void) | null = null;
@@ -86,6 +88,10 @@ export class SseConnection implements ChatConnection {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+    if (this.retryFlushTimer) {
+      clearTimeout(this.retryFlushTimer);
+      this.retryFlushTimer = null;
     }
     if (this.es) {
       this.es.close();
@@ -365,6 +371,7 @@ export class SseConnection implements ChatConnection {
           const willRetry = retries < MAX_SEND_RETRIES;
           if (willRetry) {
             this.pendingSends.push({ endpoint, body, retries: retries + 1 });
+            this.scheduleRetryFlush();
           }
           this.listener?.({
             type: '_send_failed',
@@ -385,6 +392,7 @@ export class SseConnection implements ChatConnection {
         const willRetry = retries < MAX_SEND_RETRIES;
         if (willRetry) {
           this.pendingSends.push({ endpoint, body, retries: retries + 1 });
+          this.scheduleRetryFlush();
         }
         this.listener?.({
           type: '_send_failed',
@@ -396,12 +404,32 @@ export class SseConnection implements ChatConnection {
   }
 
   private flushPendingSends(): void {
+    if (this.retryFlushTimer) {
+      clearTimeout(this.retryFlushTimer);
+      this.retryFlushTimer = null;
+    }
     if (this.pendingSends.length === 0) return;
     const toFlush = this.pendingSends;
     this.pendingSends = [];
     for (const { endpoint, body, retries } of toFlush) {
       this.doPost(endpoint, body, retries);
     }
+  }
+
+  /**
+   * Schedule a delayed retry flush for messages that failed while the SSE
+   * stream is still connected. Without this, failed POSTs would sit in the
+   * queue until a reconnect event — which may never come if SSE stays healthy.
+   */
+  private scheduleRetryFlush(): void {
+    if (this.retryFlushTimer) return;
+    if (!this._connected) return;
+    this.retryFlushTimer = setTimeout(() => {
+      this.retryFlushTimer = null;
+      if (this._connected && this.pendingSends.length > 0) {
+        this.flushPendingSends();
+      }
+    }, RETRY_FLUSH_DELAY_MS);
   }
 
   /**

@@ -449,7 +449,12 @@ app.get('/api/chat/events', (req, res) => {
   });
 
   req.on('close', () => {
-    chatSseRegistry.remove(connectionId);
+    // Guard: only remove from SSE registry if this response is still the
+    // current one. When a new request arrives with the same stable cid,
+    // chatSseRegistry.add() closes the old response — its async close
+    // handler fires here. Without this guard, it would remove the NEW
+    // response that replaced it, breaking event delivery.
+    chatSseRegistry.removeIfCurrent(connectionId, res);
 
     if (isStableCid) {
       // Stable cid: defer cleanup. The client will reconnect with the same

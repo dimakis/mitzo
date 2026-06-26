@@ -17,7 +17,7 @@ export interface ChatConnection {
   onMessage(listener: ConnectionListener): void;
   /** Whether the transport is connected and ready to send. */
   isConnected(): boolean;
-  /** Server-assigned connection ID (null before welcome). */
+  /** Client-generated stable connection ID. Available immediately after construction. */
   getConnectionId(): string | null;
   /** Track the latest received seq for a session (for reconnect replay). */
   trackSeq(sessionId: string, seq: number): void;

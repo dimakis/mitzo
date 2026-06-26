@@ -1160,5 +1160,29 @@ describe('SseConnection', () => {
         }),
       );
     });
+
+    it('retries failed send after delay even without reconnect', async () => {
+      let callCount = 0;
+      const mockFetch = vi.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) return Promise.resolve({ ok: false, status: 500 });
+        return Promise.resolve({ ok: true });
+      });
+      const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+      conn.connect();
+      lastES()._emit('welcome', {
+        type: 'welcome',
+        protocolVersion: 2,
+        connectionId: 'cid-test',
+      });
+
+      // First send fails with 500 — gets queued for retry
+      conn.send({ type: 'send', prompt: 'retry me', clientMsgId: 'r-1' });
+      await vi.runAllTimersAsync();
+
+      // The retry flush timer fires after 3s and retries the queued message
+      // (no reconnect needed — SSE stream stayed connected)
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
   });
 });
