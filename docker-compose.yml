@@ -11,14 +11,9 @@ services:
     ports:
       - '4318:4318' # OTLP HTTP receiver (server + browser)
       - '16686:16686' # Jaeger UI
-    environment:
-      COLLECTOR_OTLP_ENABLED: 'true'
-      SPAN_STORAGE_TYPE: badger
-      BADGER_EPHEMERAL: 'false'
-      BADGER_DIRECTORY_VALUE: /badger/data
-      BADGER_DIRECTORY_KEY: /badger/key
-      BADGER_SPAN_STORE_TTL: 336h # 14 days retention
+    command: ['--config', '/etc/jaeger/config.yaml']
     volumes:
+      - ./infra/jaeger-v2-config.yaml:/etc/jaeger/config.yaml:ro
       - ./.jaeger-data:/badger
 
   loki:
