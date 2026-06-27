@@ -7,6 +7,9 @@ import {
 import type { ManagedSession } from '../src/session-registry.js';
 import type { OnDemandCreateFn } from '../src/worktree-guard.js';
 
+/** Stub: all worktree paths "exist" on disk. */
+const PATHS_EXIST = { pathExists: () => true };
+
 function makeSession(
   worktrees: Record<string, string>,
 ): Pick<ManagedSession, 'worktreePaths' | 'sessionId'> {
@@ -34,32 +37,52 @@ describe('checkWorktreePolicy', () => {
 
   describe('Write/Edit tools', () => {
     it('allows writes inside a worktree', async () => {
-      const result = await checkWorktreePolicy(session, 'Write', {
-        path: '/Users/me/redhat/mgmt/.claude/worktrees/2026-04-18-abc123/foo.ts',
-      });
+      const result = await checkWorktreePolicy(
+        session,
+        'Write',
+        {
+          path: '/Users/me/redhat/mgmt/.claude/worktrees/2026-04-18-abc123/foo.ts',
+        },
+        PATHS_EXIST,
+      );
       expect(result).toBeNull();
     });
 
     it('allows writes inside secondary worktree', async () => {
-      const result = await checkWorktreePolicy(session, 'Edit', {
-        file_path: '/Users/me/tools/mitzo/.claude/worktrees/2026-04-18-abc123/server/app.ts',
-      });
+      const result = await checkWorktreePolicy(
+        session,
+        'Edit',
+        {
+          file_path: '/Users/me/tools/mitzo/.claude/worktrees/2026-04-18-abc123/server/app.ts',
+        },
+        PATHS_EXIST,
+      );
       expect(result).toBeNull();
     });
 
     it('denies writes to main worktree with redirect', async () => {
-      const result = await checkWorktreePolicy(session, 'Write', {
-        path: '/Users/me/redhat/mgmt/some/file.ts',
-      });
+      const result = await checkWorktreePolicy(
+        session,
+        'Write',
+        {
+          path: '/Users/me/redhat/mgmt/some/file.ts',
+        },
+        PATHS_EXIST,
+      );
       expect(result).not.toBeNull();
       expect(result).toContain('outside session worktrees');
       expect(result).toContain('.claude/worktrees/2026-04-18-abc123/some/file.ts');
     });
 
     it('denies writes to secondary main worktree with redirect', async () => {
-      const result = await checkWorktreePolicy(session, 'StrReplace', {
-        path: '/Users/me/tools/mitzo/server/chat.ts',
-      });
+      const result = await checkWorktreePolicy(
+        session,
+        'StrReplace',
+        {
+          path: '/Users/me/tools/mitzo/server/chat.ts',
+        },
+        PATHS_EXIST,
+      );
       expect(result).not.toBeNull();
       expect(result).toContain(
         'Use /Users/me/tools/mitzo/.claude/worktrees/2026-04-18-abc123/server/chat.ts',
@@ -67,17 +90,27 @@ describe('checkWorktreePolicy', () => {
     });
 
     it('denies writes to unrecognized paths', async () => {
-      const result = await checkWorktreePolicy(session, 'Write', {
-        path: '/tmp/random/file.ts',
-      });
+      const result = await checkWorktreePolicy(
+        session,
+        'Write',
+        {
+          path: '/tmp/random/file.ts',
+        },
+        PATHS_EXIST,
+      );
       expect(result).not.toBeNull();
       expect(result).toContain('outside session worktrees');
     });
 
     it('ignores relative paths', async () => {
-      const result = await checkWorktreePolicy(session, 'Write', {
-        path: 'relative/path.ts',
-      });
+      const result = await checkWorktreePolicy(
+        session,
+        'Write',
+        {
+          path: 'relative/path.ts',
+        },
+        PATHS_EXIST,
+      );
       expect(result).toBeNull();
     });
   });
@@ -101,16 +134,26 @@ describe('checkWorktreePolicy', () => {
 
   describe('Shell/Bash tools', () => {
     it('allows shell commands inside worktree', async () => {
-      const result = await checkWorktreePolicy(session, 'Bash', {
-        command: 'cd /Users/me/redhat/mgmt/.claude/worktrees/2026-04-18-abc123 && git status',
-      });
+      const result = await checkWorktreePolicy(
+        session,
+        'Bash',
+        {
+          command: 'cd /Users/me/redhat/mgmt/.claude/worktrees/2026-04-18-abc123 && git status',
+        },
+        PATHS_EXIST,
+      );
       expect(result).toBeNull();
     });
 
     it('denies shell commands referencing main worktree', async () => {
-      const result = await checkWorktreePolicy(session, 'Bash', {
-        command: 'git -C /Users/me/tools/mitzo commit -m "fix"',
-      });
+      const result = await checkWorktreePolicy(
+        session,
+        'Bash',
+        {
+          command: 'git -C /Users/me/tools/mitzo commit -m "fix"',
+        },
+        PATHS_EXIST,
+      );
       expect(result).not.toBeNull();
       expect(result).toContain('/Users/me/tools/mitzo');
       expect(result).toContain('outside session worktrees');
@@ -126,9 +169,14 @@ describe('checkWorktreePolicy', () => {
 
   describe('EditNotebook tool', () => {
     it('uses target_notebook field', async () => {
-      const result = await checkWorktreePolicy(session, 'EditNotebook', {
-        target_notebook: '/Users/me/redhat/mgmt/jira_process/notebook.ipynb',
-      });
+      const result = await checkWorktreePolicy(
+        session,
+        'EditNotebook',
+        {
+          target_notebook: '/Users/me/redhat/mgmt/jira_process/notebook.ipynb',
+        },
+        PATHS_EXIST,
+      );
       expect(result).not.toBeNull();
       expect(result).toContain('outside session worktrees');
     });
@@ -140,41 +188,71 @@ describe('checkWorktreePolicy', () => {
     });
 
     it('increments denied on write violation', async () => {
-      await checkWorktreePolicy(session, 'Write', {
-        path: '/Users/me/redhat/mgmt/some/file.ts',
-      });
+      await checkWorktreePolicy(
+        session,
+        'Write',
+        {
+          path: '/Users/me/redhat/mgmt/some/file.ts',
+        },
+        PATHS_EXIST,
+      );
       const stats = getWorktreeGuardStats();
       expect(stats.denied).toBe(1);
       expect(stats.allowed).toBe(0);
     });
 
     it('increments allowed on successful check', async () => {
-      await checkWorktreePolicy(session, 'Write', {
-        path: '/Users/me/redhat/mgmt/.claude/worktrees/2026-04-18-abc123/foo.ts',
-      });
+      await checkWorktreePolicy(
+        session,
+        'Write',
+        {
+          path: '/Users/me/redhat/mgmt/.claude/worktrees/2026-04-18-abc123/foo.ts',
+        },
+        PATHS_EXIST,
+      );
       const stats = getWorktreeGuardStats();
       expect(stats.allowed).toBe(1);
       expect(stats.denied).toBe(0);
     });
 
     it('increments denied on shell violation', async () => {
-      await checkWorktreePolicy(session, 'Bash', {
-        command: 'git -C /Users/me/tools/mitzo commit -m "fix"',
-      });
+      await checkWorktreePolicy(
+        session,
+        'Bash',
+        {
+          command: 'git -C /Users/me/tools/mitzo commit -m "fix"',
+        },
+        PATHS_EXIST,
+      );
       const stats = getWorktreeGuardStats();
       expect(stats.denied).toBe(1);
     });
 
     it('tracks multiple operations', async () => {
-      await checkWorktreePolicy(session, 'Write', {
-        path: '/Users/me/redhat/mgmt/.claude/worktrees/2026-04-18-abc123/a.ts',
-      });
-      await checkWorktreePolicy(session, 'Write', {
-        path: '/Users/me/redhat/mgmt/b.ts',
-      });
-      await checkWorktreePolicy(session, 'Edit', {
-        file_path: '/Users/me/tools/mitzo/.claude/worktrees/2026-04-18-abc123/c.ts',
-      });
+      await checkWorktreePolicy(
+        session,
+        'Write',
+        {
+          path: '/Users/me/redhat/mgmt/.claude/worktrees/2026-04-18-abc123/a.ts',
+        },
+        PATHS_EXIST,
+      );
+      await checkWorktreePolicy(
+        session,
+        'Write',
+        {
+          path: '/Users/me/redhat/mgmt/b.ts',
+        },
+        PATHS_EXIST,
+      );
+      await checkWorktreePolicy(
+        session,
+        'Edit',
+        {
+          file_path: '/Users/me/tools/mitzo/.claude/worktrees/2026-04-18-abc123/c.ts',
+        },
+        PATHS_EXIST,
+      );
       const stats = getWorktreeGuardStats();
       expect(stats.allowed).toBe(2);
       expect(stats.denied).toBe(1);
@@ -195,12 +273,64 @@ describe('checkWorktreePolicy', () => {
 
     it('returns a copy, not a reference', async () => {
       const s1 = getWorktreeGuardStats();
-      await checkWorktreePolicy(session, 'Write', {
-        path: '/Users/me/redhat/mgmt/file.ts',
-      });
+      await checkWorktreePolicy(
+        session,
+        'Write',
+        {
+          path: '/Users/me/redhat/mgmt/file.ts',
+        },
+        PATHS_EXIST,
+      );
       const s2 = getWorktreeGuardStats();
       expect(s1.denied).toBe(0);
       expect(s2.denied).toBe(1);
+    });
+  });
+
+  describe('stale worktree eviction', () => {
+    it('evicts stale worktree entry and falls through to on-demand creation', async () => {
+      const staleSession = makeSession({
+        primary: '/Users/me/redhat/mgmt/.claude/worktrees/2026-04-18-abc123',
+        mitzo: '/Users/me/tools/mitzo/.claude/worktrees/2026-04-18-abc123',
+      });
+
+      // Primary exists, mitzo worktree was cleaned up
+      const pathExists = (p: string) => p.includes('/mgmt/');
+
+      const onDemandCreate: OnDemandCreateFn = vi.fn().mockResolvedValue({
+        repoName: 'mitzo',
+        worktreePath: '/Users/me/tools/mitzo/.claude/worktrees/2026-04-18-abc123',
+      });
+
+      const result = await checkWorktreePolicy(
+        staleSession as ManagedSession,
+        'Write',
+        { path: '/Users/me/tools/mitzo/.claude/worktrees/2026-04-18-abc123/server/chat.ts' },
+        { onDemandCreate, pathExists },
+      );
+
+      // Stale entry was evicted, on-demand creation was triggered
+      expect(onDemandCreate).toHaveBeenCalled();
+      expect(result).not.toBeNull();
+      expect(result).toContain('.claude/worktrees/2026-04-18-abc123/server/chat.ts');
+    });
+
+    it('does not evict worktrees that exist on disk', async () => {
+      const goodSession = makeSession({
+        primary: '/Users/me/redhat/mgmt/.claude/worktrees/2026-04-18-abc123',
+        mitzo: '/Users/me/tools/mitzo/.claude/worktrees/2026-04-18-abc123',
+      });
+
+      const result = await checkWorktreePolicy(
+        goodSession as ManagedSession,
+        'Write',
+        { path: '/Users/me/tools/mitzo/.claude/worktrees/2026-04-18-abc123/server/chat.ts' },
+        { pathExists: () => true },
+      );
+
+      // Allowed — worktree exists
+      expect(result).toBeNull();
+      expect(goodSession.worktreePaths.has('mitzo')).toBe(true);
     });
   });
 
@@ -219,7 +349,7 @@ describe('checkWorktreePolicy', () => {
         sessionWithPrimaryOnly as ManagedSession,
         'Write',
         { path: '/Users/me/tools/mitzo/server/chat.ts' },
-        { onDemandCreate },
+        { onDemandCreate, pathExists: () => true },
       );
 
       expect(onDemandCreate).toHaveBeenCalledWith('/Users/me/tools/mitzo/server/chat.ts');
@@ -239,7 +369,7 @@ describe('checkWorktreePolicy', () => {
         sessionWithPrimaryOnly as ManagedSession,
         'Write',
         { path: '/Users/me/tools/mitzo/server/chat.ts' },
-        { onDemandCreate },
+        { onDemandCreate, pathExists: () => true },
       );
 
       expect(result).not.toBeNull();
@@ -258,7 +388,7 @@ describe('checkWorktreePolicy', () => {
         sessionWithPrimaryOnly as ManagedSession,
         'Write',
         { path: '/tmp/random/file.ts' },
-        { onDemandCreate },
+        { onDemandCreate, pathExists: () => true },
       );
 
       expect(onDemandCreate).toHaveBeenCalledWith('/tmp/random/file.ts');
