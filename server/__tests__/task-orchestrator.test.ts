@@ -727,7 +727,11 @@ describe('TaskOrchestrator', () => {
       });
 
       const goal2 = store.create({ title: 'Goal 2' });
-      const reuse = store.create({ title: 'Reuse task', parentId: goal2.id });
+      const reuse = store.create({
+        title: 'Reuse task',
+        parentId: goal2.id,
+        sessionPolicy: 'reuse',
+      });
 
       // Start goal1 (spawns), stop, start goal2
       orch.start(goal1.id);
@@ -815,6 +819,23 @@ describe('TaskOrchestrator', () => {
       await vi.waitFor(() => {
         expect(spawnSession).toHaveBeenCalledTimes(2);
       });
+    });
+
+    it('auto policy (store default) spawns instead of reusing', async () => {
+      const spawnSession = vi.fn().mockResolvedValue('spawned-client-1');
+      const deps = createTestDeps(store);
+      deps.spawnSession = spawnSession;
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Goal' });
+      // No explicit sessionPolicy — store defaults to 'auto'
+      const task = store.create({ title: 'Auto task', parentId: goal.id });
+
+      orch.start(goal.id);
+      await vi.waitFor(() => expect(spawnSession).toHaveBeenCalled());
+
+      expect(spawnSession).toHaveBeenCalledWith(task.id, expect.any(String), goal.id);
+      expect(deps.setTaskContext).not.toHaveBeenCalled();
     });
 
     it('reuse policy tasks use pinned session as before', () => {
