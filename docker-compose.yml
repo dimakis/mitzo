@@ -47,9 +47,6 @@ services:
     restart: always
     ports:
       - '5050:5000' # 5050 externally — 5000 conflicts with macOS AirPlay
-    environment:
-      MLFLOW_BACKEND_STORE_URI: 'sqlite:///mlflow/mlflow.db'
-      MLFLOW_ARTIFACTS_DESTINATION: '/mlflow/artifacts'
     command: mlflow server --host 0.0.0.0 --backend-store-uri sqlite:///mlflow/mlflow.db --default-artifact-root /mlflow/artifacts
     volumes:
       - ./.mlflow-data:/mlflow
