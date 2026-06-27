@@ -862,6 +862,73 @@ describe('SseConnection', () => {
     );
   });
 
+  // ─── Stale connection recovery (404 on POST) ─────────────────────────────
+
+  it('triggers reconnect and re-queues message when POST returns 404', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+    expect(conn.isConnected()).toBe(true);
+
+    // Server returns 404 — connection died server-side
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+    const esCountBefore = MockEventSource.instances.length;
+
+    conn.send({ type: 'send', sessionId: 'sess-1', prompt: 'lost msg', clientMsgId: 'msg-1' });
+    await vi.runAllTimersAsync();
+
+    // Should have torn down and created a new EventSource
+    expect(MockEventSource.instances.length).toBeGreaterThan(esCountBefore);
+    expect(conn.isConnected()).toBe(false);
+
+    // New welcome → reconnect → connected → re-queued message flushes
+    mockFetch.mockResolvedValue({ ok: true, status: 200 });
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
+    await vi.runAllTimersAsync();
+
+    expect(conn.isConnected()).toBe(true);
+    // The re-queued send should have been flushed
+    const sendCalls = mockFetch.mock.calls.filter(([url]: [string]) => url.includes('/send'));
+    expect(sendCalls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('does not reconnect on non-404 HTTP errors', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+
+    // Server returns 500 — transient error, should not trigger reconnect
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
+    const esCountBefore = MockEventSource.instances.length;
+
+    conn.send({ type: 'send', sessionId: 'sess-1', prompt: 'hello', clientMsgId: 'msg-1' });
+    await vi.runAllTimersAsync();
+
+    // Should NOT have created a new EventSource
+    expect(MockEventSource.instances.length).toBe(esCountBefore);
+    expect(conn.isConnected()).toBe(true);
+  });
+
+  it('does not reconnect on network errors (fetch throws)', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+
+    // Fetch throws — network unreachable
+    mockFetch.mockRejectedValueOnce(new Error('network error'));
+    const esCountBefore = MockEventSource.instances.length;
+
+    conn.send({ type: 'send', sessionId: 'sess-1', prompt: 'hello', clientMsgId: 'msg-1' });
+    await vi.runAllTimersAsync();
+
+    // Should NOT trigger reconnect — SSE stream handles its own reconnection
+    expect(MockEventSource.instances.length).toBe(esCountBefore);
+    expect(conn.isConnected()).toBe(true);
+  });
+
   it('sendSuspend is no-op with no tracked sessions', () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true });
     const conn = new SseConnection(createConfig({ fetch: mockFetch }));
