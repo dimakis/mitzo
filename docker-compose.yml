@@ -42,12 +42,21 @@ services:
       - loki
       - jaeger
 
-  # Experiment tracking for knowledge space V-learning and prompt tuning
+  # Experiment tracking for knowledge space V-learning and prompt tuning.
+  # Uses SQLite backend (single-writer, adequate for local dev).
   mlflow:
     image: ghcr.io/mlflow/mlflow:v2.22.0
     restart: always
     ports:
       - '5050:5000' # 5050 externally — 5000 conflicts with macOS AirPlay
-    command: mlflow server --host 0.0.0.0 --backend-store-uri sqlite:///mlflow/mlflow.db --default-artifact-root /mlflow/artifacts
+    command:
+      - mlflow
+      - server
+      - --host
+      - '0.0.0.0'
+      - --backend-store-uri
+      - sqlite:///mlflow/mlflow.db
+      - --default-artifact-root
+      - /mlflow/artifacts
     volumes:
       - ./.mlflow-data:/mlflow

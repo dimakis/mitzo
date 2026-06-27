@@ -35,6 +35,17 @@ describe('observability stack config', () => {
     expect(script).not.toMatch(/\$\{?PODMAN\}?.*mitzo_\w+_1/);
   });
 
+  it('gitignore covers all compose data volumes', () => {
+    const gitignore = readFileSync(resolve(ROOT, '.gitignore'), 'utf-8');
+    const compose = readFileSync(resolve(ROOT, 'docker-compose.yml'), 'utf-8');
+    // Extract volume mount patterns like ./.foo-data
+    const volumeMatches = compose.match(/\.\/\.\w[\w-]*data/g) || [];
+    for (const vol of volumeMatches) {
+      const dirName = vol.replace('./', '') + '/';
+      expect(gitignore).toContain(dirName);
+    }
+  });
+
   it('docker-compose.yml exposes expected ports', () => {
     const compose = readFileSync(resolve(ROOT, 'docker-compose.yml'), 'utf-8');
     const expectedPorts = ['4318', '16686', '3200', '3002', '5050'];
