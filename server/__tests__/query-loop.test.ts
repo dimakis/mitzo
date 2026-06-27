@@ -1614,7 +1614,7 @@ describe('runQueryLoop', () => {
       expect(sessionMeta!.totalCostUsd).toBe(0);
     });
 
-    it('records fallback usage with completed reason on external abort', async () => {
+    it('records fallback usage with error reason on external abort', async () => {
       const store = new EventStore(':memory:');
       const connRegistry = new ConnectionRegistry();
       const v2Transport = fakeTransport();
