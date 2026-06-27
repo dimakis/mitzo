@@ -31,11 +31,7 @@ import {
 } from './chat.js';
 import { NullTransport } from './null-transport.js';
 import { getImage } from './image-store.js';
-import {
-  createWorktree,
-  createSessionWorktrees as createAllWorktrees,
-  listWorktrees,
-} from './worktree.js';
+import { createWorktree, listWorktrees } from './worktree.js';
 import { DEFAULT_AGENT_NAME, GIT_BRANCH_TIMEOUT_MS } from './constants.js';
 import { isValidInternalToken } from './internal-token.js';
 import { getLocalCommit, isUpdateAvailable } from './git-version.js';
@@ -469,18 +465,21 @@ async function handleSessionCreate(
     return;
   }
 
-  const config = getRepoConfig();
   const wtId = generateWtId();
+  const prefix = source === 'cursor' ? '.cursor' : '.claude';
 
   try {
-    const worktrees = createAllWorktrees(wtId, BASE_REPO, config.repos, {
-      prefix: source === 'cursor' ? '.cursor' : '.claude',
-    });
+    // Create only the primary worktree — secondary repos are created on-demand
+    // by the worktree guard when an agent first writes to them.
+    const branch = `session/${wtId}`;
+    const primaryPath = createWorktree(wtId, BASE_REPO, { branch, prefix });
+    const worktrees: Record<string, { path: string; branch: string }> = {
+      primary: { path: primaryPath, branch },
+    };
 
-    log.info('session worktrees created', {
+    log.info('session worktree created (primary only, secondaries on-demand)', {
       sessionId: wtId,
       source,
-      repos: Object.keys(worktrees),
       hasInitialPrompt: !!initialPrompt,
     });
 
