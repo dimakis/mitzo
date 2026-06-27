@@ -179,6 +179,14 @@ describe('task routes', () => {
     expect(second.body.task.title).toBe('First create');
   });
 
+  it('POST /api/tasks — rejects empty externalRef', async () => {
+    const res = await request(app)
+      .post('/api/tasks')
+      .send({ title: 'Empty ref', externalRef: '' })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(400);
+  });
+
   it('POST /api/tasks — no dedup without externalRef', async () => {
     const first = await request(app)
       .post('/api/tasks')

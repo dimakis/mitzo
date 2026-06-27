@@ -561,6 +561,24 @@ describe('TaskStore', () => {
     store2.close();
   });
 
+  it('migrates existing database to add external_ref column', () => {
+    const dbPath = join(TEST_DIR, 'migrate-extref.db');
+    const store1 = new TaskStore(dbPath);
+    const t = store1.create({ title: 'Pre-extref task' });
+    store1.close();
+
+    // Reopen — migration 2 should add external_ref
+    const store2 = new TaskStore(dbPath);
+    const task = store2.get(t.id);
+    expect(task!.externalRef).toBeNull();
+
+    // Verify the column works after migration
+    const refTask = store2.create({ title: 'With ref', externalRef: 'migrated:ref' });
+    expect(refTask.externalRef).toBe('migrated:ref');
+    expect(store2.getByExternalRef('migrated:ref')!.id).toBe(refTask.id);
+    store2.close();
+  });
+
   it('preserves workflow fields in tree assembly', () => {
     const goal = store.create({ title: 'Goal', stageType: 'agent_work' });
     store.create({
