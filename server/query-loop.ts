@@ -280,6 +280,7 @@ async function _runQueryLoopInner(
   let numCompactions = 0; // counts successful compaction events from SDK
   let liveSessionTokens = 0; // cumulative total across all API calls in this query
   let cumulativeOutputTokens = 0; // accumulated output tokens (fresh per API call)
+  const sessionStartedAt = Date.now(); // wall-clock start for fallback duration
   const compactionFields = () => (numCompactions > 0 ? { numCompactions } : {});
 
   // Track last-reported cumulative usage to compute deltas (SDK reports cumulative totals).
@@ -1377,6 +1378,22 @@ async function _runQueryLoopInner(
           }
         }
         registry.remove(clientId);
+      }
+      // Persist best-effort usage for sessions that never received an SDK result
+      // (disconnect, abort, timeout). The normal path records full SDK-provided
+      // metrics; this fallback uses live counters so partial sessions aren't zero.
+      if (!doneSent && store && resolvedSessionId) {
+        const fallbackDurationMs = Date.now() - sessionStartedAt;
+        store.recordUsage(resolvedSessionId, {
+          inputTokens: 0, // per-type breakdown unavailable without SDK result
+          outputTokens: cumulativeOutputTokens,
+          cacheReadTokens: 0,
+          cacheCreationTokens: 0,
+          totalCostUsd: finalSession?.cumulativeCostUsd ?? 0,
+          numTurns: turnIndex,
+          durationMs: fallbackDurationMs,
+          durationApiMs: 0, // only available from SDK result
+        });
       }
       // Mark session as inactive in durable store
       if (store && resolvedSessionId) {

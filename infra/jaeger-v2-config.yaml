@@ -1,0 +1,34 @@
+# Jaeger v2 configuration — OTel Collector format with Badger persistent storage.
+# Replaces the v1 env-var based config that silently fell back to in-memory.
+service:
+  extensions: [jaeger_storage, jaeger_query]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [jaeger_storage_exporter]
+
+extensions:
+  jaeger_query:
+    storage:
+      traces: badger_main
+  jaeger_storage:
+    backends:
+      badger_main:
+        badger:
+          directories:
+            keys: /badger/key
+            values: /badger/data
+          ephemeral: false
+          span_store_ttl: 336h
+          maintenance_interval: 5m
+          metrics_update_interval: 10s
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+exporters:
+  jaeger_storage_exporter:
+    trace_storage: badger_main
