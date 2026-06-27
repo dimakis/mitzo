@@ -507,10 +507,10 @@ export class TaskStore {
   findActiveSignalTasks(gateType: string): Task[] {
     const rows = this.getDb()
       .prepare(
-        "SELECT * FROM tasks WHERE status = 'active' AND stage_type = 'wait_for_signal' AND gate_config IS NOT NULL",
+        "SELECT * FROM tasks WHERE status = 'active' AND stage_type = 'wait_for_signal' AND json_extract(gate_config, '$.type') = ?",
       )
-      .all() as TaskRow[];
-    return rows.map(rowToTask).filter((t) => t.gateConfig?.type === gateType);
+      .all(gateType) as TaskRow[];
+    return rows.map(rowToTask);
   }
 
   /** Find active tasks whose session_id is not in the set of active sessions. */

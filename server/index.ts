@@ -33,7 +33,7 @@ import {
   setSessionsChangedCallback,
   reconcileSessionsBackground,
 } from './chat.js';
-import { cleanupStaleWorktrees, countWorktrees, createSessionWorktrees } from './worktree.js';
+import { cleanupStaleWorktrees, countWorktrees } from './worktree.js';
 import { NullTransport } from './null-transport.js';
 import { getWorktreeGuardStats, resetWorktreeGuardStats } from '@mitzo/harness';
 import {
@@ -241,30 +241,30 @@ const orchestrator = new TaskOrchestrator({
     return ids;
   },
   spawnSession: async (taskId: string, prompt: string, goalId: string) => {
-    const wtId = generateWtId();
-    const clientId = `headless:${wtId}`;
-    const config = getRepoConfig();
+    const clientId = `headless:${generateWtId()}`;
 
     try {
-      createSessionWorktrees(wtId, BASE_REPO, config.repos);
-
-      eventStore.upsertSession({
-        sessionId: wtId,
-        summary: `Task: ${taskId.slice(0, 8)}`,
-        initialPrompt: prompt,
-        isActive: true,
-        mode: 'agent',
-        telosTaskId: goalId,
-      });
-
       const transport = new NullTransport();
-      await startChat(transport, clientId, prompt, {
+      // Fire-and-forget — startChat handles worktree creation, EventStore
+      // registration, and the full session lifecycle internally. We must NOT
+      // await it: startChat blocks until the agent session completes (via
+      // runQueryLoop), so awaiting would block the orchestrator tick chain.
+      startChat(transport, clientId, prompt, {
         mode: 'agent',
         isolation: true,
+        telosTaskId: goalId,
+        onSessionResolved: (sessionId) => {
+          log.info('spawned headless session resolved', { taskId, sessionId, clientId });
+          sseRegistry.broadcast('sessions_changed', {});
+        },
+      }).catch((err) => {
+        log.error('spawned session failed', {
+          taskId,
+          clientId,
+          error: (err as Error).message,
+        });
       });
 
-      log.info('spawned headless session for task', { taskId, sessionId: wtId, clientId });
-      sseRegistry.broadcast('sessions_changed', {});
       return clientId;
     } catch (err) {
       log.error('failed to spawn session for task', {

@@ -1037,7 +1037,10 @@ app.post('/api/signals/resolve', (req, res) => {
         break;
       }
       case 'human_approval': {
-        // human_approval signals match any active task of this gate type
+        // human_approval signals match any active task of this gate type.
+        // Intentionally broad: for MVP, only one pending human_approval at
+        // a time is expected. If multiple concurrent approvals are needed,
+        // add a discriminator field (e.g. gate_id) to gateConfig.
         isMatch = true;
         break;
       }
