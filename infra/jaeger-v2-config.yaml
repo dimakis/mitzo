@@ -19,6 +19,7 @@ extensions:
             keys: /badger/key
             values: /badger/data
           ephemeral: false
+          span_store_ttl: 336h
           maintenance_interval: 5m
           metrics_update_interval: 10s
 
