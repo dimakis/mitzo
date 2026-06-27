@@ -1614,6 +1614,49 @@ describe('runQueryLoop', () => {
       expect(sessionMeta!.totalCostUsd).toBe(0);
     });
 
+    it('records fallback usage with completed reason on external abort', async () => {
+      const store = new EventStore(':memory:');
+      const connRegistry = new ConnectionRegistry();
+      const v2Transport = fakeTransport();
+      connRegistry.register(clientId, v2Transport);
+      connRegistry.watch(clientId, 'sess-usage-abort');
+      connRegistry.setActive(clientId, 'sess-usage-abort');
+
+      const session = registry.get(clientId)!;
+      session.sessionId = 'sess-usage-abort';
+
+      store.upsertSession({ sessionId: 'sess-usage-abort', cwd: '/tmp' });
+
+      // Stream that yields an assistant event then hangs — abort controller
+      // cancels the session externally (no error thrown).
+      async function* hangingStream() {
+        yield {
+          type: 'assistant',
+          session_id: 'sess-usage-abort',
+          message: { id: 'msg-1', role: 'assistant' },
+        };
+        // Simulate a hanging stream that gets cancelled
+        await new Promise((_, reject) => {
+          abortController.signal.addEventListener('abort', () => reject(new Error('aborted')));
+        });
+      }
+
+      // Abort after a tick to let the first event process
+      setTimeout(() => abortController.abort(), 10);
+
+      await runQueryLoop(hangingStream(), clientId, registry, abortController, store, undefined, {
+        connRegistry,
+      });
+
+      const sessionMeta = store.getSession('sess-usage-abort');
+      expect(sessionMeta).toBeDefined();
+      expect(sessionMeta!.state).toBe('ENDED');
+      expect(sessionMeta!.durationMs).toBeGreaterThanOrEqual(0);
+      expect(sessionMeta!.outputTokens).toBe(0);
+      expect(sessionMeta!.numTurns).toBe(0);
+      expect(sessionMeta!.totalCostUsd).toBe(0);
+    });
+
     it('delivers events to a NEW connection after WS reconnect (old connection gone)', async () => {
       const connRegistry = new ConnectionRegistry();
       const oldTransport = fakeTransport();
