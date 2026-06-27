@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { Task, TaskStatus, StageType } from '../types/task';
 import type { TaskDisplayMeta } from '../hooks/useTaskBoard';
 
@@ -51,27 +52,62 @@ interface TaskNodeProps {
   onReject?: (id: string, feedback: string) => void;
 }
 
-function buildContextLine(task: Task, meta?: TaskDisplayMeta): string | null {
+function ContextLine({
+  task,
+  meta,
+  onNavigateSession,
+}: {
+  task: Task;
+  meta?: TaskDisplayMeta;
+  onNavigateSession?: (sessionId: string) => void;
+}) {
+  const dot = ' \u00B7 ';
+
+  const sessionLink =
+    task.sessionId && meta?.sessionHash ? (
+      <a
+        className="task-node-session-link"
+        onClick={(e) => {
+          e.stopPropagation();
+          onNavigateSession?.(task.sessionId!);
+        }}
+      >
+        {meta.sessionHash}
+      </a>
+    ) : null;
+
   switch (task.status) {
-    case 'active': {
-      const parts: string[] = [STATUS_LABELS.active];
-      if (meta?.sessionHash) parts.push(meta.sessionHash);
-      if (meta?.elapsedLabel) parts.push(meta.elapsedLabel);
-      return parts.join(' \u00B7 ');
-    }
+    case 'active':
+      return (
+        <>
+          {STATUS_LABELS.active}
+          {sessionLink && <>{dot}{sessionLink}</>}
+          {meta?.elapsedLabel && `${dot}${meta.elapsedLabel}`}
+        </>
+      );
     case 'pending_review':
-      return 'awaiting approval';
+      return <>awaiting approval{sessionLink && <>{dot}{sessionLink}</>}</>;
     case 'blocked':
-      return meta?.blockerSummary ?? 'blocked';
+      return <>{meta?.blockerSummary ?? 'blocked'}{sessionLink && <>{dot}{sessionLink}</>}</>;
     case 'done':
-      return meta?.completedAgo ? `done \u00B7 ${meta.completedAgo}` : 'done';
+      return (
+        <>
+          {meta?.completedAgo ? `done${dot}${meta.completedAgo}` : 'done'}
+          {sessionLink && <>{dot}{sessionLink}</>}
+        </>
+      );
     case 'failed': {
       const label = meta?.blockerSummary ?? 'failed';
-      return task.retryCount > 0 ? `${label} \u00B7 retry ${task.retryCount}` : label;
+      const retry = task.retryCount > 0 ? `${dot}retry ${task.retryCount}` : '';
+      return <>{label}{retry}{sessionLink && <>{dot}{sessionLink}</>}</>;
     }
     default:
       return null;
   }
+}
+
+function hasContextLine(status: TaskStatus): boolean {
+  return status === 'active' || status === 'pending_review' || status === 'blocked' || status === 'done' || status === 'failed';
 }
 
 function contextColorClass(status: TaskStatus): string {
@@ -97,6 +133,7 @@ export function TaskNode({
   onReject,
 }: TaskNodeProps) {
   const [expanded, setExpanded] = useState(true);
+  const navigate = useNavigate();
   const hasChildren = task.children.length > 0;
   const meta = displayMeta?.get(task.id);
   const isCompact = compact && task.status !== 'active';
@@ -106,11 +143,15 @@ export function TaskNode({
   if (meta?.attendTier === 1) classes.push('task-node--t1');
   if (meta && meta.fadeOpacity <= 0) classes.push('task-node--hidden');
 
-  const contextLine = isCompact ? null : buildContextLine(task, meta);
+  const showContext = !isCompact && hasContextLine(task.status);
   const fadeStyle =
     meta && meta.fadeOpacity < 1 && meta.fadeOpacity > 0
       ? { opacity: meta.fadeOpacity }
       : undefined;
+
+  function handleNavigateSession(sessionId: string) {
+    navigate(`/chat/${sessionId}`);
+  }
 
   return (
     <div className={classes.join(' ')} style={fadeStyle}>
@@ -137,10 +178,13 @@ export function TaskNode({
           >
             {task.title}
           </span>
-          {contextLine && (
+          {showContext && (
             <div className={`task-node-context${contextColorClass(task.status)}`}>
-              {contextLine}
+              <ContextLine task={task} meta={meta} onNavigateSession={handleNavigateSession} />
             </div>
+          )}
+          {task.summary && (
+            <div className="task-node-summary">{task.summary}</div>
           )}
         </div>
         {task.stageType && STAGE_LABELS[task.stageType] && (
