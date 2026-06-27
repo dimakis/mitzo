@@ -1477,6 +1477,7 @@ textarea:focus {
   flex-shrink: 0;
   position: relative;
   z-index: 20;
+  box-shadow: 0 4px 0 0 var(--surface);
   transition:
     max-height 0.2s,
     padding 0.2s,
