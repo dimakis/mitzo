@@ -1,5 +1,5 @@
 import type { SessionTransport, ConnectionRegistry } from '@mitzo/harness';
-import { summarizeToolInput, getRawInput } from './tool-summary.js';
+import { summarizeToolInput, getRawInput, getToolInputSpanAttrs } from './tool-summary.js';
 import { extractToolResultText, extractToolResultImages } from './content-blocks.js';
 import { storeImage } from './image-store.js';
 import {
@@ -1114,9 +1114,15 @@ async function _runQueryLoopInner(
               log.info('tool call', { clientId, tool: toolEntry.name, toolId: toolEntry.id });
               log.debug('tool call input', { clientId, toolId: toolEntry.id, input: trInput.text });
 
-              // End tool span — record raw input before closing
+              // End tool span — record structured attrs + raw input before closing
               const toolSpan = toolSpans.get(blockId);
               if (toolSpan) {
+                // Searchable/filterable span attributes (indexed by Jaeger)
+                const spanAttrs = getToolInputSpanAttrs(toolEntry.name, toolInput);
+                for (const [k, v] of Object.entries(spanAttrs)) {
+                  toolSpan.setAttribute(k, v);
+                }
+                // Full raw input as event (not indexed, but visible in span detail)
                 toolSpan.addEvent('tool.input', {
                   'tool.name': toolEntry.name,
                   'tool.input': trInput.text,
