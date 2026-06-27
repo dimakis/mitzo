@@ -141,7 +141,7 @@ This does four things:
 1. Compiles TypeScript server to `dist/`
 2. Builds the React frontend
 3. Installs a launchd plist to `~/Library/LaunchAgents/com.mitzo.server.plist`
-4. Sets up a podman machine for the observability stack (Jaeger/Grafana/Loki)
+4. Sets up a podman machine for the observability stack (Jaeger/Grafana/Loki/MLflow)
 
 Manage the service:
 
@@ -544,6 +544,7 @@ Mitzo includes a local observability stack for debugging and performance analysi
 | Jaeger  | http://localhost:16686 | Trace viewer                       |
 | Grafana | http://localhost:3002  | Log viewer + dashboards (no login) |
 | Loki    | http://localhost:3200  | Log aggregation backend            |
+| MLflow  | http://localhost:5050  | Experiment tracking                |
 
 ### Quick start
 
@@ -640,7 +641,8 @@ Phone / Laptop (Tailscale)
     Observability (optional, podman)
         ├── Jaeger (OTLP traces)
         ├── Loki (log aggregation)
-        └── Grafana (dashboards)
+        ├── Grafana (dashboards)
+        └── MLflow (experiment tracking)
 ```
 
 The server translates raw SDK stream events into a v2 block lifecycle protocol (`block_start` > `block_delta` > `block_end`). Sessions survive WebSocket disconnects — when your phone reconnects, it reattaches and replays from a snapshot.

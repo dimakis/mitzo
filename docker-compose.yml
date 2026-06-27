@@ -42,6 +42,7 @@ services:
       - loki
       - jaeger
 
+  # Experiment tracking for knowledge space V-learning and prompt tuning
   mlflow:
     image: ghcr.io/mlflow/mlflow:v2.22.0
     restart: always
