@@ -1298,4 +1298,73 @@ describe('foreground recovery', () => {
     expect(state.messages).toHaveLength(1);
     expect(state.messages[0].messageId).toBe('user-1');
   });
+
+  it('syncs running state from session meta on foreground when session_end was missed', async () => {
+    const transport = mockTransport();
+    const store = createReadyStore(transport);
+
+    // Set up active session with running=true (agent was processing)
+    store.setState((s) => ({
+      sessions: { ...s.sessions, active: 'sess-1' },
+      messages: { ...s.messages, running: true },
+    }));
+
+    // Mock fetch to return messages for /messages and isActive=false for /meta
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+      (url: string) => {
+        if (typeof url === 'string' && url.includes('/meta')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ sessionId: 'sess-1', isActive: false }),
+          });
+        }
+        // /messages endpoint
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve([
+              { messageId: 'msg-1', role: 'assistant', blocks: [], isStreaming: false },
+            ]),
+        });
+      },
+    );
+
+    // Simulate foreground return (iOS Safari coming back from background)
+    lastWs.simulateMessage({ type: '_foreground' });
+
+    // Wait for both async fetches to resolve
+    await vi.waitFor(() => {
+      expect(store.getState().messages.running).toBe(false);
+    });
+  });
+
+  it('does not change running state when session is still active on foreground', async () => {
+    const transport = mockTransport();
+    const store = createReadyStore(transport);
+
+    store.setState((s) => ({
+      sessions: { ...s.sessions, active: 'sess-1' },
+      messages: { ...s.messages, running: true },
+    }));
+
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+      (url: string) => {
+        if (typeof url === 'string' && url.includes('/meta')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ sessionId: 'sess-1', isActive: true }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([]),
+        });
+      },
+    );
+
+    lastWs.simulateMessage({ type: '_foreground' });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(store.getState().messages.running).toBe(true);
+  });
 });

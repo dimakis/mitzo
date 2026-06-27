@@ -216,6 +216,28 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       });
   }
 
+  /**
+   * Sync running state from server — fixes stale stop button after iOS
+   * backgrounding drops the session_end SSE event. Independent of the
+   * reconnect path so it works even when doReconnectPost has issues.
+   */
+  function syncRunningState(sessionId: string) {
+    api
+      .getSessionMeta(sessionId)
+      .then((meta) => {
+        if (!meta) return;
+        const { messages: msgState } = store.getState();
+        if (msgState.running && !meta.isActive) {
+          store.setState((s) => ({
+            messages: messagesReducer(s.messages, { type: 'SET_RUNNING', running: false }),
+          }));
+        }
+      })
+      .catch(() => {
+        // Non-fatal — running state will correct on next event or user action
+      });
+  }
+
   function clearPendingSendTimer() {
     if (parserState.pendingSendTimer) {
       clearTimeout(parserState.pendingSendTimer);
@@ -701,7 +723,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // the REST API if we have an active session but no messages in the store.
     if (msg.type === '_foreground') {
       const { sessions } = store.getState();
-      if (sessions.active) fetchAndRestoreMessages(sessions.active);
+      if (sessions.active) {
+        fetchAndRestoreMessages(sessions.active);
+        syncRunningState(sessions.active);
+      }
       return;
     }
 
