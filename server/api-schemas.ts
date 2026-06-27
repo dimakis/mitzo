@@ -123,6 +123,7 @@ export const TaskCreateBody = z.object({
   gateConfig: z.record(z.string(), z.unknown()).optional(),
   maxRetries: z.number().min(0).optional(),
   templateId: z.string().optional(),
+  externalRef: z.string().optional(),
 });
 
 export const TaskUpdateBody = z.object({

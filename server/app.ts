@@ -635,6 +635,14 @@ app.post('/api/tasks', (req, res) => {
     return;
   }
   try {
+    // Idempotency guard: if externalRef provided and already exists, return existing task
+    if (body.data.externalRef) {
+      const existing = taskStore.getByExternalRef(body.data.externalRef);
+      if (existing) {
+        res.status(200).json({ task: existing, deduplicated: true });
+        return;
+      }
+    }
     const task = taskStore.create(body.data as TaskCreateInput);
     res.status(201).json({ task });
     // Broadcast full tree so child tasks appear correctly in all clients

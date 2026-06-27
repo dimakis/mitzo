@@ -158,6 +158,41 @@ describe('task routes', () => {
     expect(res.body.task.annotations).toEqual(['a']);
   });
 
+  // --- POST /api/tasks idempotency ---
+
+  it('POST /api/tasks — deduplicates by externalRef', async () => {
+    const ref = `dedup-test-${Date.now()}`;
+    const first = await request(app)
+      .post('/api/tasks')
+      .send({ title: 'First create', externalRef: ref })
+      .set('Cookie', authCookie);
+    expect(first.status).toBe(201);
+    expect(first.body.task.externalRef).toBe(ref);
+
+    const second = await request(app)
+      .post('/api/tasks')
+      .send({ title: 'Duplicate create', externalRef: ref })
+      .set('Cookie', authCookie);
+    expect(second.status).toBe(200);
+    expect(second.body.deduplicated).toBe(true);
+    expect(second.body.task.id).toBe(first.body.task.id);
+    expect(second.body.task.title).toBe('First create');
+  });
+
+  it('POST /api/tasks — no dedup without externalRef', async () => {
+    const first = await request(app)
+      .post('/api/tasks')
+      .send({ title: 'No ref A' })
+      .set('Cookie', authCookie);
+    const second = await request(app)
+      .post('/api/tasks')
+      .send({ title: 'No ref B' })
+      .set('Cookie', authCookie);
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    expect(first.body.task.id).not.toBe(second.body.task.id);
+  });
+
   // --- GET /api/tasks/:id ---
 
   it('GET /api/tasks/:id — returns a task', async () => {
