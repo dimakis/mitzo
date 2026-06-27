@@ -835,6 +835,7 @@ describe('TaskOrchestrator', () => {
       await vi.waitFor(() => expect(spawnSession).toHaveBeenCalled());
 
       expect(spawnSession).toHaveBeenCalledWith(task.id, expect.any(String), goal.id);
+      expect(store.get(task.id)?.status).toBe('active');
       expect(deps.setTaskContext).not.toHaveBeenCalled();
     });
 
