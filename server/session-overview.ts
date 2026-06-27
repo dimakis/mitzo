@@ -79,6 +79,8 @@ export class SessionOverviewEmitter {
     string,
     { speaker: 'user' | 'assistant' | null; at: number | null }
   >();
+  /** Cached last assistant message preview per sessionId. */
+  private previewCache = new Map<string, string>();
   /** Background refresh interval for uncommitted work checks. */
   private uncommittedRefreshTimer: ReturnType<typeof setInterval> | null = null;
   /** Guard against overlapping refresh runs. */
@@ -135,6 +137,7 @@ export class SessionOverviewEmitter {
     this.lastEventTimes.delete(clientId);
     if (sessionId) {
       this.speakerCache.delete(sessionId);
+      this.previewCache.delete(sessionId);
     }
   }
 
@@ -294,6 +297,8 @@ export class SessionOverviewEmitter {
     const speakerAt = speaker.at ?? lastEventAt;
     const idleMinutes = Math.max(0, Math.round((now - speakerAt) / 60_000));
 
+    const lastMessagePreview = this.getCachedPreview(sessionId);
+
     return {
       sessionId,
       clientId: session.clientId,
@@ -308,6 +313,7 @@ export class SessionOverviewEmitter {
       uncommittedWork,
       awaitingReply,
       idleMinutes,
+      lastMessagePreview,
     };
   }
 
@@ -342,6 +348,7 @@ export class SessionOverviewEmitter {
       uncommittedWork,
       awaitingReply: state === 'done', // Only meaningful while still active
       idleMinutes,
+      lastMessagePreview: meta.lastAssistantPreview ?? undefined,
     };
   }
 
@@ -359,7 +366,19 @@ export class SessionOverviewEmitter {
     const speaker = meta?.lastSpeaker as 'user' | 'assistant' | undefined;
     const entry = { speaker: speaker ?? null, at: meta?.lastSpeakerAt ?? null };
     this.speakerCache.set(sessionId, entry);
+    // Opportunistically cache preview from same getSession() call
+    if (meta?.lastAssistantPreview && !this.previewCache.has(sessionId)) {
+      this.previewCache.set(sessionId, meta.lastAssistantPreview);
+    }
     return entry;
+  }
+
+  /**
+   * Get cached message preview for a session. Populated opportunistically
+   * by getCachedSpeaker() or explicitly via updatePreview().
+   */
+  private getCachedPreview(sessionId: string): string | undefined {
+    return this.previewCache.get(sessionId);
   }
 
   /**
@@ -368,6 +387,10 @@ export class SessionOverviewEmitter {
    */
   updateSpeaker(sessionId: string, speaker: 'user' | 'assistant'): void {
     this.speakerCache.set(sessionId, { speaker, at: Date.now() });
+  }
+
+  updatePreview(sessionId: string, preview: string): void {
+    this.previewCache.set(sessionId, preview);
   }
 
   /**

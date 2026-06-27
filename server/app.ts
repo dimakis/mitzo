@@ -1169,6 +1169,7 @@ app.get('/api/sessions', async (req, res) => {
           : undefined,
         numTurns: meta?.numTurns,
         closedBy: meta?.closedBy ?? undefined,
+        lastMessagePreview: meta?.lastAssistantPreview ?? undefined,
       };
     });
   }

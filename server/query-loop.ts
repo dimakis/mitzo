@@ -555,9 +555,20 @@ async function _runQueryLoopInner(
             durationApiMs: result.duration_api_ms ?? 0,
           };
 
+          // Extract preview from last assistant message (before snapshot is discarded)
+          const previewText = snapshotBlocks
+            .filter((b) => b.blockType === 'text' && b.content)
+            .map((b) => b.content)
+            .join('\n')
+            .trim();
+          const lastPreview = previewText.length > 300 ? previewText.slice(-300) : previewText;
+
           // Persist usage to durable store
           if (store && resolvedSessionId) {
             store.recordUsage(resolvedSessionId, usageData);
+            if (lastPreview) {
+              store.updateLastAssistantPreview(resolvedSessionId, lastPreview);
+            }
           }
 
           const sdkTokens =

@@ -81,6 +81,7 @@ interface SessionRow {
   last_state_change: number | null;
   agent_name: string | null;
   boot_context: string | null;
+  last_assistant_preview: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -137,6 +138,7 @@ export class EventStore {
     hide: Database.Statement;
     recordUsage: Database.Statement;
     updateLastSpeaker: Database.Statement;
+    updatePreview: Database.Statement;
     getAttentionSessions: Database.Statement;
     setSessionState: Database.Statement;
     getSessionState: Database.Statement;
@@ -158,6 +160,7 @@ export class EventStore {
     this.migrateSessionState(db);
     this.migrateBootContext(db);
     this.migrateUserMessageIndex(db);
+    this.migratePreviewColumn(db);
 
     this.log.info('EventStore initialized', { dbPath });
 
@@ -208,6 +211,12 @@ export class EventStore {
         `UPDATE sessions SET
           last_speaker = ?,
           last_speaker_at = unixepoch('now', 'subsec') * 1000,
+          updated_at = unixepoch('now', 'subsec') * 1000
+        WHERE session_id = ?`,
+      ),
+      updatePreview: db.prepare(
+        `UPDATE sessions SET
+          last_assistant_preview = ?,
           updated_at = unixepoch('now', 'subsec') * 1000
         WHERE session_id = ?`,
       ),
@@ -334,6 +343,15 @@ export class EventStore {
     if (!columnNames.has('boot_context')) {
       db.exec('ALTER TABLE sessions ADD COLUMN boot_context TEXT');
       this.log.info('migrated sessions table: added boot_context');
+    }
+  }
+
+  private migratePreviewColumn(db: Database.Database): void {
+    const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
+    const columnNames = new Set(columns.map((c) => c.name));
+    if (!columnNames.has('last_assistant_preview')) {
+      db.exec('ALTER TABLE sessions ADD COLUMN last_assistant_preview TEXT');
+      this.log.info('migrated sessions table: added last_assistant_preview');
     }
   }
 
@@ -600,6 +618,10 @@ export class EventStore {
     this.stmts.updateLastSpeaker.run(speaker, sessionId);
   }
 
+  updateLastAssistantPreview(sessionId: string, preview: string): void {
+    this.stmts.updatePreview.run(preview, sessionId);
+  }
+
   getAttentionSessions(): SessionMeta[] {
     const rows = this.stmts.getAttentionSessions.all();
     return (rows as SessionRow[]).map(rowToSession);
@@ -781,6 +803,7 @@ function rowToSession(row: SessionRow): SessionMeta {
     lastStateChange: row.last_state_change ?? null,
     agentName: row.agent_name ?? null,
     bootContext: row.boot_context ?? null,
+    lastAssistantPreview: row.last_assistant_preview ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
