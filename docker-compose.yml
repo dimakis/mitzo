@@ -6,7 +6,7 @@
 # Loki API:  http://localhost:3200
 services:
   jaeger:
-    image: jaegertracing/jaeger:latest
+    image: jaegertracing/jaeger:2.19.0
     restart: always
     ports:
       - '4318:4318' # OTLP HTTP receiver (server + browser)
@@ -23,6 +23,7 @@ services:
       - '3200:3100' # 3200 externally — 3100 conflicts with Mitzo server
     volumes:
       - ./infra/loki-config.yaml:/etc/loki/local-config.yaml
+      - ./.loki-data:/loki
     command: -config.file=/etc/loki/local-config.yaml
 
   grafana:
@@ -35,6 +36,7 @@ services:
       GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
     volumes:
       - ./infra/grafana/provisioning:/etc/grafana/provisioning
+      - ./.grafana-data:/var/lib/grafana
     depends_on:
       - loki
       - jaeger

@@ -12,6 +12,8 @@ mcp-server/build/
 certs/
 logs/
 .jaeger-data/
+.loki-data/
+.grafana-data/
 .DS_Store
 .claude/worktrees/
 .cursor/worktrees/
