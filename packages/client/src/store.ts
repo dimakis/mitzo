@@ -226,7 +226,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       .getSessionMeta(sessionId)
       .then((meta) => {
         if (!meta) return;
-        const { messages: msgState } = store.getState();
+        // Guard: if the user switched sessions while the fetch was in flight,
+        // don't apply stale isActive=false to the new session's running state.
+        const { sessions, messages: msgState } = store.getState();
+        if (sessions.active !== sessionId) return;
         if (msgState.running && !meta.isActive) {
           store.setState((s) => ({
             messages: messagesReducer(s.messages, { type: 'SET_RUNNING', running: false }),
