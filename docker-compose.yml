@@ -1,9 +1,10 @@
-# Local observability stack: Jaeger (traces) + Loki (logs) + Grafana (UI).
+# Local observability stack: Jaeger (traces) + Loki (logs) + Grafana (UI) + MLflow (experiments).
 # Jaeger only:  npm run tracing:up / tracing:down
 # Full stack:   npm run observability:up / observability:down
 # Jaeger UI: http://localhost:16686
 # Grafana:   http://localhost:3002 (no login required)
 # Loki API:  http://localhost:3200
+# MLflow UI: http://localhost:5050
 services:
   jaeger:
     image: jaegertracing/jaeger:2.19.0
@@ -40,3 +41,22 @@ services:
     depends_on:
       - loki
       - jaeger
+
+  # Experiment tracking for knowledge space V-learning and prompt tuning.
+  # Uses SQLite backend (single-writer, adequate for local dev).
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.22.0
+    restart: always
+    ports:
+      - '5050:5000' # 5050 externally — 5000 conflicts with macOS AirPlay
+    command:
+      - mlflow
+      - server
+      - --host
+      - '0.0.0.0'
+      - --backend-store-uri
+      - sqlite:///mlflow/mlflow.db
+      - --default-artifact-root
+      - /mlflow/artifacts
+    volumes:
+      - ./.mlflow-data:/mlflow
