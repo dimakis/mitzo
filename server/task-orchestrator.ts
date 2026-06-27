@@ -342,7 +342,8 @@ export class TaskOrchestrator {
 
       case 'agent_work':
       default: {
-        const policy = next.sessionPolicy ?? 'reuse';
+        // Default to spawn so tasks get dedicated sessions unless explicitly 'reuse'.
+        const policy = next.sessionPolicy === 'reuse' ? 'reuse' : 'spawn';
 
         if (policy === 'spawn' && this.deps.spawnSession) {
           // Spawn a dedicated headless session for this task
