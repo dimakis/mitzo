@@ -190,6 +190,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   };
 
   let recoveryInFlight = false;
+  let runningSyncInFlight = false;
 
   function fetchAndRestoreMessages(sessionId: string) {
     if (recoveryInFlight) return;
@@ -216,12 +217,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       });
   }
 
-  /**
-   * Sync running state from server — fixes stale stop button after iOS
-   * backgrounding drops the session_end SSE event. Independent of the
-   * reconnect path so it works even when doReconnectPost has issues.
-   */
+  /** Sync running state from server when session_end may have been missed. */
   function syncRunningState(sessionId: string) {
+    if (runningSyncInFlight) return;
+    runningSyncInFlight = true;
     api
       .getSessionMeta(sessionId)
       .then((meta) => {
@@ -238,6 +237,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       })
       .catch(() => {
         // Non-fatal — running state will correct on next event or user action
+      })
+      .finally(() => {
+        runningSyncInFlight = false;
       });
   }
 

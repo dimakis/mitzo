@@ -1408,4 +1408,30 @@ describe('foreground recovery', () => {
     // running should still be true — stale meta response was discarded
     expect(store.getState().messages.running).toBe(true);
   });
+
+  it('preserves running state when meta fetch fails (network error)', async () => {
+    const transport = mockTransport();
+    const store = createReadyStore(transport);
+
+    store.setState((s) => ({
+      sessions: { ...s.sessions, active: 'sess-1' },
+      messages: { ...s.messages, running: true },
+    }));
+
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (typeof url === 'string' && url.includes('/meta')) {
+        return Promise.reject(new Error('network error'));
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve([]),
+      });
+    });
+
+    lastWs.simulateMessage({ type: '_foreground' });
+    await new Promise((r) => setTimeout(r, 50));
+
+    // running unchanged — fetch failure is non-fatal
+    expect(store.getState().messages.running).toBe(true);
+  });
 });
