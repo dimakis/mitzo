@@ -190,6 +190,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   };
 
   let recoveryInFlight = false;
+  let runningSyncInFlight = false;
 
   function fetchAndRestoreMessages(sessionId: string) {
     if (recoveryInFlight) return;
@@ -213,6 +214,32 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       })
       .finally(() => {
         recoveryInFlight = false;
+      });
+  }
+
+  /** Sync running state from server when session_end may have been missed. */
+  function syncRunningState(sessionId: string) {
+    if (runningSyncInFlight) return;
+    runningSyncInFlight = true;
+    api
+      .getSessionMeta(sessionId)
+      .then((meta) => {
+        if (!meta) return;
+        // Guard: if the user switched sessions while the fetch was in flight,
+        // don't apply stale isActive=false to the new session's running state.
+        const { sessions, messages: msgState } = store.getState();
+        if (sessions.active !== sessionId) return;
+        if (msgState.running && !meta.isActive) {
+          store.setState((s) => ({
+            messages: messagesReducer(s.messages, { type: 'SET_RUNNING', running: false }),
+          }));
+        }
+      })
+      .catch(() => {
+        // Non-fatal — running state will correct on next event or user action
+      })
+      .finally(() => {
+        runningSyncInFlight = false;
       });
   }
 
@@ -701,7 +728,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // the REST API if we have an active session but no messages in the store.
     if (msg.type === '_foreground') {
       const { sessions } = store.getState();
-      if (sessions.active) fetchAndRestoreMessages(sessions.active);
+      if (sessions.active) {
+        fetchAndRestoreMessages(sessions.active);
+        syncRunningState(sessions.active);
+      }
       return;
     }
 
