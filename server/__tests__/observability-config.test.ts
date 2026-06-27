@@ -38,8 +38,8 @@ describe('observability stack config', () => {
   it('gitignore covers all compose data volumes', () => {
     const gitignore = readFileSync(resolve(ROOT, '.gitignore'), 'utf-8');
     const compose = readFileSync(resolve(ROOT, 'docker-compose.yml'), 'utf-8');
-    // Extract volume mount patterns like ./.foo-data
-    const volumeMatches = compose.match(/\.\/\.\w[\w-]*data/g) || [];
+    // Extract volume mount patterns like ./.foo-data (anchored to colon boundary)
+    const volumeMatches = compose.match(/\.\/\.\w[\w-]*data\b/g) || [];
     for (const vol of volumeMatches) {
       const dirName = vol.replace('./', '') + '/';
       expect(gitignore).toContain(dirName);
