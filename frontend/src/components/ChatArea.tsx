@@ -14,7 +14,7 @@ import type {
   StreamingMessage,
   PermissionRequest,
 } from '../types/chat';
-import type { BootContextMeta } from '@mitzo/client';
+import type { BootContextMeta, ContextEntry } from '@mitzo/client';
 import type { ProgressBlock } from '@mitzo/protocol';
 import type { UseVoiceReturn } from '../hooks/useVoice';
 
@@ -43,6 +43,8 @@ export interface ChatAreaProps {
   bootContext?: BootContextMeta | null;
   /** Session context string for sticky banner */
   sessionContext?: string | null;
+  /** Runtime context consumed — files read, searches, fetches (deduped) */
+  contextConsumed?: ContextEntry[];
 }
 
 export function ChatArea({
@@ -56,6 +58,7 @@ export function ChatArea({
   voice,
   bootContext,
   sessionContext,
+  contextConsumed,
 }: ChatAreaProps) {
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
@@ -151,7 +154,7 @@ export function ChatArea({
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
-        <SessionBanner bootContext={bootContext} sessionContext={sessionContext} />
+        <SessionBanner bootContext={bootContext} sessionContext={sessionContext} contextConsumed={contextConsumed} />
 
         {messages.length === 0 && !current && !running && (
           <p className="chat-empty">Send a message to start</p>

@@ -1672,3 +1672,270 @@ describe('foreground recovery race — full sequence', () => {
     expect(next.current!.messageId).toBe('asst-3');
   });
 });
+
+// ─── Context Consumed ──────────────────────────────────────────────────────
+
+describe('contextConsumed', () => {
+  it('starts empty', () => {
+    expect(INITIAL.contextConsumed).toEqual([]);
+  });
+
+  it('accumulates file reads on BLOCK_END', () => {
+    let state = messagesReducer(INITIAL, { type: 'MESSAGE_START', messageId: 'msg-1' });
+    state = messagesReducer(state, {
+      type: 'BLOCK_START',
+      messageId: 'msg-1',
+      blockId: 'b1',
+      blockType: 'tool_use',
+      toolName: 'Read',
+    });
+    state = messagesReducer(state, {
+      type: 'BLOCK_END',
+      messageId: 'msg-1',
+      blockId: 'b1',
+      blockType: 'tool_use',
+      toolName: 'Read',
+      toolId: 't1',
+      input: '/src/index.ts',
+    });
+
+    expect(state.contextConsumed).toHaveLength(1);
+    expect(state.contextConsumed[0]).toEqual({
+      type: 'file_read',
+      key: '/src/index.ts',
+      label: '/src/index.ts',
+      count: 1,
+    });
+  });
+
+  it('deduplicates repeated reads and increments count', () => {
+    let state = messagesReducer(INITIAL, { type: 'MESSAGE_START', messageId: 'msg-1' });
+
+    // First read
+    state = messagesReducer(state, {
+      type: 'BLOCK_START',
+      messageId: 'msg-1',
+      blockId: 'b1',
+      blockType: 'tool_use',
+      toolName: 'Read',
+    });
+    state = messagesReducer(state, {
+      type: 'BLOCK_END',
+      messageId: 'msg-1',
+      blockId: 'b1',
+      blockType: 'tool_use',
+      toolName: 'Read',
+      toolId: 't1',
+      input: '/src/index.ts',
+    });
+
+    // Second read of same file
+    state = messagesReducer(state, {
+      type: 'BLOCK_START',
+      messageId: 'msg-1',
+      blockId: 'b2',
+      blockType: 'tool_use',
+      toolName: 'Read',
+    });
+    state = messagesReducer(state, {
+      type: 'BLOCK_END',
+      messageId: 'msg-1',
+      blockId: 'b2',
+      blockType: 'tool_use',
+      toolName: 'Read',
+      toolId: 't2',
+      input: '/src/index.ts',
+    });
+
+    expect(state.contextConsumed).toHaveLength(1);
+    expect(state.contextConsumed[0].count).toBe(2);
+  });
+
+  it('tracks multiple context types', () => {
+    let state = messagesReducer(INITIAL, { type: 'MESSAGE_START', messageId: 'msg-1' });
+
+    // Read
+    state = messagesReducer(state, {
+      type: 'BLOCK_START',
+      messageId: 'msg-1',
+      blockId: 'b1',
+      blockType: 'tool_use',
+      toolName: 'Read',
+    });
+    state = messagesReducer(state, {
+      type: 'BLOCK_END',
+      messageId: 'msg-1',
+      blockId: 'b1',
+      blockType: 'tool_use',
+      toolName: 'Read',
+      toolId: 't1',
+      input: '/src/index.ts',
+    });
+
+    // Grep
+    state = messagesReducer(state, {
+      type: 'BLOCK_START',
+      messageId: 'msg-1',
+      blockId: 'b2',
+      blockType: 'tool_use',
+      toolName: 'Grep',
+    });
+    state = messagesReducer(state, {
+      type: 'BLOCK_END',
+      messageId: 'msg-1',
+      blockId: 'b2',
+      blockType: 'tool_use',
+      toolName: 'Grep',
+      toolId: 't2',
+      input: '/TODO/ in /src',
+    });
+
+    // WebFetch
+    state = messagesReducer(state, {
+      type: 'BLOCK_START',
+      messageId: 'msg-1',
+      blockId: 'b3',
+      blockType: 'tool_use',
+      toolName: 'WebFetch',
+    });
+    state = messagesReducer(state, {
+      type: 'BLOCK_END',
+      messageId: 'msg-1',
+      blockId: 'b3',
+      blockType: 'tool_use',
+      toolName: 'WebFetch',
+      toolId: 't3',
+      input: 'https://example.com',
+    });
+
+    expect(state.contextConsumed).toHaveLength(3);
+    expect(state.contextConsumed.map((e) => e.type)).toEqual([
+      'file_read',
+      'search',
+      'web_fetch',
+    ]);
+  });
+
+  it('ignores non-context tools (Bash, Write, Edit)', () => {
+    let state = messagesReducer(INITIAL, { type: 'MESSAGE_START', messageId: 'msg-1' });
+
+    for (const toolName of ['Bash', 'Write', 'Edit']) {
+      state = messagesReducer(state, {
+        type: 'BLOCK_START',
+        messageId: 'msg-1',
+        blockId: `b-${toolName}`,
+        blockType: 'tool_use',
+        toolName,
+      });
+      state = messagesReducer(state, {
+        type: 'BLOCK_END',
+        messageId: 'msg-1',
+        blockId: `b-${toolName}`,
+        blockType: 'tool_use',
+        toolName,
+        toolId: `t-${toolName}`,
+        input: 'some input',
+      });
+    }
+
+    expect(state.contextConsumed).toHaveLength(0);
+  });
+
+  it('accumulates from subagent tool calls', () => {
+    let state = messagesReducer(INITIAL, { type: 'MESSAGE_START', messageId: 'msg-1' });
+    state = messagesReducer(state, {
+      type: 'BLOCK_START',
+      messageId: 'msg-1',
+      blockId: 'agent-b',
+      blockType: 'tool_use',
+      toolName: 'Agent',
+    });
+    state = messagesReducer(state, {
+      type: 'SUBAGENT_START',
+      parentBlockId: 'agent-b',
+      subagentMessageId: 'sub-msg',
+    });
+    state = messagesReducer(state, {
+      type: 'SUBAGENT_BLOCK_START',
+      parentBlockId: 'agent-b',
+      blockId: 'sub-b1',
+      blockType: 'tool_use',
+      toolName: 'Grep',
+    });
+    state = messagesReducer(state, {
+      type: 'SUBAGENT_BLOCK_END',
+      parentBlockId: 'agent-b',
+      blockId: 'sub-b1',
+      toolName: 'Grep',
+      toolId: 'sub-t1',
+      input: '/error/ in /logs',
+    });
+
+    expect(state.contextConsumed).toHaveLength(1);
+    expect(state.contextConsumed[0]).toEqual({
+      type: 'search',
+      key: '/error/ in /logs',
+      label: '/error/ in /logs',
+      count: 1,
+    });
+  });
+
+  it('rebuilds context on RESTORE', () => {
+    const restored = messagesReducer(INITIAL, {
+      type: 'RESTORE',
+      messages: [
+        {
+          messageId: 'msg-1',
+          role: 'assistant',
+          timestamp: Date.now(),
+          blocks: [
+            {
+              blockId: 'b1',
+              blockType: 'tool_use',
+              content: '',
+              toolName: 'Read',
+              toolId: 't1',
+              toolInput: '/src/app.ts',
+            },
+            {
+              blockId: 'b2',
+              blockType: 'tool_use',
+              content: '',
+              toolName: 'Grep',
+              toolId: 't2',
+              toolInput: '/TODO/ in workspace',
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(restored.contextConsumed).toHaveLength(2);
+    expect(restored.contextConsumed[0].type).toBe('file_read');
+    expect(restored.contextConsumed[1].type).toBe('search');
+  });
+
+  it('resets on CLEAR', () => {
+    let state = messagesReducer(INITIAL, { type: 'MESSAGE_START', messageId: 'msg-1' });
+    state = messagesReducer(state, {
+      type: 'BLOCK_START',
+      messageId: 'msg-1',
+      blockId: 'b1',
+      blockType: 'tool_use',
+      toolName: 'Read',
+    });
+    state = messagesReducer(state, {
+      type: 'BLOCK_END',
+      messageId: 'msg-1',
+      blockId: 'b1',
+      blockType: 'tool_use',
+      toolName: 'Read',
+      toolId: 't1',
+      input: '/some/file.ts',
+    });
+    expect(state.contextConsumed).toHaveLength(1);
+
+    state = messagesReducer(state, { type: 'CLEAR' });
+    expect(state.contextConsumed).toEqual([]);
+  });
+});
