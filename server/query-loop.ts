@@ -138,16 +138,6 @@ function sendOrBuffer(
       enriched = { ...enriched, seq };
     }
   }
-  // DEBUG: trace event persistence decisions (remove after investigation)
-  if (data.type && data.type !== 'token_update' && data.type !== 'progress') {
-    log.info('sendOrBuffer', {
-      type: data.type,
-      v: data.v,
-      hasSessionId: !!sessionId,
-      hasStore: !!store,
-      stored: !!(data.v === 2 && sessionId && store),
-    });
-  }
 
   // Suspend buffer: if the session is proactively suspended (iOS backgrounding),
   // buffer events instead of delivering via the driver transport (which is

@@ -1608,6 +1608,10 @@ describe('runQueryLoop', () => {
       expect(sessionMeta!.durationMs).toBeGreaterThanOrEqual(0);
       // Session should be marked ENDED with error reason (abort path)
       expect(sessionMeta!.state).toBe('ENDED');
+      // Fallback records zeros for partial sessions (no token events in stream)
+      expect(sessionMeta!.outputTokens).toBe(0);
+      expect(sessionMeta!.numTurns).toBe(0);
+      expect(sessionMeta!.totalCostUsd).toBe(0);
     });
 
     it('delivers events to a NEW connection after WS reconnect (old connection gone)', async () => {
