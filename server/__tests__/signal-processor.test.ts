@@ -170,6 +170,216 @@ describe('SignalProcessor', () => {
     expect(processor.isWatching(t2.id)).toBe(false);
   });
 
+  describe('findActiveSignalTasks', () => {
+    it('finds active wait_for_signal tasks by gate type', () => {
+      const goal = store.create({ title: 'Goal' });
+      const t1 = store.create({
+        title: 'Centaur review',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'centaur_review', repo: 'dimakis/mitzo', pr: 360 },
+      });
+      store.update(t1.id, { status: 'active' });
+
+      const t2 = store.create({
+        title: 'CI check',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'gh_ci', repo: 'dimakis/mitzo', pr: 360 },
+      });
+      store.update(t2.id, { status: 'active' });
+
+      const centaurTasks = store.findActiveSignalTasks('centaur_review');
+      expect(centaurTasks).toHaveLength(1);
+      expect(centaurTasks[0].id).toBe(t1.id);
+
+      const ciTasks = store.findActiveSignalTasks('gh_ci');
+      expect(ciTasks).toHaveLength(1);
+      expect(ciTasks[0].id).toBe(t2.id);
+    });
+
+    it('ignores non-active or non-signal tasks', () => {
+      const goal = store.create({ title: 'Goal' });
+      store.create({
+        title: 'Pending signal',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'centaur_review', repo: 'dimakis/mitzo', pr: 1 },
+      });
+
+      const t2 = store.create({
+        title: 'Agent task',
+        parentId: goal.id,
+        stageType: 'agent_work',
+      });
+      store.update(t2.id, { status: 'active' });
+
+      const results = store.findActiveSignalTasks('centaur_review');
+      expect(results).toHaveLength(0);
+    });
+
+    it('finds human_approval tasks', () => {
+      const goal = store.create({ title: 'Goal' });
+      const t1 = store.create({
+        title: 'Human approval gate',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'human_approval' },
+      });
+      store.update(t1.id, { status: 'active' });
+
+      const results = store.findActiveSignalTasks('human_approval');
+      expect(results).toHaveLength(1);
+      expect(results[0].id).toBe(t1.id);
+    });
+
+    it('does not cross-match gate types', () => {
+      const goal = store.create({ title: 'Goal' });
+      store.create({
+        title: 'CI gate',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'gh_ci', repo: 'org/repo', pr: 1 },
+      });
+
+      const results = store.findActiveSignalTasks('human_approval');
+      expect(results).toHaveLength(0);
+    });
+  });
+
+  describe('gate matching (mirrors /api/signals/resolve logic)', () => {
+    it('centaur_review matches by pr_url', () => {
+      const goal = store.create({ title: 'Goal' });
+      const t1 = store.create({
+        title: 'Centaur review',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: {
+          type: 'centaur_review',
+          pr_url: 'https://github.com/dimakis/mitzo/pull/360',
+        },
+      });
+      store.update(t1.id, { status: 'active' });
+
+      const candidates = store.findActiveSignalTasks('centaur_review');
+      expect(candidates).toHaveLength(1);
+
+      // Simulate the matching logic from the endpoint
+      const gc = candidates[0].gateConfig as Record<string, unknown>;
+      const incomingPrUrl = 'https://github.com/dimakis/mitzo/pull/360';
+      expect(gc.pr_url).toBe(incomingPrUrl);
+    });
+
+    it('centaur_review matches by repo + pr number', () => {
+      const goal = store.create({ title: 'Goal' });
+      const t1 = store.create({
+        title: 'Centaur review',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'centaur_review', repo: 'dimakis/mitzo', pr: 360 },
+      });
+      store.update(t1.id, { status: 'active' });
+
+      const candidates = store.findActiveSignalTasks('centaur_review');
+      const gc = candidates[0].gateConfig as Record<string, unknown>;
+      expect(gc.repo).toBe('dimakis/mitzo');
+      expect(gc.pr).toBe(360);
+    });
+
+    it('gh_ci matches by repo + pr', () => {
+      const goal = store.create({ title: 'Goal' });
+      const t1 = store.create({
+        title: 'CI check',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'gh_ci', repo: 'dimakis/mitzo', pr: 377 },
+      });
+      store.update(t1.id, { status: 'active' });
+
+      const candidates = store.findActiveSignalTasks('gh_ci');
+      expect(candidates).toHaveLength(1);
+      const gc = candidates[0].gateConfig as Record<string, unknown>;
+      expect(gc.repo).toBe('dimakis/mitzo');
+      expect(gc.pr).toBe(377);
+    });
+
+    it('human_approval matches any active task of that type', () => {
+      const goal = store.create({ title: 'Goal' });
+      const t1 = store.create({
+        title: 'Approval gate',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'human_approval' },
+      });
+      store.update(t1.id, { status: 'active' });
+
+      const candidates = store.findActiveSignalTasks('human_approval');
+      expect(candidates).toHaveLength(1);
+      // human_approval: isMatch = true for any candidate (no repo/pr filtering)
+    });
+
+    it('does not match across gate types', () => {
+      const goal = store.create({ title: 'Goal' });
+      const t1 = store.create({
+        title: 'CI check',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'gh_ci', repo: 'org/repo', pr: 1 },
+      });
+      store.update(t1.id, { status: 'active' });
+
+      expect(store.findActiveSignalTasks('centaur_review')).toHaveLength(0);
+      expect(store.findActiveSignalTasks('human_approval')).toHaveLength(0);
+    });
+
+    it('matches multiple tasks of same gate type', () => {
+      const goal = store.create({ title: 'Goal' });
+      const t1 = store.create({
+        title: 'Review 1',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'centaur_review', repo: 'dimakis/mitzo', pr: 360 },
+      });
+      const t2 = store.create({
+        title: 'Review 2',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'centaur_review', repo: 'dimakis/mitzo', pr: 361 },
+      });
+      store.update(t1.id, { status: 'active' });
+      store.update(t2.id, { status: 'active' });
+
+      const candidates = store.findActiveSignalTasks('centaur_review');
+      expect(candidates).toHaveLength(2);
+    });
+
+    it('resolves matching task via processor', () => {
+      const goal = store.create({ title: 'Goal' });
+      const t1 = store.create({
+        title: 'CI gate',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'gh_ci', repo: 'dimakis/mitzo', pr: 377 },
+      });
+      store.update(t1.id, { status: 'active' });
+      processor.watch(t1.id, t1.gateConfig!);
+
+      // Simulate what the endpoint does: find + match + resolve
+      const candidates = store.findActiveSignalTasks('gh_ci');
+      for (const task of candidates) {
+        const gc = task.gateConfig as Record<string, unknown>;
+        if (gc.repo === 'dimakis/mitzo' && gc.pr === 377) {
+          processor.resolveSignal(task.id, { status: 'pass', artifacts: { ci: 'green' } });
+        }
+      }
+
+      const updated = store.get(t1.id);
+      expect(updated!.status).toBe('done');
+      expect(updated!.artifacts).toEqual({ ci: 'green' });
+      expect(onResolved).toHaveBeenCalledWith(t1.id);
+    });
+  });
+
   it('stores failure artifacts in annotations on retry', () => {
     const goal = store.create({ title: 'Goal' });
     const agent = store.create({

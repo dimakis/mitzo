@@ -64,6 +64,7 @@ import {
   WorkflowInstantiateBody,
   TemplateCreateBody,
   SignalBody,
+  SignalResolveBody,
   WorkSignalBody,
   WorkSignalBatchBody,
   WorkloadItemUpdateBody,
@@ -990,6 +991,74 @@ app.post('/api/tasks/:id/signal', (req, res) => {
   });
   res.json({ ok: true });
   onTaskBroadcast?.({ type: 'task_state', tasks: taskStore.getTree() });
+});
+
+/**
+ * Resolve a signal by gate metadata (type + repo/PR).
+ * External agents (e.g. Centaur) POST here after completing work —
+ * they don't need to know task IDs, just the gate parameters.
+ */
+app.post('/api/signals/resolve', (req, res) => {
+  if (!verifyInternalToken(req)) {
+    res.status(401).json({ error: 'Internal token required' });
+    return;
+  }
+  if (!signalProcessor) {
+    res.status(503).json({ error: 'Signal processor not initialized' });
+    return;
+  }
+  const body = SignalResolveBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.issues[0]?.message ?? 'Invalid input' });
+    return;
+  }
+
+  const { type, repo, pr, pr_url, status, artifacts } = body.data;
+
+  // Find active wait_for_signal tasks matching this gate type
+  const candidates = taskStore.findActiveSignalTasks(type);
+  const matched: string[] = [];
+
+  for (const task of candidates) {
+    const gc = task.gateConfig;
+    if (!gc) continue;
+
+    const { repo: taskRepo, pr: taskPr, pr_url: taskPrUrl } = gc as Record<string, unknown>;
+    // taskPr is parsed from JSON (could be string or number); pr is Zod-validated (number).
+    // Coerce both to Number for safe comparison.
+    const prMatch = pr != null && taskPr != null && Number(taskPr) === Number(pr);
+    let isMatch = false;
+    switch (type) {
+      case 'centaur_review': {
+        if (pr_url && taskPrUrl && taskPrUrl === pr_url) isMatch = true;
+        if (repo && taskRepo === repo && prMatch) isMatch = true;
+        break;
+      }
+      case 'gh_ci':
+      case 'gh_review': {
+        if (repo && taskRepo === repo && prMatch) isMatch = true;
+        break;
+      }
+      case 'human_approval': {
+        // human_approval signals match any active task of this gate type.
+        // Intentionally broad: for MVP, only one pending human_approval at
+        // a time is expected. If multiple concurrent approvals are needed,
+        // add a discriminator field (e.g. gate_id) to gateConfig.
+        isMatch = true;
+        break;
+      }
+    }
+
+    if (isMatch) {
+      signalProcessor.resolveSignal(task.id, { status, artifacts });
+      matched.push(task.id);
+    }
+  }
+
+  res.json({ ok: true, matched });
+  if (matched.length > 0) {
+    onTaskBroadcast?.({ type: 'task_state', tasks: taskStore.getTree() });
+  }
 });
 
 app.post('/api/auth/login', loginLimiter, async (req, res) => {

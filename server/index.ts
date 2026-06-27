@@ -27,12 +27,14 @@ import {
   registry,
   eventStore,
   getRepoConfig,
+  generateWtId,
   setConnectionRegistry,
   setSessionChangeCallback,
   setSessionsChangedCallback,
   reconcileSessionsBackground,
 } from './chat.js';
 import { cleanupStaleWorktrees, countWorktrees } from './worktree.js';
+import { NullTransport } from './null-transport.js';
 import { getWorktreeGuardStats, resetWorktreeGuardStats } from '@mitzo/harness';
 import {
   HEARTBEAT_INTERVAL_MS,
@@ -236,6 +238,40 @@ const orchestrator = new TaskOrchestrator({
       if (session?.sessionId) ids.add(session.sessionId);
     }
     return ids;
+  },
+  spawnSession: async (taskId: string, prompt: string, goalId: string) => {
+    const clientId = `headless:${generateWtId()}`;
+
+    try {
+      const transport = new NullTransport();
+      // Fire-and-forget — startChat handles worktree creation, EventStore
+      // registration, and the full session lifecycle internally. We must NOT
+      // await it: startChat blocks until the agent session completes (via
+      // runQueryLoop), so awaiting would block the orchestrator tick chain.
+      startChat(transport, clientId, prompt, {
+        mode: 'agent',
+        isolation: true,
+        telosTaskId: goalId,
+        onSessionResolved: (sessionId) => {
+          log.info('spawned headless session resolved', { taskId, sessionId, clientId });
+          sseRegistry.broadcast('sessions_changed', {});
+        },
+      }).catch((err) => {
+        log.error('spawned session failed', {
+          taskId,
+          clientId,
+          error: (err as Error).message,
+        });
+      });
+
+      return clientId;
+    } catch (err) {
+      log.error('failed to spawn session for task', {
+        taskId,
+        error: (err as Error).message,
+      });
+      return null;
+    }
   },
 });
 orchestratorRef = orchestrator;

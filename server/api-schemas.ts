@@ -184,6 +184,15 @@ export const SignalBody = z.object({
   artifacts: z.record(z.string(), z.unknown()).optional(),
 });
 
+export const SignalResolveBody = z.object({
+  type: z.enum(['gh_ci', 'gh_review', 'centaur_review', 'human_approval']),
+  repo: z.string().optional(),
+  pr: z.number().optional(),
+  pr_url: z.string().optional(),
+  status: z.enum(['pass', 'fail']),
+  artifacts: z.record(z.string(), z.unknown()).optional(),
+});
+
 // -- Workload schemas --
 
 const WorkSignalContextHints = z.object({

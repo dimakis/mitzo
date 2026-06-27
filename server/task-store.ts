@@ -503,6 +503,16 @@ export class TaskStore {
     return null;
   }
 
+  /** Find active wait_for_signal tasks matching a gate type. */
+  findActiveSignalTasks(gateType: string): Task[] {
+    const rows = this.getDb()
+      .prepare(
+        "SELECT * FROM tasks WHERE status = 'active' AND stage_type = 'wait_for_signal' AND json_extract(gate_config, '$.type') = ?",
+      )
+      .all(gateType) as TaskRow[];
+    return rows.map(rowToTask);
+  }
+
   /** Find active tasks whose session_id is not in the set of active sessions. */
   getOrphaned(activeSessionIds: Set<string>): Task[] {
     const rows = this.getDb()
