@@ -11,7 +11,7 @@ const TOKEN_LENGTH = 64; // 32 bytes as hex
 function loadOrCreateToken(): string {
   try {
     const existing = readFileSync(TOKEN_PATH, 'utf-8').trim();
-    if (existing.length === TOKEN_LENGTH && /^[0-9a-f]+$/.test(existing)) {
+    if (existing.length === TOKEN_LENGTH && /^[0-9a-fA-F]+$/.test(existing)) {
       return existing;
     }
   } catch {
