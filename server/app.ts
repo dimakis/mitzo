@@ -1024,16 +1024,19 @@ app.post('/api/signals/resolve', (req, res) => {
     if (!gc) continue;
 
     const { repo: taskRepo, pr: taskPr, pr_url: taskPrUrl } = gc as Record<string, unknown>;
+    // taskPr is parsed from JSON (could be string or number); pr is Zod-validated (number).
+    // Coerce both to Number for safe comparison.
+    const prMatch = pr != null && taskPr != null && Number(taskPr) === Number(pr);
     let isMatch = false;
     switch (type) {
       case 'centaur_review': {
         if (pr_url && taskPrUrl && taskPrUrl === pr_url) isMatch = true;
-        if (repo && pr && taskRepo === repo && taskPr === pr) isMatch = true;
+        if (repo && taskRepo === repo && prMatch) isMatch = true;
         break;
       }
       case 'gh_ci':
       case 'gh_review': {
-        if (repo && pr && taskRepo === repo && taskPr === pr) isMatch = true;
+        if (repo && taskRepo === repo && prMatch) isMatch = true;
         break;
       }
       case 'human_approval': {
