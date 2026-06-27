@@ -1354,10 +1354,11 @@ async function _runQueryLoopInner(
       }
     } finally {
       clearTimeout(firstEventTimer);
-      // NOTE: finalSession is read before registry.remove() below. After remove(),
+      // NOTE: finalSession is captured before registry.remove() below. After remove(),
       // the object reference remains valid (Map.delete doesn't mutate the value).
-      // cumulativeCostUsd is read from finalSession after remove — safe due to
-      // reference semantics, but keep the ordering if refactoring.
+      // It is read in two places after remove: (1) span attributes block reads
+      // cumulativeCostUsd, (2) fallback usage recorder reads cumulativeCostUsd.
+      // Both are safe due to reference semantics, but keep the ordering if refactoring.
       const finalSession = registry.get(clientId);
       if (finalSession) {
         finalSession.currentSnapshot = null;
