@@ -305,9 +305,9 @@ export class TaskStore {
 
   /** Look up a task by its external reference (e.g. "pr_shepherd:dimakis/centaur#42"). */
   getByExternalRef(ref: string): Task | null {
-    const row = this.getDb()
-      .prepare('SELECT * FROM tasks WHERE external_ref = ?')
-      .get(ref) as TaskRow | undefined;
+    const row = this.getDb().prepare('SELECT * FROM tasks WHERE external_ref = ?').get(ref) as
+      | TaskRow
+      | undefined;
     return row ? rowToTask(row) : null;
   }
 
