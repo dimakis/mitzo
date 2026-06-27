@@ -1724,6 +1724,27 @@ app.get('/api/calendar', async (req, res) => {
 const TODO_SCRIPT = join(BASE_REPO, 'command_center', 'todo_api.py');
 const TODO_TIMEOUT_MS = 30_000;
 
+// In-flight promote guard: prevents duplicate task creation from rapid double-clicks
+const promotesInFlight = new Set<string>();
+
+/** Build a description from context hints and optional user description. */
+function buildPromoteDescription(
+  userDescription: string | undefined,
+  contextHints: Record<string, unknown>,
+): string | undefined {
+  const parts: string[] = [];
+  if (userDescription) parts.push(userDescription);
+  if (contextHints.taskHint) parts.push(contextHints.taskHint as string);
+  const hintsWithValues = Object.entries(contextHints)
+    .filter(
+      ([k, v]) =>
+        k !== 'taskHint' && k !== 'sessionIds' && Array.isArray(v) && (v as unknown[]).length > 0,
+    )
+    .map(([k, v]) => `${k}: ${(v as string[]).join(', ')}`);
+  if (hintsWithValues.length > 0) parts.push(hintsWithValues.join('\n'));
+  return parts.length > 0 ? parts.join('\n\n') : undefined;
+}
+
 app.get('/api/todos', async (req, res) => {
   const profile = req.query.profile as string | undefined;
   const refresh = req.query.refresh === 'true';
@@ -1766,7 +1787,8 @@ app.get('/api/todos', async (req, res) => {
   try {
     const items = telosStore.listItems(profile, ['active', 'acknowledged']);
     const profiles = telosStore.listProfiles();
-    res.json({ profiles, items });
+    const parsed = TodoListResponse.safeParse({ profiles, items });
+    res.json(parsed.success ? parsed.data : { profiles, items });
   } catch (err: unknown) {
     log.warn('telos read failed', { error: err instanceof Error ? err.message : 'unknown' });
     res.json({ profiles: [], items: [] });
@@ -1942,17 +1964,12 @@ app.post('/api/workload/items/:id/promote', (req, res) => {
   const workloadItem = workloadStore.get(req.params.id);
 
   if (workloadItem) {
-    const descParts: string[] = [];
-    if (body.data.description) descParts.push(body.data.description);
-    if (workloadItem.contextHints.taskHint) descParts.push(workloadItem.contextHints.taskHint);
-    const hintsWithValues = Object.entries(workloadItem.contextHints)
-      .filter(([k, v]) => k !== 'taskHint' && Array.isArray(v) && v.length > 0)
-      .map(([k, v]) => `${k}: ${(v as string[]).join(', ')}`);
-    if (hintsWithValues.length > 0) descParts.push(hintsWithValues.join('\n'));
-
     const task = taskStore.create({
       title: workloadItem.title,
-      description: descParts.join('\n\n') || undefined,
+      description: buildPromoteDescription(
+        body.data.description,
+        workloadItem.contextHints as unknown as Record<string, unknown>,
+      ),
       annotations: workloadItem.sources.map(
         (s) => `Source: [${s.sourceType}] ${s.title} — ${s.url}`,
       ),
@@ -1973,46 +1990,52 @@ app.post('/api/workload/items/:id/promote', (req, res) => {
     return;
   }
 
-  // Guard: if already promoted, return existing goal link instead of creating duplicate
+  // Guard: if already promoted, return existing goal or 409 if task was deleted
   if (telosItem.goalId) {
     const existingTask = taskStore.get(telosItem.goalId);
-    res.status(200).json({ task: existingTask ?? { id: telosItem.goalId }, item: telosItem });
+    if (existingTask) {
+      res.status(200).json({ task: existingTask, item: telosItem });
+    } else {
+      res.status(409).json({ error: 'Item was previously promoted but the task was deleted' });
+    }
     return;
   }
 
-  const descParts: string[] = [];
-  if (body.data.description) descParts.push(body.data.description);
-  if (telosItem.contextHints.taskHint) descParts.push(telosItem.contextHints.taskHint);
-  const hintsWithValues = Object.entries(telosItem.contextHints)
-    .filter(([k, v]) => k !== 'taskHint' && k !== 'sessionIds' && Array.isArray(v) && v.length > 0)
-    .map(([k, v]) => `${k}: ${(v as string[]).join(', ')}`);
-  if (hintsWithValues.length > 0) descParts.push(hintsWithValues.join('\n'));
-
-  const task = taskStore.create({
-    title: telosItem.summary,
-    description: descParts.join('\n\n') || undefined,
-    annotations: telosItem.sources.map((s) => `Source: [${s.type}] ${s.title} — ${s.url}`),
-  });
-
-  // Bridge: set goal_id on the Telos item via Python (fire-and-forget, requires mgmt PR #202)
-  if (existsSync(TODO_SCRIPT)) {
-    execFileAsync('python3', [TODO_SCRIPT, '--set-goal', telosItem.id, task.id], {
-      timeout: TODO_TIMEOUT_MS,
-    }).catch((err) => {
-      log.warn('failed to set goal on telos item', {
-        itemId: telosItem.id,
-        error: err instanceof Error ? err.message : 'unknown',
-      });
-    });
+  // Race guard: prevent duplicate task creation from rapid double-clicks
+  if (promotesInFlight.has(telosItem.id)) {
+    res.status(409).json({ error: 'Promote already in progress' });
+    return;
   }
+  promotesInFlight.add(telosItem.id);
 
-  // Return Telos item with goalId so frontend can update state
-  const mappedItem = {
-    ...telosItem,
-    goalId: task.id,
-  };
-  res.status(201).json({ task, item: mappedItem });
-  onTaskBroadcast?.({ type: 'task_state', tasks: taskStore.getTree() });
+  try {
+    const task = taskStore.create({
+      title: telosItem.summary,
+      description: buildPromoteDescription(
+        body.data.description,
+        telosItem.contextHints as unknown as Record<string, unknown>,
+      ),
+      annotations: telosItem.sources.map((s) => `Source: [${s.type}] ${s.title} — ${s.url}`),
+    });
+
+    // Bridge: set goal_id on the Telos item via Python (fire-and-forget, requires mgmt PR #202)
+    if (existsSync(TODO_SCRIPT)) {
+      execFileAsync('python3', [TODO_SCRIPT, '--set-goal', telosItem.id, task.id], {
+        timeout: TODO_TIMEOUT_MS,
+      }).catch((err) => {
+        log.warn('failed to set goal on telos item', {
+          itemId: telosItem.id,
+          error: err instanceof Error ? err.message : 'unknown',
+        });
+      });
+    }
+
+    const mappedItem = { ...telosItem, goalId: task.id };
+    res.status(201).json({ task, item: mappedItem });
+    onTaskBroadcast?.({ type: 'task_state', tasks: taskStore.getTree() });
+  } finally {
+    promotesInFlight.delete(telosItem.id);
+  }
 });
 
 // --- Static files ---

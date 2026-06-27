@@ -370,6 +370,21 @@ describe('TelosStore', () => {
       store.close();
     });
 
+    it('surfaces orphaned child as root when parent is filtered out', () => {
+      const db = createTelosDb();
+      insertItem(db, { id: 'parent-done', status: 'completed' });
+      insertItem(db, { id: 'orphan-active', status: 'active', parent_id: 'parent-done' });
+      db.close();
+
+      const store = new TelosStore(dbPath, profilesDir);
+      // Only active items — parent is completed so not fetched as root
+      const items = store.listItems(undefined, ['active']);
+      // The child should appear as a root since its parent isn't in the result set
+      expect(items).toHaveLength(1);
+      expect(items[0].id).toBe('orphan-active');
+      store.close();
+    });
+
     it('returns all items when statuses array is empty', () => {
       const db = createTelosDb();
       insertItem(db, { id: 'a-active', status: 'active' });
@@ -427,6 +442,16 @@ describe('TelosStore', () => {
 
       const store = new TelosStore(dbPath, profilesDir);
       expect(store.getItem('nonexistent')).toBeNull();
+      store.close();
+    });
+
+    it('returns null for empty string', () => {
+      const db = createTelosDb();
+      insertItem(db, { id: 'some-item' });
+      db.close();
+
+      const store = new TelosStore(dbPath, profilesDir);
+      expect(store.getItem('')).toBeNull();
       store.close();
     });
 

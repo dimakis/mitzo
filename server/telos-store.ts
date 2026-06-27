@@ -248,6 +248,7 @@ export class TelosStore {
    * Get a single item by full or partial ID (prefix match).
    */
   getItem(id: string): TelosItem | null {
+    if (!id) return null;
     const db = this.getDb();
 
     // Try exact match
