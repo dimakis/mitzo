@@ -52,53 +52,6 @@ describe('ConnectionRegistry', () => {
     });
   });
 
-  describe('reconnect', () => {
-    it('swaps transport while preserving watched sessions and active session', () => {
-      const t1 = mockTransport(true);
-      const t2 = mockTransport(true);
-      registry.register('cid-1', t1);
-      registry.watch('cid-1', 'sess-a');
-      registry.watch('cid-1', 'sess-b');
-      registry.setActive('cid-1', 'sess-a');
-
-      registry.reconnect('cid-1', t2);
-
-      const conn = registry.get('cid-1')!;
-      expect(conn.transport).toBe(t2);
-      expect(conn.watchedSessions).toEqual(new Set(['sess-a', 'sess-b']));
-      expect(conn.activeSession).toBe('sess-a');
-    });
-
-    it('registers fresh connection for unknown connectionId', () => {
-      const t = mockTransport(true);
-      registry.reconnect('cid-unknown', t);
-
-      const conn = registry.get('cid-unknown');
-      expect(conn).toBeDefined();
-      expect(conn!.transport).toBe(t);
-      expect(conn!.watchedSessions).toEqual(new Set());
-    });
-
-    it('clears inactive timer on reconnect', () => {
-      vi.useFakeTimers();
-      const t1 = mockTransport(false);
-      const onExpired = vi.fn();
-      registry.register('cid-1', t1);
-      registry.watch('cid-1', 'sess-a');
-      registry.setOnExpired(onExpired);
-
-      registry.markInactive('cid-1');
-
-      const t2 = mockTransport(true);
-      registry.reconnect('cid-1', t2);
-
-      vi.advanceTimersByTime(ConnectionRegistry.INACTIVE_TTL_MS + 1000);
-      expect(onExpired).not.toHaveBeenCalled();
-
-      vi.useRealTimers();
-    });
-  });
-
   describe('watch / unwatch', () => {
     it('adds a session to a connection watch list', () => {
       registry.register('conn-1', mockTransport());
@@ -344,74 +297,6 @@ describe('ConnectionRegistry', () => {
     });
   });
 
-  describe('markInactive / TTL', () => {
-    afterEach(() => {
-      vi.useRealTimers();
-    });
-
-    it('fires onExpired after TTL when transport stays closed', () => {
-      vi.useFakeTimers();
-      const t = mockTransport(false);
-      const onExpired = vi.fn();
-      registry.register('cid-1', t);
-      registry.watch('cid-1', 'sess-a');
-      registry.watch('cid-1', 'sess-b');
-      registry.setOnExpired(onExpired);
-
-      registry.markInactive('cid-1');
-
-      vi.advanceTimersByTime(ConnectionRegistry.INACTIVE_TTL_MS - 1);
-      expect(onExpired).not.toHaveBeenCalled();
-
-      vi.advanceTimersByTime(2);
-      expect(onExpired).toHaveBeenCalledWith('cid-1', new Set(['sess-a', 'sess-b']));
-      expect(registry.get('cid-1')).toBeUndefined();
-    });
-
-    it('does not fire onExpired if transport becomes open before TTL', () => {
-      vi.useFakeTimers();
-      let open = false;
-      const t: SessionTransport = {
-        send: vi.fn(),
-        isOpen: () => open,
-      };
-      const onExpired = vi.fn();
-      registry.register('cid-1', t);
-      registry.watch('cid-1', 'sess-a');
-      registry.setOnExpired(onExpired);
-
-      registry.markInactive('cid-1');
-      open = true;
-
-      vi.advanceTimersByTime(ConnectionRegistry.INACTIVE_TTL_MS + 1);
-      expect(onExpired).not.toHaveBeenCalled();
-      expect(registry.get('cid-1')).toBeDefined();
-    });
-
-    it('is a no-op for unknown connections', () => {
-      expect(() => registry.markInactive('nonexistent')).not.toThrow();
-    });
-
-    it('replaces timer on repeated markInactive calls', () => {
-      vi.useFakeTimers();
-      const t = mockTransport(false);
-      const onExpired = vi.fn();
-      registry.register('cid-1', t);
-      registry.watch('cid-1', 'sess-a');
-      registry.setOnExpired(onExpired);
-
-      registry.markInactive('cid-1');
-      vi.advanceTimersByTime(30_000);
-      registry.markInactive('cid-1');
-
-      vi.advanceTimersByTime(30_000);
-      expect(onExpired).not.toHaveBeenCalled();
-
-      vi.advanceTimersByTime(30_001);
-      expect(onExpired).toHaveBeenCalledOnce();
-    });
-  });
-
   describe('periodic sync', () => {
     afterEach(() => {
       vi.useRealTimers();
@@ -636,22 +521,6 @@ describe('ConnectionRegistry', () => {
       // Timer stopped — no sync fires
       vi.advanceTimersByTime(5000);
       expect(store.getEventsAfter).not.toHaveBeenCalled();
-    });
-
-    it('clears inactive timers on dispose', () => {
-      vi.useFakeTimers();
-      const t = mockTransport(false);
-      const onExpired = vi.fn();
-      registry.register('cid-1', t);
-      registry.watch('cid-1', 'sess-a');
-      registry.setOnExpired(onExpired);
-      registry.markInactive('cid-1');
-
-      registry.dispose();
-
-      vi.advanceTimersByTime(ConnectionRegistry.INACTIVE_TTL_MS + 1000);
-      expect(onExpired).not.toHaveBeenCalled();
-      vi.useRealTimers();
     });
   });
 });

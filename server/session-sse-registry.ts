@@ -45,18 +45,6 @@ export class SessionSseRegistry {
   }
 
   /**
-   * Remove a stream only if the current entry for this connectionId is
-   * the given response. Prevents a stale close handler from removing a
-   * newer replacement stream after chatSseRegistry.add() swapped it.
-   * Returns true if the stream was removed, false if it was already replaced.
-   */
-  removeIfCurrent(connectionId: string, res: Response): boolean {
-    if (this.streams.get(connectionId) !== res) return false;
-    this.remove(connectionId);
-    return true;
-  }
-
-  /**
    * Send an SSE event to a specific connection.
    * Returns false if the connection doesn't exist or the write fails.
    *

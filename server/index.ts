@@ -83,7 +83,6 @@ import {
   isHelloHandshake,
   handleHello,
   dispatchV2Message,
-  getOwnerConnection,
   type V2HandlerContext,
 } from './ws-handler-v2.js';
 import { withSpan, withSpanAsync } from './tracing.js';
@@ -105,38 +104,6 @@ connRegistry.setEventStore({
   getEventsAfter: (sessionId, afterSeq, limit) =>
     eventStore.getEventsAfter(sessionId, afterSeq, limit),
   isSessionActive: (sessionId) => eventStore.getSession(sessionId)?.isActive ?? false,
-});
-
-// When a stable-cid connection's inactive TTL expires (no reconnect within
-// 60s), detach any sessions it was driving — same logic as the SSE close
-// handler for legacy connections.
-connRegistry.setOnExpired((connectionId, watchedSessions) => {
-  for (const sessionId of watchedSessions) {
-    const found = registry.findBySessionId(sessionId);
-    if (!found) continue;
-    // Skip if another connection has taken over this session
-    const ownerCid = getOwnerConnection(found.clientId);
-    if (ownerCid !== connectionId) {
-      log.info('skipping detach — session now owned by different connection', {
-        connectionId,
-        sessionId,
-        currentOwner: ownerCid,
-      });
-      continue;
-    }
-    if (registry.isSuspended(found.clientId)) continue;
-    const session = registry.get(found.clientId);
-    if (session && registry.isAttached(found.clientId)) {
-      detachChat(found.clientId);
-      overviewEmitter.touch(found.clientId);
-      overviewEmitter.scheduleBroadcast();
-      log.info('session detached after inactive TTL expired', {
-        connectionId,
-        sessionId,
-        clientId: found.clientId,
-      });
-    }
-  }
 });
 
 // Resolve cert paths relative to the project root (where package.json lives)
@@ -407,96 +374,54 @@ app.get('/api/chat/events', (req, res) => {
     'X-Accel-Buffering': 'no',
   });
 
-  // Accept client-provided stable connectionId to eliminate the reconnect
-  // ownership race. Client sends ?cid=<uuid>; server reuses it across
-  // SSE reconnects so the clientId (connectionId:sessionId) never changes.
-  const clientCid = req.query.cid as string | undefined;
-  const isStableCid =
-    clientCid != null &&
-    /^cid-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientCid);
-  if (clientCid != null && !isStableCid) {
-    log.warn('SSE connection: invalid cid format rejected', { cid: clientCid });
-  }
-  const connectionId = isStableCid
-    ? clientCid
-    : `conn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
+  const connectionId = `conn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const transport = new SseTransport(connectionId, chatSseRegistry);
 
-  // chatSseRegistry.add() closes any existing stream for this connectionId
-  // before storing the new one — handles same-cid reconnects cleanly.
   chatSseRegistry.add(connectionId, res);
+  connRegistry.register(connectionId, transport);
 
-  // For stable cids: swap transport on existing connection, preserving
-  // watched sessions and delivery cursors. For legacy: register fresh.
-  const existingConn = isStableCid ? connRegistry.get(connectionId) : undefined;
-  if (existingConn) {
-    connRegistry.reconnect(connectionId, transport);
-  } else {
-    connRegistry.register(connectionId, transport);
-  }
-
+  // Send welcome with connectionId — client uses this in X-Connection-ID header on POSTs
   chatSseRegistry.sendTo(connectionId, {
     type: 'welcome',
     protocolVersion: 2,
     connectionId,
   });
 
-  log.info('SSE chat stream connected', {
-    connectionId,
-    stableCid: isStableCid,
-    reconnected: !!existingConn,
-  });
+  // Reconnect is handled via POST /api/chat/reconnect — the client sends
+  // a reconnect POST on every welcome event. The old ?sessions= query param
+  // path was removed because EventSource auto-reconnect reuses the original
+  // URL (without the param), making it unreliable.
+
+  log.info('SSE chat stream connected', { connectionId });
 
   req.on('close', () => {
-    // Guard: only remove from SSE registry if this response is still the
-    // current one. When a new request arrives with the same stable cid,
-    // chatSseRegistry.add() closes the old response — its async close
-    // handler fires here. Without this guard, it would remove the NEW
-    // response that replaced it, breaking event delivery.
-    const wasCurrentStream = chatSseRegistry.removeIfCurrent(connectionId, res);
+    chatSseRegistry.remove(connectionId);
 
-    if (isStableCid) {
-      // Only start the inactive TTL if this was the actual current stream.
-      // If removeIfCurrent returned false, a new stream already replaced us
-      // via reconnect() — starting markInactive here would race against the
-      // fresh connection.
-      if (wasCurrentStream) {
-        connRegistry.markInactive(connectionId);
-      }
-      registry.removeObserver(transport);
-      log.info('SSE closed for stable-cid connection, deferring cleanup', {
-        connectionId,
-        wasCurrentStream,
-      });
-    } else {
-      // Legacy server-generated connectionId: immediate cleanup
-      const conn = connRegistry.get(connectionId);
-      const watchedSessions = conn ? [...conn.watchedSessions] : [];
+    const conn = connRegistry.get(connectionId);
+    const watchedSessions = conn ? [...conn.watchedSessions] : [];
 
-      connRegistry.remove(connectionId);
-      registry.removeObserver(transport);
+    connRegistry.remove(connectionId);
+    registry.removeObserver(transport);
 
-      withSpan('sse.disconnect', { 'sse.connectionId': connectionId }, () => {
-        for (const sessionId of watchedSessions) {
-          const found = registry.findBySessionId(sessionId);
-          if (!found) continue;
+    withSpan('sse.disconnect', { 'sse.connectionId': connectionId }, () => {
+      for (const sessionId of watchedSessions) {
+        const found = registry.findBySessionId(sessionId);
+        if (!found) continue;
 
-          if (registry.isSuspended(found.clientId)) {
-            log.info('SSE closed for suspended session (expected)', { connectionId, sessionId });
-            continue;
-          }
-
-          const session = registry.get(found.clientId);
-          if (session && session.transport === transport && registry.isAttached(found.clientId)) {
-            detachChat(found.clientId);
-            overviewEmitter.touch(found.clientId);
-            overviewEmitter.scheduleBroadcast();
-            log.info('SSE session detached (surviving)', { connectionId, sessionId });
-          }
+        if (registry.isSuspended(found.clientId)) {
+          log.info('SSE closed for suspended session (expected)', { connectionId, sessionId });
+          continue;
         }
-      });
-    }
+
+        const session = registry.get(found.clientId);
+        if (session && session.transport === transport && registry.isAttached(found.clientId)) {
+          detachChat(found.clientId);
+          overviewEmitter.touch(found.clientId);
+          overviewEmitter.scheduleBroadcast();
+          log.info('SSE session detached (surviving)', { connectionId, sessionId });
+        }
+      }
+    });
 
     log.info('SSE chat stream disconnected', { connectionId });
   });

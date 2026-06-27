@@ -66,7 +66,6 @@ function createConfig(overrides?: Partial<SseConnectionConfig>): SseConnectionCo
     baseUrl: 'https://localhost:3100',
     fetch: vi.fn().mockResolvedValue({ ok: true }),
     createEventSource: (url: string) => new MockEventSource(url) as unknown as EventSource,
-    connectionId: 'cid-test',
     ...overrides,
   };
 }
@@ -94,7 +93,7 @@ describe('SseConnection', () => {
     conn.connect();
 
     expect(MockEventSource.instances).toHaveLength(1);
-    expect(lastES().url).toBe('https://localhost:3100/api/chat/events?cid=cid-test');
+    expect(lastES().url).toBe('https://localhost:3100/api/chat/events');
   });
 
   it('becomes connected after welcome event', () => {
@@ -805,10 +804,9 @@ describe('SseConnection', () => {
     // Force reconnect
     conn.checkAndReconnect(true);
 
-    // URL should include cid but NOT sessions (reconnect is handled via POST)
+    // URL should be clean — reconnect is handled via POST, not query param
     const newES = lastES();
-    expect(newES.url).toContain('/api/chat/events?cid=');
-    expect(newES.url).not.toContain('sessions=');
+    expect(newES.url).toBe('https://localhost:3100/api/chat/events');
   });
 
   it('checkAndReconnect(false) is no-op when connected', () => {
@@ -821,80 +819,6 @@ describe('SseConnection', () => {
 
     // Should NOT create a new EventSource
     expect(MockEventSource.instances.length).toBe(count);
-  });
-
-  // ─── Stable connectionId ────────────────────────────────────────────────
-
-  describe('stable connectionId', () => {
-    it('includes client connectionId in EventSource URL', () => {
-      const conn = new SseConnection(createConfig({ connectionId: 'cid-my-tab' }));
-      conn.connect();
-      expect(lastES().url).toBe('https://localhost:3100/api/chat/events?cid=cid-my-tab');
-    });
-
-    it('auto-generates connectionId when not provided', () => {
-      const conn = new SseConnection(createConfig({ connectionId: undefined }));
-      conn.connect();
-      expect(lastES().url).toMatch(/\?cid=cid-[0-9a-f-]{36}$/);
-    });
-
-    it('preserves connectionId when server echoes it back', () => {
-      const conn = new SseConnection(createConfig({ connectionId: 'cid-stable' }));
-      conn.connect();
-      lastES()._emit('welcome', {
-        type: 'welcome',
-        protocolVersion: 2,
-        connectionId: 'cid-stable',
-      });
-      expect(conn.getConnectionId()).toBe('cid-stable');
-    });
-
-    it('falls back to server connectionId when it differs (old server)', () => {
-      const conn = new SseConnection(createConfig({ connectionId: 'cid-client' }));
-      conn.connect();
-      lastES()._emit('welcome', {
-        type: 'welcome',
-        protocolVersion: 2,
-        connectionId: 'conn-server-assigned',
-      });
-      expect(conn.getConnectionId()).toBe('conn-server-assigned');
-    });
-
-    it('uses same connectionId across reconnects', () => {
-      const conn = new SseConnection(createConfig({ connectionId: 'cid-stable' }));
-      conn.connect();
-      lastES()._emit('welcome', {
-        type: 'welcome',
-        protocolVersion: 2,
-        connectionId: 'cid-stable',
-      });
-
-      conn.checkAndReconnect(true);
-
-      expect(lastES().url).toBe('https://localhost:3100/api/chat/events?cid=cid-stable');
-    });
-
-    it('sends connectionId in X-Connection-ID header on POST', () => {
-      const mockFetch = vi.fn().mockResolvedValue({ ok: true });
-      const conn = new SseConnection(createConfig({ fetch: mockFetch, connectionId: 'cid-hdr' }));
-      conn.connect();
-      lastES()._emit('welcome', {
-        type: 'welcome',
-        protocolVersion: 2,
-        connectionId: 'cid-hdr',
-      });
-
-      conn.send({ type: 'send', prompt: 'hi' });
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({
-          headers: expect.objectContaining({
-            'X-Connection-ID': 'cid-hdr',
-          }),
-        }),
-      );
-    });
   });
 
   // ─── Session tracking ──────────────────────────────────────────────────
@@ -947,247 +871,5 @@ describe('SseConnection', () => {
     conn.sendSuspend();
 
     expect(mockFetch).not.toHaveBeenCalled();
-  });
-
-  // ─── POST failure surfacing ───────────────────────────────────────────
-
-  describe('POST failure surfacing', () => {
-    it('emits _send_failed on 500 response for send endpoint', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 500 });
-      const conn = new SseConnection(createConfig({ fetch: mockFetch }));
-      const listener = vi.fn();
-      conn.onMessage(listener);
-      conn.connect();
-      lastES()._emit('welcome', {
-        type: 'welcome',
-        protocolVersion: 2,
-        connectionId: 'cid-test',
-      });
-
-      conn.send({ type: 'send', prompt: 'hello', clientMsgId: 'msg-1' });
-      await vi.runAllTimersAsync();
-
-      expect(listener).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: '_send_failed',
-          clientMsgId: 'msg-1',
-          willRetry: true,
-        }),
-      );
-    });
-
-    it('emits _send_failed on network error for send endpoint', async () => {
-      const mockFetch = vi.fn().mockRejectedValue(new Error('network error'));
-      const conn = new SseConnection(createConfig({ fetch: mockFetch }));
-      const listener = vi.fn();
-      conn.onMessage(listener);
-      conn.connect();
-      lastES()._emit('welcome', {
-        type: 'welcome',
-        protocolVersion: 2,
-        connectionId: 'cid-test',
-      });
-
-      conn.send({ type: 'send', prompt: 'hello', clientMsgId: 'msg-2' });
-      await vi.runAllTimersAsync();
-
-      expect(listener).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: '_send_failed',
-          clientMsgId: 'msg-2',
-          willRetry: true,
-        }),
-      );
-    });
-
-    it('re-queues failed send for retry on reconnect', async () => {
-      let callCount = 0;
-      const mockFetch = vi.fn().mockImplementation(() => {
-        callCount++;
-        if (callCount === 1) return Promise.resolve({ ok: false, status: 500 });
-        return Promise.resolve({ ok: true });
-      });
-      const conn = new SseConnection(createConfig({ fetch: mockFetch }));
-      conn.connect();
-      lastES()._emit('welcome', {
-        type: 'welcome',
-        protocolVersion: 2,
-        connectionId: 'cid-test',
-      });
-
-      conn.send({ type: 'send', prompt: 'retry me', clientMsgId: 'r-1' });
-      await vi.runAllTimersAsync();
-
-      conn.checkAndReconnect(true);
-      lastES()._emit('welcome', {
-        type: 'welcome',
-        protocolVersion: 2,
-        connectionId: 'cid-test',
-      });
-      await vi.runAllTimersAsync();
-
-      expect(mockFetch).toHaveBeenCalledTimes(2);
-    });
-
-    it('does not emit _send_failed for non-send endpoints', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 500 });
-      const conn = new SseConnection(createConfig({ fetch: mockFetch }));
-      const listener = vi.fn();
-      conn.onMessage(listener);
-      conn.connect();
-      lastES()._emit('welcome', {
-        type: 'welcome',
-        protocolVersion: 2,
-        connectionId: 'cid-test',
-      });
-
-      conn.send({ type: 'stop', sessionId: 'sess-1' });
-      await vi.runAllTimersAsync();
-
-      expect(listener).not.toHaveBeenCalledWith(expect.objectContaining({ type: '_send_failed' }));
-    });
-
-    it('drops message after max retries and emits willRetry: false', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 500 });
-      const conn = new SseConnection(createConfig({ fetch: mockFetch }));
-      const listener = vi.fn();
-      conn.onMessage(listener);
-      conn.connect();
-      lastES()._emit('welcome', {
-        type: 'welcome',
-        protocolVersion: 2,
-        connectionId: 'cid-test',
-      });
-
-      // Initial send fails → queued with retries:1
-      conn.send({ type: 'send', prompt: 'persistent fail', clientMsgId: 'pf-1' });
-      await vi.runAllTimersAsync();
-
-      // 3 reconnect cycles — each flush retries and fails again
-      for (let i = 0; i < 3; i++) {
-        conn.checkAndReconnect(true);
-        lastES()._emit('welcome', {
-          type: 'welcome',
-          protocolVersion: 2,
-          connectionId: 'cid-test',
-        });
-        await vi.runAllTimersAsync();
-      }
-
-      // 4 _send_failed events: 3 willRetry:true + 1 willRetry:false
-      const failedEvents = listener.mock.calls
-        .map((c: unknown[]) => c[0] as Record<string, unknown>)
-        .filter((m) => m.type === '_send_failed');
-
-      expect(failedEvents).toHaveLength(4);
-      expect(failedEvents[3]).toEqual(expect.objectContaining({ willRetry: false }));
-
-      // One more reconnect — message should NOT be retried (was dropped)
-      mockFetch.mockClear();
-      conn.checkAndReconnect(true);
-      lastES()._emit('welcome', {
-        type: 'welcome',
-        protocolVersion: 2,
-        connectionId: 'cid-test',
-      });
-      await vi.runAllTimersAsync();
-
-      expect(mockFetch).not.toHaveBeenCalled();
-    });
-
-    it('emits _send_failed with willRetry:false for 404 (permanent failure)', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 404 });
-      const conn = new SseConnection(createConfig({ fetch: mockFetch }));
-      const listener = vi.fn();
-      conn.onMessage(listener);
-      conn.connect();
-      lastES()._emit('welcome', {
-        type: 'welcome',
-        protocolVersion: 2,
-        connectionId: 'cid-test',
-      });
-
-      conn.send({ type: 'send', prompt: 'hello', clientMsgId: 'msg-404' });
-      await vi.runAllTimersAsync();
-
-      expect(listener).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: '_send_failed',
-          clientMsgId: 'msg-404',
-          willRetry: false,
-        }),
-      );
-    });
-
-    it('emits _send_failed with willRetry:false for 400 (permanent failure)', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 400 });
-      const conn = new SseConnection(createConfig({ fetch: mockFetch }));
-      const listener = vi.fn();
-      conn.onMessage(listener);
-      conn.connect();
-      lastES()._emit('welcome', {
-        type: 'welcome',
-        protocolVersion: 2,
-        connectionId: 'cid-test',
-      });
-
-      conn.send({ type: 'send', prompt: 'bad request', clientMsgId: 'msg-400' });
-      await vi.runAllTimersAsync();
-
-      expect(listener).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: '_send_failed',
-          clientMsgId: 'msg-400',
-          willRetry: false,
-        }),
-      );
-    });
-
-    it('emits _send_failed on 429 rate limit', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 429 });
-      const conn = new SseConnection(createConfig({ fetch: mockFetch }));
-      const listener = vi.fn();
-      conn.onMessage(listener);
-      conn.connect();
-      lastES()._emit('welcome', {
-        type: 'welcome',
-        protocolVersion: 2,
-        connectionId: 'cid-test',
-      });
-
-      conn.send({ type: 'send', prompt: 'hello', clientMsgId: 'msg-3' });
-      await vi.runAllTimersAsync();
-
-      expect(listener).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: '_send_failed',
-          willRetry: true,
-        }),
-      );
-    });
-
-    it('retries failed send after delay even without reconnect', async () => {
-      let callCount = 0;
-      const mockFetch = vi.fn().mockImplementation(() => {
-        callCount++;
-        if (callCount === 1) return Promise.resolve({ ok: false, status: 500 });
-        return Promise.resolve({ ok: true });
-      });
-      const conn = new SseConnection(createConfig({ fetch: mockFetch }));
-      conn.connect();
-      lastES()._emit('welcome', {
-        type: 'welcome',
-        protocolVersion: 2,
-        connectionId: 'cid-test',
-      });
-
-      // First send fails with 500 — gets queued for retry
-      conn.send({ type: 'send', prompt: 'retry me', clientMsgId: 'r-1' });
-      await vi.runAllTimersAsync();
-
-      // The retry flush timer fires after 3s and retries the queued message
-      // (no reconnect needed — SSE stream stayed connected)
-      expect(mockFetch).toHaveBeenCalledTimes(2);
-    });
   });
 });

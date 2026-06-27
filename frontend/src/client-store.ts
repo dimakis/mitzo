@@ -25,23 +25,11 @@ import { getPreferredModel } from './lib/model-preference';
  */
 const useSSE = typeof window !== 'undefined' && localStorage.getItem('mitzo:transport') === 'sse';
 
-/** Stable connectionId per browser tab — survives SSE reconnects. */
-function getOrCreateConnectionId(): string {
-  const KEY = 'mitzo:connectionId';
-  let cid = sessionStorage.getItem(KEY);
-  if (!cid) {
-    cid = `cid-${crypto.randomUUID()}`;
-    sessionStorage.setItem(KEY, cid);
-  }
-  return cid;
-}
-
 const sseConfig: SseConnectionConfig | undefined = useSSE
   ? {
       baseUrl: getApiBaseUrl(),
       fetch: (url, init) => apiFetch(url, init),
       suspendUrl: `${getApiBaseUrl()}/api/sessions/suspend`,
-      connectionId: getOrCreateConnectionId(),
     }
   : undefined;
 
