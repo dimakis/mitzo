@@ -22,12 +22,13 @@ fi
 echo "[ensure-observability] Starting observability containers..."
 "$PODMAN" compose -f "$COMPOSE_FILE" up -d 2>&1
 
-# 3. Verify
+# 3. Verify — match both Compose v1 (mitzo_svc_1) and v2 (mitzo-svc-1) naming
 for svc in jaeger loki grafana mlflow; do
-  container="mitzo_${svc}_1"
-  if "$PODMAN" ps --filter "name=$container" --format '{{.Names}}' 2>/dev/null | grep -q "$container"; then
+  # Filter matches any container whose name contains the service name
+  container=$("$PODMAN" ps --filter "name=mitzo.*${svc}" --format '{{.Names}}' 2>/dev/null | head -1)
+  if [ -n "$container" ]; then
     echo "[ensure-observability] $container: running"
   else
-    echo "[ensure-observability] $container: FAILED TO START" >&2
+    echo "[ensure-observability] mitzo_${svc}: FAILED TO START" >&2
   fi
 done
