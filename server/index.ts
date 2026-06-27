@@ -315,6 +315,11 @@ setSessionChangeCallback((clientId, event, sessionId) => {
     if (session?.sessionId) {
       eventStore.updateLastSpeaker(session.sessionId, 'assistant');
       overviewEmitter.updateSpeaker(session.sessionId, 'assistant');
+      // Update preview cache from DB (preview was persisted before flush fired turn_end)
+      const meta = eventStore.getSession(session.sessionId);
+      if (meta?.lastAssistantPreview) {
+        overviewEmitter.updatePreview(session.sessionId, meta.lastAssistantPreview);
+      }
     }
   }
   overviewEmitter.scheduleBroadcast();

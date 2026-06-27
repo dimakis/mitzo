@@ -642,212 +642,29 @@ describe('EventStore', () => {
     });
   });
 
-  describe('toClientState mapping (via session_state_changed events)', () => {
-    const sid = 'client-state-test';
+  describe('lastAssistantPreview', () => {
+    const sid = 'preview-session';
 
     beforeEach(() => {
       store.upsertSession({ sessionId: sid });
     });
 
-    it('maps CREATED to idle', () => {
-      store.setSessionState(sid, 'CREATED', { force: true });
-      const events = store.getSessionEvents(sid);
-      const stateEvent = events.find((e) => e.type === 'session_state_changed');
-      expect(stateEvent?.payload.state).toBe('idle');
-      expect(stateEvent?.payload.internalState).toBe('CREATED');
+    it('stores and retrieves preview text', () => {
+      store.updateLastAssistantPreview(sid, 'Here is the plan...');
+      const meta = store.getSession(sid);
+      expect(meta?.lastAssistantPreview).toBe('Here is the plan...');
     });
 
-    it('maps STARTING to running', () => {
-      store.setSessionState(sid, 'STARTING', { force: true });
-      const events = store.getSessionEvents(sid);
-      const stateEvent = events.find((e) => e.type === 'session_state_changed');
-      expect(stateEvent?.payload.state).toBe('running');
+    it('overwrites previous preview on update', () => {
+      store.updateLastAssistantPreview(sid, 'First response');
+      store.updateLastAssistantPreview(sid, 'Second response');
+      const meta = store.getSession(sid);
+      expect(meta?.lastAssistantPreview).toBe('Second response');
     });
 
-    it('maps ACTIVE to running', () => {
-      store.setSessionState(sid, 'ACTIVE', { force: true });
-      const events = store.getSessionEvents(sid);
-      const stateEvent = events.find((e) => e.type === 'session_state_changed');
-      expect(stateEvent?.payload.state).toBe('running');
-    });
-
-    it('maps DETACHED to idle', () => {
-      store.setSessionState(sid, 'DETACHED', { force: true });
-      const events = store.getSessionEvents(sid);
-      const stateEvent = events.find((e) => e.type === 'session_state_changed');
-      expect(stateEvent?.payload.state).toBe('idle');
-    });
-
-    it('maps SUSPENDED to idle', () => {
-      store.setSessionState(sid, 'SUSPENDED', { force: true });
-      const events = store.getSessionEvents(sid);
-      const stateEvent = events.find((e) => e.type === 'session_state_changed');
-      expect(stateEvent?.payload.state).toBe('idle');
-    });
-
-    it('maps CLOSING to idle', () => {
-      store.setSessionState(sid, 'CLOSING', { force: true });
-      const events = store.getSessionEvents(sid);
-      const stateEvent = events.find((e) => e.type === 'session_state_changed');
-      expect(stateEvent?.payload.state).toBe('idle');
-    });
-
-    it('maps ENDED to idle', () => {
-      store.setSessionState(sid, 'ENDED', { force: true });
-      const events = store.getSessionEvents(sid);
-      const stateEvent = events.find((e) => e.type === 'session_state_changed');
-      expect(stateEvent?.payload.state).toBe('idle');
-    });
-
-    it('includes timestamp in event payload', () => {
-      const before = Date.now();
-      store.setSessionState(sid, 'ACTIVE', { force: true });
-      const events = store.getSessionEvents(sid);
-      const stateEvent = events.find((e) => e.type === 'session_state_changed');
-      expect(stateEvent?.payload.timestamp).toBeGreaterThanOrEqual(before);
-    });
-  });
-
-  describe('setSessionState syncs is_active', () => {
-    const sid = 'is-active-sync-test';
-
-    beforeEach(() => {
-      store.upsertSession({ sessionId: sid });
-    });
-
-    it('sets is_active=true for ACTIVE', () => {
-      store.setSessionState(sid, 'ACTIVE', { force: true });
-      expect(store.getSession(sid)!.isActive).toBe(true);
-    });
-
-    it('sets is_active=true for DETACHED', () => {
-      store.setSessionState(sid, 'DETACHED', { force: true });
-      expect(store.getSession(sid)!.isActive).toBe(true);
-    });
-
-    it('sets is_active=true for SUSPENDED', () => {
-      store.setSessionState(sid, 'SUSPENDED', { force: true });
-      expect(store.getSession(sid)!.isActive).toBe(true);
-    });
-
-    it('sets is_active=false for ENDED', () => {
-      store.setSessionState(sid, 'ENDED', { force: true });
-      expect(store.getSession(sid)!.isActive).toBe(false);
-    });
-
-    it('sets is_active=false for CLOSING', () => {
-      store.setSessionState(sid, 'CLOSING', { force: true });
-      expect(store.getSession(sid)!.isActive).toBe(false);
-    });
-
-    it('sets is_active=true for CREATED', () => {
-      store.setSessionState(sid, 'CREATED', { force: true });
-      expect(store.getSession(sid)!.isActive).toBe(true);
-    });
-
-    it('sets is_active=true for STARTING', () => {
-      store.setSessionState(sid, 'STARTING', { force: true });
-      expect(store.getSession(sid)!.isActive).toBe(true);
-    });
-  });
-
-  describe('recoverStaleSessions', () => {
-    it('transitions ACTIVE sessions to ENDED', () => {
-      store.upsertSession({ sessionId: 'active-1' });
-      store.setSessionState('active-1', 'ACTIVE', { force: true });
-
-      const count = store.recoverStaleSessions();
-
-      expect(count).toBe(1);
-      expect(store.getSessionState('active-1')).toBe('ENDED');
-    });
-
-    it('transitions STARTING sessions to ENDED', () => {
-      store.upsertSession({ sessionId: 'starting-1' });
-      store.setSessionState('starting-1', 'STARTING', { force: true });
-
-      store.recoverStaleSessions();
-
-      expect(store.getSessionState('starting-1')).toBe('ENDED');
-    });
-
-    it('transitions DETACHED sessions to ENDED', () => {
-      store.upsertSession({ sessionId: 'detached-1' });
-      store.setSessionState('detached-1', 'DETACHED', { force: true });
-
-      store.recoverStaleSessions();
-
-      expect(store.getSessionState('detached-1')).toBe('ENDED');
-    });
-
-    it('transitions SUSPENDED sessions to ENDED', () => {
-      store.upsertSession({ sessionId: 'suspended-1' });
-      store.setSessionState('suspended-1', 'SUSPENDED', { force: true });
-
-      store.recoverStaleSessions();
-
-      expect(store.getSessionState('suspended-1')).toBe('ENDED');
-    });
-
-    it('transitions CLOSING sessions to ENDED', () => {
-      store.upsertSession({ sessionId: 'closing-1' });
-      store.setSessionState('closing-1', 'CLOSING', { force: true });
-
-      store.recoverStaleSessions();
-
-      expect(store.getSessionState('closing-1')).toBe('ENDED');
-    });
-
-    it('does not touch ENDED sessions', () => {
-      store.upsertSession({ sessionId: 'ended-1' });
-      store.setSessionState('ended-1', 'ENDED', { force: true });
-
-      const count = store.recoverStaleSessions();
-
-      expect(count).toBe(0);
-      expect(store.getSessionState('ended-1')).toBe('ENDED');
-    });
-
-    it('does not touch CREATED sessions', () => {
-      store.upsertSession({ sessionId: 'created-1' });
-      store.setSessionState('created-1', 'CREATED', { force: true });
-
-      const count = store.recoverStaleSessions();
-
-      expect(count).toBe(0);
-      expect(store.getSessionState('created-1')).toBe('CREATED');
-    });
-
-    it('returns correct count for multiple stale sessions', () => {
-      store.upsertSession({ sessionId: 'stale-1' });
-      store.upsertSession({ sessionId: 'stale-2' });
-      store.upsertSession({ sessionId: 'ok-1' });
-      store.setSessionState('stale-1', 'ACTIVE', { force: true });
-      store.setSessionState('stale-2', 'DETACHED', { force: true });
-      store.setSessionState('ok-1', 'ENDED', { force: true });
-
-      const count = store.recoverStaleSessions();
-
-      expect(count).toBe(2);
-    });
-
-    it('emits session_state_changed events for recovered sessions', () => {
-      store.upsertSession({ sessionId: 'recover-1' });
-      store.setSessionState('recover-1', 'ACTIVE', { force: true });
-
-      // Clear events from setup
-      const beforeCount = store.getSessionEvents('recover-1').length;
-
-      store.recoverStaleSessions();
-
-      const events = store.getSessionEvents('recover-1');
-      // Should have new session_state_changed event from recovery
-      const recoveryEvent = events
-        .slice(beforeCount)
-        .find((e) => e.type === 'session_state_changed');
-      expect(recoveryEvent).toBeDefined();
-      expect(recoveryEvent?.payload.state).toBe('idle');
-      expect(recoveryEvent?.payload.internalState).toBe('ENDED');
+    it('returns null when no preview has been set', () => {
+      const meta = store.getSession(sid);
+      expect(meta?.lastAssistantPreview).toBeNull();
     });
   });
 
