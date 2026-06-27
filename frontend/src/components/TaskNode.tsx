@@ -81,25 +81,66 @@ function ContextLine({
       return (
         <>
           {STATUS_LABELS.active}
-          {sessionLink && <>{dot}{sessionLink}</>}
+          {sessionLink && (
+            <>
+              {dot}
+              {sessionLink}
+            </>
+          )}
           {meta?.elapsedLabel && `${dot}${meta.elapsedLabel}`}
         </>
       );
     case 'pending_review':
-      return <>awaiting approval{sessionLink && <>{dot}{sessionLink}</>}</>;
+      return (
+        <>
+          awaiting approval
+          {sessionLink && (
+            <>
+              {dot}
+              {sessionLink}
+            </>
+          )}
+        </>
+      );
     case 'blocked':
-      return <>{meta?.blockerSummary ?? 'blocked'}{sessionLink && <>{dot}{sessionLink}</>}</>;
+      return (
+        <>
+          {meta?.blockerSummary ?? 'blocked'}
+          {sessionLink && (
+            <>
+              {dot}
+              {sessionLink}
+            </>
+          )}
+        </>
+      );
     case 'done':
       return (
         <>
           {meta?.completedAgo ? `done${dot}${meta.completedAgo}` : 'done'}
-          {sessionLink && <>{dot}{sessionLink}</>}
+          {sessionLink && (
+            <>
+              {dot}
+              {sessionLink}
+            </>
+          )}
         </>
       );
     case 'failed': {
       const label = meta?.blockerSummary ?? 'failed';
       const retry = task.retryCount > 0 ? `${dot}retry ${task.retryCount}` : '';
-      return <>{label}{retry}{sessionLink && <>{dot}{sessionLink}</>}</>;
+      return (
+        <>
+          {label}
+          {retry}
+          {sessionLink && (
+            <>
+              {dot}
+              {sessionLink}
+            </>
+          )}
+        </>
+      );
     }
     default:
       return null;
@@ -107,7 +148,13 @@ function ContextLine({
 }
 
 function hasContextLine(status: TaskStatus): boolean {
-  return status === 'active' || status === 'pending_review' || status === 'blocked' || status === 'done' || status === 'failed';
+  return (
+    status === 'active' ||
+    status === 'pending_review' ||
+    status === 'blocked' ||
+    status === 'done' ||
+    status === 'failed'
+  );
 }
 
 function contextColorClass(status: TaskStatus): string {
@@ -183,9 +230,7 @@ export function TaskNode({
               <ContextLine task={task} meta={meta} onNavigateSession={handleNavigateSession} />
             </div>
           )}
-          {task.summary && (
-            <div className="task-node-summary">{task.summary}</div>
-          )}
+          {task.summary && <div className="task-node-summary">{task.summary}</div>}
         </div>
         {task.stageType && STAGE_LABELS[task.stageType] && (
           <span className={`task-node-stage task-node-stage--${task.stageType}`}>
