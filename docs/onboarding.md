@@ -95,7 +95,7 @@ Generate a secret with `openssl rand -hex 32` and paste the output as `AUTH_SECR
 | `CLOUD_ML_REGION`             | `us-east5`              | GCP region for Vertex                                                             |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | —                       | OTLP endpoint for tracing (e.g. `http://localhost:4318`)                          |
 | `LOKI_HOST`                   | —                       | Loki endpoint for log aggregation                                                 |
-| `MLFLOW_TRACKING_URI`         | —                       | MLflow endpoint for experiment tracking (e.g. `http://localhost:5050`)             |
+| `MLFLOW_TRACKING_URI`         | —                       | MLflow endpoint for experiment tracking (e.g. `http://localhost:5050`)            |
 | `CONTEXGIN_URL`               | `http://localhost:8321` | ContexGin goal registry URL                                                       |
 
 ## Step 3: Generate HTTPS certificate

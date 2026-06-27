@@ -15,20 +15,14 @@ describe('observability stack config', () => {
   });
 
   it('ensure-observability.sh verifies all expected services', () => {
-    const script = readFileSync(
-      resolve(ROOT, 'scripts/ensure-observability.sh'),
-      'utf-8',
-    );
+    const script = readFileSync(resolve(ROOT, 'scripts/ensure-observability.sh'), 'utf-8');
     for (const svc of EXPECTED_SERVICES) {
       expect(script).toContain(svc);
     }
   });
 
   it('ensure-observability.sh uses flexible container name matching', () => {
-    const script = readFileSync(
-      resolve(ROOT, 'scripts/ensure-observability.sh'),
-      'utf-8',
-    );
+    const script = readFileSync(resolve(ROOT, 'scripts/ensure-observability.sh'), 'utf-8');
     // Should use --filter pattern, not hardcoded _svc_1 names in commands
     expect(script).toContain('--filter');
     // Actual container references use dynamic filter, not hardcoded names
