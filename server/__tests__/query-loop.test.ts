@@ -1572,6 +1572,44 @@ describe('runQueryLoop', () => {
       expect(events.some((e) => e.type === 'session_end')).toBe(true);
     });
 
+    it('records fallback usage for sessions that abort without SDK result', async () => {
+      const store = new EventStore(':memory:');
+      const connRegistry = new ConnectionRegistry();
+      const v2Transport = fakeTransport();
+      connRegistry.register(clientId, v2Transport);
+      connRegistry.watch(clientId, 'sess-usage-fallback');
+      connRegistry.setActive(clientId, 'sess-usage-fallback');
+
+      const session = registry.get(clientId)!;
+      session.sessionId = 'sess-usage-fallback';
+
+      // Seed the session row so recordUsage UPDATE has a target
+      store.upsertSession({ sessionId: 'sess-usage-fallback', cwd: '/tmp' });
+
+      // Stream that yields an assistant event (resolves sessionId) then errors
+      // before an SDK result event arrives — simulates WS disconnect mid-session.
+      async function* abortStream() {
+        yield {
+          type: 'assistant',
+          session_id: 'sess-usage-fallback',
+          message: { id: 'msg-1', role: 'assistant' },
+        };
+        throw new Error('connection lost');
+      }
+
+      await runQueryLoop(abortStream(), clientId, registry, abortController, store, undefined, {
+        connRegistry,
+      });
+
+      // Fallback usage should be recorded with best-effort data
+      const sessionMeta = store.getSession('sess-usage-fallback');
+      expect(sessionMeta).toBeDefined();
+      // durationMs may be 0 in fast tests — verify it was written (not default -1)
+      expect(sessionMeta!.durationMs).toBeGreaterThanOrEqual(0);
+      // Session should be marked ENDED with error reason (abort path)
+      expect(sessionMeta!.state).toBe('ENDED');
+    });
+
     it('delivers events to a NEW connection after WS reconnect (old connection gone)', async () => {
       const connRegistry = new ConnectionRegistry();
       const oldTransport = fakeTransport();
