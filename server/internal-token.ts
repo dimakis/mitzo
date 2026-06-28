@@ -1,16 +1,17 @@
 import { randomBytes, timingSafeEqual } from 'crypto';
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { dirname, join } from 'path';
 import { homedir } from 'os';
 
 const TOKEN_PATH = join(homedir(), '.mitzo', 'internal-token');
-const TOKEN_LENGTH = 64; // 32 bytes as hex
+export const TOKEN_LENGTH = 64; // 32 bytes as hex
 
 /** Load existing token from disk or generate a new one.
- *  Persists across restarts so external clients (agents, hooks) stay authenticated. */
-function loadOrCreateToken(): string {
+ *  Persists across restarts so external clients (agents, hooks) stay authenticated.
+ *  Accepts an optional path override for testing. */
+export function loadOrCreateToken(tokenPath: string = TOKEN_PATH): string {
   try {
-    const existing = readFileSync(TOKEN_PATH, 'utf-8').trim();
+    const existing = readFileSync(tokenPath, 'utf-8').trim();
     if (existing.length === TOKEN_LENGTH && /^[0-9a-fA-F]+$/.test(existing)) {
       return existing;
     }
@@ -20,9 +21,8 @@ function loadOrCreateToken(): string {
 
   const token = randomBytes(32).toString('hex');
   try {
-    const dir = join(homedir(), '.mitzo');
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
-    writeFileSync(TOKEN_PATH, token, { mode: 0o600 });
+    mkdirSync(dirname(tokenPath), { recursive: true, mode: 0o700 });
+    writeFileSync(tokenPath, token, { mode: 0o600 });
   } catch {
     // Non-fatal — hooks will fall back gracefully
   }

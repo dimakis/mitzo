@@ -1,29 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { randomBytes } from 'crypto';
-import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'fs';
+import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, chmodSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-
-/** Isolated test of loadOrCreateToken logic without importing the module
- *  (which triggers side-effects). We replicate the function locally. */
-const TOKEN_LENGTH = 64;
-
-function loadOrCreateToken(tokenPath: string): string {
-  try {
-    const existing = readFileSync(tokenPath, 'utf-8').trim();
-    if (existing.length === TOKEN_LENGTH && /^[0-9a-fA-F]+$/.test(existing)) {
-      return existing;
-    }
-  } catch {
-    // File doesn't exist or isn't readable — generate a new one
-  }
-
-  const token = randomBytes(32).toString('hex');
-  const dir = tokenPath.substring(0, tokenPath.lastIndexOf('/'));
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  writeFileSync(tokenPath, token, { mode: 0o600 });
-  return token;
-}
+import { loadOrCreateToken, TOKEN_LENGTH } from '../internal-token.js';
 
 describe('loadOrCreateToken', () => {
   let testDir: string;
@@ -99,5 +78,20 @@ describe('loadOrCreateToken', () => {
     const second = loadOrCreateToken(tokenPath);
 
     expect(first).toBe(second);
+  });
+
+  it('still returns a token when write fails (non-fatal)', () => {
+    // Point to a path inside a read-only directory
+    const readOnlyDir = join(testDir, 'readonly');
+    mkdirSync(readOnlyDir);
+    chmodSync(readOnlyDir, 0o444);
+    const unwritablePath = join(readOnlyDir, 'subdir', 'token');
+
+    const token = loadOrCreateToken(unwritablePath);
+
+    expect(token).toHaveLength(TOKEN_LENGTH);
+    expect(token).toMatch(/^[0-9a-f]+$/);
+    // Restore permissions for cleanup
+    chmodSync(readOnlyDir, 0o755);
   });
 });
