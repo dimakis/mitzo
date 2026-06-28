@@ -171,27 +171,29 @@ export function TaskBoard() {
         />
       )}
 
-      {loading && <p className="task-board-empty">Loading...</p>}
+      <div className="task-board-scroll">
+        {loading && <p className="task-board-empty">Loading...</p>}
 
-      {!loading && tasks.length === 0 && (
-        <EmptyState icon={'\u2610'} title="No tasks yet" subtitle="Add a task to get started" />
-      )}
+        {!loading && tasks.length === 0 && (
+          <EmptyState icon={'\u2610'} title="No tasks yet" subtitle="Add a task to get started" />
+        )}
 
-      <div className="task-board-list">
-        {sortedTasks.map((task) => (
-          <TaskNode
-            key={task.id}
-            task={task}
-            depth={0}
-            activeTaskId={loopStatus.activeTaskId}
-            displayMeta={displayMeta}
-            onStatusChange={handleStatusChange}
-            onDelete={handleDelete}
-            onAddChild={handleAddChild}
-            onApprove={approveTask}
-            onReject={rejectTask}
-          />
-        ))}
+        <div className="task-board-list">
+          {sortedTasks.map((task) => (
+            <TaskNode
+              key={task.id}
+              task={task}
+              depth={0}
+              activeTaskId={loopStatus.activeTaskId}
+              displayMeta={displayMeta}
+              onStatusChange={handleStatusChange}
+              onDelete={handleDelete}
+              onAddChild={handleAddChild}
+              onApprove={approveTask}
+              onReject={rejectTask}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );

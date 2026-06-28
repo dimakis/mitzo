@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { Task, TaskStatus, StageType } from '../types/task';
 import type { TaskDisplayMeta } from '../hooks/useTaskBoard';
 
@@ -51,23 +52,61 @@ interface TaskNodeProps {
   onReject?: (id: string, feedback: string) => void;
 }
 
-function buildContextLine(task: Task, meta?: TaskDisplayMeta): string | null {
+function SessionSuffix({ task, meta }: { task: Task; meta?: TaskDisplayMeta }) {
+  if (!task.sessionId || !meta?.sessionHash) return null;
+  return (
+    <>
+      {' \u00B7 '}
+      <Link
+        className="task-node-session-link"
+        to={`/chat/${task.sessionId}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {meta.sessionHash}
+      </Link>
+    </>
+  );
+}
+
+function ContextLine({ task, meta }: { task: Task; meta?: TaskDisplayMeta }): React.ReactNode {
+  const dot = ' \u00B7 ';
+  const suffix = <SessionSuffix task={task} meta={meta} />;
+
   switch (task.status) {
-    case 'active': {
-      const parts: string[] = [STATUS_LABELS.active];
-      if (meta?.sessionHash) parts.push(meta.sessionHash);
-      if (meta?.elapsedLabel) parts.push(meta.elapsedLabel);
-      return parts.join(' \u00B7 ');
-    }
+    case 'active':
+      return (
+        <>
+          {STATUS_LABELS.active}
+          {suffix}
+          {meta?.elapsedLabel && `${dot}${meta.elapsedLabel}`}
+        </>
+      );
     case 'pending_review':
-      return 'awaiting approval';
+      return <>awaiting approval{suffix}</>;
     case 'blocked':
-      return meta?.blockerSummary ?? 'blocked';
+      return (
+        <>
+          {meta?.blockerSummary ?? 'blocked'}
+          {suffix}
+        </>
+      );
     case 'done':
-      return meta?.completedAgo ? `done \u00B7 ${meta.completedAgo}` : 'done';
+      return (
+        <>
+          {meta?.completedAgo ? `done${dot}${meta.completedAgo}` : 'done'}
+          {suffix}
+        </>
+      );
     case 'failed': {
       const label = meta?.blockerSummary ?? 'failed';
-      return task.retryCount > 0 ? `${label} \u00B7 retry ${task.retryCount}` : label;
+      const retry = task.retryCount > 0 ? `${dot}retry ${task.retryCount}` : '';
+      return (
+        <>
+          {label}
+          {retry}
+          {suffix}
+        </>
+      );
     }
     default:
       return null;
@@ -106,7 +145,7 @@ export function TaskNode({
   if (meta?.attendTier === 1) classes.push('task-node--t1');
   if (meta && meta.fadeOpacity <= 0) classes.push('task-node--hidden');
 
-  const contextLine = isCompact ? null : buildContextLine(task, meta);
+  const contextContent = !isCompact ? ContextLine({ task, meta }) : null;
   const fadeStyle =
     meta && meta.fadeOpacity < 1 && meta.fadeOpacity > 0
       ? { opacity: meta.fadeOpacity }
@@ -137,11 +176,12 @@ export function TaskNode({
           >
             {task.title}
           </span>
-          {contextLine && (
+          {contextContent && (
             <div className={`task-node-context${contextColorClass(task.status)}`}>
-              {contextLine}
+              {contextContent}
             </div>
           )}
+          {task.summary && <div className="task-node-summary">{task.summary}</div>}
         </div>
         {task.stageType && STAGE_LABELS[task.stageType] && (
           <span className={`task-node-stage task-node-stage--${task.stageType}`}>
