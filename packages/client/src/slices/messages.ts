@@ -59,6 +59,7 @@ export interface MessagesState {
   activeWorktrees: ActiveWorktree[];
   sessionContext: string | null;
   bootContext: BootContextMeta | null;
+  sourceLink: { telosTaskId?: string; goalId?: string } | null;
 }
 
 export const INITIAL_MESSAGES_STATE: MessagesState = {
@@ -72,6 +73,7 @@ export const INITIAL_MESSAGES_STATE: MessagesState = {
   activeWorktrees: [],
   sessionContext: null,
   bootContext: null,
+  sourceLink: null,
 };
 
 // ─── Actions ─────────────────────────────────────────────────────────────────
@@ -166,6 +168,7 @@ export type MessagesAction =
   | { type: 'NATIVE_COMMAND_RESULT'; command: string; content: string }
   | { type: 'SET_SESSION_CONTEXT'; context: string }
   | { type: 'SET_BOOT_CONTEXT'; bootContext: BootContextMeta }
+  | { type: 'SET_SOURCE_LINK'; telosTaskId?: string; goalId?: string }
   | { type: 'CLEAR' };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -461,6 +464,15 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
 
     case 'SET_BOOT_CONTEXT':
       return { ...state, bootContext: action.bootContext };
+
+    case 'SET_SOURCE_LINK':
+      return {
+        ...state,
+        sourceLink:
+          action.telosTaskId || action.goalId
+            ? { telosTaskId: action.telosTaskId, goalId: action.goalId }
+            : null,
+      };
 
     case 'CLEAR':
       return { ...INITIAL_MESSAGES_STATE };

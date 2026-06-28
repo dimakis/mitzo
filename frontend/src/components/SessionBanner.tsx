@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { BootContextMeta, SectionMeta } from '@mitzo/client';
 
 interface Props {
   bootContext?: BootContextMeta | null;
   sessionContext?: string | null;
+  sourceLink?: { telosTaskId?: string; goalId?: string } | null;
 }
 
 const KIND_LABELS: Record<string, string> = {
@@ -45,7 +47,8 @@ function summaryLine(text: string): string {
   return first.length > 80 ? first.slice(0, 77) + '...' : first;
 }
 
-export function SessionBanner({ bootContext, sessionContext }: Props) {
+export function SessionBanner({ bootContext, sessionContext, sourceLink }: Props) {
+  const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
   const [showBootDetails, setShowBootDetails] = useState(false);
   const [showTrimmed, setShowTrimmed] = useState(false);
@@ -77,7 +80,13 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
     setShowModal(false);
   }, [contextKey]);
 
-  if (!bootContext && !sessionContext) return null;
+  if (!bootContext && !sessionContext && !sourceLink) return null;
+
+  // Determine source link label and target
+  const hasGoal = sourceLink?.goalId;
+  const hasTelos = sourceLink?.telosTaskId && sourceLink.telosTaskId !== sourceLink?.goalId;
+  const sourceLinkLabel = hasGoal ? 'Task Board' : hasTelos ? 'Telos' : null;
+  const sourceLinkTarget = hasGoal ? '/tasks' : hasTelos ? '/todos' : null;
 
   const isContexgin = bootContext?.source === 'contexgin';
   const dotClass = isContexgin ? 'session-banner-dot--ok' : 'session-banner-dot--warn';
@@ -108,6 +117,25 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
             )}
             {sessionContext && (
               <span className="session-banner-context-hint">{summaryLine(sessionContext)}</span>
+            )}
+            {sourceLinkLabel && sourceLinkTarget && (
+              <span
+                className="session-banner-source-link"
+                role="link"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(sourceLinkTarget);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.stopPropagation();
+                    navigate(sourceLinkTarget);
+                  }
+                }}
+              >
+                {sourceLinkLabel}
+              </span>
             )}
           </span>
           <span className="session-banner-chevron">{expanded ? '\u25BE' : '\u25B8'}</span>

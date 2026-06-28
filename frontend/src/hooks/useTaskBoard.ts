@@ -12,6 +12,7 @@ export interface TaskDisplayMeta {
   completedAgo?: string;
   elapsedLabel?: string;
   sessionHash?: string;
+  sdkSessionId?: string;
   blockerSummary?: string;
 }
 
@@ -57,7 +58,10 @@ function buildDisplayMeta(task: Task, now: number): TaskDisplayMeta {
   if (task.status === 'active' && task.claimedAt) {
     meta.elapsedLabel = formatDuration(now - task.claimedAt);
   }
-  if (task.sessionId) {
+  if (task.sdkSessionId) {
+    meta.sessionHash = task.sdkSessionId.slice(0, 6);
+    meta.sdkSessionId = task.sdkSessionId;
+  } else if (task.sessionId) {
     meta.sessionHash = task.sessionId.slice(0, 6);
   }
   if ((task.status === 'blocked' || task.status === 'failed') && task.annotations.length > 0) {

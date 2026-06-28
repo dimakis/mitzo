@@ -41,6 +41,7 @@ export function DesktopChatView() {
   const storeFetchSessionMeta = useMitzoStore((s) => s.fetchSessionMeta);
   const sessionContext = useMitzoStore((s) => s.messages.sessionContext);
   const bootContext = useMitzoStore((s) => s.messages.bootContext);
+  const sourceLink = useMitzoStore((s) => s.messages.sourceLink);
   const progressByToolId = useProgressByToolId();
 
   const connected = connection.status === 'connected';
@@ -252,6 +253,7 @@ export function DesktopChatView() {
             voice={voice}
             bootContext={bootContext}
             sessionContext={sessionContext}
+            sourceLink={sourceLink}
           />
           <ScrollFab scrollRef={scrollRef} />
           <ChatInput

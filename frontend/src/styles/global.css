@@ -2494,6 +2494,22 @@ textarea:focus {
   font-style: italic;
 }
 
+.session-banner-source-link {
+  flex-shrink: 0;
+  font-size: var(--text-xxs);
+  color: var(--accent, #6366f1);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+  opacity: 0.85;
+  white-space: nowrap;
+}
+.session-banner-source-link:hover,
+.session-banner-source-link:focus-visible {
+  opacity: 1;
+}
+
 .session-banner-chevron {
   margin-left: auto;
   font-size: 0.6rem;
@@ -5629,6 +5645,19 @@ textarea:focus {
 }
 .task-node-context--failed {
   color: var(--task-failed);
+}
+
+.task-node-session-link {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+  color: var(--accent);
+  opacity: 0.85;
+}
+.task-node-session-link:hover,
+.task-node-session-link:focus-visible {
+  opacity: 1;
 }
 
 .task-node-meta {

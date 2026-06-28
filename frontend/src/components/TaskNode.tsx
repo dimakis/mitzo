@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { Task, TaskStatus, StageType } from '../types/task';
 import type { TaskDisplayMeta } from '../hooks/useTaskBoard';
 
@@ -53,12 +54,9 @@ interface TaskNodeProps {
 
 function buildContextLine(task: Task, meta?: TaskDisplayMeta): string | null {
   switch (task.status) {
-    case 'active': {
-      const parts: string[] = [STATUS_LABELS.active];
-      if (meta?.sessionHash) parts.push(meta.sessionHash);
-      if (meta?.elapsedLabel) parts.push(meta.elapsedLabel);
-      return parts.join(' \u00B7 ');
-    }
+    // 'active' handled inline in JSX for clickable session link
+    case 'active':
+      return null;
     case 'pending_review':
       return 'awaiting approval';
     case 'blocked':
@@ -72,6 +70,52 @@ function buildContextLine(task: Task, meta?: TaskDisplayMeta): string | null {
     default:
       return null;
   }
+}
+
+function ActiveContextLine({
+  meta,
+  navigate,
+}: {
+  meta?: TaskDisplayMeta;
+  navigate: (path: string) => void;
+}) {
+  return (
+    <div className="task-node-context">
+      <span>{STATUS_LABELS.active}</span>
+      {meta?.sessionHash && (
+        <>
+          {' \u00B7 '}
+          {meta.sdkSessionId ? (
+            <span
+              className="task-node-session-link"
+              role="link"
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(`/chat/${meta.sdkSessionId}`);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.stopPropagation();
+                  navigate(`/chat/${meta.sdkSessionId}`);
+                }
+              }}
+            >
+              {meta.sessionHash}
+            </span>
+          ) : (
+            <span>{meta.sessionHash}</span>
+          )}
+        </>
+      )}
+      {meta?.elapsedLabel && (
+        <span>
+          {' \u00B7 '}
+          {meta.elapsedLabel}
+        </span>
+      )}
+    </div>
+  );
 }
 
 function contextColorClass(status: TaskStatus): string {
@@ -96,6 +140,7 @@ export function TaskNode({
   onApprove,
   onReject,
 }: TaskNodeProps) {
+  const navigate = useNavigate();
   const [expanded, setExpanded] = useState(true);
   const hasChildren = task.children.length > 0;
   const meta = displayMeta?.get(task.id);
@@ -137,6 +182,9 @@ export function TaskNode({
           >
             {task.title}
           </span>
+          {task.status === 'active' && !isCompact && (
+            <ActiveContextLine meta={meta} navigate={navigate} />
+          )}
           {contextLine && (
             <div className={`task-node-context${contextColorClass(task.status)}`}>
               {contextLine}

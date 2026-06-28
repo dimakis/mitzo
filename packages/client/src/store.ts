@@ -531,6 +531,15 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             },
           }));
         }
+        if (meta.telosTaskId || meta.goalId) {
+          set((s) => ({
+            messages: messagesReducer(s.messages, {
+              type: 'SET_SOURCE_LINK',
+              telosTaskId: meta.telosTaskId ?? undefined,
+              goalId: meta.goalId ?? undefined,
+            }),
+          }));
+        }
       } catch {
         // Session meta may not be available — graceful no-op
       }

@@ -222,7 +222,15 @@ const orchestrator = new TaskOrchestrator({
   },
   broadcastTasks: () => {
     const tree = taskStore.getTree();
-    const data = { type: 'task_state', tasks: tree };
+    // Enrich tasks with SDK session IDs so frontend can link to sessions
+    const enrichWithSdkSessionId = (tasks: typeof tree): typeof tree =>
+      tasks.map((t) => ({
+        ...t,
+        sdkSessionId: t.sessionId ? (registry.get(t.sessionId)?.sessionId ?? null) : null,
+        children: enrichWithSdkSessionId(t.children),
+      }));
+    const enrichedTree = enrichWithSdkSessionId(tree);
+    const data = { type: 'task_state', tasks: enrichedTree };
     const msg = JSON.stringify(data);
     wss.clients.forEach((client) => {
       if (v2Sockets.has(client)) return;
@@ -234,8 +242,7 @@ const orchestrator = new TaskOrchestrator({
   getActiveSessionIds: () => {
     const ids = new Set<string>();
     for (const [clientId] of registry.entries()) {
-      const session = registry.get(clientId);
-      if (session?.sessionId) ids.add(session.sessionId);
+      ids.add(clientId);
     }
     return ids;
   },
