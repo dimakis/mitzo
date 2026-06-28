@@ -234,6 +234,30 @@ export const WorkloadItemUpdateBody = z.object({
 
 export const WorkloadPromoteBody = z.object({
   description: z.string().optional(),
+  title: z.string().optional(),
+  contextHints: z
+    .object({
+      repos: z.array(z.string()).optional(),
+      paths: z.array(z.string()).optional(),
+      issues: z.array(z.string()).optional(),
+      docIds: z.array(z.string()).optional(),
+      people: z.array(z.string()).optional(),
+      jiraKeys: z.array(z.string()).optional(),
+      keywords: z.array(z.string()).optional(),
+      taskHint: z.string().optional(),
+    })
+    .optional(),
+  sources: z
+    .array(
+      z.object({
+        type: z.string(),
+        url: z.string(),
+        title: z.string(),
+        author: z.string().optional(),
+        snippet: z.string().optional(),
+      }),
+    )
+    .optional(),
 });
 
 // -- Session creation schemas --

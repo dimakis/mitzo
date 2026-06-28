@@ -509,13 +509,56 @@ describe('workload routes', () => {
     expect(res.body.item.goalId).toBe(res.body.task.id);
   });
 
-  it('POST /api/workload/items/:id/promote — returns 404 for missing item', async () => {
+  it('POST /api/workload/items/:id/promote — returns 404 for missing item with no body title', async () => {
     const res = await request(app)
       .post('/api/workload/items/nonexistent-id/promote')
       .set('Cookie', authCookie)
       .send({});
 
     expect(res.status).toBe(404);
+  });
+
+  it('POST /api/workload/items/:id/promote — creates task from body fallback (Telos item)', async () => {
+    const res = await request(app)
+      .post('/api/workload/items/telos-item-123/promote')
+      .set('Cookie', authCookie)
+      .send({
+        title: 'Telos task title',
+        description: 'Extra context',
+        contextHints: {
+          repos: ['mitzo'],
+          taskHint: 'Check the API layer',
+        },
+        sources: [{ type: 'telos', url: 'https://example.com', title: 'Source doc' }],
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.task).toMatchObject({
+      title: 'Telos task title',
+      status: 'pending',
+    });
+    expect(res.body.task.description).toContain('Extra context');
+    expect(res.body.task.description).toContain('Check the API layer');
+    expect(res.body.task.annotations).toEqual(
+      expect.arrayContaining([expect.stringContaining('Source doc')]),
+    );
+    expect(res.body.item).toBeUndefined();
+  });
+
+  it('POST /api/workload/items/:id/promote — fallback does not broadcast workload update', async () => {
+    const broadcasts: unknown[] = [];
+    const origBroadcast = (app as any)._workloadBroadcast;
+    (app as any)._workloadBroadcast = (msg: unknown) => broadcasts.push(msg);
+
+    await request(app)
+      .post('/api/workload/items/telos-no-broadcast/promote')
+      .set('Cookie', authCookie)
+      .send({ title: 'No broadcast test' });
+
+    const workloadBroadcasts = broadcasts.filter((b: any) => b.type === 'workload_item_updated');
+    expect(workloadBroadcasts).toHaveLength(0);
+
+    (app as any)._workloadBroadcast = origBroadcast;
   });
 
   it('POST /api/workload/items/:id/promote — broadcasts workload_item_updated', async () => {
