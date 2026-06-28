@@ -1925,7 +1925,7 @@ app.post('/api/workload/items/:id/promote', (req, res) => {
   }
 
   const hints = item?.contextHints ?? body.data.contextHints;
-  const taskHint = hints && 'taskHint' in hints ? (hints.taskHint as string) : undefined;
+  const taskHint = hints?.taskHint ?? undefined;
 
   // Build description from item context
   const descParts: string[] = [];
@@ -1955,8 +1955,8 @@ app.post('/api/workload/items/:id/promote', (req, res) => {
     workloadStore.setGoalId(item.id, task.id);
   }
 
-  const updatedItem = item ? workloadStore.get(item.id) : null;
-  res.status(201).json({ task, item: updatedItem });
+  const updatedItem = item ? workloadStore.get(item.id) : undefined;
+  res.status(201).json(updatedItem ? { task, item: updatedItem } : { task });
   onTaskBroadcast?.({ type: 'task_state', tasks: taskStore.getTree() });
   if (updatedItem) {
     onWorkloadBroadcast?.({ type: 'workload_item_updated', item: updatedItem });
