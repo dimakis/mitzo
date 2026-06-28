@@ -52,11 +52,11 @@ interface TaskNodeProps {
   onReject?: (id: string, feedback: string) => void;
 }
 
-function ContextLine({ task, meta }: { task: Task; meta?: TaskDisplayMeta }) {
-  const dot = ' \u00B7 ';
-
-  const sessionLink =
-    task.sessionId && meta?.sessionHash ? (
+function SessionSuffix({ task, meta }: { task: Task; meta?: TaskDisplayMeta }) {
+  if (!task.sessionId || !meta?.sessionHash) return null;
+  return (
+    <>
+      {' \u00B7 '}
       <Link
         className="task-node-session-link"
         to={`/chat/${task.sessionId}`}
@@ -64,56 +64,37 @@ function ContextLine({ task, meta }: { task: Task; meta?: TaskDisplayMeta }) {
       >
         {meta.sessionHash}
       </Link>
-    ) : null;
+    </>
+  );
+}
+
+function ContextLine({ task, meta }: { task: Task; meta?: TaskDisplayMeta }): React.ReactNode {
+  const dot = ' \u00B7 ';
+  const suffix = <SessionSuffix task={task} meta={meta} />;
 
   switch (task.status) {
     case 'active':
       return (
         <>
           {STATUS_LABELS.active}
-          {sessionLink && (
-            <>
-              {dot}
-              {sessionLink}
-            </>
-          )}
+          {suffix}
           {meta?.elapsedLabel && `${dot}${meta.elapsedLabel}`}
         </>
       );
     case 'pending_review':
-      return (
-        <>
-          awaiting approval
-          {sessionLink && (
-            <>
-              {dot}
-              {sessionLink}
-            </>
-          )}
-        </>
-      );
+      return <>awaiting approval{suffix}</>;
     case 'blocked':
       return (
         <>
           {meta?.blockerSummary ?? 'blocked'}
-          {sessionLink && (
-            <>
-              {dot}
-              {sessionLink}
-            </>
-          )}
+          {suffix}
         </>
       );
     case 'done':
       return (
         <>
           {meta?.completedAgo ? `done${dot}${meta.completedAgo}` : 'done'}
-          {sessionLink && (
-            <>
-              {dot}
-              {sessionLink}
-            </>
-          )}
+          {suffix}
         </>
       );
     case 'failed': {
@@ -123,12 +104,7 @@ function ContextLine({ task, meta }: { task: Task; meta?: TaskDisplayMeta }) {
         <>
           {label}
           {retry}
-          {sessionLink && (
-            <>
-              {dot}
-              {sessionLink}
-            </>
-          )}
+          {suffix}
         </>
       );
     }
@@ -169,7 +145,7 @@ export function TaskNode({
   if (meta?.attendTier === 1) classes.push('task-node--t1');
   if (meta && meta.fadeOpacity <= 0) classes.push('task-node--hidden');
 
-  const contextLine = !isCompact ? <ContextLine task={task} meta={meta} /> : null;
+  const contextContent = !isCompact ? ContextLine({ task, meta }) : null;
   const fadeStyle =
     meta && meta.fadeOpacity < 1 && meta.fadeOpacity > 0
       ? { opacity: meta.fadeOpacity }
@@ -200,9 +176,9 @@ export function TaskNode({
           >
             {task.title}
           </span>
-          {contextLine && (
+          {contextContent && (
             <div className={`task-node-context${contextColorClass(task.status)}`}>
-              {contextLine}
+              {contextContent}
             </div>
           )}
           {task.summary && <div className="task-node-summary">{task.summary}</div>}
