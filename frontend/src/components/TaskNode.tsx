@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import type { Task, TaskStatus, StageType } from '../types/task';
 import type { TaskDisplayMeta } from '../hooks/useTaskBoard';
 
@@ -52,28 +52,18 @@ interface TaskNodeProps {
   onReject?: (id: string, feedback: string) => void;
 }
 
-function ContextLine({
-  task,
-  meta,
-  onNavigateSession,
-}: {
-  task: Task;
-  meta?: TaskDisplayMeta;
-  onNavigateSession?: (sessionId: string) => void;
-}) {
+function ContextLine({ task, meta }: { task: Task; meta?: TaskDisplayMeta }) {
   const dot = ' \u00B7 ';
 
   const sessionLink =
     task.sessionId && meta?.sessionHash ? (
-      <a
+      <Link
         className="task-node-session-link"
-        onClick={(e) => {
-          e.stopPropagation();
-          onNavigateSession?.(task.sessionId!);
-        }}
+        to={`/chat/${task.sessionId}`}
+        onClick={(e) => e.stopPropagation()}
       >
         {meta.sessionHash}
-      </a>
+      </Link>
     ) : null;
 
   switch (task.status) {
@@ -147,16 +137,6 @@ function ContextLine({
   }
 }
 
-function hasContextLine(status: TaskStatus): boolean {
-  return (
-    status === 'active' ||
-    status === 'pending_review' ||
-    status === 'blocked' ||
-    status === 'done' ||
-    status === 'failed'
-  );
-}
-
 function contextColorClass(status: TaskStatus): string {
   if (status === 'pending_review') return ' task-node-context--review';
   if (status === 'blocked') return ' task-node-context--blocked';
@@ -180,7 +160,6 @@ export function TaskNode({
   onReject,
 }: TaskNodeProps) {
   const [expanded, setExpanded] = useState(true);
-  const navigate = useNavigate();
   const hasChildren = task.children.length > 0;
   const meta = displayMeta?.get(task.id);
   const isCompact = compact && task.status !== 'active';
@@ -190,15 +169,11 @@ export function TaskNode({
   if (meta?.attendTier === 1) classes.push('task-node--t1');
   if (meta && meta.fadeOpacity <= 0) classes.push('task-node--hidden');
 
-  const showContext = !isCompact && hasContextLine(task.status);
+  const contextLine = !isCompact ? <ContextLine task={task} meta={meta} /> : null;
   const fadeStyle =
     meta && meta.fadeOpacity < 1 && meta.fadeOpacity > 0
       ? { opacity: meta.fadeOpacity }
       : undefined;
-
-  function handleNavigateSession(sessionId: string) {
-    navigate(`/chat/${sessionId}`);
-  }
 
   return (
     <div className={classes.join(' ')} style={fadeStyle}>
@@ -225,9 +200,9 @@ export function TaskNode({
           >
             {task.title}
           </span>
-          {showContext && (
+          {contextLine && (
             <div className={`task-node-context${contextColorClass(task.status)}`}>
-              <ContextLine task={task} meta={meta} onNavigateSession={handleNavigateSession} />
+              {contextLine}
             </div>
           )}
           {task.summary && <div className="task-node-summary">{task.summary}</div>}
