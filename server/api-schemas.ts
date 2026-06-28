@@ -234,6 +234,7 @@ export const WorkloadItemUpdateBody = z.object({
 
 export const WorkloadPromoteBody = z.object({
   description: z.string().optional(),
+  // Fallback fields for Telos items not in workloadStore
   title: z.string().optional(),
   contextHints: z
     .object({
