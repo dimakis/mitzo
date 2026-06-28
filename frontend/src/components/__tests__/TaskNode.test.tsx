@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import type { Task } from '../../types/task';
 import { TaskNode } from '../TaskNode';
 
@@ -16,6 +17,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     description: null,
     status: 'pending',
     sessionId: null,
+    sdkSessionId: null,
     sessionPolicy: 'auto',
     priority: 0,
     depth: 0,
@@ -39,9 +41,13 @@ function makeTask(overrides: Partial<Task> = {}): Task {
   };
 }
 
+function renderNode(ui: React.ReactElement) {
+  return render(<MemoryRouter>{ui}</MemoryRouter>);
+}
+
 describe('TaskNode', () => {
   it('renders title', () => {
-    render(
+    renderNode(
       <TaskNode
         task={makeTask({ title: 'My Task' })}
         depth={0}
@@ -62,7 +68,7 @@ describe('TaskNode', () => {
     ['skipped', '\u2014'],
     ['failed', '\u2717'],
   ] as const)('renders correct label for status %s', (status, expectedIcon) => {
-    const { container } = render(
+    const { container } = renderNode(
       <TaskNode
         task={makeTask({ status })}
         depth={0}
@@ -79,7 +85,7 @@ describe('TaskNode', () => {
     const child = makeTask({ id: 'child-1', parentId: 'task-1', title: 'Child task', depth: 1 });
     const task = makeTask({ children: [child] });
 
-    render(
+    renderNode(
       <TaskNode
         task={task}
         depth={0}
@@ -101,7 +107,7 @@ describe('TaskNode', () => {
   });
 
   it('does not apply inline depth indentation (handled by CSS nesting)', () => {
-    const { container } = render(
+    const { container } = renderNode(
       <TaskNode
         task={makeTask()}
         depth={2}
@@ -130,7 +136,7 @@ describe('TaskNode', () => {
     });
     const task = makeTask({ children: [child] });
 
-    render(
+    renderNode(
       <TaskNode
         task={task}
         depth={0}
@@ -146,7 +152,7 @@ describe('TaskNode', () => {
 
   it('calls onStatusChange when status icon clicked', () => {
     const onStatusChange = vi.fn();
-    const { container } = render(
+    const { container } = renderNode(
       <TaskNode
         task={makeTask({ id: 'sc-1', status: 'pending' })}
         depth={0}
@@ -163,7 +169,7 @@ describe('TaskNode', () => {
 
   it('calls onDelete when delete button clicked', () => {
     const onDelete = vi.fn();
-    const { container } = render(
+    const { container } = renderNode(
       <TaskNode
         task={makeTask({ id: 'del-1' })}
         depth={0}

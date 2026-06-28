@@ -17,6 +17,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     description: null,
     status: 'pending',
     sessionId: null,
+    sdkSessionId: null,
     sessionPolicy: 'auto',
     priority: 0,
     depth: 0,
