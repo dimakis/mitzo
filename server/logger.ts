@@ -67,6 +67,7 @@ function buildProductionDestination(level: LogLevel): DestinationStream {
         propsToLabels: ['module'],
         batching: true,
         interval: 5,
+        silenceErrors: true,
       },
       level,
     });
