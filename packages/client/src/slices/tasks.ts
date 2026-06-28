@@ -18,6 +18,7 @@ export interface Task {
   description: string | null;
   status: TaskStatus;
   sessionId: string | null;
+  sdkSessionId: string | null;
   sessionPolicy: SessionPolicy;
   priority: number;
   depth: number;

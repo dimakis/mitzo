@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 
 vi.mock('@mitzo/client', () => ({}));
 
 import { SessionBanner } from '../SessionBanner';
+
+function renderWithRouter(ui: React.ReactElement) {
+  return render(<MemoryRouter>{ui}</MemoryRouter>);
+}
 
 afterEach(() => cleanup());
 
@@ -23,23 +28,25 @@ const bootContext = {
 
 describe('SessionBanner', () => {
   it('returns null when both props are null', () => {
-    const { container } = render(<SessionBanner bootContext={null} sessionContext={null} />);
+    const { container } = renderWithRouter(
+      <SessionBanner bootContext={null} sessionContext={null} />,
+    );
     expect(container.innerHTML).toBe('');
   });
 
   it('renders banner header when bootContext provided', () => {
-    render(<SessionBanner bootContext={bootContext} />);
+    renderWithRouter(<SessionBanner bootContext={bootContext} />);
     expect(screen.getByText(/5 sources/)).toBeTruthy();
     expect(screen.getByText(/4\.2k/)).toBeTruthy();
   });
 
   it('renders session context summary when sessionContext provided', () => {
-    render(<SessionBanner sessionContext="Summary: Build the widget" />);
+    renderWithRouter(<SessionBanner sessionContext="Summary: Build the widget" />);
     expect(screen.getByText(/Build the widget/)).toBeTruthy();
   });
 
   it('expands to show full session context on click', () => {
-    render(<SessionBanner sessionContext="Summary: Build the widget\nStatus: active" />);
+    renderWithRouter(<SessionBanner sessionContext="Summary: Build the widget\nStatus: active" />);
     // Session context text should not be visible initially (collapsed)
     expect(screen.queryByText('Session Context')).toBeNull();
     // Click the banner header to expand
@@ -48,13 +55,15 @@ describe('SessionBanner', () => {
   });
 
   it('renders both boot and session context together', () => {
-    render(<SessionBanner bootContext={bootContext} sessionContext="Summary: Test task" />);
+    renderWithRouter(
+      <SessionBanner bootContext={bootContext} sessionContext="Summary: Test task" />,
+    );
     expect(screen.getByText(/5 sources/)).toBeTruthy();
     expect(screen.getByText(/Test task/)).toBeTruthy();
   });
 
   it('shows boot context details on nested toggle', () => {
-    render(<SessionBanner bootContext={bootContext} />);
+    renderWithRouter(<SessionBanner bootContext={bootContext} />);
     // Expand the banner first
     fireEvent.click(screen.getByRole('button', { name: /5 sources/ }));
     // Now toggle boot context details
@@ -64,7 +73,7 @@ describe('SessionBanner', () => {
   });
 
   it('opens full markdown modal via view-full button', () => {
-    render(<SessionBanner bootContext={bootContext} />);
+    renderWithRouter(<SessionBanner bootContext={bootContext} />);
     // Expand the banner
     fireEvent.click(screen.getByRole('button', { name: /5 sources/ }));
     // Click the ⧉ button
@@ -74,7 +83,7 @@ describe('SessionBanner', () => {
   });
 
   it('closes modal on close button click', () => {
-    render(<SessionBanner bootContext={bootContext} />);
+    renderWithRouter(<SessionBanner bootContext={bootContext} />);
     fireEvent.click(screen.getByRole('button', { name: /5 sources/ }));
     fireEvent.click(screen.getByTitle('View full markdown'));
     expect(screen.getByText('Boot Context (Full Markdown)')).toBeTruthy();
@@ -84,7 +93,7 @@ describe('SessionBanner', () => {
   });
 
   it('closes modal on Escape key', () => {
-    render(<SessionBanner bootContext={bootContext} />);
+    renderWithRouter(<SessionBanner bootContext={bootContext} />);
     fireEvent.click(screen.getByRole('button', { name: /5 sources/ }));
     fireEvent.click(screen.getByTitle('View full markdown'));
     expect(screen.getByText('Boot Context (Full Markdown)')).toBeTruthy();

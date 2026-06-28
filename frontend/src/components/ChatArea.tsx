@@ -43,6 +43,8 @@ export interface ChatAreaProps {
   bootContext?: BootContextMeta | null;
   /** Session context string for sticky banner */
   sessionContext?: string | null;
+  /** Source link — Telos item or Task Board goal that spawned this session */
+  sourceLink?: { telosTaskId?: string; goalId?: string } | null;
 }
 
 export function ChatArea({
@@ -56,6 +58,7 @@ export function ChatArea({
   voice,
   bootContext,
   sessionContext,
+  sourceLink,
 }: ChatAreaProps) {
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
@@ -151,7 +154,11 @@ export function ChatArea({
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
-        <SessionBanner bootContext={bootContext} sessionContext={sessionContext} />
+        <SessionBanner
+          bootContext={bootContext}
+          sessionContext={sessionContext}
+          sourceLink={sourceLink}
+        />
 
         {messages.length === 0 && !current && !running && (
           <p className="chat-empty">Send a message to start</p>

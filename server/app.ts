@@ -89,7 +89,7 @@ import type { SkillWatcher } from './skill-watcher.js';
 
 import { mkdirSync } from 'fs';
 import { homedir } from 'os';
-import { TaskStore, type TaskCreateInput, type TaskUpdateInput } from './task-store.js';
+import { TaskStore, type Task, type TaskCreateInput, type TaskUpdateInput } from './task-store.js';
 import { SseRegistry } from '@mitzo/harness';
 import { SessionSseRegistry } from './session-sse-registry.js';
 import { WorkloadStore, type WorkSignal, type TodoItemUpdateInput } from './workload-store.js';
@@ -622,10 +622,21 @@ app.get('/api/service-health', (_req, res) => {
   res.json(healthMonitor?.getSnapshot() ?? { services: [], checkedAt: 0 });
 });
 
+// --- Task Board helpers ---
+
+/** Walk the task tree, attaching the resolved SDK sessionId for frontend linking. */
+function enrichTasksWithSdkSessionId(tasks: Task[]): (Task & { sdkSessionId: string | null })[] {
+  return tasks.map((t) => ({
+    ...t,
+    sdkSessionId: t.sessionId ? (registry.get(t.sessionId)?.sessionId ?? null) : null,
+    children: enrichTasksWithSdkSessionId(t.children),
+  }));
+}
+
 // --- Task Board API ---
 
 app.get('/api/tasks', (_req, res) => {
-  res.json({ tasks: taskStore.getTree() });
+  res.json({ tasks: enrichTasksWithSdkSessionId(taskStore.getTree()) });
 });
 
 app.post('/api/tasks', (req, res) => {
@@ -1221,6 +1232,8 @@ app.get('/api/sessions/:id/meta', (req, res) => {
     totalTokens,
     totalCostUsd: meta.totalCostUsd,
     numTurns: meta.numTurns,
+    telosTaskId: meta.telosTaskId ?? null,
+    goalId: meta.goalId ?? null,
   });
 });
 
