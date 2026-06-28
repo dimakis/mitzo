@@ -1916,34 +1916,51 @@ app.post('/api/workload/items/:id/promote', (req, res) => {
   }
 
   const item = workloadStore.get(req.params.id);
-  if (!item) {
-    res.status(404).json({ error: 'Item not found' });
+
+  // Resolve title and context from workloadStore item or fallback body data (Telos items)
+  const title = item?.title ?? body.data.title;
+  if (!title) {
+    res.status(404).json({ error: 'Item not found and no title provided' });
     return;
   }
+
+  const hints = item?.contextHints ?? body.data.contextHints;
+  const taskHint = hints && 'taskHint' in hints ? (hints.taskHint as string) : undefined;
 
   // Build description from item context
   const descParts: string[] = [];
   if (body.data.description) descParts.push(body.data.description);
-  if (item.contextHints.taskHint) descParts.push(item.contextHints.taskHint);
-  const hintsWithValues = Object.entries(item.contextHints)
-    .filter(([k, v]) => k !== 'taskHint' && Array.isArray(v) && v.length > 0)
-    .map(([k, v]) => `${k}: ${(v as string[]).join(', ')}`);
-  if (hintsWithValues.length > 0) descParts.push(hintsWithValues.join('\n'));
+  if (taskHint) descParts.push(taskHint);
+  if (hints) {
+    const hintsWithValues = Object.entries(hints)
+      .filter(([k, v]) => k !== 'taskHint' && Array.isArray(v) && v.length > 0)
+      .map(([k, v]) => `${k}: ${(v as string[]).join(', ')}`);
+    if (hintsWithValues.length > 0) descParts.push(hintsWithValues.join('\n'));
+  }
+
+  // Build annotations from sources
+  const annotations: string[] = item
+    ? item.sources.map((s) => `Source: [${s.sourceType}] ${s.title} — ${s.url}`)
+    : (body.data.sources ?? []).map((s) => `Source: [${s.type}] ${s.title} — ${s.url}`);
 
   // Create root task (goal) from item
   const task = taskStore.create({
-    title: item.title,
+    title,
     description: descParts.join('\n\n') || undefined,
-    annotations: item.sources.map((s) => `Source: [${s.sourceType}] ${s.title} — ${s.url}`),
+    annotations,
   });
 
-  // Link item to goal
-  workloadStore.setGoalId(item.id, task.id);
+  // Link item to goal only if it exists in workloadStore
+  if (item) {
+    workloadStore.setGoalId(item.id, task.id);
+  }
 
-  const updatedItem = workloadStore.get(item.id);
+  const updatedItem = item ? workloadStore.get(item.id) : null;
   res.status(201).json({ task, item: updatedItem });
   onTaskBroadcast?.({ type: 'task_state', tasks: taskStore.getTree() });
-  onWorkloadBroadcast?.({ type: 'workload_item_updated', item: updatedItem });
+  if (updatedItem) {
+    onWorkloadBroadcast?.({ type: 'workload_item_updated', item: updatedItem });
+  }
 });
 
 // --- Static files ---

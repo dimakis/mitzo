@@ -116,7 +116,12 @@ export function TodoDetailView() {
       const res = await apiFetch(`/api/workload/items/${currentItem.id}/promote`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description: '' }),
+        body: JSON.stringify({
+          description: '',
+          title: currentItem.summary,
+          contextHints: currentItem.contextHints,
+          sources: currentItem.sources,
+        }),
       });
 
       if (!res.ok) {
