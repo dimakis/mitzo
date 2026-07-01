@@ -78,12 +78,8 @@ function ContextConsumedSection({ entries }: { entries: ContextEntry[] }) {
           setShowContext((c) => !c);
         }}
       >
-        <span className="session-banner-label">
-          Context Consumed ({totalUnique} unique)
-        </span>
-        <span className="session-banner-chevron-inline">
-          {showContext ? '\u25BE' : '\u25B8'}
-        </span>
+        <span className="session-banner-label">Context Consumed ({totalUnique} unique)</span>
+        <span className="session-banner-chevron-inline">{showContext ? '\u25BE' : '\u25B8'}</span>
       </button>
       {showContext && (
         <div className="session-banner-boot-content">

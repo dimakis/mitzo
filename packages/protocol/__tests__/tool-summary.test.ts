@@ -279,11 +279,11 @@ describe('getToolInputSpanAttrs', () => {
   });
 
   it('extracts file_path for Write', () => {
-    expect(
-      getToolInputSpanAttrs('Write', { file_path: '/tmp/out.txt', content: 'hello' }),
-    ).toEqual({
-      'tool.input.file_path': '/tmp/out.txt',
-    });
+    expect(getToolInputSpanAttrs('Write', { file_path: '/tmp/out.txt', content: 'hello' })).toEqual(
+      {
+        'tool.input.file_path': '/tmp/out.txt',
+      },
+    );
   });
 
   it('extracts file_path for Edit and StrReplace', () => {

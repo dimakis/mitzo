@@ -1809,11 +1809,7 @@ describe('contextConsumed', () => {
     });
 
     expect(state.contextConsumed).toHaveLength(3);
-    expect(state.contextConsumed.map((e) => e.type)).toEqual([
-      'file_read',
-      'search',
-      'web_fetch',
-    ]);
+    expect(state.contextConsumed.map((e) => e.type)).toEqual(['file_read', 'search', 'web_fetch']);
   });
 
   it('ignores non-context tools (Bash, Write, Edit)', () => {

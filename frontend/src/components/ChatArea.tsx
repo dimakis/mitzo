@@ -154,7 +154,11 @@ export function ChatArea({
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
-        <SessionBanner bootContext={bootContext} sessionContext={sessionContext} contextConsumed={contextConsumed} />
+        <SessionBanner
+          bootContext={bootContext}
+          sessionContext={sessionContext}
+          contextConsumed={contextConsumed}
+        />
 
         {messages.length === 0 && !current && !running && (
           <p className="chat-empty">Send a message to start</p>
