@@ -4,6 +4,7 @@ import {
   extractRecentPrompts,
   generateSessionName,
   generateSessionNameFallback,
+  sanitizeSessionName,
   setClientFactory,
   resetClientFactory,
   createAnthropicClient,
@@ -140,16 +141,58 @@ describe('generateSessionName', () => {
 
     expect(result).toBe('Auth Bug Fix Session');
     expect(mockCreate).toHaveBeenCalledOnce();
-    expect(mockCreate).toHaveBeenCalledWith(
-      {
-        model: AUTO_RENAME_MODEL,
-        max_tokens: 20,
-        system:
-          'Generate a 3-6 word title for this chat session. Be specific and descriptive. Return only the title, nothing else.',
-        messages: [{ role: 'user', content: 'Fix the auth bug\nUpdate login page' }],
-      },
-      { timeout: 5000 },
-    );
+    const call = mockCreate.mock.calls[0];
+    expect(call[0].model).toBe(AUTO_RENAME_MODEL);
+    expect(call[0].max_tokens).toBe(20);
+    expect(call[0].messages[0].content).toBe('Fix the auth bug\n---\nUpdate login page');
+    expect(call[1]).toEqual({ timeout: 5000 });
+  });
+
+  it('sanitizes Haiku output with embedded quotes', async () => {
+    const mockCreate = vi.fn().mockResolvedValue({
+      content: [{ type: 'text', text: '"Fix Auth Module"' }],
+    });
+
+    setClientFactory(() => ({ messages: { create: mockCreate } }) as never);
+
+    const result = await generateSessionName(['Fix the auth bug']);
+    expect(result).toBe('Fix Auth Module');
+  });
+
+  it('falls back when Haiku generates conversational response', async () => {
+    const mockCreate = vi.fn().mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: 'I apologize, but I cannot access the specific Jira ticket list',
+        },
+      ],
+    });
+
+    setClientFactory(() => ({ messages: { create: mockCreate } }) as never);
+
+    const prompts = ['check my jira tickets'];
+    const result = await generateSessionName(prompts);
+    const fallback = generateSessionNameFallback(prompts);
+    expect(result).toBe(fallback);
+  });
+
+  it('truncates Haiku output at newlines', async () => {
+    const mockCreate = vi.fn().mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: '"OpenShift Agent Integration"\n\nWould you like me to',
+        },
+      ],
+    });
+
+    setClientFactory(() => ({ messages: { create: mockCreate } }) as never);
+
+    const result = await generateSessionName(['integrate openshift agent']);
+    expect(result).toBe('OpenShift Agent Integration');
+    expect(result).not.toContain('\n');
+    expect(result).not.toContain('Would');
   });
 
   it('falls back to keyword extraction when API call fails', async () => {
@@ -174,6 +217,60 @@ describe('generateSessionName', () => {
 
     const result = await generateSessionName(['Some prompt']);
     expect(result.length).toBeLessThanOrEqual(60);
+  });
+});
+
+describe('sanitizeSessionName', () => {
+  it('passes through clean titles', () => {
+    expect(sanitizeSessionName('Fix PR Shepherd CI Failures')).toBe(
+      'Fix PR Shepherd CI Failures',
+    );
+  });
+
+  it('strips surrounding double quotes', () => {
+    expect(sanitizeSessionName('"Decoupling AI Architecture"')).toBe(
+      'Decoupling AI Architecture',
+    );
+  });
+
+  it('strips surrounding single quotes', () => {
+    expect(sanitizeSessionName("'Some Title'")).toBe('Some Title');
+  });
+
+  it('truncates at first newline', () => {
+    expect(sanitizeSessionName('Good Title\n\nWould you like me to')).toBe('Good Title');
+  });
+
+  it('rejects apology responses', () => {
+    expect(sanitizeSessionName('I apologize, but I cannot access')).toBe('');
+    expect(sanitizeSessionName("I can't determine the topic")).toBe('');
+    expect(sanitizeSessionName("I don't have enough context")).toBe('');
+    expect(sanitizeSessionName('I am sorry but')).toBe('');
+  });
+
+  it('rejects generic conversation starters', () => {
+    expect(sanitizeSessionName('Start a Conversation')).toBe('');
+    expect(sanitizeSessionName('Start A Conversation')).toBe('');
+    expect(sanitizeSessionName('Begin New Chat Session')).toBe('');
+    expect(sanitizeSessionName('New Conversation')).toBe('');
+  });
+
+  it('rejects conversational filler', () => {
+    expect(sanitizeSessionName('Sure, here is the title')).toBe('');
+    expect(sanitizeSessionName('Certainly! Fix the bug')).toBe('');
+    expect(sanitizeSessionName('Here is the session name')).toBe('');
+  });
+
+  it('enforces max length', () => {
+    const long = 'A'.repeat(80);
+    const result = sanitizeSessionName(long);
+    expect(result.length).toBeLessThanOrEqual(60);
+  });
+
+  it('handles combined issues: quotes + newline + trailing text', () => {
+    expect(
+      sanitizeSessionName('"OpenShift Integration"\n\nWould you like me to elaborate?'),
+    ).toBe('OpenShift Integration');
   });
 });
 

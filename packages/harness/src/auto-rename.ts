@@ -23,6 +23,16 @@ const MAX_RECENT_PROMPTS = 8;
 /** Maximum length of the generated session name. */
 const MAX_NAME_LENGTH = 60;
 
+/** Patterns that indicate Haiku went off-script — fall back to keyword extraction. */
+const REJECTED_PATTERNS = [
+  /^I\s+(apologize|apologise|cannot|can't|don't|am\s+sorry)/i,
+  /^(start|begin|new)\s+(a\s+|new\s+)?(conversation|chat|session)/i,
+  /^(hello|hi|hey|greetings)/i,
+  /^(sure|certainly|of\s+course)/i,
+  /^(here|let\s+me)/i,
+  /would you like/i,
+];
+
 /** Common stop words to filter out when extracting key terms. */
 const STOP_WORDS = new Set([
   'a',
@@ -221,6 +231,53 @@ export function generateSessionNameFallback(prompts: string[]): string {
 }
 
 /**
+ * Sanitize a Haiku-generated session name.
+ * Strips quotes, truncates at newlines, and rejects conversational responses.
+ * Returns empty string if the name is rejected.
+ */
+export function sanitizeSessionName(raw: string): string {
+  // Truncate at first newline — Haiku sometimes generates multi-line output
+  let name = raw.split('\n')[0].trim();
+
+  // Strip surrounding quotes (single, double, smart quotes)
+  name = name.replace(/^[\s"'"'\u201C\u201D\u2018\u2019]+|[\s"'"'\u201C\u201D\u2018\u2019]+$/g, '');
+
+  // Reject conversational responses — Haiku went off-script
+  for (const pattern of REJECTED_PATTERNS) {
+    if (pattern.test(name)) {
+      log.warn('rejected Haiku title (conversational)', { raw: raw.slice(0, 80) });
+      return '';
+    }
+  }
+
+  // Enforce length limit
+  if (name.length > MAX_NAME_LENGTH) {
+    name = name.slice(0, MAX_NAME_LENGTH).trim();
+  }
+
+  return name;
+}
+
+/** System prompt for LLM-based session naming. */
+const NAMING_SYSTEM_PROMPT = `Extract a 3-6 word title from the user messages below. The title should capture the primary topic or goal.
+
+Rules:
+- Output ONLY the title, no quotes, no explanation, no punctuation except hyphens
+- Be specific: "Fix PR Shepherd CI Failures" not "Fix Bug"
+- Never apologize, ask questions, or add commentary
+- If messages discuss multiple topics, title the dominant one
+
+Examples:
+Messages: "can you check why the tests are failing on the pr shepherd branch"
+Title: Debug PR Shepherd Test Failures
+
+Messages: "I need to update the morning briefing to include slack data"
+Title: Add Slack Data to Briefing
+
+Messages: "what's the status of my open PRs across all repos"
+Title: Cross-Repo PR Status Check`;
+
+/**
  * Generate a short session name using Claude Haiku.
  * Falls back to keyword extraction if the API call fails.
  */
@@ -230,7 +287,7 @@ export async function generateSessionName(prompts: string[]): Promise<string> {
   try {
     const client = clientFactory();
     const isVertex = client instanceof AnthropicVertex;
-    let input = prompts.join('\n');
+    let input = prompts.join('\n---\n');
     if (input.length > MAX_PROMPT_INPUT_CHARS) {
       input = input.slice(0, MAX_PROMPT_INPUT_CHARS);
     }
@@ -238,8 +295,7 @@ export async function generateSessionName(prompts: string[]): Promise<string> {
       {
         model: isVertex ? VERTEX_MODEL : AUTO_RENAME_MODEL,
         max_tokens: 20,
-        system:
-          'What is the user trying to accomplish? Generate a 3-6 word title capturing their intent or goal. Be action-oriented and specific. Return only the title, nothing else.',
+        system: NAMING_SYSTEM_PROMPT,
         messages: [
           {
             role: 'user',
@@ -251,14 +307,16 @@ export async function generateSessionName(prompts: string[]): Promise<string> {
     );
 
     const textBlock = response.content.find((b) => b.type === 'text');
-    const name = textBlock?.text?.trim() ?? '';
+    const rawName = textBlock?.text?.trim() ?? '';
+    const name = sanitizeSessionName(rawName);
 
-    if (name && name.length <= MAX_NAME_LENGTH) {
+    if (name) {
       return name;
     }
-    if (name) {
-      return name.slice(0, MAX_NAME_LENGTH).trim();
-    }
+
+    log.info('Haiku returned empty or rejected title, using fallback', {
+      raw: rawName.slice(0, 80),
+    });
   } catch (err: unknown) {
     log.warn('Haiku auto-rename failed, falling back to keyword extraction', {
       error: err instanceof Error ? err.message : 'unknown',
