@@ -77,11 +77,7 @@ export function getToolInputSpanAttrs(
 
   switch (toolName) {
     case 'Read':
-      set('file_path', input.file_path);
-      break;
     case 'Write':
-      set('file_path', input.file_path);
-      break;
     case 'Edit':
     case 'StrReplace':
       set('file_path', input.file_path);
@@ -91,9 +87,6 @@ export function getToolInputSpanAttrs(
       set('command', input.command);
       break;
     case 'Glob':
-      set('pattern', input.pattern);
-      if (input.path) set('path', input.path);
-      break;
     case 'Grep':
       set('pattern', input.pattern);
       if (input.path) set('path', input.path);
@@ -120,10 +113,9 @@ export function getToolInputSpanAttrs(
 
 export function summarizeToolInput(toolName: string, input: Record<string, unknown>): string {
   switch (toolName) {
-    case 'Read':
-      return `${input.file_path || ''}`;
     case 'Write':
       return `${input.file_path || ''} (${String(input.content || '').length} chars)`;
+    case 'Read':
     case 'Edit':
     case 'StrReplace':
       return `${input.file_path || ''}`;
