@@ -222,15 +222,11 @@ describe('generateSessionName', () => {
 
 describe('sanitizeSessionName', () => {
   it('passes through clean titles', () => {
-    expect(sanitizeSessionName('Fix PR Shepherd CI Failures')).toBe(
-      'Fix PR Shepherd CI Failures',
-    );
+    expect(sanitizeSessionName('Fix PR Shepherd CI Failures')).toBe('Fix PR Shepherd CI Failures');
   });
 
   it('strips surrounding double quotes', () => {
-    expect(sanitizeSessionName('"Decoupling AI Architecture"')).toBe(
-      'Decoupling AI Architecture',
-    );
+    expect(sanitizeSessionName('"Decoupling AI Architecture"')).toBe('Decoupling AI Architecture');
   });
 
   it('strips surrounding single quotes', () => {
@@ -268,9 +264,9 @@ describe('sanitizeSessionName', () => {
   });
 
   it('handles combined issues: quotes + newline + trailing text', () => {
-    expect(
-      sanitizeSessionName('"OpenShift Integration"\n\nWould you like me to elaborate?'),
-    ).toBe('OpenShift Integration');
+    expect(sanitizeSessionName('"OpenShift Integration"\n\nWould you like me to elaborate?')).toBe(
+      'OpenShift Integration',
+    );
   });
 });
 
