@@ -839,36 +839,10 @@ describe('TaskOrchestrator', () => {
       expect(deps.setTaskContext).not.toHaveBeenCalled();
     });
 
-    it('sets task context on spawned session via setTaskContextForClient', async () => {
+    it('does not call setTaskContext (pinned) for spawned sessions', async () => {
       const spawnSession = vi.fn().mockResolvedValue('spawned-client-1');
       const deps = createTestDeps(store);
       deps.spawnSession = spawnSession;
-      deps.setTaskContextForClient = vi.fn();
-      const orch = new TaskOrchestrator(deps);
-
-      const goal = store.create({ title: 'Goal' });
-      const task = store.create({
-        title: 'Spawn task',
-        parentId: goal.id,
-        sessionPolicy: 'spawn',
-      });
-
-      orch.start(goal.id);
-
-      await vi.waitFor(() => {
-        expect(deps.setTaskContextForClient).toHaveBeenCalledWith(
-          'spawned-client-1',
-          task.id,
-          goal.id,
-        );
-      });
-    });
-
-    it('does not set task context when spawn returns null (fallback path)', async () => {
-      const spawnSession = vi.fn().mockResolvedValue(null);
-      const deps = createTestDeps(store);
-      deps.spawnSession = spawnSession;
-      deps.setTaskContextForClient = vi.fn();
       const orch = new TaskOrchestrator(deps);
 
       const goal = store.create({ title: 'Goal' });
@@ -881,11 +855,31 @@ describe('TaskOrchestrator', () => {
       orch.start(goal.id);
 
       await vi.waitFor(() => {
-        // Fallback path uses setTaskContext (pinned), not setTaskContextForClient
-        expect(deps.setTaskContext).toHaveBeenCalled();
+        expect(spawnSession).toHaveBeenCalled();
       });
 
-      expect(deps.setTaskContextForClient).not.toHaveBeenCalled();
+      // Spawned sessions get taskContext via startChat options, not setTaskContext
+      expect(deps.setTaskContext).not.toHaveBeenCalled();
+    });
+
+    it('falls back to setTaskContext (pinned) when spawn returns null', async () => {
+      const spawnSession = vi.fn().mockResolvedValue(null);
+      const deps = createTestDeps(store);
+      deps.spawnSession = spawnSession;
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Spawn task',
+        parentId: goal.id,
+        sessionPolicy: 'spawn',
+      });
+
+      orch.start(goal.id);
+
+      await vi.waitFor(() => {
+        expect(deps.setTaskContext).toHaveBeenCalledWith(task.id, goal.id);
+      });
     });
 
     it('reuse policy tasks use pinned session as before', () => {
