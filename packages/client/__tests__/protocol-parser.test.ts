@@ -50,7 +50,7 @@ describe('pool lifecycle events', () => {
 // ─── Reattach ─────────────────────────────────────────────────────────────────
 
 describe('reattach', () => {
-  it('reattached calls onSessionAssigned and setWsRunning (P1: no SET_RUNNING)', () => {
+  it('reattached calls onSessionAssigned and setWsRunning', () => {
     const cb = makeCallbacks();
     const r = parseServerMessage(
       { type: 'reattached', clientId: 'c1', sessionId: 'sid-1', running: true },
@@ -58,14 +58,14 @@ describe('reattach', () => {
       cb,
       POOL_KEY,
     );
-    // P1: running state comes from session_state_changed events, not reattached
+    // Running state comes from session_state_changed events, not reattached
     expect(r.messagesActions).toHaveLength(0);
     expect(cb.onSessionAssigned).toHaveBeenCalledWith('sid-1');
     expect(cb.setWsRunning).toHaveBeenCalledWith(POOL_KEY, true);
     expect(r.connectionUpdate).toEqual({ status: 'connected' });
   });
 
-  it('reattach_failed marks connection connected (P1: no SET_RUNNING)', () => {
+  it('reattach_failed marks connection connected', () => {
     const cb = makeCallbacks();
     const r = parseServerMessage(
       { type: 'reattach_failed', clientId: 'old' },
@@ -73,7 +73,7 @@ describe('reattach', () => {
       cb,
       POOL_KEY,
     );
-    // P1: running state comes from session_state_changed events
+    // Running state comes from session_state_changed events
     expect(r.messagesActions).toHaveLength(0);
     expect(cb.setWsRunning).toHaveBeenCalledWith(POOL_KEY, false);
     expect(r.connectionUpdate).toEqual({ status: 'connected' });
@@ -167,7 +167,7 @@ describe('session lifecycle', () => {
     const cb = makeCallbacks();
     const r = parseServerMessage({ type: 'session_end', sessionId: 'sid' }, state, cb, POOL_KEY);
     expect(r.messagesActions).toContainEqual({ type: 'SESSION_END', sessionId: 'sid' });
-    // P1: optimistic running=true when draining pending send
+    // Optimistic running=true when draining pending send
     expect(r.messagesActions).toContainEqual({ type: 'SESSION_STATE_CHANGED', state: 'running' });
     expect(cb.sendQueued).toHaveBeenCalledWith(POOL_KEY, { type: 'send', prompt: 'follow-up' });
     // Second message stays queued
@@ -388,7 +388,7 @@ describe('error handling', () => {
 // ─── Subscribed ──────────────────────────────────────────────────────────────
 
 describe('subscribed', () => {
-  it('subscribed with running=true calls setWsRunning (P1: no SET_RUNNING)', () => {
+  it('subscribed with running=true calls setWsRunning', () => {
     const cb = makeCallbacks();
     const r = parseServerMessage(
       { type: 'subscribed', sessionId: 'sid', running: true },
@@ -396,7 +396,7 @@ describe('subscribed', () => {
       cb,
       POOL_KEY,
     );
-    // P1: running state from session_state_changed events, not subscribed
+    // Running state from session_state_changed events, not subscribed
     expect(r.messagesActions).toHaveLength(0);
     expect(cb.setWsRunning).toHaveBeenCalledWith(POOL_KEY, true);
   });
@@ -620,7 +620,7 @@ describe('reconnected', () => {
     expect(onReconnected).toHaveBeenCalled();
   });
 
-  it('P1: reconnected does not dispatch SET_RUNNING — state from replayed events', () => {
+  it('reconnected does not dispatch SET_RUNNING — state from replayed events', () => {
     const state = makeState({ currentSessionId: 'sid-1' });
     const r = parseServerMessage(
       { type: 'reconnected', sessions: [{ sessionId: 'sid-1', replayed: 3 }] },
@@ -982,6 +982,33 @@ describe('session_state_changed', () => {
     expect(r.messagesActions).toHaveLength(0);
     expect(spy).toHaveBeenCalledWith('[mitzo] unknown session state:', 'bogus');
     spy.mockRestore();
+  });
+});
+
+// ─── session_close_ack ──────────────────────────────────────────────────────
+
+describe('session_close_ack', () => {
+  it('dispatches idle state and close result when accepted', () => {
+    const r = parseServerMessage(
+      { type: 'session_close_ack', accepted: true },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.messagesActions).toContainEqual(
+      expect.objectContaining({ type: 'NATIVE_COMMAND_RESULT', command: 'close' }),
+    );
+    expect(r.messagesActions).toContainEqual({ type: 'SESSION_STATE_CHANGED', state: 'idle' });
+  });
+
+  it('produces no actions when not accepted', () => {
+    const r = parseServerMessage(
+      { type: 'session_close_ack', accepted: false },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.messagesActions).toHaveLength(0);
   });
 });
 

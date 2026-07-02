@@ -1299,7 +1299,7 @@ describe('foreground recovery', () => {
     expect(state.messages[0].messageId).toBe('user-1');
   });
 
-  // P1: syncRunningState removed — running state is server-authoritative.
+  // syncRunningState removed — running state is server-authoritative.
   // Verify session_state_changed events correctly update running after foreground.
   it('session_state_changed updates running after foreground restore', async () => {
     const transport = mockTransport();

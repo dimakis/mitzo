@@ -216,8 +216,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       });
   }
 
-  // P1: syncRunningState removed — running state is server-authoritative
-  // via session_state_changed events. No polling needed.
+  // syncRunningState removed — running state is server-authoritative via
+  // session_state_changed events. Periodic sync covers iOS foreground gaps.
 
   function clearPendingSendTimer() {
     if (parserState.pendingSendTimer) {
@@ -710,7 +710,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       const { sessions } = store.getState();
       if (sessions.active) {
         fetchAndRestoreMessages(sessions.active);
-        // P1: syncRunningState removed — state events handle this
+        // syncRunningState removed — state events handle this
       }
       return;
     }

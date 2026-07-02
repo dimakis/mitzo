@@ -127,7 +127,7 @@ export function parseServerMessage(
     // ── v2 handshake events ────────────────────────────────────────────────
 
     case 'reconnected':
-      // P1: running state is derived from replayed session_state_changed events,
+      // Running state derived from replayed session_state_changed events,
       // not from the reconnected message payload.
       result.connectionUpdate = { status: 'connected' };
       callbacks.onReconnected?.();
@@ -148,7 +148,7 @@ export function parseServerMessage(
       if (tokens) {
         callbacks.onTokensHydrated?.(tokens);
       }
-      // P1: running state restored via replayed session_state_changed events
+      // Running state restored via replayed session_state_changed events
       break;
     }
 
@@ -158,14 +158,14 @@ export function parseServerMessage(
     // ── v1 handshake events (kept for backward compat) ─────────────────────
 
     case 'reattached':
-      // P1: running state from server's session_state_changed events
+      // Running state from server's session_state_changed events
       callbacks.setWsRunning?.(poolKey, true);
       result.connectionUpdate = { status: 'connected' };
       if (msg.sessionId) callbacks.onSessionAssigned(msg.sessionId as string);
       break;
 
     case 'reattach_failed':
-      // P1: running=false from server's session_state_changed events
+      // Running state from server's session_state_changed events
       callbacks.setWsRunning?.(poolKey, false);
       result.connectionUpdate = { status: 'connected' };
       if (state.currentSessionId && callbacks.fetchMessages) {
@@ -272,7 +272,7 @@ export function parseServerMessage(
       break;
 
     case 'session_state_changed': {
-      // P1: server-authoritative state — derive running from this event only
+      // Server-authoritative state — derive running from this event only
       if (typeof msg.state === 'string' && VALID_CLIENT_STATES.has(msg.state)) {
         result.messagesActions.push({
           type: 'SESSION_STATE_CHANGED',
@@ -432,7 +432,7 @@ export function parseServerMessage(
       break;
 
     case 'subscribed':
-      // P1: running state from session_state_changed events, not subscribed payload
+      // Running state from session_state_changed events, not subscribed payload
       if (msg.running) {
         callbacks.setWsRunning?.(poolKey, true);
       }

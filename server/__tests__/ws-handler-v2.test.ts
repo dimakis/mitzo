@@ -618,7 +618,7 @@ describe('handleSwitchSession', () => {
     expect(ctx.connRegistry.hasOpenWatchers('sess-1')).toBe(true);
   });
 
-  it('P1: session_switched does not include running field', async () => {
+  it('session_switched does not include running field', async () => {
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-1', session: {} });
     sessionReg.isActive.mockReturnValue(true);
@@ -648,11 +648,11 @@ describe('handleSwitchSession', () => {
     await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'sess-1' }, ctx);
 
     const resp = transport.sent[0];
-    // P1: running state from session_state_changed events, not session_switched
+    // Running state from session_state_changed events, not session_switched
     expect(resp).not.toHaveProperty('running');
     expect(resp).toHaveProperty('type', 'session_switched');
 
-    // P1: session_state_changed emitted immediately after session_switched
+    // session_state_changed emitted immediately after session_switched
     const stateMsg = transport.sent[1];
     expect(stateMsg).toMatchObject({
       type: 'session_state_changed',
@@ -663,7 +663,7 @@ describe('handleSwitchSession', () => {
     expect(stateMsg).toHaveProperty('timestamp');
   });
 
-  it('P1: no session_state_changed when getSessionState returns null', async () => {
+  it('no session_state_changed when getSessionState returns null', async () => {
     const sessionReg = mockSessionRegistry();
     const eventStore = mockEventStore();
     eventStore.getSession.mockReturnValue({
@@ -1058,7 +1058,7 @@ describe('handlePermissionResponseV2', () => {
   });
 });
 
-// ─── handleReconnect — P1: no running field in summary ──────────────────────
+// ─── handleReconnect — no running field in summary ──────────────────────────
 
 describe('handleReconnect reconnected summary (P1)', () => {
   it('reconnected summary does not include running field', () => {
@@ -2777,7 +2777,7 @@ describe('stale session cleanup removes registry entry', () => {
     sessionReg.isActive.mockReturnValue(true);
 
     const eventStore = mockEventStore();
-    // P1: handleReconnect uses getSessionState() instead of getSession().isActive
+    // handleReconnect uses getSessionState() instead of getSession().isActive
     eventStore.getSessionState.mockReturnValue('ENDED');
 
     const ctx = createContext({
