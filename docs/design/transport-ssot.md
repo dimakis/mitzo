@@ -4,7 +4,7 @@
 **Author:** Claude Opus 4.6 + Dimitri Saridakis
 **Created:** 2026-07-02
 **Telos:** 97361f814c5f54df
-**Supersedes:** Parts of `session-state-machine.md`, `streaming-input-session-control.md`
+**Incorporates and replaces:** `session-state-machine.md` (Status: Proposed, never implemented), `streaming-input-session-control.md`. Crash recovery from `session-state-machine.md` Phase 4 is pulled forward to Phase 0 here.
 **Related PRs:** #396 (never merged), #401 (merged, reverted via #403), #407
 
 ## Problem Statement
@@ -236,19 +236,17 @@ Combined with the state event, reconnect is trivial:
 2. `running` in messages reducer derived from `session_state_changed.state === 'running'`
 3. Remove `syncRunningState()` REST polling (state events make it unnecessary)
 4. Remove `running` field from `reconnected` and `session_switched` messages (replaced by replayed state events)
-5. Remove `is_active` boolean column from EventStore
-6. Replace `handleReconnect`'s `storeMeta.isActive` check with `storeState`-based logic
 
-**Tests:** Verify `running` state transitions match server state in all scenarios (new session, reconnect, iOS foreground, session switch). Verify reconnect works with state-based check.
+**Tests:** Verify `running` state transitions match server state in all scenarios (new session, reconnect, iOS foreground, session switch).
 
-**Dead code removal:** `markSessionInactive()`, `syncRunningState()`, `SET_RUNNING` action type, `running` field in reconnect/switch messages.
+**Dead code removal:** `syncRunningState()`, `SET_RUNNING` action type, `running` field in reconnect/switch messages.
 
 ### Phase 2: Always-send (remove client routing)
 
 1. Remove `wasRunning` branch from `sendMessage()`
 2. Remove `pendingSend[]`, `PENDING_SEND_TIMEOUT_MS`, drain logic, timer, callbacks
 3. Client awaits POST response before marking message as sent
-4. Add retry with exponential backoff on POST failure (max 3 attempts)
+4. Add retry with exponential backoff on POST failure (max 3 attempts). Use `clientMsgId` as idempotency key -- server already has idempotency checking (#386), so retried POSTs are deduplicated server-side
 5. Add `sendError` UI state for permanent failures
 6. Heartbeat liveness: 20s ping, 40s timeout, auto-reconnect
 
@@ -260,13 +258,16 @@ Combined with the state event, reconnect is trivial:
 
 1. SSE reconnect uses `?from=<lastSeq>` parameter
 2. Server replays events from cursor (already supported by EventStore)
-3. Remove `handleReconnect` ownership dance
-4. Remove `doReconnectPost` and associated state management
-5. Remove periodic sync polling (cursor-based replay replaces it)
+3. Replace `handleReconnect`'s `storeMeta.isActive` check with `storeState`-based logic
+4. Remove `handleReconnect` ownership dance
+5. Remove `doReconnectPost` and associated state management
+6. Remove periodic sync polling (cursor-based replay replaces it)
+7. Remove `is_active` boolean column from EventStore (safe now that all consumers use `state`)
+8. Remove `markSessionInactive()` (replaced by `setSessionState(ENDED)`)
 
 **Tests:** Verify reconnect replays missed events correctly. Verify no duplicate events. Verify generation continues during disconnect and events are available on reconnect.
 
-**Dead code removal:** `handleReconnect` (ws-handler-v2.ts), `doReconnectPost` (sse-connection.ts), periodic sync timer and `shouldSync` logic (connection-registry.ts), `reconnect` message type.
+**Dead code removal:** `handleReconnect` (ws-handler-v2.ts), `doReconnectPost` (packages/client/src/sse-connection.ts), periodic sync timer and `shouldSync` logic (packages/harness/src/connection-registry.ts), `reconnect` message type, `markSessionInactive()`, `is_active` column.
 
 ### Phase 4: Cleanup
 
@@ -280,16 +281,16 @@ Combined with the state event, reconnect is trivial:
 
 ### Server
 
-| File                                   | Changes                                                                    |
-| -------------------------------------- | -------------------------------------------------------------------------- |
-| `server/query-loop.ts`                 | Emit `session_state_changed` on state transitions                          |
-| `server/chat.ts`                       | Emit state events from `startChat`/`sendToChat`; crash recovery on startup |
-| `server/ws-handler-v2.ts`              | Remove `handleReconnect`; replace `is_active` checks with state-based      |
-| `server/index.ts`                      | Call `recoverStaleSessions()` on startup                                   |
-| `server/app.ts`                        | Add `state` to meta endpoint response                                      |
-| `packages/protocol/src/event-store.ts` | Remove `is_active` column; emit events from `setSessionState()`            |
-| `packages/protocol/src/types.ts`       | Add `SessionStateEvent` type                                               |
-| `server/connection-registry.ts`        | Remove periodic sync; simplify to cursor-based replay                      |
+| File                                          | Changes                                                                    |
+| --------------------------------------------- | -------------------------------------------------------------------------- |
+| `server/query-loop.ts`                        | Emit `session_state_changed` on state transitions                          |
+| `server/chat.ts`                              | Emit state events from `startChat`/`sendToChat`; crash recovery on startup |
+| `server/ws-handler-v2.ts`                     | Remove `handleReconnect`; replace `is_active` checks with state-based      |
+| `server/index.ts`                             | Call `recoverStaleSessions()` on startup                                   |
+| `server/app.ts`                               | Add `state` to meta endpoint response                                      |
+| `packages/protocol/src/event-store.ts`        | Remove `is_active` column; emit events from `setSessionState()`            |
+| `packages/protocol/src/types.ts`              | Add `SessionStateEvent` type                                               |
+| `packages/harness/src/connection-registry.ts` | Remove periodic sync; simplify to cursor-based replay                      |
 
 ### Client
 
@@ -315,11 +316,13 @@ Combined with the state event, reconnect is trivial:
 - doReconnectPost() and associated state
 - periodic sync timer
 
-// Server
+// Server (Phase 1)
+- running field in reconnected/session_switched messages
+
+// Server (Phase 3)
 - markSessionInactive() (replaced by setSessionState(ENDED))
 - is_active column in EventStore sessions table
 - handleReconnect() ownership dance
-- running field in reconnected/session_switched messages
 - shouldSync() / periodic sync replay logic
 ```
 
