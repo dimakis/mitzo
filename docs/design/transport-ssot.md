@@ -3,7 +3,7 @@
 **Status:** Proposed
 **Author:** Claude Opus 4.6 + Dimitri Saridakis
 **Created:** 2026-07-02
-**Telos:** TBD
+**Telos:** 97361f814c5f54df
 **Supersedes:** Parts of `session-state-machine.md`, `streaming-input-session-control.md`
 **Related PRs:** #396 (never merged), #401 (merged, reverted via #403), #407
 
