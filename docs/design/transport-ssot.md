@@ -1,6 +1,6 @@
 # Transport Single Source of Truth
 
-**Status:** Proposed
+**Status:** Approved
 **Author:** Claude Opus 4.6 + Dimitri Saridakis
 **Created:** 2026-07-02
 **Telos:** 97361f814c5f54df
@@ -77,7 +77,7 @@ This is a chat application transport layer. Thousands of production systems have
 CLIENT                          SERVER
 ------                          ------
 
-  |--- POST /send ----------------->|
+  |--- POST /api/chat/send -------->|
   |<-- 202 { accepted, jobId } -----|    (write acknowledged)
   |                                 |
   |<-- SSE: state=running ----------|    (authoritative state)
@@ -86,7 +86,7 @@ CLIENT                          SERVER
   |<-- SSE: block_delta ------------|
   |<-- SSE: state=idle -------------|    (turn complete)
   |                                 |
-  |--- POST /send ----------------->|    (next turn, always immediate)
+  |--- POST /api/chat/send -------->|    (next turn, always immediate)
   |<-- 202 { accepted } ------------|
   |                                 |
   |  [SSE drops]                    |
@@ -137,11 +137,16 @@ type SessionStateEvent = {
   type: 'session_state_changed';
   sessionId: string;
   state: 'idle' | 'running' | 'requires_action';
-  // Maps from the 7-state internal machine:
-  // CREATED/ENDED           -> 'idle'
-  // STARTING/ACTIVE         -> 'running'
-  // DETACHED/SUSPENDED      -> preserve last emitted (server buffers)
-  // permission_request      -> 'requires_action'
+  // Two emission paths:
+  //
+  // 1. From setSessionState() (lifecycle transitions):
+  //    CREATED/ENDED           -> 'idle'
+  //    STARTING/ACTIVE         -> 'running'
+  //    DETACHED/SUSPENDED      -> preserve last emitted (server buffers)
+  //
+  // 2. From permission_request v2 events (cross-cutting, not a SessionState):
+  //    permission_request      -> 'requires_action'
+  //    permission resolved     -> restore previous state ('running')
 };
 ```
 
@@ -171,9 +176,12 @@ Callers must remember to update all three. They diverge.
 
 **Changes:**
 
-- Remove `is_active` boolean column from EventStore (redundant with `state`)
+- Add `state` column alongside `is_active` in EventStore (backwards-compatible; Phase 0)
+- Write both `state` and `is_active` in `setSessionState()` during transition period
+- Migrate all `is_active` readers to use `state` (Phase 1)
+- Drop `is_active` column once all consumers migrated (Phase 4)
 - Replace `handleReconnect`'s `storeMeta.isActive` check with state-based logic
-- Add `recoverStaleSessions()` on startup: any session in ACTIVE/STARTING/DETACHED → ENDED
+- Add `recoverStaleSessions()` on startup: any session in ACTIVE/STARTING/DETACHED/SUSPENDED → ENDED
 - Expose `state` in `/api/sessions/:id/meta` response
 - Emit `session_state_changed` on every `setSessionState()` call
 
@@ -214,7 +222,53 @@ Combined with the state event, reconnect is trivial:
 
 **Current:** Various heartbeat mechanisms across transports, inconsistent.
 
-**Target:** Server sends SSE `ping` every 20 seconds. Client tracks `lastHeartbeatAt`. If no heartbeat for 40 seconds, client tears down SSE and reconnects (with cursor). This is proactive failure detection -- the client knows the connection is dead before the user tries to send.
+**Target:** Server sends SSE `ping` every `MITZO_HEARTBEAT_INTERVAL_MS` (default 20s, matching Anthropic SDK). Client tracks `lastHeartbeatAt`. If no heartbeat for 2x the interval, client tears down SSE and reconnects (with cursor). This is proactive failure detection -- the client knows the connection is dead before the user tries to send.
+
+Configurable via environment variable for development and testing (e.g. `MITZO_HEARTBEAT_INTERVAL_MS=5000` for faster detection during dev).
+
+### Multi-Client Fan-Out
+
+#### Design Decision
+
+Multiple clients can connect to the same session simultaneously (e.g. phone + laptop). This is designed in from the start, not bolted on later.
+
+#### Model
+
+- **Any client can send.** POST `/api/chat/send` accepts from any authenticated connection subscribed to the session. Server queues via AsyncQueue (already works). No primary/secondary client distinction.
+- **All clients receive all events.** `session_state_changed`, `message_start`, `block_delta`, etc. are fanned out to every SSE connection subscribed to that session.
+- **Concurrent sends are serialized.** If two clients POST simultaneously, AsyncQueue serializes them. The SDK processes one turn at a time. Both clients see both messages and both responses in sequence order.
+
+#### ConnectionRegistry Changes
+
+**Current:** `ConnectionRegistry` maps one connection per session (owner model).
+
+**Target:** `ConnectionRegistry` tracks a **set** of connections per session:
+
+```typescript
+// Current
+sessions: Map<sessionId, { connectionId: string; cursor: number }>;
+
+// Target
+sessions: Map<sessionId, Set<{ connectionId: string; cursor: number }>>;
+```
+
+Every `session_state_changed` and protocol event fans out to all connections in the set. Connection add/remove is independent -- one client disconnecting doesn't affect others.
+
+#### Event Fan-Out
+
+When `setSessionState()` or `appendEvent()` fires:
+
+1. Look up all connections subscribed to that session
+2. Write the SSE event to each connection's stream
+3. Each connection tracks its own cursor independently
+
+This is the same pattern used by every multi-device chat system. The EventStore already stores events durably with sequence numbers, so a reconnecting client catches up from its own cursor regardless of what other clients have received.
+
+#### What We Don't Need
+
+- **Presence awareness.** Clients don't need to know about each other. If we want "also viewing on phone" indicators later, that's a separate feature.
+- **Send coordination.** No locks, no "typing" exclusion. If two humans both send, they both get responses. This is unlikely in practice and harmless if it happens.
+- **Session ownership transfer.** With no primary/secondary model, there's nothing to transfer. Any client can send, any client can interrupt.
 
 ## Migration Plan
 
@@ -225,8 +279,11 @@ Combined with the state event, reconnect is trivial:
 3. Add `state` field to `/api/sessions/:id/meta` response
 4. Client receives and logs `session_state_changed` but doesn't act on it yet
 5. Add crash recovery: `recoverStaleSessions()` on server startup
+6. Flip SSE to default transport (currently WS default, SSE opt-in via localStorage)
+7. Add `state` column to EventStore sessions table alongside `is_active` (backwards-compatible)
+8. Migrate `setSessionState()` to write both `state` and `is_active`
 
-**Tests:** Verify state events are emitted on every transition. Verify crash recovery marks stale sessions as ENDED.
+**Tests:** Verify state events are emitted on every transition. Verify crash recovery marks stale sessions as ENDED. Verify SSE transport works as default. Verify `state` column is populated and consistent with `is_active`.
 
 **Dead code removal:** None yet. Additive only.
 
@@ -236,17 +293,21 @@ Combined with the state event, reconnect is trivial:
 2. `running` in messages reducer derived from `session_state_changed.state === 'running'`
 3. Remove `syncRunningState()` REST polling (state events make it unnecessary)
 4. Remove `running` field from `reconnected` and `session_switched` messages (replaced by replayed state events)
+5. Migrate all server-side `is_active` readers to use `state` instead
+6. Replace `handleReconnect`'s `storeMeta.isActive` check with `storeState`-based logic
 
-**Tests:** Verify `running` state transitions match server state in all scenarios (new session, reconnect, iOS foreground, session switch).
+**Tests:** Verify `running` state transitions match server state in all scenarios (new session, reconnect, iOS foreground, session switch). Verify reconnect works with state-based check.
 
 **Dead code removal:** `syncRunningState()`, `SET_RUNNING` action type, `running` field in reconnect/switch messages.
 
 ### Phase 2: Always-send (remove client routing)
 
+**Prerequisite:** Verify `clientMsgId` idempotency guard from PR #386 is still present and keyed correctly in `chat-rest-handler.ts`. If refactored or removed, re-implement before enabling retries.
+
 1. Remove `wasRunning` branch from `sendMessage()`
 2. Remove `pendingSend[]`, `PENDING_SEND_TIMEOUT_MS`, drain logic, timer, callbacks
 3. Client awaits POST response before marking message as sent
-4. Add retry with exponential backoff on POST failure (max 3 attempts). Use `clientMsgId` as idempotency key -- server already has idempotency checking (#386), so retried POSTs are deduplicated server-side
+4. Add retry with exponential backoff on POST failure (max 3 attempts). Use `clientMsgId` as idempotency key so retried POSTs are deduplicated server-side
 5. Add `sendError` UI state for permanent failures
 6. Heartbeat liveness: 20s ping, 40s timeout, auto-reconnect
 
@@ -258,39 +319,40 @@ Combined with the state event, reconnect is trivial:
 
 1. SSE reconnect uses `?from=<lastSeq>` parameter
 2. Server replays events from cursor (already supported by EventStore)
-3. Replace `handleReconnect`'s `storeMeta.isActive` check with `storeState`-based logic
-4. Remove `handleReconnect` ownership dance
-5. Remove `doReconnectPost` and associated state management
-6. Remove periodic sync polling (cursor-based replay replaces it)
-7. Remove `is_active` boolean column from EventStore (safe now that all consumers use `state`)
-8. Remove `markSessionInactive()` (replaced by `setSessionState(ENDED)`)
+3. Remove `handleReconnect` ownership dance
+4. Remove `doReconnectPost` and associated state management
+5. Remove periodic sync polling (cursor-based replay replaces it)
+6. `ConnectionRegistry` fan-out: track set of connections per session, not single owner
 
-**Tests:** Verify reconnect replays missed events correctly. Verify no duplicate events. Verify generation continues during disconnect and events are available on reconnect.
+**Tests:** Verify reconnect replays missed events correctly. Verify no duplicate events. Verify generation continues during disconnect and events are available on reconnect. Verify multi-client fan-out (two SSE connections receive same events).
 
-**Dead code removal:** `handleReconnect` (ws-handler-v2.ts), `doReconnectPost` (packages/client/src/sse-connection.ts), periodic sync timer and `shouldSync` logic (packages/harness/src/connection-registry.ts), `reconnect` message type, `markSessionInactive()`, `is_active` column.
+**Dead code removal:** `handleReconnect` (ws-handler-v2.ts), `doReconnectPost` (packages/client/src/sse-connection.ts), periodic sync timer and `startPeriodicSync()`/`stopPeriodicSync()` logic (packages/harness/src/connection-registry.ts), `reconnect` message type.
 
 ### Phase 4: Cleanup
 
-1. Remove WS transport code (if SSE migration is complete by this point)
+1. Remove WS transport code (SSE is default since Phase 0)
 2. Remove `SessionSseRegistry` if consolidated into `ConnectionRegistry`
 3. Remove stale connectionId/ownership management code from PR #401 revert residue
-4. Update all design docs to reflect new architecture
-5. Archive `session-state-machine.md` Phase 4 (crash recovery is now Phase 0)
+4. Remove `is_active` column from EventStore (all consumers migrated to `state` in Phase 1)
+5. Remove `markSessionInactive()` (replaced by `setSessionState(ENDED)`)
+6. Update all design docs to reflect new architecture
+7. Archive `session-state-machine.md` Phase 4 (crash recovery is now Phase 0)
 
 ## Files Involved
 
 ### Server
 
-| File                                          | Changes                                                                    |
-| --------------------------------------------- | -------------------------------------------------------------------------- |
-| `server/query-loop.ts`                        | Emit `session_state_changed` on state transitions                          |
-| `server/chat.ts`                              | Emit state events from `startChat`/`sendToChat`; crash recovery on startup |
-| `server/ws-handler-v2.ts`                     | Remove `handleReconnect`; replace `is_active` checks with state-based      |
-| `server/index.ts`                             | Call `recoverStaleSessions()` on startup                                   |
-| `server/app.ts`                               | Add `state` to meta endpoint response                                      |
-| `packages/protocol/src/event-store.ts`        | Remove `is_active` column; emit events from `setSessionState()`            |
-| `packages/protocol/src/types.ts`              | Add `SessionStateEvent` type                                               |
-| `packages/harness/src/connection-registry.ts` | Remove periodic sync; simplify to cursor-based replay                      |
+| File                                          | Changes                                                                                                    |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `server/query-loop.ts`                        | Emit `session_state_changed` on state transitions                                                          |
+| `server/chat.ts`                              | Emit state events from `startChat`/`sendToChat`; crash recovery on startup                                 |
+| `server/ws-handler-v2.ts`                     | Replace `is_active` checks with state-based (P1); remove `handleReconnect` (P3); remove file (P4)          |
+| `server/index.ts`                             | Call `recoverStaleSessions()` on startup                                                                   |
+| `server/app.ts`                               | Add `state` to meta endpoint response                                                                      |
+| `packages/protocol/src/event-store.ts`        | Add `state` column alongside `is_active` (P0); emit events from `setSessionState()`; drop `is_active` (P4) |
+| `packages/protocol/src/types.ts`              | Add `SessionStateEvent` type                                                                               |
+| `packages/harness/src/connection-registry.ts` | Multi-client fan-out: Set of connections per session (P3); remove periodic sync                            |
+| `frontend/src/client-store.ts`                | Flip SSE to default transport (P0)                                                                         |
 
 ### Client
 
@@ -299,39 +361,44 @@ Combined with the state event, reconnect is trivial:
 | `packages/client/src/store.ts`           | Remove `wasRunning` queuing; await POST ack; remove `syncRunningState`           |
 | `packages/client/src/protocol-parser.ts` | Handle `session_state_changed`; remove `pendingSend` drain; remove `SET_RUNNING` |
 | `packages/client/src/sse-connection.ts`  | Reconnect with `?from=lastSeq`; remove `doReconnectPost`; add heartbeat timeout  |
-| `packages/client/src/connection.ts`      | Same cursor-based reconnect if WS still active                                   |
+| `packages/client/src/connection.ts`      | Remove in Phase 4 (WS transport removal)                                         |
 | `frontend/src/components/ChatInput.tsx`  | No changes (useQueuedMessages is a separate user-facing feature)                 |
 
-### Dead Code Candidates (cumulative removal)
+### Dead Code Candidates (by phase)
 
 ```
-// Client
+// Phase 1 — Server-authoritative state
+- SET_RUNNING action type (replaced by session_state_changed)
+- syncRunningState() REST polling
+- running field in reconnected/session_switched messages
+
+// Phase 2 — Always-send
 - PENDING_SEND_TIMEOUT_MS constant
 - pendingSend[] array and all drain logic
 - wasRunning queuing branch in sendMessage()
 - clearPendingSendTimer()
 - onSendQueued callback
-- SET_RUNNING action type (replaced by session_state_changed)
-- syncRunningState() REST polling
+
+// Phase 3 — Clean reconnect
+- handleReconnect() ownership dance
 - doReconnectPost() and associated state
-- periodic sync timer
+- periodic sync timer / startPeriodicSync() / stopPeriodicSync() logic
+- reconnect message type
 
-// Server (Phase 1)
-- running field in reconnected/session_switched messages
-
-// Server (Phase 3)
+// Phase 4 — Cleanup
+- WS transport code (MitzoConnection, ws-handler-v2.ts)
 - markSessionInactive() (replaced by setSessionState(ENDED))
 - is_active column in EventStore sessions table
-- handleReconnect() ownership dance
-- shouldSync() / periodic sync replay logic
+- SessionSseRegistry (if consolidated)
+- connectionId ownership management (PR #401 residue)
 ```
 
-## Open Questions
+## Resolved Decisions
 
-1. **WS removal timeline:** Phase 3 assumes SSE is the primary transport. If WS is still active, cursor-based reconnect needs to work for both. Should we complete the SSE migration first?
+1. **WS removal timeline:** Complete SSE migration. Flip SSE to default transport in Phase 0. Remove WS transport code in Phase 4 cleanup. Maintaining cursor-based reconnect for both transports doubles the surface area for exactly the kind of bug we're eliminating.
 
-2. **Multi-device fan-out:** The current architecture assumes one client per session. If we want multi-device (phone + laptop viewing same session), the job-based model enables it naturally. Worth designing for now or deferring?
+2. **Multi-device fan-out:** Design for multiple clients per session from the start. See [Multi-Client Fan-Out](#multi-client-fan-out) section. Any connected client can send, server queues via AsyncQueue, all clients see the result. No primary/secondary distinction.
 
-3. **EventStore migration:** Removing `is_active` requires a SQLite migration. Should we add a backwards-compatible `state`-only path first, or migrate in one step?
+3. **EventStore migration:** Backwards-compatible. Add `state` column alongside `is_active` in Phase 0. Migrate all readers to use `state` through Phases 1-3. Drop `is_active` in Phase 4 cleanup.
 
-4. **Heartbeat interval:** 20s matches Anthropic's SDK. Should we make it configurable for development (faster detection during testing)?
+4. **Heartbeat interval:** Default 20s (matches Anthropic SDK). Configurable via `MITZO_HEARTBEAT_INTERVAL_MS` environment variable for development and testing.
