@@ -3,7 +3,7 @@
 **Status:** Approved
 **Author:** Claude Opus 4.6 + Dimitri Saridakis
 **Created:** 2026-07-02
-**Telos:** 97361f814c5f54df
+**Telos:** b138b20e472bd324
 **Incorporates and replaces:** `session-state-machine.md` (never implemented) and supersedes `streaming-input-session-control.md` (implemented in PR #33, but scope expanded here). Crash recovery from `session-state-machine.md` Phase 4 is pulled forward to Phase 0 here.
 **Related PRs:** #396 (never merged), #401 (merged, reverted via #403), #407
 
