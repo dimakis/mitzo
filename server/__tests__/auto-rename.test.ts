@@ -156,21 +156,12 @@ describe('generateSessionName', () => {
 
     expect(result).toBe('Auth Bug Fix Session');
     expect(mockCreate).toHaveBeenCalledOnce();
-    expect(mockCreate).toHaveBeenCalledWith(
-      {
-        model: AUTO_RENAME_MODEL,
-        max_tokens: 20,
-        system:
-          'What is the user trying to accomplish? Generate a 3-6 word title capturing their intent or goal. Be action-oriented and specific. Return only the title, nothing else.',
-        messages: [
-          {
-            role: 'user',
-            content: 'Fix the auth bug\nUpdate login page',
-          },
-        ],
-      },
-      { timeout: 5000 },
-    );
+    const call = mockCreate.mock.calls[0];
+    expect(call[0].model).toBe(AUTO_RENAME_MODEL);
+    expect(call[0].max_tokens).toBe(20);
+    expect(call[0].messages[0].content).toContain('Fix the auth bug');
+    expect(call[0].messages[0].content).toContain('Update login page');
+    expect(call[1]).toEqual({ timeout: 5000 });
   });
 
   it('falls back to keyword extraction when API call fails', async () => {

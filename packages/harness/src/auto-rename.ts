@@ -240,7 +240,7 @@ export function sanitizeSessionName(raw: string): string {
   let name = raw.split('\n')[0].trim();
 
   // Strip surrounding quotes (single, double, smart quotes)
-  name = name.replace(/^[\s"'"'\u201C\u201D\u2018\u2019]+|[\s"'"'\u201C\u201D\u2018\u2019]+$/g, '');
+  name = name.replace(/^[\s"'\u201C\u201D\u2018\u2019]+|[\s"'\u201C\u201D\u2018\u2019]+$/g, '');
 
   // Reject conversational responses — Haiku went off-script
   for (const pattern of REJECTED_PATTERNS) {
