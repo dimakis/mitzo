@@ -5,11 +5,42 @@ import type {
   SessionMeta,
   SessionSearchResult,
   SessionState,
+  ClientSessionState,
   EventStoreLogger,
 } from './types.js';
 
 // Re-export types for consumer convenience
-export type { StoredEvent, SessionMeta, SessionSearchResult, SessionState, EventStoreLogger };
+export type {
+  StoredEvent,
+  SessionMeta,
+  SessionSearchResult,
+  SessionState,
+  ClientSessionState,
+  EventStoreLogger,
+};
+
+/**
+ * Map internal 7-state lifecycle to client-facing 3-state.
+ * Note: 'requires_action' is never returned here — it is emitted separately
+ * by the permission_request handler (Phase 1), not from lifecycle transitions.
+ */
+function toClientState(state: SessionState): ClientSessionState {
+  switch (state) {
+    case 'STARTING':
+    case 'ACTIVE':
+      return 'running';
+    case 'CREATED':
+    case 'CLOSING':
+    case 'ENDED':
+    case 'DETACHED':
+    case 'SUSPENDED':
+      return 'idle';
+    default: {
+      const _exhaustive: never = state;
+      return _exhaustive;
+    }
+  }
+}
 
 const noopLogger: EventStoreLogger = { info() {} };
 
@@ -191,6 +222,7 @@ export class EventStore {
         `UPDATE sessions SET
           state = ?,
           last_state_change = ?,
+          is_active = ?,
           updated_at = unixepoch('now', 'subsec') * 1000
         WHERE session_id = ?`,
       ),
@@ -596,12 +628,25 @@ export class EventStore {
       }
     }
 
-    this.stmts.setSessionState.run(newState, now, sessionId);
+    // Sync is_active from state (backwards-compatible, P0).
+    // Only ENDED/CLOSING are inactive. CREATED is transient — see recoverStaleSessions().
+    const isActive = newState !== 'ENDED' && newState !== 'CLOSING' ? 1 : 0;
+    this.stmts.setSessionState.run(newState, now, isActive, sessionId);
+
+    // Emit session_state_changed event for client consumption (P0)
+    const clientState = toClientState(newState);
+    this.append(sessionId, 'session_state_changed', {
+      sessionId,
+      state: clientState,
+      internalState: newState,
+      timestamp: now,
+    });
 
     this.log.info('session state transition', {
       sessionId,
       fromState,
       toState: newState,
+      clientState,
       clientId: opts?.clientId,
       reason: opts?.reason,
     });
@@ -610,6 +655,39 @@ export class EventStore {
   getSessionState(sessionId: string): SessionState | null {
     const row = this.stmts.getSessionState.get(sessionId) as { state: string | null } | undefined;
     return (row?.state as SessionState) ?? null;
+  }
+
+  /**
+   * Recover sessions left in incomplete states after a server crash/restart.
+   * Any session in ACTIVE, STARTING, DETACHED, SUSPENDED, or CLOSING is transitioned to ENDED.
+   * CLOSING is included because the process performing graceful shutdown is gone after a crash.
+   * Returns the number of sessions recovered.
+   */
+  recoverStaleSessions(): number {
+    // CREATED excluded: transient state, moves to STARTING synchronously in startChat().
+    // The crash window between CREATED and STARTING is negligible.
+    const staleStates = ['ACTIVE', 'STARTING', 'DETACHED', 'SUSPENDED', 'CLOSING'];
+    const placeholders = staleStates.map(() => '?').join(', ');
+    // Inline prepare is intentional — this runs once at startup, not worth caching.
+    const rows = this.db!.prepare(
+      `SELECT session_id FROM sessions WHERE state IN (${placeholders})`,
+    ).all(...staleStates) as Array<{ session_id: string }>;
+
+    for (const row of rows) {
+      this.setSessionState(row.session_id, 'ENDED', {
+        reason: 'server_restart',
+        force: true,
+      });
+    }
+
+    if (rows.length > 0) {
+      this.log.info('recovered stale sessions on startup', {
+        count: rows.length,
+        sessionIds: rows.map((r) => r.session_id),
+      });
+    }
+
+    return rows.length;
   }
 
   recordUsage(

@@ -19,6 +19,8 @@ export type {
   Session,
   SessionClosedBy,
   SessionState,
+  ClientSessionState,
+  SessionStateEvent,
   StoredEvent,
   SessionMeta,
   SessionSearchResult,

@@ -292,6 +292,15 @@ export function parseServerMessage(
       callbacks.onSessionRenamed?.(msg.name as string);
       break;
 
+    case 'session_state_changed':
+      // P0: log for observability, no UI action yet (Phase 1 will bind to running state)
+      console.debug('[mitzo] session_state_changed', {
+        sessionId: msg.sessionId,
+        state: msg.state,
+        internalState: msg.internalState,
+      });
+      break;
+
     case 'message_start':
       result.messagesActions.push({
         type: 'MESSAGE_START',

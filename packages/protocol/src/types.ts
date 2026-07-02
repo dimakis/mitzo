@@ -208,6 +208,22 @@ export type SessionState =
   | 'CLOSING'
   | 'ENDED';
 
+/**
+ * Client-facing session state derived from the internal 7-state machine.
+ * Mirrors Anthropic SDK convention: idle | running | requires_action.
+ */
+export type ClientSessionState = 'idle' | 'running' | 'requires_action';
+
+/** Server-authoritative state event emitted on every lifecycle transition. */
+export interface SessionStateEvent {
+  type: 'session_state_changed';
+  sessionId: string;
+  state: ClientSessionState;
+  /** Internal lifecycle state for debugging (not used for UI). */
+  internalState: SessionState;
+  timestamp: number;
+}
+
 export interface Session {
   id: string;
   summary: string;
