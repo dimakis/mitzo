@@ -292,6 +292,10 @@ export function parseServerMessage(
       callbacks.onSessionRenamed?.(msg.name as string);
       break;
 
+    case 'session_state_changed':
+      // P0: receive and log, no UI action yet (Phase 1 will bind to running state)
+      break;
+
     case 'message_start':
       result.messagesActions.push({
         type: 'MESSAGE_START',

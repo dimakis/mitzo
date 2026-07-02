@@ -1218,6 +1218,7 @@ app.get('/api/sessions/:id/meta', (req, res) => {
     cwd: meta.cwd,
     mode: meta.mode,
     isActive: meta.isActive,
+    state: meta.state,
     totalTokens,
     totalCostUsd: meta.totalCostUsd,
     numTurns: meta.numTurns,
