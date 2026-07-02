@@ -4,7 +4,7 @@
 **Author:** Claude Opus 4.6 + Dimitri Saridakis
 **Created:** 2026-07-02
 **Telos:** 97361f814c5f54df
-**Incorporates and replaces:** `session-state-machine.md` (Status: Proposed, never implemented), `streaming-input-session-control.md`. Crash recovery from `session-state-machine.md` Phase 4 is pulled forward to Phase 0 here.
+**Incorporates and replaces:** `session-state-machine.md` (never implemented) and supersedes `streaming-input-session-control.md` (implemented in PR #33, but scope expanded here). Crash recovery from `session-state-machine.md` Phase 4 is pulled forward to Phase 0 here.
 **Related PRs:** #396 (never merged), #401 (merged, reverted via #403), #407
 
 ## Problem Statement
@@ -151,6 +151,8 @@ type SessionStateEvent = {
 ```
 
 The client binds UI to these events. No deriving, no guessing, no `SET_RUNNING` scattered across handlers.
+
+**DETACHED/SUSPENDED buffering:** When the server transitions to DETACHED or SUSPENDED (transport-level states invisible to the client), it must preserve the last emitted client-facing state and suppress emission. On recovery (DETACHED -> ACTIVE, SUSPENDED -> ACTIVE), the server re-emits the current client-facing state. Implementation: a `lastEmittedClientState` field per session, updated on each emission, checked before emitting on state transitions.
 
 **Why 3 states, not 7:** The 7-state machine (CREATED/STARTING/ACTIVE/DETACHED/SUSPENDED/CLOSING/ENDED) is the server's internal lifecycle. The client doesn't need to know about DETACHED vs SUSPENDED -- those are transport concerns, not UI concerns. The client needs exactly: "am I waiting?" / "is it thinking?" / "does it need my input?". This mirrors Anthropic's SDK (`idle | running | requires_action`).
 
@@ -302,7 +304,7 @@ This is the same pattern used by every multi-device chat system. The EventStore 
 
 ### Phase 2: Always-send (remove client routing)
 
-**Prerequisite:** Verify `clientMsgId` idempotency guard from PR #386 is still present and keyed correctly in `chat-rest-handler.ts`. If refactored or removed, re-implement before enabling retries.
+**Prerequisite:** Verify `clientMsgId` idempotency guard from PR #386 is still present and keyed correctly. The dedup logic lives in `server/chat.ts` (`storeAndEchoIfNew()` which calls `eventStore.hasUserMessage()`), not in `chat-rest-handler.ts` (which only passes `clientMsgId` through). If refactored or removed, re-implement before enabling retries.
 
 1. Remove `wasRunning` branch from `sendMessage()`
 2. Remove `pendingSend[]`, `PENDING_SEND_TIMEOUT_MS`, drain logic, timer, callbacks
