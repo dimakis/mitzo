@@ -1396,9 +1396,8 @@ async function _runQueryLoopInner(
           durationApiMs: 0, // only available from SDK result
         });
       }
-      // Mark session as inactive in durable store
+      // Mark session as ended in durable store (P1: setSessionState syncs is_active)
       if (store && resolvedSessionId) {
-        store.markSessionInactive(resolvedSessionId);
         store.setSessionState(resolvedSessionId, 'ENDED', {
           clientId,
           reason: caughtError ? 'error' : 'completed',

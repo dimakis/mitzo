@@ -121,36 +121,15 @@ export function parseServerMessage(
 
     // ── v2 handshake events ────────────────────────────────────────────────
 
-    case 'reconnected': {
+    case 'reconnected':
+      // P1: running state is derived from replayed session_state_changed events,
+      // not from the reconnected message payload.
       result.connectionUpdate = { status: 'connected' };
-      // Apply authoritative running state from the server for the active session.
-      // Validate runtime shape: sessions must be an array, and each entry must have
-      // sessionId (string) and running (boolean). Explicit running === false check
-      // guards against undefined/missing field.
-      const sessions = msg.sessions as unknown;
-      if (
-        Array.isArray(sessions) &&
-        state.currentSessionId &&
-        sessions.every(
-          (s): s is { sessionId: string; running: boolean } =>
-            typeof s === 'object' &&
-            s !== null &&
-            typeof s.sessionId === 'string' &&
-            typeof s.running === 'boolean',
-        )
-      ) {
-        const active = sessions.find((s) => s.sessionId === state.currentSessionId);
-        if (active) {
-          result.messagesActions.push({ type: 'SET_RUNNING', running: active.running });
-          if (active.running) callbacks.setWsRunning?.(poolKey, true);
-        }
-      }
       callbacks.onReconnected?.();
       break;
-    }
 
     case 'session_takeover':
-      result.messagesActions.push({ type: 'SET_RUNNING', running: false });
+      // P1: running=false comes from server's session_state_changed event
       result.messagesActions.push({
         type: 'ERROR',
         error: 'Session resumed on another device.',
@@ -162,14 +141,7 @@ export function parseServerMessage(
       if (tokens) {
         callbacks.onTokensHydrated?.(tokens);
       }
-      // Restore running state from the server so the client UI matches
-      // the actual session state on reattach. Without this, the client
-      // defaults to running=false after switchSession resets state,
-      // causing the first send to go through the normal path even when
-      // the session is actively generating.
-      if (typeof msg.running === 'boolean') {
-        result.messagesActions.push({ type: 'SET_RUNNING', running: msg.running });
-      }
+      // P1: running state restored via replayed session_state_changed events
       break;
     }
 
@@ -179,14 +151,14 @@ export function parseServerMessage(
     // ── v1 handshake events (kept for backward compat) ─────────────────────
 
     case 'reattached':
-      result.messagesActions.push({ type: 'SET_RUNNING', running: true });
+      // P1: running state from server's session_state_changed events
       callbacks.setWsRunning?.(poolKey, true);
       result.connectionUpdate = { status: 'connected' };
       if (msg.sessionId) callbacks.onSessionAssigned(msg.sessionId as string);
       break;
 
     case 'reattach_failed':
-      result.messagesActions.push({ type: 'SET_RUNNING', running: false });
+      // P1: running=false from server's session_state_changed events
       callbacks.setWsRunning?.(poolKey, false);
       result.connectionUpdate = { status: 'connected' };
       if (state.currentSessionId && callbacks.fetchMessages) {
@@ -293,12 +265,10 @@ export function parseServerMessage(
       break;
 
     case 'session_state_changed':
-      // P0: log for observability, no UI action yet (Phase 1 will bind to running state)
-      console.debug('[mitzo] session_state_changed', {
-        sessionId: msg.sessionId,
-        state: msg.state,
-        internalState: msg.internalState,
-      });
+      // P1: server-authoritative state — derive running from this event only
+      if (typeof msg.state === 'string') {
+        result.messagesActions.push({ type: 'SESSION_STATE_CHANGED', state: msg.state });
+      }
       break;
 
     case 'message_start':
@@ -381,14 +351,13 @@ export function parseServerMessage(
       if (msg.sessionId && !state.currentSessionId) {
         callbacks.onSessionAssigned(msg.sessionId as string);
       }
+      // P1: pending send still drains queued messages, but running state
+      // comes from server's session_state_changed event (P2 removes pendingSend entirely)
       const pending = state.pendingSend.shift();
       if (pending) {
-        result.messagesActions.push({ type: 'SET_RUNNING', running: true });
-        // v2 path: use onSendQueued callback (no pool key needed)
         if (callbacks.onSendQueued) {
           callbacks.onSendQueued(pending);
         } else {
-          // v1 fallback
           callbacks.setWsRunning?.(poolKey, true);
           callbacks.sendQueued?.(poolKey, pending);
         }
@@ -439,7 +408,7 @@ export function parseServerMessage(
           command: 'close',
           content: 'Session closing... The agent will commit work and write a summary.',
         });
-        result.messagesActions.push({ type: 'SET_RUNNING', running: false });
+        // P1: running=false from server's session_state_changed (CLOSING → idle)
       }
       break;
 
@@ -447,8 +416,8 @@ export function parseServerMessage(
       break;
 
     case 'subscribed':
+      // P1: running state from session_state_changed events, not subscribed payload
       if (msg.running) {
-        result.messagesActions.push({ type: 'SET_RUNNING', running: true });
         callbacks.setWsRunning?.(poolKey, true);
       }
       break;

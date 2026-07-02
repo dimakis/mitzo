@@ -16,6 +16,7 @@ import type {
   StreamingSubagentState,
   FinishedSubagentState,
   ToolResultImage,
+  ClientSessionState,
 } from '@mitzo/protocol';
 
 // ─── State ───────────────────────────────────────────────────────────────────
@@ -156,7 +157,7 @@ export type MessagesAction =
       images?: string[];
       contextBlocks?: string[];
     }
-  | { type: 'SET_RUNNING'; running: boolean }
+  | { type: 'SESSION_STATE_CHANGED'; state: ClientSessionState }
   | { type: 'CONNECTION_LOST' }
   | { type: 'PERMISSION_REQUEST'; payload: PermissionRequest }
   | { type: 'PERMISSION_TIMEOUT'; permId: string }
@@ -573,8 +574,8 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
         running: true,
       };
 
-    case 'SET_RUNNING':
-      return { ...state, running: action.running };
+    case 'SESSION_STATE_CHANGED':
+      return { ...state, running: action.state === 'running' };
 
     case 'CONNECTION_LOST':
       return {

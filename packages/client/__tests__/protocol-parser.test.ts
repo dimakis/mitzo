@@ -50,7 +50,7 @@ describe('pool lifecycle events', () => {
 // ─── Reattach ─────────────────────────────────────────────────────────────────
 
 describe('reattach', () => {
-  it('reattached sets running and calls onSessionAssigned', () => {
+  it('reattached calls onSessionAssigned and setWsRunning (P1: no SET_RUNNING)', () => {
     const cb = makeCallbacks();
     const r = parseServerMessage(
       { type: 'reattached', clientId: 'c1', sessionId: 'sid-1', running: true },
@@ -58,13 +58,14 @@ describe('reattach', () => {
       cb,
       POOL_KEY,
     );
-    expect(r.messagesActions).toEqual([{ type: 'SET_RUNNING', running: true }]);
+    // P1: running state comes from session_state_changed events, not reattached
+    expect(r.messagesActions).toHaveLength(0);
     expect(cb.onSessionAssigned).toHaveBeenCalledWith('sid-1');
     expect(cb.setWsRunning).toHaveBeenCalledWith(POOL_KEY, true);
     expect(r.connectionUpdate).toEqual({ status: 'connected' });
   });
 
-  it('reattach_failed sets running=false and marks connection connected', () => {
+  it('reattach_failed marks connection connected (P1: no SET_RUNNING)', () => {
     const cb = makeCallbacks();
     const r = parseServerMessage(
       { type: 'reattach_failed', clientId: 'old' },
@@ -72,7 +73,8 @@ describe('reattach', () => {
       cb,
       POOL_KEY,
     );
-    expect(r.messagesActions).toEqual([{ type: 'SET_RUNNING', running: false }]);
+    // P1: running state comes from session_state_changed events
+    expect(r.messagesActions).toHaveLength(0);
     expect(cb.setWsRunning).toHaveBeenCalledWith(POOL_KEY, false);
     expect(r.connectionUpdate).toEqual({ status: 'connected' });
   });
@@ -165,7 +167,8 @@ describe('session lifecycle', () => {
     const cb = makeCallbacks();
     const r = parseServerMessage({ type: 'session_end', sessionId: 'sid' }, state, cb, POOL_KEY);
     expect(r.messagesActions).toContainEqual({ type: 'SESSION_END', sessionId: 'sid' });
-    expect(r.messagesActions).toContainEqual({ type: 'SET_RUNNING', running: true });
+    // P1: no SET_RUNNING — running state from server's session_state_changed
+    expect(r.messagesActions).not.toContainEqual(expect.objectContaining({ type: 'SET_RUNNING' }));
     expect(cb.sendQueued).toHaveBeenCalledWith(POOL_KEY, { type: 'send', prompt: 'follow-up' });
     // Second message stays queued
     expect(state.pendingSend).toEqual([{ type: 'send', prompt: 'second' }]);
@@ -385,7 +388,7 @@ describe('error handling', () => {
 // ─── Subscribed ──────────────────────────────────────────────────────────────
 
 describe('subscribed', () => {
-  it('subscribed with running=true sets running', () => {
+  it('subscribed with running=true calls setWsRunning (P1: no SET_RUNNING)', () => {
     const cb = makeCallbacks();
     const r = parseServerMessage(
       { type: 'subscribed', sessionId: 'sid', running: true },
@@ -393,7 +396,8 @@ describe('subscribed', () => {
       cb,
       POOL_KEY,
     );
-    expect(r.messagesActions).toEqual([{ type: 'SET_RUNNING', running: true }]);
+    // P1: running state from session_state_changed events, not subscribed
+    expect(r.messagesActions).toHaveLength(0);
     expect(cb.setWsRunning).toHaveBeenCalledWith(POOL_KEY, true);
   });
 
@@ -591,7 +595,7 @@ describe('misc', () => {
 // ─── session_takeover ────────────────────────────────────────────────────────
 
 describe('session_takeover', () => {
-  it('produces SET_RUNNING false and ERROR message', () => {
+  it('produces ERROR message (P1: no SET_RUNNING, state from server event)', () => {
     const cb = makeCallbacks();
     const r = parseServerMessage(
       { type: 'session_takeover', sessionId: 'sess-1' },
@@ -599,7 +603,8 @@ describe('session_takeover', () => {
       cb,
       POOL_KEY,
     );
-    expect(r.messagesActions).toContainEqual({ type: 'SET_RUNNING', running: false });
+    // P1: running=false comes from server's session_state_changed event
+    expect(r.messagesActions).not.toContainEqual(expect.objectContaining({ type: 'SET_RUNNING' }));
     expect(r.messagesActions).toContainEqual(
       expect.objectContaining({ type: 'ERROR', error: expect.stringContaining('another device') }),
     );
@@ -616,75 +621,17 @@ describe('reconnected', () => {
     expect(onReconnected).toHaveBeenCalled();
   });
 
-  it('dispatches SET_RUNNING false when active session reports not running', () => {
+  it('P1: reconnected does not dispatch SET_RUNNING — state from replayed events', () => {
     const state = makeState({ currentSessionId: 'sid-1' });
     const r = parseServerMessage(
-      { type: 'reconnected', sessions: [{ sessionId: 'sid-1', replayed: 0, running: false }] },
+      { type: 'reconnected', sessions: [{ sessionId: 'sid-1', replayed: 3 }] },
       state,
       makeCallbacks(),
       POOL_KEY,
     );
-    expect(r.messagesActions).toContainEqual({ type: 'SET_RUNNING', running: false });
-  });
-
-  it('dispatches SET_RUNNING true when active session is still running', () => {
-    const setWsRunning = vi.fn();
-    const state = makeState({ currentSessionId: 'sid-1' });
-    const r = parseServerMessage(
-      { type: 'reconnected', sessions: [{ sessionId: 'sid-1', replayed: 0, running: true }] },
-      state,
-      makeCallbacks({ setWsRunning }),
-      POOL_KEY,
-    );
-    expect(r.messagesActions).toContainEqual({ type: 'SET_RUNNING', running: true });
-    expect(setWsRunning).toHaveBeenCalledWith(POOL_KEY, true);
-  });
-
-  it('no-ops when no currentSessionId', () => {
-    const state = makeState({ currentSessionId: undefined });
-    const r = parseServerMessage(
-      { type: 'reconnected', sessions: [{ sessionId: 'sid-1', replayed: 0, running: false }] },
-      state,
-      makeCallbacks(),
-      POOL_KEY,
-    );
-    expect(r.messagesActions).not.toContainEqual(expect.objectContaining({ type: 'SET_RUNNING' }));
-  });
-
-  it('no-ops when sessions field is undefined (backward compat)', () => {
-    const state = makeState({ currentSessionId: 'sid-1' });
-    const r = parseServerMessage({ type: 'reconnected' }, state, makeCallbacks(), POOL_KEY);
-    expect(r.messagesActions).not.toContainEqual(expect.objectContaining({ type: 'SET_RUNNING' }));
-  });
-
-  it('no-ops when sessions has invalid shape (runtime validation)', () => {
-    const state = makeState({ currentSessionId: 'sid-1' });
-    // Invalid: sessions is not an array
-    const r1 = parseServerMessage(
-      { type: 'reconnected', sessions: { invalid: 'shape' } },
-      state,
-      makeCallbacks(),
-      POOL_KEY,
-    );
-    expect(r1.messagesActions).not.toContainEqual(expect.objectContaining({ type: 'SET_RUNNING' }));
-
-    // Invalid: array contains entries missing required fields
-    const r2 = parseServerMessage(
-      { type: 'reconnected', sessions: [{ sessionId: 'sid-1' }] }, // missing running field
-      state,
-      makeCallbacks(),
-      POOL_KEY,
-    );
-    expect(r2.messagesActions).not.toContainEqual(expect.objectContaining({ type: 'SET_RUNNING' }));
-
-    // Invalid: running field has wrong type
-    const r3 = parseServerMessage(
-      { type: 'reconnected', sessions: [{ sessionId: 'sid-1', running: 'yes' }] },
-      state,
-      makeCallbacks(),
-      POOL_KEY,
-    );
-    expect(r3.messagesActions).not.toContainEqual(expect.objectContaining({ type: 'SET_RUNNING' }));
+    // Running state comes from replayed session_state_changed events, not reconnected payload
+    expect(r.messagesActions).toHaveLength(0);
+    expect(r.connectionUpdate).toEqual({ status: 'connected' });
   });
 });
 
@@ -965,10 +912,10 @@ describe('boot_context', () => {
   });
 });
 
-// ─── Session state (Transport SSOT P0) ──────────────────────────────────────
+// ─── Session state (Transport SSOT P1) ──────────────────────────────────────
 
 describe('session_state_changed', () => {
-  it('produces no message actions (P0: observability only)', () => {
+  it('dispatches SESSION_STATE_CHANGED action with state', () => {
     const r = parseServerMessage(
       {
         type: 'session_state_changed',
@@ -981,12 +928,11 @@ describe('session_state_changed', () => {
       makeCallbacks(),
       POOL_KEY,
     );
-    expect(r.messagesActions).toHaveLength(0);
+    expect(r.messagesActions).toContainEqual({ type: 'SESSION_STATE_CHANGED', state: 'running' });
   });
 
-  it('logs via console.debug', () => {
-    const spy = vi.spyOn(console, 'debug').mockImplementation(() => {});
-    parseServerMessage(
+  it('dispatches idle state on ENDED', () => {
+    const r = parseServerMessage(
       {
         type: 'session_state_changed',
         sessionId: 'sid-1',
@@ -998,12 +944,7 @@ describe('session_state_changed', () => {
       makeCallbacks(),
       POOL_KEY,
     );
-    expect(spy).toHaveBeenCalledWith('[mitzo] session_state_changed', {
-      sessionId: 'sid-1',
-      state: 'idle',
-      internalState: 'ENDED',
-    });
-    spy.mockRestore();
+    expect(r.messagesActions).toContainEqual({ type: 'SESSION_STATE_CHANGED', state: 'idle' });
   });
 });
 

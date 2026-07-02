@@ -229,7 +229,7 @@ export function handleReconnect(
     'ws.reconnect',
     { 'ws.connectionId': connectionId, 'ws.sessionCount': msg.sessions.length },
     () => {
-      const summaries: Array<{ sessionId: string; replayed: number; running: boolean }> = [];
+      const summaries: Array<{ sessionId: string; replayed: number }> = [];
 
       for (const entry of msg.sessions) {
         ctx.connRegistry.watch(connectionId, entry.sessionId);
@@ -251,22 +251,20 @@ export function handleReconnect(
         const newCursor = events.length > 0 ? events[events.length - 1].seq : entry.lastSeq;
         ctx.connRegistry.resetCursor(connectionId, entry.sessionId, newCursor);
 
-        // Cross-reference with the durable EventStore: markSessionInactive() is
-        // called in the query loop's finally block, so isActive=false in the
-        // store is ground truth that the loop has ended.
+        // Cross-reference with the durable EventStore: state=ENDED in the store
+        // is ground truth that the query loop has finished (P1: use state, not is_active).
         const found = ctx.sessionRegistry.findBySessionId(entry.sessionId);
+        const storeState = ctx.eventStore.getSessionState(entry.sessionId);
         let running = found ? ctx.sessionRegistry.isActive(found.clientId) : false;
-        if (running) {
-          const storeMeta = ctx.eventStore.getSession(entry.sessionId);
-          if (storeMeta && !storeMeta.isActive) {
-            running = false;
-            log.info('removing stale session from registry', {
-              connectionId,
-              sessionId: entry.sessionId,
-              clientId: found!.clientId,
-            });
-            ctx.sessionRegistry.remove(found!.clientId);
-          }
+        if (running && (storeState === 'ENDED' || storeState === 'CLOSING')) {
+          running = false;
+          log.info('removing stale session from registry (state-based)', {
+            connectionId,
+            sessionId: entry.sessionId,
+            clientId: found!.clientId,
+            storeState,
+          });
+          ctx.sessionRegistry.remove(found!.clientId);
         }
         if (found && running && !ctx.sessionRegistry.isAttached(found.clientId)) {
           const ownerConnection = getOwnerConnection(found.clientId);
@@ -322,7 +320,6 @@ export function handleReconnect(
         summaries.push({
           sessionId: entry.sessionId,
           replayed: events.length + suspendReplayed,
-          running,
         });
 
         // Re-send boot_context so pills reappear after reconnect.
@@ -410,14 +407,6 @@ export async function handleSwitchSession(
       ctx.connRegistry.setActive(connectionId, msg.sessionId);
 
       // Cross-reference registry with durable state to avoid reporting
-      // a zombie query loop as running.
-      const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
-      const storeState = ctx.eventStore.getSessionState(msg.sessionId);
-      const running =
-        found && storeState !== 'ENDED' && storeState !== 'CLOSING' && storeState !== null
-          ? ctx.sessionRegistry.isActive(found.clientId)
-          : false;
-
       ctx.connRegistry.get(connectionId)?.transport.send({
         type: 'session_switched',
         sessionId: msg.sessionId,
@@ -425,7 +414,6 @@ export async function handleSwitchSession(
         cwd: sessionMeta.cwd,
         branch: sessionMeta.branch,
         wtId: sessionMeta.wtId,
-        running,
         tokens: {
           input: sessionMeta.inputTokens,
           output: sessionMeta.outputTokens,
@@ -439,7 +427,7 @@ export async function handleSwitchSession(
       // Uses shared helper with hot (in-memory) + cold (EventStore) paths.
       sendBootContext(connectionId, msg.sessionId, ctx);
 
-      log.info('switch_session', { connectionId, sessionId: msg.sessionId, running });
+      log.info('switch_session', { connectionId, sessionId: msg.sessionId });
     },
   );
 }
