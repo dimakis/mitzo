@@ -34,14 +34,14 @@ function extractContextEntry(
   if (!toolName || !input) return null;
   switch (toolName) {
     case 'Read':
-      return input ? { type: 'file_read', key: input } : null;
+      return { type: 'file_read', key: input };
     case 'Grep':
     case 'Glob':
-      return input ? { type: 'search', key: input } : null;
+      return { type: 'search', key: input };
     case 'WebSearch':
-      return input ? { type: 'web_search', key: input } : null;
+      return { type: 'web_search', key: input };
     case 'WebFetch':
-      return input ? { type: 'web_fetch', key: input } : null;
+      return { type: 'web_fetch', key: input };
     default:
       return null;
   }
@@ -532,7 +532,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
       return { ...state, bootContext: action.bootContext };
 
     case 'CLEAR':
-      return { ...INITIAL_MESSAGES_STATE, contextConsumed: [] };
+      return { ...INITIAL_MESSAGES_STATE };
 
     case 'RESTORE': {
       const valid = action.messages.filter(

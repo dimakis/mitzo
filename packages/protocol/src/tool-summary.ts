@@ -71,7 +71,7 @@ export function getToolInputSpanAttrs(
 ): Record<string, string> {
   const attrs: Record<string, string> = {};
   const set = (key: string, val: unknown) => {
-    const s = String(val || '');
+    const s = String(val ?? '');
     if (s) attrs[`tool.input.${key}`] = s.slice(0, SPAN_ATTR_MAX);
   };
 
