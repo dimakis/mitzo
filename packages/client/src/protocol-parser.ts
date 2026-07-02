@@ -16,6 +16,7 @@ import type {
   ToolTier,
   RawToolInput,
   ToolResultImage,
+  ClientSessionState,
 } from '@mitzo/protocol';
 import type { MessagesAction } from './slices/messages.js';
 import type { WsMsg } from './server-messages.js';
@@ -264,12 +265,16 @@ export function parseServerMessage(
       callbacks.onSessionRenamed?.(msg.name as string);
       break;
 
-    case 'session_state_changed':
+    case 'session_state_changed': {
       // P1: server-authoritative state — derive running from this event only
-      if (typeof msg.state === 'string') {
-        result.messagesActions.push({ type: 'SESSION_STATE_CHANGED', state: msg.state });
+      const validStates: ReadonlySet<string> = new Set(['idle', 'running', 'requires_action']);
+      if (typeof msg.state === 'string' && validStates.has(msg.state)) {
+        result.messagesActions.push({ type: 'SESSION_STATE_CHANGED', state: msg.state as ClientSessionState });
+      } else if (typeof msg.state === 'string') {
+        console.warn('[mitzo] unknown session state:', msg.state);
       }
       break;
+    }
 
     case 'message_start':
       result.messagesActions.push({

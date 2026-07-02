@@ -185,6 +185,8 @@ export function ChatView() {
 
   const handleStop = useCallback(() => {
     storeStopGeneration();
+    // Optimistic update — server confirms via session_state_changed event,
+    // but we set idle immediately for responsive UI on the stop button.
     storeDispatchMessages({ type: 'SESSION_STATE_CHANGED', state: 'idle' });
   }, [storeStopGeneration, storeDispatchMessages]);
 

@@ -946,6 +946,41 @@ describe('session_state_changed', () => {
     );
     expect(r.messagesActions).toContainEqual({ type: 'SESSION_STATE_CHANGED', state: 'idle' });
   });
+
+  it('dispatches requires_action state', () => {
+    const r = parseServerMessage(
+      {
+        type: 'session_state_changed',
+        sessionId: 'sid-1',
+        state: 'requires_action',
+        internalState: 'ACTIVE',
+        timestamp: 1234567890,
+      },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.messagesActions).toContainEqual({ type: 'SESSION_STATE_CHANGED', state: 'requires_action' });
+  });
+
+  it('warns on unknown state', () => {
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const r = parseServerMessage(
+      {
+        type: 'session_state_changed',
+        sessionId: 'sid-1',
+        state: 'bogus',
+        internalState: 'ACTIVE',
+        timestamp: 1234567890,
+      },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.messagesActions).toHaveLength(0);
+    expect(spy).toHaveBeenCalledWith('[mitzo] unknown session state:', 'bogus');
+    spy.mockRestore();
+  });
 });
 
 // ─── Subagent cancellation ───────────────────────────────────────────────────

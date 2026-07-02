@@ -11,6 +11,7 @@
 import type { SessionTransport, ConnectionRegistry } from '@mitzo/harness';
 import type { SessionRegistry } from './session-registry.js';
 import type { EventStore } from './event-store.js';
+import { toClientState } from './event-store.js';
 import {
   IncomingWsMessageV2,
   WatchMessage,
@@ -422,6 +423,19 @@ export async function handleSwitchSession(
           costUsd: sessionMeta.totalCostUsd,
         },
       });
+
+      // Immediately emit current session state so the client derives running
+      // status without waiting for the next live event or periodic sync.
+      const currentState = ctx.eventStore.getSessionState(msg.sessionId);
+      if (currentState) {
+        ctx.connRegistry.get(connectionId)?.transport.send({
+          type: 'session_state_changed',
+          sessionId: msg.sessionId,
+          state: toClientState(currentState),
+          internalState: currentState,
+          timestamp: Date.now(),
+        });
+      }
 
       // Re-send boot_context so pills appear on session switch.
       // Uses shared helper with hot (in-memory) + cold (EventStore) paths.
