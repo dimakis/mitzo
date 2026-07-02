@@ -522,6 +522,10 @@ export function parseServerMessage(
       break;
     }
 
+    case 'compaction_status':
+      result.tokensUpdate = { compacting: msg.active as boolean };
+      break;
+
     // Progress tracking messages
     case 'progress_start':
       result.progressUpdate = {

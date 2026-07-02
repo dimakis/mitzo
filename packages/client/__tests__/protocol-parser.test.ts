@@ -529,6 +529,24 @@ describe('token_update', () => {
     expect('sessionTotal' in r.tokensUpdate!).toBe(false);
     expect('numTurns' in r.tokensUpdate!).toBe(false);
   });
+
+  it('compaction_status sets compacting flag on tokensUpdate', () => {
+    const active = parseServerMessage(
+      { type: 'compaction_status', active: true },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(active.tokensUpdate).toEqual({ compacting: true });
+
+    const done = parseServerMessage(
+      { type: 'compaction_status', active: false },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(done.tokensUpdate).toEqual({ compacting: false });
+  });
 });
 
 // ─── Inbox ────────────────────────────────────────────────────────────────────

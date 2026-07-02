@@ -389,6 +389,24 @@ describe('token_update emission', () => {
       },
       { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
       { type: 'assistant', message: { content: [] }, session_id: 'sess-compact' },
+      // SDK compaction content block — start, delta, stop
+      {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_start',
+          index: 1,
+          content_block: { type: 'compaction' },
+        },
+      },
+      {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_delta',
+          index: 1,
+          delta: { type: 'compaction_delta', content: 'Summary of prior context...' },
+        },
+      },
+      { type: 'stream_event', event: { type: 'content_block_stop', index: 1 } },
       // SDK system status: compaction completed
       {
         type: 'system',
@@ -429,6 +447,12 @@ describe('token_update emission', () => {
     // The final token_update should include numCompactions: 1
     const last = tokenUpdates[tokenUpdates.length - 1];
     expect(last).toMatchObject({ numCompactions: 1 });
+
+    // compaction_status events should bracket the compaction
+    const compactionStatuses = transport.sent.filter((m) => m.type === 'compaction_status');
+    expect(compactionStatuses).toHaveLength(2);
+    expect(compactionStatuses[0]).toMatchObject({ type: 'compaction_status', active: true });
+    expect(compactionStatuses[1]).toMatchObject({ type: 'compaction_status', active: false });
   });
 
   it('handles missing usage on message_start gracefully', async () => {

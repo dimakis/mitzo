@@ -250,6 +250,7 @@ export type ServerMessage =
   | TaskUpdatedMsg
   | TaskDeletedMsg
   | TokenUpdateMsg
+  | CompactionStatusMsg
   | LoopStatusMsg
   | ProgressStartMsg
   | ProgressUpdateMsg
@@ -299,6 +300,11 @@ export interface TokenUpdateMsg {
   numTurns?: number;
   numCompactions?: number;
   turnIndex: number;
+}
+
+export interface CompactionStatusMsg {
+  type: 'compaction_status';
+  active: boolean;
 }
 
 export interface LoopStatusMsg {
