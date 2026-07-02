@@ -1299,6 +1299,36 @@ describe('foreground recovery', () => {
     expect(state.messages[0].messageId).toBe('user-1');
   });
 
-  // P1: syncRunningState tests removed — running state is now server-authoritative
-  // via session_state_changed events. No polling on foreground needed.
+  // P1: syncRunningState removed — running state is server-authoritative.
+  // Verify session_state_changed events correctly update running after foreground.
+  it('session_state_changed updates running after foreground restore', async () => {
+    const transport = mockTransport();
+    const store = createReadyStore(transport);
+
+    // Establish session so session-scoped event filter accepts sess-1 events
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'sess-1' });
+
+    // Session is idle
+    expect(store.getState().messages.running).toBe(false);
+
+    // Server sends session_state_changed: running
+    lastWs.simulateMessage({
+      type: 'session_state_changed',
+      sessionId: 'sess-1',
+      state: 'running',
+      internalState: 'ACTIVE',
+      timestamp: Date.now(),
+    });
+    expect(store.getState().messages.running).toBe(true);
+
+    // Server sends session_state_changed: idle
+    lastWs.simulateMessage({
+      type: 'session_state_changed',
+      sessionId: 'sess-1',
+      state: 'idle',
+      internalState: 'ENDED',
+      timestamp: Date.now(),
+    });
+    expect(store.getState().messages.running).toBe(false);
+  });
 });

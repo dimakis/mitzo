@@ -269,7 +269,10 @@ export function parseServerMessage(
       // P1: server-authoritative state — derive running from this event only
       const validStates: ReadonlySet<string> = new Set(['idle', 'running', 'requires_action']);
       if (typeof msg.state === 'string' && validStates.has(msg.state)) {
-        result.messagesActions.push({ type: 'SESSION_STATE_CHANGED', state: msg.state as ClientSessionState });
+        result.messagesActions.push({
+          type: 'SESSION_STATE_CHANGED',
+          state: msg.state as ClientSessionState,
+        });
       } else if (typeof msg.state === 'string') {
         console.warn('[mitzo] unknown session state:', msg.state);
       }
@@ -356,10 +359,14 @@ export function parseServerMessage(
       if (msg.sessionId && !state.currentSessionId) {
         callbacks.onSessionAssigned(msg.sessionId as string);
       }
-      // P1: pending send still drains queued messages, but running state
-      // comes from server's session_state_changed event (P2 removes pendingSend entirely)
+      // Drain first queued message. Optimistic running=true avoids UI flicker
+      // between the send and the server's session_state_changed confirmation.
       const pending = state.pendingSend.shift();
       if (pending) {
+        result.messagesActions.push({
+          type: 'SESSION_STATE_CHANGED',
+          state: 'running' as ClientSessionState,
+        });
         if (callbacks.onSendQueued) {
           callbacks.onSendQueued(pending);
         } else {

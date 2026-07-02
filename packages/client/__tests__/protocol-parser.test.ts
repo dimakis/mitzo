@@ -167,8 +167,8 @@ describe('session lifecycle', () => {
     const cb = makeCallbacks();
     const r = parseServerMessage({ type: 'session_end', sessionId: 'sid' }, state, cb, POOL_KEY);
     expect(r.messagesActions).toContainEqual({ type: 'SESSION_END', sessionId: 'sid' });
-    // P1: no SET_RUNNING — running state from server's session_state_changed
-    expect(r.messagesActions).not.toContainEqual(expect.objectContaining({ type: 'SET_RUNNING' }));
+    // P1: optimistic running=true when draining pending send
+    expect(r.messagesActions).toContainEqual({ type: 'SESSION_STATE_CHANGED', state: 'running' });
     expect(cb.sendQueued).toHaveBeenCalledWith(POOL_KEY, { type: 'send', prompt: 'follow-up' });
     // Second message stays queued
     expect(state.pendingSend).toEqual([{ type: 'send', prompt: 'second' }]);
@@ -960,7 +960,10 @@ describe('session_state_changed', () => {
       makeCallbacks(),
       POOL_KEY,
     );
-    expect(r.messagesActions).toContainEqual({ type: 'SESSION_STATE_CHANGED', state: 'requires_action' });
+    expect(r.messagesActions).toContainEqual({
+      type: 'SESSION_STATE_CHANGED',
+      state: 'requires_action',
+    });
   });
 
   it('warns on unknown state', () => {

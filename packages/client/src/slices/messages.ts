@@ -575,7 +575,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
       };
 
     case 'SESSION_STATE_CHANGED':
-      return { ...state, running: action.state === 'running' };
+      return { ...state, running: action.state !== 'idle' };
 
     case 'CONNECTION_LOST':
       return {

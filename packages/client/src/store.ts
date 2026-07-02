@@ -361,7 +361,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             parserState.pendingSendTimer = undefined;
             return;
           }
-          // P1: running state from server's session_state_changed event
+          // Optimistic running=true so UI shows stop button immediately
+          set((s) => ({
+            messages: messagesReducer(s.messages, {
+              type: 'SESSION_STATE_CHANGED',
+              state: 'running',
+            }),
+          }));
           connection.send(pending);
           // Reschedule for remaining queued messages
           if (parserState.pendingSend.length > 0) {
