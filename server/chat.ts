@@ -1410,6 +1410,19 @@ function _closeoutSessionInner(clientId: string): void {
 
   log.info('injecting closeout prompt', { clientId, wtId: session.wtId });
 
+  // Echo the closeout prompt to the frontend so it appears as a user bubble
+  const closeoutMsgId = `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-closeout`;
+  if (session.sessionId) {
+    storeAndEchoIfNew(
+      session.sessionId,
+      closeoutMsgId,
+      CLOSEOUT_PROMPT,
+      clientId,
+      session.transport,
+      session.observers,
+    );
+  }
+
   // Push the closeout prompt as an interrupt so the agent sees it immediately
   session.inputQueue.push(makeUserMessage(CLOSEOUT_PROMPT, 'now'));
 
@@ -1494,6 +1507,19 @@ export function closeSessionByUser(clientId: string): void {
     }
 
     log.info('user-initiated closeout', { clientId, wtId: session.wtId });
+
+    // Echo the closeout prompt to the frontend so it appears as a user bubble
+    const userCloseoutMsgId = `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-closeout`;
+    if (session.sessionId) {
+      storeAndEchoIfNew(
+        session.sessionId,
+        userCloseoutMsgId,
+        USER_CLOSEOUT_PROMPT,
+        clientId,
+        session.transport,
+        session.observers,
+      );
+    }
 
     // Inject closeout prompt
     session.inputQueue.push(makeUserMessage(USER_CLOSEOUT_PROMPT, 'now'));
