@@ -78,11 +78,19 @@ function buildSafeEnv(extra?: Record<string, string>): Record<string, string> {
   return env;
 }
 
+export interface CreateTerminalOpts {
+  cols?: number;
+  rows?: number;
+  env?: Record<string, string>;
+  onData?: (data: string) => void;
+  onExit?: (exitCode: number, signal?: number) => void;
+}
+
 export function createTerminal(
   sessionId: string,
   connectionId: string,
   cwd: string,
-  opts?: { cols?: number; rows?: number; env?: Record<string, string> },
+  opts?: CreateTerminalOpts,
 ): TerminalInfo {
   if (terminals.size >= MAX_TERMINALS_GLOBAL) {
     throw new Error(`Global terminal limit reached (${MAX_TERMINALS_GLOBAL})`);
@@ -97,6 +105,20 @@ export function createTerminal(
   const rows = opts?.rows ?? 24;
   const shell = getDefaultShell();
 
+  const managed: ManagedTerminal = {
+    id,
+    sessionId,
+    connectionId,
+    process: null!,
+    cols,
+    rows,
+    cwd,
+    createdAt: Date.now(),
+    onData: opts?.onData ?? null,
+    onExit: opts?.onExit ?? null,
+  };
+
+  // Wire callbacks BEFORE spawning so no output is dropped
   const proc = pty.spawn(shell, [], {
     name: 'xterm-256color',
     cols,
@@ -104,19 +126,7 @@ export function createTerminal(
     cwd,
     env: buildSafeEnv(opts?.env),
   });
-
-  const managed: ManagedTerminal = {
-    id,
-    sessionId,
-    connectionId,
-    process: proc,
-    cols,
-    rows,
-    cwd,
-    createdAt: Date.now(),
-    onData: null,
-    onExit: null,
-  };
+  managed.process = proc;
 
   proc.onData((data) => {
     managed.onData?.(data);
@@ -153,7 +163,11 @@ export function resizeTerminal(id: string, cols: number, rows: number): boolean 
 export function destroyTerminal(id: string): boolean {
   const term = terminals.get(id);
   if (!term) return false;
-  term.process.kill();
+  try {
+    term.process.kill();
+  } catch (err) {
+    log.warn('kill failed (process may have already exited)', { id, error: String(err) });
+  }
   terminals.delete(id);
   log.info('terminal destroyed', { id, sessionId: term.sessionId });
   return true;
@@ -194,7 +208,11 @@ export function destroySessionTerminals(sessionId: string): number {
   let count = 0;
   for (const [id, term] of terminals.entries()) {
     if (term.sessionId === sessionId) {
-      term.process.kill();
+      try {
+        term.process.kill();
+      } catch (err) {
+        log.warn('kill failed during session cleanup', { id, error: String(err) });
+      }
       terminals.delete(id);
       count++;
     }
@@ -209,7 +227,11 @@ export function destroyConnectionTerminals(connectionId: string): number {
   let count = 0;
   for (const [id, term] of terminals.entries()) {
     if (term.connectionId === connectionId) {
-      term.process.kill();
+      try {
+        term.process.kill();
+      } catch (err) {
+        log.warn('kill failed during connection cleanup', { id, error: String(err) });
+      }
       terminals.delete(id);
       count++;
     }

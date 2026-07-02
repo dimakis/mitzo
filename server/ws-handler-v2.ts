@@ -70,7 +70,6 @@ import {
   writeTerminal,
   resizeTerminal,
   destroyTerminal,
-  setTerminalCallbacks,
   getTerminalOwner,
 } from './terminal-manager.js';
 import { createLogger } from './logger.js';
@@ -946,26 +945,35 @@ export function handleTerminalCreate(
 
       // Resolve cwd from session metadata (worktree path or base repo)
       const sessionMeta = ctx.eventStore.getSession(msg.sessionId);
-      const rawCwd = sessionMeta?.cwd || BASE_REPO || process.cwd();
-      const cwd = isAllowedPath(rawCwd) ? rawCwd : BASE_REPO || process.cwd();
+      const rawCwd = sessionMeta?.cwd || BASE_REPO;
+      if (!rawCwd) {
+        conn.transport.send({
+          type: 'terminal_error',
+          error: 'No working directory available for terminal',
+        });
+        return;
+      }
+      const cwd = isAllowedPath(rawCwd) ? rawCwd : BASE_REPO;
+      if (!cwd) {
+        conn.transport.send({
+          type: 'terminal_error',
+          error: 'Working directory not allowed',
+        });
+        return;
+      }
 
       try {
         const info = createTerminal(msg.sessionId, connectionId, cwd, {
           cols: msg.cols,
           rows: msg.rows,
-        });
-
-        // Wire PTY output → WS broadcast to connection
-        setTerminalCallbacks(
-          info.id,
-          (data) => {
+          onData: (data) => {
             conn.transport.send({
               type: 'terminal_output',
               terminalId: info.id,
               data,
             });
           },
-          (exitCode, signal) => {
+          onExit: (exitCode, signal) => {
             conn.transport.send({
               type: 'terminal_exit',
               terminalId: info.id,
@@ -973,7 +981,7 @@ export function handleTerminalCreate(
               ...(signal !== undefined ? { signal } : {}),
             });
           },
-        );
+        });
 
         conn.transport.send({
           type: 'terminal_created',

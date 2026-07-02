@@ -55,7 +55,10 @@ export function useTerminal({
   }, []);
 
   const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    const existing = wsRef.current;
+    if (existing?.readyState === WebSocket.OPEN || existing?.readyState === WebSocket.CONNECTING) {
+      return;
+    }
 
     const ws = new WebSocket(getWsChatUrl());
     wsRef.current = ws;
@@ -75,13 +78,15 @@ export function useTerminal({
 
       switch (msg.type) {
         case 'welcome':
-          // Handshake complete — create terminal
-          send({
-            type: 'terminal_create',
-            sessionId,
-            cols: colsRef.current,
-            rows: rowsRef.current,
-          });
+          // Handshake complete — create terminal (use captured ws, not wsRef)
+          ws.send(
+            JSON.stringify({
+              type: 'terminal_create',
+              sessionId,
+              cols: colsRef.current,
+              rows: rowsRef.current,
+            }),
+          );
           setState((s) => ({ ...s, connected: true }));
           break;
 
