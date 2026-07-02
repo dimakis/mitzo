@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -11,6 +11,7 @@ import { ShareButton } from './ShareButton';
 import { ReadAloudButton } from './ReadAloudButton';
 import { extractText } from '../lib/extractText';
 import { MarkdownPreviewCard } from './MarkdownPreviewCard';
+import { MermaidBlock } from './MermaidBlock';
 
 const COLLAPSE_HEIGHT = 300;
 
@@ -101,6 +102,79 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
 
   const showCollapsed = isLong && collapsed && !streaming;
 
+  // Memoize components so react-markdown preserves component instances
+  // (e.g. MarkdownPreviewCard expanded state) across parent re-renders.
+  const mdComponents = useMemo(
+    () => ({
+      table: ({ children, ...props }: React.ComponentProps<'table'>) => (
+        <div className="table-scroll-wrapper">
+          <table {...props}>{children}</table>
+        </div>
+      ),
+      pre: ({ children, ...props }: React.ComponentProps<'pre'>) => {
+        // Detect mermaid code blocks and render as diagrams
+        const child = React.Children.toArray(children)[0];
+        if (React.isValidElement(child)) {
+          const className = (child.props as Record<string, unknown>)?.className;
+          if (typeof className === 'string' && /language-mermaid/.test(className)) {
+            const text = extractText(children);
+            return <MermaidBlock code={text} />;
+          }
+        }
+        const text = extractText(children);
+        return (
+          <div className="code-block-wrapper">
+            <pre {...props}>{children}</pre>
+            <CopyButton text={text} className="code-block-copy" label="Copy code" />
+          </div>
+        );
+      },
+      p: ({ children }: React.ComponentProps<'p'>) => {
+        const childArray = React.Children.toArray(children);
+        if (childArray.length === 1 && React.isValidElement(childArray[0])) {
+          const el = childArray[0] as React.ReactElement<Record<string, unknown>>;
+          const href = el.props?.href as string | undefined;
+          if (href?.startsWith(FILE_SCHEME)) {
+            const filePath = decodeURIComponent(href.slice(FILE_SCHEME.length));
+            if (/\.mdx?$/i.test(filePath)) {
+              return <MarkdownPreviewCard filePath={filePath} />;
+            }
+          }
+        }
+        return <p>{children}</p>;
+      },
+      a: ({ href, children }: React.ComponentProps<'a'>) => {
+        if (href?.startsWith(FILE_SCHEME)) {
+          const filePath = decodeURIComponent(href.slice(FILE_SCHEME.length));
+          return (
+            <span className="file-path-group">
+              <a
+                href="#"
+                className="file-path-link"
+                data-file-path={filePath}
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigate(
+                    `/files?path=${encodeURIComponent(filePath)}&from=${encodeURIComponent(currentPath)}`,
+                  );
+                }}
+              >
+                {children}
+              </a>
+              <ShareButton filePath={filePath} className="file-path-share" />
+            </span>
+          );
+        }
+        return (
+          <a href={href} target="_blank" rel="noopener noreferrer">
+            {children}
+          </a>
+        );
+      },
+    }),
+    [navigate, currentPath],
+  );
+
   return (
     <div
       className={`msg-bubble msg-bubble--assistant${streaming ? ' msg-bubble--streaming' : ''}${showCollapsed ? ' msg-bubble--collapsed' : ''}`}
@@ -110,69 +184,7 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
           remarkPlugins={[remarkGfm]}
           rehypePlugins={[rehypeHighlight]}
           urlTransform={(url) => (url.startsWith(FILE_SCHEME) ? url : defaultUrlTransform(url))}
-          components={{
-            table: ({ children, ...props }) => (
-              <div className="table-scroll-wrapper">
-                <table {...props}>{children}</table>
-              </div>
-            ),
-            pre: ({ children, ...props }) => {
-              const text = extractText(children);
-              return (
-                <div className="code-block-wrapper">
-                  <pre {...props}>{children}</pre>
-                  <CopyButton text={text} className="code-block-copy" label="Copy code" />
-                </div>
-              );
-            },
-            // When a paragraph contains a single file-path link to a .md/.mdx
-            // file, promote it to an inline preview card instead of a plain link.
-            // In ReactMarkdown v10, children are unrendered component instances —
-            // the `a` handler hasn't run yet — so we check `href` (the prop
-            // ReactMarkdown passes) rather than rendered DOM attributes.
-            p: ({ children }) => {
-              const childArray = React.Children.toArray(children);
-              if (childArray.length === 1 && React.isValidElement(childArray[0])) {
-                const el = childArray[0] as React.ReactElement<Record<string, unknown>>;
-                const href = el.props?.href as string | undefined;
-                if (href?.startsWith(FILE_SCHEME)) {
-                  const filePath = decodeURIComponent(href.slice(FILE_SCHEME.length));
-                  if (/\.mdx?$/i.test(filePath)) {
-                    return <MarkdownPreviewCard filePath={filePath} />;
-                  }
-                }
-              }
-              return <p>{children}</p>;
-            },
-            a: ({ href, children }) => {
-              if (href?.startsWith(FILE_SCHEME)) {
-                const filePath = decodeURIComponent(href.slice(FILE_SCHEME.length));
-                return (
-                  <span className="file-path-group">
-                    <a
-                      href="#"
-                      className="file-path-link"
-                      data-file-path={filePath}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        navigate(
-                          `/files?path=${encodeURIComponent(filePath)}&from=${encodeURIComponent(currentPath)}`,
-                        );
-                      }}
-                    >
-                      {children}
-                    </a>
-                    <ShareButton filePath={filePath} className="file-path-share" />
-                  </span>
-                );
-              }
-              return (
-                <a href={href} target="_blank" rel="noopener noreferrer">
-                  {children}
-                </a>
-              );
-            },
-          }}
+          components={mdComponents}
         >
           {processed}
         </ReactMarkdown>

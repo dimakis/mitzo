@@ -226,6 +226,26 @@ describe('TextBubble code block CopyButton', () => {
   });
 });
 
+describe('TextBubble mermaid code blocks', () => {
+  it('renders MermaidBlock for language-mermaid code blocks', () => {
+    renderToStaticMarkup(createElement(TextBubble, { content: 'test' }));
+    const pre = capturedComponents!.pre;
+    const codeEl = createElement('code', { className: 'language-mermaid' }, 'graph TD; A-->B;');
+    const result = pre({ children: codeEl });
+    // Should render MermaidBlock, not code-block-wrapper
+    expect(result.type).not.toBe('div');
+    expect(result.props.code).toBe('graph TD; A-->B;');
+  });
+
+  it('renders normal code block for non-mermaid languages', () => {
+    renderToStaticMarkup(createElement(TextBubble, { content: 'test' }));
+    const pre = capturedComponents!.pre;
+    const codeEl = createElement('code', { className: 'language-python' }, 'print("hi")');
+    const html = renderToStaticMarkup(pre({ children: codeEl }));
+    expect(html).toContain('code-block-wrapper');
+  });
+});
+
 describe('TextBubble markdown preview card promotion', () => {
   it('provides a custom p component to ReactMarkdown', () => {
     renderToStaticMarkup(createElement(TextBubble, { content: 'test' }));

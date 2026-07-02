@@ -2123,6 +2123,29 @@ textarea:focus {
   }
 }
 
+/* ===== Mermaid Diagrams ===== */
+
+.mermaid-block {
+  position: relative;
+  margin: 0.5em 0;
+  border-radius: 6px;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mermaid-block-svg {
+  padding: 0.75rem;
+  display: flex;
+  justify-content: center;
+}
+
+.mermaid-block-svg svg {
+  max-width: 100%;
+  height: auto;
+}
+
 /* ===== Collapsible Messages ===== */
 
 .msg-bubble--collapsed .msg-bubble-markdown {
