@@ -313,7 +313,9 @@ This is the same pattern used by every multi-device chat system. The EventStore 
 5. Add `sendError` UI state for permanent failures
 6. Heartbeat liveness: 20s ping, 40s timeout, auto-reconnect
 
-**Tests:** Verify send-while-running works (server queues via AsyncQueue). Verify POST failure shows error UI. Verify heartbeat timeout triggers reconnect. Verify no message loss on reconnect during generation.
+**UX note:** The `USER_SEND` reducer action (which renders the user bubble immediately) stays as-is -- the UI remains optimistic. The POST acknowledgment controls whether the message is considered _delivered_, not _displayed_. On POST failure, the existing bubble gets a "failed to send" indicator with retry. This preserves the instant-feel UX while adding delivery confidence.
+
+**Tests:** Verify send-while-running works (server queues via AsyncQueue). Verify POST failure shows error UI with retry. Verify heartbeat timeout triggers reconnect. Verify no message loss on reconnect during generation.
 
 **Dead code removal:** `pendingSend`, `onSendQueued`, `clearPendingSendTimer`, `PENDING_SEND_TIMEOUT_MS`, `drainOne`, safety-net timer in `sendMessage`, `pendingSend` drain in `session_end` handler, `pendingSend = []` in switch/new/error handlers.
 
