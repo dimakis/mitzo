@@ -856,10 +856,10 @@ describe('closeout prompts echo to frontend', () => {
   });
 
   it('user-closeout calls echoCloseoutPrompt before inputQueue.push', () => {
-    const fnStart = chatSource.indexOf('function closeSessionByUser(') || chatSource.indexOf('export function closeSessionByUser(');
+    const fnStart = chatSource.indexOf('export function closeSessionByUser(');
     expect(fnStart).toBeGreaterThan(-1);
-    const fnEnd = chatSource.indexOf('\nregistry.', fnStart);
-    const fnBody = chatSource.slice(fnStart, fnEnd);
+    const fnEnd = chatSource.indexOf('\nexport function', fnStart + 1);
+    const fnBody = chatSource.slice(fnStart, fnEnd > -1 ? fnEnd : undefined);
     const echoIdx = fnBody.indexOf('echoCloseoutPrompt(');
     const pushIdx = fnBody.indexOf('session.inputQueue.push(');
     expect(echoIdx).toBeGreaterThan(-1);
