@@ -101,11 +101,14 @@ const connRegistry = new ConnectionRegistry();
 setConnectionRegistry(connRegistry);
 
 // Wire up EventStore for periodic sync (enables delivery guarantee).
-// Provide isSessionActive so periodic sync skips ended sessions.
+// Provide isSessionActive so periodic sync skips ended sessions (P1: use state, not is_active).
 connRegistry.setEventStore({
   getEventsAfter: (sessionId, afterSeq, limit) =>
     eventStore.getEventsAfter(sessionId, afterSeq, limit),
-  isSessionActive: (sessionId) => eventStore.getSession(sessionId)?.isActive ?? false,
+  isSessionActive: (sessionId) => {
+    const state = eventStore.getSessionState(sessionId);
+    return state !== null && state !== 'ENDED' && state !== 'CLOSING';
+  },
 });
 
 // Resolve cert paths relative to the project root (where package.json lives)

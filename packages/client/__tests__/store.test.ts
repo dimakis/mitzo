@@ -548,7 +548,7 @@ describe('WS → store wiring', () => {
   });
 
   it('dispatches session_end and clears running', () => {
-    store.getState().dispatchMessages({ type: 'SET_RUNNING', running: true });
+    store.getState().dispatchMessages({ type: 'SESSION_STATE_CHANGED', state: 'running' });
     expect(store.getState().messages.running).toBe(true);
 
     lastWs.simulateMessage({ type: 'session_end', sessionId: 'test-session' });
@@ -859,7 +859,7 @@ describe('session isolation via sessionId filtering', () => {
   it('rejects session_end from a foreign session when active session is set', async () => {
     const store = createReadyStore();
     await store.getState().switchSession('session-b');
-    store.getState().dispatchMessages({ type: 'SET_RUNNING', running: true });
+    store.getState().dispatchMessages({ type: 'SESSION_STATE_CHANGED', state: 'running' });
 
     lastWs.simulateMessage({
       type: 'session_end',
@@ -909,7 +909,7 @@ describe('session isolation via sessionId filtering', () => {
   it('drops session_end when no active session (null-session filter)', async () => {
     const store = createReadyStore();
     await store.getState().switchSession('old-session');
-    store.getState().dispatchMessages({ type: 'SET_RUNNING', running: true });
+    store.getState().dispatchMessages({ type: 'SESSION_STATE_CHANGED', state: 'running' });
 
     store.getState().newSession();
 
@@ -967,7 +967,7 @@ describe('setModel', () => {
 describe('dispatchMessages', () => {
   it('applies messages reducer action directly', () => {
     const store = createReadyStore();
-    store.getState().dispatchMessages({ type: 'SET_RUNNING', running: true });
+    store.getState().dispatchMessages({ type: 'SESSION_STATE_CHANGED', state: 'running' });
     expect(store.getState().messages.running).toBe(true);
   });
 });
@@ -1299,139 +1299,6 @@ describe('foreground recovery', () => {
     expect(state.messages[0].messageId).toBe('user-1');
   });
 
-  it('syncs running state from session meta on foreground when session_end was missed', async () => {
-    const transport = mockTransport();
-    const store = createReadyStore(transport);
-
-    // Set up active session with running=true (agent was processing)
-    store.setState((s) => ({
-      sessions: { ...s.sessions, active: 'sess-1' },
-      messages: { ...s.messages, running: true },
-    }));
-
-    // Mock fetch to return messages for /messages and isActive=false for /meta
-    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
-      if (typeof url === 'string' && url.includes('/meta')) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ sessionId: 'sess-1', isActive: false }),
-        });
-      }
-      // /messages endpoint
-      return Promise.resolve({
-        ok: true,
-        json: () =>
-          Promise.resolve([
-            { messageId: 'msg-1', role: 'assistant', blocks: [], isStreaming: false },
-          ]),
-      });
-    });
-
-    // Simulate foreground return (iOS Safari coming back from background)
-    lastWs.simulateMessage({ type: '_foreground' });
-
-    // Wait for both async fetches to resolve
-    await vi.waitFor(() => {
-      expect(store.getState().messages.running).toBe(false);
-    });
-  });
-
-  it('does not change running state when session is still active on foreground', async () => {
-    const transport = mockTransport();
-    const store = createReadyStore(transport);
-
-    store.setState((s) => ({
-      sessions: { ...s.sessions, active: 'sess-1' },
-      messages: { ...s.messages, running: true },
-    }));
-
-    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
-      if (typeof url === 'string' && url.includes('/meta')) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ sessionId: 'sess-1', isActive: true }),
-        });
-      }
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve([]),
-      });
-    });
-
-    lastWs.simulateMessage({ type: '_foreground' });
-    await new Promise((r) => setTimeout(r, 50));
-
-    expect(store.getState().messages.running).toBe(true);
-  });
-
-  it('does not clear running when session switches before meta fetch resolves', async () => {
-    const transport = mockTransport();
-    const store = createReadyStore(transport);
-
-    store.setState((s) => ({
-      sessions: { ...s.sessions, active: 'sess-old' },
-      messages: { ...s.messages, running: true },
-    }));
-
-    // Meta fetch for sess-old returns isActive=false, but with a delay
-    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
-      if (typeof url === 'string' && url.includes('/meta')) {
-        return new Promise((resolve) =>
-          setTimeout(
-            () =>
-              resolve({
-                ok: true,
-                json: () => Promise.resolve({ sessionId: 'sess-old', isActive: false }),
-              }),
-            30,
-          ),
-        );
-      }
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve([]),
-      });
-    });
-
-    // Trigger foreground — meta fetch starts for sess-old
-    lastWs.simulateMessage({ type: '_foreground' });
-
-    // User switches to a new session before meta fetch resolves
-    await store.getState().switchSession('sess-new');
-    store.setState((s) => ({
-      messages: { ...s.messages, running: true },
-    }));
-
-    // Wait for the delayed meta fetch to resolve
-    await new Promise((r) => setTimeout(r, 60));
-
-    // running should still be true — stale meta response was discarded
-    expect(store.getState().messages.running).toBe(true);
-  });
-
-  it('preserves running state when meta fetch fails (network error)', async () => {
-    const transport = mockTransport();
-    const store = createReadyStore(transport);
-
-    store.setState((s) => ({
-      sessions: { ...s.sessions, active: 'sess-1' },
-      messages: { ...s.messages, running: true },
-    }));
-
-    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
-      if (typeof url === 'string' && url.includes('/meta')) {
-        return Promise.reject(new Error('network error'));
-      }
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve([]),
-      });
-    });
-
-    lastWs.simulateMessage({ type: '_foreground' });
-    await new Promise((r) => setTimeout(r, 50));
-
-    // running unchanged — fetch failure is non-fatal
-    expect(store.getState().messages.running).toBe(true);
-  });
+  // P1: syncRunningState tests removed — running state is now server-authoritative
+  // via session_state_changed events. No polling on foreground needed.
 });

@@ -618,7 +618,7 @@ describe('handleSwitchSession', () => {
     expect(ctx.connRegistry.hasOpenWatchers('sess-1')).toBe(true);
   });
 
-  it('returns running: true when session has active query loop', async () => {
+  it('P1: session_switched does not include running field', async () => {
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-1', session: {} });
     sessionReg.isActive.mockReturnValue(true);
@@ -648,40 +648,9 @@ describe('handleSwitchSession', () => {
     await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'sess-1' }, ctx);
 
     const resp = transport.sent[0];
-    expect(resp).toHaveProperty('running', true);
-  });
-
-  it('returns running: false when store state is ENDED (zombie)', async () => {
-    const sessionReg = mockSessionRegistry();
-    sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-1', session: {} });
-    sessionReg.isActive.mockReturnValue(true);
-
-    const eventStore = mockEventStore();
-    eventStore.getSession.mockReturnValue({
-      sessionId: 'sess-1',
-      mode: 'agent',
-      cwd: '/test',
-      branch: 'main',
-      wtId: null,
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheReadTokens: 0,
-      cacheCreationTokens: 0,
-      totalCostUsd: 0,
-    });
-    eventStore.getSessionState.mockReturnValue('ENDED');
-
-    const ctx = createContext({
-      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
-      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
-    });
-    const transport = mockTransport();
-    ctx.connRegistry.register('c1', transport);
-
-    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'sess-1' }, ctx);
-
-    const resp = transport.sent[0];
-    expect(resp).toHaveProperty('running', false);
+    // P1: running state from session_state_changed events, not session_switched
+    expect(resp).not.toHaveProperty('running');
+    expect(resp).toHaveProperty('type', 'session_switched');
   });
 });
 
@@ -1048,10 +1017,10 @@ describe('handlePermissionResponseV2', () => {
   });
 });
 
-// ─── handleReconnect — running status ───────────────────────────────────────
+// ─── handleReconnect — P1: no running field in summary ──────────────────────
 
-describe('handleReconnect running status', () => {
-  it('reports running=true when session has an active driver', () => {
+describe('handleReconnect reconnected summary (P1)', () => {
+  it('reconnected summary does not include running field', () => {
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1' });
     sessionReg.isActive.mockReturnValue(true);
@@ -1069,59 +1038,21 @@ describe('handleReconnect running status', () => {
     );
 
     const summary = transport.sent.find((m) => m.type === 'reconnected') as {
-      sessions: Array<{ sessionId: string; running: boolean }>;
+      sessions: Array<{ sessionId: string; replayed: number }>;
     };
-    expect(summary.sessions[0].running).toBe(true);
+    expect(summary.sessions[0]).not.toHaveProperty('running');
+    expect(summary.sessions[0]).toHaveProperty('sessionId', 'sess-1');
+    expect(summary.sessions[0]).toHaveProperty('replayed');
   });
 
-  it('reports running=false when session has no active driver', () => {
-    const sessionReg = mockSessionRegistry();
-    sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1' });
-    sessionReg.isActive.mockReturnValue(false);
-
-    const ctx = createContext({
-      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
-    });
-    const transport = mockTransport();
-    ctx.connRegistry.register('c1', transport);
-
-    handleReconnect(
-      'c1',
-      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
-      ctx,
-    );
-
-    const summary = transport.sent.find((m) => m.type === 'reconnected') as {
-      sessions: Array<{ sessionId: string; running: boolean }>;
-    };
-    expect(summary.sessions[0].running).toBe(false);
-  });
-
-  it('reports running=false when session is not in registry', () => {
-    const ctx = createContext();
-    const transport = mockTransport();
-    ctx.connRegistry.register('c1', transport);
-
-    handleReconnect(
-      'c1',
-      { type: 'reconnect', sessions: [{ sessionId: 'unknown-sess', lastSeq: 0 }] },
-      ctx,
-    );
-
-    const summary = transport.sent.find((m) => m.type === 'reconnected') as {
-      sessions: Array<{ sessionId: string; running: boolean }>;
-    };
-    expect(summary.sessions[0].running).toBe(false);
-  });
-
-  it('reports running=false when registry says active but EventStore says inactive (zombie session)', () => {
+  it('removes stale session from registry when store state is ENDED (zombie)', () => {
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1' });
     sessionReg.isActive.mockReturnValue(true);
     sessionReg.isAttached.mockReturnValue(false);
 
     const eventStore = mockEventStore();
-    eventStore.getSession.mockReturnValue({ isActive: false });
+    eventStore.getSessionState.mockReturnValue('ENDED');
 
     (reattachChat as ReturnType<typeof vi.fn>).mockClear();
 
@@ -1138,53 +1069,8 @@ describe('handleReconnect running status', () => {
       ctx,
     );
 
-    const summary = transport.sent.find((m) => m.type === 'reconnected') as {
-      sessions: Array<{ sessionId: string; running: boolean }>;
-    };
-    expect(summary.sessions[0].running).toBe(false);
+    expect(sessionReg.remove).toHaveBeenCalledWith('driver-1');
     expect(reattachChat).not.toHaveBeenCalled();
-  });
-
-  it('handles mixed running states across multiple sessions', () => {
-    const sessionReg = mockSessionRegistry();
-    sessionReg.findBySessionId
-      .mockReturnValueOnce({ clientId: 'driver-1' })
-      .mockReturnValueOnce(null)
-      .mockReturnValueOnce({ clientId: 'driver-3' });
-    sessionReg.isActive.mockReturnValueOnce(true).mockReturnValueOnce(false);
-
-    const ctx = createContext({
-      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
-    });
-    const transport = mockTransport();
-    ctx.connRegistry.register('c1', transport);
-
-    handleReconnect(
-      'c1',
-      {
-        type: 'reconnect',
-        sessions: [
-          { sessionId: 'sess-1', lastSeq: 0 },
-          { sessionId: 'sess-2', lastSeq: 0 },
-          { sessionId: 'sess-3', lastSeq: 0 },
-        ],
-      },
-      ctx,
-    );
-
-    const summary = transport.sent.find((m) => m.type === 'reconnected') as {
-      sessions: Array<{ sessionId: string; running: boolean }>;
-    };
-    expect(summary.sessions).toHaveLength(3);
-    expect(summary.sessions[0]).toEqual(
-      expect.objectContaining({ sessionId: 'sess-1', running: true }),
-    );
-    expect(summary.sessions[1]).toEqual(
-      expect.objectContaining({ sessionId: 'sess-2', running: false }),
-    );
-    expect(summary.sessions[2]).toEqual(
-      expect.objectContaining({ sessionId: 'sess-3', running: false }),
-    );
   });
 
   it('replays multiple events in sequence order', () => {
@@ -2850,7 +2736,8 @@ describe('stale session cleanup removes registry entry', () => {
     sessionReg.isActive.mockReturnValue(true);
 
     const eventStore = mockEventStore();
-    eventStore.getSession.mockReturnValue({ sessionId: 'sess-1', isActive: false });
+    // P1: handleReconnect uses getSessionState() instead of getSession().isActive
+    eventStore.getSessionState.mockReturnValue('ENDED');
 
     const ctx = createContext({
       sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],

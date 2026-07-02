@@ -185,7 +185,7 @@ export function ChatView() {
 
   const handleStop = useCallback(() => {
     storeStopGeneration();
-    storeDispatchMessages({ type: 'SET_RUNNING', running: false });
+    storeDispatchMessages({ type: 'SESSION_STATE_CHANGED', state: 'idle' });
   }, [storeStopGeneration, storeDispatchMessages]);
 
   function handlePermission(
