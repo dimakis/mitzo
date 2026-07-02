@@ -909,11 +909,11 @@ Detailed design documents for major features live in `docs/design/`:
 | ---------------------------------------- | ------------------------------------------------- |
 | `message-protocol-v2.md`                 | v2 WebSocket block lifecycle protocol              |
 | `global-task-board.md`                   | Task board architecture and state machine          |
+| `task-board-phase1-plan.md`              | Task board phase 1: persistence and tree structure |
 | `task-board-phase2-plan.md`              | Task board phase 2: orchestration and MCP          |
-| `task-board-phase3-plan.md`              | Task board phase 3: verification and completion    |
-| `session-isolation-worktrees.md`         | Git worktree isolation design                      |
-| `session-isolation-enforcement.md`       | Worktree guard enforcement strategy                |
-| `session-isolation-multi-repo.md`        | Multi-repo worktree support                        |
+| `session-isolation-overhaul.md`          | Session isolation architecture overhaul            |
+| `session-isolation-counter-proposal.md`  | Alternative session isolation design               |
+| `session-isolation-phase2-handoff.md`    | Session isolation phase 2 handoff notes            |
 | `session-state-machine.md`              | Session lifecycle state transitions                |
 | `skills-system-v1-plan.md`              | Skills system architecture                         |
 | `voice-integration.md`                   | Voice I/O (STT + TTS) design                      |
@@ -925,7 +925,6 @@ Detailed design documents for major features live in `docs/design/`:
 | `token-visibility.md`                    | Token usage visibility in the UI                   |
 | `boot-context-pill-ux-fixes.md`          | Boot context UX improvements                       |
 | `phase-a-test-harness.md`               | Test harness architecture                          |
-| `workflow-templates.md`                  | Workflow template system                           |
 
 Additional docs:
 - [docs/onboarding.md](docs/onboarding.md) — Setup and configuration walkthrough
