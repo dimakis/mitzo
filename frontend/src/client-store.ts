@@ -17,13 +17,14 @@ import { eventBus } from './lib/event-bus-singleton';
 import { getPreferredModel } from './lib/model-preference';
 
 /**
- * Transport selector — set localStorage 'mitzo:transport' to 'sse' to use
- * SSE + HTTP POST instead of WebSocket. Default is 'ws'.
+ * Transport selector — SSE + HTTP POST is the default transport (Transport SSOT P0).
+ * This is an intentional flip from WS-default per the transport-ssot design doc.
+ * Set localStorage 'mitzo:transport' to 'ws' to fall back to WebSocket.
  *
- * Toggle from console: localStorage.setItem('mitzo:transport', 'sse'); location.reload();
- * Revert:              localStorage.removeItem('mitzo:transport'); location.reload();
+ * Force WS:   localStorage.setItem('mitzo:transport', 'ws'); location.reload();
+ * Revert SSE: localStorage.removeItem('mitzo:transport'); location.reload();
  */
-const useSSE = typeof window !== 'undefined' && localStorage.getItem('mitzo:transport') === 'sse';
+const useSSE = typeof window !== 'undefined' && localStorage.getItem('mitzo:transport') !== 'ws';
 
 const sseConfig: SseConnectionConfig | undefined = useSSE
   ? {

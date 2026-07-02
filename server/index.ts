@@ -1024,6 +1024,11 @@ checkPort(PORT).then((inUse) => {
     // Start periodic sync for connection-level delivery guarantee
     connRegistry.startPeriodicSync();
 
+    // Recover sessions left in incomplete states after crash/restart (Transport SSOT P0).
+    // Must run before reconcileSessionsBackground() so reconciliation sees ENDED states.
+    // recoverStaleSessions() logs internally — no need to log here.
+    eventStore.recoverStaleSessions();
+
     // Eagerly reconcile sessions so the first /api/sessions request is fast and accurate.
     reconcileSessionsBackground();
     // Clean up stale worktrees across all repos.

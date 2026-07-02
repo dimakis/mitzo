@@ -965,6 +965,48 @@ describe('boot_context', () => {
   });
 });
 
+// ─── Session state (Transport SSOT P0) ──────────────────────────────────────
+
+describe('session_state_changed', () => {
+  it('produces no message actions (P0: observability only)', () => {
+    const r = parseServerMessage(
+      {
+        type: 'session_state_changed',
+        sessionId: 'sid-1',
+        state: 'running',
+        internalState: 'ACTIVE',
+        timestamp: 1234567890,
+      },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.messagesActions).toHaveLength(0);
+  });
+
+  it('logs via console.debug', () => {
+    const spy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+    parseServerMessage(
+      {
+        type: 'session_state_changed',
+        sessionId: 'sid-1',
+        state: 'idle',
+        internalState: 'ENDED',
+        timestamp: 1234567890,
+      },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(spy).toHaveBeenCalledWith('[mitzo] session_state_changed', {
+      sessionId: 'sid-1',
+      state: 'idle',
+      internalState: 'ENDED',
+    });
+    spy.mockRestore();
+  });
+});
+
 // ─── Subagent cancellation ───────────────────────────────────────────────────
 
 describe('subagent_cancelled', () => {
