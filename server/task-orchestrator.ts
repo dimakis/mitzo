@@ -37,6 +37,8 @@ export interface OrchestratorDeps {
   getActiveSessionIds?: () => Set<string>;
   /** Register a signal watch for a wait_for_signal task */
   watchSignal?: (taskId: string, gateConfig: GateConfig) => void;
+  /** Set task context on a specific client (for spawned sessions). */
+  setTaskContextForClient?: (clientId: string, taskId: string, goalId: string) => void;
   /** Spawn a new headless session for a task. Returns clientId or null on failure. */
   spawnSession?: (taskId: string, prompt: string, goalId: string) => Promise<string | null>;
 }
@@ -365,6 +367,7 @@ export class TaskOrchestrator {
 
               if (clientId) {
                 this.deps.store.setSessionId(next.id, clientId);
+                this.deps.setTaskContextForClient?.(clientId, next.id, capturedGoalId);
                 log.info('spawned session for task', { taskId: next.id, clientId });
               } else {
                 // Spawn returned null (e.g. worktree failure) — fall back to pinned session

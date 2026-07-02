@@ -206,6 +206,12 @@ const orchestrator = new TaskOrchestrator({
       }
     }
   },
+  setTaskContextForClient: (clientId, taskId, goalId) => {
+    const session = registry.get(clientId);
+    if (session) {
+      session.taskContext = { currentTaskId: taskId, goalId };
+    }
+  },
   clearTaskContext: () => {
     for (const [clientId] of registry.entries()) {
       const session = registry.get(clientId);
