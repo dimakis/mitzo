@@ -1,39 +1,46 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import mermaid from 'mermaid';
 import { CopyButton } from './CopyButton';
 
-mermaid.initialize({
-  startOnLoad: false,
-  theme: 'dark',
-  themeVariables: {
-    darkMode: true,
-    background: '#1e1e2e',
-    primaryColor: '#7c3aed',
-    primaryTextColor: '#e2e8f0',
-    primaryBorderColor: '#6366f1',
-    lineColor: '#94a3b8',
-    secondaryColor: '#374151',
-    tertiaryColor: '#1f2937',
-    noteBkgColor: '#374151',
-    noteTextColor: '#e2e8f0',
-    fontFamily: 'inherit',
-  },
-});
+let mermaidInitialized = false;
 
-let renderCounter = 0;
+function ensureMermaidInit() {
+  if (mermaidInitialized) return;
+  mermaidInitialized = true;
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'dark',
+    themeVariables: {
+      darkMode: true,
+      background: '#1e1e2e',
+      primaryColor: '#7c3aed',
+      primaryTextColor: '#e2e8f0',
+      primaryBorderColor: '#6366f1',
+      lineColor: '#94a3b8',
+      secondaryColor: '#374151',
+      tertiaryColor: '#1f2937',
+      noteBkgColor: '#374151',
+      noteTextColor: '#e2e8f0',
+      fontFamily: 'inherit',
+    },
+  });
+}
 
 interface MermaidBlockProps {
   code: string;
 }
 
 export function MermaidBlock({ code }: MermaidBlockProps) {
+  const instanceId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [svg, setSvg] = useState<string | null>(null);
 
   useEffect(() => {
+    ensureMermaidInit();
     let cancelled = false;
-    const id = `mermaid-${++renderCounter}`;
+    // useId() returns a stable, unique string per component instance
+    const id = `mermaid-${instanceId.replace(/:/g, '')}`;
 
     async function render() {
       try {

@@ -12,7 +12,8 @@ const sanitizeSchema = {
   attributes: {
     ...defaultSchema.attributes,
     img: [...(defaultSchema.attributes?.img ?? []), 'width', 'height'],
-    code: [...(defaultSchema.attributes?.code ?? []), 'className'],
+    // Only allow language-* classes (set by rehype-highlight) — not arbitrary classNames
+    code: [...(defaultSchema.attributes?.code ?? []), ['className', /^language-/]],
   },
 };
 
