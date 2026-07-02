@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import mermaid from 'mermaid';
 import { CopyButton } from './CopyButton';
 
@@ -9,6 +9,7 @@ function ensureMermaidInit() {
   mermaidInitialized = true;
   mermaid.initialize({
     startOnLoad: false,
+    securityLevel: 'strict',
     theme: 'dark',
     themeVariables: {
       darkMode: true,
@@ -32,14 +33,12 @@ interface MermaidBlockProps {
 
 export function MermaidBlock({ code }: MermaidBlockProps) {
   const instanceId = useId();
-  const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [svg, setSvg] = useState<string | null>(null);
 
   useEffect(() => {
     ensureMermaidInit();
     let cancelled = false;
-    // useId() returns a stable, unique string per component instance
     const id = `mermaid-${instanceId.replace(/:/g, '')}`;
 
     async function render() {
@@ -54,7 +53,6 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
           setError('Invalid diagram');
           setSvg(null);
         }
-        // Clean up any leftover element mermaid may have created
         document.getElementById(`d${id}`)?.remove();
       }
     }
@@ -63,10 +61,9 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
     return () => {
       cancelled = true;
     };
-  }, [code]);
+  }, [code, instanceId]);
 
   if (error) {
-    // Fall back to plain code block
     return (
       <div className="code-block-wrapper">
         <pre>
@@ -81,11 +78,7 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
 
   return (
     <div className="mermaid-block">
-      <div
-        className="mermaid-block-svg"
-        ref={containerRef}
-        dangerouslySetInnerHTML={{ __html: svg }}
-      />
+      <div className="mermaid-block-svg" dangerouslySetInnerHTML={{ __html: svg }} />
       <CopyButton text={code} className="code-block-copy" label="Copy source" />
     </div>
   );

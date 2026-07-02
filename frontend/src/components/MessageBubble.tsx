@@ -10,6 +10,7 @@ import { CopyButton } from './CopyButton';
 import { ShareButton } from './ShareButton';
 import { ReadAloudButton } from './ReadAloudButton';
 import { extractText } from '../lib/extractText';
+import { getMermaidCode } from '../lib/mermaid-detect';
 import { MarkdownPreviewCard } from './MarkdownPreviewCard';
 import { MermaidBlock } from './MermaidBlock';
 
@@ -112,15 +113,8 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
         </div>
       ),
       pre: ({ children, ...props }: React.ComponentProps<'pre'>) => {
-        // Detect mermaid code blocks and render as diagrams
-        const child = React.Children.toArray(children)[0];
-        if (React.isValidElement(child)) {
-          const className = (child.props as Record<string, unknown>)?.className;
-          if (typeof className === 'string' && /language-mermaid/.test(className)) {
-            const text = extractText(children);
-            return <MermaidBlock code={text} />;
-          }
-        }
+        const mermaidCode = getMermaidCode(children);
+        if (mermaidCode !== null) return <MermaidBlock code={mermaidCode} />;
         const text = extractText(children);
         return (
           <div className="code-block-wrapper">

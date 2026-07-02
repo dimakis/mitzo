@@ -1,11 +1,10 @@
-import React from 'react';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import type { Components } from 'react-markdown';
 import type { PluggableList } from 'unified';
 import { MermaidBlock } from '../components/MermaidBlock';
-import { extractText } from './extractText';
+import { getMermaidCode } from './mermaid-detect';
 
 const sanitizeSchema = {
   ...defaultSchema,
@@ -27,14 +26,8 @@ export const markdownComponents: Components = {
     </div>
   ),
   pre: ({ children, ...props }) => {
-    const child = React.Children.toArray(children)[0];
-    if (React.isValidElement(child)) {
-      const className = (child.props as Record<string, unknown>)?.className;
-      if (typeof className === 'string' && /language-mermaid/.test(className)) {
-        const text = extractText(children);
-        return <MermaidBlock code={text} />;
-      }
-    }
+    const mermaidCode = getMermaidCode(children);
+    if (mermaidCode !== null) return <MermaidBlock code={mermaidCode} />;
     return <pre {...props}>{children}</pre>;
   },
 };
