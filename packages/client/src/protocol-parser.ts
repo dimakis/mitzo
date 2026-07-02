@@ -102,6 +102,10 @@ export interface ParseResult {
     | { type: 'workload_batch_updated'; items: WorkloadItem[]; created: number };
 }
 
+// ─── Constants ──────────────────────────────────────────────────────────────
+
+const VALID_CLIENT_STATES: ReadonlySet<string> = new Set(['idle', 'running', 'requires_action']);
+
 // ─── Parser ──────────────────────────────────────────────────────────────────
 
 export function parseServerMessage(
@@ -130,7 +134,9 @@ export function parseServerMessage(
       break;
 
     case 'session_takeover':
-      // P1: running=false comes from server's session_state_changed event
+      // Server unwatches the old client after takeover, so no subsequent
+      // session_state_changed event will arrive — clear running inline.
+      result.messagesActions.push({ type: 'SESSION_STATE_CHANGED', state: 'idle' });
       result.messagesActions.push({
         type: 'ERROR',
         error: 'Session resumed on another device.',
@@ -267,8 +273,7 @@ export function parseServerMessage(
 
     case 'session_state_changed': {
       // P1: server-authoritative state — derive running from this event only
-      const validStates: ReadonlySet<string> = new Set(['idle', 'running', 'requires_action']);
-      if (typeof msg.state === 'string' && validStates.has(msg.state)) {
+      if (typeof msg.state === 'string' && VALID_CLIENT_STATES.has(msg.state)) {
         result.messagesActions.push({
           type: 'SESSION_STATE_CHANGED',
           state: msg.state as ClientSessionState,
@@ -363,10 +368,7 @@ export function parseServerMessage(
       // between the send and the server's session_state_changed confirmation.
       const pending = state.pendingSend.shift();
       if (pending) {
-        result.messagesActions.push({
-          type: 'SESSION_STATE_CHANGED',
-          state: 'running' as ClientSessionState,
-        });
+        result.messagesActions.push({ type: 'SESSION_STATE_CHANGED', state: 'running' });
         if (callbacks.onSendQueued) {
           callbacks.onSendQueued(pending);
         } else {
@@ -420,7 +422,9 @@ export function parseServerMessage(
           command: 'close',
           content: 'Session closing... The agent will commit work and write a summary.',
         });
-        // P1: running=false from server's session_state_changed (CLOSING → idle)
+        // Safety net: server's 'no active agent' path may not emit
+        // session_state_changed, so clear running inline.
+        result.messagesActions.push({ type: 'SESSION_STATE_CHANGED', state: 'idle' });
       }
       break;
 

@@ -651,6 +651,47 @@ describe('handleSwitchSession', () => {
     // P1: running state from session_state_changed events, not session_switched
     expect(resp).not.toHaveProperty('running');
     expect(resp).toHaveProperty('type', 'session_switched');
+
+    // P1: session_state_changed emitted immediately after session_switched
+    const stateMsg = transport.sent[1];
+    expect(stateMsg).toMatchObject({
+      type: 'session_state_changed',
+      sessionId: 'sess-1',
+      state: 'running',
+      internalState: 'ACTIVE',
+    });
+    expect(stateMsg).toHaveProperty('timestamp');
+  });
+
+  it('P1: no session_state_changed when getSessionState returns null', async () => {
+    const sessionReg = mockSessionRegistry();
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({
+      sessionId: 'sess-1',
+      mode: 'agent',
+      cwd: '/test',
+      branch: 'main',
+      wtId: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      totalCostUsd: 0,
+    });
+    eventStore.getSessionState.mockReturnValue(null);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'sess-1' }, ctx);
+
+    // Only session_switched should be sent, no session_state_changed
+    expect(transport.sent).toHaveLength(1);
+    expect(transport.sent[0]).toHaveProperty('type', 'session_switched');
   });
 });
 

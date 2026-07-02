@@ -595,7 +595,7 @@ describe('misc', () => {
 // ─── session_takeover ────────────────────────────────────────────────────────
 
 describe('session_takeover', () => {
-  it('produces ERROR message (P1: no SET_RUNNING, state from server event)', () => {
+  it('clears running and produces ERROR (server unwatches after takeover)', () => {
     const cb = makeCallbacks();
     const r = parseServerMessage(
       { type: 'session_takeover', sessionId: 'sess-1' },
@@ -603,8 +603,7 @@ describe('session_takeover', () => {
       cb,
       POOL_KEY,
     );
-    // P1: running=false comes from server's session_state_changed event
-    expect(r.messagesActions).not.toContainEqual(expect.objectContaining({ type: 'SET_RUNNING' }));
+    expect(r.messagesActions).toContainEqual({ type: 'SESSION_STATE_CHANGED', state: 'idle' });
     expect(r.messagesActions).toContainEqual(
       expect.objectContaining({ type: 'ERROR', error: expect.stringContaining('another device') }),
     );
