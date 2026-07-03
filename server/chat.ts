@@ -1355,6 +1355,27 @@ export function cleanupSessionWorktrees(
   if (primary) session.worktreePaths.set('primary', primary);
 }
 
+/** Echo a closeout prompt to the frontend as a user bubble before injecting into the SDK. */
+function echoCloseoutPrompt(
+  session: import('./session-registry.js').ManagedSession,
+  clientId: string,
+  prompt: string,
+): void {
+  const messageId = `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-closeout`;
+  if (session.sessionId) {
+    storeAndEchoIfNew(
+      session.sessionId,
+      messageId,
+      prompt,
+      clientId,
+      session.transport,
+      session.observers,
+    );
+  } else {
+    log.debug('skipping closeout echo — session not yet resolved', { clientId });
+  }
+}
+
 const CLOSEOUT_PROMPT = `This session is closing in 10 minutes due to inactivity.
 Please perform session closeout:
 
@@ -1410,7 +1431,7 @@ function _closeoutSessionInner(clientId: string): void {
 
   log.info('injecting closeout prompt', { clientId, wtId: session.wtId });
 
-  // Push the closeout prompt as an interrupt so the agent sees it immediately
+  echoCloseoutPrompt(session, clientId, CLOSEOUT_PROMPT);
   session.inputQueue.push(makeUserMessage(CLOSEOUT_PROMPT, 'now'));
 
   // The registry's CLOSEOUT_TIMEOUT_MS timer will abort the session after
@@ -1495,7 +1516,7 @@ export function closeSessionByUser(clientId: string): void {
 
     log.info('user-initiated closeout', { clientId, wtId: session.wtId });
 
-    // Inject closeout prompt
+    echoCloseoutPrompt(session, clientId, USER_CLOSEOUT_PROMPT);
     session.inputQueue.push(makeUserMessage(USER_CLOSEOUT_PROMPT, 'now'));
 
     // Register abort listener to finalize with closed_by: 'user'

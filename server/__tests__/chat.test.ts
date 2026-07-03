@@ -824,3 +824,46 @@ describe('agent definition wiring', () => {
     expect(['contexgin', 'local', 'fallback']).toContain(session.agentDefinitionSource);
   });
 });
+
+describe('closeout prompts echo to frontend', () => {
+  let chatSource: string;
+
+  beforeAll(async () => {
+    const { readFileSync } = await import('fs');
+    const { join } = await import('path');
+    chatSource = readFileSync(join(import.meta.dirname, '..', 'chat.ts'), 'utf-8');
+  });
+
+  it('echoCloseoutPrompt helper calls storeAndEchoIfNew', () => {
+    const fnStart = chatSource.indexOf('function echoCloseoutPrompt(');
+    expect(fnStart).toBeGreaterThan(-1);
+    const fnEnd = chatSource.indexOf('\n}', fnStart);
+    const fnBody = chatSource.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('storeAndEchoIfNew(');
+    expect(fnBody).toContain("log.debug('skipping closeout echo");
+  });
+
+  it('auto-closeout calls echoCloseoutPrompt before inputQueue.push', () => {
+    const fnStart = chatSource.indexOf('function _closeoutSessionInner(');
+    expect(fnStart).toBeGreaterThan(-1);
+    const fnEnd = chatSource.indexOf('\n}', fnStart);
+    const fnBody = chatSource.slice(fnStart, fnEnd);
+    const echoIdx = fnBody.indexOf('echoCloseoutPrompt(');
+    const pushIdx = fnBody.indexOf('session.inputQueue.push(');
+    expect(echoIdx).toBeGreaterThan(-1);
+    expect(pushIdx).toBeGreaterThan(-1);
+    expect(echoIdx).toBeLessThan(pushIdx);
+  });
+
+  it('user-closeout calls echoCloseoutPrompt before inputQueue.push', () => {
+    const fnStart = chatSource.indexOf('export function closeSessionByUser(');
+    expect(fnStart).toBeGreaterThan(-1);
+    const fnEnd = chatSource.indexOf('\nexport function', fnStart + 1);
+    const fnBody = chatSource.slice(fnStart, fnEnd > -1 ? fnEnd : undefined);
+    const echoIdx = fnBody.indexOf('echoCloseoutPrompt(');
+    const pushIdx = fnBody.indexOf('session.inputQueue.push(');
+    expect(echoIdx).toBeGreaterThan(-1);
+    expect(pushIdx).toBeGreaterThan(-1);
+    expect(echoIdx).toBeLessThan(pushIdx);
+  });
+});
