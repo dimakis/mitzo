@@ -29,6 +29,14 @@ export function TokenBar({ tokenState }: Props) {
   // Show only session total in that case — the agent context bar is meaningless.
   const isCompleted = agentContext === 0 && sessionTotal > 0;
 
+  if (tokenState.compacting) {
+    return (
+      <div className="token-bar token-bar--compacting" aria-label="Compacting context">
+        <span className="token-bar-compacting-label">COMPACTING</span>
+      </div>
+    );
+  }
+
   return (
     <>
       <button

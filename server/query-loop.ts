@@ -278,6 +278,7 @@ async function _runQueryLoopInner(
   let agentContextTokens = 0; // full context window size (input + cached) from parent message_start
   let turnIndex = 0; // increments on each parent message_start (excludes sub-agents)
   let numCompactions = 0; // counts successful compaction events from SDK
+  let compacting = false; // true while SDK is actively compacting context
   let liveSessionTokens = 0; // cumulative total across all API calls in this query
   let cumulativeOutputTokens = 0; // accumulated output tokens (fresh per API call)
   const sessionStartedAt = Date.now(); // wall-clock start for fallback duration
@@ -568,6 +569,16 @@ async function _runQueryLoopInner(
           // (SDK may undercount if sub-agent tokens aren't included in result.usage)
           currentSession.cumulativeSessionTokens = Math.max(sdkTokens, liveSessionTokens);
           currentSession.cumulativeCostUsd = usageData.totalCostUsd;
+
+          // Safety: if compaction was in progress but never completed (SDK crash,
+          // abort, etc.), reset the flag so the frontend doesn't stay stuck.
+          if (compacting) {
+            compacting = false;
+            log.warn('compaction flag reset on result — success signal was never received', {
+              clientId,
+            });
+            emit({ type: 'compaction_status', active: false });
+          }
 
           emit({
             type: 'token_update',
@@ -956,6 +967,14 @@ async function _runQueryLoopInner(
                   blockType: 'text',
                 }),
               );
+            } else if (blockType === 'compaction') {
+              // SDK is compacting context — signal the frontend immediately.
+              // No snapshot block is pushed; the generic blockIdByIndex registration
+              // above is harmless — content_block_stop finds no snapshot block and
+              // silently skips, while openBlockCount stays balanced (++ here, -- there).
+              compacting = true;
+              log.info('compaction started', { clientId });
+              emit({ type: 'compaction_status', active: true });
             }
           } else if (evt?.type === 'content_block_delta') {
             const parentToolUseId = msg.parent_tool_use_id as string | undefined;
@@ -1033,6 +1052,7 @@ async function _runQueryLoopInner(
               const entry = toolInputBuffers.get(index);
               if (entry) entry.inputBuf += delta.partial_json as string;
             }
+            // compaction_delta — intentionally ignored (SDK-internal summary content)
           } else if (evt?.type === 'content_block_stop') {
             const parentToolUseId = msg.parent_tool_use_id as string | undefined;
             const subagent = parentToolUseId ? activeSubagents.get(parentToolUseId) : undefined;
@@ -1208,7 +1228,9 @@ async function _runQueryLoopInner(
           const compactResult = (msg as Record<string, unknown>).compact_result;
           if (subtype === 'status' && compactResult === 'success') {
             numCompactions++;
+            compacting = false;
             log.info('compaction completed', { clientId, numCompactions });
+            emit({ type: 'compaction_status', active: false });
           }
 
           // Track subagent task lifecycle for interrupt cancellation

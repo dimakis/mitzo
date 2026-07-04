@@ -112,6 +112,7 @@ function createMockStore() {
       numTurns: 0,
       turnIndex: 0,
       numCompactions: 0,
+      compacting: false,
     },
     progress: { blocks: {}, toolIndex: {} },
     sendError: null,

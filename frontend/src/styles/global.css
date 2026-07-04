@@ -3467,6 +3467,35 @@ textarea:focus {
   animation: token-flash 0.8s ease-in-out infinite alternate;
 }
 
+.token-bar--compacting {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.6);
+  background: rgba(251, 191, 36, 0.15);
+  animation: compaction-pulse 1s ease-in-out infinite alternate;
+  cursor: default;
+  pointer-events: none;
+}
+
+.token-bar-compacting-label {
+  font-weight: 700;
+  font-size: var(--text-xxs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+@keyframes compaction-pulse {
+  from {
+    opacity: 1;
+    border-color: rgba(251, 191, 36, 0.6);
+    box-shadow: 0 0 6px rgba(251, 191, 36, 0.3);
+  }
+  to {
+    opacity: 0.5;
+    border-color: rgba(251, 191, 36, 0.3);
+    box-shadow: 0 0 2px rgba(251, 191, 36, 0.1);
+  }
+}
+
 @keyframes token-flash {
   from {
     opacity: 1;
