@@ -12,6 +12,7 @@ function makeState(overrides: Partial<TokenState> = {}): TokenState {
     numTurns: 0,
     turnIndex: 0,
     numCompactions: 0,
+    compacting: false,
     ...overrides,
   };
 }
@@ -102,6 +103,16 @@ describe('TokenBar', () => {
     // Should render detail panel without crashing
     expect(screen.getByText(/Agent context/)).toBeTruthy();
     expect(screen.getByText(/Session tokens/)).toBeTruthy();
+  });
+
+  it('shows compacting indicator when compacting is true', () => {
+    const { container } = render(
+      <TokenBar tokenState={makeState({ agentContext: 170000, turnIndex: 3, compacting: true })} />,
+    );
+    expect(container.querySelector('.token-bar--compacting')).toBeTruthy();
+    expect(screen.getByText(/COMPACTING/)).toBeTruthy();
+    // Normal token display should not be visible
+    expect(screen.queryByText(/170k/)).toBeNull();
   });
 
   it('expands detail panel on tap', () => {
