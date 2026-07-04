@@ -912,6 +912,37 @@ describe('TaskOrchestrator', () => {
       });
     });
 
+    it('tick after spawn session ends reclaims orphaned task and advances', async () => {
+      const spawnSession = vi.fn().mockResolvedValue('task:spawned-1');
+      const deps = createTestDeps(store);
+      deps.spawnSession = spawnSession;
+      let activeClients = new Set(['task:spawned-1']);
+      deps.getActiveSessionIds = () => activeClients;
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Goal' });
+      const t1 = store.create({ title: 'Spawn task', parentId: goal.id });
+      const t2 = store.create({ title: 'Next task', parentId: goal.id, sessionPolicy: 'reuse' });
+
+      orch.start(goal.id);
+
+      await vi.waitFor(() => {
+        expect(spawnSession).toHaveBeenCalled();
+      });
+
+      // Simulate session completing the task
+      store.update(t1.id, { status: 'done' });
+      store.cascadeStatus(t1.id);
+
+      // Simulate .finally() wiring: session removed from registry, tick called
+      activeClients = new Set();
+      orch.onTaskCompleted(t1.id);
+
+      // t2 should now be active (workflow advanced)
+      expect(store.get(t2.id)!.status).toBe('active');
+      expect(orch.getStatus().activeTaskId).toBe(t2.id);
+    });
+
     it('reuse policy tasks use pinned session as before', () => {
       const spawnSession = vi.fn().mockResolvedValue('spawned-client-1');
       const deps = createTestDeps(store);

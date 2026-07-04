@@ -237,11 +237,7 @@ const orchestrator = new TaskOrchestrator({
   getActiveSessionIds: () => {
     // Return clientIds — task.session_id stores clientId, not SDK sessionId.
     // Using sessionId here caused orphan detection to never match spawned tasks.
-    const ids = new Set<string>();
-    for (const [clientId] of registry.entries()) {
-      ids.add(clientId);
-    }
-    return ids;
+    return new Set(Array.from(registry.entries(), ([clientId]) => clientId));
   },
   spawnSession: async (taskId: string, prompt: string, goalId: string) => {
     const clientId = `task:${generateWtId()}`;
@@ -273,18 +269,9 @@ const orchestrator = new TaskOrchestrator({
           // Session ended (success or failure) — clean up registry entry
           // (no WS close to trigger normal removal) and advance the
           // orchestrator so orphan reclaim picks up unfinished tasks.
-          if (registry.get(clientId)) {
-            registry.remove(clientId);
-          }
+          registry.remove(clientId);
           orchestratorRef?.tick();
         });
-
-      // Link session to task for session overview visibility.
-      // register() is synchronous inside startChat, so the session exists here.
-      const session = registry.get(clientId);
-      if (session) {
-        session.taskContext = { currentTaskId: taskId, goalId };
-      }
 
       return clientId;
     } catch (err) {
