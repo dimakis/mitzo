@@ -3,11 +3,6 @@ import { CopyButton } from './CopyButton';
 
 let mermaidInitialized = false;
 
-/** Exported for test cleanup only. */
-export function _resetMermaidInit() {
-  mermaidInitialized = false;
-}
-
 interface MermaidBlockProps {
   code: string;
 }
@@ -56,6 +51,9 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
         if (!cancelled) {
           setError('Invalid diagram');
           setSvg(null);
+          // Mermaid inserts a temporary element with id `d<id>` during render.
+          // On error, it may leave this element behind. Convention verified
+          // against mermaid v11 (mermaid-js/mermaid).
           document.getElementById(`d${id}`)?.remove();
         }
       }

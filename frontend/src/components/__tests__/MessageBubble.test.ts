@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
 
 // Mock react-markdown and remark-gfm before importing the component
@@ -33,6 +34,7 @@ vi.mock('react-router-dom', () => ({
 
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { render } from '@testing-library/react';
 import { MessageBubble, TextBubble, UserBubble } from '../MessageBubble';
 import { FILE_SCHEME } from '../../lib/file-paths';
 import type { FinishedMessage } from '../../types/chat';
@@ -119,9 +121,10 @@ describe('MessageBubble', () => {
 
     // Simulate click to verify navigate is called with the correct route
     const clickEvent = { preventDefault: vi.fn() };
-    // Extract onClick from rendered component — render via createElement to get props
+    // The anchor wraps in <span className="file-path-group"> with <a> as first child
     const rendered = anchor({ href: fileHref, children: '/tmp/output.md' });
-    rendered.props.onClick(clickEvent);
+    const innerA = rendered.props.children[0];
+    innerA.props.onClick(clickEvent);
 
     expect(clickEvent.preventDefault).toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith(
@@ -311,7 +314,8 @@ describe('TextBubble markdown preview card promotion', () => {
     const anchor = capturedComponents!.a;
     const fileHref = `${FILE_SCHEME}${encodeURIComponent('/tmp/notes.md')}`;
     const rendered = anchor({ href: fileHref, children: '/tmp/notes.md' });
-    expect(rendered.props['data-file-path']).toBe('/tmp/notes.md');
+    const innerA = rendered.props.children[0];
+    expect(innerA.props['data-file-path']).toBe('/tmp/notes.md');
   });
 });
 
@@ -356,5 +360,18 @@ describe('MessageBubble legacy adapter forwards timestamps', () => {
       createElement(MessageBubble, { message: userMessage('hello') }),
     );
     expect(html).not.toContain('msg-timestamp');
+  });
+});
+
+describe('TextBubble useMemo identity', () => {
+  it('preserves mdComponents reference across re-renders with same deps', () => {
+    const { rerender } = render(createElement(TextBubble, { content: 'first' }));
+    const firstComponents = capturedComponents;
+
+    rerender(createElement(TextBubble, { content: 'second' }));
+    const secondComponents = capturedComponents;
+
+    // useMemo should return the same object reference since deps (navigate) are stable
+    expect(secondComponents).toBe(firstComponents);
   });
 });

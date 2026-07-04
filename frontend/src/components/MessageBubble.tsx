@@ -90,10 +90,15 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
   const navigate = useNavigate();
   const location = useLocation();
   const processed = streaming ? content : linkifyFilePaths(content);
-  const currentPath = location.pathname + location.search;
   const [collapsed, setCollapsed] = useState(true);
   const [isLong, setIsLong] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+
+  // Use a ref for currentPath so the useMemo components stay stable across
+  // location changes (query params, navigation). The onClick handler reads
+  // the ref at click time, not at memo creation time.
+  const currentPathRef = useRef(location.pathname + location.search);
+  currentPathRef.current = location.pathname + location.search;
 
   useEffect(() => {
     if (contentRef.current && !streaming) {
@@ -105,6 +110,8 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
 
   // Memoize components so react-markdown preserves component instances
   // (e.g. MarkdownPreviewCard expanded state) across parent re-renders.
+  // navigate is stable (from react-router), currentPath uses a ref to avoid
+  // invalidating the memo on location changes.
   const mdComponents = useMemo(
     () => ({
       table: ({ children, ...props }: React.ComponentProps<'table'>) => (
@@ -149,7 +156,7 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
                 onClick={(e) => {
                   e.preventDefault();
                   navigate(
-                    `/files?path=${encodeURIComponent(filePath)}&from=${encodeURIComponent(currentPath)}`,
+                    `/files?path=${encodeURIComponent(filePath)}&from=${encodeURIComponent(currentPathRef.current)}`,
                   );
                 }}
               >
@@ -166,7 +173,7 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
         );
       },
     }),
-    [navigate, currentPath],
+    [navigate],
   );
 
   return (
