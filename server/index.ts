@@ -274,18 +274,26 @@ const orchestrator = new TaskOrchestrator({
           // A user may have paused manually or started a new goal while
           // this session was in-flight — don't override that.
           if (!orchestratorRef) return;
-          const status = orchestratorRef.getStatus();
-          if (status.goalId === goalId) {
-            if (status.state === 'paused') {
-              orchestratorRef.resume();
+          try {
+            const status = orchestratorRef.getStatus();
+            if (status.goalId === goalId) {
+              if (status.state === 'paused') {
+                orchestratorRef.resume();
+              } else {
+                orchestratorRef.tick();
+              }
             } else {
-              orchestratorRef.tick();
+              log.info('task session ended after loop stopped or goal changed', {
+                taskId,
+                clientId,
+                goalId,
+              });
             }
-          } else {
-            log.info('task session ended after loop stopped or goal changed', {
+          } catch (err: unknown) {
+            log.error('orchestrator advance failed after task session end', {
               taskId,
               clientId,
-              goalId,
+              error: err instanceof Error ? err.message : String(err),
             });
           }
         });
