@@ -235,9 +235,15 @@ const orchestrator = new TaskOrchestrator({
     sseRegistry.broadcast('task_state', data);
   },
   getActiveSessionIds: () => {
-    // Return clientIds — task.session_id stores clientId, not SDK sessionId.
-    // Using sessionId here caused orphan detection to never match spawned tasks.
-    return new Set(registry.keys());
+    // Return only task-prefixed clientIds — task.session_id stores clientId
+    // (e.g. 'task:abc123'), not SDK sessionId. Only task sessions are relevant
+    // for orphan detection; browser clients would never match but are excluded
+    // for clarity.
+    const ids = new Set<string>();
+    for (const key of registry.keys()) {
+      if (key.startsWith('task:')) ids.add(key);
+    }
+    return ids;
   },
   spawnSession: async (taskId: string, prompt: string, goalId: string) => {
     const clientId = `task:${generateWtId()}`;
