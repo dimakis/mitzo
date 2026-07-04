@@ -912,7 +912,7 @@ describe('TaskOrchestrator', () => {
       });
     });
 
-    it('tick after spawn session ends reclaims orphaned task and advances', async () => {
+    it('tick after spawn session completes advances workflow', async () => {
       const spawnSession = vi.fn().mockResolvedValue('task:spawned-1');
       const deps = createTestDeps(store);
       deps.spawnSession = spawnSession;
@@ -930,17 +930,51 @@ describe('TaskOrchestrator', () => {
         expect(spawnSession).toHaveBeenCalled();
       });
 
-      // Simulate session completing the task
+      // Agent completed the task during the session
       store.update(t1.id, { status: 'done' });
       store.cascadeStatus(t1.id);
 
-      // Simulate .finally() wiring: session removed from registry, tick called
+      // .finally() fires: session removed from registry, tick() called directly
       activeClients = new Set();
-      orch.onTaskCompleted(t1.id);
+      orch.tick();
 
       // t2 should now be active (workflow advanced)
       expect(store.get(t2.id)!.status).toBe('active');
       expect(orch.getStatus().activeTaskId).toBe(t2.id);
+    });
+
+    it('resume after spawn session dies reclaims unfinished task', async () => {
+      // Primary scenario for .finally(): session crashes without calling
+      // TaskComplete. The task stays active but the session is gone.
+      // After all tasks are spawned, the orchestrator pauses (no pending left).
+      // .finally() calls resume() → tick() → orphan reclaim → re-dispatch.
+      const spawnSession = vi.fn().mockResolvedValue('task:spawned-1');
+      const deps = createTestDeps(store);
+      deps.spawnSession = spawnSession;
+      let activeClients = new Set(['task:spawned-1']);
+      deps.getActiveSessionIds = () => activeClients;
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Goal' });
+      store.create({ title: 'Spawn task', parentId: goal.id });
+
+      orch.start(goal.id);
+
+      await vi.waitFor(() => {
+        expect(spawnSession).toHaveBeenCalledTimes(1);
+      });
+
+      // Orchestrator should be paused (all tasks active, none pending)
+      expect(orch.getStatus().state).toBe('paused');
+
+      // .finally() fires: session removed from registry, resume() called
+      activeClients = new Set();
+      orch.resume();
+
+      // Orphan reclaim detected the dead session and re-dispatched the task
+      await vi.waitFor(() => {
+        expect(spawnSession).toHaveBeenCalledTimes(2);
+      });
     });
 
     it('reuse policy tasks use pinned session as before', () => {

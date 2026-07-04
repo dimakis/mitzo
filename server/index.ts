@@ -270,7 +270,16 @@ const orchestrator = new TaskOrchestrator({
           // (no WS close to trigger normal removal) and advance the
           // orchestrator so orphan reclaim picks up unfinished tasks.
           registry.remove(clientId);
-          orchestratorRef?.tick();
+          // After all tasks are spawned, the orchestrator pauses (no pending
+          // tasks left). tick() is a no-op when paused, so resume() is needed
+          // to re-enter the running state and trigger orphan reclaim.
+          if (orchestratorRef) {
+            if (orchestratorRef.getStatus().state === 'paused') {
+              orchestratorRef.resume();
+            } else {
+              orchestratorRef.tick();
+            }
+          }
         });
 
       return clientId;
