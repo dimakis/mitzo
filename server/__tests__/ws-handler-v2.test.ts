@@ -242,36 +242,14 @@ describe('handleReconnect', () => {
     ]);
   });
 
-  it('reattaches detached session on reconnect', () => {
+  it('does not reattach or rekey on reconnect (deferred to handleSendV2)', () => {
     (reattachChat as ReturnType<typeof vi.fn>).mockClear();
+    (rekeyChat as ReturnType<typeof vi.fn>).mockClear();
 
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-1' });
     sessionReg.isActive.mockReturnValue(true);
-    sessionReg.isAttached.mockReturnValue(false);
-
-    const ctx = createContext({
-      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
-    });
-    const transport = mockTransport();
-    ctx.connRegistry.register('c1', transport);
-
-    handleReconnect(
-      'c1',
-      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
-      ctx,
-    );
-
-    expect(reattachChat).toHaveBeenCalledWith('c1:sess-1', transport);
-  });
-
-  it('does not reattach if session is already attached', () => {
-    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
-
-    const sessionReg = mockSessionRegistry();
-    sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-1' });
-    sessionReg.isActive.mockReturnValue(true);
-    sessionReg.isAttached.mockReturnValue(true); // already attached
+    sessionReg.isAttached.mockReturnValue(false); // detached — but reconnect should NOT reattach
 
     const ctx = createContext({
       sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
@@ -286,6 +264,7 @@ describe('handleReconnect', () => {
     );
 
     expect(reattachChat).not.toHaveBeenCalled();
+    expect(rekeyChat).not.toHaveBeenCalled();
   });
 
   it('resets cursor to client lastSeq immediately after watch (before replay)', () => {
@@ -1086,16 +1065,13 @@ describe('handleReconnect reconnected summary (P1)', () => {
     expect(summary.sessions[0]).toHaveProperty('replayed');
   });
 
-  it('removes stale session from registry when store state is ENDED (zombie)', () => {
+  it('does not remove stale sessions on reconnect (deferred to handleSendV2)', () => {
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1' });
     sessionReg.isActive.mockReturnValue(true);
-    sessionReg.isAttached.mockReturnValue(false);
 
     const eventStore = mockEventStore();
     eventStore.getSessionState.mockReturnValue('ENDED');
-
-    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
 
     const ctx = createContext({
       sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
@@ -1110,8 +1086,8 @@ describe('handleReconnect reconnected summary (P1)', () => {
       ctx,
     );
 
-    expect(sessionReg.remove).toHaveBeenCalledWith('driver-1');
-    expect(reattachChat).not.toHaveBeenCalled();
+    // Reconnect no longer does zombie cleanup — handleSendV2 handles it
+    expect(sessionReg.remove).not.toHaveBeenCalled();
   });
 
   it('replays multiple events in sequence order', () => {
@@ -2150,81 +2126,9 @@ describe('handleInterruptV2 state-based routing', () => {
   });
 });
 
-// ─── handleReconnect — ownership guard ──────────────────────────────────────
-
-describe('handleReconnect ownership guard', () => {
-  it('does not reattach session when original owner connection is still active', () => {
-    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
-
-    const sessionReg = mockSessionRegistry();
-    sessionReg.findBySessionId.mockReturnValue({ clientId: 'other-conn:sess-1' });
-    sessionReg.isActive.mockReturnValue(true);
-    sessionReg.isAttached.mockReturnValue(false); // detached
-
-    const ctx = createContext({
-      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
-    });
-    const transport = mockTransport();
-    ctx.connRegistry.register('c1', transport);
-    // Register the original owner so it's still "alive"
-    ctx.connRegistry.register('other-conn', mockTransport());
-
-    handleReconnect(
-      'c1',
-      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
-      ctx,
-    );
-
-    expect(reattachChat).not.toHaveBeenCalled();
-  });
-
-  it('reattaches detached session when original owner connection is gone', () => {
-    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
-
-    const sessionReg = mockSessionRegistry();
-    sessionReg.findBySessionId.mockReturnValue({ clientId: 'other-conn:sess-1' });
-    sessionReg.isActive.mockReturnValue(true);
-    sessionReg.isAttached.mockReturnValue(false); // detached
-
-    const ctx = createContext({
-      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
-    });
-    const transport = mockTransport();
-    ctx.connRegistry.register('c1', transport);
-    // other-conn is NOT registered — it disconnected
-
-    handleReconnect(
-      'c1',
-      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
-      ctx,
-    );
-
-    expect(reattachChat).toHaveBeenCalledWith('other-conn:sess-1', transport);
-  });
-
-  it('reattaches session driven by the same connection', () => {
-    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
-
-    const sessionReg = mockSessionRegistry();
-    sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-1' });
-    sessionReg.isActive.mockReturnValue(true);
-    sessionReg.isAttached.mockReturnValue(false);
-
-    const ctx = createContext({
-      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
-    });
-    const transport = mockTransport();
-    ctx.connRegistry.register('c1', transport);
-
-    handleReconnect(
-      'c1',
-      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
-      ctx,
-    );
-
-    expect(reattachChat).toHaveBeenCalledWith('c1:sess-1', transport);
-  });
-});
+// ─── handleReconnect — no ownership dance (P3) ──────────────────────────────
+// Ownership (reattach/rekey/zombie) is handled by handleSendV2 on first message.
+// These tests verify reconnect does NOT attempt ownership operations.
 
 // ─── handleInterruptV2 — images and contextBlocks forwarding ───────────────
 
@@ -2630,60 +2534,8 @@ describe('handleInterruptV2 connection ownership', () => {
   });
 });
 
-// ─── rekey after reattach — ownership transfer ────────────────────────────────
-
-describe('handleReconnect rekey after reattach', () => {
-  it('rekeys session to new connection after reattach so subsequent sends pass ownership', () => {
-    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
-    (rekeyChat as ReturnType<typeof vi.fn>).mockClear();
-
-    const sessionReg = mockSessionRegistry();
-    sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-conn:sess-1' });
-    sessionReg.isActive.mockReturnValue(true);
-    sessionReg.isAttached.mockReturnValue(false); // detached
-
-    const ctx = createContext({
-      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
-    });
-    const transport = mockTransport();
-    ctx.connRegistry.register('new-conn', transport);
-    // old-conn is NOT registered — it disconnected
-
-    handleReconnect(
-      'new-conn',
-      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
-      ctx,
-    );
-
-    expect(reattachChat).toHaveBeenCalledWith('old-conn:sess-1', transport);
-    expect(rekeyChat).toHaveBeenCalledWith('old-conn:sess-1', 'new-conn:sess-1');
-  });
-
-  it('skips rekey when connectionId already matches (same connection reconnects)', () => {
-    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
-    (rekeyChat as ReturnType<typeof vi.fn>).mockClear();
-
-    const sessionReg = mockSessionRegistry();
-    sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-1' });
-    sessionReg.isActive.mockReturnValue(true);
-    sessionReg.isAttached.mockReturnValue(false);
-
-    const ctx = createContext({
-      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
-    });
-    const transport = mockTransport();
-    ctx.connRegistry.register('c1', transport);
-
-    handleReconnect(
-      'c1',
-      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
-      ctx,
-    );
-
-    expect(reattachChat).toHaveBeenCalled();
-    expect(rekeyChat).not.toHaveBeenCalled();
-  });
-});
+// rekey after reattach tests removed — reconnect no longer does ownership transfer (P3).
+// handleSendV2 rekey tests (below) still cover the rekey-on-send path.
 
 describe('handleSendV2 rekey after detached reattach', () => {
   it('rekeys and uses new clientId for sendToChat when taking over detached session', () => {
@@ -2951,30 +2803,23 @@ describe('handleSessionSuspend', () => {
 // ─── handleReconnect — suspend resume ───────────────────────────────────────
 
 describe('handleReconnect suspend resume', () => {
-  it('replays buffered events for suspended sessions', () => {
+  it('clears suspend state and sends session_resumed', () => {
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({
       clientId: 'conn-1:sess-1',
       session: { sessionId: 'sess-1' },
     });
     sessionReg.isActive.mockReturnValue(true);
-    sessionReg.isAttached.mockReturnValue(false);
     sessionReg.isSuspended.mockReturnValue(true);
     sessionReg.resume.mockReturnValue([
       { v: 2, type: 'block_delta', delta: 'buffered-text', sessionId: 'sess-1' },
     ]);
 
-    const eventStore = mockEventStore();
-    eventStore.getSession.mockReturnValue({ isActive: true });
-
     const ctx = createContext({
       sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
-      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
     });
     const transport = mockTransport();
     ctx.connRegistry.register('conn-1', transport);
-
-    (reattachChat as ReturnType<typeof vi.fn>).mockReturnValue(true);
 
     handleReconnect(
       'conn-1',
@@ -2984,12 +2829,13 @@ describe('handleReconnect suspend resume', () => {
 
     expect(sessionReg.resume).toHaveBeenCalledWith('conn-1:sess-1');
     // Buffered events should NOT be replayed — EventStore replay covers them.
-    // resume() is called only to clear suspend state.
     expect(
       transport.sent.some((m) => m.type === 'block_delta' && m.delta === 'buffered-text'),
     ).toBe(false);
     // Should have sent session_resumed with total replayed count
     expect(transport.sent.some((m) => m.type === 'session_resumed' && m.replayed === 1)).toBe(true);
+    // No reattach — ownership deferred to handleSendV2
+    expect(reattachChat).not.toHaveBeenCalled();
   });
 });
 
