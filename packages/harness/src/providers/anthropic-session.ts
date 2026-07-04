@@ -46,17 +46,29 @@ function parseSSE(eventType: string, data: string): StreamEvent | null {
 
   try {
     const parsed = JSON.parse(data);
-    // The event type in the SSE matches our StreamEvent.type
-    if (
-      parsed.type === 'message_start' ||
-      parsed.type === 'content_block_start' ||
-      parsed.type === 'content_block_delta' ||
-      parsed.type === 'content_block_stop' ||
-      parsed.type === 'message_delta'
-    ) {
-      return parsed as StreamEvent;
+    if (typeof parsed !== 'object' || parsed === null || typeof parsed.type !== 'string') {
+      return null;
     }
-    return null;
+
+    switch (parsed.type) {
+      case 'message_start':
+        if (!parsed.message?.id || !parsed.message?.role) return null;
+        return parsed as StreamEvent;
+      case 'content_block_start':
+        if (typeof parsed.index !== 'number' || !parsed.content_block?.type) return null;
+        return parsed as StreamEvent;
+      case 'content_block_delta':
+        if (typeof parsed.index !== 'number' || !parsed.delta?.type) return null;
+        return parsed as StreamEvent;
+      case 'content_block_stop':
+        if (typeof parsed.index !== 'number') return null;
+        return parsed as StreamEvent;
+      case 'message_delta':
+        if (!parsed.delta) return null;
+        return parsed as StreamEvent;
+      default:
+        return null;
+    }
   } catch {
     log.warn('failed to parse SSE data', { eventType, data: data.slice(0, 200) });
     return null;
@@ -75,8 +87,12 @@ export class AnthropicSession implements ModelSession {
 
     const useProxy = options.useProxy ?? !!process.env.MITZO_USE_PRAXIS;
     this.baseUrl = options.baseUrl ?? (useProxy ? PRAXIS_URL : DEFAULT_BASE_URL);
-    this.apiKey = options.apiKey ?? process.env.ANTHROPIC_API_KEY ?? 'dummy';
+    this.apiKey = options.apiKey ?? process.env.ANTHROPIC_API_KEY ?? '';
     this.apiVersion = options.apiVersion ?? '2023-06-01';
+
+    if (!this.apiKey && !useProxy) {
+      log.warn('no API key configured and not using praxis-proxy — requests will fail with 401');
+    }
 
     log.info('session created', {
       model: config.model,
@@ -104,8 +120,6 @@ export class AnthropicSession implements ModelSession {
 
     if (this.config.thinking) {
       body.thinking = this.config.thinking;
-      // When thinking is enabled, Anthropic requires removing max_tokens
-      // and using budget_tokens in the thinking block instead
     }
 
     const url = `${this.baseUrl}/v1/messages`;
