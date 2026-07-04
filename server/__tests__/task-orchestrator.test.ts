@@ -1015,6 +1015,45 @@ describe('TaskOrchestrator', () => {
       expect(spawnSession).toHaveBeenCalledTimes(1); // no re-dispatch
     });
 
+    it('does not advance old goal when orchestrator moved to a new goal', async () => {
+      const spawnSession = vi.fn().mockResolvedValue('task:spawned-1');
+      const deps = createTestDeps(store);
+      deps.spawnSession = spawnSession;
+      let activeClients = new Set(['task:spawned-1']);
+      deps.getActiveSessionIds = () => activeClients;
+      const orch = new TaskOrchestrator(deps);
+
+      const goal1 = store.create({ title: 'Goal 1' });
+      store.create({ title: 'Spawn task', parentId: goal1.id });
+
+      const goal2 = store.create({ title: 'Goal 2' });
+      const g2task = store.create({
+        title: 'Reuse task',
+        parentId: goal2.id,
+        sessionPolicy: 'reuse',
+      });
+
+      orch.start(goal1.id);
+
+      await vi.waitFor(() => {
+        expect(spawnSession).toHaveBeenCalledTimes(1);
+      });
+
+      // User switches to a new goal while spawned session is still running
+      orch.stop();
+      orch.start(goal2.id);
+      expect(orch.getStatus().goalId).toBe(goal2.id);
+      expect(orch.getStatus().activeTaskId).toBe(g2task.id);
+
+      // Old spawned session ends — tick should NOT interfere with goal2
+      activeClients = new Set();
+      orch.tick();
+
+      // Goal2 state should be unchanged
+      expect(orch.getStatus().goalId).toBe(goal2.id);
+      expect(orch.getStatus().activeTaskId).toBe(g2task.id);
+    });
+
     it('reuse policy tasks use pinned session as before', () => {
       const spawnSession = vi.fn().mockResolvedValue('spawned-client-1');
       const deps = createTestDeps(store);
