@@ -235,15 +235,16 @@ const orchestrator = new TaskOrchestrator({
     sseRegistry.broadcast('task_state', data);
   },
   getActiveSessionIds: () => {
+    // Return clientIds — task.session_id stores clientId, not SDK sessionId.
+    // Using sessionId here caused orphan detection to never match spawned tasks.
     const ids = new Set<string>();
     for (const [clientId] of registry.entries()) {
-      const session = registry.get(clientId);
-      if (session?.sessionId) ids.add(session.sessionId);
+      ids.add(clientId);
     }
     return ids;
   },
   spawnSession: async (taskId: string, prompt: string, goalId: string) => {
-    const clientId = `headless:${generateWtId()}`;
+    const clientId = `task:${generateWtId()}`;
 
     try {
       const transport = new NullTransport();
@@ -257,16 +258,33 @@ const orchestrator = new TaskOrchestrator({
         telosTaskId: goalId,
         taskContext: { currentTaskId: taskId, goalId },
         onSessionResolved: (sessionId) => {
-          log.info('spawned headless session resolved', { taskId, sessionId, clientId });
+          log.info('task session resolved', { taskId, sessionId, clientId });
           sseRegistry.broadcast('sessions_changed', {});
         },
-      }).catch((err) => {
-        log.error('spawned session failed', {
-          taskId,
-          clientId,
-          error: (err as Error).message,
+      })
+        .catch((err) => {
+          log.error('task session failed', {
+            taskId,
+            clientId,
+            error: (err as Error).message,
+          });
+        })
+        .finally(() => {
+          // Session ended (success or failure) — clean up registry entry
+          // (no WS close to trigger normal removal) and advance the
+          // orchestrator so orphan reclaim picks up unfinished tasks.
+          if (registry.get(clientId)) {
+            registry.remove(clientId);
+          }
+          orchestratorRef?.tick();
         });
-      });
+
+      // Link session to task for session overview visibility.
+      // register() is synchronous inside startChat, so the session exists here.
+      const session = registry.get(clientId);
+      if (session) {
+        session.taskContext = { currentTaskId: taskId, goalId };
+      }
 
       return clientId;
     } catch (err) {

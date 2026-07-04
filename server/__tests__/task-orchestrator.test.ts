@@ -312,18 +312,19 @@ describe('TaskOrchestrator', () => {
 
   describe('orphan detection', () => {
     it('reclaims orphaned tasks during tick', () => {
-      // Create deps with getActiveSessionIds
+      // getActiveSessionIds returns clientIds (not SDK sessionIds)
+      // to match what setSessionId stores on tasks
       const depsWithOrphan = createTestDeps(store);
-      depsWithOrphan.getActiveSessionIds = () => new Set(['alive-session']);
+      depsWithOrphan.getActiveSessionIds = () => new Set(['alive-client']);
       const orch = new TaskOrchestrator(depsWithOrphan);
 
       const goal = store.create({ title: 'Goal' });
       const c1 = store.create({ title: 'Orphan', parentId: goal.id });
       store.create({ title: 'Next', parentId: goal.id });
 
-      // Simulate c1 assigned to dead session
+      // Simulate c1 assigned to dead session (clientId not in active set)
       store.update(c1.id, { status: 'active' });
-      store.setSessionId(c1.id, 'dead-session');
+      store.setSessionId(c1.id, 'dead-client');
 
       orch.start(goal.id);
 
@@ -335,7 +336,7 @@ describe('TaskOrchestrator', () => {
 
     it('does not reclaim tasks with alive sessions', () => {
       const depsWithOrphan = createTestDeps(store);
-      depsWithOrphan.getActiveSessionIds = () => new Set(['alive-session']);
+      depsWithOrphan.getActiveSessionIds = () => new Set(['alive-client']);
       const orch = new TaskOrchestrator(depsWithOrphan);
 
       const goal = store.create({ title: 'Goal' });
@@ -343,12 +344,41 @@ describe('TaskOrchestrator', () => {
       const c2 = store.create({ title: 'Next', parentId: goal.id });
 
       store.update(c1.id, { status: 'active' });
-      store.setSessionId(c1.id, 'alive-session');
+      store.setSessionId(c1.id, 'alive-client');
 
       orch.start(goal.id);
 
       // c1 is alive, so tick should skip it and pick c2
       expect(orch.getStatus().activeTaskId).toBe(c2.id);
+    });
+
+    it('reclaims spawned task sessions using clientId matching', () => {
+      // Simulates the real scenario: task.session_id stores clientId
+      // (e.g. 'task:abc123'), active set contains clientIds from registry
+      const depsWithOrphan = createTestDeps(store);
+      depsWithOrphan.getActiveSessionIds = () => new Set(['task:alive-wt']);
+      const orch = new TaskOrchestrator(depsWithOrphan);
+
+      const goal = store.create({ title: 'Goal' });
+      const orphan = store.create({ title: 'Dead spawn', parentId: goal.id });
+      const alive = store.create({ title: 'Alive spawn', parentId: goal.id });
+      store.create({ title: 'Pending', parentId: goal.id });
+
+      // Orphan: session ended, clientId no longer in registry
+      store.update(orphan.id, { status: 'active' });
+      store.setSessionId(orphan.id, 'task:dead-wt');
+
+      // Alive: session still running
+      store.update(alive.id, { status: 'active' });
+      store.setSessionId(alive.id, 'task:alive-wt');
+
+      orch.start(goal.id);
+
+      // Orphan should be reclaimed and re-dispatched
+      expect(store.get(orphan.id)!.sessionId).toBeNull();
+      // Alive should NOT be reclaimed
+      expect(store.get(alive.id)!.sessionId).toBe('task:alive-wt');
+      expect(store.get(alive.id)!.status).toBe('active');
     });
   });
 
