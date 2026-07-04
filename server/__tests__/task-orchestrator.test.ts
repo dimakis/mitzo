@@ -934,9 +934,9 @@ describe('TaskOrchestrator', () => {
       store.update(t1.id, { status: 'done' });
       store.cascadeStatus(t1.id);
 
-      // .finally() fires: session removed from registry, tick() called directly
+      // .finally() fires: session removed from registry, onSpawnedSessionEnded called
       activeClients = new Set();
-      orch.tick();
+      orch.onSpawnedSessionEnded(goal.id);
 
       // t2 should now be active (workflow advanced)
       expect(store.get(t2.id)!.status).toBe('active');
@@ -972,9 +972,9 @@ describe('TaskOrchestrator', () => {
       expect(store.get(task.id)!.status).toBe('active');
       expect(store.get(task.id)!.sessionId).toBe('task:spawned-1');
 
-      // .finally() fires: session removed from registry, resume() called
+      // .finally() fires: session removed from registry, onSpawnedSessionEnded called
       activeClients = new Set();
-      orch.resume();
+      orch.onSpawnedSessionEnded(goal.id);
 
       // Orphan reclaim detected the dead session and re-dispatched the task
       await vi.waitFor(() => {
@@ -1007,9 +1007,9 @@ describe('TaskOrchestrator', () => {
       orch.stop();
       expect(orch.getStatus().state).toBe('idle');
 
-      // .finally() fires after session ends — tick is a no-op in idle state
+      // .finally() fires after session ends — no-op in idle state
       activeClients = new Set();
-      orch.tick();
+      orch.onSpawnedSessionEnded(goal.id);
 
       expect(orch.getStatus().state).toBe('idle');
       expect(store.get(t1.id)?.status).toBe('active'); // unchanged
@@ -1046,9 +1046,9 @@ describe('TaskOrchestrator', () => {
       expect(orch.getStatus().goalId).toBe(goal2.id);
       expect(orch.getStatus().activeTaskId).toBe(g2task.id);
 
-      // Old spawned session ends — tick should NOT interfere with goal2
+      // Old spawned session ends — should NOT interfere with goal2
       activeClients = new Set();
-      orch.tick();
+      orch.onSpawnedSessionEnded(goal1.id);
 
       // Goal2 state should be unchanged
       expect(orch.getStatus().goalId).toBe(goal2.id);
@@ -1086,15 +1086,46 @@ describe('TaskOrchestrator', () => {
       expect(orch.getStatus().state).toBe('paused');
       expect(orch.getStatus().goalId).toBe(goal2.id);
 
-      // Old spawned session ends — resume should NOT fire for old goal
+      // Old spawned session ends — onSpawnedSessionEnded checks goalId
       activeClients = new Set();
-      // In production, .finally() checks goalId before calling resume()
-      // Calling resume() here simulates what would happen WITHOUT the guard
-      // The orchestrator should resume goal2, not goal1
-      orch.resume();
+      orch.onSpawnedSessionEnded(goal1.id);
 
       expect(orch.getStatus().goalId).toBe(goal2.id);
       expect(orch.getStatus().activeTaskId).toBe(g2task.id);
+    });
+
+    it('respects manual pause when spawned session ends', async () => {
+      // User manually pauses while a spawned session is in-flight.
+      // When the session ends, onSpawnedSessionEnded should NOT resume
+      // because the pause was user-initiated, not an auto-pause.
+      const spawnSession = vi.fn().mockResolvedValue('task:spawned-1');
+      const deps = createTestDeps(store);
+      deps.spawnSession = spawnSession;
+      let activeClients = new Set(['task:spawned-1']);
+      deps.getActiveSessionIds = () => activeClients;
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Goal' });
+      store.create({ title: 'Spawn task', parentId: goal.id });
+      store.create({ title: 'Next task', parentId: goal.id, sessionPolicy: 'reuse' });
+
+      orch.start(goal.id);
+
+      await vi.waitFor(() => {
+        expect(spawnSession).toHaveBeenCalledTimes(1);
+      });
+
+      // User manually pauses
+      orch.pause();
+      expect(orch.getStatus().state).toBe('paused');
+
+      // Spawned session ends — should NOT override the manual pause
+      activeClients = new Set();
+      orch.onSpawnedSessionEnded(goal.id);
+
+      // Orchestrator should remain paused
+      expect(orch.getStatus().state).toBe('paused');
+      expect(spawnSession).toHaveBeenCalledTimes(1); // no re-dispatch
     });
 
     it('reuse policy tasks use pinned session as before', () => {

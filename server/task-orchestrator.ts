@@ -50,6 +50,7 @@ export class TaskOrchestrator {
   private activeTaskId: string | null = null;
   private specMode = false;
   private awaitingApproval = false;
+  private manuallyPaused = false;
   private pinnedClientId: string | null = null;
   private spawnDepth = 0;
   private deps: OrchestratorDeps;
@@ -126,6 +127,7 @@ export class TaskOrchestrator {
   pause(): LoopStatus {
     if (this.state !== 'running') return this.getStatus();
     this.state = 'paused';
+    this.manuallyPaused = true;
     log.info('orchestrator paused');
     this.deps.broadcastStatus(this.getStatus());
     return this.getStatus();
@@ -134,6 +136,7 @@ export class TaskOrchestrator {
   resume(): LoopStatus {
     if (this.state !== 'paused') return this.getStatus();
     this.state = 'running';
+    this.manuallyPaused = false;
     log.info('orchestrator resumed');
     this.broadcastAndTick();
     return this.getStatus();
@@ -146,6 +149,7 @@ export class TaskOrchestrator {
     this.activeTaskId = null;
     this.specMode = false;
     this.awaitingApproval = false;
+    this.manuallyPaused = false;
     this.pinnedClientId = null;
     this.spawnDepth = 0;
     this.deps.clearTaskContext();
@@ -188,6 +192,27 @@ export class TaskOrchestrator {
     log.info('spec mode: rejected, children deleted');
     this.deps.broadcastTasks();
     return this.stop();
+  }
+
+  /**
+   * Called from .finally() when a spawned task session ends.
+   * Advances the workflow only if the orchestrator is still on the same goal
+   * and wasn't manually paused by the user.
+   */
+  onSpawnedSessionEnded(goalId: string): void {
+    if (this.goalId !== goalId) {
+      log.info('spawned session ended after goal changed, ignoring', { goalId });
+      return;
+    }
+
+    if (this.state === 'paused' && !this.manuallyPaused) {
+      // Auto-paused (no executable tasks) — resume now that a session freed up
+      this.resume();
+    } else if (this.state === 'running') {
+      this.spawnDepth = 0;
+      this.tick();
+    }
+    // If manuallyPaused or idle: don't override user intent
   }
 
   /** Called when a task completes (from tool interception). */

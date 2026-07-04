@@ -276,25 +276,9 @@ const orchestrator = new TaskOrchestrator({
           // (no WS close to trigger normal removal) and advance the
           // orchestrator so orphan reclaim picks up unfinished tasks.
           registry.remove(clientId);
-          // Only advance if the orchestrator is still on the same goal.
-          // A user may have paused manually or started a new goal while
-          // this session was in-flight — don't override that.
           if (!orchestratorRef) return;
           try {
-            const status = orchestratorRef.getStatus();
-            if (status.goalId === goalId) {
-              if (status.state === 'paused') {
-                orchestratorRef.resume();
-              } else {
-                orchestratorRef.tick();
-              }
-            } else {
-              log.info('task session ended after loop stopped or goal changed', {
-                taskId,
-                clientId,
-                goalId,
-              });
-            }
+            orchestratorRef.onSpawnedSessionEnded(goalId);
           } catch (err: unknown) {
             log.error('orchestrator advance failed after task session end', {
               taskId,
