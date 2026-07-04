@@ -124,9 +124,10 @@ export const V2SetModeMessage = z.object({
 
 // ─── Union ──────────────────────────────────────────────────────────────────
 
+// ReconnectMessage is handled via REST POST (not WS) — exported for
+// the REST handler but excluded from the WS union.
 export const IncomingWsMessageV2 = z.discriminatedUnion('type', [
   HelloMessage,
-  ReconnectMessage,
   WatchMessage,
   UnwatchMessage,
   SwitchSessionMessage,
