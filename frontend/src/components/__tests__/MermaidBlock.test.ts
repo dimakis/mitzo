@@ -63,9 +63,7 @@ describe('MermaidBlock', () => {
       diagramType: 'flowchart',
       bindFunctions: undefined,
     });
-    // Use the same module instance for both renders (no resetModules)
-    const { MermaidBlock } = await import('../MermaidBlock');
-    // Reset init state via fresh module for this test
+    // Get a fresh module (resets mermaidInitialized flag)
     const Fresh = await freshMermaidBlock();
     await act(async () => {
       render(createElement(Fresh, { code: 'graph TD; A-->B;' }));
