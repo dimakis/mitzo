@@ -52,8 +52,9 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
         if (!cancelled) {
           setError('Invalid diagram');
           setSvg(null);
+          // Clean up any leftover element mermaid may have created on failure
+          document.getElementById(`d${id}`)?.remove();
         }
-        document.getElementById(`d${id}`)?.remove();
       }
     }
 
