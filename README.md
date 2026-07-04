@@ -169,6 +169,8 @@ See [docs/packages.md](docs/packages.md) for the full package reference.
 | `repo-config.ts`    | `.mitzo.json` reader                              |
 | `app.ts`            | Express app factory (testability via supertest)   |
 | `auth.ts`           | Passphrase + JWT                                  |
+| `constants.ts`      | Server-wide constants and re-exports from harness |
+| `inbox.ts`          | Agent inbox item persistence and management       |
 | `internal-token.ts` | Internal token generation for inter-process auth  |
 | `goal-client.ts`    | ContexGin Goal Registry client                    |
 | `index.ts`          | Express app, HTTP server + WebSocket              |

@@ -252,10 +252,10 @@ class SessionRegistry {
 Key constants:
 
 ```typescript
-DETACHED_TTL_MS: 30_000; // 30s before detached session aborts
-CLOSEOUT_LEAD_MS: 30_000; // Time given for graceful closeout
-CLOSEOUT_TIMEOUT_MS: 5_000; // Hard timeout after closeout
-PERMISSION_TIMEOUT_MS: 60_000; // 1 minute for permission responses
+DETACHED_TTL_MS: 172_800_000; // 48 hours before detached session aborts
+CLOSEOUT_LEAD_MS: 600_000; // 10 minutes before TTL expiry, start closeout
+CLOSEOUT_TIMEOUT_MS: 600_000; // 10 minutes max for the agent to finish closeout
+PERMISSION_TIMEOUT_MS: 120_000; // 2 minutes for permission responses
 ```
 
 ### Connection Registry

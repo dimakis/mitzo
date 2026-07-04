@@ -165,14 +165,14 @@ Sessions have a well-defined state machine:
 | `CREATED`   | Session allocated, worktrees not yet created                    |
 | `STARTING`  | SDK `query()` call in progress, worktrees being set up          |
 | `ACTIVE`    | Session is running, connected to a transport                    |
-| `DETACHED`  | WebSocket disconnected but session still alive (30s TTL)        |
+| `DETACHED`  | WebSocket disconnected but session still alive (48h TTL)        |
 | `SUSPENDED` | Client explicitly suspended (iOS background, sendBeacon)        |
 | `CLOSING`   | Graceful closeout in progress (agent asked to commit/summarize) |
 | `ENDED`     | Session terminated, resources cleaned up                        |
 
 ### Detach and Reattach
 
-When a WebSocket connection drops (phone locks, network change), the session enters `DETACHED` state with a 30-second TTL. If the client reconnects within that window:
+When a WebSocket connection drops (phone locks, network change), the session enters `DETACHED` state with a 48-hour TTL. If the client reconnects within that window:
 
 1. Client sends `reconnect` message with `sessions[]` and `lastSeq` per session
 2. Server replays missed events from the event store (starting from `lastSeq + 1`)
