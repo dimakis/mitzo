@@ -237,9 +237,7 @@ const orchestrator = new TaskOrchestrator({
   getActiveSessionIds: () => {
     // Return clientIds — task.session_id stores clientId, not SDK sessionId.
     // Using sessionId here caused orphan detection to never match spawned tasks.
-    const ids = new Set<string>();
-    for (const [clientId] of registry.entries()) ids.add(clientId);
-    return ids;
+    return new Set(registry.keys());
   },
   spawnSession: async (taskId: string, prompt: string, goalId: string) => {
     const clientId = `task:${generateWtId()}`;
@@ -276,11 +274,18 @@ const orchestrator = new TaskOrchestrator({
           // A user may have paused manually or started a new goal while
           // this session was in-flight — don't override that.
           if (orchestratorRef && orchestratorRef.getStatus().goalId === goalId) {
-            if (orchestratorRef.getStatus().state === 'paused') {
+            const loopState = orchestratorRef.getStatus().state;
+            if (loopState === 'paused') {
               orchestratorRef.resume();
             } else {
               orchestratorRef.tick();
             }
+          } else {
+            log.info('task session ended after loop stopped or goal changed', {
+              taskId,
+              clientId,
+              goalId,
+            });
           }
         });
 

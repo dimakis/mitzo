@@ -967,6 +967,10 @@ describe('TaskOrchestrator', () => {
       // Orchestrator should be paused (all tasks active, none pending)
       expect(orch.getStatus().state).toBe('paused');
 
+      // Verify the task is still active (pre-condition for orphan reclaim)
+      const task = store.getChildren(goal.id)[0];
+      expect(store.get(task.id)!.status).toBe('active');
+
       // .finally() fires: session removed from registry, resume() called
       activeClients = new Set();
       orch.resume();
