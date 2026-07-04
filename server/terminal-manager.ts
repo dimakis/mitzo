@@ -1,6 +1,7 @@
 /** Terminal Manager — PTY lifecycle for interactive shell terminals. */
 
 import * as pty from 'node-pty';
+import { randomUUID } from 'crypto';
 import { createLogger } from './logger.js';
 
 const log = createLogger('terminal');
@@ -51,17 +52,15 @@ const SAFE_ENV_PREFIXES = ['LC_', 'XDG_'];
 const MAX_TERMINALS_PER_SESSION = 5;
 const MAX_TERMINALS_GLOBAL = 50;
 
-let terminalCounter = 0;
-
 /** Active terminals keyed by terminal ID. */
 const terminals = new Map<string, ManagedTerminal>();
 
 function generateTerminalId(): string {
-  return `term-${Date.now()}-${++terminalCounter}`;
+  return `term-${randomUUID()}`;
 }
 
 function getDefaultShell(): string {
-  return process.env.SHELL || (process.platform === 'win32' ? 'powershell.exe' : '/bin/zsh');
+  return process.env.SHELL || (process.platform === 'win32' ? 'powershell.exe' : '/bin/sh');
 }
 
 function buildSafeEnv(extra?: Record<string, string>): Record<string, string> {

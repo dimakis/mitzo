@@ -78,7 +78,7 @@ describe('createTerminal', () => {
   it('returns terminal info with id, pid, dimensions, cwd', () => {
     const info = createTestTerminal('sess-1', 'conn-1', '/tmp/test');
 
-    expect(info.id).toMatch(/^term-\d+-\d+$/);
+    expect(info.id).toMatch(/^term-[0-9a-f-]{36}$/);
     expect(info.sessionId).toBe('sess-1');
     expect(info.pid).toBe(12345);
     expect(info.cols).toBe(80);
@@ -399,5 +399,88 @@ describe('clearTerminalCallbacks', () => {
 
   it('returns false for unknown terminal', () => {
     expect(clearTerminalCallbacks('nonexistent')).toBe(false);
+  });
+});
+
+// ─── onExit auto-cleanup ────────────────────────────────────────────────────
+
+describe('onExit auto-cleanup', () => {
+  it('removes terminal from map when PTY process exits naturally', () => {
+    const info = createTestTerminal('sess-1', 'conn-1', '/tmp');
+
+    // Terminal should exist
+    expect(getTerminal(info.id)).not.toBeNull();
+
+    // Simulate PTY process exit via the onExit handler
+    const spawnResult = vi.mocked(pty.spawn).mock.results[0].value;
+    const registeredOnExit = spawnResult.onExit.mock.calls[0][0];
+    registeredOnExit({ exitCode: 0, signal: 0 });
+
+    // Terminal should be auto-removed
+    expect(getTerminal(info.id)).toBeNull();
+    expect(listTerminals('sess-1')).toHaveLength(0);
+
+    // Remove from cleanup list since it auto-cleaned
+    createdIds = createdIds.filter((id) => id !== info.id);
+  });
+});
+
+// ─── environment variable filtering ─────────────────────────────────────────
+
+describe('buildSafeEnv (via createTerminal)', () => {
+  it('passes LC_* prefixed vars through', () => {
+    process.env.LC_CTYPE = 'UTF-8';
+    process.env.LC_MESSAGES = 'en_US.UTF-8';
+    createTestTerminal();
+
+    const spawnCall = vi.mocked(pty.spawn).mock.calls[0];
+    const env = spawnCall[2].env as Record<string, string>;
+
+    expect(env.LC_CTYPE).toBe('UTF-8');
+    expect(env.LC_MESSAGES).toBe('en_US.UTF-8');
+  });
+
+  it('passes XDG_* prefixed vars through', () => {
+    process.env.XDG_CONFIG_HOME = '/home/user/.config';
+    process.env.XDG_DATA_HOME = '/home/user/.local/share';
+    createTestTerminal();
+
+    const spawnCall = vi.mocked(pty.spawn).mock.calls[0];
+    const env = spawnCall[2].env as Record<string, string>;
+
+    expect(env.XDG_CONFIG_HOME).toBe('/home/user/.config');
+    expect(env.XDG_DATA_HOME).toBe('/home/user/.local/share');
+
+    delete process.env.XDG_CONFIG_HOME;
+    delete process.env.XDG_DATA_HOME;
+  });
+
+  it('merges extra env vars from opts', () => {
+    createTestTerminal('sess-1', 'conn-1', '/tmp', {
+      env: { CUSTOM_VAR: 'custom-value' },
+    });
+
+    const spawnCall = vi.mocked(pty.spawn).mock.calls[0];
+    const env = spawnCall[2].env as Record<string, string>;
+
+    expect(env.CUSTOM_VAR).toBe('custom-value');
+  });
+
+  it('strips dangerous env vars (DATABASE_URL, secrets, etc.)', () => {
+    process.env.DATABASE_URL = 'postgres://secret';
+    process.env.AWS_SECRET_ACCESS_KEY = 'aws-secret';
+    process.env.JWT_SECRET = 'jwt-secret';
+    createTestTerminal();
+
+    const spawnCall = vi.mocked(pty.spawn).mock.calls[0];
+    const env = spawnCall[2].env as Record<string, string>;
+
+    expect(env.DATABASE_URL).toBeUndefined();
+    expect(env.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+    expect(env.JWT_SECRET).toBeUndefined();
+
+    delete process.env.DATABASE_URL;
+    delete process.env.AWS_SECRET_ACCESS_KEY;
+    delete process.env.JWT_SECRET;
   });
 });

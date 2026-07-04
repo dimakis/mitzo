@@ -70,6 +70,7 @@ import {
   writeTerminal,
   resizeTerminal,
   destroyTerminal,
+  destroySessionTerminals,
   getTerminalOwner,
 } from './terminal-manager.js';
 import { createLogger } from './logger.js';
@@ -913,6 +914,15 @@ export function handleSessionClose(
         return;
       }
 
+      // Clean up any terminals associated with this session
+      const destroyed = destroySessionTerminals(msg.sessionId);
+      if (destroyed > 0) {
+        log.info('destroyed terminals on session close', {
+          sessionId: msg.sessionId,
+          count: destroyed,
+        });
+      }
+
       closeSessionByUser(found.clientId);
       log.info('session close initiated by user', {
         connectionId,
@@ -943,9 +953,22 @@ export function handleTerminalCreate(
       const conn = ctx.connRegistry.get(connectionId);
       if (!conn) return;
 
-      // Resolve cwd from session metadata (worktree path or base repo)
+      // Validate that sessionId refers to a known session
       const sessionMeta = ctx.eventStore.getSession(msg.sessionId);
-      const rawCwd = sessionMeta?.cwd || BASE_REPO;
+      if (!sessionMeta) {
+        log.warn('terminal create: unknown sessionId', {
+          connectionId,
+          sessionId: msg.sessionId,
+        });
+        conn.transport.send({
+          type: 'terminal_error',
+          error: 'Unknown session — cannot create terminal',
+        });
+        return;
+      }
+
+      // Resolve cwd from session metadata (worktree path or base repo)
+      const rawCwd = sessionMeta.cwd || BASE_REPO;
       if (!rawCwd) {
         conn.transport.send({
           type: 'terminal_error',

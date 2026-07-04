@@ -8,6 +8,7 @@ vi.mock('../chat.js', () => ({
   sendToChat: vi.fn(),
   interruptChat: vi.fn(),
   stopChat: vi.fn(),
+  closeSessionByUser: vi.fn(),
   isActive: vi.fn().mockReturnValue(false),
   reattachChat: vi.fn().mockReturnValue(true),
   rekeyChat: vi.fn().mockReturnValue(true),
@@ -48,6 +49,7 @@ vi.mock('../terminal-manager.js', () => ({
   writeTerminal: vi.fn().mockReturnValue(true),
   resizeTerminal: vi.fn().mockReturnValue(true),
   destroyTerminal: vi.fn().mockReturnValue(true),
+  destroySessionTerminals: vi.fn().mockReturnValue(0),
   setTerminalCallbacks: vi.fn().mockReturnValue(true),
   getTerminalOwner: vi.fn().mockReturnValue('conn-1'),
 }));
@@ -70,6 +72,7 @@ import {
   writeTerminal,
   resizeTerminal,
   destroyTerminal,
+  destroySessionTerminals,
   getTerminalOwner,
 } from '../terminal-manager.js';
 
@@ -85,6 +88,7 @@ import {
   handleStopV2,
   handlePermissionResponseV2,
   handleSessionSuspend,
+  handleSessionClose,
   handleTerminalCreate,
   handleTerminalInput,
   handleTerminalResize,
@@ -3376,7 +3380,9 @@ function resetTerminalMocks() {
   vi.mocked(writeTerminal).mockClear();
   vi.mocked(resizeTerminal).mockClear();
   vi.mocked(destroyTerminal).mockClear();
+  vi.mocked(destroySessionTerminals).mockClear();
   vi.mocked(getTerminalOwner).mockClear();
+  vi.mocked(destroySessionTerminals).mockReturnValue(0);
   vi.mocked(createTerminal).mockReturnValue({
     id: 'term-mock-1',
     sessionId: 'sess-1',
@@ -3395,7 +3401,11 @@ function resetTerminalMocks() {
 describe('handleTerminalCreate', () => {
   beforeEach(resetTerminalMocks);
   it('creates a terminal and sends terminal_created response', () => {
-    const ctx = createContext();
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ cwd: '/tmp/test-repo' });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
     const transport = mockTransport();
     const connId = handleHello('conn-term', transport, ctx);
 
@@ -3419,7 +3429,11 @@ describe('handleTerminalCreate', () => {
   });
 
   it('sends terminal_error when createTerminal throws', () => {
-    const ctx = createContext();
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ cwd: '/tmp/test-repo' });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
     const transport = mockTransport();
     const connId = handleHello('conn-err', transport, ctx);
 
@@ -3587,7 +3601,11 @@ describe('dispatchV2Message — terminal routing', () => {
   beforeEach(resetTerminalMocks);
 
   it('routes terminal_create to handler', async () => {
-    const ctx = createContext();
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ cwd: '/tmp/test-repo' });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
     const transport = mockTransport();
     const connId = handleHello('conn-dispatch', transport, ctx);
 
@@ -3633,5 +3651,56 @@ describe('dispatchV2Message — terminal routing', () => {
     );
 
     expect(destroyTerminal).toHaveBeenCalled();
+  });
+});
+
+describe('handleTerminalCreate — sessionId validation', () => {
+  beforeEach(resetTerminalMocks);
+
+  it('rejects terminal creation for unknown sessionId', () => {
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue(null);
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    const connId = handleHello('conn-unknown-sess', transport, ctx);
+
+    handleTerminalCreate(
+      connId,
+      { type: 'terminal_create' as const, sessionId: 'fake-session-123' },
+      ctx,
+    );
+
+    expect(createTerminal).not.toHaveBeenCalled();
+    const error = transport.sent.find((m) => m.type === 'terminal_error');
+    expect(error).toBeDefined();
+    expect(error!.error).toContain('Unknown session');
+  });
+});
+
+describe('handleSessionClose — terminal cleanup', () => {
+  beforeEach(resetTerminalMocks);
+
+  it('destroys session terminals when session is closed', () => {
+    const sessionRegistry = mockSessionRegistry();
+    sessionRegistry.findBySessionId.mockReturnValue({
+      clientId: 'conn-close:sess-close',
+      session: {},
+    });
+    const ctx = createContext({
+      sessionRegistry: sessionRegistry as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    const connId = handleHello('conn-close', transport, ctx);
+
+    vi.mocked(destroySessionTerminals).mockReturnValue(2);
+
+    handleSessionClose(connId, { type: 'session_close' as const, sessionId: 'sess-close' }, ctx);
+
+    expect(destroySessionTerminals).toHaveBeenCalledWith('sess-close');
+    const ack = transport.sent.find((m) => m.type === 'session_close_ack');
+    expect(ack).toBeDefined();
+    expect(ack!.accepted).toBe(true);
   });
 });
