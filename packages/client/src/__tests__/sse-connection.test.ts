@@ -290,7 +290,7 @@ describe('SseConnection', () => {
     expect(conn.isConnected()).toBe(false);
   });
 
-  it('sends reconnect POST on welcome when has tracked sessions', () => {
+  it('sends reconnect POST fire-and-forget on reconnect welcome', () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true });
     const conn = new SseConnection(createConfig({ fetch: mockFetch }));
     conn.connect();
@@ -318,16 +318,8 @@ describe('SseConnection', () => {
     );
   });
 
-  it('defers _connected until reconnect POST completes', async () => {
-    let resolveReconnect!: (v: { ok: true }) => void;
-    const mockFetch = vi.fn().mockImplementation((_url: string) => {
-      if (_url.includes('/reconnect')) {
-        return new Promise((resolve) => {
-          resolveReconnect = resolve;
-        });
-      }
-      return Promise.resolve({ ok: true });
-    });
+  it('marks connected immediately on reconnect welcome', () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
     const conn = new SseConnection(createConfig({ fetch: mockFetch }));
     const listener = vi.fn();
     conn.onMessage(listener);
@@ -337,173 +329,16 @@ describe('SseConnection', () => {
 
     // Force reconnect
     conn.checkAndReconnect(true);
-    mockFetch.mockClear();
     listener.mockClear();
 
-    // New welcome — reconnect POST fires but doesn't resolve yet
+    // New welcome — should be connected immediately (fire-and-forget)
     lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
 
-    // _connected should still be false while POST is in-flight
-    expect(conn.isConnected()).toBe(false);
-    expect(listener).not.toHaveBeenCalledWith({ type: '_open' });
-
-    // Resolve the reconnect POST
-    resolveReconnect({ ok: true });
-    await vi.runAllTimersAsync();
-
-    // Now _connected should be true and _open emitted
     expect(conn.isConnected()).toBe(true);
     expect(listener).toHaveBeenCalledWith({ type: '_open' });
   });
 
-  it('bails out if disconnect() called during in-flight reconnect POST', async () => {
-    let resolveReconnect!: (v: { ok: true }) => void;
-    const mockFetch = vi.fn().mockImplementation((_url: string) => {
-      if (_url.includes('/reconnect')) {
-        return new Promise((resolve) => {
-          resolveReconnect = resolve;
-        });
-      }
-      return Promise.resolve({ ok: true });
-    });
-    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
-    const listener = vi.fn();
-    conn.onMessage(listener);
-    conn.connect();
-    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
-    conn.trackSeq('sess-1', 10);
-
-    // Force reconnect
-    conn.checkAndReconnect(true);
-
-    // New welcome — reconnect POST in-flight
-    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
-
-    // Disconnect while POST is in-flight
-    conn.disconnect();
-    expect(conn.isConnected()).toBe(false);
-    listener.mockClear();
-
-    // Resolve the reconnect POST — staleness guard should bail out
-    resolveReconnect({ ok: true });
-    await vi.runAllTimersAsync();
-
-    // Must remain disconnected — .finally() must not overwrite
-    expect(conn.isConnected()).toBe(false);
-    expect(listener).not.toHaveBeenCalledWith({ type: '_open' });
-  });
-
-  it('ignores stale reconnect POST when a newer welcome arrives', async () => {
-    const reconnectCalls: Array<(v: { ok: true }) => void> = [];
-    const mockFetch = vi.fn().mockImplementation((_url: string) => {
-      if (_url.includes('/reconnect')) {
-        return new Promise((resolve) => {
-          reconnectCalls.push(resolve);
-        });
-      }
-      return Promise.resolve({ ok: true });
-    });
-    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
-    const listener = vi.fn();
-    conn.onMessage(listener);
-    conn.connect();
-    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
-    conn.trackSeq('sess-1', 10);
-
-    // Force reconnect
-    conn.checkAndReconnect(true);
-
-    // First welcome — reconnect POST #1 in-flight
-    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
-    const resolveFirst = reconnectCalls[0];
-
-    // Second welcome arrives (rapid reconnect race) — reconnect POST #2 in-flight
-    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-ghi' });
-    const resolveSecond = reconnectCalls[1];
-
-    // Resolve the FIRST (stale) reconnect POST
-    resolveFirst({ ok: true });
-    await vi.runAllTimersAsync();
-
-    // Must NOT set _connected — connectionId has moved on to conn-ghi
-    expect(conn.isConnected()).toBe(false);
-    expect(conn.getConnectionId()).toBe('conn-ghi');
-
-    // Resolve the SECOND (current) reconnect POST
-    listener.mockClear();
-    resolveSecond({ ok: true });
-    await vi.runAllTimersAsync();
-
-    // Now _connected should be true
-    expect(conn.isConnected()).toBe(true);
-    expect(listener).toHaveBeenCalledWith({ type: '_open' });
-  });
-
-  it('flushes pending sends only after reconnect POST completes', async () => {
-    let resolveReconnect!: (v: { ok: true }) => void;
-    const postEndpoints: string[] = [];
-    const mockFetch = vi.fn().mockImplementation((url: string) => {
-      const endpoint = url.replace('https://localhost:3100/api/chat/', '');
-      postEndpoints.push(endpoint);
-      if (url.includes('/reconnect')) {
-        return new Promise((resolve) => {
-          resolveReconnect = resolve;
-        });
-      }
-      return Promise.resolve({ ok: true });
-    });
-    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
-    conn.connect();
-    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
-    conn.trackSeq('sess-1', 10);
-
-    // Force reconnect — sends are now queued
-    conn.checkAndReconnect(true);
-    conn.send({ type: 'send', prompt: 'queued msg', clientMsgId: 'q-1' });
-    postEndpoints.length = 0;
-
-    // Welcome — reconnect POST fires, queued send waits
-    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
-
-    // Only reconnect POST should have fired, not the queued send
-    expect(postEndpoints).toEqual(['reconnect']);
-
-    // Resolve reconnect — now the queued send should flush
-    resolveReconnect({ ok: true });
-    await vi.runAllTimersAsync();
-
-    expect(postEndpoints).toEqual(['reconnect', 'send']);
-  });
-
-  it('stays disconnected when reconnect POST fails', async () => {
-    const mockFetch = vi.fn().mockImplementation((url: string) => {
-      if (url.includes('/reconnect')) {
-        return Promise.resolve({ ok: false, status: 500 });
-      }
-      return Promise.resolve({ ok: true });
-    });
-    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
-    const listener = vi.fn();
-    conn.onMessage(listener);
-    conn.connect();
-    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
-    conn.trackSeq('sess-1', 10);
-
-    // Force reconnect
-    conn.checkAndReconnect(true);
-    conn.send({ type: 'send', prompt: 'should stay queued', clientMsgId: 'q-1' });
-    listener.mockClear();
-
-    // New welcome — reconnect POST will fail
-    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
-    await vi.runAllTimersAsync();
-
-    // Must stay disconnected — server never ran handleReconnect
-    expect(conn.isConnected()).toBe(false);
-    expect(listener).not.toHaveBeenCalledWith({ type: '_open' });
-  });
-
-  it('stays disconnected when reconnect POST throws network error', async () => {
+  it('POST failure does not affect connection state', async () => {
     const mockFetch = vi.fn().mockImplementation((url: string) => {
       if (url.includes('/reconnect')) {
         return Promise.reject(new Error('network error'));
@@ -520,101 +355,18 @@ describe('SseConnection', () => {
     conn.checkAndReconnect(true);
     listener.mockClear();
 
+    // Welcome — reconnect POST fires (and will fail), but connection is immediate
     lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
-    await vi.runAllTimersAsync();
 
-    expect(conn.isConnected()).toBe(false);
-    expect(listener).not.toHaveBeenCalledWith({ type: '_open' });
-  });
-
-  it('recovers after failed reconnect when EventSource auto-reconnects', async () => {
-    let callCount = 0;
-    const mockFetch = vi.fn().mockImplementation((url: string) => {
-      if (url.includes('/reconnect')) {
-        callCount++;
-        // First reconnect fails, second succeeds
-        if (callCount === 1) return Promise.resolve({ ok: false, status: 500 });
-        return Promise.resolve({ ok: true });
-      }
-      return Promise.resolve({ ok: true });
-    });
-    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
-    const listener = vi.fn();
-    conn.onMessage(listener);
-    conn.connect();
-    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
-    conn.trackSeq('sess-1', 10);
-
-    // Force reconnect
-    conn.checkAndReconnect(true);
-    listener.mockClear();
-
-    // First welcome — reconnect POST fails
-    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
-    await vi.runAllTimersAsync();
-    expect(conn.isConnected()).toBe(false);
-
-    // EventSource auto-reconnect fires a new welcome
-    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-ghi' });
-    await vi.runAllTimersAsync();
-
-    // Second attempt succeeds
+    // Connected immediately regardless of POST outcome
     expect(conn.isConnected()).toBe(true);
     expect(listener).toHaveBeenCalledWith({ type: '_open' });
   });
 
-  it('dispatches SSE events to listener while reconnect POST is in-flight', async () => {
-    let resolveReconnect!: (v: { ok: boolean }) => void;
-    const mockFetch = vi.fn().mockImplementation((url: string) => {
-      if (url.includes('/reconnect')) {
-        return new Promise((resolve) => {
-          resolveReconnect = resolve;
-        });
-      }
-      return Promise.resolve({ ok: true });
-    });
-    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
-    const listener = vi.fn();
-    conn.onMessage(listener);
-    conn.connect();
-    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
-    conn.trackSeq('sess-1', 10);
-
-    conn.checkAndReconnect(true);
-    listener.mockClear();
-
-    // Welcome — reconnect POST in-flight, _connected = false
-    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
-    expect(conn.isConnected()).toBe(false);
-
-    // Server replays events via SSE while reconnect POST is processing.
-    // onmessage is independent of _connected — these must still dispatch.
-    lastES()._emit('block_delta', {
-      type: 'block_delta',
-      sessionId: 'sess-1',
-      seq: 11,
-      delta: 'replayed',
-    });
-
-    expect(listener).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'block_delta', delta: 'replayed' }),
-    );
-
-    resolveReconnect({ ok: true });
-    await vi.runAllTimersAsync();
-  });
-
-  it('queued sends survive POST failure and flush on successful retry', async () => {
-    let callCount = 0;
+  it('flushes pending sends immediately on reconnect welcome', () => {
     const postEndpoints: string[] = [];
     const mockFetch = vi.fn().mockImplementation((url: string) => {
       const endpoint = url.replace('https://localhost:3100/api/chat/', '');
-      if (url.includes('/reconnect')) {
-        callCount++;
-        if (callCount === 1) return Promise.resolve({ ok: false, status: 500 });
-        postEndpoints.push(endpoint);
-        return Promise.resolve({ ok: true });
-      }
       postEndpoints.push(endpoint);
       return Promise.resolve({ ok: true });
     });
@@ -623,82 +375,15 @@ describe('SseConnection', () => {
     lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
     conn.trackSeq('sess-1', 10);
 
-    // Force reconnect and queue a send
+    // Force reconnect — sends are now queued
     conn.checkAndReconnect(true);
-    conn.send({ type: 'send', prompt: 'must survive', clientMsgId: 'q-1' });
+    conn.send({ type: 'send', prompt: 'queued msg', clientMsgId: 'q-1' });
     postEndpoints.length = 0;
 
-    // First welcome — reconnect fails, send stays queued
+    // Welcome — reconnect POST + queued send both fire immediately
     lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
-    await vi.runAllTimersAsync();
-    expect(conn.isConnected()).toBe(false);
-    expect(postEndpoints).toEqual([]);
 
-    // Second welcome — reconnect succeeds, queued send flushes
-    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-ghi' });
-    await vi.runAllTimersAsync();
-    expect(conn.isConnected()).toBe(true);
     expect(postEndpoints).toEqual(['reconnect', 'send']);
-  });
-
-  it('schedules delayed reconnect when reconnect POST fails', async () => {
-    const mockFetch = vi.fn().mockImplementation((url: string) => {
-      if (url.includes('/reconnect')) {
-        return Promise.resolve({ ok: false, status: 500 });
-      }
-      return Promise.resolve({ ok: true });
-    });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
-    conn.connect();
-    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
-    conn.trackSeq('sess-1', 10);
-
-    // Force reconnect
-    conn.checkAndReconnect(true);
-    const esCountBefore = MockEventSource.instances.length;
-
-    // Welcome — reconnect POST will fail
-    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
-    await vi.runAllTimersAsync();
-
-    // Should have scheduled a delayed reconnect (new ES after timer)
-    expect(conn.isConnected()).toBe(false);
-    expect(MockEventSource.instances.length).toBeGreaterThan(esCountBefore);
-
-    warnSpy.mockRestore();
-  });
-
-  it('stale doReconnectPost does not set _connected when checkAndReconnect fires mid-flight', async () => {
-    let resolveReconnect!: (v: { ok: boolean }) => void;
-    const mockFetch = vi.fn().mockImplementation((url: string) => {
-      if (url.includes('/reconnect')) {
-        return new Promise((resolve) => {
-          resolveReconnect = resolve;
-        });
-      }
-      return Promise.resolve({ ok: true });
-    });
-    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
-    conn.connect();
-    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
-    conn.trackSeq('sess-1', 10);
-
-    // Force reconnect — creates ES2
-    conn.checkAndReconnect(true);
-
-    // ES2 welcome — doReconnectPost(conn-def) starts
-    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
-
-    // checkAndReconnect fires again while POST is in-flight — creates ES3
-    conn.checkAndReconnect(true);
-
-    // Stale POST resolves successfully — must NOT set _connected
-    resolveReconnect({ ok: true });
-    await vi.runAllTimersAsync();
-
-    // ES3 hasn't welcomed yet, so _connected must remain false
-    expect(conn.isConnected()).toBe(false);
   });
 
   it('does not emit _close when checkAndReconnect called while already disconnected', () => {
@@ -712,45 +397,6 @@ describe('SseConnection', () => {
 
     // _close should NOT have been emitted since we were never connected
     expect(listener).not.toHaveBeenCalledWith({ type: '_close' });
-  });
-
-  it('recovers via scheduleReconnect after repeated POST failures', async () => {
-    let reconnectCallCount = 0;
-    const mockFetch = vi.fn().mockImplementation((url: string) => {
-      if (url.includes('/reconnect')) {
-        reconnectCallCount++;
-        // Fail first two (initial + forced retry), succeed on third
-        if (reconnectCallCount <= 2) return Promise.resolve({ ok: false, status: 500 });
-        return Promise.resolve({ ok: true });
-      }
-      return Promise.resolve({ ok: true });
-    });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
-    const listener = vi.fn();
-    conn.onMessage(listener);
-    conn.connect();
-    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
-    conn.trackSeq('sess-1', 10);
-
-    // Force reconnect — POST fails, triggers checkAndReconnect(true)
-    conn.checkAndReconnect(true);
-    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
-    await vi.runAllTimersAsync();
-
-    // Forced retry also fails
-    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-ghi' });
-    await vi.runAllTimersAsync();
-    expect(conn.isConnected()).toBe(false);
-
-    // Third welcome — reconnect POST succeeds
-    listener.mockClear();
-    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-jkl' });
-    await vi.runAllTimersAsync();
-
-    expect(conn.isConnected()).toBe(true);
-    expect(listener).toHaveBeenCalledWith({ type: '_open' });
-    warnSpy.mockRestore();
   });
 
   it('connects immediately on reconnect when seqBySession is empty', () => {
