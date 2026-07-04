@@ -115,6 +115,7 @@ export interface MitzoStoreState {
   pauseLoop(): Promise<void>;
   resumeLoop(): Promise<void>;
   stopLoop(): Promise<void>;
+  setSpawnEnabled(enabled: boolean): Promise<void>;
   approveTask(id: string): Promise<void>;
   rejectTask(id: string, feedback: string): Promise<void>;
   approveSpec(): Promise<void>;
@@ -541,6 +542,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                 progress: (status.progress as LoopStatus['progress']) ?? null,
                 specMode: status.specMode ?? false,
                 awaitingApproval: status.awaitingApproval ?? false,
+                spawnEnabled: status.spawnEnabled ?? false,
               },
             },
           }));
@@ -576,6 +578,17 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     async stopLoop() {
       await api.stopLoop();
+    },
+
+    async setSpawnEnabled(enabled: boolean) {
+      // Optimistic update so the toggle reflects immediately
+      set((s) => ({
+        tasks: {
+          ...s.tasks,
+          loopStatus: { ...s.tasks.loopStatus, spawnEnabled: enabled },
+        },
+      }));
+      await api.setSpawnEnabled(enabled);
     },
 
     async approveTask(id: string) {

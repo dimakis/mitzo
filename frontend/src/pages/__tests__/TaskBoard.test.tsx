@@ -72,6 +72,7 @@ vi.mock('../../hooks/useTaskBoard', () => ({
       progress: null,
       specMode: false,
       awaitingApproval: false,
+      spawnEnabled: false,
     },
     createTask: mockCreateTask,
     updateTask: mockUpdateTask,

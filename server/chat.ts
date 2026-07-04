@@ -745,7 +745,6 @@ export async function startChat(
     onSessionResolved?: (sessionId: string) => void;
     telosTaskId?: string;
     agentName?: string;
-    taskContext?: { currentTaskId: string; goalId: string };
   },
 ) {
   return withSpanAsync(
@@ -776,7 +775,6 @@ async function _startChatInner(
     onSessionResolved?: (sessionId: string) => void;
     telosTaskId?: string;
     agentName?: string;
-    taskContext?: { currentTaskId: string; goalId: string };
   },
 ) {
   const abortController = new AbortController();
@@ -864,9 +862,6 @@ async function _startChatInner(
   const session = registry.get(clientId)!;
   session.model = options.model ?? session.model;
   session.inputQueue = inputQueue as { push: (msg: unknown) => void; close: () => void };
-  if (options.taskContext) {
-    session.taskContext = options.taskContext;
-  }
   _onSessionChange?.(clientId, 'start');
 
   // Session state machine: mark CREATED (Phase 1 — write only, no behavior change)

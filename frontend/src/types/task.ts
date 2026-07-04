@@ -18,6 +18,7 @@ export interface LoopStatus {
   progress: { done: number; total: number } | null;
   specMode: boolean;
   awaitingApproval: boolean;
+  spawnEnabled: boolean;
 }
 
 export interface Task {

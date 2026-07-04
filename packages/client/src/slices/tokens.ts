@@ -5,7 +5,6 @@ export interface TokensState {
   numTurns: number;
   turnIndex: number;
   numCompactions: number;
-  compacting: boolean;
 }
 
 export const DEFAULT_CONTEXT_CEILING = 200_000;
@@ -17,5 +16,4 @@ export const INITIAL_TOKENS_STATE: TokensState = {
   numTurns: 0,
   turnIndex: 0,
   numCompactions: 0,
-  compacting: false,
 };

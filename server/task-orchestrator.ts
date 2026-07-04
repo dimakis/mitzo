@@ -14,6 +14,7 @@ export interface LoopStatus {
   progress: { done: number; total: number } | null;
   specMode: boolean;
   awaitingApproval: boolean;
+  spawnEnabled: boolean;
 }
 
 export interface StartOptions {
@@ -42,8 +43,21 @@ export interface OrchestratorDeps {
 }
 
 export class TaskOrchestrator {
-  /** Maximum concurrent spawn dispatches per tick chain to prevent runaway loops. */
-  private static readonly MAX_SPAWN_DEPTH = 50;
+  /**
+   * Per-tick-chain ceiling: max spawns before deferring to next tick.
+   * SPAWN_RATE_LIMIT is the cross-chain ceiling (per window).
+   * Both must be >= 1.
+   */
+  private static readonly MAX_SPAWN_DEPTH = 5;
+
+  /** Grace period (ms) before orphan detection can reclaim a recently-spawned task. */
+  private static readonly SPAWN_GRACE_MS = 60_000;
+
+  /** Cross-chain ceiling: max spawns within SPAWN_RATE_WINDOW_MS. Must be >= 1. */
+  private static readonly SPAWN_RATE_LIMIT = 5;
+
+  /** Rate limit window (ms). */
+  private static readonly SPAWN_RATE_WINDOW_MS = 60_000;
 
   private state: LoopState = 'idle';
   private goalId: string | null = null;
@@ -52,7 +66,17 @@ export class TaskOrchestrator {
   private awaitingApproval = false;
   private pinnedClientId: string | null = null;
   private spawnDepth = 0;
+  private _spawnEnabled = false;
   private deps: OrchestratorDeps;
+
+  /** Tracks recently-spawned task IDs with their spawn timestamp for orphan detection grace. */
+  private recentSpawns = new Map<string, number>();
+
+  /** Sliding window of spawn timestamps for global rate limiting. */
+  private spawnTimestamps: number[] = [];
+
+  /** Timer for retrying after rate limit, so rate-limited tasks don't stall. */
+  private rateLimitRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(deps: OrchestratorDeps) {
     this.deps = deps;
@@ -60,6 +84,16 @@ export class TaskOrchestrator {
 
   getPinnedClientId(): string | null {
     return this.pinnedClientId;
+  }
+
+  get spawnEnabled(): boolean {
+    return this._spawnEnabled;
+  }
+
+  setSpawnEnabled(enabled: boolean): void {
+    this._spawnEnabled = enabled;
+    log.info('spawn enabled changed', { enabled });
+    this.deps.broadcastStatus(this.getStatus());
   }
 
   getStatus(): LoopStatus {
@@ -71,6 +105,7 @@ export class TaskOrchestrator {
       progress,
       specMode: this.specMode,
       awaitingApproval: this.awaitingApproval,
+      spawnEnabled: this._spawnEnabled,
     };
   }
 
@@ -92,6 +127,15 @@ export class TaskOrchestrator {
     this.specMode = opts?.specMode ?? false;
     this.awaitingApproval = false;
     this.pinnedClientId = this.deps.getClientId();
+
+    // Clear spawn tracking state so a new goal isn't rate-limited by the previous one
+    this.recentSpawns.clear();
+    this.spawnTimestamps = [];
+    this.spawnDepth = 0;
+    if (this.rateLimitRetryTimer) {
+      clearTimeout(this.rateLimitRetryTimer);
+      this.rateLimitRetryTimer = null;
+    }
 
     log.info('orchestrator started', {
       goalId,
@@ -148,6 +192,12 @@ export class TaskOrchestrator {
     this.awaitingApproval = false;
     this.pinnedClientId = null;
     this.spawnDepth = 0;
+    this.recentSpawns.clear();
+    this.spawnTimestamps = [];
+    if (this.rateLimitRetryTimer) {
+      clearTimeout(this.rateLimitRetryTimer);
+      this.rateLimitRetryTimer = null;
+    }
     this.deps.clearTaskContext();
     log.info('orchestrator stopped');
     this.deps.broadcastStatus(this.getStatus());
@@ -259,12 +309,30 @@ export class TaskOrchestrator {
   tick(): void {
     if (this.state !== 'running' || !this.goalId) return;
 
-    // Reclaim orphaned tasks
+    // Reclaim orphaned tasks (with grace period for recently-spawned tasks)
     if (this.deps.getActiveSessionIds) {
       const activeIds = this.deps.getActiveSessionIds();
       const orphans = this.deps.store.getOrphaned(activeIds);
+      const now = Date.now();
+
+      // Prune expired grace entries to prevent unbounded growth
+      for (const [taskId, spawnedAt] of this.recentSpawns) {
+        if (now - spawnedAt >= TaskOrchestrator.SPAWN_GRACE_MS) {
+          this.recentSpawns.delete(taskId);
+        }
+      }
+
       for (const orphan of orphans) {
+        const spawnedAt = this.recentSpawns.get(orphan.id);
+        if (spawnedAt && now - spawnedAt < TaskOrchestrator.SPAWN_GRACE_MS) {
+          log.info('skipping recently-spawned task in orphan detection', {
+            taskId: orphan.id,
+            ageMs: now - spawnedAt,
+          });
+          continue;
+        }
         log.info('reclaiming orphaned task', { taskId: orphan.id });
+        this.recentSpawns.delete(orphan.id);
         this.deps.store.update(orphan.id, { status: 'pending' });
         this.deps.store.setSessionId(orphan.id, null);
       }
@@ -343,9 +411,47 @@ export class TaskOrchestrator {
       case 'agent_work':
       default: {
         // Default to spawn so tasks get dedicated sessions unless explicitly 'reuse'.
-        const policy = next.sessionPolicy === 'reuse' ? 'reuse' : 'spawn';
+        // When spawning is disabled (kill switch), force all tasks to reuse the pinned session.
+        const policy = next.sessionPolicy === 'reuse' || !this._spawnEnabled ? 'reuse' : 'spawn';
 
         if (policy === 'spawn' && this.deps.spawnSession) {
+          // Global rate limit: refuse to spawn if too many recent spawns
+          const now = Date.now();
+          this.spawnTimestamps = this.spawnTimestamps.filter(
+            (t) => now - t < TaskOrchestrator.SPAWN_RATE_WINDOW_MS,
+          );
+          if (
+            TaskOrchestrator.SPAWN_RATE_LIMIT > 0 &&
+            this.spawnTimestamps.length >= TaskOrchestrator.SPAWN_RATE_LIMIT
+          ) {
+            log.warn('spawn rate limit reached, deferring task', {
+              taskId: next.id,
+              spawnsInWindow: this.spawnTimestamps.length,
+            });
+            // Schedule a retry after the oldest entry expires so tasks don't stall.
+            // Invariant: spawnTimestamps is non-empty here (length >= SPAWN_RATE_LIMIT >= 1).
+            if (!this.rateLimitRetryTimer) {
+              const oldestAge = now - this.spawnTimestamps[0];
+              const msUntilOldestExpires = Math.max(
+                100,
+                TaskOrchestrator.SPAWN_RATE_WINDOW_MS - oldestAge + 100,
+              );
+              this.rateLimitRetryTimer = setTimeout(() => {
+                this.rateLimitRetryTimer = null;
+                if (this.state === 'running') {
+                  log.info('rate limit retry timer fired, re-ticking');
+                  this.spawnDepth = 0;
+                  this.tick();
+                }
+              }, msUntilOldestExpires);
+            }
+            break;
+          }
+
+          // Record spawn for rate limiting and orphan detection grace
+          this.spawnTimestamps.push(now);
+          this.recentSpawns.set(next.id, now);
+
           // Spawn a dedicated headless session for this task
           this.deps.store.update(next.id, { status: 'active' });
           this.deps.store.cascadeStatus(next.id);
