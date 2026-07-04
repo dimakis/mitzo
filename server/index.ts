@@ -273,10 +273,10 @@ const orchestrator = new TaskOrchestrator({
           // Only advance if the orchestrator is still on the same goal.
           // A user may have paused manually or started a new goal while
           // this session was in-flight — don't override that.
-          const status = orchestratorRef?.getStatus();
-          if (status && status.goalId === goalId) {
-            const loopState = status.state;
-            if (loopState === 'paused') {
+          if (!orchestratorRef) return;
+          const status = orchestratorRef.getStatus();
+          if (status.goalId === goalId) {
+            if (status.state === 'paused') {
               orchestratorRef.resume();
             } else {
               orchestratorRef.tick();
