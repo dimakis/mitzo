@@ -24,7 +24,7 @@ export type {
  * Note: 'requires_action' is never returned here — it is emitted separately
  * by the permission_request handler (Phase 1), not from lifecycle transitions.
  */
-function toClientState(state: SessionState): ClientSessionState {
+export function toClientState(state: SessionState): ClientSessionState {
   switch (state) {
     case 'STARTING':
     case 'ACTIVE':

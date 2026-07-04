@@ -190,7 +190,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   };
 
   let recoveryInFlight = false;
-  let runningSyncInFlight = false;
 
   function fetchAndRestoreMessages(sessionId: string) {
     if (recoveryInFlight) return;
@@ -217,31 +216,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       });
   }
 
-  /** Sync running state from server when session_end may have been missed. */
-  function syncRunningState(sessionId: string) {
-    if (runningSyncInFlight) return;
-    runningSyncInFlight = true;
-    api
-      .getSessionMeta(sessionId)
-      .then((meta) => {
-        if (!meta) return;
-        // Guard: if the user switched sessions while the fetch was in flight,
-        // don't apply stale isActive=false to the new session's running state.
-        const { sessions, messages: msgState } = store.getState();
-        if (sessions.active !== sessionId) return;
-        if (msgState.running && !meta.isActive) {
-          store.setState((s) => ({
-            messages: messagesReducer(s.messages, { type: 'SET_RUNNING', running: false }),
-          }));
-        }
-      })
-      .catch(() => {
-        // Non-fatal — running state will correct on next event or user action
-      })
-      .finally(() => {
-        runningSyncInFlight = false;
-      });
-  }
+  // syncRunningState removed — running state is server-authoritative via
+  // session_state_changed events. Periodic sync covers iOS foreground gaps.
 
   function clearPendingSendTimer() {
     if (parserState.pendingSendTimer) {
@@ -385,8 +361,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             parserState.pendingSendTimer = undefined;
             return;
           }
+          // Optimistic running=true so UI shows stop button immediately
           set((s) => ({
-            messages: messagesReducer(s.messages, { type: 'SET_RUNNING', running: true }),
+            messages: messagesReducer(s.messages, {
+              type: 'SESSION_STATE_CHANGED',
+              state: 'running',
+            }),
           }));
           connection.send(pending);
           // Reschedule for remaining queued messages
@@ -730,7 +710,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       const { sessions } = store.getState();
       if (sessions.active) {
         fetchAndRestoreMessages(sessions.active);
-        syncRunningState(sessions.active);
+        // syncRunningState removed — state events handle this
       }
       return;
     }
