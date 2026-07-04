@@ -518,6 +518,15 @@ describe('workload routes', () => {
     expect(res.status).toBe(404);
   });
 
+  it('POST /api/workload/items/:id/promote — returns 404 for missing item with description but no title', async () => {
+    const res = await request(app)
+      .post('/api/workload/items/nonexistent-id/promote')
+      .set('Cookie', authCookie)
+      .send({ description: 'has context but no title' });
+
+    expect(res.status).toBe(404);
+  });
+
   it('POST /api/workload/items/:id/promote — creates task from body fallback (Telos item)', async () => {
     const res = await request(app)
       .post('/api/workload/items/telos-item-123/promote')
@@ -546,9 +555,9 @@ describe('workload routes', () => {
   });
 
   it('POST /api/workload/items/:id/promote — fallback does not broadcast workload update', async () => {
+    const { setWorkloadBroadcast } = await import('../app.js');
     const broadcasts: unknown[] = [];
-    const origBroadcast = (app as any)._workloadBroadcast;
-    (app as any)._workloadBroadcast = (msg: unknown) => broadcasts.push(msg);
+    setWorkloadBroadcast((msg: Record<string, unknown>) => broadcasts.push(msg));
 
     await request(app)
       .post('/api/workload/items/telos-no-broadcast/promote')
@@ -558,7 +567,8 @@ describe('workload routes', () => {
     const workloadBroadcasts = broadcasts.filter((b: any) => b.type === 'workload_item_updated');
     expect(workloadBroadcasts).toHaveLength(0);
 
-    (app as any)._workloadBroadcast = origBroadcast;
+    // Reset — no broadcast callback in test environment
+    setWorkloadBroadcast(() => {});
   });
 
   it('POST /api/workload/items/:id/promote — broadcasts workload_item_updated', async () => {
