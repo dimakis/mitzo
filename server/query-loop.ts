@@ -969,7 +969,9 @@ async function _runQueryLoopInner(
               );
             } else if (blockType === 'compaction') {
               // SDK is compacting context — signal the frontend immediately.
-              // No snapshot block needed; compaction content is internal to the SDK.
+              // No snapshot block is pushed; the generic blockIdByIndex registration
+              // above is harmless — content_block_stop finds no snapshot block and
+              // silently skips, while openBlockCount stays balanced (++ here, -- there).
               compacting = true;
               log.info('compaction started', { clientId });
               emit({ type: 'compaction_status', active: true });

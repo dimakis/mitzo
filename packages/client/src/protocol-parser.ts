@@ -523,7 +523,7 @@ export function parseServerMessage(
     }
 
     case 'compaction_status':
-      result.tokensUpdate = { compacting: msg.active as boolean };
+      result.tokensUpdate = { compacting: Boolean(msg.active) };
       break;
 
     // Progress tracking messages

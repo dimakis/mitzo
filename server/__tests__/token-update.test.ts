@@ -455,6 +455,53 @@ describe('token_update emission', () => {
     expect(compactionStatuses[1]).toMatchObject({ type: 'compaction_status', active: false });
   });
 
+  it('resets compacting flag on result when success signal is missing', async () => {
+    const events: Record<string, unknown>[] = [
+      {
+        type: 'stream_event',
+        parent_tool_use_id: null,
+        event: {
+          type: 'message_start',
+          message: { id: 'msg-crash', usage: { input_tokens: 180000 } },
+        },
+      },
+      {
+        type: 'stream_event',
+        event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+      },
+      { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+      { type: 'assistant', message: { content: [] }, session_id: 'sess-crash' },
+      // Compaction starts but SDK never sends compact_result: 'success'
+      {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_start',
+          index: 1,
+          content_block: { type: 'compaction' },
+        },
+      },
+      { type: 'stream_event', event: { type: 'content_block_stop', index: 1 } },
+      // Result arrives directly — no compact_result system message
+      {
+        type: 'result',
+        session_id: 'sess-crash',
+        usage: { input_tokens: 180000, output_tokens: 500 },
+        total_cost_usd: 0.01,
+        num_turns: 1,
+        duration_ms: 3000,
+        duration_api_ms: 2000,
+      },
+    ];
+
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
+
+    const compactionStatuses = transport.sent.filter((m) => m.type === 'compaction_status');
+    // Should have active:true from block_start and active:false from safety reset
+    expect(compactionStatuses).toHaveLength(2);
+    expect(compactionStatuses[0]).toMatchObject({ active: true });
+    expect(compactionStatuses[1]).toMatchObject({ active: false });
+  });
+
   it('handles missing usage on message_start gracefully', async () => {
     const events: Record<string, unknown>[] = [
       {
