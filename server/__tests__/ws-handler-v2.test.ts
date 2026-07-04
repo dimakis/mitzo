@@ -3654,28 +3654,32 @@ describe('dispatchV2Message — terminal routing', () => {
   });
 });
 
-describe('handleTerminalCreate — sessionId validation', () => {
+describe('handleTerminalCreate — standalone terminals', () => {
   beforeEach(resetTerminalMocks);
 
-  it('rejects terminal creation for unknown sessionId', () => {
+  it('creates a standalone terminal with BASE_REPO cwd when sessionId has no real session', () => {
     const eventStore = mockEventStore();
     eventStore.getSession.mockReturnValue(null);
     const ctx = createContext({
       eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
     });
     const transport = mockTransport();
-    const connId = handleHello('conn-unknown-sess', transport, ctx);
+    const connId = handleHello('conn-standalone', transport, ctx);
 
     handleTerminalCreate(
       connId,
-      { type: 'terminal_create' as const, sessionId: 'fake-session-123' },
+      { type: 'terminal_create' as const, sessionId: 'terminal-standalone' },
       ctx,
     );
 
-    expect(createTerminal).not.toHaveBeenCalled();
-    const error = transport.sent.find((m) => m.type === 'terminal_error');
-    expect(error).toBeDefined();
-    expect(error!.error).toContain('Unknown session');
+    expect(createTerminal).toHaveBeenCalledWith(
+      'terminal-standalone',
+      connId,
+      '/tmp/test-repo',
+      expect.any(Object),
+    );
+    const created = transport.sent.find((m) => m.type === 'terminal_created');
+    expect(created).toBeDefined();
   });
 });
 

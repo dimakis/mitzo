@@ -953,22 +953,10 @@ export function handleTerminalCreate(
       const conn = ctx.connRegistry.get(connectionId);
       if (!conn) return;
 
-      // Validate that sessionId refers to a known session
+      // Resolve cwd: use session worktree if available, otherwise BASE_REPO.
+      // Standalone terminals (no real session) are a valid use case.
       const sessionMeta = ctx.eventStore.getSession(msg.sessionId);
-      if (!sessionMeta) {
-        log.warn('terminal create: unknown sessionId', {
-          connectionId,
-          sessionId: msg.sessionId,
-        });
-        conn.transport.send({
-          type: 'terminal_error',
-          error: 'Unknown session — cannot create terminal',
-        });
-        return;
-      }
-
-      // Resolve cwd from session metadata (worktree path or base repo)
-      const rawCwd = sessionMeta.cwd || BASE_REPO;
+      const rawCwd = sessionMeta?.cwd || BASE_REPO;
       if (!rawCwd) {
         conn.transport.send({
           type: 'terminal_error',
