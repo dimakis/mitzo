@@ -1550,7 +1550,7 @@ describe('dispatchV2Message', () => {
     expect(stopChat).toHaveBeenCalledWith('driver-1');
   });
 
-  it('routes reconnect messages and produces reconnected summary', async () => {
+  it('ignores reconnect messages over WS (handled via REST only)', async () => {
     const ctx = createContext();
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
@@ -1565,7 +1565,8 @@ describe('dispatchV2Message', () => {
       ctx,
     );
 
-    expect(transport.sent).toContainEqual(expect.objectContaining({ type: 'reconnected' }));
+    // Reconnect removed from WS union — message is silently dropped
+    expect(transport.sent).not.toContainEqual(expect.objectContaining({ type: 'reconnected' }));
   });
 
   it('routes set_mode messages correctly', async () => {
@@ -2623,13 +2624,12 @@ describe('handleInterruptV2 rekey after detached reattach', () => {
 // ─── stale session cleanup — registry.remove() ──────────────────────────────
 
 describe('stale session cleanup removes registry entry', () => {
-  it('handleReconnect removes stale session from registry', () => {
+  it('handleReconnect does not remove stale sessions (deferred to handleSendV2)', () => {
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-conn:sess-1', session: {} });
     sessionReg.isActive.mockReturnValue(true);
 
     const eventStore = mockEventStore();
-    // handleReconnect uses getSessionState() instead of getSession().isActive
     eventStore.getSessionState.mockReturnValue('ENDED');
 
     const ctx = createContext({
@@ -2645,7 +2645,8 @@ describe('stale session cleanup removes registry entry', () => {
       ctx,
     );
 
-    expect(sessionReg.remove).toHaveBeenCalledWith('old-conn:sess-1');
+    // Zombie cleanup deferred to handleSendV2 on first user message
+    expect(sessionReg.remove).not.toHaveBeenCalled();
   });
 
   it('handleSendV2 aborts zombie session before resume', () => {
@@ -2804,6 +2805,8 @@ describe('handleSessionSuspend', () => {
 
 describe('handleReconnect suspend resume', () => {
   it('clears suspend state and sends session_resumed', () => {
+    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
+
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({
       clientId: 'conn-1:sess-1',
