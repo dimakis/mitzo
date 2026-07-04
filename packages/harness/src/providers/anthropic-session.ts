@@ -64,7 +64,7 @@ function parseSSE(eventType: string, data: string): StreamEvent | null {
         if (typeof parsed.index !== 'number') return null;
         return parsed as StreamEvent;
       case 'message_delta':
-        if (!parsed.delta) return null;
+        if (!parsed.delta || !parsed.usage) return null;
         return parsed as StreamEvent;
       default:
         return null;
