@@ -36,7 +36,9 @@ describe('MermaidBlock', () => {
   it('renders SVG and initializes with securityLevel strict', async () => {
     vi.mocked(mermaid.render).mockResolvedValue({
       svg: '<svg>diagram</svg>',
-    });
+      diagramType: 'flowchart',
+      bindFunctions: undefined,
+    } as Awaited<ReturnType<typeof mermaid.render>>);
     await act(async () => {
       render(createElement(MermaidBlock, { code: 'graph TD; A-->B;' }));
     });
