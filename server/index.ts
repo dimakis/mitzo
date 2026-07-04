@@ -255,6 +255,7 @@ const orchestrator = new TaskOrchestrator({
         mode: 'agent',
         isolation: true,
         telosTaskId: goalId,
+        taskContext: { currentTaskId: taskId, goalId },
         onSessionResolved: (sessionId) => {
           log.info('spawned headless session resolved', { taskId, sessionId, clientId });
           sseRegistry.broadcast('sessions_changed', {});

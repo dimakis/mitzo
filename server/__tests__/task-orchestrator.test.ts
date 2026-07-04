@@ -839,6 +839,49 @@ describe('TaskOrchestrator', () => {
       expect(deps.setTaskContext).not.toHaveBeenCalled();
     });
 
+    it('does not call setTaskContext (pinned) for spawned sessions', async () => {
+      const spawnSession = vi.fn().mockResolvedValue('spawned-client-1');
+      const deps = createTestDeps(store);
+      deps.spawnSession = spawnSession;
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Goal' });
+      store.create({
+        title: 'Spawn task',
+        parentId: goal.id,
+        sessionPolicy: 'spawn',
+      });
+
+      orch.start(goal.id);
+
+      await vi.waitFor(() => {
+        expect(spawnSession).toHaveBeenCalled();
+      });
+
+      // Spawned sessions get taskContext via startChat options, not setTaskContext
+      expect(deps.setTaskContext).not.toHaveBeenCalled();
+    });
+
+    it('falls back to setTaskContext (pinned) when spawn returns null', async () => {
+      const spawnSession = vi.fn().mockResolvedValue(null);
+      const deps = createTestDeps(store);
+      deps.spawnSession = spawnSession;
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Spawn task',
+        parentId: goal.id,
+        sessionPolicy: 'spawn',
+      });
+
+      orch.start(goal.id);
+
+      await vi.waitFor(() => {
+        expect(deps.setTaskContext).toHaveBeenCalledWith(task.id, goal.id);
+      });
+    });
+
     it('reuse policy tasks use pinned session as before', () => {
       const spawnSession = vi.fn().mockResolvedValue('spawned-client-1');
       const deps = createTestDeps(store);
