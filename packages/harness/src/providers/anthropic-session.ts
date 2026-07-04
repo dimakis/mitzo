@@ -129,9 +129,7 @@ export class AnthropicSession implements ModelSession {
 
     if (!response.ok) {
       const errorBody = await response.text().catch(() => '');
-      const err = new Error(
-        `Anthropic API error ${response.status}: ${errorBody.slice(0, 500)}`,
-      );
+      const err = new Error(`Anthropic API error ${response.status}: ${errorBody.slice(0, 500)}`);
       log.error('API request failed', {
         status: response.status,
         body: errorBody.slice(0, 200),

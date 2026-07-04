@@ -260,7 +260,9 @@ describe('AnthropicSession', () => {
         { baseUrl: 'http://test:9090', apiKey: 'test-key' },
       );
 
-      const events = await collectEvents(session.turn([{ role: 'user', content: 'read /tmp/test' }]));
+      const events = await collectEvents(
+        session.turn([{ role: 'user', content: 'read /tmp/test' }]),
+      );
 
       expect(events).toHaveLength(5);
 
@@ -307,10 +309,10 @@ describe('AnthropicSession', () => {
         },
       ];
 
-      const session = new AnthropicSession(
-        testConfig({ model: 'gpt-5.5', tools }),
-        { baseUrl: 'http://test:9090', apiKey: 'test-key' },
-      );
+      const session = new AnthropicSession(testConfig({ model: 'gpt-5.5', tools }), {
+        baseUrl: 'http://test:9090',
+        apiKey: 'test-key',
+      });
 
       await collectEvents(session.turn([{ role: 'user', content: 'list files' }]));
 
@@ -328,9 +330,7 @@ describe('AnthropicSession', () => {
     });
 
     it('throws on API error', async () => {
-      fetchSpy.mockResolvedValueOnce(
-        new Response('{"error": "rate limited"}', { status: 429 }),
-      );
+      fetchSpy.mockResolvedValueOnce(new Response('{"error": "rate limited"}', { status: 429 }));
 
       const session = new AnthropicSession(testConfig(), {
         baseUrl: 'http://test:9090',
