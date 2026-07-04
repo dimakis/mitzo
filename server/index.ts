@@ -237,7 +237,9 @@ const orchestrator = new TaskOrchestrator({
   getActiveSessionIds: () => {
     // Return clientIds — task.session_id stores clientId, not SDK sessionId.
     // Using sessionId here caused orphan detection to never match spawned tasks.
-    return new Set(Array.from(registry.entries(), ([clientId]) => clientId));
+    const ids = new Set<string>();
+    for (const [clientId] of registry.entries()) ids.add(clientId);
+    return ids;
   },
   spawnSession: async (taskId: string, prompt: string, goalId: string) => {
     const clientId = `task:${generateWtId()}`;
@@ -270,10 +272,10 @@ const orchestrator = new TaskOrchestrator({
           // (no WS close to trigger normal removal) and advance the
           // orchestrator so orphan reclaim picks up unfinished tasks.
           registry.remove(clientId);
-          // After all tasks are spawned, the orchestrator pauses (no pending
-          // tasks left). tick() is a no-op when paused, so resume() is needed
-          // to re-enter the running state and trigger orphan reclaim.
-          if (orchestratorRef) {
+          // Only advance if the orchestrator is still on the same goal.
+          // A user may have paused manually or started a new goal while
+          // this session was in-flight — don't override that.
+          if (orchestratorRef && orchestratorRef.getStatus().goalId === goalId) {
             if (orchestratorRef.getStatus().state === 'paused') {
               orchestratorRef.resume();
             } else {

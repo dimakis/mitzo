@@ -977,6 +977,40 @@ describe('TaskOrchestrator', () => {
       });
     });
 
+    it('tick is a no-op when orchestrator is stopped before session ends', async () => {
+      // Edge case: orchestrator stopped (idle) while a spawned session is
+      // still in-flight. .finally() fires → tick() → returns early (guarded
+      // by state !== 'running'). No crash, no side effects.
+      const spawnSession = vi.fn().mockResolvedValue('task:spawned-1');
+      const deps = createTestDeps(store);
+      deps.spawnSession = spawnSession;
+      // Return spawned clientId while session is alive
+      let activeClients = new Set(['task:spawned-1']);
+      deps.getActiveSessionIds = () => activeClients;
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Goal' });
+      const t1 = store.create({ title: 'Spawn task', parentId: goal.id });
+
+      orch.start(goal.id);
+
+      await vi.waitFor(() => {
+        expect(spawnSession).toHaveBeenCalledTimes(1);
+      });
+
+      // User stops the orchestrator while session is still running
+      orch.stop();
+      expect(orch.getStatus().state).toBe('idle');
+
+      // .finally() fires after session ends — tick is a no-op in idle state
+      activeClients = new Set();
+      orch.tick();
+
+      expect(orch.getStatus().state).toBe('idle');
+      expect(store.get(t1.id)?.status).toBe('active'); // unchanged
+      expect(spawnSession).toHaveBeenCalledTimes(1); // no re-dispatch
+    });
+
     it('reuse policy tasks use pinned session as before', () => {
       const spawnSession = vi.fn().mockResolvedValue('spawned-client-1');
       const deps = createTestDeps(store);
