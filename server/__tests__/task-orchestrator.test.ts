@@ -312,18 +312,19 @@ describe('TaskOrchestrator', () => {
 
   describe('orphan detection', () => {
     it('reclaims orphaned tasks during tick', () => {
-      // Create deps with getActiveSessionIds
+      // getActiveSessionIds returns clientIds (not SDK sessionIds)
+      // to match what setSessionId stores on tasks
       const depsWithOrphan = createTestDeps(store);
-      depsWithOrphan.getActiveSessionIds = () => new Set(['alive-session']);
+      depsWithOrphan.getActiveSessionIds = () => new Set(['alive-client']);
       const orch = new TaskOrchestrator(depsWithOrphan);
 
       const goal = store.create({ title: 'Goal' });
       const c1 = store.create({ title: 'Orphan', parentId: goal.id });
       store.create({ title: 'Next', parentId: goal.id });
 
-      // Simulate c1 assigned to dead session
+      // Simulate c1 assigned to dead session (clientId not in active set)
       store.update(c1.id, { status: 'active' });
-      store.setSessionId(c1.id, 'dead-session');
+      store.setSessionId(c1.id, 'dead-client');
 
       orch.start(goal.id);
 
@@ -335,7 +336,7 @@ describe('TaskOrchestrator', () => {
 
     it('does not reclaim tasks with alive sessions', () => {
       const depsWithOrphan = createTestDeps(store);
-      depsWithOrphan.getActiveSessionIds = () => new Set(['alive-session']);
+      depsWithOrphan.getActiveSessionIds = () => new Set(['alive-client']);
       const orch = new TaskOrchestrator(depsWithOrphan);
 
       const goal = store.create({ title: 'Goal' });
@@ -343,12 +344,41 @@ describe('TaskOrchestrator', () => {
       const c2 = store.create({ title: 'Next', parentId: goal.id });
 
       store.update(c1.id, { status: 'active' });
-      store.setSessionId(c1.id, 'alive-session');
+      store.setSessionId(c1.id, 'alive-client');
 
       orch.start(goal.id);
 
       // c1 is alive, so tick should skip it and pick c2
       expect(orch.getStatus().activeTaskId).toBe(c2.id);
+    });
+
+    it('reclaims spawned task sessions using clientId matching', () => {
+      // Simulates the real scenario: task.session_id stores clientId
+      // (e.g. 'task:abc123'), active set contains clientIds from registry
+      const depsWithOrphan = createTestDeps(store);
+      depsWithOrphan.getActiveSessionIds = () => new Set(['task:alive-wt']);
+      const orch = new TaskOrchestrator(depsWithOrphan);
+
+      const goal = store.create({ title: 'Goal' });
+      const orphan = store.create({ title: 'Dead spawn', parentId: goal.id });
+      const alive = store.create({ title: 'Alive spawn', parentId: goal.id });
+      store.create({ title: 'Pending', parentId: goal.id });
+
+      // Orphan: session ended, clientId no longer in registry
+      store.update(orphan.id, { status: 'active' });
+      store.setSessionId(orphan.id, 'task:dead-wt');
+
+      // Alive: session still running
+      store.update(alive.id, { status: 'active' });
+      store.setSessionId(alive.id, 'task:alive-wt');
+
+      orch.start(goal.id);
+
+      // Orphan should be reclaimed and re-dispatched
+      expect(store.get(orphan.id)!.sessionId).toBeNull();
+      // Alive should NOT be reclaimed
+      expect(store.get(alive.id)!.sessionId).toBe('task:alive-wt');
+      expect(store.get(alive.id)!.status).toBe('active');
     });
   });
 
@@ -880,6 +910,149 @@ describe('TaskOrchestrator', () => {
       await vi.waitFor(() => {
         expect(deps.setTaskContext).toHaveBeenCalledWith(task.id, goal.id);
       });
+    });
+
+    it('tick after spawn session completes advances workflow', async () => {
+      const spawnSession = vi.fn().mockResolvedValue('task:spawned-1');
+      const deps = createTestDeps(store);
+      deps.spawnSession = spawnSession;
+      let activeClients = new Set(['task:spawned-1']);
+      deps.getActiveSessionIds = () => activeClients;
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Goal' });
+      const t1 = store.create({ title: 'Spawn task', parentId: goal.id });
+      const t2 = store.create({ title: 'Next task', parentId: goal.id, sessionPolicy: 'reuse' });
+
+      orch.start(goal.id);
+
+      await vi.waitFor(() => {
+        expect(spawnSession).toHaveBeenCalled();
+      });
+
+      // Agent completed the task during the session
+      store.update(t1.id, { status: 'done' });
+      store.cascadeStatus(t1.id);
+
+      // .finally() fires: session removed from registry, tick() called directly
+      activeClients = new Set();
+      orch.tick();
+
+      // t2 should now be active (workflow advanced)
+      expect(store.get(t2.id)!.status).toBe('active');
+      expect(orch.getStatus().activeTaskId).toBe(t2.id);
+    });
+
+    it('resume after spawn session dies reclaims unfinished task', async () => {
+      // Primary scenario for .finally(): session crashes without calling
+      // TaskComplete. The task stays active but the session is gone.
+      // After all tasks are spawned, the orchestrator pauses (no pending left).
+      // .finally() calls resume() → tick() → orphan reclaim → re-dispatch.
+      const spawnSession = vi.fn().mockResolvedValue('task:spawned-1');
+      const deps = createTestDeps(store);
+      deps.spawnSession = spawnSession;
+      let activeClients = new Set(['task:spawned-1']);
+      deps.getActiveSessionIds = () => activeClients;
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Goal' });
+      store.create({ title: 'Spawn task', parentId: goal.id });
+
+      orch.start(goal.id);
+
+      await vi.waitFor(() => {
+        expect(spawnSession).toHaveBeenCalledTimes(1);
+      });
+
+      // Orchestrator should be paused (all tasks active, none pending)
+      expect(orch.getStatus().state).toBe('paused');
+
+      // Verify the task is active and has sessionId set (pre-condition for orphan reclaim)
+      const task = store.getChildren(goal.id)[0];
+      expect(store.get(task.id)!.status).toBe('active');
+      expect(store.get(task.id)!.sessionId).toBe('task:spawned-1');
+
+      // .finally() fires: session removed from registry, resume() called
+      activeClients = new Set();
+      orch.resume();
+
+      // Orphan reclaim detected the dead session and re-dispatched the task
+      await vi.waitFor(() => {
+        expect(spawnSession).toHaveBeenCalledTimes(2);
+      });
+    });
+
+    it('tick is a no-op when orchestrator is stopped before session ends', async () => {
+      // Edge case: orchestrator stopped (idle) while a spawned session is
+      // still in-flight. .finally() fires → tick() → returns early (guarded
+      // by state !== 'running'). No crash, no side effects.
+      const spawnSession = vi.fn().mockResolvedValue('task:spawned-1');
+      const deps = createTestDeps(store);
+      deps.spawnSession = spawnSession;
+      // Return spawned clientId while session is alive
+      let activeClients = new Set(['task:spawned-1']);
+      deps.getActiveSessionIds = () => activeClients;
+      const orch = new TaskOrchestrator(deps);
+
+      const goal = store.create({ title: 'Goal' });
+      const t1 = store.create({ title: 'Spawn task', parentId: goal.id });
+
+      orch.start(goal.id);
+
+      await vi.waitFor(() => {
+        expect(spawnSession).toHaveBeenCalledTimes(1);
+      });
+
+      // User stops the orchestrator while session is still running
+      orch.stop();
+      expect(orch.getStatus().state).toBe('idle');
+
+      // .finally() fires after session ends — tick is a no-op in idle state
+      activeClients = new Set();
+      orch.tick();
+
+      expect(orch.getStatus().state).toBe('idle');
+      expect(store.get(t1.id)?.status).toBe('active'); // unchanged
+      expect(spawnSession).toHaveBeenCalledTimes(1); // no re-dispatch
+    });
+
+    it('does not advance old goal when orchestrator moved to a new goal', async () => {
+      const spawnSession = vi.fn().mockResolvedValue('task:spawned-1');
+      const deps = createTestDeps(store);
+      deps.spawnSession = spawnSession;
+      let activeClients = new Set(['task:spawned-1']);
+      deps.getActiveSessionIds = () => activeClients;
+      const orch = new TaskOrchestrator(deps);
+
+      const goal1 = store.create({ title: 'Goal 1' });
+      store.create({ title: 'Spawn task', parentId: goal1.id });
+
+      const goal2 = store.create({ title: 'Goal 2' });
+      const g2task = store.create({
+        title: 'Reuse task',
+        parentId: goal2.id,
+        sessionPolicy: 'reuse',
+      });
+
+      orch.start(goal1.id);
+
+      await vi.waitFor(() => {
+        expect(spawnSession).toHaveBeenCalledTimes(1);
+      });
+
+      // User switches to a new goal while spawned session is still running
+      orch.stop();
+      orch.start(goal2.id);
+      expect(orch.getStatus().goalId).toBe(goal2.id);
+      expect(orch.getStatus().activeTaskId).toBe(g2task.id);
+
+      // Old spawned session ends — tick should NOT interfere with goal2
+      activeClients = new Set();
+      orch.tick();
+
+      // Goal2 state should be unchanged
+      expect(orch.getStatus().goalId).toBe(goal2.id);
+      expect(orch.getStatus().activeTaskId).toBe(g2task.id);
     });
 
     it('reuse policy tasks use pinned session as before', () => {
