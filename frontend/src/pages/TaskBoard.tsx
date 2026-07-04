@@ -74,6 +74,7 @@ export function TaskBoard() {
     pauseLoop,
     resumeLoop,
     stopLoop,
+    setSpawnEnabled,
     approveTask,
     rejectTask,
     approveSpec,
@@ -104,10 +105,18 @@ export function TaskBoard() {
   const goals = tasks.filter((t) => !t.parentId);
 
   const t1Count = countT1Recursive(tasks);
+  const { spawnEnabled } = loopStatus;
 
   return (
     <div className="task-board-page">
       <PageHeader title="Tasks" badge={t1Count > 0 ? t1Count : tasks.length || undefined}>
+        <button
+          className={`task-board-add-btn ${spawnEnabled ? 'cc-spawn-enabled' : 'cc-spawn-disabled'}`}
+          onClick={() => setSpawnEnabled(!spawnEnabled)}
+          title={spawnEnabled ? 'Disable session spawning' : 'Enable session spawning'}
+        >
+          {spawnEnabled ? '\u26A1' : '\u26D4'}
+        </button>
         <button
           className={`task-board-sort-btn${showAll ? '' : ' task-board-sort-btn--active'}`}
           onClick={() => setShowAll(!showAll)}
