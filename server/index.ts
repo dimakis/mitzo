@@ -100,17 +100,6 @@ const nativeCommands = new NativeCommandRegistry();
 const connRegistry = new ConnectionRegistry();
 setConnectionRegistry(connRegistry);
 
-// Wire up EventStore for periodic sync (enables delivery guarantee).
-// Provide isSessionActive so periodic sync skips ended sessions (P1: use state, not is_active).
-connRegistry.setEventStore({
-  getEventsAfter: (sessionId, afterSeq, limit) =>
-    eventStore.getEventsAfter(sessionId, afterSeq, limit),
-  isSessionActive: (sessionId) => {
-    const state = eventStore.getSessionState(sessionId);
-    return state !== null && state !== 'ENDED' && state !== 'CLOSING';
-  },
-});
-
 // Resolve cert paths relative to the project root (where package.json lives)
 const __filename = fileURLToPath(import.meta.url);
 const PROJECT_ROOT = join(__filename, '..', '..');
@@ -1024,9 +1013,6 @@ checkPort(PORT).then((inUse) => {
   server.listen(PORT, () => {
     const protocol = USE_TLS ? 'https' : 'http';
     log.info(`Chat Agent running on ${protocol}://localhost:${PORT}${USE_TLS ? ' (TLS)' : ''}`);
-
-    // Start periodic sync for connection-level delivery guarantee
-    connRegistry.startPeriodicSync();
 
     // Recover sessions left in incomplete states after crash/restart (Transport SSOT P0).
     // Must run before reconcileSessionsBackground() so reconciliation sees ENDED states.
