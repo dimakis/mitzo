@@ -481,6 +481,7 @@ export function parseServerMessage(
           progress: (msg.progress as LoopStatus['progress']) ?? null,
           specMode: (msg.specMode as boolean) ?? false,
           awaitingApproval: (msg.awaitingApproval as boolean) ?? false,
+          spawnEnabled: (msg.spawnEnabled as boolean) ?? false,
         },
       };
       break;
@@ -515,10 +516,6 @@ export function parseServerMessage(
       result.tokensUpdate = tu;
       break;
     }
-
-    case 'compaction_status':
-      result.tokensUpdate = { compacting: Boolean(msg.active) };
-      break;
 
     // Progress tracking messages
     case 'progress_start':

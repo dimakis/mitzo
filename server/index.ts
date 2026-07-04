@@ -236,11 +236,15 @@ const orchestrator = new TaskOrchestrator({
   },
   getActiveSessionIds: () => {
     // Return clientIds — task.session_id stores clientId, not SDK sessionId.
-    // Using sessionId here caused orphan detection to never match spawned tasks.
-    return new Set(registry.keys());
+    // Using sessionId here caused every spawned task to look orphaned (ID namespace mismatch).
+    const ids = new Set<string>();
+    for (const [clientId] of registry.entries()) {
+      ids.add(clientId);
+    }
+    return ids;
   },
   spawnSession: async (taskId: string, prompt: string, goalId: string) => {
-    const clientId = `task:${generateWtId()}`;
+    const clientId = `headless:${generateWtId()}`;
 
     try {
       const transport = new NullTransport();
@@ -252,51 +256,17 @@ const orchestrator = new TaskOrchestrator({
         mode: 'agent',
         isolation: true,
         telosTaskId: goalId,
-        taskContext: { currentTaskId: taskId, goalId },
         onSessionResolved: (sessionId) => {
-          log.info('task session resolved', { taskId, sessionId, clientId });
+          log.info('spawned headless session resolved', { taskId, sessionId, clientId });
           sseRegistry.broadcast('sessions_changed', {});
         },
-      })
-        .catch((err) => {
-          log.error('task session failed', {
-            taskId,
-            clientId,
-            error: (err as Error).message,
-          });
-        })
-        .finally(() => {
-          // Session ended (success or failure) — clean up registry entry
-          // (no WS close to trigger normal removal) and advance the
-          // orchestrator so orphan reclaim picks up unfinished tasks.
-          registry.remove(clientId);
-          // Only advance if the orchestrator is still on the same goal.
-          // A user may have paused manually or started a new goal while
-          // this session was in-flight — don't override that.
-          if (!orchestratorRef) return;
-          try {
-            const status = orchestratorRef.getStatus();
-            if (status.goalId === goalId) {
-              if (status.state === 'paused') {
-                orchestratorRef.resume();
-              } else {
-                orchestratorRef.tick();
-              }
-            } else {
-              log.info('task session ended after loop stopped or goal changed', {
-                taskId,
-                clientId,
-                goalId,
-              });
-            }
-          } catch (err: unknown) {
-            log.error('orchestrator advance failed after task session end', {
-              taskId,
-              clientId,
-              error: err instanceof Error ? err.message : String(err),
-            });
-          }
+      }).catch((err) => {
+        log.error('spawned session failed', {
+          taskId,
+          clientId,
+          error: (err as Error).message,
         });
+      });
 
       return clientId;
     } catch (err) {

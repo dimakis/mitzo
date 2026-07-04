@@ -46,6 +46,7 @@ export interface LoopStatus {
   progress: { done: number; total: number } | null;
   specMode: boolean;
   awaitingApproval: boolean;
+  spawnEnabled: boolean;
 }
 
 export interface TasksState {
@@ -62,5 +63,6 @@ export const INITIAL_TASKS_STATE: TasksState = {
     progress: null,
     specMode: false,
     awaitingApproval: false,
+    spawnEnabled: false,
   },
 };

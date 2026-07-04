@@ -155,10 +155,6 @@ export class SessionRegistry {
     return this.sessions.get(clientId);
   }
 
-  keys(): IterableIterator<string> {
-    return this.sessions.keys();
-  }
-
   entries(): IterableIterator<[string, ManagedSession]> {
     return this.sessions.entries();
   }

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from 'vitest';
 import type { Express } from 'express';
 import request from 'supertest';
 import { mkdirSync, rmSync } from 'fs';
@@ -223,5 +223,71 @@ describe('task routes', () => {
   it('DELETE /api/tasks/:id — 404 for nonexistent', async () => {
     const res = await request(app).delete('/api/tasks/nonexistent').set('Cookie', authCookie);
     expect(res.status).toBe(404);
+  });
+});
+
+describe('POST /api/loop/spawn', () => {
+  afterEach(async () => {
+    // Reset orchestrator to null after each test
+    const mod = await import('../app.js');
+    (mod as unknown as { setOrchestrator: (o: unknown) => void }).setOrchestrator(null as never);
+  });
+
+  it('returns 503 when orchestrator is not initialized', async () => {
+    const res = await request(app)
+      .post('/api/loop/spawn')
+      .send({ enabled: true })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(503);
+    expect(res.body.error).toMatch(/Orchestrator/i);
+  });
+
+  it('returns 400 when enabled is missing', async () => {
+    const mod = await import('../app.js');
+    mod.setOrchestrator({ setSpawnEnabled: vi.fn(), getStatus: vi.fn() } as never);
+
+    const res = await request(app).post('/api/loop/spawn').send({}).set('Cookie', authCookie);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/enabled/i);
+  });
+
+  it('returns 400 when enabled is not a boolean', async () => {
+    const mod = await import('../app.js');
+    mod.setOrchestrator({ setSpawnEnabled: vi.fn(), getStatus: vi.fn() } as never);
+
+    const res = await request(app)
+      .post('/api/loop/spawn')
+      .send({ enabled: 'yes' })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(400);
+  });
+
+  it('sets spawn enabled and returns status', async () => {
+    const mockStatus = {
+      state: 'idle',
+      goalId: null,
+      activeTaskId: null,
+      progress: null,
+      specMode: false,
+      awaitingApproval: false,
+      spawnEnabled: true,
+    };
+    const mod = await import('../app.js');
+    mod.setOrchestrator({
+      setSpawnEnabled: vi.fn(),
+      getStatus: vi.fn().mockReturnValue(mockStatus),
+    } as never);
+
+    const res = await request(app)
+      .post('/api/loop/spawn')
+      .send({ enabled: true })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(res.body.spawnEnabled).toBe(true);
+  });
+
+  it('returns 401 when unauthenticated', async () => {
+    const res = await request(app).post('/api/loop/spawn').send({ enabled: true });
+    expect(res.status).toBe(401);
   });
 });

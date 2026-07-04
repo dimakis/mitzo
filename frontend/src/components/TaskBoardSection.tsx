@@ -26,6 +26,7 @@ export function TaskBoardSection() {
     pauseLoop,
     resumeLoop,
     stopLoop,
+    setSpawnEnabled,
     approveTask,
     rejectTask,
     approveSpec,
@@ -47,7 +48,7 @@ export function TaskBoardSection() {
     [deleteTask],
   );
 
-  const { state, progress, awaitingApproval } = loopStatus;
+  const { state, progress, awaitingApproval, spawnEnabled } = loopStatus;
 
   // Count items needing attention
   const needsAttention = tasks.filter(
@@ -60,9 +61,18 @@ export function TaskBoardSection() {
       badge={needsAttention || undefined}
       storageKey="cc-taskboard"
       actions={
-        <button className="cc-section-action-btn" onClick={refresh} title="Refresh">
-          &#x21bb;
-        </button>
+        <>
+          <button
+            className={`cc-section-action-btn ${spawnEnabled ? 'cc-spawn-enabled' : 'cc-spawn-disabled'}`}
+            onClick={() => setSpawnEnabled(!spawnEnabled)}
+            title={spawnEnabled ? 'Disable session spawning' : 'Enable session spawning'}
+          >
+            {spawnEnabled ? '\u26A1' : '\u26D4'}
+          </button>
+          <button className="cc-section-action-btn" onClick={refresh} title="Refresh">
+            &#x21bb;
+          </button>
+        </>
       }
     >
       {/* Compact loop bar */}

@@ -791,9 +791,24 @@ app.get('/api/loop/status', (req, res) => {
       progress: null,
       specMode: false,
       awaitingApproval: false,
+      spawnEnabled: false,
     });
     return;
   }
+  res.json(orchestrator.getStatus());
+});
+
+app.post('/api/loop/spawn', (req, res) => {
+  if (!orchestrator) {
+    res.status(503).json({ error: 'Orchestrator not initialized' });
+    return;
+  }
+  const { enabled } = req.body ?? {};
+  if (typeof enabled !== 'boolean') {
+    res.status(400).json({ error: 'enabled (boolean) is required' });
+    return;
+  }
+  orchestrator.setSpawnEnabled(enabled);
   res.json(orchestrator.getStatus());
 });
 

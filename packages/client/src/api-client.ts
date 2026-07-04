@@ -282,6 +282,7 @@ export class MitzoApiClient {
     progress?: { completed: number; total: number } | null;
     specMode?: boolean;
     awaitingApproval?: boolean;
+    spawnEnabled?: boolean;
   }> {
     const res = await this.assertOk(
       await this.fetch('/api/loop/status', { credentials: 'include' }),
@@ -315,6 +316,17 @@ export class MitzoApiClient {
   async stopLoop(): Promise<void> {
     await this.assertOk(
       await this.fetch('/api/loop/stop', { method: 'POST', credentials: 'include' }),
+    );
+  }
+
+  async setSpawnEnabled(enabled: boolean): Promise<void> {
+    await this.assertOk(
+      await this.fetch('/api/loop/spawn', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ enabled }),
+      }),
     );
   }
 

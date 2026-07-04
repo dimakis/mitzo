@@ -145,6 +145,7 @@ export interface UseTaskBoardResult {
   pauseLoop: () => Promise<void>;
   resumeLoop: () => Promise<void>;
   stopLoop: () => Promise<void>;
+  setSpawnEnabled: (enabled: boolean) => Promise<void>;
   approveTask: (id: string) => Promise<void>;
   rejectTask: (id: string, feedback: string) => Promise<void>;
   approveSpec: () => Promise<void>;
@@ -170,6 +171,7 @@ export function useTaskBoard(): UseTaskBoardResult {
   const storePauseLoop = useMitzoStore((s) => s.pauseLoop);
   const storeResumeLoop = useMitzoStore((s) => s.resumeLoop);
   const storeStopLoop = useMitzoStore((s) => s.stopLoop);
+  const storeSetSpawnEnabled = useMitzoStore((s) => s.setSpawnEnabled);
   const storeApproveTask = useMitzoStore((s) => s.approveTask);
   const storeRejectTask = useMitzoStore((s) => s.rejectTask);
   const storeApproveSpec = useMitzoStore((s) => s.approveSpec);
@@ -237,6 +239,7 @@ export function useTaskBoard(): UseTaskBoardResult {
     pauseLoop: storePauseLoop,
     resumeLoop: storeResumeLoop,
     stopLoop: storeStopLoop,
+    setSpawnEnabled: storeSetSpawnEnabled,
     approveTask: storeApproveTask,
     rejectTask: storeRejectTask,
     approveSpec: storeApproveSpec,

@@ -250,7 +250,6 @@ export type ServerMessage =
   | TaskUpdatedMsg
   | TaskDeletedMsg
   | TokenUpdateMsg
-  | CompactionStatusMsg
   | LoopStatusMsg
   | ProgressStartMsg
   | ProgressUpdateMsg
@@ -302,11 +301,6 @@ export interface TokenUpdateMsg {
   turnIndex: number;
 }
 
-export interface CompactionStatusMsg {
-  type: 'compaction_status';
-  active: boolean;
-}
-
 export interface LoopStatusMsg {
   type: 'loop_status';
   state: 'idle' | 'running' | 'paused';
@@ -315,6 +309,7 @@ export interface LoopStatusMsg {
   progress: { done: number; total: number } | null;
   specMode: boolean;
   awaitingApproval: boolean;
+  spawnEnabled: boolean;
 }
 
 // Subagent lifecycle events

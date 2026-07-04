@@ -98,6 +98,7 @@ describe('useTaskBoard', () => {
       progress: null,
       specMode: false,
       awaitingApproval: false,
+      spawnEnabled: false,
     });
 
     const { result } = renderHook(() => useTaskBoard(), { wrapper });

@@ -34,6 +34,7 @@ function idleLoopStatus(): LoopStatus {
     progress: null,
     specMode: false,
     awaitingApproval: false,
+    spawnEnabled: false,
   };
 }
 

@@ -473,6 +473,7 @@ describe('task system messages', () => {
         progress: { done: 2, total: 5 },
         specMode: false,
         awaitingApproval: false,
+        spawnEnabled: false,
       },
       makeState(),
       makeCallbacks(),
@@ -480,7 +481,7 @@ describe('task system messages', () => {
     );
     expect(r.tasksUpdate).toMatchObject({
       type: 'loop_status',
-      status: { state: 'running', goalId: 'g1' },
+      status: { state: 'running', goalId: 'g1', spawnEnabled: false },
     });
   });
 });
@@ -532,24 +533,6 @@ describe('token_update', () => {
     // Must NOT have sessionTotal key at all
     expect('sessionTotal' in r.tokensUpdate!).toBe(false);
     expect('numTurns' in r.tokensUpdate!).toBe(false);
-  });
-
-  it('compaction_status sets compacting flag on tokensUpdate', () => {
-    const active = parseServerMessage(
-      { type: 'compaction_status', active: true },
-      makeState(),
-      makeCallbacks(),
-      POOL_KEY,
-    );
-    expect(active.tokensUpdate).toEqual({ compacting: true });
-
-    const done = parseServerMessage(
-      { type: 'compaction_status', active: false },
-      makeState(),
-      makeCallbacks(),
-      POOL_KEY,
-    );
-    expect(done.tokensUpdate).toEqual({ compacting: false });
   });
 });
 
