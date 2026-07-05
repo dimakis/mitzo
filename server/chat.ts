@@ -365,10 +365,14 @@ export function getRepoConfig() {
   return _cachedConfig;
 }
 
+export const FALLBACK_MODEL = 'claude-opus-4-6';
+
 export const AVAILABLE_MODELS = [
+  { id: 'claude-fable-5', label: 'Fable 5', desc: 'Most capable (direct API only)' },
   { id: 'claude-opus-4-7', label: 'Opus 4.7', desc: 'Adaptive thinking' },
   { id: 'claude-opus-4-7:max', label: 'Opus 4.7 Max', desc: 'Max thinking (128k)' },
   { id: 'claude-opus-4-6', label: 'Opus 4.6', desc: 'Previous Opus' },
+  { id: 'claude-sonnet-5', label: 'Sonnet 5', desc: 'Latest Sonnet' },
   { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', desc: 'Balanced' },
   { id: 'claude-haiku-4-5', label: 'Haiku 4.5', desc: 'Fastest' },
 ];
@@ -437,6 +441,8 @@ export function resolveThinking(
   spec?: string,
 ): { type: 'adaptive' } | { type: 'enabled'; budgetTokens: number } | undefined {
   const { model, effort } = parseModelSpec(spec);
+  // Fable: thinking is always on, omit the param to let it default (explicit 'disabled' returns 400)
+  if (model.includes('fable')) return undefined;
   if (model.includes('opus') && effort === 'max') return { type: 'enabled', budgetTokens: 128_000 };
   if (!model || model.includes('opus')) return { type: 'adaptive' };
   if (model.includes('sonnet')) return { type: 'enabled', budgetTokens: 10_000 };
@@ -746,7 +752,7 @@ export async function startChat(
     telosTaskId?: string;
     agentName?: string;
   },
-) {
+): Promise<void> {
   return withSpanAsync(
     'chat.start',
     {
@@ -1082,11 +1088,36 @@ async function _startChatInner(
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
+    const isModelError =
+      message.includes('not found') ||
+      message.includes('404') ||
+      message.includes('not have access') ||
+      message.includes('disallowed');
+    const requestedModel = parseModelSpec(options.model).model;
+    const canFallback = isModelError && requestedModel && requestedModel !== FALLBACK_MODEL;
+
     if (message.includes('No conversation found') && options.resume) {
       log.warn('SDK rejected resume, session expired', { sessionId: options.resume, cwd });
       send(transport, {
         type: 'error',
         error: 'Session expired. Send your message again to start fresh.',
+      });
+    } else if (canFallback) {
+      log.warn('Model unavailable, falling back', {
+        requested: requestedModel,
+        fallback: FALLBACK_MODEL,
+        error: message,
+      });
+      send(transport, {
+        type: 'system',
+        text: `Model "${requestedModel}" unavailable, falling back to ${FALLBACK_MODEL}.`,
+      });
+      const failedSession = registry.get(clientId);
+      if (failedSession) cleanupSessionWorktrees(failedSession);
+      registry.abort(clientId);
+      return startChat(transport, clientId, prompt, {
+        ...options,
+        model: FALLBACK_MODEL,
       });
     } else {
       log.error('startChat failed after register, cleaning up', { clientId, error: message });

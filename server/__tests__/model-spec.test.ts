@@ -62,4 +62,15 @@ describe('resolveThinking', () => {
   it('returns undefined for haiku', () => {
     expect(resolveThinking('claude-haiku-4-5')).toBeUndefined();
   });
+
+  it('returns undefined for fable (always-on thinking, must not pass disabled)', () => {
+    expect(resolveThinking('claude-fable-5')).toBeUndefined();
+  });
+
+  it('returns 10k budget for sonnet 5', () => {
+    expect(resolveThinking('claude-sonnet-5')).toEqual({
+      type: 'enabled',
+      budgetTokens: 10_000,
+    });
+  });
 });

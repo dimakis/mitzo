@@ -16,6 +16,7 @@ const log = createLogger('provider:anthropic');
 /** Vertex AI model name mapping (Vertex uses different naming). */
 const VERTEX_MODEL_MAP: Record<string, string> = {
   'claude-opus-4-6': 'claude-opus-4-6@20250514',
+  'claude-sonnet-5': 'claude-sonnet-5',
   'claude-sonnet-4-6': 'claude-sonnet-4-6@20250514',
   'claude-haiku-4-5': 'claude-3-5-haiku@20241022',
 };
