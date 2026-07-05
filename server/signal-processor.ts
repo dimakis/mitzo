@@ -186,7 +186,7 @@ export async function checkGate(config: GateConfig): Promise<GateResult> {
     case 'gh_review':
       return checkGhReview(config as GateConfig & { repo: string; pr: number | string });
     case 'centaur_review':
-      return checkCentaurReview(config as GateConfig & { pr_url: string });
+      return checkCentaurReview(config as GateConfig & { repo: string; pr: number | string });
     case 'compound':
       return checkCompound(config as GateConfig & { all: GateConfig[] });
     case 'human_approval':
@@ -260,23 +260,41 @@ async function checkGhReview(config: { repo: string; pr: number | string }): Pro
   }
 }
 
-async function checkCentaurReview(config: { pr_url: string }): Promise<GateResult> {
+async function checkCentaurReview(
+  config: { repo: string; pr: number | string },
+): Promise<GateResult> {
   try {
-    const res = await fetch(
-      `http://localhost:8642/api/reviews?pr=${encodeURIComponent(config.pr_url)}`,
-    );
-    if (!res.ok) return { resolved: false, status: 'fail' };
-    const data = (await res.json()) as { status?: string; review?: unknown };
+    const { stdout } = await execFileAsync('gh', [
+      'api',
+      `repos/${config.repo}/issues/${config.pr}/comments`,
+      '--jq',
+      '[.[] | select(.body | startswith("## Centaur Review")) | {body: .body, created_at: .created_at}] | last',
+    ]);
+    if (!stdout.trim()) return { resolved: false, status: 'fail' };
 
-    if (data.status === 'approved') {
-      return { resolved: true, status: 'pass', artifacts: { review: data.review } };
+    const comment = JSON.parse(stdout) as { body: string; created_at: string };
+    const body = comment.body;
+
+    // LGTM with no issues = pass
+    if (body.includes('LGTM')) {
+      return { resolved: true, status: 'pass', artifacts: { review: body } };
     }
-    if (data.status === 'changes_requested') {
-      return { resolved: true, status: 'fail', artifacts: { review: data.review } };
+
+    // Has findings — resolved (review exists) but status depends on severity
+    const hasCritical = /\d+\s+critical/.test(body);
+    const hasWarning = /\d+\s+warning/.test(body);
+
+    if (hasCritical || hasWarning) {
+      return {
+        resolved: true,
+        status: 'fail',
+        artifacts: { review: body, hasCritical, hasWarning },
+      };
     }
-    return { resolved: false, status: 'fail' };
+
+    // Review exists but only info/style — pass
+    return { resolved: true, status: 'pass', artifacts: { review: body } };
   } catch {
-    // Centaur might not be running — that's fine, just not resolved
     return { resolved: false, status: 'fail' };
   }
 }
