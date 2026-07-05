@@ -260,9 +260,10 @@ async function checkGhReview(config: { repo: string; pr: number | string }): Pro
   }
 }
 
-async function checkCentaurReview(
-  config: { repo: string; pr: number | string },
-): Promise<GateResult> {
+async function checkCentaurReview(config: {
+  repo: string;
+  pr: number | string;
+}): Promise<GateResult> {
   try {
     const { stdout } = await execFileAsync('gh', [
       'api',
