@@ -186,7 +186,9 @@ export async function checkGate(config: GateConfig): Promise<GateResult> {
     case 'gh_review':
       return checkGhReview(config as GateConfig & { repo: string; pr: number | string });
     case 'centaur_review':
-      return checkCentaurReview(config as GateConfig & { repo: string; pr: number | string });
+      return checkCentaurReview(
+        config as GateConfig & { repo?: string; pr?: number | string; pr_url?: string },
+      );
     case 'compound':
       return checkCompound(config as GateConfig & { all: GateConfig[] });
     case 'human_approval':
@@ -261,27 +263,37 @@ async function checkGhReview(config: { repo: string; pr: number | string }): Pro
 }
 
 async function checkCentaurReview(config: {
-  repo: string;
-  pr: number | string;
+  repo?: string;
+  pr?: number | string;
+  pr_url?: string;
 }): Promise<GateResult> {
+  // Support both repo+pr and legacy pr_url gate config formats
+  let repo = config.repo;
+  let pr = config.pr;
+  if (!repo && !pr && config.pr_url) {
+    const match = config.pr_url.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/);
+    if (match) {
+      repo = match[1];
+      pr = match[2];
+    }
+  }
+  if (!repo || !pr) return { resolved: false, status: 'fail' };
+
   try {
     const { stdout } = await execFileAsync('gh', [
       'api',
-      `repos/${config.repo}/issues/${config.pr}/comments`,
+      `repos/${repo}/issues/${pr}/comments`,
       '--jq',
       '[.[] | select(.body | startswith("## Centaur Review")) | {body: .body, created_at: .created_at}] | last',
     ]);
-    if (!stdout.trim()) return { resolved: false, status: 'fail' };
+    if (!stdout.trim() || stdout.trim() === 'null') return { resolved: false, status: 'fail' };
 
     const comment = JSON.parse(stdout) as { body: string; created_at: string };
+    if (!comment) return { resolved: false, status: 'fail' };
     const body = comment.body;
 
-    // LGTM with no issues = pass
-    if (body.includes('LGTM')) {
-      return { resolved: true, status: 'pass', artifacts: { review: body } };
-    }
-
-    // Has findings — resolved (review exists) but status depends on severity
+    // Check severity first — a review with findings takes precedence even if "LGTM" appears
+    // Regexes match Centaur's summary format: "Found **N** issue(s) (X critical, Y warning)"
     const hasCritical = /\d+\s+critical/.test(body);
     const hasWarning = /\d+\s+warning/.test(body);
 
@@ -293,7 +305,7 @@ async function checkCentaurReview(config: {
       };
     }
 
-    // Review exists but only info/style — pass
+    // LGTM or info/style only — pass
     return { resolved: true, status: 'pass', artifacts: { review: body } };
   } catch {
     return { resolved: false, status: 'fail' };
