@@ -30,7 +30,7 @@ const REJECTED_PATTERNS = [
   /^(hello|hi|hey|greetings)/i,
   /^(sure|certainly|of\s+course)/i,
   /^(here|let\s+me)/i,
-  /would you like/i,
+  /^would you like/i,
 ];
 
 /** Common stop words to filter out when extracting key terms. */

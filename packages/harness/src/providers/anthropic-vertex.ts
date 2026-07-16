@@ -13,15 +13,6 @@ import { calculateCost } from './types.js';
 
 const log = createLogger('provider:anthropic');
 
-/** Vertex AI model name mapping. Unversioned names auto-resolve to latest. */
-const VERTEX_MODEL_MAP: Record<string, string> = {
-  'claude-opus-4-6': 'claude-opus-4-6',
-  'claude-opus-4-5': 'claude-opus-4-5',
-  'claude-sonnet-4-6': 'claude-sonnet-4-6',
-  'claude-sonnet-4-5': 'claude-sonnet-4-5',
-  'claude-haiku-4-5': 'claude-haiku-4-5',
-};
-
 export interface AnthropicVertexProviderOptions {
   /** GCP project ID. Falls back to ANTHROPIC_VERTEX_PROJECT_ID env var. */
   projectId?: string;
@@ -60,7 +51,7 @@ export class AnthropicVertexModelProvider implements ModelProvider {
     const systemMessages = messages.filter((m) => m.role === 'system');
     const conversationMessages = messages.filter((m) => m.role !== 'system');
 
-    const apiModel = this.isVertex ? (VERTEX_MODEL_MAP[this.model] ?? this.model) : this.model;
+    const apiModel = this.model;
 
     const response = await this.client.messages.create({
       model: apiModel,
