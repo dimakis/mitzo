@@ -369,7 +369,9 @@ export const AVAILABLE_MODELS = [
   { id: 'claude-opus-4-7', label: 'Opus 4.7', desc: 'Adaptive thinking' },
   { id: 'claude-opus-4-7:max', label: 'Opus 4.7 Max', desc: 'Max thinking (128k)' },
   { id: 'claude-opus-4-6', label: 'Opus 4.6', desc: 'Previous Opus' },
+  { id: 'claude-opus-4-5', label: 'Opus 4.5', desc: 'Legacy Opus' },
   { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', desc: 'Balanced' },
+  { id: 'claude-sonnet-4-5', label: 'Sonnet 4.5', desc: 'Previous Sonnet' },
   { id: 'claude-haiku-4-5', label: 'Haiku 4.5', desc: 'Fastest' },
 ];
 

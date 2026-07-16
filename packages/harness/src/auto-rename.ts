@@ -12,7 +12,7 @@ export const AUTO_RENAME_INTERVAL = 2;
 export const AUTO_RENAME_MODEL = 'claude-haiku-4-5-20251001';
 
 /** Model name on Vertex AI (uses different naming convention). */
-const VERTEX_MODEL = 'claude-3-5-haiku@20241022';
+const VERTEX_MODEL = 'claude-haiku-4-5@20251001';
 
 /** Max total characters of concatenated prompts sent to the LLM. */
 const MAX_PROMPT_INPUT_CHARS = 2000;

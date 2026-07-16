@@ -13,11 +13,13 @@ import { calculateCost } from './types.js';
 
 const log = createLogger('provider:anthropic');
 
-/** Vertex AI model name mapping (Vertex uses different naming). */
+/** Vertex AI model name mapping. Unversioned names auto-resolve to latest. */
 const VERTEX_MODEL_MAP: Record<string, string> = {
-  'claude-opus-4-6': 'claude-opus-4-6@20250514',
-  'claude-sonnet-4-6': 'claude-sonnet-4-6@20250514',
-  'claude-haiku-4-5': 'claude-3-5-haiku@20241022',
+  'claude-opus-4-6': 'claude-opus-4-6',
+  'claude-opus-4-5': 'claude-opus-4-5',
+  'claude-sonnet-4-6': 'claude-sonnet-4-6',
+  'claude-sonnet-4-5': 'claude-sonnet-4-5',
+  'claude-haiku-4-5': 'claude-haiku-4-5',
 };
 
 export interface AnthropicVertexProviderOptions {

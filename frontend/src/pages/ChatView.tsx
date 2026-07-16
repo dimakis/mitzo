@@ -226,7 +226,9 @@ export function ChatView() {
           <option value="claude-opus-4-7">Opus 4.7</option>
           <option value="claude-opus-4-7:max">Opus 4.7 Max</option>
           <option value="claude-opus-4-6">Opus 4.6</option>
+          <option value="claude-opus-4-5">Opus 4.5</option>
           <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+          <option value="claude-sonnet-4-5">Sonnet 4.5</option>
           <option value="claude-haiku-4-5">Haiku 4.5</option>
         </select>
         {!keyboardOpen && (
