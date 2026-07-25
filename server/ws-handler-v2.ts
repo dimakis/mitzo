@@ -539,6 +539,11 @@ export function handleSendV2(
             }
             applySkillPolicy(activeClientId);
             ctx.connRegistry.watch(connectionId, sessionId);
+            // No resetCursor here — handleReconnect (fire-and-forget POST) sets
+            // cursor to lastSeq when it arrives. Between watch and reconnect,
+            // broadcasts may deliver events the client already has, but Node's
+            // single-threaded event loop prevents true interleaving and client-
+            // side seq dedup handles any duplicates.
             ctx.connRegistry.setActive(connectionId, sessionId);
             sendToChat(activeClientId, prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
             span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');
@@ -911,6 +916,10 @@ export async function dispatchV2Message(
   switch (msg.type) {
     case 'hello':
       // Already handled at routing layer, ignore duplicate
+      break;
+    case 'reconnect':
+      // WS clients still send reconnect over WS (removed in P4).
+      handleReconnect(connectionId, msg, ctx);
       break;
     case 'watch':
       handleWatch(connectionId, msg, ctx);

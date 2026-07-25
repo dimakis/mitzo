@@ -1550,7 +1550,7 @@ describe('dispatchV2Message', () => {
     expect(stopChat).toHaveBeenCalledWith('driver-1');
   });
 
-  it('ignores reconnect messages over WS (handled via REST only)', async () => {
+  it('handles reconnect messages over WS (until P4 removes WS transport)', async () => {
     const ctx = createContext();
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
@@ -1565,8 +1565,8 @@ describe('dispatchV2Message', () => {
       ctx,
     );
 
-    // Reconnect removed from WS union — message is silently dropped
-    expect(transport.sent).not.toContainEqual(expect.objectContaining({ type: 'reconnected' }));
+    // WS reconnect calls watch() for each session
+    expect(ctx.connRegistry.get('c1')?.watchedSessions.has('sess-1')).toBe(true);
   });
 
   it('routes set_mode messages correctly', async () => {

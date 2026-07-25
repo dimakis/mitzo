@@ -162,6 +162,7 @@ describe('IncomingWsMessageV2 discriminated union', () => {
   it('parses all v2 message types', () => {
     const messages = [
       { type: 'hello', protocolVersion: 2 },
+      { type: 'reconnect', sessions: [] },
       { type: 'watch', sessionId: 'sess-1' },
       { type: 'unwatch', sessionId: 'sess-1' },
       { type: 'switch_session', sessionId: 'sess-1' },
