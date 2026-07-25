@@ -214,17 +214,7 @@ export class SseConnection implements ChatConnection {
       // have been cleared (clearSession) since the retry was queued.
       // Refresh lastSeq from current map — SSE events may have advanced it
       // since the original failure, avoiding unnecessary replay.
-      const pending = this._pendingReconnectSessions
-        ?.filter((s) => this.seqBySession.has(s.sessionId))
-        .map((s) => ({ ...s, lastSeq: this.seqBySession.get(s.sessionId)! }));
-      const sessions =
-        (pending && pending.length > 0 ? pending : null) ??
-        (this._isReconnect && this.seqBySession.size > 0
-          ? Array.from(this.seqBySession.entries()).map(([sessionId, lastSeq]) => ({
-              sessionId,
-              lastSeq,
-            }))
-          : null);
+      const sessions = this.getReconnectSessions();
       if (sessions) {
         this._pendingReconnectSessions = sessions;
         // Capture connectionId to detect stale callbacks — if a new welcome
@@ -288,7 +278,9 @@ export class SseConnection implements ChatConnection {
   }
 
   private async doPost(endpoint: string, body: Record<string, unknown>): Promise<void> {
-    if (!this._connectionId) return;
+    if (!this._connectionId) {
+      throw new Error('doPost called without connectionId');
+    }
     try {
       const res = await this.config.fetch(`${this.config.baseUrl}/api/chat/${endpoint}`, {
         method: 'POST',
@@ -352,6 +344,30 @@ export class SseConnection implements ChatConnection {
       default:
         return null;
     }
+  }
+
+  /**
+   * Build the session list for a reconnect POST.
+   *
+   * Priority: (1) pending retry sessions (filtered against current seqBySession,
+   * with refreshed lastSeq), (2) all tracked sessions if this is a reconnect.
+   * Returns null when there's nothing to reconnect.
+   */
+  private getReconnectSessions(): Array<{ sessionId: string; lastSeq: number }> | null {
+    const pending = this._pendingReconnectSessions
+      ?.filter((s) => this.seqBySession.has(s.sessionId))
+      .map((s) => ({ ...s, lastSeq: this.seqBySession.get(s.sessionId)! }));
+
+    if (pending && pending.length > 0) return pending;
+
+    if (this._isReconnect && this.seqBySession.size > 0) {
+      return Array.from(this.seqBySession.entries()).map(([sessionId, lastSeq]) => ({
+        sessionId,
+        lastSeq,
+      }));
+    }
+
+    return null;
   }
 
   // ─── Browser lifecycle ─────────────────────────────────────────────────────

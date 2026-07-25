@@ -264,24 +264,38 @@ export function handleReconnect(
         // transport (refreshed), and ownership checks on send/interrupt
         // handle the rekey atomically.
         const found = ctx.sessionRegistry.findBySessionId(entry.sessionId);
+        const storeState = ctx.eventStore.getSessionState(entry.sessionId);
+
+        // Skip reattach for zombie sessions — if EventStore says the session
+        // is ENDED or CLOSING, don't reattach. The session's query loop is
+        // finished and reattaching would resurrect a dead transport binding.
         if (found && ctx.sessionRegistry.isActive(found.clientId)) {
-          const ownerConnection = getOwnerConnection(found.clientId);
-          // Reattach if: (a) same connection owns it, OR (b) old owner
-          // connection is gone (device restart gave us a new connectionId).
-          const ownerGone =
-            ownerConnection !== connectionId && !ctx.connRegistry.get(ownerConnection);
-          if (
-            (ownerConnection === connectionId || ownerGone) &&
-            !ctx.sessionRegistry.isAttached(found.clientId)
-          ) {
-            const transport = ctx.connRegistry.get(connectionId)?.transport;
-            if (transport) {
-              reattachChat(found.clientId, transport);
-              log.info('reattached detached session on reconnect', {
-                connectionId,
-                sessionId: entry.sessionId,
-                ownerGone,
-              });
+          if (storeState === 'ENDED' || storeState === 'CLOSING') {
+            log.info('skipping reattach for zombie session on reconnect', {
+              connectionId,
+              sessionId: entry.sessionId,
+              clientId: found.clientId,
+              storeState,
+            });
+          } else {
+            const ownerConnection = getOwnerConnection(found.clientId);
+            // Reattach if: (a) same connection owns it, OR (b) old owner
+            // connection is gone (device restart gave us a new connectionId).
+            const ownerGone =
+              ownerConnection !== connectionId && !ctx.connRegistry.get(ownerConnection);
+            if (
+              (ownerConnection === connectionId || ownerGone) &&
+              !ctx.sessionRegistry.isAttached(found.clientId)
+            ) {
+              const transport = ctx.connRegistry.get(connectionId)?.transport;
+              if (transport) {
+                reattachChat(found.clientId, transport);
+                log.info('reattached detached session on reconnect', {
+                  connectionId,
+                  sessionId: entry.sessionId,
+                  ownerGone,
+                });
+              }
             }
           }
         }
@@ -576,6 +590,9 @@ export function handleSendV2(
             // with seq <= lastProcessedSeq. The two HTTP requests (reconnect
             // POST and send POST) can arrive as separate event loop ticks in any
             // order, but duplicate delivery is always harmless thanks to seq dedup.
+            // TODO(P4): Unify cursor reset so watch() initializes the cursor from
+            // the client's lastSeq, removing the dependency on client-side seq dedup
+            // for the window between watch() and the reconnect POST arriving.
             ctx.connRegistry.setActive(connectionId, sessionId);
             sendToChat(activeClientId, prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
             span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');
@@ -950,7 +967,7 @@ export async function dispatchV2Message(
       // Already handled at routing layer, ignore duplicate
       break;
     case 'reconnect':
-      // WS clients still send reconnect over WS (removed in P4).
+      // WS clients may also send reconnect over WS.
       handleReconnect(connectionId, msg, ctx);
       break;
     case 'watch':
