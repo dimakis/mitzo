@@ -981,7 +981,7 @@ function shutdown(signal: string) {
   overviewEmitter.destroy();
   sseRegistry.destroy();
   chatSseRegistry.destroy();
-  connRegistry.dispose(); // Stop periodic sync + clear state
+  connRegistry.dispose(); // Clear connection state
   registry.dispose();
   for (const client of wss.clients) {
     client.close(1001, 'Server shutting down');

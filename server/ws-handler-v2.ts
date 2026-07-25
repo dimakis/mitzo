@@ -912,9 +912,7 @@ export async function dispatchV2Message(
     case 'hello':
       // Already handled at routing layer, ignore duplicate
       break;
-    case 'reconnect':
-      // Reconnect is handled via REST POST, not WS. Ignore if received over WS.
-      break;
+    // 'reconnect' removed — handled via REST POST; schema rejects it before reaching here.
     case 'watch':
       handleWatch(connectionId, msg, ctx);
       break;

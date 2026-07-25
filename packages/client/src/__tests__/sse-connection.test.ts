@@ -386,6 +386,33 @@ describe('SseConnection', () => {
     expect(postEndpoints).toEqual(['reconnect', 'send']);
   });
 
+  it('flushes pending sends even when reconnect POST rejects', () => {
+    const postEndpoints: string[] = [];
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      const endpoint = url.replace('https://localhost:3100/api/chat/', '');
+      postEndpoints.push(endpoint);
+      if (url.includes('/reconnect')) {
+        return Promise.reject(new Error('network error'));
+      }
+      return Promise.resolve({ ok: true });
+    });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+    conn.trackSeq('sess-1', 10);
+
+    // Force reconnect — queue a send while disconnected
+    conn.checkAndReconnect(true);
+    conn.send({ type: 'send', prompt: 'queued msg', clientMsgId: 'q-1' });
+    postEndpoints.length = 0;
+
+    // Welcome — reconnect POST fires (will reject), but queued send still flushes
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
+
+    // Both POSTs fired: reconnect (fire-and-forget) + queued send
+    expect(postEndpoints).toEqual(['reconnect', 'send']);
+  });
+
   it('does not emit _close when checkAndReconnect called while already disconnected', () => {
     const conn = new SseConnection(createConfig());
     const listener = vi.fn();
