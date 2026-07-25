@@ -413,6 +413,39 @@ describe('SseConnection', () => {
     expect(postEndpoints).toEqual(['reconnect', 'send']);
   });
 
+  it('dispatches SSE events to listener even when reconnect POST fails', async () => {
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/reconnect')) {
+        return Promise.reject(new Error('network error'));
+      }
+      return Promise.resolve({ ok: true });
+    });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    const listener = vi.fn();
+    conn.onMessage(listener);
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+    conn.trackSeq('sess-1', 10);
+
+    conn.checkAndReconnect(true);
+    listener.mockClear();
+
+    // Reconnect welcome — POST will fail, but SSE events should still dispatch
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
+
+    // Simulate an SSE event arriving after the failed reconnect POST
+    lastES()._emit('message', {
+      type: 'session_state_changed',
+      sessionId: 'sess-1',
+      state: 'running',
+    });
+
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({ type: '_open' }));
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'session_state_changed', state: 'running' }),
+    );
+  });
+
   it('does not emit _close when checkAndReconnect called while already disconnected', () => {
     const conn = new SseConnection(createConfig());
     const listener = vi.fn();

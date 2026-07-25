@@ -47,9 +47,6 @@ export interface ProtocolCallbacks {
   /** @deprecated v1 only — called to mark the WS pool entry as running/not-running. */
   setWsRunning?(poolKey: string, running: boolean): void;
 
-  /** @deprecated v1 only — called to send a queued message after session_end. */
-  sendQueued?(poolKey: string, msg: unknown): void;
-
   /** v2: Called with token data from session_switched response. */
   onTokensHydrated?(tokens: Record<string, unknown>): void;
 

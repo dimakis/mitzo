@@ -16,7 +16,6 @@ function makeCallbacks(overrides?: Partial<ProtocolCallbacks>): ProtocolCallback
     onMessagesRestored: vi.fn(),
     onSessionRenamed: vi.fn(),
     setWsRunning: vi.fn(),
-    sendQueued: vi.fn(),
     ...overrides,
   };
 }
@@ -160,8 +159,6 @@ describe('session lifecycle', () => {
     const cb = makeCallbacks();
     const r = parseServerMessage({ type: 'session_end', sessionId: 'sid' }, makeState(), cb, POOL_KEY);
     expect(r.messagesActions).toContainEqual({ type: 'SESSION_END', sessionId: 'sid' });
-    // No client-side pending send drain — server handles message queueing
-    expect(cb.sendQueued).not.toHaveBeenCalled();
   });
 });
 
