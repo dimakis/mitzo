@@ -232,7 +232,14 @@ export class SseConnection implements ChatConnection {
         return;
       }
 
+      // Seq-based dedup: if the reconnect POST fails, the server may re-deliver
+      // events using a stale cursor. The frontend reducer is not block-level
+      // idempotent (BLOCK_DELTA concatenates), so skip already-seen events.
       if (typeof msg.seq === 'number' && typeof msg.sessionId === 'string') {
+        const lastSeq = this.seqBySession.get(msg.sessionId as string);
+        if (lastSeq !== undefined && (msg.seq as number) <= lastSeq) {
+          return; // Already seen — skip duplicate
+        }
         this.seqBySession.set(msg.sessionId as string, msg.seq as number);
       }
 

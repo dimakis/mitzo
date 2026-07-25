@@ -252,15 +252,28 @@ export function handleReconnect(
         const newCursor = events.length > 0 ? events[events.length - 1].seq : entry.lastSeq;
         ctx.connRegistry.resetCursor(connectionId, entry.sessionId, newCursor);
 
-        // Ownership dance (reattach/rekey/zombie cleanup) is NOT done here.
-        // handleSendV2 handles all of that on the first user message — reconnect
-        // only needs to restore the event stream and boot context.
+        // Eagerly reattach detached sessions to cancel the detach TTL timer.
+        // Without this, the TTL keeps ticking until the first user message
+        // triggers handleSendV2's reattach — if the user reconnects but doesn't
+        // send a message quickly, the session could be aborted despite being
+        // connected and watching events.
+        const found = ctx.sessionRegistry.findBySessionId(entry.sessionId);
+        if (found) {
+          const transport = ctx.connRegistry.get(connectionId)?.transport;
+          if (transport && !ctx.sessionRegistry.isAttached(found.clientId)) {
+            reattachChat(found.clientId, transport);
+            log.info('reattached detached session on reconnect', {
+              connectionId,
+              sessionId: entry.sessionId,
+              clientId: found.clientId,
+            });
+          }
+        }
 
         // If the session was suspended, clear suspend state. Don't replay
         // buffered events — they were already replayed from EventStore above
         // (sendOrBuffer appends to both stores, so EventStore covers the
         // suspend period). resume() just clears the suspend flag + buffer.
-        const found = ctx.sessionRegistry.findBySessionId(entry.sessionId);
         const running = found ? ctx.sessionRegistry.isActive(found.clientId) : false;
         let suspendReplayed = 0;
         if (found && running && ctx.sessionRegistry.isSuspended(found.clientId)) {

@@ -446,6 +446,74 @@ describe('SseConnection', () => {
     );
   });
 
+  it('deduplicates SSE events by seq (skips already-seen seq numbers)', () => {
+    const conn = new SseConnection(createConfig());
+    const listener = vi.fn();
+    conn.onMessage(listener);
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+    listener.mockClear();
+
+    // First delivery — should pass through
+    lastES()._emit('message', {
+      type: 'block_delta',
+      sessionId: 'sess-1',
+      seq: 5,
+      delta: 'hello',
+    });
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    // Duplicate delivery (same seq) — should be skipped
+    lastES()._emit('message', {
+      type: 'block_delta',
+      sessionId: 'sess-1',
+      seq: 5,
+      delta: 'hello',
+    });
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    // Old seq — should also be skipped
+    lastES()._emit('message', {
+      type: 'block_delta',
+      sessionId: 'sess-1',
+      seq: 3,
+      delta: 'old',
+    });
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    // New seq — should pass through
+    lastES()._emit('message', {
+      type: 'block_delta',
+      sessionId: 'sess-1',
+      seq: 6,
+      delta: 'world',
+    });
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  it('reconnect POST fires before flushPendingSends (ordering guarantee)', () => {
+    const callOrder: string[] = [];
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      const endpoint = url.replace('https://localhost:3100/api/chat/', '');
+      callOrder.push(endpoint);
+      return Promise.resolve({ ok: true });
+    });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+    conn.trackSeq('sess-1', 10);
+
+    conn.checkAndReconnect(true);
+    conn.send({ type: 'send', prompt: 'queued', clientMsgId: 'q-1' });
+    callOrder.length = 0;
+
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
+
+    // reconnect MUST fire before the queued send
+    expect(callOrder[0]).toBe('reconnect');
+    expect(callOrder[1]).toBe('send');
+  });
+
   it('does not emit _close when checkAndReconnect called while already disconnected', () => {
     const conn = new SseConnection(createConfig());
     const listener = vi.fn();
