@@ -363,7 +363,7 @@ describe('SseConnection', () => {
     expect(listener).toHaveBeenCalledWith({ type: '_open' });
   });
 
-  it('flushes pending sends immediately on reconnect welcome', () => {
+  it('flushes pending sends after reconnect POST completes', async () => {
     const postEndpoints: string[] = [];
     const mockFetch = vi.fn().mockImplementation((url: string) => {
       const endpoint = url.replace('https://localhost:3100/api/chat/', '');
@@ -380,10 +380,50 @@ describe('SseConnection', () => {
     conn.send({ type: 'send', prompt: 'queued msg', clientMsgId: 'q-1' });
     postEndpoints.length = 0;
 
-    // Welcome — reconnect POST + queued send both fire immediately
+    // Welcome — reconnect POST fires, pending sends flush after it resolves
     lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
 
-    expect(postEndpoints).toEqual(['reconnect', 'send']);
+    // reconnect POST fires first
+    expect(postEndpoints).toEqual(['reconnect']);
+
+    // After the reconnect POST resolves, pending sends flush
+    await vi.waitFor(() => {
+      expect(postEndpoints).toEqual(['reconnect', 'send']);
+    });
+  });
+
+  it('SSE events still arrive after reconnect POST failure', async () => {
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/reconnect')) {
+        return Promise.reject(new Error('network error'));
+      }
+      return Promise.resolve({ ok: true });
+    });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    const received: Array<Record<string, unknown>> = [];
+    conn.onMessage((msg) => received.push(msg));
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+    conn.trackSeq('sess-1', 10);
+
+    // Force reconnect — reconnect POST will fail
+    conn.checkAndReconnect(true);
+
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
+
+    // Wait for reconnect POST to fail
+    await vi.waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/reconnect'),
+        expect.any(Object),
+      );
+    });
+
+    // SSE events still arrive via EventSource despite reconnect POST failure
+    lastES()._emit('message', { type: 'assistant', sessionId: 'sess-1', seq: 11 });
+    expect(received).toContainEqual(
+      expect.objectContaining({ type: 'assistant', sessionId: 'sess-1', seq: 11 }),
+    );
   });
 
   it('does not emit _close when checkAndReconnect called while already disconnected', () => {

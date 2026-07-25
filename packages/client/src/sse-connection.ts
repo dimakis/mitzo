@@ -37,6 +37,8 @@ export class SseConnection implements ChatConnection {
   private listener: ConnectionListener | null = null;
   private seqBySession = new Map<string, number>();
   private pendingSends: Array<{ endpoint: string; body: Record<string, unknown> }> = [];
+  /** Sessions that need a reconnect POST — set when reconnect fails, retried on next welcome. */
+  private _pendingReconnectSessions: Array<{ sessionId: string; lastSeq: number }> | null = null;
   private boundOnVisibility: (() => void) | null = null;
   private boundOnPageShow: ((e: PageTransitionEvent) => void) | null = null;
   private boundOnPageHide: (() => void) | null = null;
@@ -81,7 +83,7 @@ export class SseConnection implements ChatConnection {
     if (!endpoint) return false;
 
     if (this._connected && this._connectionId) {
-      this.doPost(endpoint, msg);
+      this.doPost(endpoint, msg).catch(() => {});
       return true;
     }
 
@@ -143,7 +145,7 @@ export class SseConnection implements ChatConnection {
 
     // Try POST first
     if (this._connected && this._connectionId) {
-      this.doPost('suspend', { type: 'session_suspend', sessions });
+      this.doPost('suspend', { type: 'session_suspend', sessions }).catch(() => {});
       return;
     }
 
@@ -204,20 +206,37 @@ export class SseConnection implements ChatConnection {
       }
       this._connectionId = msg.connectionId as string;
 
-      // Fire reconnect POST (fire-and-forget) if reconnecting with sessions.
-      // No need to defer _connected — handleSendV2 handles ownership on first
+      // Fire reconnect POST if reconnecting with sessions, or retry a
+      // previously failed reconnect. handleSendV2 handles ownership on first
       // message, and replayed events arrive via SSE regardless.
-      if (this._isReconnect && this.seqBySession.size > 0) {
-        this.doPost('reconnect', {
-          type: 'reconnect',
-          sessions: Array.from(this.seqBySession.entries()).map(([sessionId, lastSeq]) => ({
-            sessionId,
-            lastSeq,
-          })),
-        });
-      }
+      const sessions =
+        this._pendingReconnectSessions ??
+        (this._isReconnect && this.seqBySession.size > 0
+          ? Array.from(this.seqBySession.entries()).map(([sessionId, lastSeq]) => ({
+              sessionId,
+              lastSeq,
+            }))
+          : null);
       this._connected = true;
-      this.flushPendingSends();
+      if (sessions) {
+        this._pendingReconnectSessions = sessions;
+        this.doPost('reconnect', { type: 'reconnect', sessions }).then(
+          () => {
+            this._pendingReconnectSessions = null;
+            // Flush pending sends AFTER reconnect so the server processes
+            // handleReconnect (cursor reset, replay) before user messages.
+            this.flushPendingSends();
+          },
+          () => {
+            // doPost already logs the warning. Keep _pendingReconnectSessions
+            // so the next EventSource reconnect retries automatically.
+            // Still flush — handleSendV2 handles ownership independently.
+            this.flushPendingSends();
+          },
+        );
+      } else {
+        this.flushPendingSends();
+      }
       this.listener?.({ type: '_open' });
       this._isReconnect = true;
     });
@@ -263,9 +282,14 @@ export class SseConnection implements ChatConnection {
         },
         body: JSON.stringify(body),
       });
-    } catch {
+    } catch (err) {
       // POST failures are non-fatal — the server may be temporarily
-      // unreachable. The SSE stream will reconnect and replay missed events.
+      // unreachable. SSE EventSource auto-reconnects and replays missed events
+      // from the EventStore. However, a failed reconnect POST means the server
+      // won't reset the cursor or re-send boot context until the next
+      // reconnect cycle. Client-side seq dedup prevents duplicate delivery.
+      console.warn(`[mitzo] ${endpoint} POST failed:`, err instanceof Error ? err.message : err);
+      throw err;
     }
   }
 
@@ -274,7 +298,7 @@ export class SseConnection implements ChatConnection {
     const toFlush = this.pendingSends;
     this.pendingSends = [];
     for (const { endpoint, body } of toFlush) {
-      this.doPost(endpoint, body);
+      this.doPost(endpoint, body).catch(() => {});
     }
   }
 

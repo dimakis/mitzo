@@ -252,15 +252,31 @@ export function handleReconnect(
         const newCursor = events.length > 0 ? events[events.length - 1].seq : entry.lastSeq;
         ctx.connRegistry.resetCursor(connectionId, entry.sessionId, newCursor);
 
-        // Ownership dance (reattach/rekey/zombie cleanup) is NOT done here.
-        // handleSendV2 handles all of that on the first user message — reconnect
-        // only needs to restore the event stream and boot context.
+        // Reattach detached sessions so the agent's transport is refreshed.
+        // Without this, a passively observing user would see events via
+        // watch/broadcast but the agent's transport stays stale.
+        const found = ctx.sessionRegistry.findBySessionId(entry.sessionId);
+        if (found && ctx.sessionRegistry.isActive(found.clientId)) {
+          const ownerConnection = found.clientId.split(':')[0];
+          if (
+            ownerConnection === connectionId &&
+            !ctx.sessionRegistry.isAttached(found.clientId)
+          ) {
+            const transport = ctx.connRegistry.get(connectionId)?.transport;
+            if (transport) {
+              reattachChat(found.clientId, transport);
+              log.info('reattached detached session on reconnect', {
+                connectionId,
+                sessionId: entry.sessionId,
+              });
+            }
+          }
+        }
 
         // If the session was suspended, clear suspend state. Don't replay
         // buffered events — they were already replayed from EventStore above
         // (sendOrBuffer appends to both stores, so EventStore covers the
         // suspend period). resume() just clears the suspend flag + buffer.
-        const found = ctx.sessionRegistry.findBySessionId(entry.sessionId);
         const running = found ? ctx.sessionRegistry.isActive(found.clientId) : false;
         let suspendReplayed = 0;
         if (found && running && ctx.sessionRegistry.isSuspended(found.clientId)) {
@@ -541,9 +557,11 @@ export function handleSendV2(
             ctx.connRegistry.watch(connectionId, sessionId);
             // No resetCursor here — handleReconnect (fire-and-forget POST) sets
             // cursor to lastSeq when it arrives. Between watch and reconnect,
-            // broadcasts may deliver events the client already has, but Node's
-            // single-threaded event loop prevents true interleaving and client-
-            // side seq dedup handles any duplicates.
+            // broadcasts may deliver events the client already has. This is safe
+            // because client-side seq dedup (store.ts) drops events with seq <=
+            // lastProcessedSeq. The two HTTP requests (reconnect POST and send
+            // POST) can arrive as separate event loop ticks in any order, but
+            // duplicate delivery is always harmless thanks to seq dedup.
             ctx.connRegistry.setActive(connectionId, sessionId);
             sendToChat(activeClientId, prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
             span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');

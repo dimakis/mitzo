@@ -242,14 +242,14 @@ describe('handleReconnect', () => {
     ]);
   });
 
-  it('does not reattach or rekey on reconnect (deferred to handleSendV2)', () => {
+  it('reattaches detached session on reconnect (owner connection)', () => {
     (reattachChat as ReturnType<typeof vi.fn>).mockClear();
     (rekeyChat as ReturnType<typeof vi.fn>).mockClear();
 
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-1' });
     sessionReg.isActive.mockReturnValue(true);
-    sessionReg.isAttached.mockReturnValue(false); // detached — but reconnect should NOT reattach
+    sessionReg.isAttached.mockReturnValue(false); // detached — reconnect should reattach
 
     const ctx = createContext({
       sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
@@ -263,7 +263,7 @@ describe('handleReconnect', () => {
       ctx,
     );
 
-    expect(reattachChat).not.toHaveBeenCalled();
+    expect(reattachChat).toHaveBeenCalledWith('c1:sess-1', transport);
     expect(rekeyChat).not.toHaveBeenCalled();
   });
 
