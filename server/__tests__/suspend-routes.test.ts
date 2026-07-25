@@ -51,6 +51,7 @@ vi.mock('../chat.js', () => {
       append: vi.fn(),
       getEventsAfter: vi.fn().mockReturnValue([]),
       getSession: vi.fn().mockReturnValue(null),
+      setSessionState: vi.fn(),
     },
     isIsolationEnabled: vi.fn().mockReturnValue(false),
     generateWtId: vi.fn().mockReturnValue('wt-test'),
