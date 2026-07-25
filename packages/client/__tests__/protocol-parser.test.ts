@@ -157,7 +157,12 @@ describe('session lifecycle', () => {
 
   it('session_end dispatches SESSION_END action', () => {
     const cb = makeCallbacks();
-    const r = parseServerMessage({ type: 'session_end', sessionId: 'sid' }, makeState(), cb, POOL_KEY);
+    const r = parseServerMessage(
+      { type: 'session_end', sessionId: 'sid' },
+      makeState(),
+      cb,
+      POOL_KEY,
+    );
     expect(r.messagesActions).toContainEqual({ type: 'SESSION_END', sessionId: 'sid' });
   });
 });
@@ -367,7 +372,12 @@ describe('error handling', () => {
 
   it('error does not require pendingSend cleanup (removed in P2)', () => {
     const state = makeState();
-    const r = parseServerMessage({ type: 'error', error: 'fail' }, state, makeCallbacks(), POOL_KEY);
+    const r = parseServerMessage(
+      { type: 'error', error: 'fail' },
+      state,
+      makeCallbacks(),
+      POOL_KEY,
+    );
     expect(r.messagesActions).toContainEqual({ type: 'ERROR', error: 'fail' });
   });
 });
