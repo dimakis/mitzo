@@ -257,7 +257,7 @@ export function handleReconnect(
         // watch/broadcast but the agent's transport stays stale.
         const found = ctx.sessionRegistry.findBySessionId(entry.sessionId);
         if (found && ctx.sessionRegistry.isActive(found.clientId)) {
-          const ownerConnection = found.clientId.split(':')[0];
+          const ownerConnection = getOwnerConnection(found.clientId);
           // Reattach if: (a) same connection owns it, OR (b) old owner
           // connection is gone (device restart gave us a new connectionId).
           const ownerGone =

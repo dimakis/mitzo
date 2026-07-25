@@ -212,9 +212,11 @@ export class SseConnection implements ChatConnection {
       // message, and replayed events arrive via SSE regardless.
       // Filter pending retries against current seqBySession — sessions may
       // have been cleared (clearSession) since the retry was queued.
-      const pending = this._pendingReconnectSessions?.filter((s) =>
-        this.seqBySession.has(s.sessionId),
-      );
+      // Refresh lastSeq from current map — SSE events may have advanced it
+      // since the original failure, avoiding unnecessary replay.
+      const pending = this._pendingReconnectSessions
+        ?.filter((s) => this.seqBySession.has(s.sessionId))
+        .map((s) => ({ ...s, lastSeq: this.seqBySession.get(s.sessionId)! }));
       const sessions =
         (pending && pending.length > 0 ? pending : null) ??
         (this._isReconnect && this.seqBySession.size > 0
@@ -226,14 +228,20 @@ export class SseConnection implements ChatConnection {
       this._connected = true;
       if (sessions) {
         this._pendingReconnectSessions = sessions;
+        // Capture connectionId to detect stale callbacks — if a new welcome
+        // arrives while this POST is in-flight, the callback should no-op
+        // to avoid double-flushing pending sends.
+        const postConnectionId = this._connectionId;
         this.doPost('reconnect', { type: 'reconnect', sessions }).then(
           () => {
+            if (this._connectionId !== postConnectionId) return; // stale callback
             this._pendingReconnectSessions = null;
             // Flush pending sends AFTER reconnect so the server processes
             // handleReconnect (cursor reset, replay) before user messages.
             this.flushPendingSends();
           },
           () => {
+            if (this._connectionId !== postConnectionId) return; // stale callback
             // doPost already logs the warning. Keep _pendingReconnectSessions
             // so the next EventSource reconnect retries automatically.
             // Still flush — handleSendV2 handles ownership independently.
