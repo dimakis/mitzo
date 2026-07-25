@@ -258,10 +258,7 @@ export function handleReconnect(
         const found = ctx.sessionRegistry.findBySessionId(entry.sessionId);
         if (found && ctx.sessionRegistry.isActive(found.clientId)) {
           const ownerConnection = found.clientId.split(':')[0];
-          if (
-            ownerConnection === connectionId &&
-            !ctx.sessionRegistry.isAttached(found.clientId)
-          ) {
+          if (ownerConnection === connectionId && !ctx.sessionRegistry.isAttached(found.clientId)) {
             const transport = ctx.connRegistry.get(connectionId)?.transport;
             if (transport) {
               reattachChat(found.clientId, transport);
