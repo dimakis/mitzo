@@ -50,9 +50,6 @@ export interface ProtocolCallbacks {
   /** @deprecated v1 only — called to send a queued message after session_end. */
   sendQueued?(poolKey: string, msg: unknown): void;
 
-  /** v2: Called when a queued message should be sent after session_end. */
-  onSendQueued?(msg: Record<string, unknown>): void;
-
   /** v2: Called with token data from session_switched response. */
   onTokensHydrated?(tokens: Record<string, unknown>): void;
 
@@ -65,9 +62,6 @@ export interface ProtocolCallbacks {
 export interface ProtocolParserState {
   /** Currently tracked session ID (used for expiry detection). */
   currentSessionId: string | undefined;
-
-  /** Queued messages to send after current session ends (FIFO). */
-  pendingSend: Record<string, unknown>[];
 }
 
 // ─── Parser result ───────────────────────────────────────────────────────────
@@ -364,18 +358,6 @@ export function parseServerMessage(
       if (msg.sessionId && !state.currentSessionId) {
         callbacks.onSessionAssigned(msg.sessionId as string);
       }
-      // Drain first queued message. Optimistic running=true avoids UI flicker
-      // between the send and the server's session_state_changed confirmation.
-      const pending = state.pendingSend.shift();
-      if (pending) {
-        result.messagesActions.push({ type: 'SESSION_STATE_CHANGED', state: 'running' });
-        if (callbacks.onSendQueued) {
-          callbacks.onSendQueued(pending);
-        } else {
-          callbacks.setWsRunning?.(poolKey, true);
-          callbacks.sendQueued?.(poolKey, pending);
-        }
-      }
       break;
     }
 
@@ -450,7 +432,6 @@ export function parseServerMessage(
       const errorMsg = msg.error as string;
 
       callbacks.setWsRunning?.(poolKey, false);
-      state.pendingSend = [];
       result.messagesActions.push({
         type: 'ERROR',
         error: errorMsg || 'Unknown error',

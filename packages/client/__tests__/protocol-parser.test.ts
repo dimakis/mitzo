@@ -5,7 +5,6 @@ import type { ProtocolCallbacks, ProtocolParserState } from '../src/protocol-par
 function makeState(overrides?: Partial<ProtocolParserState>): ProtocolParserState {
   return {
     currentSessionId: undefined,
-    pendingSend: [],
     ...overrides,
   };
 }
@@ -157,21 +156,12 @@ describe('session lifecycle', () => {
     ]);
   });
 
-  it('session_end dequeues first pending send and queues it', () => {
-    const state = makeState({
-      pendingSend: [
-        { type: 'send', prompt: 'follow-up' },
-        { type: 'send', prompt: 'second' },
-      ],
-    });
+  it('session_end dispatches SESSION_END action', () => {
     const cb = makeCallbacks();
-    const r = parseServerMessage({ type: 'session_end', sessionId: 'sid' }, state, cb, POOL_KEY);
+    const r = parseServerMessage({ type: 'session_end', sessionId: 'sid' }, makeState(), cb, POOL_KEY);
     expect(r.messagesActions).toContainEqual({ type: 'SESSION_END', sessionId: 'sid' });
-    // Optimistic running=true when draining pending send
-    expect(r.messagesActions).toContainEqual({ type: 'SESSION_STATE_CHANGED', state: 'running' });
-    expect(cb.sendQueued).toHaveBeenCalledWith(POOL_KEY, { type: 'send', prompt: 'follow-up' });
-    // Second message stays queued
-    expect(state.pendingSend).toEqual([{ type: 'send', prompt: 'second' }]);
+    // No client-side pending send drain — server handles message queueing
+    expect(cb.sendQueued).not.toHaveBeenCalled();
   });
 });
 
@@ -378,10 +368,10 @@ describe('error handling', () => {
     expect(r.messagesActions).toEqual([{ type: 'ERROR', error: 'Something broke' }]);
   });
 
-  it('error clears pendingSend queue', () => {
-    const state = makeState({ pendingSend: [{ type: 'send', prompt: 'test' }] });
-    parseServerMessage({ type: 'error', error: 'fail' }, state, makeCallbacks(), POOL_KEY);
-    expect(state.pendingSend).toEqual([]);
+  it('error does not require pendingSend cleanup (removed in P2)', () => {
+    const state = makeState();
+    const r = parseServerMessage({ type: 'error', error: 'fail' }, state, makeCallbacks(), POOL_KEY);
+    expect(r.messagesActions).toContainEqual({ type: 'ERROR', error: 'fail' });
   });
 });
 
