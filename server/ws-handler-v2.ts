@@ -258,13 +258,21 @@ export function handleReconnect(
         const found = ctx.sessionRegistry.findBySessionId(entry.sessionId);
         if (found && ctx.sessionRegistry.isActive(found.clientId)) {
           const ownerConnection = found.clientId.split(':')[0];
-          if (ownerConnection === connectionId && !ctx.sessionRegistry.isAttached(found.clientId)) {
+          // Reattach if: (a) same connection owns it, OR (b) old owner
+          // connection is gone (device restart gave us a new connectionId).
+          const ownerGone =
+            ownerConnection !== connectionId && !ctx.connRegistry.get(ownerConnection);
+          if (
+            (ownerConnection === connectionId || ownerGone) &&
+            !ctx.sessionRegistry.isAttached(found.clientId)
+          ) {
             const transport = ctx.connRegistry.get(connectionId)?.transport;
             if (transport) {
               reattachChat(found.clientId, transport);
               log.info('reattached detached session on reconnect', {
                 connectionId,
                 sessionId: entry.sessionId,
+                ownerGone,
               });
             }
           }

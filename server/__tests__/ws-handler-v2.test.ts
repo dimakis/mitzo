@@ -267,6 +267,31 @@ describe('handleReconnect', () => {
     expect(rekeyChat).not.toHaveBeenCalled();
   });
 
+  it('reattaches detached session when owner connection is gone (device restart)', () => {
+    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
+
+    const sessionReg = mockSessionRegistry();
+    // Session owned by old connection 'c-old', but 'c-old' is no longer registered
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'c-old:sess-1' });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(false);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    // Register new connection 'c-new' — 'c-old' is NOT registered (gone)
+    ctx.connRegistry.register('c-new', transport);
+
+    handleReconnect(
+      'c-new',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
+      ctx,
+    );
+
+    expect(reattachChat).toHaveBeenCalledWith('c-old:sess-1', transport);
+  });
+
   it('resets cursor to client lastSeq immediately after watch (before replay)', () => {
     const eventStore = mockEventStore();
     eventStore.getEventsAfter.mockReturnValue([

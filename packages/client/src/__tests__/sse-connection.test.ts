@@ -548,6 +548,72 @@ describe('SseConnection', () => {
     );
   });
 
+  it('treats HTTP 500 as failure and retries reconnect on next welcome', async () => {
+    let reconnectCount = 0;
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/reconnect')) {
+        reconnectCount++;
+        return Promise.resolve({ ok: false, status: 500 });
+      }
+      return Promise.resolve({ ok: true });
+    });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+    conn.trackSeq('sess-1', 10);
+
+    // Force reconnect — reconnect POST will get HTTP 500
+    conn.checkAndReconnect(true);
+    reconnectCount = 0;
+
+    // First welcome — reconnect POST fires and gets 500
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
+    await vi.waitFor(() => expect(reconnectCount).toBe(1));
+
+    // Force another reconnect — should retry because 500 kept _pendingReconnectSessions
+    conn.checkAndReconnect(true);
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-ghi' });
+    await vi.waitFor(() => expect(reconnectCount).toBe(2));
+  });
+
+  it('disconnect clears pending reconnect sessions', async () => {
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/reconnect')) {
+        return Promise.reject(new Error('network error'));
+      }
+      return Promise.resolve({ ok: true });
+    });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+    conn.trackSeq('sess-1', 10);
+
+    // Force reconnect — reconnect POST will fail, setting _pendingReconnectSessions
+    conn.checkAndReconnect(true);
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
+    await vi.waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/reconnect'),
+        expect.any(Object),
+      );
+    });
+
+    // Disconnect — should clear pending reconnect sessions
+    conn.disconnect();
+    conn.clearSession('sess-1'); // Session no longer tracked after full disconnect
+    mockFetch.mockClear();
+
+    // Reconnect fresh — should NOT retry old sessions (pendingReconnect cleared,
+    // seqBySession empty, so no reconnect POST fires)
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-ghi' });
+
+    expect(mockFetch).not.toHaveBeenCalledWith(
+      expect.stringContaining('/reconnect'),
+      expect.any(Object),
+    );
+  });
+
   it('sendSuspend is no-op with no tracked sessions', () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true });
     const conn = new SseConnection(createConfig({ fetch: mockFetch }));

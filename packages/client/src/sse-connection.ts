@@ -64,6 +64,7 @@ export class SseConnection implements ChatConnection {
       this.es = null;
     }
     this._connected = false;
+    this._pendingReconnectSessions = null;
   }
 
   /**
@@ -209,8 +210,13 @@ export class SseConnection implements ChatConnection {
       // Fire reconnect POST if reconnecting with sessions, or retry a
       // previously failed reconnect. handleSendV2 handles ownership on first
       // message, and replayed events arrive via SSE regardless.
+      // Filter pending retries against current seqBySession — sessions may
+      // have been cleared (clearSession) since the retry was queued.
+      const pending = this._pendingReconnectSessions?.filter((s) =>
+        this.seqBySession.has(s.sessionId),
+      );
       const sessions =
-        this._pendingReconnectSessions ??
+        (pending && pending.length > 0 ? pending : null) ??
         (this._isReconnect && this.seqBySession.size > 0
           ? Array.from(this.seqBySession.entries()).map(([sessionId, lastSeq]) => ({
               sessionId,
@@ -274,7 +280,7 @@ export class SseConnection implements ChatConnection {
   private async doPost(endpoint: string, body: Record<string, unknown>): Promise<void> {
     if (!this._connectionId) return;
     try {
-      await this.config.fetch(`${this.config.baseUrl}/api/chat/${endpoint}`, {
+      const res = await this.config.fetch(`${this.config.baseUrl}/api/chat/${endpoint}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -282,6 +288,9 @@ export class SseConnection implements ChatConnection {
         },
         body: JSON.stringify(body),
       });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
     } catch (err) {
       // POST failures are non-fatal — the server may be temporarily
       // unreachable. SSE EventSource auto-reconnects and replays missed events
