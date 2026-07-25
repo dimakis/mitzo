@@ -255,6 +255,14 @@ export function handleReconnect(
         // Reattach detached sessions so the agent's transport is refreshed.
         // Without this, a passively observing user would see events via
         // watch/broadcast but the agent's transport stays stale.
+        //
+        // Note: reattach refreshes the transport but does NOT rekey the
+        // clientId. If ownerGone=true (device restart), the clientId still
+        // references the old connectionId until the first send triggers
+        // rekeyChat via handleSendV2. During this window, getOwnerConnection()
+        // returns a stale value. This is safe — event delivery uses the
+        // transport (refreshed), and ownership checks on send/interrupt
+        // handle the rekey atomically.
         const found = ctx.sessionRegistry.findBySessionId(entry.sessionId);
         if (found && ctx.sessionRegistry.isActive(found.clientId)) {
           const ownerConnection = getOwnerConnection(found.clientId);
@@ -562,11 +570,12 @@ export function handleSendV2(
             ctx.connRegistry.watch(connectionId, sessionId);
             // No resetCursor here — handleReconnect (fire-and-forget POST) sets
             // cursor to lastSeq when it arrives. Between watch and reconnect,
-            // broadcasts may deliver events the client already has. This is safe
-            // because client-side seq dedup (store.ts) drops events with seq <=
-            // lastProcessedSeq. The two HTTP requests (reconnect POST and send
-            // POST) can arrive as separate event loop ticks in any order, but
-            // duplicate delivery is always harmless thanks to seq dedup.
+            // the cursor starts at 0 (default), so broadcasts may deliver events
+            // the client already has. This is a bandwidth trade-off, not a
+            // correctness issue: client-side seq dedup (store.ts) drops events
+            // with seq <= lastProcessedSeq. The two HTTP requests (reconnect
+            // POST and send POST) can arrive as separate event loop ticks in any
+            // order, but duplicate delivery is always harmless thanks to seq dedup.
             ctx.connRegistry.setActive(connectionId, sessionId);
             sendToChat(activeClientId, prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
             span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');

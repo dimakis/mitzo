@@ -110,7 +110,7 @@ export class ConnectionRegistry {
    * Send a message to all open connections watching a session.
    * Catches send errors to prevent one failing transport from
    * aborting the broadcast loop. Updates delivery cursor on success
-   * so periodic sync can retry failures.
+   * so reconnect replay covers the correct range.
    */
   broadcast(sessionId: string, data: Record<string, unknown>): void {
     const seq = data.seq as number | undefined;

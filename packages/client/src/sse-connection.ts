@@ -225,33 +225,35 @@ export class SseConnection implements ChatConnection {
               lastSeq,
             }))
           : null);
-      this._connected = true;
       if (sessions) {
         this._pendingReconnectSessions = sessions;
         // Capture connectionId to detect stale callbacks — if a new welcome
         // arrives while this POST is in-flight, the callback should no-op
         // to avoid double-flushing pending sends.
         const postConnectionId = this._connectionId;
+        // Don't mark connected until POST succeeds — prevents send() from
+        // bypassing the pending queue and arriving before cursor setup.
         this.doPost('reconnect', { type: 'reconnect', sessions }).then(
           () => {
             if (this._connectionId !== postConnectionId) return; // stale callback
             this._pendingReconnectSessions = null;
-            // Flush pending sends AFTER reconnect so the server processes
-            // handleReconnect (cursor reset, replay) before user messages.
+            this._connected = true;
             this.flushPendingSends();
+            this.listener?.({ type: '_open' });
           },
           () => {
             if (this._connectionId !== postConnectionId) return; // stale callback
             // doPost already logs the warning. Keep _pendingReconnectSessions
             // so the next EventSource reconnect retries automatically.
-            // Still flush — handleSendV2 handles ownership independently.
-            this.flushPendingSends();
+            // Don't flush — server hasn't set up cursor/replay. Don't mark
+            // connected — sends stay queued until next successful reconnect.
           },
         );
       } else {
+        this._connected = true;
         this.flushPendingSends();
+        this.listener?.({ type: '_open' });
       }
-      this.listener?.({ type: '_open' });
       this._isReconnect = true;
     });
 

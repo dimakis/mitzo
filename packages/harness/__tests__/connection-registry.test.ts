@@ -219,7 +219,7 @@ describe('ConnectionRegistry', () => {
       registry.broadcast('sess-a', { type: 'msg1', seq: 5 });
       registry.broadcast('sess-a', { type: 'msg2', seq: 10 });
 
-      // Cursor should be at 10 now (can't inspect directly, but periodic sync will use it)
+      // Cursor should be at 10 now (can't inspect directly, but reconnect replay will use it)
       expect(t.send).toHaveBeenCalledTimes(2);
     });
 
@@ -278,7 +278,7 @@ describe('ConnectionRegistry', () => {
       // Client reconnects with lastSeq=50 (missed 51-100)
       registry.resetCursor('conn-1', 'sess-a', 50);
 
-      // Cursor should now be at 50 (verified by periodic sync behavior)
+      // Cursor should now be at 50 (verified by reconnect replay behavior)
     });
 
     it('is a no-op for unknown connection', () => {

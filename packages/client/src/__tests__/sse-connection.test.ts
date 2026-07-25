@@ -318,7 +318,7 @@ describe('SseConnection', () => {
     );
   });
 
-  it('marks connected immediately on reconnect welcome', () => {
+  it('marks connected after reconnect POST succeeds (not on welcome)', async () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true });
     const conn = new SseConnection(createConfig({ fetch: mockFetch }));
     const listener = vi.fn();
@@ -331,14 +331,19 @@ describe('SseConnection', () => {
     conn.checkAndReconnect(true);
     listener.mockClear();
 
-    // New welcome — should be connected immediately (fire-and-forget)
+    // New welcome — NOT connected yet (reconnect POST in-flight)
     lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
+    expect(conn.isConnected()).toBe(false);
+    expect(listener).not.toHaveBeenCalledWith({ type: '_open' });
 
-    expect(conn.isConnected()).toBe(true);
-    expect(listener).toHaveBeenCalledWith({ type: '_open' });
+    // After POST resolves — now connected
+    await vi.waitFor(() => {
+      expect(conn.isConnected()).toBe(true);
+      expect(listener).toHaveBeenCalledWith({ type: '_open' });
+    });
   });
 
-  it('POST failure does not affect connection state', async () => {
+  it('POST failure keeps connection disconnected (sends stay queued)', async () => {
     const mockFetch = vi.fn().mockImplementation((url: string) => {
       if (url.includes('/reconnect')) {
         return Promise.reject(new Error('network error'));
@@ -355,12 +360,58 @@ describe('SseConnection', () => {
     conn.checkAndReconnect(true);
     listener.mockClear();
 
-    // Welcome — reconnect POST fires (and will fail), but connection is immediate
+    // Welcome — reconnect POST fires (and will fail)
     lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
 
-    // Connected immediately regardless of POST outcome
-    expect(conn.isConnected()).toBe(true);
-    expect(listener).toHaveBeenCalledWith({ type: '_open' });
+    // Wait for POST to fail
+    await vi.waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/reconnect'),
+        expect.any(Object),
+      );
+    });
+
+    // Still disconnected — sends stay queued until next successful reconnect
+    expect(conn.isConnected()).toBe(false);
+    expect(listener).not.toHaveBeenCalledWith({ type: '_open' });
+  });
+
+  it('queues sends during reconnect POST in-flight window', async () => {
+    let resolveReconnect!: () => void;
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/reconnect')) {
+        return new Promise<{ ok: boolean }>((resolve) => {
+          resolveReconnect = () => resolve({ ok: true });
+        });
+      }
+      return Promise.resolve({ ok: true });
+    });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+    conn.trackSeq('sess-1', 10);
+
+    conn.checkAndReconnect(true);
+    mockFetch.mockClear();
+
+    // Welcome — reconnect POST starts (held open)
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
+
+    // Send during in-flight window — should queue, not send directly
+    const queued = conn.send({ type: 'send', prompt: 'during reconnect', clientMsgId: 'q-1' });
+    expect(queued).toBe(true);
+    // Only reconnect POST should have been called, not the send
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/reconnect'),
+      expect.any(Object),
+    );
+
+    // Resolve reconnect POST — sends should flush
+    resolveReconnect();
+    await vi.waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('/send'), expect.any(Object));
+    });
   });
 
   it('flushes pending sends after reconnect POST completes', async () => {
@@ -569,6 +620,9 @@ describe('SseConnection', () => {
     // First welcome — reconnect POST fires and gets 500
     lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-def' });
     await vi.waitFor(() => expect(reconnectCount).toBe(1));
+
+    // Still disconnected after 500
+    expect(conn.isConnected()).toBe(false);
 
     // Force another reconnect — should retry because 500 kept _pendingReconnectSessions
     conn.checkAndReconnect(true);
