@@ -275,6 +275,47 @@ export interface ServiceHealthPayload {
   checkedAt: number;
 }
 
+// --- Session types ---
+
+export type SessionType = 'chat' | 'symposium';
+
+// --- Symposium types ---
+
+export type TurnMode = 'round-robin' | 'directed' | 'budgeted';
+export type InterceptMode = 'auto' | 'manual';
+
+/** Configuration for a single seat in a symposium. */
+export interface SeatConfig {
+  /** Display name for this seat (e.g. 'Architect', 'Critic'). */
+  name: string;
+  /** Canonical model name (e.g. 'claude-opus-4-6'). */
+  model: string;
+  /** System prompt for this seat. */
+  systemPrompt: string;
+  /** CSS color for visual differentiation in the UI. */
+  color: string;
+}
+
+/** Rules governing turn progression in a symposium. */
+export interface TurnRules {
+  /** How turns are assigned to seats. */
+  mode: TurnMode;
+  /** Maximum number of turns before the symposium auto-stops. */
+  maxTurns: number;
+  /** Optional cost ceiling in USD. */
+  budgetUsd?: number;
+}
+
+/** Full configuration for a symposium session. */
+export interface SymposiumConfig {
+  /** Participating seats (v1: exactly 2). */
+  seats: SeatConfig[];
+  /** Turn progression rules. */
+  turnRules: TurnRules;
+  /** Whether the user intercepts each response before delivery. */
+  interceptMode: InterceptMode;
+}
+
 // --- Event store types ---
 
 /** Optional logger interface — keeps the protocol package free of server dependencies. */
@@ -328,6 +369,10 @@ export interface SessionMeta {
   agentName: string | null;
   /** Serialized JSON of the boot_context payload (sources, tokens, sections). */
   bootContext: string | null;
+  /** Session type: 'chat' (default) or 'symposium'. */
+  sessionType: SessionType;
+  /** Serialized JSON of the SymposiumConfig (null for chat sessions). */
+  symposiumConfig: string | null;
   createdAt: number;
   updatedAt: number;
 }

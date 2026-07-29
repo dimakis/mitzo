@@ -15,6 +15,12 @@ import type {
   Session,
   StoredEvent,
   SessionMeta,
+  SessionType,
+  TurnMode,
+  InterceptMode,
+  SeatConfig,
+  TurnRules,
+  SymposiumConfig,
 } from '../src/types.js';
 
 describe('protocol types', () => {
@@ -205,5 +211,109 @@ describe('protocol types', () => {
     };
     expect(meta.promptCount).toBe(3);
     expect(meta.totalCostUsd).toBe(0.01);
+  });
+
+  // --- Symposium types ---
+
+  it('SessionType accepts valid values', () => {
+    const types: SessionType[] = ['chat', 'symposium'];
+    expect(types).toHaveLength(2);
+  });
+
+  it('TurnMode accepts valid values', () => {
+    const modes: TurnMode[] = ['round-robin', 'directed', 'budgeted'];
+    expect(modes).toHaveLength(3);
+  });
+
+  it('InterceptMode accepts valid values', () => {
+    const modes: InterceptMode[] = ['auto', 'manual'];
+    expect(modes).toHaveLength(2);
+  });
+
+  it('SeatConfig has required fields', () => {
+    const seat: SeatConfig = {
+      name: 'Architect',
+      model: 'claude-opus-4-6',
+      systemPrompt: 'You are a senior architect.',
+      color: '#3B82F6',
+    };
+    expect(seat.name).toBe('Architect');
+    expect(seat.model).toBe('claude-opus-4-6');
+  });
+
+  it('TurnRules has required fields and optional budgetUsd', () => {
+    const rules: TurnRules = {
+      mode: 'round-robin',
+      maxTurns: 10,
+    };
+    expect(rules.mode).toBe('round-robin');
+    expect(rules.budgetUsd).toBeUndefined();
+
+    const budgeted: TurnRules = {
+      mode: 'budgeted',
+      maxTurns: 20,
+      budgetUsd: 2.0,
+    };
+    expect(budgeted.budgetUsd).toBe(2.0);
+  });
+
+  it('SymposiumConfig composes seats, turnRules, and interceptMode', () => {
+    const config: SymposiumConfig = {
+      seats: [
+        { name: 'Architect', model: 'claude-opus-4-6', systemPrompt: 'Design.', color: '#3B82F6' },
+        { name: 'Critic', model: 'gemini-2.5-pro', systemPrompt: 'Challenge.', color: '#EF4444' },
+      ],
+      turnRules: { mode: 'round-robin', maxTurns: 10 },
+      interceptMode: 'manual',
+    };
+    expect(config.seats).toHaveLength(2);
+    expect(config.turnRules.mode).toBe('round-robin');
+    expect(config.interceptMode).toBe('manual');
+  });
+
+  it('SessionMeta includes sessionType and symposiumConfig', () => {
+    const meta: SessionMeta = {
+      sessionId: 's1',
+      summary: 'symposium test',
+      branch: null,
+      cwd: null,
+      mode: 'agent',
+      isActive: true,
+      isHidden: false,
+      promptCount: 0,
+      manuallyRenamed: false,
+      initialPrompt: null,
+      wtId: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      totalCostUsd: 0,
+      numTurns: 0,
+      durationMs: 0,
+      durationApiMs: 0,
+      goalId: null,
+      telosTaskId: null,
+      closedBy: null,
+      lastSpeaker: null,
+      lastSpeakerAt: null,
+      state: null,
+      lastStateChange: null,
+      agentName: null,
+      bootContext: null,
+      sessionType: 'symposium',
+      symposiumConfig: JSON.stringify({
+        seats: [
+          { name: 'A', model: 'claude-opus-4-6', systemPrompt: '', color: '#000' },
+          { name: 'B', model: 'gemini-2.5-pro', systemPrompt: '', color: '#FFF' },
+        ],
+        turnRules: { mode: 'round-robin', maxTurns: 10 },
+        interceptMode: 'auto',
+      }),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    expect(meta.sessionType).toBe('symposium');
+    expect(meta.symposiumConfig).not.toBeNull();
   });
 });
