@@ -881,7 +881,11 @@ describe('EventStore', () => {
         turnRules: { mode: 'round-robin', maxTurns: 10 },
         interceptMode: 'auto',
       });
-      store.upsertSession({ sessionId: 'symp-3', sessionType: 'symposium', symposiumConfig: config });
+      store.upsertSession({
+        sessionId: 'symp-3',
+        sessionType: 'symposium',
+        symposiumConfig: config,
+      });
 
       const session = store.getSession('symp-3');
       expect(session!.symposiumConfig).toBe(config);
