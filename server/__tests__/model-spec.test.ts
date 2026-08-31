@@ -38,7 +38,7 @@ describe('resolveThinking', () => {
   });
 
   it('returns adaptive for plain opus model', () => {
-    expect(resolveThinking('claude-opus-4-7')).toEqual({ type: 'adaptive' });
+    expect(resolveThinking('claude-opus-4-8')).toEqual({ type: 'adaptive' });
   });
 
   it('returns adaptive for opus 4-6', () => {
@@ -46,7 +46,7 @@ describe('resolveThinking', () => {
   });
 
   it('returns 128k budget for opus :max', () => {
-    expect(resolveThinking('claude-opus-4-7:max')).toEqual({
+    expect(resolveThinking('claude-opus-4-8:max')).toEqual({
       type: 'enabled',
       budgetTokens: 128_000,
     });
