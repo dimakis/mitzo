@@ -2364,7 +2364,7 @@ describe('handleInterruptV2 forwarding', () => {
         sessionId: 'sess-resume',
         prompt: 'urgent',
         clientMsgId: 'i-resume',
-        model: 'claude-opus-4-7',
+        model: 'claude-opus-4-8',
       },
       ctx,
     );
@@ -2373,7 +2373,7 @@ describe('handleInterruptV2 forwarding', () => {
       transport,
       'c2:sess-resume',
       'urgent',
-      expect.objectContaining({ resume: 'sess-resume', model: 'claude-opus-4-7' }),
+      expect.objectContaining({ resume: 'sess-resume', model: 'claude-opus-4-8' }),
     );
   });
 
@@ -2435,7 +2435,7 @@ describe('handleInterruptV2 forwarding', () => {
         sessionId: 'sess-precedence',
         prompt: 'override',
         clientMsgId: 'i-precedence',
-        model: 'claude-opus-4-7',
+        model: 'claude-opus-4-8',
       },
       ctx,
     );
@@ -2444,7 +2444,7 @@ describe('handleInterruptV2 forwarding', () => {
       transport,
       'c4:sess-precedence',
       'override',
-      expect.objectContaining({ resume: 'sess-precedence', model: 'claude-opus-4-7' }),
+      expect.objectContaining({ resume: 'sess-precedence', model: 'claude-opus-4-8' }),
     );
   });
 

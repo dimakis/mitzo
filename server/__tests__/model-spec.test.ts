@@ -7,26 +7,26 @@ describe('parseModelSpec', () => {
   });
 
   it('parses a plain model ID', () => {
-    expect(parseModelSpec('claude-opus-4-7')).toEqual({
-      model: 'claude-opus-4-7',
+    expect(parseModelSpec('claude-opus-4-8')).toEqual({
+      model: 'claude-opus-4-8',
       effort: undefined,
     });
   });
 
   it('splits model and effort on colon', () => {
-    expect(parseModelSpec('claude-opus-4-7:max')).toEqual({
-      model: 'claude-opus-4-7',
+    expect(parseModelSpec('claude-opus-4-8:max')).toEqual({
+      model: 'claude-opus-4-8',
       effort: 'max',
     });
   });
 
   it('handles trailing colon as empty effort', () => {
-    expect(parseModelSpec('claude-opus-4-7:')).toEqual({ model: 'claude-opus-4-7', effort: '' });
+    expect(parseModelSpec('claude-opus-4-8:')).toEqual({ model: 'claude-opus-4-8', effort: '' });
   });
 
   it('handles multiple colons — only splits on first', () => {
-    expect(parseModelSpec('claude-opus-4-7:max:extra')).toEqual({
-      model: 'claude-opus-4-7',
+    expect(parseModelSpec('claude-opus-4-8:max:extra')).toEqual({
+      model: 'claude-opus-4-8',
       effort: 'max:extra',
     });
   });
@@ -38,7 +38,7 @@ describe('resolveThinking', () => {
   });
 
   it('returns adaptive for plain opus model', () => {
-    expect(resolveThinking('claude-opus-4-7')).toEqual({ type: 'adaptive' });
+    expect(resolveThinking('claude-opus-4-8')).toEqual({ type: 'adaptive' });
   });
 
   it('returns adaptive for opus 4-6', () => {
@@ -46,14 +46,21 @@ describe('resolveThinking', () => {
   });
 
   it('returns 128k budget for opus :max', () => {
-    expect(resolveThinking('claude-opus-4-7:max')).toEqual({
+    expect(resolveThinking('claude-opus-4-8:max')).toEqual({
       type: 'enabled',
       budgetTokens: 128_000,
     });
   });
 
-  it('returns 10k budget for sonnet', () => {
+  it('returns 10k budget for sonnet 4-6', () => {
     expect(resolveThinking('claude-sonnet-4-6')).toEqual({
+      type: 'enabled',
+      budgetTokens: 10_000,
+    });
+  });
+
+  it('returns 10k budget for sonnet 5', () => {
+    expect(resolveThinking('claude-sonnet-5')).toEqual({
       type: 'enabled',
       budgetTokens: 10_000,
     });
