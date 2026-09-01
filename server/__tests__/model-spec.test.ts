@@ -7,26 +7,26 @@ describe('parseModelSpec', () => {
   });
 
   it('parses a plain model ID', () => {
-    expect(parseModelSpec('claude-opus-4-7')).toEqual({
-      model: 'claude-opus-4-7',
+    expect(parseModelSpec('claude-opus-4-8')).toEqual({
+      model: 'claude-opus-4-8',
       effort: undefined,
     });
   });
 
   it('splits model and effort on colon', () => {
-    expect(parseModelSpec('claude-opus-4-7:max')).toEqual({
-      model: 'claude-opus-4-7',
+    expect(parseModelSpec('claude-opus-4-8:max')).toEqual({
+      model: 'claude-opus-4-8',
       effort: 'max',
     });
   });
 
   it('handles trailing colon as empty effort', () => {
-    expect(parseModelSpec('claude-opus-4-7:')).toEqual({ model: 'claude-opus-4-7', effort: '' });
+    expect(parseModelSpec('claude-opus-4-8:')).toEqual({ model: 'claude-opus-4-8', effort: '' });
   });
 
   it('handles multiple colons — only splits on first', () => {
-    expect(parseModelSpec('claude-opus-4-7:max:extra')).toEqual({
-      model: 'claude-opus-4-7',
+    expect(parseModelSpec('claude-opus-4-8:max:extra')).toEqual({
+      model: 'claude-opus-4-8',
       effort: 'max:extra',
     });
   });

@@ -375,7 +375,7 @@ export const AVAILABLE_MODELS = [
   { id: 'claude-haiku-4-5', label: 'Haiku 4.5', desc: 'Fastest' },
 ];
 
-/** Split "claude-opus-4-7:max" → { model: "claude-opus-4-7", effort: "max" } */
+/** Split "claude-opus-4-8:max" → { model: "claude-opus-4-8", effort: "max" } */
 export function parseModelSpec(spec?: string): { model: string; effort: string | undefined } {
   if (!spec) return { model: '', effort: undefined };
   const idx = spec.indexOf(':');
