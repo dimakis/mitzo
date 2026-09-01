@@ -792,11 +792,11 @@ describe('interruptMessage', () => {
     store.getState().sendMessage('first');
     lastWs.simulateMessage({ type: 'session_id', sessionId: 'sess-int3' });
 
-    store.getState().interruptMessage('urgent', { model: 'claude-opus-4-7' });
+    store.getState().interruptMessage('urgent', { model: 'claude-opus-4-8' });
 
     const interrupts = lastWs.parsedSent().filter((m) => m.type === 'interrupt');
     expect(interrupts).toHaveLength(1);
-    expect(interrupts[0].model).toBe('claude-opus-4-7');
+    expect(interrupts[0].model).toBe('claude-opus-4-8');
   });
 
   it('does not include model field when both opts and config are null', () => {

@@ -52,8 +52,15 @@ describe('resolveThinking', () => {
     });
   });
 
-  it('returns 10k budget for sonnet', () => {
+  it('returns 10k budget for sonnet 4-6', () => {
     expect(resolveThinking('claude-sonnet-4-6')).toEqual({
+      type: 'enabled',
+      budgetTokens: 10_000,
+    });
+  });
+
+  it('returns 10k budget for sonnet 5', () => {
+    expect(resolveThinking('claude-sonnet-5')).toEqual({
       type: 'enabled',
       budgetTokens: 10_000,
     });
