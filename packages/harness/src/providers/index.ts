@@ -72,3 +72,21 @@ export type {
 export { calculateCost, MODEL_COSTS } from './types.js';
 export { AnthropicVertexModelProvider } from './anthropic-vertex.js';
 export { GoogleVertexModelProvider } from './google-vertex.js';
+
+// Agentic session abstractions (provider-agnostic loop)
+export type {
+  ModelSession,
+  ModelSessionConfig,
+  ModelSessionFactory,
+  StreamEvent,
+  ConversationMessage,
+  ContentBlock,
+  ToolDefinition,
+  MessageStartEvent,
+  ContentBlockStartEvent,
+  ContentBlockDeltaEvent,
+  ContentBlockStopEvent,
+  MessageDeltaEvent,
+} from './session-types.js';
+export { AnthropicSession, createAnthropicSession } from './anthropic-session.js';
+export type { AnthropicSessionOptions } from './anthropic-session.js';

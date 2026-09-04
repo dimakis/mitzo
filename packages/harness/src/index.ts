@@ -95,6 +95,19 @@ export type {
 } from './providers/index.js';
 export { MODEL_COSTS, calculateCost } from './providers/index.js';
 
+// Agentic session — provider-agnostic streaming model interface
+export { AnthropicSession, createAnthropicSession } from './providers/index.js';
+export type {
+  ModelSession,
+  ModelSessionConfig,
+  ModelSessionFactory,
+  StreamEvent,
+  ConversationMessage,
+  ContentBlock,
+  ToolDefinition,
+  AnthropicSessionOptions,
+} from './providers/index.js';
+
 // Reasoning — deliberation + fusion orchestrators
 export {
   DeliberationOrchestrator,
