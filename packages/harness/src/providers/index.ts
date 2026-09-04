@@ -90,3 +90,18 @@ export type {
 } from './session-types.js';
 export { AnthropicSession, createAnthropicSession } from './anthropic-session.js';
 export type { AnthropicSessionOptions } from './anthropic-session.js';
+
+// SDK adapter — bridges ModelSession to query-loop.ts event shapes
+export { sdkWrapperEmitter, runAgenticLoop } from './sdk-adapter.js';
+export type {
+  SdkWrapperEvent,
+  SdkAssistantEvent,
+  SdkStreamEvent,
+  SdkUserEvent,
+  SdkResultEvent,
+  SdkSystemEvent,
+  SdkUsage,
+  AgenticLoopOptions,
+  ToolUseBlock,
+  ToolResultBlock,
+} from './sdk-adapter.js';

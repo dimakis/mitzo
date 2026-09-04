@@ -188,7 +188,7 @@ export async function* sdkWrapperEmitter(
     type: 'assistant',
     session_id: opts.sessionId,
     parent_tool_use_id: null,
-    message: { content: contentBlocks },
+    message: { content: contentBlocks.filter(Boolean) },
     usage,
   };
 }

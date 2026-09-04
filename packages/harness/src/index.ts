@@ -109,7 +109,7 @@ export type {
 } from './providers/index.js';
 
 // SDK adapter — bridges ModelSession to query-loop.ts event shapes
-export { sdkWrapperEmitter, runAgenticLoop } from './providers/sdk-adapter.js';
+export { sdkWrapperEmitter, runAgenticLoop } from './providers/index.js';
 export type {
   SdkWrapperEvent,
   SdkAssistantEvent,
@@ -121,7 +121,7 @@ export type {
   AgenticLoopOptions,
   ToolUseBlock,
   ToolResultBlock,
-} from './providers/sdk-adapter.js';
+} from './providers/index.js';
 
 // Reasoning — deliberation + fusion orchestrators
 export {
