@@ -108,6 +108,21 @@ export type {
   AnthropicSessionOptions,
 } from './providers/index.js';
 
+// SDK adapter — bridges ModelSession to query-loop.ts event shapes
+export { sdkWrapperEmitter, runAgenticLoop } from './providers/sdk-adapter.js';
+export type {
+  SdkWrapperEvent,
+  SdkAssistantEvent,
+  SdkStreamEvent,
+  SdkUserEvent,
+  SdkResultEvent,
+  SdkSystemEvent,
+  SdkUsage,
+  AgenticLoopOptions,
+  ToolUseBlock,
+  ToolResultBlock,
+} from './providers/sdk-adapter.js';
+
 // Reasoning — deliberation + fusion orchestrators
 export {
   DeliberationOrchestrator,
