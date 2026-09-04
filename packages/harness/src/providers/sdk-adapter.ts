@@ -119,48 +119,43 @@ export async function* sdkWrapperEmitter(
     cache_creation_input_tokens: 0,
   };
 
-  // Track block metadata for assembly
-  const blockMeta = new Map<number, { type: string; name?: string; id?: string }>();
-
   for await (const event of session.turn(messages)) {
     // Pass through as stream_event wrapper
     yield { type: 'stream_event', event, parent_tool_use_id: null };
 
     switch (event.type) {
-      case 'message_start':
-        usage.input_tokens = event.message.usage.input_tokens;
-        usage.output_tokens = event.message.usage.output_tokens;
+      case 'message_start': {
+        const msgUsage = event.message.usage as Record<string, number>;
+        usage.input_tokens = msgUsage.input_tokens ?? 0;
+        usage.output_tokens = msgUsage.output_tokens ?? 0;
+        usage.cache_read_input_tokens = msgUsage.cache_read_input_tokens ?? 0;
+        usage.cache_creation_input_tokens = msgUsage.cache_creation_input_tokens ?? 0;
         break;
+      }
 
       case 'content_block_start': {
         const cb = event.content_block;
-        blockMeta.set(event.index, {
-          type: cb.type,
-          ...(cb.type === 'tool_use' ? { name: cb.name, id: cb.id } : {}),
-        });
         if (cb.type === 'text') {
-          contentBlocks.push({ type: 'text', text: '' });
+          contentBlocks[event.index] = { type: 'text', text: '' };
         } else if (cb.type === 'thinking') {
-          contentBlocks.push({ type: 'thinking', thinking: '' });
+          contentBlocks[event.index] = { type: 'thinking', thinking: '' };
         } else if (cb.type === 'tool_use') {
           inputBuffers.set(event.index, '');
-          // Placeholder — input will be filled on block_stop
-          contentBlocks.push({ type: 'tool_use', id: cb.id, name: cb.name, input: {} });
+          contentBlocks[event.index] = { type: 'tool_use', id: cb.id, name: cb.name, input: {} };
         }
+        // Unknown block types are silently skipped — no entry in contentBlocks,
+        // so subsequent deltas/stops for this index are no-ops.
         break;
       }
 
       case 'content_block_delta': {
-        const meta = blockMeta.get(event.index);
-        if (!meta) break;
-        const blockIdx = findBlockIndex(contentBlocks, event.index, blockMeta);
+        const block = contentBlocks[event.index];
+        if (!block) break; // Unknown block type — no entry was created
 
-        if (event.delta.type === 'text_delta' && blockIdx >= 0) {
-          const block = contentBlocks[blockIdx];
-          if (block.type === 'text') block.text += event.delta.text;
-        } else if (event.delta.type === 'thinking_delta' && blockIdx >= 0) {
-          const block = contentBlocks[blockIdx];
-          if (block.type === 'thinking') block.thinking += event.delta.thinking;
+        if (event.delta.type === 'text_delta' && block.type === 'text') {
+          block.text += event.delta.text;
+        } else if (event.delta.type === 'thinking_delta' && block.type === 'thinking') {
+          block.thinking += event.delta.thinking;
         } else if (event.delta.type === 'input_json_delta') {
           const buf = inputBuffers.get(event.index) ?? '';
           inputBuffers.set(event.index, buf + event.delta.partial_json);
@@ -169,19 +164,13 @@ export async function* sdkWrapperEmitter(
       }
 
       case 'content_block_stop': {
-        const meta = blockMeta.get(event.index);
-        if (meta?.type === 'tool_use') {
-          const blockIdx = findBlockIndex(contentBlocks, event.index, blockMeta);
-          if (blockIdx >= 0) {
-            const block = contentBlocks[blockIdx];
-            if (block.type === 'tool_use') {
-              const rawInput = inputBuffers.get(event.index) ?? '{}';
-              try {
-                block.input = JSON.parse(rawInput);
-              } catch {
-                block.input = {};
-              }
-            }
+        const block = contentBlocks[event.index];
+        if (block?.type === 'tool_use') {
+          const rawInput = inputBuffers.get(event.index) ?? '{}';
+          try {
+            block.input = JSON.parse(rawInput);
+          } catch {
+            block.input = {};
           }
           inputBuffers.delete(event.index);
         }
@@ -204,19 +193,6 @@ export async function* sdkWrapperEmitter(
   };
 }
 
-/**
- * Find the position of a block in contentBlocks by stream index.
- * Content blocks are pushed in order, so stream index maps 1:1 to array index.
- */
-function findBlockIndex(
-  _blocks: ContentBlock[],
-  streamIndex: number,
-  _meta: Map<number, { type: string }>,
-): number {
-  // Stream indices are sequential starting from 0, matching push order
-  return streamIndex;
-}
-
 // ── runAgenticLoop ──────────────────────────────────────────────
 
 /**
@@ -236,6 +212,8 @@ export async function* runAgenticLoop(
   let turns = 0;
   let totalOutputTokens = 0;
   let lastInputTokens = 0;
+  let lastCacheReadTokens = 0;
+  let lastCacheCreationTokens = 0;
 
   while (turns < opts.maxTurns) {
     if (opts.signal?.aborted) break;
@@ -258,6 +236,8 @@ export async function* runAgenticLoop(
         if (event.usage) {
           lastInputTokens = event.usage.input_tokens ?? 0;
           totalOutputTokens += event.usage.output_tokens ?? 0;
+          lastCacheReadTokens = event.usage.cache_read_input_tokens ?? 0;
+          lastCacheCreationTokens = event.usage.cache_creation_input_tokens ?? 0;
         }
         // Append assistant message to conversation history
         messages.push({ role: 'assistant', content: event.message.content });
@@ -275,7 +255,18 @@ export async function* runAgenticLoop(
     for (const toolUse of toolUseBlocks) {
       if (opts.signal?.aborted) break;
 
-      const result = await opts.executeTool(toolUse);
+      let result: ToolResultBlock;
+      try {
+        result = await opts.executeTool(toolUse);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        result = {
+          type: 'tool_result',
+          tool_use_id: toolUse.id,
+          content: `Tool execution failed: ${message}`,
+          is_error: true,
+        };
+      }
 
       // Yield user wrapper so query-loop can track tool results
       yield {
@@ -300,6 +291,8 @@ export async function* runAgenticLoop(
     usage: {
       input_tokens: lastInputTokens,
       output_tokens: totalOutputTokens,
+      cache_read_input_tokens: lastCacheReadTokens,
+      cache_creation_input_tokens: lastCacheCreationTokens,
     },
   };
 }

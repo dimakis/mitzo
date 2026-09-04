@@ -154,6 +154,65 @@ describe('sdkWrapperEmitter', () => {
     });
   });
 
+  it('wraps a thinking block turn', async () => {
+    const thinkingEvents: StreamEvent[] = [
+      {
+        type: 'message_start',
+        message: {
+          id: 'msg-think',
+          model: 'test',
+          role: 'assistant',
+          usage: { input_tokens: 50, output_tokens: 0 },
+        },
+      },
+      {
+        type: 'content_block_start',
+        index: 0,
+        content_block: { type: 'thinking', thinking: '' },
+      },
+      {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'thinking_delta', thinking: 'Let me think...' },
+      },
+      { type: 'content_block_stop', index: 0 },
+      {
+        type: 'content_block_start',
+        index: 1,
+        content_block: { type: 'text', text: '' },
+      },
+      {
+        type: 'content_block_delta',
+        index: 1,
+        delta: { type: 'text_delta', text: 'Here is the answer' },
+      },
+      { type: 'content_block_stop', index: 1 },
+      {
+        type: 'message_delta',
+        delta: { stop_reason: 'end_turn', stop_sequence: null },
+        usage: { output_tokens: 15 },
+      },
+    ];
+
+    const session = mockSession([thinkingEvents]);
+    const messages: ConversationMessage[] = [{ role: 'user', content: 'think hard' }];
+
+    const events = await collect(
+      sdkWrapperEmitter(session, messages, { sessionId: 'sid-think', startMs: Date.now() }),
+    );
+
+    const assistant = events.find((e) => e.type === 'assistant')!;
+    const content = (assistant as { message: { content: ContentBlock[] } }).message.content;
+
+    // Should have both thinking and text blocks
+    const thinkingBlocks = content.filter((b) => b.type === 'thinking');
+    const textBlocks = content.filter((b) => b.type === 'text');
+    expect(thinkingBlocks).toHaveLength(1);
+    expect(textBlocks).toHaveLength(1);
+    expect((thinkingBlocks[0] as { thinking: string }).thinking).toBe('Let me think...');
+    expect((textBlocks[0] as { text: string }).text).toBe('Here is the answer');
+  });
+
   it('accumulates usage from message_start and message_delta', async () => {
     const session = mockSession([textTurnEvents('hello')]);
     const messages: ConversationMessage[] = [{ role: 'user', content: 'hi' }];
@@ -360,6 +419,45 @@ describe('runAgenticLoop', () => {
     // Should have stopped — result emitted with turns <= 2
     const result = events.find((e) => e.type === 'result')!;
     expect((result as Record<string, unknown>).num_turns).toBeLessThanOrEqual(2);
+  });
+
+  it('catches executeTool rejection and continues with error result', async () => {
+    // Turn 1: tool_use that throws → Turn 2: text (model handles error)
+    const session = mockSession([
+      toolUseTurnEvents('BadTool', 'tool-err', { bad: true }),
+      textTurnEvents('handled the error', 'msg-err-2'),
+    ]);
+
+    const executeTool = vi.fn().mockRejectedValue(new Error('permission denied'));
+
+    const opts: AgenticLoopOptions = {
+      sessionId: 'loop-err',
+      maxTurns: 10,
+      executeTool,
+    };
+
+    const events = await collect(
+      runAgenticLoop(session, [{ role: 'user', content: 'do bad thing' }], opts),
+    );
+
+    // executeTool was called (and threw)
+    expect(executeTool).toHaveBeenCalledTimes(1);
+
+    // The user event should carry the error result
+    const userEvents = events.filter((e) => e.type === 'user');
+    expect(userEvents).toHaveLength(1);
+    const toolResult = (userEvents[0] as { message: { content: ContentBlock[] } }).message
+      .content[0];
+    expect(toolResult).toMatchObject({
+      type: 'tool_result',
+      tool_use_id: 'tool-err',
+      is_error: true,
+    });
+    expect((toolResult as { content: string }).content).toContain('permission denied');
+
+    // Loop continued — 2 turns total, result event emitted
+    const result = events.find((e) => e.type === 'result')!;
+    expect((result as Record<string, unknown>).num_turns).toBe(2);
   });
 
   it('accumulates usage across turns in the result event', async () => {
