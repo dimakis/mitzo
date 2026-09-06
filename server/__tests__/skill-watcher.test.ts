@@ -1,243 +1,119 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync, mkdtempSync, unlinkSync } from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
+import { EventEmitter } from 'node:events';
+import { SKILL_WATCHER_DEBOUNCE_MS } from '../constants.js';
+
+const fsMock = vi.hoisted(() => ({ watch: vi.fn(), existsSync: vi.fn() }));
+vi.mock('fs', () => fsMock);
 import { SkillWatcher } from '../skill-watcher.js';
 
-// fs.watch events are async — helper to wait for debounced callback
-function waitFor(fn: () => boolean, { timeout = 5000, interval = 50 } = {}): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const start = Date.now();
-    const check = () => {
-      if (fn()) return resolve();
-      if (Date.now() - start > timeout) return reject(new Error('waitFor timed out'));
-      setTimeout(check, interval);
-    };
-    check();
-  });
-}
-
-function makeTempDir(): string {
-  return mkdtempSync(join(tmpdir(), 'mitzo-skill-watcher-test-'));
-}
-
-function writeSkill(dir: string, name: string): void {
-  const skillDir = join(dir, name);
-  mkdirSync(skillDir, { recursive: true });
-  writeFileSync(join(skillDir, 'SKILL.md'), '---\ndescription: "test skill"\n---\n\nTest body');
-}
-
+// Drive native watcher callbacks directly: OS event delivery/coalescing is not
+// deterministic, especially immediately after registering a recursive watcher.
 describe('SkillWatcher', () => {
-  let tempDirs: string[];
   let watchers: SkillWatcher[];
+  let native: Array<EventEmitter & { close: ReturnType<typeof vi.fn> }>;
+  let callbacks: Array<(event: string, filename: string | null) => void>;
 
   beforeEach(() => {
-    tempDirs = [];
+    vi.useFakeTimers();
+    vi.clearAllMocks();
     watchers = [];
+    native = [];
+    callbacks = [];
+    fsMock.existsSync.mockReturnValue(true);
+    fsMock.watch.mockImplementation((_dir, _options, callback) => {
+      const handle = Object.assign(new EventEmitter(), { close: vi.fn() });
+      native.push(handle);
+      callbacks.push(callback);
+      return handle;
+    });
   });
 
   afterEach(() => {
-    for (const w of watchers) w.destroy();
-    for (const d of tempDirs) {
-      rmSync(d, { recursive: true, force: true });
-    }
+    for (const watcher of watchers) watcher.destroy();
+    vi.useRealTimers();
   });
 
-  function createTempDir(): string {
-    const d = makeTempDir();
-    tempDirs.push(d);
-    return d;
+  function create(dirs = ['/skills']) {
+    const invalidate = vi.fn();
+    const watcher = new SkillWatcher(dirs, invalidate);
+    watchers.push(watcher);
+    return { watcher, invalidate };
   }
 
-  function createWatcher(dirs: string[], onInvalidate: () => void): SkillWatcher {
-    const w = new SkillWatcher(dirs, onInvalidate);
-    watchers.push(w);
-    return w;
-  }
-
-  it('detects new SKILL.md creation', async () => {
-    const dir = createTempDir();
-    mkdirSync(dir, { recursive: true });
-
-    const onInvalidate = vi.fn();
-    createWatcher([dir], onInvalidate);
-
-    // Write a new skill
-    writeSkill(dir, 'deploy');
-
-    await waitFor(() => onInvalidate.mock.calls.length > 0);
-    expect(onInvalidate).toHaveBeenCalled();
+  it.each(['rename', 'change'])('invalidates on SKILL.md %s events', (event) => {
+    const { invalidate } = create();
+    expect(fsMock.watch).toHaveBeenCalledWith('/skills', { recursive: true }, expect.any(Function));
+    callbacks[0](event, 'deploy/SKILL.md');
+    expect(invalidate).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(SKILL_WATCHER_DEBOUNCE_MS);
+    expect(invalidate).toHaveBeenCalledTimes(1);
   });
 
-  it('detects SKILL.md modification', async () => {
-    const dir = createTempDir();
-    writeSkill(dir, 'deploy');
-
-    const onInvalidate = vi.fn();
-    createWatcher([dir], onInvalidate);
-
-    // Modify existing skill
-    writeFileSync(
-      join(dir, 'deploy', 'SKILL.md'),
-      '---\ndescription: "updated"\n---\n\nUpdated body',
-    );
-
-    await waitFor(() => onInvalidate.mock.calls.length > 0);
-    expect(onInvalidate).toHaveBeenCalled();
+  it('handles root-level SKILL.md changes', () => {
+    const { invalidate } = create();
+    callbacks[0]('change', 'SKILL.md');
+    vi.runAllTimers();
+    expect(invalidate).toHaveBeenCalledTimes(1);
   });
 
-  it('detects SKILL.md deletion', async () => {
-    const dir = createTempDir();
-    writeSkill(dir, 'deploy');
+  it.each(['deploy/README.md', 'deploy/NOT-SKILL.md', null])(
+    'ignores unrelated filename %s',
+    (name) => {
+      const { invalidate } = create();
+      callbacks[0]('change', name);
+      vi.runAllTimers();
+      expect(invalidate).not.toHaveBeenCalled();
+    },
+  );
 
-    const onInvalidate = vi.fn();
-    createWatcher([dir], onInvalidate);
-
-    // Delete SKILL.md
-    unlinkSync(join(dir, 'deploy', 'SKILL.md'));
-
-    await waitFor(() => onInvalidate.mock.calls.length > 0);
-    expect(onInvalidate).toHaveBeenCalled();
+  it('debounces rapid changes across watched directories', () => {
+    const { invalidate } = create(['/one', '/two']);
+    callbacks[0]('rename', 'one/SKILL.md');
+    vi.advanceTimersByTime(SKILL_WATCHER_DEBOUNCE_MS - 1);
+    callbacks[1]('change', 'two/SKILL.md');
+    vi.advanceTimersByTime(SKILL_WATCHER_DEBOUNCE_MS - 1);
+    expect(invalidate).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(invalidate).toHaveBeenCalledTimes(1);
   });
 
-  it('ignores non-SKILL.md files', async () => {
-    const dir = createTempDir();
-    mkdirSync(join(dir, 'deploy'), { recursive: true });
-
-    const onInvalidate = vi.fn();
-    createWatcher([dir], onInvalidate);
-
-    // Write a non-SKILL.md file
-    writeFileSync(join(dir, 'deploy', 'README.md'), '# readme');
-
-    // Wait a bit longer than debounce to ensure no trigger
-    await new Promise((r) => setTimeout(r, 600));
-    expect(onInvalidate).not.toHaveBeenCalled();
+  it('skips missing directories', () => {
+    fsMock.existsSync.mockReturnValue(false);
+    create();
+    expect(fsMock.watch).not.toHaveBeenCalled();
   });
 
-  it('debounces rapid changes into a single invalidation', async () => {
-    const dir = createTempDir();
-    mkdirSync(dir, { recursive: true });
-
-    const onInvalidate = vi.fn();
-    createWatcher([dir], onInvalidate);
-
-    // Rapid-fire: create 5 skills in quick succession
-    for (let i = 0; i < 5; i++) {
-      writeSkill(dir, `skill-${i}`);
-    }
-
-    await waitFor(() => onInvalidate.mock.calls.length > 0);
-    // Wait past the debounce window to let any split batches settle
-    await new Promise((r) => setTimeout(r, 500));
-    // On slow CI, writes may span multiple debounce windows — tolerate up to 2
-    expect(onInvalidate.mock.calls.length).toBeLessThanOrEqual(2);
-  });
-
-  it('handles missing directory gracefully', () => {
-    const onInvalidate = vi.fn();
-    // Should not throw
-    const watcher = createWatcher(['/nonexistent/path/skills'], onInvalidate);
-    expect(watcher).toBeDefined();
-  });
-
-  it('stops watching after destroy()', async () => {
-    const dir = createTempDir();
-    mkdirSync(dir, { recursive: true });
-
-    const onInvalidate = vi.fn();
-    const watcher = createWatcher([dir], onInvalidate);
-
-    watcher.destroy();
-
-    // Write after destroy
-    writeSkill(dir, 'deploy');
-
-    await new Promise((r) => setTimeout(r, 600));
-    expect(onInvalidate).not.toHaveBeenCalled();
+  it('handles watch registration errors', () => {
+    fsMock.watch.mockImplementation(() => {
+      throw new Error('watch unavailable');
+    });
+    expect(() => create()).not.toThrow();
   });
 
   it('watchDir is idempotent', () => {
-    const dir = createTempDir();
-    mkdirSync(dir, { recursive: true });
+    const { watcher } = create();
+    watcher.watchDir('/skills');
+    expect(fsMock.watch).toHaveBeenCalledTimes(1);
+  });
 
-    const onInvalidate = vi.fn();
-    const watcher = createWatcher([dir], onInvalidate);
-
-    // Call watchDir again — should not throw or duplicate
-    watcher.watchDir(dir);
-    watcher.watchDir(dir);
-
-    // Destroy should work cleanly
+  it('closes handles and cancels pending or late invalidations on destroy', () => {
+    const { watcher, invalidate } = create();
+    callbacks[0]('change', 'SKILL.md');
     watcher.destroy();
+    callbacks[0]('change', 'SKILL.md');
+    watcher.watchDir('/another');
+    vi.runAllTimers();
+    expect(native[0].close).toHaveBeenCalledTimes(1);
+    expect(fsMock.watch).toHaveBeenCalledTimes(1);
+    expect(invalidate).not.toHaveBeenCalled();
   });
 
-  it('watchDir is ignored after destroy()', () => {
-    const dir = createTempDir();
-    mkdirSync(dir, { recursive: true });
-
-    const onInvalidate = vi.fn();
-    const watcher = createWatcher([dir], onInvalidate);
-
-    watcher.destroy();
-
-    // Should not throw or create a new watch
-    const newDir = createTempDir();
-    mkdirSync(newDir, { recursive: true });
-    watcher.watchDir(newDir);
-  });
-
-  it('scheduleInvalidation is a no-op after destroy()', async () => {
-    const dir = createTempDir();
-    mkdirSync(dir, { recursive: true });
-
-    const onInvalidate = vi.fn();
-    const watcher = createWatcher([dir], onInvalidate);
-
-    // Write a skill so the watcher sees a SKILL.md event
-    writeSkill(dir, 'deploy');
-
-    // Destroy immediately — any in-flight scheduleInvalidation call should be
-    // suppressed by the destroyed guard even if the timer hadn't been cleared.
-    watcher.destroy();
-
-    // Wait well past the debounce window
-    await new Promise((r) => setTimeout(r, 600));
-    expect(onInvalidate).not.toHaveBeenCalled();
-  });
-
-  it('calls onInvalidate when a watcher errors out', async () => {
-    const dir = createTempDir();
-    mkdirSync(dir, { recursive: true });
-
-    const onInvalidate = vi.fn();
-    createWatcher([dir], onInvalidate);
-
-    // Remove the directory to trigger a watcher error on some platforms
-    rmSync(dir, { recursive: true, force: true });
-
-    // The error handler should call onInvalidate to flush stale caches.
-    // On platforms where rmSync doesn't trigger a watcher error, this
-    // test is a no-op — the assertion below is lenient.
-    await new Promise((r) => setTimeout(r, 600));
-    // We can't guarantee the error fires on all platforms, so just
-    // verify no exception was thrown and cleanup works.
-    expect(true).toBe(true);
-  });
-
-  it('detects changes across multiple watched directories', async () => {
-    const dir1 = createTempDir();
-    const dir2 = createTempDir();
-    mkdirSync(dir1, { recursive: true });
-    mkdirSync(dir2, { recursive: true });
-
-    const onInvalidate = vi.fn();
-    createWatcher([dir1, dir2], onInvalidate);
-
-    // Write to the second directory
-    writeSkill(dir2, 'deploy');
-
-    await waitFor(() => onInvalidate.mock.calls.length > 0);
-    expect(onInvalidate).toHaveBeenCalled();
+  it('invalidates and removes a failed watcher so it can be registered again', () => {
+    const { watcher, invalidate } = create();
+    native[0].emit('error', new Error('lost watch'));
+    expect(invalidate).toHaveBeenCalledTimes(1);
+    expect(native[0].close).toHaveBeenCalledTimes(1);
+    watcher.watchDir('/skills');
+    expect(fsMock.watch).toHaveBeenCalledTimes(2);
   });
 });

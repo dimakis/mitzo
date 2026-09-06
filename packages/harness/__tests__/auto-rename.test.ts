@@ -1,4 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+
+// Client selection is a unit test; constructing the real SDK starts ADC discovery.
+vi.mock('@anthropic-ai/vertex-sdk', () => ({
+  AnthropicVertex: vi.fn(class AnthropicVertex {}),
+}));
 import {
   shouldAutoRename,
   extractRecentPrompts,
@@ -291,6 +296,7 @@ describe('createAnthropicClient (Vertex)', () => {
     const { AnthropicVertex } = await import('@anthropic-ai/vertex-sdk');
     const client = createAnthropicClient();
     expect(client).toBeInstanceOf(AnthropicVertex);
+    expect(AnthropicVertex).toHaveBeenCalledWith({ projectId: 'my-project', region: 'us-east5' });
   });
 
   it('returns standard Anthropic client when CLAUDE_CODE_USE_VERTEX is not set', async () => {
