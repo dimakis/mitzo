@@ -49,6 +49,12 @@ export type {
   AgentMemoryConfig,
   AgentOutput,
   AgentOutputConventions,
+  SessionType,
+  TurnMode,
+  InterceptMode,
+  SeatConfig,
+  TurnRules,
+  SymposiumConfig,
 } from './types.js';
 
 // Constants

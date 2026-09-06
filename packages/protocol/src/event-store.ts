@@ -81,6 +81,8 @@ interface SessionRow {
   last_state_change: number | null;
   agent_name: string | null;
   boot_context: string | null;
+  session_type: string;
+  symposium_config: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -157,6 +159,7 @@ export class EventStore {
     this.migrateAttentionTracking(db);
     this.migrateSessionState(db);
     this.migrateBootContext(db);
+    this.migrateSymposium(db);
     this.migrateUserMessageIndex(db);
 
     this.log.info('EventStore initialized', { dbPath });
@@ -337,6 +340,19 @@ export class EventStore {
     }
   }
 
+  private migrateSymposium(db: Database.Database): void {
+    const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
+    const columnNames = new Set(columns.map((c) => c.name));
+    if (!columnNames.has('session_type')) {
+      db.exec("ALTER TABLE sessions ADD COLUMN session_type TEXT NOT NULL DEFAULT 'chat'");
+      this.log.info('migrated sessions table: added session_type');
+    }
+    if (!columnNames.has('symposium_config')) {
+      db.exec('ALTER TABLE sessions ADD COLUMN symposium_config TEXT');
+      this.log.info('migrated sessions table: added symposium_config');
+    }
+  }
+
   private migrateUserMessageIndex(db: Database.Database): void {
     db.exec(
       `CREATE INDEX IF NOT EXISTS idx_events_user_msg_dedup
@@ -427,6 +443,14 @@ export class EventStore {
         fields.push('boot_context = ?');
         values.push(meta.bootContext);
       }
+      if (meta.sessionType !== undefined) {
+        fields.push('session_type = ?');
+        values.push(meta.sessionType);
+      }
+      if (meta.symposiumConfig !== undefined) {
+        fields.push('symposium_config = ?');
+        values.push(meta.symposiumConfig);
+      }
       if (meta.updatedAt !== undefined) {
         fields.push('updated_at = ?');
         values.push(meta.updatedAt);
@@ -452,6 +476,8 @@ export class EventStore {
         'closed_by',
         'agent_name',
         'boot_context',
+        'session_type',
+        'symposium_config',
       ];
       const vals: unknown[] = [
         meta.sessionId,
@@ -467,6 +493,8 @@ export class EventStore {
         meta.closedBy ?? null,
         meta.agentName ?? null,
         meta.bootContext ?? null,
+        meta.sessionType ?? 'chat',
+        meta.symposiumConfig ?? null,
       ];
       if (meta.updatedAt !== undefined) {
         cols.push('updated_at');
@@ -781,6 +809,8 @@ function rowToSession(row: SessionRow): SessionMeta {
     lastStateChange: row.last_state_change ?? null,
     agentName: row.agent_name ?? null,
     bootContext: row.boot_context ?? null,
+    sessionType: (row.session_type as SessionMeta['sessionType']) ?? 'chat',
+    symposiumConfig: row.symposium_config ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

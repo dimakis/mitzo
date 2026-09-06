@@ -23,7 +23,6 @@ export interface SseConnectionConfig {
   fetch: (url: string, init?: RequestInit) => Promise<Response>;
   /** Factory for EventSource — allows injection for testing. */
   createEventSource?: (url: string) => EventSource;
-  reconnectDelayMs?: number;
   /** URL for the sendBeacon suspend fallback. */
   suspendUrl?: string;
 }
@@ -38,7 +37,8 @@ export class SseConnection implements ChatConnection {
   private listener: ConnectionListener | null = null;
   private seqBySession = new Map<string, number>();
   private pendingSends: Array<{ endpoint: string; body: Record<string, unknown> }> = [];
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Sessions that need a reconnect POST — set when reconnect fails, retried on next welcome. */
+  private _pendingReconnectSessions: Array<{ sessionId: string; lastSeq: number }> | null = null;
   private boundOnVisibility: (() => void) | null = null;
   private boundOnPageShow: ((e: PageTransitionEvent) => void) | null = null;
   private boundOnPageHide: (() => void) | null = null;
@@ -47,7 +47,6 @@ export class SseConnection implements ChatConnection {
   constructor(config: SseConnectionConfig) {
     this.config = {
       createEventSource: (url: string) => new EventSource(url),
-      reconnectDelayMs: 500,
       suspendUrl: '',
       ...config,
     };
@@ -60,15 +59,12 @@ export class SseConnection implements ChatConnection {
 
   disconnect(): void {
     this.removeBrowserListeners();
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
     if (this.es) {
       this.es.close();
       this.es = null;
     }
     this._connected = false;
+    this._pendingReconnectSessions = null;
   }
 
   /**
@@ -88,12 +84,12 @@ export class SseConnection implements ChatConnection {
     if (!endpoint) return false;
 
     if (this._connected && this._connectionId) {
-      this.doPost(endpoint, msg);
+      this.doPost(endpoint, msg).catch(() => {});
       return true;
     }
 
-    // Queue if reconnecting
-    if (this.reconnectTimer || this.es) {
+    // Queue if EventSource exists (reconnecting)
+    if (this.es) {
       if (this.pendingSends.length >= MAX_PENDING_SENDS) {
         this.pendingSends.shift();
       }
@@ -150,7 +146,7 @@ export class SseConnection implements ChatConnection {
 
     // Try POST first
     if (this._connected && this._connectionId) {
-      this.doPost('suspend', { type: 'session_suspend', sessions });
+      this.doPost('suspend', { type: 'session_suspend', sessions }).catch(() => {});
       return;
     }
 
@@ -175,7 +171,6 @@ export class SseConnection implements ChatConnection {
    */
   checkAndReconnect(force = false): void {
     if (!force && this._connected) return;
-    if (this.reconnectTimer) return;
     if (this.es) {
       this.es.close();
       this.es = null;
@@ -192,11 +187,6 @@ export class SseConnection implements ChatConnection {
 
   private doConnect(): void {
     if (this.es) return;
-
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
 
     // Always use the base URL — reconnect sessions are sent via POST in the
     // welcome handler. This avoids the bug where EventSource auto-reconnect
@@ -217,13 +207,38 @@ export class SseConnection implements ChatConnection {
       }
       this._connectionId = msg.connectionId as string;
 
-      // _connected deferred until doReconnectPost succeeds — prevents
-      // external send() from bypassing the pending queue mid-reconnect.
-      // Capture both connectionId and ES instance for the staleness guard.
-      const welcomeConnectionId = this._connectionId;
-      const welcomeEs = this.es;
-      if (this._isReconnect && this.seqBySession.size > 0) {
-        this.doReconnectPost(welcomeConnectionId, welcomeEs);
+      // Fire reconnect POST if reconnecting with sessions, or retry a
+      // previously failed reconnect. handleSendV2 handles ownership on first
+      // message, and replayed events arrive via SSE regardless.
+      // Filter pending retries against current seqBySession — sessions may
+      // have been cleared (clearSession) since the retry was queued.
+      // Refresh lastSeq from current map — SSE events may have advanced it
+      // since the original failure, avoiding unnecessary replay.
+      const sessions = this.getReconnectSessions();
+      if (sessions) {
+        this._pendingReconnectSessions = sessions;
+        // Capture connectionId to detect stale callbacks — if a new welcome
+        // arrives while this POST is in-flight, the callback should no-op
+        // to avoid double-flushing pending sends.
+        const postConnectionId = this._connectionId;
+        // Don't mark connected until POST succeeds — prevents send() from
+        // bypassing the pending queue and arriving before cursor setup.
+        this.doPost('reconnect', { type: 'reconnect', sessions }).then(
+          () => {
+            if (this._connectionId !== postConnectionId) return; // stale callback
+            this._pendingReconnectSessions = null;
+            this._connected = true;
+            this.flushPendingSends();
+            this.listener?.({ type: '_open' });
+          },
+          () => {
+            if (this._connectionId !== postConnectionId) return; // stale callback
+            // doPost already logs the warning. Keep _pendingReconnectSessions
+            // so the next EventSource reconnect retries automatically.
+            // Don't flush — server hasn't set up cursor/replay. Don't mark
+            // connected — sends stay queued until next successful reconnect.
+          },
+        );
       } else {
         this._connected = true;
         this.flushPendingSends();
@@ -262,70 +277,12 @@ export class SseConnection implements ChatConnection {
     // but we wait for the 'welcome' event before marking as connected.
   }
 
-  /**
-   * Send the reconnect POST and only mark connected on success.
-   *
-   * On failure the client stays disconnected — the next EventSource
-   * auto-reconnect will trigger a fresh welcome + retry. This prevents
-   * flushing pending sends into the void when the server never ran
-   * handleReconnect (no watch, no reattach, no replay).
-   */
-  private async doReconnectPost(
-    welcomeConnectionId: string,
-    welcomeEs: EventSource | null,
-  ): Promise<void> {
-    try {
-      const res = await this.config.fetch(`${this.config.baseUrl}/api/chat/reconnect`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Connection-ID': welcomeConnectionId,
-        },
-        body: JSON.stringify({
-          type: 'reconnect',
-          sessions: Array.from(this.seqBySession.entries()).map(([sessionId, lastSeq]) => ({
-            sessionId,
-            lastSeq,
-          })),
-        }),
-      });
-
-      // Guard: bail if disconnect() was called, a newer welcome arrived,
-      // or checkAndReconnect replaced the EventSource while in-flight.
-      if (!this.es || this.es !== welcomeEs || this._connectionId !== welcomeConnectionId) return;
-
-      if (res.ok) {
-        this._connected = true;
-        this.flushPendingSends();
-        this.listener?.({ type: '_open' });
-      } else {
-        console.warn('[SseConnection] reconnect POST returned', res.status);
-        this.scheduleReconnect();
-      }
-    } catch (err) {
-      if (!this.es || this.es !== welcomeEs || this._connectionId !== welcomeConnectionId) return;
-      console.warn('[SseConnection] reconnect POST failed', err);
-      this.scheduleReconnect();
-    }
-  }
-
-  /** Tear down and reconnect after a delay to avoid tight retry loops. */
-  private scheduleReconnect(): void {
-    if (this.reconnectTimer) return;
-    if (this.es) {
-      this.es.close();
-      this.es = null;
-    }
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      this.doConnect();
-    }, this.config.reconnectDelayMs);
-  }
-
   private async doPost(endpoint: string, body: Record<string, unknown>): Promise<void> {
-    if (!this._connectionId) return;
+    if (!this._connectionId) {
+      throw new Error('doPost called without connectionId');
+    }
     try {
-      await this.config.fetch(`${this.config.baseUrl}/api/chat/${endpoint}`, {
+      const res = await this.config.fetch(`${this.config.baseUrl}/api/chat/${endpoint}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -333,9 +290,17 @@ export class SseConnection implements ChatConnection {
         },
         body: JSON.stringify(body),
       });
-    } catch {
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+    } catch (err) {
       // POST failures are non-fatal — the server may be temporarily
-      // unreachable. The SSE stream will reconnect and replay missed events.
+      // unreachable. SSE EventSource auto-reconnects and replays missed events
+      // from the EventStore. However, a failed reconnect POST means the server
+      // won't reset the cursor or re-send boot context until the next
+      // reconnect cycle. Client-side seq dedup prevents duplicate delivery.
+      console.warn(`[mitzo] ${endpoint} POST failed:`, err instanceof Error ? err.message : err);
+      throw err;
     }
   }
 
@@ -344,7 +309,7 @@ export class SseConnection implements ChatConnection {
     const toFlush = this.pendingSends;
     this.pendingSends = [];
     for (const { endpoint, body } of toFlush) {
-      this.doPost(endpoint, body);
+      this.doPost(endpoint, body).catch(() => {});
     }
   }
 
@@ -379,6 +344,30 @@ export class SseConnection implements ChatConnection {
       default:
         return null;
     }
+  }
+
+  /**
+   * Build the session list for a reconnect POST.
+   *
+   * Priority: (1) pending retry sessions (filtered against current seqBySession,
+   * with refreshed lastSeq), (2) all tracked sessions if this is a reconnect.
+   * Returns null when there's nothing to reconnect.
+   */
+  private getReconnectSessions(): Array<{ sessionId: string; lastSeq: number }> | null {
+    const pending = this._pendingReconnectSessions
+      ?.filter((s) => this.seqBySession.has(s.sessionId))
+      .map((s) => ({ ...s, lastSeq: this.seqBySession.get(s.sessionId)! }));
+
+    if (pending && pending.length > 0) return pending;
+
+    if (this._isReconnect && this.seqBySession.size > 0) {
+      return Array.from(this.seqBySession.entries()).map(([sessionId, lastSeq]) => ({
+        sessionId,
+        lastSeq,
+      }));
+    }
+
+    return null;
   }
 
   // ─── Browser lifecycle ─────────────────────────────────────────────────────

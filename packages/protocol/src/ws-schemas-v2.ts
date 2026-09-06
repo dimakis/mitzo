@@ -124,6 +124,8 @@ export const V2SetModeMessage = z.object({
 
 // ─── Union ──────────────────────────────────────────────────────────────────
 
+// ReconnectMessage is primarily handled via REST POST (SSE transport), but WS
+// clients still send it over WS until P4 removes the WS chat transport.
 export const IncomingWsMessageV2 = z.discriminatedUnion('type', [
   HelloMessage,
   ReconnectMessage,

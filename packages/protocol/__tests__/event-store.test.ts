@@ -851,6 +851,60 @@ describe('EventStore', () => {
     });
   });
 
+  describe('symposium schema migration', () => {
+    it('sessions default to session_type=chat', () => {
+      store.upsertSession({ sessionId: 'chat-1', summary: 'Normal chat' });
+      const session = store.getSession('chat-1');
+      expect(session!.sessionType).toBe('chat');
+    });
+
+    it('persists session_type=symposium on insert', () => {
+      store.upsertSession({ sessionId: 'symp-1', summary: 'Symposium', sessionType: 'symposium' });
+      const session = store.getSession('symp-1');
+      expect(session!.sessionType).toBe('symposium');
+    });
+
+    it('updates session_type on existing session', () => {
+      store.upsertSession({ sessionId: 'symp-2', summary: 'Test' });
+      expect(store.getSession('symp-2')!.sessionType).toBe('chat');
+
+      store.upsertSession({ sessionId: 'symp-2', sessionType: 'symposium' });
+      expect(store.getSession('symp-2')!.sessionType).toBe('symposium');
+    });
+
+    it('persists symposium_config as JSON string', () => {
+      const config = JSON.stringify({
+        seats: [
+          { name: 'A', model: 'claude-opus-4-6', systemPrompt: '', color: '#000' },
+          { name: 'B', model: 'gemini-2.5-pro', systemPrompt: '', color: '#FFF' },
+        ],
+        turnRules: { mode: 'round-robin', maxTurns: 10 },
+        interceptMode: 'auto',
+      });
+      store.upsertSession({
+        sessionId: 'symp-3',
+        sessionType: 'symposium',
+        symposiumConfig: config,
+      });
+
+      const session = store.getSession('symp-3');
+      expect(session!.symposiumConfig).toBe(config);
+      const parsed = JSON.parse(session!.symposiumConfig!);
+      expect(parsed.seats).toHaveLength(2);
+    });
+
+    it('defaults symposium_config to null', () => {
+      store.upsertSession({ sessionId: 'chat-2', summary: 'Chat' });
+      expect(store.getSession('chat-2')!.symposiumConfig).toBeNull();
+    });
+
+    it('events table supports seat_id in payload', () => {
+      store.append('symp-4', 'block_delta', { delta: 'hello', seatId: 'seat-0' });
+      const events = store.getSessionEvents('symp-4');
+      expect(events[0].payload.seatId).toBe('seat-0');
+    });
+  });
+
   describe('close', () => {
     it('is safe to call multiple times', () => {
       store.close();
