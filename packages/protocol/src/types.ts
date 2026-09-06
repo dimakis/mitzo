@@ -260,6 +260,8 @@ export interface SessionActivity {
   awaitingReply?: boolean;
   /** Minutes since the last speaker event (user or assistant). */
   idleMinutes?: number;
+  /** Truncated text preview of the last assistant message (~300 chars). */
+  lastMessagePreview?: string;
 }
 
 // --- Service health (SSE event bus) ---
@@ -328,6 +330,8 @@ export interface SessionMeta {
   agentName: string | null;
   /** Serialized JSON of the boot_context payload (sources, tokens, sections). */
   bootContext: string | null;
+  /** Truncated text preview of the last assistant message (~300 chars). */
+  lastAssistantPreview: string | null;
   createdAt: number;
   updatedAt: number;
 }

@@ -538,6 +538,22 @@ async function _runQueryLoopInner(
           log.info('result received', { clientId, sessionId: msg.session_id });
           // Capture snapshot blocks before flush (forceFlush nulls the snapshot).
           const snapshotBlocks = currentSession.currentSnapshot?.blocks ?? [];
+
+          // Extract preview from last assistant message (before snapshot is discarded)
+          const previewText = snapshotBlocks
+            .filter((b) => b.blockType === 'text' && b.content)
+            .map((b) => b.content)
+            .join('\n')
+            .trim();
+          const lastPreview = previewText.length > 300 ? previewText.slice(-300) : previewText;
+
+          // Store preview BEFORE flush — forceFlush fires turn_end internally,
+          // and the turn_end handler reads preview from DB to populate the
+          // in-memory cache for real-time SSE broadcasts.
+          if (store && resolvedSessionId && lastPreview) {
+            store.updateLastAssistantPreview(resolvedSessionId, lastPreview);
+          }
+
           forceFlushPendingMessage(currentSession);
           doneSent = true;
 
