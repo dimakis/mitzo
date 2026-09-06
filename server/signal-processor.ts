@@ -32,12 +32,22 @@ const POLL_INTERVALS: Record<string, number> = {
  */
 export class SignalProcessor {
   private watches = new Map<string, WatchEntry>();
+  private pendingRegistrations = new Map<string, Promise<void>>();
   private store: TaskStore;
   private onSignalResolved: (taskId: string) => void;
+  private centaurBaseUrl: string;
+  private mitzoBaseUrl: string;
 
-  constructor(store: TaskStore, onSignalResolved: (taskId: string) => void) {
+  constructor(
+    store: TaskStore,
+    onSignalResolved: (taskId: string) => void,
+    centaurBaseUrl = 'http://localhost:8642',
+    mitzoBaseUrl = 'http://localhost:3100',
+  ) {
     this.store = store;
     this.onSignalResolved = onSignalResolved;
+    this.centaurBaseUrl = centaurBaseUrl;
+    this.mitzoBaseUrl = mitzoBaseUrl;
   }
 
   watch(taskId: string, gateConfig: GateConfig): void {
@@ -57,12 +67,28 @@ export class SignalProcessor {
     }
 
     this.watches.set(taskId, { taskId, gateConfig, intervalId });
+
+    // Register callback with Centaur for push-based resolution
+    if (gateConfig.type === 'centaur_review') {
+      const registration = this.registerCentaurCallback(
+        taskId,
+        gateConfig as GateConfig & { pr_url: string },
+      );
+      this.pendingRegistrations.set(taskId, registration);
+      registration.finally(() => this.pendingRegistrations.delete(taskId));
+    }
   }
 
   unwatch(taskId: string): void {
     const entry = this.watches.get(taskId);
     if (!entry) return;
     if (entry.intervalId) clearInterval(entry.intervalId);
+
+    // Deregister callback with Centaur
+    if (entry.gateConfig.type === 'centaur_review') {
+      this.deregisterCentaurCallback(taskId);
+    }
+
     this.watches.delete(taskId);
     log.info('unwatched task', { taskId });
   }
@@ -151,6 +177,51 @@ export class SignalProcessor {
       this.store.update(taskId, { status: 'failed', artifacts });
       this.store.cascadeStatus(taskId);
       log.info('signal failed, retries exhausted', { taskId });
+    }
+  }
+
+  /** Register a callback URL with Centaur so it pushes ReviewCompleted events. */
+  private async registerCentaurCallback(taskId: string, config: { pr_url: string }): Promise<void> {
+    const callbackUrl = `${this.mitzoBaseUrl}/api/tasks/${taskId}/signal`;
+    try {
+      const res = await fetch(`${this.centaurBaseUrl}/api/signals/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task_id: taskId,
+          pr_url: config.pr_url,
+          callback_url: callbackUrl,
+        }),
+      });
+      if (res.ok) {
+        log.info('registered centaur callback', { taskId, pr_url: config.pr_url });
+      } else {
+        log.warn('centaur callback registration failed', { taskId, status: res.status });
+      }
+    } catch (err) {
+      // Centaur might not be running — polling fallback covers this case
+      log.warn('centaur callback registration error', {
+        taskId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /** Deregister a callback with Centaur. Best-effort. */
+  private async deregisterCentaurCallback(taskId: string): Promise<void> {
+    // Wait for any in-flight registration to finish before sending DELETE,
+    // otherwise DELETE arrives first and the registration creates a dangling entry.
+    const pending = this.pendingRegistrations.get(taskId);
+    if (pending) {
+      await pending.catch(() => {});
+    }
+    try {
+      await fetch(`${this.centaurBaseUrl}/api/signals/${taskId}`, {
+        method: 'DELETE',
+      });
+      log.info('deregistered centaur callback', { taskId });
+    } catch {
+      // Best-effort — Centaur might be down
     }
   }
 
