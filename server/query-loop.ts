@@ -18,6 +18,7 @@ import { sendTurnCompleteNotification as apnsTurnComplete } from './apns.js';
 import { extractSnippet } from './notification-helpers.js';
 import { NOTIFY_SNIPPET_MAX_CHARS } from './constants.js';
 import { createGoal, reportUsage, deriveGoalTitle } from './goal-client.js';
+import * as mlflow from './mlflow.js';
 import { tracer } from './tracing.js';
 import { context, trace, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { ProgressTracker } from './progress-tracker.js';
@@ -268,6 +269,7 @@ async function _runQueryLoopInner(
   let resolvedGoalId: string | undefined;
   let goalCreationPromise: Promise<string | null> | undefined;
   let goalTitle: string | undefined;
+  let mlflowRunId: string | null = null;
 
   // Turn and tool span tracking
   let currentTurnSpan: Span | null = null;
@@ -532,6 +534,22 @@ async function _runQueryLoopInner(
                 });
                 return null;
               });
+            }
+
+            // Create MLflow run for this session (fire-and-forget)
+            if (mlflow.isEnabled()) {
+              mlflow
+                .createRun({
+                  sessionId: resolvedSessionId,
+                  mode: currentSession.mode,
+                  model: currentSession.model,
+                  cwd: currentSession.cwd,
+                  branch: currentSession.branch,
+                })
+                .then((id) => {
+                  mlflowRunId = id;
+                })
+                .catch(() => {});
             }
           }
         } else if (msg.type === 'result') {
@@ -1402,6 +1420,29 @@ async function _runQueryLoopInner(
           clientId,
           reason: caughtError ? 'error' : 'completed',
         });
+      }
+      // End MLflow run with final metrics (fire-and-forget).
+      // Uses the same usage data sources as recordUsage above.
+      if (mlflowRunId) {
+        const fallbackDurationMs = Date.now() - sessionStartedAt;
+        mlflow
+          .endRun(
+            mlflowRunId,
+            {
+              inputTokens: lastReportedUsage.inputTokens,
+              outputTokens: doneSent ? lastReportedUsage.outputTokens : cumulativeOutputTokens,
+              cacheReadTokens: lastReportedUsage.cacheReadTokens,
+              cacheCreationTokens: lastReportedUsage.cacheCreationTokens,
+              totalCostUsd:
+                lastReportedUsage.totalCostUsd || (finalSession?.cumulativeCostUsd ?? 0),
+              numTurns: doneSent ? lastReportedUsage.numTurns : turnIndex,
+              durationMs: doneSent ? lastReportedUsage.durationMs : fallbackDurationMs,
+              durationApiMs: lastReportedUsage.durationApiMs,
+              numCompactions,
+            },
+            caughtError ? 'FAILED' : 'FINISHED',
+          )
+          .catch(() => {});
       }
       // Clean up any open subagent spans (ERROR if catch was entered)
       const subagentCleanupStatus = caughtError ? SpanStatusCode.ERROR : SpanStatusCode.OK;
