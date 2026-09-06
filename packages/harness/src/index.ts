@@ -147,3 +147,6 @@ export type {
   ReasoningEvent,
   ReasoningEventHandler,
 } from './reasoning/index.js';
+
+export { ResponsesSession } from './providers/index.js';
+export type { ResponsesSessionOptions, ResponsesCheckpoint } from './providers/index.js';

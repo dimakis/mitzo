@@ -105,3 +105,6 @@ export type {
   ToolUseBlock,
   ToolResultBlock,
 } from './sdk-adapter.js';
+
+export { ResponsesSession } from './responses-session.js';
+export type { ResponsesSessionOptions, ResponsesCheckpoint } from './responses-session.js';
