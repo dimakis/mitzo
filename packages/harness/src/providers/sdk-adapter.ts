@@ -178,6 +178,7 @@ export async function* sdkWrapperEmitter(
       }
 
       case 'message_delta':
+        if (event.usage.input_tokens !== undefined) usage.input_tokens = event.usage.input_tokens;
         usage.output_tokens = event.usage.output_tokens;
         break;
     }
