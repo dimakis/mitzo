@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import type {
   ContentBlock,
@@ -94,6 +95,82 @@ function inputMessages(messages: ConversationMessage[]): Record<string, unknown>
   });
 }
 
+/** Accumulates one response's content independently from transport and checkpoint ownership. */
+class ResponseBlocks {
+  readonly blocks: ContentBlock[] = [];
+  readonly closed = new Set<number>();
+  private indexes = new Map<string, number>();
+  private argumentBuffers = new Map<number, string>();
+  startTool(event: z.infer<typeof eventSchema>): StreamEvent | undefined {
+    const id = z.string().parse(event.item?.call_id);
+    const name = z.string().parse(event.item?.name);
+    const index = this.blocks.length;
+    this.indexes.set(`tool:${event.output_index}`, index);
+    this.blocks.push({ type: 'tool_use', id, name, input: {} });
+    this.argumentBuffers.set(index, '');
+    return {
+      type: 'content_block_start',
+      index,
+      content_block: { type: 'tool_use', id, name, input: {} },
+    };
+  }
+
+  startText(event: z.infer<typeof eventSchema>): StreamEvent | undefined {
+    const index = this.blocks.length;
+    this.indexes.set(`text:${event.output_index}:${event.content_index}`, index);
+    this.blocks.push({ type: 'text', text: '' });
+    return { type: 'content_block_start', index, content_block: { type: 'text', text: '' } };
+  }
+
+  appendText(event: z.infer<typeof eventSchema>): StreamEvent | undefined {
+    const index = this.indexes.get(`text:${event.output_index}:${event.content_index}`);
+    if (index === undefined || event.delta === undefined)
+      throw new Error('Invalid OpenAI text delta');
+    const block = this.blocks[index];
+    if (block.type !== 'text') throw new Error('Invalid OpenAI text block');
+    block.text += event.delta;
+    return {
+      type: 'content_block_delta',
+      index,
+      delta: { type: 'text_delta', text: event.delta },
+    };
+  }
+
+  appendToolArguments(event: z.infer<typeof eventSchema>): StreamEvent | undefined {
+    const index = this.indexes.get(`tool:${event.output_index}`);
+    if (index === undefined || event.delta === undefined)
+      throw new Error('Invalid OpenAI tool delta');
+    this.argumentBuffers.set(index, this.argumentBuffers.get(index)! + event.delta);
+    return {
+      type: 'content_block_delta',
+      index,
+      delta: { type: 'input_json_delta', partial_json: event.delta },
+    };
+  }
+
+  finishTool(event: z.infer<typeof eventSchema>): StreamEvent | undefined {
+    const index = this.indexes.get(`tool:${event.output_index}`);
+    if (index === undefined) throw new Error('Invalid OpenAI tool completion');
+    const block = this.blocks[index];
+    if (block.type !== 'tool_use') throw new Error('Invalid OpenAI tool block');
+    try {
+      block.input = record.parse(JSON.parse(this.argumentBuffers.get(index)!));
+    } catch {
+      throw new Error('Invalid OpenAI tool arguments');
+    }
+    this.closed.add(index);
+    return { type: 'content_block_stop', index };
+  }
+
+  finishText(event: z.infer<typeof eventSchema>): StreamEvent | undefined {
+    const index = this.indexes.get(`text:${event.output_index}:${event.content_index}`);
+    if (index !== undefined) {
+      this.closed.add(index);
+      return { type: 'content_block_stop', index };
+    }
+  }
+}
+
 /** Direct API billing route. One instance belongs to one server-owned account binding. */
 export class ResponsesSession implements ModelSession {
   readonly provider = 'openai';
@@ -129,10 +206,7 @@ export class ResponsesSession implements ModelSession {
 
   async *turn(messages: ConversationMessage[]): AsyncIterable<StreamEvent> {
     if (this.running) throw new Error('OpenAI session already has a running turn');
-    if (
-      JSON.stringify(messages.slice(0, this.state.history.length)) !==
-      JSON.stringify(this.state.history)
-    )
+    if (!isDeepStrictEqual(messages.slice(0, this.state.history.length), this.state.history))
       throw new Error('OpenAI conversation history does not match its checkpoint');
     const input = [
       ...this.state.input,
@@ -166,10 +240,8 @@ export class ResponsesSession implements ModelSession {
       });
       if (!response.ok) throw new Error(`OpenAI API request failed (${response.status})`);
       if (!response.body) throw new Error('OpenAI response has no stream body');
-      const blocks: ContentBlock[] = [];
-      const indexes = new Map<string, number>();
-      const argumentBuffers = new Map<number, string>();
-      const closed = new Set<number>();
+      const content = new ResponseBlocks();
+      const { blocks, closed } = content;
       let started = false;
       for await (const event of readEvents(response.body)) {
         this.config.signal?.throwIfAborted();
@@ -189,71 +261,32 @@ export class ResponsesSession implements ModelSession {
           event.type === 'response.output_item.added' &&
           event.item?.type === 'function_call'
         ) {
-          const id = z.string().parse(event.item.call_id);
-          const name = z.string().parse(event.item.name);
-          const index = blocks.length;
-          indexes.set(`tool:${event.output_index}`, index);
-          blocks.push({ type: 'tool_use', id, name, input: {} });
-          argumentBuffers.set(index, '');
-          yield {
-            type: 'content_block_start',
-            index,
-            content_block: { type: 'tool_use', id, name, input: {} },
-          };
+          const translated = content.startTool(event);
+          if (translated) yield translated;
         } else if (
           event.type === 'response.content_part.added' &&
           ['output_text', 'refusal'].includes(String(event.part?.type))
         ) {
-          const index = blocks.length;
-          indexes.set(`text:${event.output_index}:${event.content_index}`, index);
-          blocks.push({ type: 'text', text: '' });
-          yield { type: 'content_block_start', index, content_block: { type: 'text', text: '' } };
+          const translated = content.startText(event);
+          if (translated) yield translated;
         } else if (
           event.type === 'response.output_text.delta' ||
           event.type === 'response.refusal.delta'
         ) {
-          const index = indexes.get(`text:${event.output_index}:${event.content_index}`);
-          if (index === undefined || event.delta === undefined)
-            throw new Error('Invalid OpenAI text delta');
-          const block = blocks[index];
-          if (block.type !== 'text') throw new Error('Invalid OpenAI text block');
-          block.text += event.delta;
-          yield {
-            type: 'content_block_delta',
-            index,
-            delta: { type: 'text_delta', text: event.delta },
-          };
+          const translated = content.appendText(event);
+          if (translated) yield translated;
         } else if (event.type === 'response.function_call_arguments.delta') {
-          const index = indexes.get(`tool:${event.output_index}`);
-          if (index === undefined || event.delta === undefined)
-            throw new Error('Invalid OpenAI tool delta');
-          argumentBuffers.set(index, argumentBuffers.get(index)! + event.delta);
-          yield {
-            type: 'content_block_delta',
-            index,
-            delta: { type: 'input_json_delta', partial_json: event.delta },
-          };
+          const translated = content.appendToolArguments(event);
+          if (translated) yield translated;
         } else if (
           event.type === 'response.output_item.done' &&
           event.item?.type === 'function_call'
         ) {
-          const index = indexes.get(`tool:${event.output_index}`);
-          if (index === undefined) throw new Error('Invalid OpenAI tool completion');
-          const block = blocks[index];
-          if (block.type !== 'tool_use') throw new Error('Invalid OpenAI tool block');
-          try {
-            block.input = record.parse(JSON.parse(argumentBuffers.get(index)!));
-          } catch {
-            throw new Error('Invalid OpenAI tool arguments');
-          }
-          closed.add(index);
-          yield { type: 'content_block_stop', index };
+          const translated = content.finishTool(event);
+          if (translated) yield translated;
         } else if (event.type === 'response.content_part.done') {
-          const index = indexes.get(`text:${event.output_index}:${event.content_index}`);
-          if (index !== undefined) {
-            closed.add(index);
-            yield { type: 'content_block_stop', index };
-          }
+          const translated = content.finishText(event);
+          if (translated) yield translated;
         } else if (event.type === 'response.completed') {
           if (
             !started ||

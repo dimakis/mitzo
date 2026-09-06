@@ -198,7 +198,7 @@ describe('ResponsesSession', () => {
     ).toThrow(/model/);
   });
 
-  it.each(['response.failed', 'response.incomplete'])(
+  it.each(['response.failed', 'response.incomplete', 'error'])(
     'rejects %s without committing a checkpoint',
     async (type) => {
       vi.stubGlobal(
@@ -214,6 +214,43 @@ describe('ResponsesSession', () => {
       expect(session.checkpoint().history).toEqual([]);
     },
   );
+
+  it('accepts equivalent checkpoint history with reordered object keys', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async () => response(textEvents())),
+    );
+    const session = new ResponsesSession(config, { accountId: 'personal', apiKey: 'test' });
+    await collect(session);
+    const reordered = session.checkpoint().history.map(({ role, content }) => ({ content, role }));
+    await expect(
+      collect(session, [...reordered, { role: 'user', content: 'Continue' }]),
+    ).resolves.toBeDefined();
+  });
+
+  it('rejects overlapping turns without disrupting the in-flight turn', async () => {
+    let release!: (value: Response) => void;
+    const fetcher = vi.fn().mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          release = resolve;
+        }),
+    );
+    vi.stubGlobal('fetch', fetcher);
+    const session = new ResponsesSession(config, { accountId: 'personal', apiKey: 'test' });
+    const first = collect(session);
+    try {
+      await expect(collect(session)).rejects.toThrow('already has a running turn');
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    } finally {
+      release(response(textEvents()));
+      await first;
+    }
+    fetcher.mockImplementation(async () => response(textEvents()));
+    await expect(
+      collect(session, [...session.checkpoint().history, { role: 'user', content: 'Continue' }]),
+    ).resolves.toBeDefined();
+  });
 
   it('rejects truncated streams', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(textEvents().slice(0, -1))));
