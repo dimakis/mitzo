@@ -186,7 +186,9 @@ export async function checkGate(config: GateConfig): Promise<GateResult> {
     case 'gh_review':
       return checkGhReview(config as GateConfig & { repo: string; pr: number | string });
     case 'centaur_review':
-      return checkCentaurReview(config as GateConfig & { pr_url: string });
+      return checkCentaurReview(
+        config as GateConfig & { repo?: string; pr?: number | string; pr_url?: string },
+      );
     case 'compound':
       return checkCompound(config as GateConfig & { all: GateConfig[] });
     case 'human_approval':
@@ -260,23 +262,52 @@ async function checkGhReview(config: { repo: string; pr: number | string }): Pro
   }
 }
 
-async function checkCentaurReview(config: { pr_url: string }): Promise<GateResult> {
-  try {
-    const res = await fetch(
-      `http://localhost:8642/api/reviews?pr=${encodeURIComponent(config.pr_url)}`,
-    );
-    if (!res.ok) return { resolved: false, status: 'fail' };
-    const data = (await res.json()) as { status?: string; review?: unknown };
+async function checkCentaurReview(config: {
+  repo?: string;
+  pr?: number | string;
+  pr_url?: string;
+}): Promise<GateResult> {
+  // Support both repo+pr and legacy pr_url gate config formats
+  let repo = config.repo;
+  let pr = config.pr;
+  if (!repo && !pr && config.pr_url) {
+    const match = config.pr_url.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/);
+    if (match) {
+      repo = match[1];
+      pr = match[2];
+    }
+  }
+  if (!repo || !pr) return { resolved: false, status: 'fail' };
 
-    if (data.status === 'approved') {
-      return { resolved: true, status: 'pass', artifacts: { review: data.review } };
+  try {
+    const { stdout } = await execFileAsync('gh', [
+      'api',
+      `repos/${repo}/issues/${pr}/comments`,
+      '--jq',
+      '[.[] | select(.body | startswith("## Centaur Review")) | {body: .body, created_at: .created_at}] | last',
+    ]);
+    if (!stdout.trim() || stdout.trim() === 'null') return { resolved: false, status: 'fail' };
+
+    const comment = JSON.parse(stdout) as { body: string; created_at: string };
+    if (!comment) return { resolved: false, status: 'fail' };
+    const body = comment.body;
+
+    // Check severity first — a review with findings takes precedence even if "LGTM" appears
+    // Regexes match Centaur's summary format: "Found **N** issue(s) (X critical, Y warning)"
+    const hasCritical = /\d+\s+critical/.test(body);
+    const hasWarning = /\d+\s+warning/.test(body);
+
+    if (hasCritical || hasWarning) {
+      return {
+        resolved: true,
+        status: 'fail',
+        artifacts: { review: body, hasCritical, hasWarning },
+      };
     }
-    if (data.status === 'changes_requested') {
-      return { resolved: true, status: 'fail', artifacts: { review: data.review } };
-    }
-    return { resolved: false, status: 'fail' };
+
+    // LGTM or info/style only — pass
+    return { resolved: true, status: 'pass', artifacts: { review: body } };
   } catch {
-    // Centaur might not be running — that's fine, just not resolved
     return { resolved: false, status: 'fail' };
   }
 }
