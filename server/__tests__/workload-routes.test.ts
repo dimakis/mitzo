@@ -546,9 +546,9 @@ describe('workload routes', () => {
   });
 
   it('POST /api/workload/items/:id/promote — fallback does not broadcast workload update', async () => {
+    const { setWorkloadBroadcast } = await import('../app.js');
     const broadcasts: unknown[] = [];
-    const origBroadcast = (app as any)._workloadBroadcast;
-    (app as any)._workloadBroadcast = (msg: unknown) => broadcasts.push(msg);
+    setWorkloadBroadcast((msg: Record<string, unknown>) => broadcasts.push(msg));
 
     await request(app)
       .post('/api/workload/items/telos-no-broadcast/promote')
@@ -558,7 +558,8 @@ describe('workload routes', () => {
     const workloadBroadcasts = broadcasts.filter((b: any) => b.type === 'workload_item_updated');
     expect(workloadBroadcasts).toHaveLength(0);
 
-    (app as any)._workloadBroadcast = origBroadcast;
+    // Restore to null to avoid leaking into other tests
+    setWorkloadBroadcast((() => {}) as any);
   });
 
   it('POST /api/workload/items/:id/promote — broadcasts workload_item_updated', async () => {
