@@ -65,6 +65,14 @@ const TodoContextHintsSchema = z.object({
   jiraKeys: z.array(z.string()).optional().default([]),
   keywords: z.array(z.string()).optional().default([]),
   taskHint: z.string().optional().default(''),
+  sessionIds: z.array(z.string()).optional().default([]),
+});
+
+const TodoLinkSchema = z.object({
+  type: z.string(),
+  url: z.string(),
+  title: z.string(),
+  description: z.string().optional().default(''),
 });
 
 const TodoItemSchema: z.ZodType<unknown> = z.lazy(() =>
@@ -84,6 +92,7 @@ const TodoItemSchema: z.ZodType<unknown> = z.lazy(() =>
     childCount: z.number().optional().default(0),
     completedChildCount: z.number().optional().default(0),
     sources: z.array(TodoSourceSchema),
+    links: z.array(TodoLinkSchema).optional().default([]),
     contextHints: TodoContextHintsSchema,
     goalId: z.string().nullable().optional().default(null),
   }),
