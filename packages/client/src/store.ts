@@ -51,6 +51,7 @@ import type { ChatConnection } from './chat-connection.js';
 // ─── Store state ─────────────────────────────────────────────────────────────
 
 export interface SendMessageOptions {
+  accountId?: string;
   contextBlocks?: string[];
   images?: ImageAttachment[];
   model?: string;
@@ -325,6 +326,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         const model = opts?.model ?? get().config.modelId;
         const mode = opts?.mode ?? get().config.mode;
         if (model) msg.model = model;
+        if (opts?.accountId) msg.accountId = opts.accountId;
         if (mode) msg.mode = mode;
         if (opts?.contextBlocks?.length) msg.contextBlocks = opts.contextBlocks;
         if (opts?.images?.length) {

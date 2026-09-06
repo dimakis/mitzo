@@ -1,3 +1,4 @@
+import { loadAccountProfiles } from './account-profiles.js';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
@@ -1102,6 +1103,16 @@ app.post('/api/auth/logout', (_req, res) => {
 
 app.get('/api/auth/check', (_req, res) => res.json({ ok: true }));
 
+app.get('/api/accounts', (_req, res) => {
+  try {
+    res.json(loadAccountProfiles().catalog());
+  } catch {
+    res
+      .status(503)
+      .json({ error: 'Account configuration unavailable. Check the profile file on the Mac.' });
+  }
+});
+
 app.get('/api/models', (_req, res) => res.json(AVAILABLE_MODELS));
 
 app.get('/api/config', (_req, res) => {
@@ -1235,6 +1246,7 @@ app.get('/api/sessions/:id/meta', (req, res) => {
     isActive: meta.isActive,
     state: meta.state,
     totalTokens,
+    ...(meta.accountBinding ? { accountBinding: meta.accountBinding } : {}),
     totalCostUsd: meta.totalCostUsd,
     numTurns: meta.numTurns,
   });

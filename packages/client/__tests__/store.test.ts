@@ -1332,3 +1332,14 @@ describe('foreground recovery', () => {
     expect(store.getState().messages.running).toBe(false);
   });
 });
+
+describe('account selection', () => {
+  it('includes the selected account in the initial send payload', () => {
+    const store = createReadyStore();
+    store.getState().sendMessage('hello', { accountId: 'work', model: 'sonnet' });
+    expect(lastWs.parsedSent().find((m) => m.type === 'send')).toMatchObject({
+      accountId: 'work',
+      model: 'sonnet',
+    });
+  });
+});
