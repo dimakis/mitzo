@@ -3,7 +3,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { createElement, act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
-import { createMitzoStore } from '@mitzo/client';
+import { createTestStore } from '../../test-utils/createTestStore';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
 vi.mock('../../lib/event-bus-singleton', () => ({
   eventBus: {
@@ -57,24 +57,7 @@ afterEach(() => {
 function renderSessionList() {
   const root = createRoot(container);
   act(() => {
-    const store = createMitzoStore({
-      transport: {
-        fetch: vi.fn().mockResolvedValue({ ok: true, json: async () => ({ tasks: [] }) }),
-        connectWs: vi.fn(),
-      },
-      wsConfig: {
-        buildUrl: () => 'ws://localhost/ws',
-        createWebSocket: () => ({
-          readyState: 0,
-          onopen: null,
-          onmessage: null,
-          onclose: null,
-          onerror: null,
-          send: vi.fn(),
-          close: vi.fn(),
-        }),
-      },
-    });
+    const store = createTestStore();
     root.render(
       createElement(
         MitzoStoreProvider,
