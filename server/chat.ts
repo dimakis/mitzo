@@ -1270,7 +1270,16 @@ export async function interruptChat(
       );
       await Promise.allSettled(stops);
     }
-    await session.queryInstance.interrupt();
+    try {
+      await session.queryInstance.interrupt();
+    } catch (err: unknown) {
+      // ProcessTransport may already be dead (process exited) — the interrupt
+      // is moot in that case.  Swallow rather than crashing the server.
+      log.warn('interrupt() failed (transport likely dead)', {
+        clientId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
     // Only push to inputQueue on first delivery — a retried interrupt should
     // still call interrupt() (to halt the agent) but not double-queue the prompt.
     if (!isDup) {

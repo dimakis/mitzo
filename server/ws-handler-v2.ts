@@ -733,6 +733,12 @@ export function handleInterruptV2(
           msg.contextBlocks,
           msg.clientMsgId,
           msg.model,
+        ).catch((err: unknown) =>
+          log.error('interruptChat failed', {
+            connectionId,
+            sessionId: msg.sessionId,
+            err: err instanceof Error ? err.message : String(err),
+          }),
         );
         log.info('interrupt', { connectionId, sessionId: msg.sessionId });
         return;
