@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import type { ManagedSession } from './session-registry.js';
 import { createLogger } from './logger.js';
 
@@ -30,6 +31,8 @@ export type OnDemandCreateFn = (
 
 export interface CheckWorktreePolicyOptions {
   onDemandCreate?: OnDemandCreateFn;
+  /** Override fs.existsSync for testing. Defaults to node:fs existsSync. */
+  pathExists?: (p: string) => boolean;
 }
 
 /**
@@ -53,9 +56,17 @@ function extractAbsolutePaths(command: string): string[] {
 function findAllowedWorktree(
   absolutePath: string,
   worktreePaths: Map<string, { path: string; wtId: string }>,
+  pathExists: (p: string) => boolean = existsSync,
 ): { repoName: string; worktreePath: string } | null {
   for (const [name, { path }] of worktreePaths) {
     if (absolutePath.startsWith(path + '/') || absolutePath === path) {
+      // Worktree was cleaned up (stale GC or manual removal) — evict the
+      // stale entry so on-demand creation can recreate it.
+      if (!pathExists(path)) {
+        log.info('evicting stale worktree entry', { repo: name, path });
+        worktreePaths.delete(name);
+        continue;
+      }
       return { repoName: name, worktreePath: path };
     }
   }
@@ -105,6 +116,7 @@ export async function checkWorktreePolicy(
   opts?: CheckWorktreePolicyOptions,
 ): Promise<string | null> {
   if (session.worktreePaths.size === 0) return null;
+  const checkPath = opts?.pathExists ?? existsSync;
 
   if (WRITE_TOOLS.has(toolName)) {
     let checkedAnyPath = false;
@@ -113,7 +125,7 @@ export async function checkWorktreePolicy(
       if (typeof filePath !== 'string' || !filePath.startsWith('/')) continue;
       checkedAnyPath = true;
 
-      const allowed = findAllowedWorktree(filePath, session.worktreePaths);
+      const allowed = findAllowedWorktree(filePath, session.worktreePaths, checkPath);
       if (allowed) continue;
 
       // Try on-demand creation if a callback is provided
@@ -158,7 +170,7 @@ export async function checkWorktreePolicy(
 
     const paths = extractAbsolutePaths(command);
     for (const p of paths) {
-      if (findAllowedWorktree(p, session.worktreePaths)) continue;
+      if (findAllowedWorktree(p, session.worktreePaths, checkPath)) continue;
 
       if (opts?.onDemandCreate) {
         const created = await opts.onDemandCreate(p);
