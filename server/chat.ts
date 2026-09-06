@@ -1,3 +1,4 @@
+import { loadAccountProfiles, resolveAccountSelection, LEGACY_MODELS } from './account-profiles.js';
 import {
   query,
   listSessions,
@@ -365,15 +366,7 @@ export function getRepoConfig() {
   return _cachedConfig;
 }
 
-export const AVAILABLE_MODELS = [
-  { id: 'claude-opus-4-8', label: 'Opus 4.8', desc: 'Latest Opus' },
-  { id: 'claude-opus-4-8:max', label: 'Opus 4.8 Max', desc: 'Max thinking (128k)' },
-  { id: 'claude-opus-4-6', label: 'Opus 4.6', desc: 'Previous Opus' },
-  { id: 'claude-sonnet-5', label: 'Sonnet 5', desc: 'Latest Sonnet' },
-  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', desc: 'Balanced' },
-  { id: 'claude-sonnet-4-5', label: 'Sonnet 4.5', desc: 'Previous Sonnet' },
-  { id: 'claude-haiku-4-5', label: 'Haiku 4.5', desc: 'Fastest' },
-];
+export const AVAILABLE_MODELS = LEGACY_MODELS;
 
 /** Split "claude-opus-4-8:max" → { model: "claude-opus-4-8", effort: "max" } */
 export function parseModelSpec(spec?: string): { model: string; effort: string | undefined } {
@@ -738,6 +731,7 @@ export async function startChat(
     resume?: string;
     cwd?: string;
     model?: string;
+    accountId?: string;
     extraTools?: string;
     isolation?: boolean;
     mode?: MitzoMode;
@@ -768,6 +762,7 @@ async function _startChatInner(
     resume?: string;
     cwd?: string;
     model?: string;
+    accountId?: string;
     extraTools?: string;
     isolation?: boolean;
     mode?: MitzoMode;
@@ -779,6 +774,25 @@ async function _startChatInner(
     agentName?: string;
   },
 ) {
+  let accountBinding;
+  let accountEnv: Record<string, string> | undefined;
+  try {
+    accountBinding = resolveAccountSelection(
+      options,
+      options.resume ? eventStore.getSession(options.resume)?.accountBinding : null,
+      !!options.resume,
+    );
+    if (accountBinding) {
+      options = { ...options, model: accountBinding.model };
+      accountEnv = loadAccountProfiles().sdkEnv(accountBinding, sdkEnv());
+    }
+  } catch (err: unknown) {
+    send(transport, {
+      type: 'error',
+      error: err instanceof Error ? err.message : 'Account selection failed',
+    });
+    return;
+  }
   const abortController = new AbortController();
   const mode = options.mode || 'agent';
 
@@ -909,7 +923,7 @@ async function _startChatInner(
   }
 
   // Build session env with worktree paths for the agent (all repos including primary)
-  const sessionEnv = sdkEnv();
+  const sessionEnv = accountEnv ?? sdkEnv();
   sessionEnv.MITZO_SESSION_ID = wtId;
   sessionEnv.MITZO_AGENT_NAME = agentName;
   for (const [name, { path }] of repoWorktrees) {
@@ -1063,6 +1077,7 @@ async function _startChatInner(
       {
         connRegistry: _connRegistry ?? undefined,
         onSessionResolved: (sessionId: string) => {
+          if (accountBinding) eventStore.upsertSession({ sessionId, accountBinding });
           // Persist boot context for new sessions (resume sessions already persisted above)
           if (!options.resume) {
             eventStore.upsertSession({

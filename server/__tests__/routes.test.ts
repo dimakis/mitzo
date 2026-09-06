@@ -877,3 +877,38 @@ describe('skills routes', () => {
     });
   });
 });
+
+describe('account catalog routes', () => {
+  it('requires authentication', async () => {
+    expect((await request(app).get('/api/accounts')).status).toBe(401);
+  });
+  it('exposes configured accounts without server credential references', async () => {
+    vi.stubEnv('ANTHROPIC_VERTEX_PROJECT_ID', 'test-project');
+    vi.stubEnv('CLAUDE_CODE_USE_VERTEX', '1');
+    vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', '');
+    try {
+      const res = await request(app).get('/api/accounts').set('Cookie', authCookie);
+      expect(res.status).toBe(200);
+      expect(res.body[0]).toMatchObject({ id: 'vertex-default', provider: 'anthropic-vertex' });
+      expect(JSON.stringify(res.body)).not.toContain('credentialRef');
+      expect(JSON.stringify(res.body)).not.toContain('test-project');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('returns a persisted binding with session metadata', async () => {
+    const binding = {
+      accountId: 'work',
+      accountLabel: 'Work',
+      provider: 'anthropic-vertex',
+      model: 'sonnet',
+      profileRevision: 'revision',
+    };
+    vi.mocked(eventStore.getSession).mockReturnValueOnce({
+      sessionId: 'bound',
+      accountBinding: binding,
+    } as ReturnType<typeof eventStore.getSession>);
+    const res = await request(app).get('/api/sessions/bound/meta').set('Cookie', authCookie);
+    expect(res.body.accountBinding).toEqual(binding);
+  });
+});

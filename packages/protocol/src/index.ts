@@ -113,3 +113,5 @@ export {
 // imported via '@mitzo/protocol/event-store' to avoid breaking frontend/browser
 // consumers that don't have the native dependency.
 // StoredEvent, SessionMeta, and EventStoreLogger types are in './types.js' above.
+
+export type { AccountBinding } from './types.js';
