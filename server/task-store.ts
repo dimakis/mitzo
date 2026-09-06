@@ -49,6 +49,7 @@ export interface Task {
   retryCount: number;
   maxRetries: number;
   templateId: string | null;
+  externalRef: string | null;
   children: Task[];
 }
 
@@ -63,6 +64,7 @@ export interface TaskCreateInput {
   gateConfig?: GateConfig;
   maxRetries?: number;
   templateId?: string;
+  externalRef?: string;
 }
 
 export interface TaskUpdateInput {
@@ -106,6 +108,7 @@ interface TaskRow {
   retry_count: number;
   max_retries: number;
   template_id: string | null;
+  external_ref: string | null;
 }
 
 const SCHEMA = `
@@ -137,11 +140,13 @@ const SCHEMA = `
     artifacts       TEXT DEFAULT NULL,
     retry_count     INTEGER NOT NULL DEFAULT 0,
     max_retries     INTEGER NOT NULL DEFAULT 0,
-    template_id     TEXT DEFAULT NULL
+    template_id     TEXT DEFAULT NULL,
+    external_ref    TEXT DEFAULT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);
   CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
   CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_external_ref ON tasks(external_ref) WHERE external_ref IS NOT NULL;
 `;
 
 const MIGRATIONS = [
@@ -156,6 +161,14 @@ const MIGRATIONS = [
       ALTER TABLE tasks ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE tasks ADD COLUMN max_retries INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE tasks ADD COLUMN template_id TEXT DEFAULT NULL;
+    `,
+  },
+  // Migration 2: Add external_ref for idempotent task creation
+  {
+    check: "SELECT COUNT(*) as cnt FROM pragma_table_info('tasks') WHERE name = 'external_ref'",
+    sql: `
+      ALTER TABLE tasks ADD COLUMN external_ref TEXT DEFAULT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_external_ref ON tasks(external_ref) WHERE external_ref IS NOT NULL;
     `,
   },
 ];
@@ -194,6 +207,7 @@ function rowToTask(row: TaskRow): Task {
     retryCount: row.retry_count ?? 0,
     maxRetries: row.max_retries ?? 0,
     templateId: row.template_id ?? null,
+    externalRef: row.external_ref ?? null,
     children: [],
   };
 }
@@ -259,8 +273,8 @@ export class TaskStore {
     const gateConfig = input.gateConfig ? JSON.stringify(input.gateConfig) : null;
 
     db.prepare(
-      `INSERT INTO tasks (id, parent_id, title, description, status, session_policy, priority, depth, annotations, stage_type, gate_config, max_retries, template_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, parent_id, title, description, status, session_policy, priority, depth, annotations, stage_type, gate_config, max_retries, template_id, external_ref, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       input.parentId ?? null,
@@ -274,6 +288,7 @@ export class TaskStore {
       gateConfig,
       input.maxRetries ?? 0,
       input.templateId ?? null,
+      input.externalRef ?? null,
       now,
       now,
     );
@@ -283,6 +298,14 @@ export class TaskStore {
 
   get(id: string): Task | null {
     const row = this.getDb().prepare('SELECT * FROM tasks WHERE id = ?').get(id) as
+      | TaskRow
+      | undefined;
+    return row ? rowToTask(row) : null;
+  }
+
+  /** Look up a task by its external reference (e.g. "pr_shepherd:dimakis/centaur#42"). */
+  getByExternalRef(ref: string): Task | null {
+    const row = this.getDb().prepare('SELECT * FROM tasks WHERE external_ref = ?').get(ref) as
       | TaskRow
       | undefined;
     return row ? rowToTask(row) : null;
