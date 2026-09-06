@@ -1936,7 +1936,8 @@ app.post('/api/workload/items/:id/promote', (req, res) => {
   // Resolve title and context from workloadStore item or fallback body data (Telos items)
   const title = item?.title ?? body.data.title;
   if (!title) {
-    res.status(404).json({ error: 'Item not found and no title provided' });
+    const status = item ? 400 : 404;
+    res.status(status).json({ error: item ? 'No title provided' : 'Item not found and no title provided' });
     return;
   }
 
