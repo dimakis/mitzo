@@ -13,6 +13,7 @@ import { CalendarView } from './pages/CalendarView';
 import { TodoView } from './pages/TodoView';
 import { TodoDetailView } from './pages/TodoDetailView';
 import { TaskBoard } from './pages/TaskBoard';
+import { TerminalView } from './pages/TerminalView';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { MobileShell } from './components/MobileShell';
 import { DesktopShell } from './components/DesktopShell';
@@ -165,6 +166,22 @@ export function App() {
                         <FileViewer />
                       </PageRoute>
                     </ErrorBoundary>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/terminal"
+                element={
+                  <ProtectedRoute>
+                    <TerminalView />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/terminal/:sessionId"
+                element={
+                  <ProtectedRoute>
+                    <TerminalView />
                   </ProtectedRoute>
                 }
               />

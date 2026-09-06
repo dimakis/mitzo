@@ -39,7 +39,9 @@ export function TabBar() {
     },
   ];
 
-  const isMoreActive = ['/tasks', '/files'].some((p) => location.pathname.startsWith(p));
+  const isMoreActive = ['/tasks', '/files', '/terminal'].some((p) =>
+    location.pathname.startsWith(p),
+  );
 
   return (
     <>
@@ -63,6 +65,15 @@ export function TabBar() {
               }}
             >
               Files
+            </button>
+            <button
+              className="tab-bar-more-item"
+              onClick={() => {
+                navigate('/terminal');
+                setMoreOpen(false);
+              }}
+            >
+              Terminal
             </button>
             <div className="tab-bar-more-divider" />
             <button

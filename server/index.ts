@@ -91,6 +91,7 @@ import { withSpan, withSpanAsync } from './tracing.js';
 import { contextFromTraceparent } from './trace-context.js';
 import { SseTransport } from './sse-transport.js';
 import { createChatRestRouter } from './chat-rest-handler.js';
+import { destroyConnectionTerminals } from './terminal-manager.js';
 
 const log = createLogger('server');
 
@@ -511,6 +512,9 @@ function handleChatWsV2(ws: WebSocket, connectionId: string) {
     registry.removeObserver(transport);
     transportMap.delete(ws);
     log.info('v2 disconnected', { connectionId, code, reason: reason?.toString() });
+
+    // Clean up any PTY terminals owned by this connection
+    destroyConnectionTerminals(connectionId);
 
     for (const sessionId of watchedSessions) {
       const found = registry.findBySessionId(sessionId);

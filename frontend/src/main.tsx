@@ -9,6 +9,7 @@ import './styles/global.css';
 import './styles/code-block.css';
 import './styles/calendar.css';
 import './styles/desktop.css';
+import './styles/terminal.css';
 
 initTheme();
 

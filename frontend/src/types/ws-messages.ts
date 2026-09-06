@@ -218,6 +218,36 @@ interface TaskDeletedMsg {
   taskId: string;
 }
 
+// ─── Terminal messages (server → client) ───────────────────────────────────
+
+export interface TerminalCreatedMsg {
+  type: 'terminal_created';
+  terminalId: string;
+  sessionId: string;
+  pid: number;
+  cols: number;
+  rows: number;
+}
+
+export interface TerminalOutputMsg {
+  type: 'terminal_output';
+  terminalId: string;
+  data: string;
+}
+
+export interface TerminalExitMsg {
+  type: 'terminal_exit';
+  terminalId: string;
+  exitCode: number;
+  signal?: number;
+}
+
+export interface TerminalErrorMsg {
+  type: 'terminal_error';
+  terminalId?: string;
+  error: string;
+}
+
 export type ServerMessage =
   | ClientIdMsg
   | ReattachedMsg
@@ -260,7 +290,11 @@ export type ServerMessage =
   | SubagentBlockEndMsg
   | SubagentToolResultMsg
   | SubagentEndMsg
-  | SubagentCancelledMsg;
+  | SubagentCancelledMsg
+  | TerminalCreatedMsg
+  | TerminalOutputMsg
+  | TerminalExitMsg
+  | TerminalErrorMsg;
 
 export interface ProgressStartMsg {
   type: 'progress_start';

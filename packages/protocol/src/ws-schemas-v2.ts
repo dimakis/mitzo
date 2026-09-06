@@ -122,6 +122,33 @@ export const V2SetModeMessage = z.object({
   mode: z.enum(['ask', 'agent', 'auto']),
 });
 
+// ─── Terminal messages ─────────────────────────────────────────────────────
+
+export const TerminalCreateMessage = z.object({
+  type: z.literal('terminal_create'),
+  sessionId: z.string().min(1),
+  cols: z.number().int().min(1).max(500).optional(),
+  rows: z.number().int().min(1).max(500).optional(),
+});
+
+export const TerminalInputMessage = z.object({
+  type: z.literal('terminal_input'),
+  terminalId: z.string().min(1),
+  data: z.string().max(65536),
+});
+
+export const TerminalResizeMessage = z.object({
+  type: z.literal('terminal_resize'),
+  terminalId: z.string().min(1),
+  cols: z.number().int().min(1).max(500),
+  rows: z.number().int().min(1).max(500),
+});
+
+export const TerminalDestroyMessage = z.object({
+  type: z.literal('terminal_destroy'),
+  terminalId: z.string().min(1),
+});
+
 // ─── Union ──────────────────────────────────────────────────────────────────
 
 export const IncomingWsMessageV2 = z.discriminatedUnion('type', [
@@ -137,6 +164,10 @@ export const IncomingWsMessageV2 = z.discriminatedUnion('type', [
   V2StopMessage,
   V2PermissionResponseMessage,
   V2SetModeMessage,
+  TerminalCreateMessage,
+  TerminalInputMessage,
+  TerminalResizeMessage,
+  TerminalDestroyMessage,
 ]);
 
 export type IncomingWsMessageV2 = z.infer<typeof IncomingWsMessageV2>;
