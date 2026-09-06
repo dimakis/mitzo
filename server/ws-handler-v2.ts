@@ -235,8 +235,8 @@ export function handleReconnect(
       for (const entry of msg.sessions) {
         ctx.connRegistry.watch(connectionId, entry.sessionId);
 
-        // Set cursor to client's lastSeq BEFORE replay, so periodic sync
-        // sees a reasonable cursor during replay instead of 0.
+        // Set cursor to client's lastSeq BEFORE replay so broadcast()
+        // doesn't re-deliver events that are about to be replayed.
         ctx.connRegistry.resetCursor(connectionId, entry.sessionId, entry.lastSeq);
 
         const events = ctx.eventStore.getEventsAfter(entry.sessionId, entry.lastSeq);
@@ -247,50 +247,55 @@ export function handleReconnect(
           } as Record<string, unknown>);
         }
 
-        // Reset cursor to last replayed seq — prevents duplicate delivery from
-        // periodic sync. If no events replayed, cursor stays at client's lastSeq.
+        // Reset cursor to last replayed seq so broadcast() doesn't re-deliver.
+        // If no events replayed, cursor stays at client's lastSeq.
         const newCursor = events.length > 0 ? events[events.length - 1].seq : entry.lastSeq;
         ctx.connRegistry.resetCursor(connectionId, entry.sessionId, newCursor);
 
-        // Cross-reference with the durable EventStore: state=ENDED in the store
-        // is ground truth that the query loop has finished (P1: use state, not is_active).
+        // Reattach detached sessions so the agent's transport is refreshed.
+        // Without this, a passively observing user would see events via
+        // watch/broadcast but the agent's transport stays stale.
+        //
+        // Note: reattach refreshes the transport but does NOT rekey the
+        // clientId. If ownerGone=true (device restart), the clientId still
+        // references the old connectionId until the first send triggers
+        // rekeyChat via handleSendV2. During this window, getOwnerConnection()
+        // returns a stale value. This is safe — event delivery uses the
+        // transport (refreshed), and ownership checks on send/interrupt
+        // handle the rekey atomically.
         const found = ctx.sessionRegistry.findBySessionId(entry.sessionId);
         const storeState = ctx.eventStore.getSessionState(entry.sessionId);
-        let running = found ? ctx.sessionRegistry.isActive(found.clientId) : false;
-        if (running && (storeState === 'ENDED' || storeState === 'CLOSING')) {
-          running = false;
-          log.info('removing stale session from registry (state-based)', {
-            connectionId,
-            sessionId: entry.sessionId,
-            clientId: found!.clientId,
-            storeState,
-          });
-          ctx.sessionRegistry.remove(found!.clientId);
-        }
-        if (found && running && !ctx.sessionRegistry.isAttached(found.clientId)) {
-          const ownerConnection = getOwnerConnection(found.clientId);
-          const ownerGone = !ctx.connRegistry.get(ownerConnection);
-          const isOwner = ownerConnection === connectionId;
-          if (isOwner || ownerGone) {
-            const conn = ctx.connRegistry.get(connectionId);
-            if (conn) {
-              reattachChat(found.clientId, conn.transport);
-              const newClientId = `${connectionId}:${entry.sessionId}`;
-              if (found.clientId !== newClientId) {
-                rekeyChat(found.clientId, newClientId);
-                log.info('rekeyed session to new connection', {
+
+        // Skip reattach for zombie sessions — if EventStore says the session
+        // is ENDED or CLOSING, don't reattach. The session's query loop is
+        // finished and reattaching would resurrect a dead transport binding.
+        if (found && ctx.sessionRegistry.isActive(found.clientId)) {
+          if (storeState === 'ENDED' || storeState === 'CLOSING') {
+            log.info('skipping reattach for zombie session on reconnect', {
+              connectionId,
+              sessionId: entry.sessionId,
+              clientId: found.clientId,
+              storeState,
+            });
+          } else {
+            const ownerConnection = getOwnerConnection(found.clientId);
+            // Reattach if: (a) same connection owns it, OR (b) old owner
+            // connection is gone (device restart gave us a new connectionId).
+            const ownerGone =
+              ownerConnection !== connectionId && !ctx.connRegistry.get(ownerConnection);
+            if (
+              (ownerConnection === connectionId || ownerGone) &&
+              !ctx.sessionRegistry.isAttached(found.clientId)
+            ) {
+              const transport = ctx.connRegistry.get(connectionId)?.transport;
+              if (transport) {
+                reattachChat(found.clientId, transport);
+                log.info('reattached detached session on reconnect', {
                   connectionId,
                   sessionId: entry.sessionId,
-                  oldClientId: found.clientId,
-                  newClientId,
+                  ownerGone,
                 });
               }
-              log.info('reattached detached session on reconnect', {
-                connectionId,
-                sessionId: entry.sessionId,
-                clientId: newClientId,
-                ownerGone,
-              });
             }
           }
         }
@@ -299,6 +304,7 @@ export function handleReconnect(
         // buffered events — they were already replayed from EventStore above
         // (sendOrBuffer appends to both stores, so EventStore covers the
         // suspend period). resume() just clears the suspend flag + buffer.
+        const running = found ? ctx.sessionRegistry.isActive(found.clientId) : false;
         let suspendReplayed = 0;
         if (found && running && ctx.sessionRegistry.isSuspended(found.clientId)) {
           const buffered = ctx.sessionRegistry.resume(found.clientId);
@@ -576,6 +582,17 @@ export function handleSendV2(
             }
             applySkillPolicy(activeClientId);
             ctx.connRegistry.watch(connectionId, sessionId);
+            // No resetCursor here — handleReconnect (fire-and-forget POST) sets
+            // cursor to lastSeq when it arrives. Between watch and reconnect,
+            // the cursor starts at 0 (default), so broadcasts may deliver events
+            // the client already has. This is a bandwidth trade-off, not a
+            // correctness issue: client-side seq dedup (store.ts) drops events
+            // with seq <= lastProcessedSeq. The two HTTP requests (reconnect
+            // POST and send POST) can arrive as separate event loop ticks in any
+            // order, but duplicate delivery is always harmless thanks to seq dedup.
+            // TODO(P4): Unify cursor reset so watch() initializes the cursor from
+            // the client's lastSeq, removing the dependency on client-side seq dedup
+            // for the window between watch() and the reconnect POST arriving.
             ctx.connRegistry.setActive(connectionId, sessionId);
             sendToChat(activeClientId, prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
             span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');
@@ -950,6 +967,7 @@ export async function dispatchV2Message(
       // Already handled at routing layer, ignore duplicate
       break;
     case 'reconnect':
+      // WS clients may also send reconnect over WS.
       handleReconnect(connectionId, msg, ctx);
       break;
     case 'watch':

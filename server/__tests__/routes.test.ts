@@ -109,6 +109,7 @@ vi.mock('../chat.js', () => {
         }
         return null;
       }),
+      setSessionState: vi.fn(),
     },
   };
 });
