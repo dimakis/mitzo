@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { summarizeToolInput, getRawInput } from '../src/tool-summary.js';
+import { summarizeToolInput, getRawInput, getToolInputSpanAttrs } from '../src/tool-summary.js';
 
 describe('summarizeToolInput', () => {
   it('summarizes Read tool with file path', () => {
@@ -268,5 +268,111 @@ describe('getRawInput', () => {
     expect(result).toEqual({ type: 'agent', description: 'Search' });
     expect(result).not.toHaveProperty('subagent_type');
     expect(result).not.toHaveProperty('prompt');
+  });
+});
+
+describe('getToolInputSpanAttrs', () => {
+  it('extracts file_path for Read', () => {
+    expect(getToolInputSpanAttrs('Read', { file_path: '/src/index.ts' })).toEqual({
+      'tool.input.file_path': '/src/index.ts',
+    });
+  });
+
+  it('extracts file_path for Write', () => {
+    expect(getToolInputSpanAttrs('Write', { file_path: '/tmp/out.txt', content: 'hello' })).toEqual(
+      {
+        'tool.input.file_path': '/tmp/out.txt',
+      },
+    );
+  });
+
+  it('extracts file_path for Edit and StrReplace', () => {
+    expect(getToolInputSpanAttrs('Edit', { file_path: '/a.ts' })).toEqual({
+      'tool.input.file_path': '/a.ts',
+    });
+    expect(getToolInputSpanAttrs('StrReplace', { file_path: '/b.ts' })).toEqual({
+      'tool.input.file_path': '/b.ts',
+    });
+  });
+
+  it('extracts command for Bash and Shell', () => {
+    expect(getToolInputSpanAttrs('Bash', { command: 'npm test' })).toEqual({
+      'tool.input.command': 'npm test',
+    });
+    expect(getToolInputSpanAttrs('Shell', { command: 'ls -la' })).toEqual({
+      'tool.input.command': 'ls -la',
+    });
+  });
+
+  it('extracts pattern and optional path for Glob', () => {
+    expect(getToolInputSpanAttrs('Glob', { pattern: '**/*.ts', path: '/src' })).toEqual({
+      'tool.input.pattern': '**/*.ts',
+      'tool.input.path': '/src',
+    });
+    expect(getToolInputSpanAttrs('Glob', { pattern: '*.js' })).toEqual({
+      'tool.input.pattern': '*.js',
+    });
+  });
+
+  it('extracts pattern and optional path for Grep', () => {
+    expect(getToolInputSpanAttrs('Grep', { pattern: 'TODO', path: '/src' })).toEqual({
+      'tool.input.pattern': 'TODO',
+      'tool.input.path': '/src',
+    });
+    expect(getToolInputSpanAttrs('Grep', { pattern: 'error' })).toEqual({
+      'tool.input.pattern': 'error',
+    });
+  });
+
+  it('extracts query for WebSearch', () => {
+    expect(getToolInputSpanAttrs('WebSearch', { search_term: 'vitest mocking' })).toEqual({
+      'tool.input.query': 'vitest mocking',
+    });
+  });
+
+  it('extracts url for WebFetch', () => {
+    expect(getToolInputSpanAttrs('WebFetch', { url: 'https://example.com' })).toEqual({
+      'tool.input.url': 'https://example.com',
+    });
+  });
+
+  it('extracts description and subagent_type for Agent', () => {
+    expect(
+      getToolInputSpanAttrs('Agent', {
+        description: 'Find transcript',
+        subagent_type: 'Explore',
+        prompt: 'Search for...',
+      }),
+    ).toEqual({
+      'tool.input.description': 'Find transcript',
+      'tool.input.subagent_type': 'Explore',
+    });
+  });
+
+  it('omits subagent_type for Agent when not provided', () => {
+    const attrs = getToolInputSpanAttrs('Agent', { description: 'Search codebase' });
+    expect(attrs).toEqual({ 'tool.input.description': 'Search codebase' });
+    expect(attrs).not.toHaveProperty('tool.input.subagent_type');
+  });
+
+  it('extracts skill for Skill tool', () => {
+    expect(getToolInputSpanAttrs('Skill', { skill: 'commit' })).toEqual({
+      'tool.input.skill': 'commit',
+    });
+  });
+
+  it('returns empty object for unknown tools', () => {
+    expect(getToolInputSpanAttrs('mcp__jira__get_issue', { key: 'FOO-1' })).toEqual({});
+  });
+
+  it('omits empty string values', () => {
+    expect(getToolInputSpanAttrs('Read', { file_path: '' })).toEqual({});
+    expect(getToolInputSpanAttrs('Read', {})).toEqual({});
+  });
+
+  it('truncates long values to 256 chars', () => {
+    const longPath = '/src/' + 'a'.repeat(300) + '.ts';
+    const attrs = getToolInputSpanAttrs('Read', { file_path: longPath });
+    expect(attrs['tool.input.file_path'].length).toBe(256);
   });
 });

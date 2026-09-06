@@ -24,6 +24,7 @@ export type {
   BootContextMeta,
   BootSourceMeta,
   SectionMeta,
+  ContextEntry,
 } from './slices/messages.js';
 export { messagesReducer, INITIAL_MESSAGES_STATE } from './slices/messages.js';
 export type { SessionsState } from './slices/sessions.js';

@@ -58,12 +58,64 @@ export function getRawInput(
   }
 }
 
-export function summarizeToolInput(toolName: string, input: Record<string, unknown>): string {
+const SPAN_ATTR_MAX = 256;
+
+/**
+ * Extract structured span attributes from tool input for Jaeger indexing.
+ * Returns flat `tool.input.*` key-value pairs that are searchable/filterable
+ * in Jaeger UI. Values are truncated to keep span metadata lightweight.
+ */
+export function getToolInputSpanAttrs(
+  toolName: string,
+  input: Record<string, unknown>,
+): Record<string, string> {
+  const attrs: Record<string, string> = {};
+  const set = (key: string, val: unknown) => {
+    const s = String(val ?? '');
+    if (s) attrs[`tool.input.${key}`] = s.slice(0, SPAN_ATTR_MAX);
+  };
+
   switch (toolName) {
     case 'Read':
-      return `${input.file_path || ''}`;
+    case 'Write':
+    case 'Edit':
+    case 'StrReplace':
+      set('file_path', input.file_path);
+      break;
+    case 'Bash':
+    case 'Shell':
+      set('command', input.command);
+      break;
+    case 'Glob':
+    case 'Grep':
+      set('pattern', input.pattern);
+      if (input.path) set('path', input.path);
+      break;
+    case 'WebSearch':
+      set('query', input.search_term);
+      break;
+    case 'WebFetch':
+      set('url', input.url);
+      break;
+    case 'Agent':
+      set('description', input.description);
+      if (input.subagent_type) set('subagent_type', input.subagent_type);
+      break;
+    case 'Skill':
+      set('skill', input.skill);
+      break;
+    default:
+      break;
+  }
+
+  return attrs;
+}
+
+export function summarizeToolInput(toolName: string, input: Record<string, unknown>): string {
+  switch (toolName) {
     case 'Write':
       return `${input.file_path || ''} (${String(input.content || '').length} chars)`;
+    case 'Read':
     case 'Edit':
     case 'StrReplace':
       return `${input.file_path || ''}`;

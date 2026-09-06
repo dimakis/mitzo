@@ -65,7 +65,7 @@ export {
 } from './constants.js';
 
 // Tool summary
-export { getRawInput, summarizeToolInput } from './tool-summary.js';
+export { getRawInput, getToolInputSpanAttrs, summarizeToolInput } from './tool-summary.js';
 
 // Language detection
 export { languageFromPath } from './language.js';

@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import type { BootContextMeta, SectionMeta } from '@mitzo/client';
+import type { BootContextMeta, SectionMeta, ContextEntry } from '@mitzo/client';
 
 interface Props {
   bootContext?: BootContextMeta | null;
   sessionContext?: string | null;
+  contextConsumed?: ContextEntry[];
 }
 
 const KIND_LABELS: Record<string, string> = {
@@ -45,7 +46,71 @@ function summaryLine(text: string): string {
   return first.length > 80 ? first.slice(0, 77) + '...' : first;
 }
 
-export function SessionBanner({ bootContext, sessionContext }: Props) {
+const CTX_TYPE_LABELS: Record<string, string> = {
+  file_read: 'Files Read',
+  search: 'Searches',
+  web_search: 'Web Searches',
+  web_fetch: 'Web Fetches',
+};
+
+const CTX_TYPE_ORDER = ['file_read', 'search', 'web_search', 'web_fetch'] as const;
+
+function ContextConsumedSection({ entries }: { entries: ContextEntry[] }) {
+  const [showContext, setShowContext] = useState(false);
+
+  if (entries.length === 0) return null;
+
+  const grouped = new Map<string, ContextEntry[]>();
+  for (const e of entries) {
+    const arr = grouped.get(e.type) ?? [];
+    arr.push(e);
+    grouped.set(e.type, arr);
+  }
+
+  const totalUnique = entries.length;
+
+  return (
+    <div className="session-banner-context-consumed">
+      <button
+        className="session-banner-boot-toggle"
+        onClick={(e) => {
+          e.stopPropagation();
+          setShowContext((c) => !c);
+        }}
+      >
+        <span className="session-banner-label">Context Consumed ({totalUnique} unique)</span>
+        <span className="session-banner-chevron-inline">{showContext ? '\u25BE' : '\u25B8'}</span>
+      </button>
+      {showContext && (
+        <div className="session-banner-boot-content">
+          {CTX_TYPE_ORDER.map((type) => {
+            const items = grouped.get(type);
+            if (!items || items.length === 0) return null;
+            return (
+              <div key={type}>
+                <div className="session-banner-sub-label">
+                  {CTX_TYPE_LABELS[type]} ({items.length})
+                </div>
+                {items.map((item, idx) => (
+                  <div key={idx} className="session-banner-source-row">
+                    <span className="session-banner-source-path">
+                      {item.label}
+                      {item.count > 1 && (
+                        <span className="session-banner-section-tokens"> x{item.count}</span>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function SessionBanner({ bootContext, sessionContext, contextConsumed }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [showBootDetails, setShowBootDetails] = useState(false);
   const [showTrimmed, setShowTrimmed] = useState(false);
@@ -77,7 +142,8 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
     setShowModal(false);
   }, [contextKey]);
 
-  if (!bootContext && !sessionContext) return null;
+  const hasContext = contextConsumed && contextConsumed.length > 0;
+  if (!bootContext && !sessionContext && !hasContext) return null;
 
   const isContexgin = bootContext?.source === 'contexgin';
   const dotClass = isContexgin ? 'session-banner-dot--ok' : 'session-banner-dot--warn';
@@ -104,6 +170,9 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
               <span className="session-banner-meta">
                 {bootContext.sourceCount} sources · {tokenLabel}
                 {budgetLabel ? `/${budgetLabel}` : ''}
+                {contextConsumed && contextConsumed.length > 0 && (
+                  <> · {contextConsumed.length} ctx</>
+                )}
               </span>
             )}
             {sessionContext && (
@@ -210,6 +279,11 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
                   </div>
                 )}
               </div>
+            )}
+
+            {/* Runtime context consumed */}
+            {contextConsumed && contextConsumed.length > 0 && (
+              <ContextConsumedSection entries={contextConsumed} />
             )}
           </div>
         )}

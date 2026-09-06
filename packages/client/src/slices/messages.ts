@@ -19,6 +19,68 @@ import type {
   ClientSessionState,
 } from '@mitzo/protocol';
 
+// ─── Context inventory ──────────────────────────────────────────────────────
+
+export interface ContextEntry {
+  type: 'file_read' | 'search' | 'web_search' | 'web_fetch';
+  key: string;
+  label: string;
+  count: number;
+}
+
+function extractContextEntry(
+  toolName?: string,
+  input?: string,
+): { type: ContextEntry['type']; key: string } | null {
+  if (!toolName || !input) return null;
+  switch (toolName) {
+    case 'Read':
+      return { type: 'file_read', key: input };
+    case 'Grep':
+    case 'Glob':
+      return { type: 'search', key: input };
+    case 'WebSearch':
+      return { type: 'web_search', key: input };
+    case 'WebFetch':
+      return { type: 'web_fetch', key: input };
+    default:
+      return null;
+  }
+}
+
+function accumulateContext(
+  existing: ContextEntry[],
+  toolName?: string,
+  input?: string,
+): ContextEntry[] {
+  const entry = extractContextEntry(toolName, input);
+  if (!entry) return existing;
+  const dedupKey = `${entry.type}:${entry.key}`;
+  const idx = existing.findIndex((e) => `${e.type}:${e.key}` === dedupKey);
+  if (idx !== -1) {
+    const updated = [...existing];
+    updated[idx] = { ...updated[idx], count: updated[idx].count + 1 };
+    return updated;
+  }
+  return [...existing, { type: entry.type, key: entry.key, label: entry.key, count: 1 }];
+}
+
+function rebuildContextFromMessages(messages: FinishedMessage[]): ContextEntry[] {
+  let ctx: ContextEntry[] = [];
+  for (const msg of messages) {
+    for (const block of msg.blocks) {
+      ctx = accumulateContext(ctx, block.toolName, block.toolInput);
+      // Include subagent tool calls
+      if (block.subagent && Array.isArray(block.subagent.blocks)) {
+        for (const sub of block.subagent.blocks) {
+          ctx = accumulateContext(ctx, sub.toolName, sub.toolInput);
+        }
+      }
+    }
+  }
+  return ctx;
+}
+
 // ─── State ───────────────────────────────────────────────────────────────────
 
 export interface ActiveWorktree {
@@ -60,6 +122,7 @@ export interface MessagesState {
   activeWorktrees: ActiveWorktree[];
   sessionContext: string | null;
   bootContext: BootContextMeta | null;
+  contextConsumed: ContextEntry[];
 }
 
 export const INITIAL_MESSAGES_STATE: MessagesState = {
@@ -73,6 +136,7 @@ export const INITIAL_MESSAGES_STATE: MessagesState = {
   activeWorktrees: [],
   sessionContext: null,
   bootContext: null,
+  contextConsumed: [],
 };
 
 // ─── Actions ─────────────────────────────────────────────────────────────────
@@ -316,6 +380,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
       if (!state.current) return state;
       const block = state.current.blocks.get(action.blockId);
       if (!block) return state;
+      const toolName = action.toolName ?? block.toolName;
       const newBlocks = new Map(state.current.blocks);
       newBlocks.set(action.blockId, {
         ...block,
@@ -325,7 +390,11 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
         ...(action.input ? { toolInput: action.input } : {}),
         ...(action.rawInput ? { rawInput: action.rawInput } : {}),
       });
-      return { ...state, current: { ...state.current, blocks: newBlocks } };
+      return {
+        ...state,
+        current: { ...state.current, blocks: newBlocks },
+        contextConsumed: accumulateContext(state.contextConsumed, toolName, action.input),
+      };
     }
 
     case 'TOOL_RESULT': {
@@ -513,13 +582,23 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
         merged.push(notice);
         const currentStale =
           state.current && merged.some((m) => m.messageId === state.current!.messageId);
-        return { ...state, messages: merged, current: currentStale ? null : state.current };
+        return {
+          ...state,
+          messages: merged,
+          current: currentStale ? null : state.current,
+          contextConsumed: rebuildContextFromMessages(merged),
+        };
       }
       // Clear current if the restored set already contains it (prevents
       // MESSAGE_END from re-inserting a message that RESTORE already has).
       const currentStale =
         state.current && valid.some((m) => m.messageId === state.current!.messageId);
-      return { ...state, messages: valid, current: currentStale ? null : state.current };
+      return {
+        ...state,
+        messages: valid,
+        current: currentStale ? null : state.current,
+        contextConsumed: rebuildContextFromMessages(valid),
+      };
     }
 
     case 'USER_MESSAGE_RECEIVED': {
@@ -682,6 +761,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
 
       const subBlock = sub.blocks.get(action.blockId);
       if (!subBlock) return state;
+      const subToolName = action.toolName ?? subBlock.toolName;
 
       const newSubBlocks = new Map(sub.blocks);
       newSubBlocks.set(action.blockId, {
@@ -699,7 +779,11 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
         subagent: { ...sub, blocks: newSubBlocks },
       });
 
-      return { ...state, current: { ...state.current, blocks: newBlocks } };
+      return {
+        ...state,
+        current: { ...state.current, blocks: newBlocks },
+        contextConsumed: accumulateContext(state.contextConsumed, subToolName, action.input),
+      };
     }
 
     case 'SUBAGENT_TOOL_RESULT': {
