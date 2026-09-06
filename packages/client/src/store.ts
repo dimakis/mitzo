@@ -173,8 +173,6 @@ function removeTaskFromTree(tasks: Task[], id: string): Task[] {
     });
 }
 
-const PENDING_SEND_TIMEOUT_MS = 5_000;
-
 // ─── Factory ─────────────────────────────────────────────────────────────────
 
 export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStoreState> {
@@ -183,11 +181,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     ? new SseConnection(options.sseConfig)
     : new MitzoConnection(options.wsConfig);
 
-  const parserState: ProtocolParserState & {
-    pendingSendTimer?: ReturnType<typeof setTimeout>;
-  } = {
+  const parserState: ProtocolParserState = {
     currentSessionId: undefined,
-    pendingSend: [],
   };
 
   let recoveryInFlight = false;
@@ -219,13 +214,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
   // syncRunningState removed — running state is server-authoritative via
   // session_state_changed events. Periodic sync covers iOS foreground gaps.
-
-  function clearPendingSendTimer() {
-    if (parserState.pendingSendTimer) {
-      clearTimeout(parserState.pendingSendTimer);
-      parserState.pendingSendTimer = undefined;
-    }
-  }
 
   const store = createStore<MitzoStoreState>((set, get) => ({
     // ── Initial state ────────────────────────────────────────────────────
@@ -261,8 +249,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         connection.clearSession(oldId);
       }
       parserState.currentSessionId = id;
-      parserState.pendingSend = [];
-      clearPendingSendTimer();
       connection.clearPendingSends();
 
       set((s) => ({
@@ -293,8 +279,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         connection.clearSession(sid);
       }
       parserState.currentSessionId = undefined;
-      parserState.pendingSend = [];
-      clearPendingSendTimer();
       connection.clearPendingSends();
       connection.send({ type: 'switch_session', sessionId: null });
       set({
@@ -313,30 +297,26 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     sendMessage(text: string, opts?: SendMessageOptions) {
       const clientMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const wasRunning = get().messages.running;
 
-      const buildPayload = (): Record<string, unknown> => {
-        const msg: Record<string, unknown> = {
-          type: 'send',
-          sessionId: parserState.currentSessionId ?? null,
-          prompt: text,
-          clientMsgId,
-        };
-        const model = opts?.model ?? get().config.modelId;
-        const mode = opts?.mode ?? get().config.mode;
-        if (model) msg.model = model;
-        if (mode) msg.mode = mode;
-        if (opts?.contextBlocks?.length) msg.contextBlocks = opts.contextBlocks;
-        if (opts?.images?.length) {
-          msg.images = opts.images.map((img) => ({ data: img.data, mediaType: img.mediaType }));
-        }
-        if (opts?.cwd) msg.cwd = opts.cwd;
-        if (opts?.extraTools) msg.extraTools = opts.extraTools;
-        if (opts?.isolation !== undefined) msg.isolation = opts.isolation;
-        if (opts?.telosTaskId !== undefined) msg.telosTaskId = opts.telosTaskId;
-        if (opts?.agentName !== undefined) msg.agentName = opts.agentName;
-        return msg;
+      const msg: Record<string, unknown> = {
+        type: 'send',
+        sessionId: parserState.currentSessionId ?? null,
+        prompt: text,
+        clientMsgId,
       };
+      const model = opts?.model ?? get().config.modelId;
+      const mode = opts?.mode ?? get().config.mode;
+      if (model) msg.model = model;
+      if (mode) msg.mode = mode;
+      if (opts?.contextBlocks?.length) msg.contextBlocks = opts.contextBlocks;
+      if (opts?.images?.length) {
+        msg.images = opts.images.map((img) => ({ data: img.data, mediaType: img.mediaType }));
+      }
+      if (opts?.cwd) msg.cwd = opts.cwd;
+      if (opts?.extraTools) msg.extraTools = opts.extraTools;
+      if (opts?.isolation !== undefined) msg.isolation = opts.isolation;
+      if (opts?.telosTaskId !== undefined) msg.telosTaskId = opts.telosTaskId;
+      if (opts?.agentName !== undefined) msg.agentName = opts.agentName;
 
       set((s) => ({
         messages: messagesReducer(s.messages, {
@@ -349,39 +329,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         sendError: null,
       }));
 
-      const msg = buildPayload();
-
-      if (wasRunning) {
-        parserState.pendingSend.push(msg);
-        // Safety net: if no session_end arrives within 5s (e.g. stale running
-        // state after reconnect), flush the first pending message as a new session.
-        if (parserState.pendingSendTimer) clearTimeout(parserState.pendingSendTimer);
-        parserState.pendingSendTimer = setTimeout(function drainOne() {
-          const pending = parserState.pendingSend.shift();
-          if (!pending) {
-            parserState.pendingSendTimer = undefined;
-            return;
-          }
-          // Optimistic running=true so UI shows stop button immediately
-          set((s) => ({
-            messages: messagesReducer(s.messages, {
-              type: 'SESSION_STATE_CHANGED',
-              state: 'running',
-            }),
-          }));
-          connection.send(pending);
-          // Reschedule for remaining queued messages
-          if (parserState.pendingSend.length > 0) {
-            parserState.pendingSendTimer = setTimeout(drainOne, PENDING_SEND_TIMEOUT_MS);
-          } else {
-            parserState.pendingSendTimer = undefined;
-          }
-        }, PENDING_SEND_TIMEOUT_MS);
-      } else {
-        const sent = connection.send(msg);
-        if (!sent) {
-          set({ sendError: 'Not connected. Message will be sent when reconnected.' });
-        }
+      // Always send immediately — server deduplicates via clientMsgId
+      // (storeAndEchoIfNew) and queues in the SDK's inputQueue.
+      const sent = connection.send(msg);
+      if (!sent) {
+        set({ sendError: 'Not connected. Message will be sent when reconnected.' });
       }
     },
 
@@ -692,10 +644,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       return api.getSessionMessages(sessionId);
     },
 
-    onSendQueued(msg: Record<string, unknown>) {
-      connection.send(msg);
-    },
-
     onReconnected() {
       const activeId = parserState.currentSessionId;
       if (activeId) fetchAndRestoreMessages(activeId);
@@ -759,12 +707,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     const result = parseServerMessage(msg as WsMsg, parserState, callbacks, 'v2');
-
-    // If the queue is now empty, cancel the safety-net timer — the normal
-    // session_end flush path handled it.
-    if (parserState.pendingSend.length === 0 && parserState.pendingSendTimer) {
-      clearPendingSendTimer();
-    }
 
     for (const action of result.messagesActions) {
       store.setState((s) => ({

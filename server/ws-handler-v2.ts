@@ -235,8 +235,8 @@ export function handleReconnect(
       for (const entry of msg.sessions) {
         ctx.connRegistry.watch(connectionId, entry.sessionId);
 
-        // Set cursor to client's lastSeq BEFORE replay, so periodic sync
-        // sees a reasonable cursor during replay instead of 0.
+        // Set cursor to client's lastSeq BEFORE replay so broadcast()
+        // doesn't re-deliver events that are about to be replayed.
         ctx.connRegistry.resetCursor(connectionId, entry.sessionId, entry.lastSeq);
 
         const events = ctx.eventStore.getEventsAfter(entry.sessionId, entry.lastSeq);
@@ -247,51 +247,26 @@ export function handleReconnect(
           } as Record<string, unknown>);
         }
 
-        // Reset cursor to last replayed seq — prevents duplicate delivery from
-        // periodic sync. If no events replayed, cursor stays at client's lastSeq.
+        // Reset cursor to last replayed seq so broadcast() doesn't re-deliver.
+        // If no events replayed, cursor stays at client's lastSeq.
         const newCursor = events.length > 0 ? events[events.length - 1].seq : entry.lastSeq;
         ctx.connRegistry.resetCursor(connectionId, entry.sessionId, newCursor);
 
-        // Cross-reference with the durable EventStore: state=ENDED in the store
-        // is ground truth that the query loop has finished (P1: use state, not is_active).
+        // Eagerly reattach detached sessions to cancel the detach TTL timer.
+        // Without this, the TTL keeps ticking until the first user message
+        // triggers handleSendV2's reattach — if the user reconnects but doesn't
+        // send a message quickly, the session could be aborted despite being
+        // connected and watching events.
         const found = ctx.sessionRegistry.findBySessionId(entry.sessionId);
-        const storeState = ctx.eventStore.getSessionState(entry.sessionId);
-        let running = found ? ctx.sessionRegistry.isActive(found.clientId) : false;
-        if (running && (storeState === 'ENDED' || storeState === 'CLOSING')) {
-          running = false;
-          log.info('removing stale session from registry (state-based)', {
-            connectionId,
-            sessionId: entry.sessionId,
-            clientId: found!.clientId,
-            storeState,
-          });
-          ctx.sessionRegistry.remove(found!.clientId);
-        }
-        if (found && running && !ctx.sessionRegistry.isAttached(found.clientId)) {
-          const ownerConnection = getOwnerConnection(found.clientId);
-          const ownerGone = !ctx.connRegistry.get(ownerConnection);
-          const isOwner = ownerConnection === connectionId;
-          if (isOwner || ownerGone) {
-            const conn = ctx.connRegistry.get(connectionId);
-            if (conn) {
-              reattachChat(found.clientId, conn.transport);
-              const newClientId = `${connectionId}:${entry.sessionId}`;
-              if (found.clientId !== newClientId) {
-                rekeyChat(found.clientId, newClientId);
-                log.info('rekeyed session to new connection', {
-                  connectionId,
-                  sessionId: entry.sessionId,
-                  oldClientId: found.clientId,
-                  newClientId,
-                });
-              }
-              log.info('reattached detached session on reconnect', {
-                connectionId,
-                sessionId: entry.sessionId,
-                clientId: newClientId,
-                ownerGone,
-              });
-            }
+        if (found) {
+          const transport = ctx.connRegistry.get(connectionId)?.transport;
+          if (transport && !ctx.sessionRegistry.isAttached(found.clientId)) {
+            reattachChat(found.clientId, transport);
+            log.info('reattached detached session on reconnect', {
+              connectionId,
+              sessionId: entry.sessionId,
+              clientId: found.clientId,
+            });
           }
         }
 
@@ -299,6 +274,7 @@ export function handleReconnect(
         // buffered events — they were already replayed from EventStore above
         // (sendOrBuffer appends to both stores, so EventStore covers the
         // suspend period). resume() just clears the suspend flag + buffer.
+        const running = found ? ctx.sessionRegistry.isActive(found.clientId) : false;
         let suspendReplayed = 0;
         if (found && running && ctx.sessionRegistry.isSuspended(found.clientId)) {
           const buffered = ctx.sessionRegistry.resume(found.clientId);
@@ -949,9 +925,7 @@ export async function dispatchV2Message(
     case 'hello':
       // Already handled at routing layer, ignore duplicate
       break;
-    case 'reconnect':
-      handleReconnect(connectionId, msg, ctx);
-      break;
+    // 'reconnect' removed — handled via REST POST; schema rejects it before reaching here.
     case 'watch':
       handleWatch(connectionId, msg, ctx);
       break;
