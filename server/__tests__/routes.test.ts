@@ -69,6 +69,7 @@ vi.mock('../chat.js', () => {
     },
     setTaskStore: vi.fn(),
     eventStore: {
+      setSessionState: vi.fn(),
       append: vi.fn(),
       getEventsAfter: vi.fn().mockReturnValue([]),
       searchSessions: vi.fn().mockReturnValue([

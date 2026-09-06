@@ -25,6 +25,8 @@ vi.mock('@capgo/capacitor-native-biometric', () => ({
   },
 }));
 
+vi.mock('../watch-auth', () => ({ saveTokenToWatch: vi.fn().mockResolvedValue(undefined) }));
+
 import { Capacitor } from '@capacitor/core';
 import { NativeBiometric } from '@capgo/capacitor-native-biometric';
 import {

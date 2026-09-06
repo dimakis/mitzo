@@ -7,6 +7,14 @@ import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import type { MitzoStoreState } from '@mitzo/client';
 import { INITIAL_MESSAGES_STATE } from '@mitzo/client';
 
+vi.mock('../../lib/event-bus-singleton', () => ({
+  eventBus: {
+    on: vi.fn(() => vi.fn()),
+    onConnectionChange: vi.fn(() => vi.fn()),
+    connected: false,
+  },
+}));
+
 // Mock all heavy sub-components to isolate DesktopChatView wiring
 vi.mock('../../components/DesktopShell', () => ({
   DesktopShell: ({ left, center, right, statusBar }: Record<string, React.ReactNode>) => (
@@ -23,14 +31,8 @@ vi.mock('../../components/SessionPanel', () => ({
   SessionPanel: () => <div data-testid="session-panel">SessionPanel</div>,
 }));
 
-vi.mock('../../components/ContextPanel', () => ({
-  ContextPanel: ({ selected }: { selected: string[] }) => (
-    <div data-testid="context-panel">selected: {selected.length}</div>
-  ),
-}));
-
-vi.mock('../../components/FileBrowserPanel', () => ({
-  FileBrowserPanel: () => <div data-testid="file-browser">FileBrowser</div>,
+vi.mock('../../components/CommandCenter', () => ({
+  CommandCenter: () => <div data-testid="command-center">CommandCenter</div>,
 }));
 
 vi.mock('../../components/ChatArea', () => ({
@@ -187,8 +189,7 @@ describe('DesktopChatView', () => {
     renderWithRouter();
     expect(screen.getByTestId('session-panel')).toBeTruthy();
     expect(screen.getByTestId('chat-area')).toBeTruthy();
-    expect(screen.getByTestId('context-panel')).toBeTruthy();
-    expect(screen.getByTestId('file-browser')).toBeTruthy();
+    expect(screen.getByTestId('command-center')).toBeTruthy();
   });
 
   it('renders session panel in left slot', () => {
@@ -204,11 +205,10 @@ describe('DesktopChatView', () => {
     expect(center.querySelector('[data-testid="chat-input"]')).toBeTruthy();
   });
 
-  it('renders context panel and file browser in right slot', () => {
+  it('renders command center in right slot', () => {
     renderWithRouter();
     const right = screen.getByTestId('right');
-    expect(right.querySelector('[data-testid="context-panel"]')).toBeTruthy();
-    expect(right.querySelector('[data-testid="file-browser"]')).toBeTruthy();
+    expect(right.querySelector('[data-testid="command-center"]')).toBeTruthy();
   });
 
   it('renders status bar', () => {
@@ -216,9 +216,9 @@ describe('DesktopChatView', () => {
     expect(screen.getByTestId('status-bar')).toBeTruthy();
   });
 
-  it('passes externalContextBlocks to ChatInput', () => {
+  it('lets ChatInput manage its own context selection', () => {
     renderWithRouter();
-    expect(screen.getByTestId('chat-input').textContent).toContain('external: 0');
+    expect(screen.getByTestId('chat-input').textContent).toContain('external: none');
   });
 
   it('renders model selector and mode pills in center header', () => {

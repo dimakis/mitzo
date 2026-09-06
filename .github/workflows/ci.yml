@@ -49,6 +49,7 @@ jobs:
         run: cd frontend && npx tsc -b
 
       - name: Test
+        shell: bash
         id: test
         if: always()
         run: npm test 2>&1 | tee test-output.txt

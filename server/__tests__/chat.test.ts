@@ -503,7 +503,10 @@ describe('startChat stores user message for resumed sessions', () => {
   });
 
   it('appends user_message to eventStore before runQueryLoop', () => {
-    const appendIdx = chatSource.indexOf("eventStore.append(options.resume, 'user_message'");
+    const appendIdx = chatSource.indexOf(
+      'storeAndEchoIfNew(',
+      chatSource.indexOf('session.queryInstance = q'),
+    );
     const queryLoopIdx = chatSource.indexOf('await runQueryLoop(');
     expect(appendIdx).toBeGreaterThan(-1);
     expect(queryLoopIdx).toBeGreaterThan(-1);
@@ -521,10 +524,15 @@ describe('startChat stores user message for resumed sessions', () => {
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
     const region = chatSource.slice(start, end);
-    expect(region).toContain("eventStore.append(options.resume, 'user_message'");
-    expect(region).toContain('send(transport');
-    expect(region).toContain("type: 'user_message'");
-    expect(region).toContain('broadcastToObservers(session.observers');
+    expect(region).toContain('storeAndEchoIfNew(');
+    expect(region).toContain('session.observers');
+    const helper = chatSource.slice(
+      chatSource.indexOf('function storeAndEchoIfNew('),
+      chatSource.indexOf('/** Push a follow-up'),
+    );
+    expect(helper).toContain("eventStore.append(sessionId, 'user_message'");
+    expect(helper).toContain('send(transport, echo)');
+    expect(helper).toContain('broadcastToObservers(observers, echo)');
   });
 
   it('uses clientMsgId with resume fallback for messageId', () => {

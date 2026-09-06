@@ -3,6 +3,8 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { createElement, act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
+import { createMitzoStore } from '@mitzo/client';
+import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { CalendarView } from '../CalendarView';
 
 const MOCK_CALENDAR = {
@@ -75,7 +77,31 @@ afterEach(() => {
 function renderCalendar() {
   const root = createRoot(container);
   act(() => {
-    root.render(createElement(MemoryRouter, null, createElement(CalendarView)));
+    const store = createMitzoStore({
+      transport: {
+        fetch: vi.fn().mockResolvedValue({ ok: true, json: async () => ({ tasks: [] }) }),
+        connectWs: vi.fn(),
+      },
+      wsConfig: {
+        buildUrl: () => 'ws://localhost/ws',
+        createWebSocket: () => ({
+          readyState: 0,
+          onopen: null,
+          onmessage: null,
+          onclose: null,
+          onerror: null,
+          send: vi.fn(),
+          close: vi.fn(),
+        }),
+      },
+    });
+    root.render(
+      createElement(
+        MitzoStoreProvider,
+        { value: store },
+        createElement(MemoryRouter, null, createElement(CalendarView)),
+      ),
+    );
   });
   return root;
 }

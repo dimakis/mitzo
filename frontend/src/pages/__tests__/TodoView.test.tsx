@@ -110,7 +110,7 @@ describe('TodoView', () => {
 
     expect(screen.getByText('Fix bug')).toBeTruthy();
     expect(screen.getByText('All')).toBeTruthy();
-    expect(screen.getByText('centaur')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'centaur' })).toBeTruthy();
     expect(screen.getByText('work')).toBeTruthy();
   });
 

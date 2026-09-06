@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, act } from '@testing-library/react';
 import { ChatInput } from '../ChatInput';
 
 // Mock child components that fetch data
@@ -62,7 +62,7 @@ describe('ChatInput with externalContextBlocks', () => {
     expect(onSend).toHaveBeenCalledWith('hello', undefined, ['boot-context', 'constitution']);
   });
 
-  it('does NOT clear external context blocks on send', () => {
+  it('does NOT clear external context blocks on send', async () => {
     const onSend = vi.fn().mockReturnValue(true);
     const blocks = ['boot-context'];
     const { rerender } = render(
@@ -75,6 +75,9 @@ describe('ChatInput with externalContextBlocks', () => {
 
     // Re-render with same blocks (parent controls them, they persist)
     rerender(<ChatInput {...baseProps} onSend={onSend} externalContextBlocks={blocks} />);
+
+    // A distinct user send happens after the same-frame duplicate-send guard resets.
+    await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
 
     // Send again
     fireEvent.change(screen.getByPlaceholderText('Message Mitzo...'), {
