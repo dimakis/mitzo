@@ -1,3 +1,4 @@
+import { CredentialReferenceSchema } from './credentials.js';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -31,7 +32,16 @@ const CodexProfile = z
     models: z.array(z.object({ id: z.string().min(1), label: z.string().min(1) }).strict()).min(1),
   })
   .strict();
-const Profile = z.discriminatedUnion('provider', [VertexProfile, CodexProfile]);
+const ApiProfile = z
+  .object({
+    id: z.string().regex(/^[a-zA-Z0-9_-]+$/),
+    label: z.string().min(1),
+    provider: z.literal('openai'),
+    credentialRef: CredentialReferenceSchema,
+    models: z.array(z.object({ id: z.string().min(1), label: z.string().min(1) }).strict()).min(1),
+  })
+  .strict();
+const Profile = z.discriminatedUnion('provider', [VertexProfile, CodexProfile, ApiProfile]);
 
 /** Account configuration is server-owned; invocation adapters remain harness-owned. */
 export class AccountProfiles {
@@ -61,9 +71,14 @@ export class AccountProfiles {
         id,
         label,
         provider,
-        billing: provider === 'openai-codex' ? 'chatgpt-subscription' : 'google-cloud',
+        billing:
+          provider === 'openai-codex'
+            ? 'chatgpt-subscription'
+            : provider === 'openai'
+              ? 'openai-api'
+              : 'google-cloud',
         models,
-        capabilities: { streaming: true, tools: true, images: provider !== 'openai-codex' },
+        capabilities: { streaming: true, tools: true, images: provider === 'anthropic-vertex' },
       }));
   }
 
@@ -82,7 +97,9 @@ export class AccountProfiles {
         JSON.stringify(
           profile.provider === 'openai-codex'
             ? [profile.provider, profile.credentialRef, profile.email, profile.planType]
-            : [profile.provider, profile.projectId, profile.region, profile.credentialRef],
+            : profile.provider === 'openai'
+              ? [profile.provider, profile.credentialRef]
+              : [profile.provider, profile.projectId, profile.region, profile.credentialRef],
         ),
       )
       .digest('hex');
@@ -119,11 +136,18 @@ export class AccountProfiles {
     };
   }
 
+  apiCredential(binding: AccountBinding) {
+    this.resume(binding);
+    const profile = this.profiles.find((p) => p.id === binding.accountId);
+    if (!profile || profile.provider !== 'openai') throw new Error('Not an OpenAI API account');
+    return profile.credentialRef;
+  }
+
   sdkEnv(binding: AccountBinding, base: Record<string, string>): Record<string, string> {
     this.resume(binding);
     const profile = this.profiles.find((p) => p.id === binding.accountId)!;
-    if (profile.provider === 'openai-codex')
-      throw new Error('Codex accounts require the subscription runtime');
+    if (profile.provider !== 'anthropic-vertex')
+      throw new Error('OpenAI accounts require their native runtime');
     const env = { ...base };
     // Remove inherited alternate billing/routing controls before setting the chosen profile.
     for (const key of Object.keys(env)) {
