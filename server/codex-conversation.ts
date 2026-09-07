@@ -158,6 +158,10 @@ export class CodexConversation {
   }
   async send(input: CodexCommandInput) {
     this.enqueue(input);
+    await this.startQueued();
+  }
+  async startQueued() {
+    if (!this.ready || this.closed) throw new Error('Codex conversation unavailable');
     if (this.paused) return;
     await this.pump();
   }

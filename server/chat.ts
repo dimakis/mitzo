@@ -1362,16 +1362,14 @@ export function sendToChat(
       broadcastToObservers(session.observers, echo);
     }
     if (codex) {
-      void codex
-        .send({ id: messageId, prompt: fullPrompt, ...(model ? { model } : {}) })
-        .catch(() =>
-          send(session.transport, {
-            type: 'error',
-            sessionId: session.sessionId,
-            error:
-              'Codex queue is paused or unavailable. Inspect interrupted work before continuing.',
-          }),
-        );
+      void codex.startQueued().catch(() =>
+        send(session.transport, {
+          type: 'error',
+          sessionId: session.sessionId,
+          error:
+            'Codex queue is paused or unavailable. Inspect interrupted work before continuing.',
+        }),
+      );
     } else session.inputQueue.push(makeUserMessage(fullPrompt, 'next'));
     return true;
   });
