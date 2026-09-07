@@ -32,6 +32,10 @@ export function AccountModelPicker({
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selection, setSelection] = useState<AccountSelection | null>(null);
   const [bindingLabel, setBindingLabel] = useState('');
+  const [editingAlias, setEditingAlias] = useState(false);
+  const [alias, setAlias] = useState('');
+  const [aliasError, setAliasError] = useState('');
+  const [savingAlias, setSavingAlias] = useState(false);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
   const [legacy, setLegacy] = useState(false);
@@ -59,6 +63,20 @@ export function AccountModelPicker({
         const data = await response.json();
         if (disposed) return;
         if (sessionId) {
+          const modelSelection = z
+            .object({ model: z.string(), models: modelsSchema })
+            .safeParse(data.modelSelection);
+          if (data.accountBinding && modelSelection.success) {
+            const account = {
+              id: data.accountBinding.accountId,
+              label: data.accountBinding.accountLabel,
+              models: modelSelection.data.models,
+            };
+            setAccounts([account]);
+            const next = { accountId: account.id, model: modelSelection.data.model };
+            setSelection(next);
+            callbacks.current.onChange(next);
+          }
           setBindingLabel(
             data.accountBinding
               ? `${data.accountBinding.accountLabel} · ${data.accountBinding.model}`
@@ -111,7 +129,7 @@ export function AccountModelPicker({
         </button>
       </>
     );
-  if (sessionId)
+  if (sessionId && !selection)
     return <span className="chat-account-binding">{bindingLabel || 'Loading account…'}</span>;
   if (empty)
     return (
@@ -127,7 +145,9 @@ export function AccountModelPicker({
   if (!account) return <span role="alert">Selected account is unavailable. Reopen the task.</span>;
   return (
     <>
-      {legacy ? (
+      {sessionId ? (
+        <span className="chat-account-binding">{account.label}</span>
+      ) : legacy ? (
         <span>Legacy server account</span>
       ) : (
         <select
@@ -148,6 +168,63 @@ export function AccountModelPicker({
             </option>
           ))}
         </select>
+      )}
+      {!legacy && (
+        <button
+          disabled={disabled}
+          aria-label="Edit account alias"
+          onClick={() => {
+            setAlias(account.label);
+            setAliasError('');
+            setEditingAlias(true);
+          }}
+        >
+          Rename
+        </button>
+      )}
+      {editingAlias && (
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setSavingAlias(true);
+            setAliasError('');
+            try {
+              const response = await apiFetch(
+                `/api/accounts/${encodeURIComponent(account.id)}/alias`,
+                {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ alias }),
+                },
+              );
+              if (!response.ok) throw new Error('Could not save alias. Retry.');
+              const data = z.object({ label: z.string() }).parse(await response.json());
+              setAccounts((old) =>
+                old.map((a) => (a.id === account.id ? { ...a, label: data.label } : a)),
+              );
+              setEditingAlias(false);
+            } catch {
+              setAliasError('Could not save alias. Retry.');
+            } finally {
+              setSavingAlias(false);
+            }
+          }}
+        >
+          <input
+            aria-label="Account alias"
+            maxLength={80}
+            value={alias}
+            onChange={(e) => setAlias(e.target.value)}
+            disabled={savingAlias}
+          />
+          <button disabled={savingAlias || disabled} type="submit">
+            Save alias
+          </button>
+          <button type="button" disabled={savingAlias} onClick={() => setEditingAlias(false)}>
+            Cancel
+          </button>
+          {aliasError && <span role="alert">{aliasError}</span>}
+        </form>
       )}
       <select
         disabled={disabled}

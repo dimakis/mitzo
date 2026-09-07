@@ -101,3 +101,51 @@ it('reports malformed catalogs and notifies the pending-prompt owner', async () 
   expect(onUnavailable).toHaveBeenCalledTimes(1);
   expect(screen.getByRole('button', { name: 'Retry accounts' })).toBeTruthy();
 });
+
+it('allows a bound Codex chat to select its next model without changing subscription', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      accountBinding: { accountId: 'personal', accountLabel: 'Personal', model: 'luna' },
+      modelSelection: {
+        model: 'luna',
+        models: [
+          { id: 'luna', label: 'Luna' },
+          { id: 'terra', label: 'Terra' },
+        ],
+      },
+    }),
+  } as Response);
+  const onChange = vi.fn();
+  render(<AccountModelPicker sessionId="saved" preferredModel="wrong" onChange={onChange} />);
+  await screen.findByLabelText('Model');
+  expect(screen.queryByLabelText('Account')).toBeNull();
+  fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'terra' } });
+  expect(onChange).toHaveBeenLastCalledWith({ accountId: 'personal', model: 'terra' });
+});
+it('saves a subscription alias without changing the selected account or model', async () => {
+  vi.mocked(apiFetch).mockImplementation(
+    async (path) =>
+      ({
+        ok: true,
+        json: async () => (path === '/api/accounts' ? profiles : { label: 'My work subscription' }),
+      }) as Response,
+  );
+  const onChange = vi.fn();
+  render(<AccountModelPicker sessionId={null} preferredModel="sonnet" onChange={onChange} />);
+  await screen.findByLabelText('Account');
+  fireEvent.click(screen.getByRole('button', { name: 'Edit account alias' }));
+  fireEvent.change(screen.getByLabelText('Account alias'), {
+    target: { value: 'My work subscription' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save alias' }));
+  await screen.findByText('My work subscription');
+  expect(apiFetch).toHaveBeenCalledWith(
+    '/api/accounts/work/alias',
+    expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({ alias: 'My work subscription' }),
+    }),
+  );
+  expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' });
+});
