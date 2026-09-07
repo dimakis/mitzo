@@ -15,39 +15,38 @@ export function decodeFilePathUrl(url: string): string | null {
   }
 }
 
+interface MarkdownNode {
+  type: string;
+  url?: string;
+  children?: MarkdownNode[];
+}
+
 /**
- * Replace malformed Markdown file links with their readable label before the
- * Markdown parser normalizes incomplete percent escapes into literal `%` data.
- * Fenced and inline code are left unchanged.
+ * Remark plugin that turns malformed internal file links into readable text.
+ * It runs before Markdown URL normalization and only visits parsed link nodes,
+ * so every supported link form is covered while code remains byte-for-byte.
  */
-export function neutralizeMalformedFileLinks(content: string): string {
-  const lines = content.split('\n');
-  let inCodeBlock = false;
+export function remarkNeutralizeMalformedFileLinks() {
+  return (tree: MarkdownNode) => {
+    const visit = (node: MarkdownNode) => {
+      if (!node.children) return;
 
-  return lines
-    .map((line) => {
-      if (/^```/.test(line.trimStart())) {
-        inCodeBlock = !inCodeBlock;
-        return line;
-      }
-      if (inCodeBlock) return line;
+      node.children = node.children.flatMap((child) => {
+        if (
+          child.type === 'link' &&
+          child.url?.startsWith(FILE_SCHEME) &&
+          decodeFilePathUrl(child.url) === null
+        ) {
+          return child.children ?? [];
+        }
 
-      const inlineCodeRanges = Array.from(line.matchAll(/`[^`]*`/g), (match) => [
-        match.index,
-        match.index + match[0].length,
-      ]);
+        visit(child);
+        return [child];
+      });
+    };
 
-      return line.replace(
-        /\[([^\]]*)\]\((file-path:\/\/[^)\s]*)\)/g,
-        (fullLink: string, label: string, url: string, offset: number) => {
-          const inInlineCode = inlineCodeRanges.some(
-            ([start, end]) => offset >= start && offset < end,
-          );
-          return !inInlineCode && decodeFilePathUrl(url) === null ? label : fullLink;
-        },
-      );
-    })
-    .join('\n');
+    visit(tree);
+  };
 }
 
 /** Detect whether a string looks like a file path (not a URL). */

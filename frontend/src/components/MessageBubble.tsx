@@ -7,7 +7,7 @@ import type { FinishedMessage } from '../types/chat';
 import {
   decodeFilePathUrl,
   linkifyFilePaths,
-  neutralizeMalformedFileLinks,
+  remarkNeutralizeMalformedFileLinks,
   FILE_SCHEME,
 } from '../lib/file-paths';
 import { formatTime } from '../lib/formatTime';
@@ -92,7 +92,7 @@ interface TextBubbleProps {
 export function TextBubble({ content, streaming = false, timestamp, readAloud }: TextBubbleProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const processed = neutralizeMalformedFileLinks(streaming ? content : linkifyFilePaths(content));
+  const processed = streaming ? content : linkifyFilePaths(content);
   const currentPath = location.pathname + location.search;
   const [collapsed, setCollapsed] = useState(true);
   const [isLong, setIsLong] = useState(false);
@@ -112,7 +112,7 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
     >
       <div className="msg-bubble-markdown" ref={contentRef}>
         <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
+          remarkPlugins={[remarkGfm, remarkNeutralizeMalformedFileLinks]}
           rehypePlugins={[rehypeHighlight]}
           urlTransform={(url) => (url.startsWith(FILE_SCHEME) ? url : defaultUrlTransform(url))}
           components={{

@@ -38,6 +38,30 @@ describe('TextBubble file link rendering', () => {
     },
   );
 
+  it.each(['[titled](file-path://%2 "title")', '[angled](<file-path://%2>)'])(
+    'neutralizes malformed Markdown destination variants: %s',
+    (content) => {
+      const html = renderBubble(content);
+
+      expect(html).toMatch(/titled|angled/);
+      expect(html).not.toContain('file-path-link');
+      expect(html).not.toContain('file-path-share');
+    },
+  );
+
+  it.each([
+    '`[inline](file-path://%2)`',
+    '````md\n[fenced](file-path://%2)\n````',
+    '~~~md\n[tilde](file-path://%2)\n~~~',
+    '    [indented](file-path://%2)',
+  ])('leaves malformed-link text unchanged inside code: %s', (content) => {
+    const html = renderBubble(content);
+
+    expect(html).toContain('file-path://%2');
+    expect(html).not.toContain('file-path-link');
+    expect(html).not.toContain('file-path-share');
+  });
+
   it.each([false, true])('retains valid file links when streaming=%s', (streaming) => {
     const html = renderBubble('[notes](file-path://%2Ftmp%2Fnotes.txt)', streaming);
 

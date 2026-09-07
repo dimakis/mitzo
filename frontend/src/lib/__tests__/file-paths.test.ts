@@ -4,7 +4,7 @@ import {
   detectFilePaths,
   isFilePath,
   linkifyFilePaths,
-  neutralizeMalformedFileLinks,
+  remarkNeutralizeMalformedFileLinks,
   FILE_SCHEME,
 } from '../file-paths';
 
@@ -26,22 +26,24 @@ describe('decodeFilePathUrl', () => {
   });
 });
 
-describe('neutralizeMalformedFileLinks', () => {
-  it('replaces a malformed link with its readable label', () => {
-    expect(neutralizeMalformedFileLinks('[invalid](file-path://%E0%A4%A)')).toBe('invalid');
-    expect(neutralizeMalformedFileLinks('[incomplete](file-path://%2)')).toBe('incomplete');
-  });
+describe('remarkNeutralizeMalformedFileLinks', () => {
+  it('replaces only malformed internal link nodes with their readable children', () => {
+    const malformed = {
+      type: 'link',
+      url: `${FILE_SCHEME}%2`,
+      children: [{ type: 'text', value: 'invalid' }],
+    };
+    const valid = {
+      type: 'link',
+      url: `${FILE_SCHEME}%2Ftmp%2F100%25-done.md`,
+      children: [{ type: 'text', value: 'report' }],
+    };
+    const code = { type: 'code', value: '[invalid](file-path://%2)' };
+    const tree = { type: 'root', children: [malformed, valid, code] };
 
-  it('preserves valid file links, including literal percent filenames', () => {
-    const link = '[report](file-path://%2Ftmp%2F100%25-done.md)';
-    expect(neutralizeMalformedFileLinks(link)).toBe(link);
-  });
+    remarkNeutralizeMalformedFileLinks()(tree);
 
-  it('does not alter link-shaped text inside code', () => {
-    const inline = '`[invalid](file-path://%2)`';
-    const fenced = '```md\n[invalid](file-path://%2)\n```';
-    expect(neutralizeMalformedFileLinks(inline)).toBe(inline);
-    expect(neutralizeMalformedFileLinks(fenced)).toBe(fenced);
+    expect(tree.children).toEqual([malformed.children[0], valid, code]);
   });
 });
 
