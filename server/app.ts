@@ -1,3 +1,4 @@
+import { AccountAliases } from './account-aliases.js';
 import { readCodexQueue, getCodexRuntime } from './codex-chat-session.js';
 import { isPrivateCodexPath } from './codex-private-path.js';
 import { loadAccountProfiles } from './account-profiles.js';
@@ -1107,9 +1108,33 @@ app.post('/api/auth/logout', (_req, res) => {
 
 app.get('/api/auth/check', (_req, res) => res.json({ ok: true }));
 
+const accountAliases = new AccountAliases(join(BASE_REPO || '.', '.mitzo', 'account-aliases.json'));
+
+app.put('/api/accounts/:id/alias', (req, res) => {
+  try {
+    const account = loadAccountProfiles()
+      .catalog()
+      .find((a) => a.id === req.params.id);
+    if (!account) {
+      res.status(404).json({ error: 'Account unavailable' });
+      return;
+    }
+    accountAliases.set(account.id, req.body.alias);
+    res.json({ label: accountAliases.label(account.id, account.label) });
+  } catch {
+    res
+      .status(400)
+      .json({ error: 'Cannot save alias. Use at most 80 characters and check storage.' });
+  }
+});
+
 app.get('/api/accounts', (_req, res) => {
   try {
-    res.json(loadAccountProfiles().catalog());
+    res.json(
+      loadAccountProfiles()
+        .catalog()
+        .map((a) => ({ ...a, label: accountAliases.label(a.id, a.label) })),
+    );
   } catch {
     res
       .status(503)
@@ -1250,9 +1275,38 @@ app.get('/api/sessions/:id/meta', (req, res) => {
     isActive: meta.isActive,
     state: meta.state,
     totalTokens,
-    ...(meta.accountBinding ? { accountBinding: meta.accountBinding } : {}),
+    ...(meta.accountBinding
+      ? {
+          accountBinding: {
+            ...meta.accountBinding,
+            accountLabel: accountAliases.label(
+              meta.accountBinding.accountId,
+              meta.accountBinding.accountLabel,
+            ),
+          },
+        }
+      : {}),
     ...(meta.accountBinding?.provider === 'openai-codex'
       ? {
+          modelSelection: (() => {
+            try {
+              const profile = loadAccountProfiles()
+                .catalog()
+                .find((a) => a.id === meta.accountBinding!.accountId);
+              if (!profile) return undefined;
+              const queue = readCodexQueue(
+                meta.sessionId,
+                meta.accountBinding!,
+                registry.findBySessionId(meta.sessionId)?.session,
+              );
+              return {
+                model: queue && 'model' in queue ? queue.model : meta.accountBinding!.model,
+                models: profile.models,
+              };
+            } catch {
+              return undefined;
+            }
+          })(),
           codexQueue: readCodexQueue(
             meta.sessionId,
             meta.accountBinding,

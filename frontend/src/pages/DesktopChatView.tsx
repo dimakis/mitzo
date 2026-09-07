@@ -154,7 +154,7 @@ export function DesktopChatView() {
 
   function handleInterrupt(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): void {
     voice.stopSpeaking();
-    storeInterruptMessage(text, { images, contextBlocks: ctxBlocks, model: modelState });
+    storeInterruptMessage(text, { images, contextBlocks: ctxBlocks, ...(accountSelection ?? {}) });
     forceScrollToBottom();
   }
 

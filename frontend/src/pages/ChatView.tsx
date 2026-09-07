@@ -156,7 +156,7 @@ export function ChatView() {
     storeDispatchMessages({ type: 'SET_SESSION_CONTEXT', context: pendingSession.context });
     // Auto-send the prompt
     storeSendMessage(pendingSession.prompt, {
-      ...(!activeSessionId && accountSelection ? accountSelection : {}),
+      ...(accountSelection ?? {}),
       mode,
       ...(pendingSession.telosTaskId ? { telosTaskId: pendingSession.telosTaskId } : {}),
       ...(pendingSession.agentName ? { agentName: pendingSession.agentName } : {}),
@@ -189,7 +189,7 @@ export function ChatView() {
     storeSendMessage(text, {
       images,
       contextBlocks: ctxBlocks,
-      ...(!activeSessionId && accountSelection ? accountSelection : {}),
+      ...(accountSelection ?? {}),
       mode,
       cwd: searchParams.get('cwd') ?? undefined,
       extraTools: searchParams.get('extraTools') ?? undefined,
@@ -201,7 +201,7 @@ export function ChatView() {
 
   function handleInterrupt(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): void {
     voice.stopSpeaking();
-    storeInterruptMessage(text, { images, contextBlocks: ctxBlocks });
+    storeInterruptMessage(text, { images, contextBlocks: ctxBlocks, ...(accountSelection ?? {}) });
     forceScrollToBottom();
   }
 
