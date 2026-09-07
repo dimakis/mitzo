@@ -3,6 +3,8 @@ import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { AccountBinding } from '@mitzo/protocol';
+import { SessionRegistry } from '@mitzo/harness';
+import { createNativeToolExecutor, nativeToolDefinitions } from '../native-tool-executor.js';
 import { NativeResponsesStore, NativeResponsesRunner } from '../native-responses-runner.js';
 
 const binding: AccountBinding = {
@@ -193,5 +195,83 @@ describe('durable native Responses turns', () => {
     });
     await expect(collect(instance.run('write'))).rejects.toThrow(/limit/i);
     expect(store.load('app-id', binding)?.status).toBe('interrupted');
+  });
+  it('runs a streamed Responses function call through the real native executor', async () => {
+    const registry = new SessionRegistry();
+    registry.register('client', {
+      cwd: root,
+      sessionId: 'app-id',
+      mode: 'agent',
+      sessionAllowList: new Set(),
+      abortController: new AbortController(),
+      transport: { send: () => {}, isOpen: () => true },
+    });
+    fetchMock.mockResolvedValueOnce(response(true)).mockResolvedValueOnce(response());
+    try {
+      const instance = new NativeResponsesRunner({
+        conversationId: 'app-id',
+        binding,
+        apiKey: 'test-only',
+        systemPrompt: 'ContexGin boot payload',
+        tools: nativeToolDefinitions,
+        maxTokens: 100,
+        store,
+        executeTool: createNativeToolExecutor('client', registry, { env: {} }),
+      });
+      await collect(instance.run('write hello'));
+      expect(await readFile(join(root, 'note'), 'utf8')).toBe('hello');
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body).tools).toContainEqual(
+        expect.objectContaining({ name: 'Write' }),
+      );
+    } finally {
+      registry.dispose();
+    }
+  });
+  it('recovers a crash checkpoint with an unanswered function call without replay', async () => {
+    fetchMock.mockResolvedValueOnce(response(true));
+    const instance = new NativeResponsesRunner({
+      conversationId: 'app-id',
+      binding,
+      apiKey: 'test-only',
+      systemPrompt: '',
+      maxTokens: 100,
+      maxTurns: 1,
+      store,
+      executeTool: vi
+        .fn()
+        .mockResolvedValue({ type: 'tool_result', tool_use_id: 'call-1', content: 'written' }),
+    });
+    await expect(collect(instance.run('write'))).rejects.toThrow(/limit/i);
+    const state = store.load('app-id', binding)!;
+    // A crash after model persistence but before the tool outcome was committed.
+    store.save('app-id', binding, {
+      ...state,
+      status: 'running',
+      history: state.checkpoint!.history,
+    });
+    store.close();
+    store = new NativeResponsesStore(join(root, 'continuation.db'));
+    store.recoverAtStartup();
+    const execute = vi.fn();
+    await collect(runner(execute).run('inspect before retrying'));
+    expect(execute).not.toHaveBeenCalled();
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).input).toContainEqual(
+      expect.objectContaining({
+        type: 'function_call_output',
+        call_id: 'call-1',
+        output: expect.stringContaining('Outcome unknown'),
+      }),
+    );
+  });
+  it('stops before side effects if checkpoint persistence fails', async () => {
+    fetchMock.mockResolvedValueOnce(response(true));
+    const original = store.save.bind(store);
+    vi.spyOn(store, 'save').mockImplementation((id, account, state) => {
+      if (state.checkpoint) throw new Error('disk full');
+      original(id, account, state);
+    });
+    const execute = vi.fn();
+    await expect(collect(runner(execute).run('write'))).rejects.toThrow('disk full');
+    expect(execute).not.toHaveBeenCalled();
   });
 });
