@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import type { EventEmitter } from 'node:events';
 import type { Readable, Writable } from 'node:stream';
 import { isAbsolute } from 'node:path';
+import { codexRuntimeOverrides } from './codex-runtime-policy.js';
 
 type JsonObject = Record<string, unknown>;
 interface RpcProcess extends EventEmitter {
@@ -70,7 +71,11 @@ export class CodexAppServerClient {
     child.stderr.on('error', () => this.close());
   }
 
-  static launch(credentialRef: string, base: NodeJS.ProcessEnv = process.env) {
+  static launch(
+    credentialRef: string,
+    base: NodeJS.ProcessEnv = process.env,
+    lifecycle?: CodexLifecycleTransport,
+  ) {
     return new CodexAppServerClient(
       spawn(
         'codex',
@@ -81,9 +86,16 @@ export class CodexAppServerClient {
           'forced_login_method="chatgpt"',
           '-c',
           'model_provider="openai"',
+          ...(lifecycle
+            ? Object.entries(codexRuntimeOverrides({})).flatMap(([key, value]) => [
+                '-c',
+                `${key}=${JSON.stringify(value)}`,
+              ])
+            : []),
         ],
         { env: codexEnvironment(credentialRef, base), stdio: ['pipe', 'pipe', 'pipe'] },
       ),
+      { lifecycle },
     );
   }
 
