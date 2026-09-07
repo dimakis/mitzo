@@ -51,7 +51,12 @@ export class CodexConversation {
   private binding?: AccountBinding;
   private threadId?: string;
   private mapper?: CodexSessionEvents;
-  private active?: { command: CodexCommand; turnId?: string; abort: AbortController };
+  private active?: {
+    command: CodexCommand;
+    turnId?: string;
+    completion?: ObjectValue;
+    abort: AbortController;
+  };
   private paused = false;
   private closed = false;
   private ready = false;
@@ -177,6 +182,7 @@ export class CodexConversation {
       command,
       abort: new AbortController(),
       turnId: undefined as string | undefined,
+      completion: undefined as ObjectValue | undefined,
     };
     this.active = active;
     this.opts.onQueueChange?.();
@@ -202,6 +208,7 @@ export class CodexConversation {
         if (active.turnId && active.turnId !== result.turn.id)
           throw new Error('Codex turn identity changed');
         active.turnId = result.turn.id;
+        if (active.completion) this.notification('turn/completed', active.completion);
       }
     } catch (error: unknown) {
       this.paused = true;
@@ -223,7 +230,13 @@ export class CodexConversation {
       this.active.turnId = turn.data.id;
     }
     if (method === 'turn/completed') {
-      if (!turn.success || !this.active || this.active.turnId !== turn.data.id) return;
+      if (!turn.success || !this.active) return;
+      if (!this.active.turnId) {
+        // Wait for the start response to confirm identity; do not accept a stale turn.
+        this.active.completion = params;
+        return;
+      }
+      if (this.active.turnId !== turn.data.id) return;
       const status =
         turn.data.status === 'completed'
           ? 'completed'
@@ -297,15 +310,21 @@ export class CodexConversation {
     };
   }
   async interrupt() {
+    if (this.closed) return;
     this.paused = true;
     const active = this.active;
     if (!active) return;
     active.abort.abort();
-    if (active.turnId)
-      await this.client.request('turn/interrupt', {
-        threadId: this.threadId,
-        turnId: active.turnId,
-      });
+    if (active.turnId) {
+      try {
+        await this.client.request('turn/interrupt', {
+          threadId: this.threadId,
+          turnId: active.turnId,
+        });
+      } catch (error) {
+        if (!this.closed) throw error;
+      }
+    }
   }
   close() {
     if (this.closed) return;

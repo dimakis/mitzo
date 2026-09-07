@@ -204,3 +204,60 @@ it('keeps the last selected model for follow-ups that omit a model and deduplica
   await c.send({ id: 'first', prompt: 'one' });
   expect(c.queue()).toHaveLength(3);
 });
+
+it('retains early completion until the start response confirms its turn identity', async () => {
+  const { c, rpc, callbacks } = await setup();
+  const request = rpc.request.getMockImplementation()!;
+  rpc.request.mockImplementation(async (method, params) => {
+    if (method !== 'turn/start') return request(method, params);
+    callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'early', status: 'completed' },
+    });
+    return { turn: { id: 'early' } };
+  });
+  await c.send({ id: 'early-command', prompt: 'hello' });
+  expect(c.queue()[0].status).toBe('completed');
+});
+
+it('does not let an unconfirmed stale completion finish the new turn', async () => {
+  const { c, rpc, callbacks } = await setup();
+  const request = rpc.request.getMockImplementation()!;
+  rpc.request.mockImplementation(async (method, params) => {
+    if (method !== 'turn/start') return request(method, params);
+    callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'stale', status: 'completed' },
+    });
+    return { turn: { id: 'current' } };
+  });
+  await c.send({ id: 'current-command', prompt: 'hello' });
+  expect(c.queue()[0].status).toBe('running');
+});
+
+it('continues queued work only after recovery is explicitly acknowledged', async () => {
+  const { c, callbacks, requests } = await setup();
+  await c.send({ id: 'first', prompt: 'first' });
+  await c.send({ id: 'second', prompt: 'second' });
+  await c.interrupt();
+  expect(c.isPaused()).toBe(true);
+  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+  await c.acknowledgeRecovery();
+  expect(c.isPaused()).toBe(false);
+  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-2', status: 'completed' },
+  });
+  expect(c.queue().map((q) => q.status)).toEqual(['interrupted', 'completed']);
+});
+
+it('tolerates the transport closing while interrupt is in flight', async () => {
+  const { c, rpc } = await setup();
+  await c.send({ id: 'first', prompt: 'hello' });
+  rpc.request.mockImplementation(async () => {
+    c.close();
+    throw new Error('connection closed');
+  });
+  await expect(c.interrupt()).resolves.toBeUndefined();
+});
