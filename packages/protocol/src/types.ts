@@ -164,6 +164,8 @@ export interface FinishedMessage {
 // --- Permission ---
 
 export interface UserQuestion {
+  allowFreeform?: boolean;
+  isSecret?: boolean;
   id: string;
   question: string;
   header: string;

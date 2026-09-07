@@ -213,3 +213,23 @@ it.each(['abort', 'timeout'])('broadcasts exactly one terminal event on %s', asy
     vi.useRealTimers();
   }
 });
+
+it('preserves native question IDs and rejects free text when choices are restricted', async () => {
+  const { handler, sent, abort } = setup();
+  const result = handler(
+    'AskUserQuestion',
+    {},
+    {
+      signal: abort.signal,
+      toolUseID: 'native-q',
+      questions: [{ ...questions[0], id: 'provider-q', allowFreeform: false }],
+    },
+  );
+  await vi.waitFor(() => expect(sent[0]?.questions).toBeDefined());
+  expect(resolvePending(sent[0].permId as string, 'once', { 'provider-q': ['Other'] })).toBe(false);
+  expect(resolvePending(sent[0].permId as string, 'once', { 'provider-q': ['Work'] })).toBe(true);
+  await expect(result).resolves.toMatchObject({
+    behavior: 'allow',
+    updatedInput: { answers: { 'Which account?': 'Work' } },
+  });
+});

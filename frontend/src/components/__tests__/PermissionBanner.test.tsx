@@ -186,3 +186,31 @@ describe('PermissionBanner', () => {
     });
   });
 });
+
+it('hides free text for restricted choices and masks secret input', () => {
+  const { container } = render(
+    <PermissionBanner
+      {...defaultProps}
+      questions={[
+        {
+          id: 'choice',
+          question: 'Choose one',
+          header: 'Choice',
+          options: [{ label: 'Work', description: '' }],
+          multiSelect: false,
+          allowFreeform: false,
+        },
+        {
+          id: 'secret',
+          question: 'Enter secret',
+          header: 'Secret',
+          options: [],
+          multiSelect: false,
+          isSecret: true,
+        },
+      ]}
+    />,
+  );
+  expect(container.querySelectorAll('textarea')).toHaveLength(0);
+  expect(container.querySelector('input[type="password"]')).toBeTruthy();
+});

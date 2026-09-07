@@ -87,6 +87,8 @@ export function buildPermissionHandler(
       description?: string;
       decisionReason?: string;
       forcePrompt?: boolean;
+      /** Provider adapter supplies validated questions, preserving provider IDs. */
+      questions?: UserQuestion[];
     },
   ): Promise<PermissionResult> => {
     const session = registry.get(clientId);
@@ -99,8 +101,8 @@ export function buildPermissionHandler(
       return { behavior: 'deny', message: 'Tool not allowed by active skill policy' };
     }
 
-    let questions: UserQuestion[] | undefined;
-    if (toolName === 'AskUserQuestion') {
+    let questions: UserQuestion[] | undefined = opts.questions;
+    if (!questions && toolName === 'AskUserQuestion') {
       const parsed = UserQuestionsSchema.safeParse(_toolInput.questions);
       if (!parsed.success)
         return {

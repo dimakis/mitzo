@@ -137,19 +137,34 @@ export function PermissionBanner({
                   </label>
                 ))}
               </div>
-              <label className="question-written">
-                Your answer
-                <textarea
-                  value={written.get(q.id) ?? ''}
-                  maxLength={4000}
-                  rows={2}
-                  placeholder="Or write your own answer…"
-                  onChange={(event) => {
-                    setWritten((old) => new Map(old).set(q.id, event.target.value));
-                    if (!q.multiSelect) setSelections((old) => new Map(old).set(q.id, []));
-                  }}
-                />
-              </label>
+              {q.allowFreeform !== false && (
+                <label className="question-written">
+                  Your answer
+                  {q.isSecret ? (
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      maxLength={4000}
+                      value={written.get(q.id) ?? ''}
+                      onChange={(event) => {
+                        setWritten((old) => new Map(old).set(q.id, event.target.value));
+                        if (!q.multiSelect) setSelections((old) => new Map(old).set(q.id, []));
+                      }}
+                    />
+                  ) : (
+                    <textarea
+                      value={written.get(q.id) ?? ''}
+                      maxLength={4000}
+                      rows={2}
+                      placeholder="Or write your own answer…"
+                      onChange={(event) => {
+                        setWritten((old) => new Map(old).set(q.id, event.target.value));
+                        if (!q.multiSelect) setSelections((old) => new Map(old).set(q.id, []));
+                      }}
+                    />
+                  )}
+                </label>
+              )}
             </fieldset>
           ))
         ) : (
