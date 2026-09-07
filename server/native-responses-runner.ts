@@ -10,7 +10,6 @@ import {
 import { NativeResponsesStore, type NativeResponsesState } from './native-responses-store.js';
 import { createLogger } from './logger.js';
 const log = createLogger('native-responses');
-export { NativeResponsesStore } from './native-responses-store.js';
 
 interface NativeResponsesOptions extends Omit<ModelSessionConfig, 'model' | 'signal' | 'thinking'> {
   conversationId: string;
@@ -65,6 +64,8 @@ export class NativeResponsesRunner {
   interrupt() {
     this.active?.abort();
   }
+  // Lazy generator: merely constructing it starts no work and holds no lease.
+  // At first next(), both guards run synchronously before any await/yield.
   async *run(prompt: string, signal?: AbortSignal) {
     if (this.active) throw new Error('Native Responses conversation already running');
     signal?.throwIfAborted();

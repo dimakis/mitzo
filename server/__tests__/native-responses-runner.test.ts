@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import type { AccountBinding } from '@mitzo/protocol';
 import { SessionRegistry } from '@mitzo/harness';
 import { createNativeToolExecutor, nativeToolDefinitions } from '../native-tool-executor.js';
-import { NativeResponsesStore, NativeResponsesRunner } from '../native-responses-runner.js';
+import { NativeResponsesRunner } from '../native-responses-runner.js';
+import { NativeResponsesStore } from '../native-responses-store.js';
 
 const binding: AccountBinding = {
   accountId: 'personal',

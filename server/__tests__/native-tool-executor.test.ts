@@ -134,6 +134,40 @@ describe('native tool execution through session permissions', () => {
       content: 'output\n--- stderr ---\ndiagnostic',
     });
   });
+  it('rejects oversized reads and edits without changing the file', async () => {
+    await writeFile(join(root, 'worktree/large'), 'a' + 'x'.repeat(32));
+    const execute = createNativeToolExecutor('client', registry, { env: {}, maxOutputBytes: 8 });
+    for (const tool of [
+      call('Read', { file_path: 'large' }),
+      call('Edit', { file_path: 'large', old_string: 'a', new_string: 'b' }),
+    ]) {
+      expect(await execute(tool, abort.signal)).toMatchObject({
+        is_error: true,
+        content: expect.stringMatching(/limit/),
+      });
+    }
+    expect(await readFile(join(root, 'worktree/large'), 'utf8')).toBe('a' + 'x'.repeat(32));
+  });
+  it('requires a unique Edit match and enforces shell timeout', async () => {
+    await writeFile(join(root, 'worktree/note'), 'same same');
+    for (const old_string of ['absent', 'same']) {
+      expect(
+        await executor()(
+          call('Edit', { file_path: 'note', old_string, new_string: 'new' }),
+          abort.signal,
+        ),
+      ).toMatchObject({ is_error: true, content: expect.stringContaining('exactly one') });
+    }
+    registry.get('client')!.mode = 'auto';
+    const execute = createNativeToolExecutor('client', registry, {
+      env: { PATH: '/bin:/usr/bin' },
+      timeoutMs: 10,
+    });
+    expect(await execute(call('Bash', { command: 'sleep 30' }), abort.signal)).toMatchObject({
+      is_error: true,
+      content: expect.stringContaining('timed out'),
+    });
+  });
   it('terminates a running shell on cancellation', async () => {
     registry.get('client')!.mode = 'auto';
     const pending = executor()(

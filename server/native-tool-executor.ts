@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { readFile, realpath, writeFile } from 'node:fs/promises';
+import { open, realpath, writeFile } from 'node:fs/promises';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
@@ -51,6 +51,24 @@ export interface NativeToolOptions {
   timeoutMs?: number;
   maxOutputBytes?: number;
   onDemandCreate?: NonNullable<Parameters<typeof buildPermissionHandler>[2]>['onDemandCreate'];
+}
+
+async function readBounded(path: string, limit: number, signal: AbortSignal): Promise<string> {
+  const file = await open(path, 'r');
+  try {
+    const buffer = Buffer.alloc(limit + 1);
+    let offset = 0;
+    while (offset < buffer.length) {
+      signal.throwIfAborted();
+      const { bytesRead } = await file.read(buffer, offset, buffer.length - offset, null);
+      if (!bytesRead) break;
+      offset += bytesRead;
+    }
+    if (offset > limit) throw new Error('File exceeds native read/edit size limit');
+    return buffer.subarray(0, offset).toString('utf8');
+  } finally {
+    await file.close();
+  }
 }
 
 function shell(
@@ -173,7 +191,11 @@ export function createNativeToolExecutor(
         await writeFile(write.file_path, write.content, { encoding: 'utf8', signal });
         return result('File written');
       }
-      const content = await readFile(input.file_path, { encoding: 'utf8', signal });
+      const content = await readBounded(
+        input.file_path,
+        options.maxOutputBytes ?? 64 * 1024,
+        signal,
+      );
       if (block.name === 'Edit') {
         const edit = schemas.Edit.parse(input);
         if (
@@ -188,8 +210,6 @@ export function createNativeToolExecutor(
         );
         return result('File edited');
       }
-      if (Buffer.byteLength(content) > (options.maxOutputBytes ?? 64 * 1024))
-        return result('File exceeds native read output limit', true);
       return result(content);
     } catch (err: unknown) {
       return result(
