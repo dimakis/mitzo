@@ -87,6 +87,8 @@ export class CodexAppServerClient {
   request(method: string, params: JsonObject): Promise<unknown> {
     if (this.closed) return Promise.reject(new Error('Codex connection closed'));
     if (!this.ready) return Promise.reject(new Error('Codex connection not initialized'));
+    if (!['account/read', 'model/list'].includes(method))
+      return Promise.reject(new Error('Codex connection supports preflight only'));
     return this.sendRequest(method, params);
   }
 

@@ -18,6 +18,26 @@ function processStub() {
 
 afterEach(() => vi.useRealTimers());
 describe('Codex app-server transport', () => {
+  it('blocks execution and auth mutations until a lifecycle policy bridge exists', async () => {
+    const { child, sent, reply } = processStub();
+    const client = new CodexAppServerClient(child);
+    const ready = client.initialize();
+    reply({ id: sent[0].id, result: {} });
+    await ready;
+    for (const method of [
+      'turn/start',
+      'thread/start',
+      'thread/resume',
+      'account/login/start',
+      'account/logout',
+    ]) {
+      const request = client.request(method, {});
+      if (sent.length > 2) reply({ id: sent.at(-1)!.id, result: {} });
+      await expect(request).rejects.toThrow('preflight only');
+    }
+    expect(sent).toHaveLength(2);
+    client.close();
+  });
   it('initializes before requests and correlates fragmented, out-of-order responses', async () => {
     const { child, sent, reply } = processStub();
     const client = new CodexAppServerClient(child);
