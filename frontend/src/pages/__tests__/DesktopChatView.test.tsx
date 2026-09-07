@@ -46,13 +46,18 @@ vi.mock('../../components/VoiceSettings', () => ({
 vi.mock('../../components/ChatInput', () => ({
   ChatInput: ({
     externalContextBlocks,
+    sendDisabledReason,
     onSend,
   }: {
     externalContextBlocks?: string[];
+    sendDisabledReason?: string;
     onSend: (text: string) => boolean;
   }) => (
     <div data-testid="chat-input">
-      <button onClick={() => onSend('hello')}>Test send</button>
+      <span>{sendDisabledReason}</span>
+      <button disabled={!!sendDisabledReason} onClick={() => onSend('hello')}>
+        Test send
+      </button>
       external: {externalContextBlocks ? externalContextBlocks.length : 'none'}
     </div>
   ),
@@ -267,4 +272,18 @@ it('uses the account catalog on desktop and sends the explicit subscription choi
     'hello',
     expect.objectContaining({ accountId: 'personal', model: 'luna' }),
   );
+});
+
+it('explains why sending is disabled while desktop accounts load', () => {
+  vi.mocked(fetch).mockReturnValue(new Promise(() => {}));
+  const store = createMockStore();
+  render(
+    <MemoryRouter>
+      <MitzoStoreProvider value={store}>
+        <DesktopChatView />
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  expect(screen.getByText('Select an account before sending.')).toBeTruthy();
+  expect((screen.getByText('Test send') as HTMLButtonElement).disabled).toBe(true);
 });

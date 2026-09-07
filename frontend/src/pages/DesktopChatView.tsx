@@ -270,6 +270,11 @@ export function DesktopChatView() {
           />
           <ScrollFab scrollRef={scrollRef} />
           <ChatInput
+            sendDisabledReason={
+              !activeSessionId && !accountSelection
+                ? 'Select an account before sending.'
+                : undefined
+            }
             onSend={handleSend}
             onStop={handleStop}
             onInterrupt={handleInterrupt}
