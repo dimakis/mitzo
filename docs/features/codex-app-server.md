@@ -1,73 +1,84 @@
-# Codex app-server integration: preflight foundation
+# Codex app-server chat lifecycle (development only)
 
-Status: internal foundation only. **Not connected to `chat.ts`, not in the account
-catalog, and not available for mobile execution.** This route uses a managed
-ChatGPT login; it is separate from the direct Responses API adapter and its API
-billing. Neither route falls back to the other.
+The ChatGPT subscription route now connects to Mitzo chat through a managed Codex
+app-server process. It remains hidden unless `MITZO_CODEX_DEV_ENABLED=1` and
+`NODE_ENV` is not `production`. This is an isolated development integration, pending
+end-to-end and physical-phone acceptance. The direct Responses API route remains
+separate; neither route falls back to the other.
 
-## Current implementation
+## Account and process ownership
 
-`server/codex-app-server-client.ts` owns a private stdio JSON-RPC connection. It
-initializes once, correlates responses, bounds incoming frames, rejects pending
-requests on process exit or protocol failure, and closes on timeout without
-retrying an uncertain request. Unhandled server requests receive an error;
-notifications are discarded in this preflight implementation. This transport is
-not an execution adapter. It has no event, approval, or tool dispatch callbacks.
+A server-owned `MITZO_ACCOUNT_PROFILES_FILE` contains an array of account profiles.
+A Codex profile has `provider: "openai-codex"`, `id`, `label`, an absolute
+`credentialRef` to an existing Codex login directory, exact `email` and `planType`,
+and `models` containing explicit `id`/`label` pairs. Use an available low-cost model
+such as `gpt-5.6-luna` for smoke tests. Never put tokens in this profile file.
 
-Launch requires an explicit absolute Codex login directory. Only a small host
-environment allowlist is passed to the child; inherited API keys and alternate
-provider variables are excluded. CLI overrides request ChatGPT authentication and
-the OpenAI provider. No login, logout, token copying, or model request happens
-automatically. The selected Codex directory still supplies its own configuration;
-the environment allowlist is not a claim that arbitrary user configuration is safe
-for execution.
+The adapter passes an allowlisted environment to Codex, excluding API keys and
+alternate-provider variables, and requires ChatGPT authentication. Account metadata
+is checked at initialization and before every queued turn. The durable application
+binding pins the selected account configuration and model; model/provider fallback
+is disabled. No automatic login, logout, or token copying occurs.
 
-`server/codex-account.ts` reads account metadata and compares exact configured
-email and plan values. It rejects absent, API-key, Bedrock, and mismatched accounts.
-The returned application binding includes provider, account ID, model, and a hash
-of the login reference/email/plan. It rejects a changed stored binding before
-contacting the process. Callers must persist this binding privately, initialize
-and close the connection, and recheck before each turn and after restart.
+The installed CLI's account schema exposes email and plan, not stable workspace
+identity. External changes to a shared login can still race the per-turn check.
+These checks do not provide atomic pinning of a mutable login directory.
 
-This is **not durable lifecycle wiring**. The installed CLI 0.153.4 account schema
-exposes email and plan, not stable workspace identity. A shared login can also be
-changed externally between preflight and execution. Execution must resolve those
-identity/race questions rather than treat email matching as full account pinning.
+## Chat, queue, and tool behavior
 
-## Required execution boundary
+- Canonical Mitzo conversation IDs map privately to provider thread IDs. Context
+  assembled by the existing chat path is passed to the Codex thread and prompt.
+- Streaming text and host tool events flow through the existing query loop and
+  event store. Supported native tools and configured stdio MCP tools use Mitzo's
+  permission handler. Dynamic tool requests must match the active thread, turn,
+  and configured tool name.
+- Follow-ups are durably queued before acknowledgement and deduplicated by command
+  ID. Reusing an ID with different content is rejected. Tool attempts are claimed
+  before execution; a duplicate is reported as uncertain and is not rerun.
+- Private SQLite state lives under `MITZO_CODEX_PRIVATE_DIR` (default
+  `~/.mitzo/private/codex`). Public file APIs exclude this directory and configured
+  Codex login roots, including symlink aliases.
+- Interrupt and process loss pause queued work. Startup marks unfinished commands
+  interrupted. Queued messages require explicit continuation; interrupted actions
+  are never automatically replayed. The chat status shows the saved queue and
+  whether reconnection is needed. Check current state before retrying an uncertain
+  action.
 
-Mitzo's skill ceiling and worktree checks run before each supported native tool.
-Codex approval callbacks alone do not supply the same contract. The current
-[official hook documentation](https://learn.chatgpt.com/docs/hooks) covers most
-local tools but explicitly notes specialized paths can opt out and `write_stdin`
-does not run `PreToolUse` again. Hook error handling also requires care: unsupported
-decision fields do not block a tool.
+## Execution limits
 
-Before connecting dispatch, implement and test a complete supported-tool boundary:
-either a constrained tool surface whose calls all reach Mitzo, or a verified hook
-bridge plus disabling every bypass path. Unknown tools, background input,
-subagents, and MCP calls need explicit handling. Prompt instructions alone do not
-replace enforcement. Do not enable execution while this remains unverified.
+Codex-native shell, execution, agents, apps, plugins, hooks, computer/browser,
+image-generation, and inherited MCP execution are disabled through runtime
+configuration. Inherited MCP names are explicitly disabled; supported configured
+MCP clients are owned by Mitzo. Custom OpenAI provider routing is rejected.
+Unknown host request methods are rejected.
 
-## Remaining lifecycle and acceptance
+An installed-CLI probe with a synthetic local model endpoint confirmed that an
+unadvertised `exec_command` call was rejected without creating its sentinel file.
+Built-in skill listing/reading remains available with the tested CLI flags. This
+is not a general proof against future CLI tool surfaces. Revalidate the generated
+protocol schema and advertised tools when updating Codex.
 
-- Canonical application IDs mapped privately to Codex thread IDs, separate from
-  SDK IDs and Responses IDs; durable identity/model binding before side effects.
-- `chat.ts` and `ws-handler-v2.ts` dispatch, persisted public events, durable
-  follow-up queue and command deduplication, per-turn skill policy, permission
-  routing, stop/interrupt/closeout, restart/resume, and reconnect snapshots.
-- ContexGin boot/task context, configured MCP clients and cleanup, multi-repo
-  worktrees and environment, project hook parity, preserved Vertex execution.
-- Explicit account/provider/billing labels before launch and on bound tasks,
-  unsupported capability gating, actionable retry, preserved drafts/task metadata,
-  visible permission/cancellation/queue state, and explicit uncertain outcomes
-  after restart without automatic side-effect replay.
-- Isolated dev-server validation, live ChatGPT execution, mobile layout and
-  physical-phone acceptance before activation. Sign-in inspection is not an
-  execution or subscription-entitlement test.
-- Direct Responses lifecycle wiring, richer tools/background processes,
-  filesystem races, bounded long-history/differential persistence, images,
-  compaction, and reasoning-summary UI remain separate incomplete work.
+Restricted skill tool ceilings, configured project hooks, images, native Codex
+structured questions, subagents, compaction, and reasoning-summary UI are not yet
+supported by this route. Unsupported image/skill/hook requests fail explicitly;
+this slice does not provide full feature parity. Shared question/approval UI work
+is maintained separately and still needs integration acceptance. Account selection
+also needs complete capability-aware attachment controls before activation.
+
+## Verification and remaining acceptance
+
+The tests cover transport failure, bindings, event translation, sequential queues,
+command/tool deduplication, restart pause, cancellation, native/MCP permission
+routing, private paths, dispatch, and explicit queue continuation UI. Existing
+Vertex and SDK tests remain part of the full suite.
+
+A live synthetic `MITZO_OK` turn using `gpt-5.6-luna` and an existing ChatGPT login
+completed successfully through the conversation controller, without an API key.
+This verifies controller execution and subscription access, not the full mobile
+chat path. Full WebSocket/query-loop execution, shared question/approval behavior,
+mobile layout, and physical-phone acceptance remain required before activation.
+Long-history bounds and tool-catalog changes across resumed provider threads also
+need further validation. Production deployment is outside this development slice.
 
 Protocol reference: [Codex app-server](https://learn.chatgpt.com/docs/app-server).
 The local CLI-generated schema should be rechecked on version changes.
