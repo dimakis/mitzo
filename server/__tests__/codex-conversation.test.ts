@@ -16,6 +16,7 @@ async function setup() {
   let turn = 0;
   const requests: { method: string; params: Record<string, unknown> }[] = [];
   const events: Record<string, unknown>[] = [];
+  const onClosed = vi.fn();
   const execute = vi.fn(
     async (_name: string, _input: Record<string, unknown>, _signal: AbortSignal) => ({
       content: 'ok',
@@ -66,6 +67,7 @@ async function setup() {
       return rpc;
     },
     emit: (e) => events.push(e),
+    onClosed,
     executeTool: execute,
   });
   cleanup.push(() => {
@@ -74,7 +76,7 @@ async function setup() {
     rmSync(dir, { recursive: true, force: true });
   });
   await c.initialize();
-  return { c, store, callbacks, rpc, requests, events, execute };
+  return { c, store, callbacks, rpc, requests, events, execute, onClosed };
 }
 it('runs queued turns sequentially, rechecks account and never uses SDK/provider IDs as application IDs', async () => {
   const { c, callbacks, requests, events } = await setup();
@@ -157,4 +159,15 @@ it('interrupts the current turn, keeps queued follow-ups paused, and cancels a p
   expect(toolSignal.aborted).toBe(true);
   expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
   expect(c.queue().map((q) => q.status)).toEqual(['interrupted', 'queued']);
+});
+
+it('closes the public stream on process loss and retains new messages in a paused queue', async () => {
+  const { c, callbacks, onClosed } = await setup();
+  await c.send({ id: 'a', prompt: 'hello' });
+  await c.interrupt();
+  expect(c.isPaused()).toBe(true);
+  await c.send({ id: 'b', prompt: 'saved until acknowledgement' });
+  expect(c.queue().map((q) => q.status)).toEqual(['interrupted', 'queued']);
+  callbacks.onClose(new Error('process lost'));
+  expect(onClosed).toHaveBeenCalledOnce();
 });

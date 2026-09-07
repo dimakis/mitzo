@@ -33,6 +33,7 @@ interface Options {
     signal: AbortSignal,
   ): Promise<{ content: string; isError: boolean }>;
   onQueueChange?: () => void;
+  onClosed?: () => void;
   onError?: (error: Error) => void;
 }
 const ToolCall = z.object({
@@ -123,6 +124,9 @@ export class CodexConversation {
     this.opts.emit({ type: 'system', subtype: 'init', session_id: this.opts.conversationId });
     this.opts.onQueueChange?.();
   }
+  isPaused() {
+    return this.paused;
+  }
   queue() {
     if (!this.binding) return [];
     return this.opts.store.commands(this.opts.conversationId, this.binding);
@@ -134,10 +138,7 @@ export class CodexConversation {
       throw new Error('Codex execution does not yet support restricted skill tool ceilings');
     this.opts.store.enqueue(this.opts.conversationId, this.binding!, input);
     this.opts.onQueueChange?.();
-    if (this.paused)
-      throw new Error(
-        'Codex recovery is paused. Inspect interrupted work and explicitly continue the queue.',
-      );
+    if (this.paused) return;
     await this.pump();
   }
   async acknowledgeRecovery() {
@@ -304,5 +305,6 @@ export class CodexConversation {
     this.mapper?.flush();
     this.client.close();
     this.opts.onQueueChange?.();
+    this.opts.onClosed?.();
   }
 }
