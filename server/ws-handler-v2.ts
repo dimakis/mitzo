@@ -41,7 +41,11 @@ type SetModeMsg = z.infer<typeof V2SetModeMessage>;
 import { randomUUID } from 'crypto';
 import { withSpan, withSpanAsync } from './tracing.js';
 import { SpanStatusCode } from '@opentelemetry/api';
-import { resolvePending, denyPendingBySession } from './permissions.js';
+import {
+  resolvePending,
+  denyPendingBySession,
+  getPendingRequestsBySession,
+} from './permissions.js';
 import {
   startChat,
   sendToChat,
@@ -168,6 +172,20 @@ export function detectStateMismatch(
 function sendBootContext(connectionId: string, sessionId: string, ctx: V2HandlerContext): void {
   const conn = ctx.connRegistry.get(connectionId);
   if (!conn) return;
+
+  for (const request of getPendingRequestsBySession(sessionId)) {
+    try {
+      conn.transport.send({ type: 'permission_request', ...request });
+    } catch (err) {
+      // Leave the request pending for the next reconnect and continue with
+      // other replay messages, including the boot context.
+      log.warn('permission replay delivery failed', {
+        sessionId,
+        permId: request.permId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   // Hot path: running session with in-memory cache
   const found = ctx.sessionRegistry.findBySessionId(sessionId);
@@ -574,7 +592,16 @@ export function handleSendV2(
             applySkillPolicy(activeClientId);
             ctx.connRegistry.watch(connectionId, sessionId);
             ctx.connRegistry.setActive(connectionId, sessionId);
-            if (!sendToChat(activeClientId, prompt, msg.images, msg.contextBlocks, msg.clientMsgId))
+            if (
+              !sendToChat(
+                activeClientId,
+                prompt,
+                msg.images,
+                msg.contextBlocks,
+                msg.clientMsgId,
+                msg.accountId && storedBinding?.provider === 'openai-codex' ? msg.model : undefined,
+              )
+            )
               throw new Error('Session is not accepting input. Please retry.');
             span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');
             return;
@@ -603,6 +630,7 @@ export function handleSendV2(
             accountId: msg.accountId,
             accountProfiles,
             extraTools: msg.extraTools,
+            skillAllowedTools,
             isolation: msg.isolation,
             mode: msg.mode,
             images: msg.images,
@@ -631,6 +659,7 @@ export function handleSendV2(
             accountId: msg.accountId,
             accountProfiles,
             extraTools: msg.extraTools,
+            skillAllowedTools,
             isolation: msg.isolation,
             mode: msg.mode,
             images: msg.images,
@@ -795,7 +824,7 @@ export function handlePermissionResponseV2(
       'ws.permId': msg.permId,
     },
     () => {
-      resolvePending(msg.permId, msg.decision ?? 'deny');
+      resolvePending(msg.permId, msg.decision ?? 'deny', msg.answers, msg.sessionId);
       log.info('permission_response', {
         connectionId,
         sessionId: msg.sessionId,

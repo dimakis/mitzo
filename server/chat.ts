@@ -1,3 +1,8 @@
+import { credentials } from './credentials.js';
+import { getResponsesRuntime, openResponsesChat } from './responses-chat-session.js';
+import { CodexAppServerClient, codexEnvironment } from './codex-app-server-client.js';
+import { verifyCodexAccount, type CodexAccountProfile } from './codex-account.js';
+import { openCodexChat, getCodexRuntime } from './codex-chat-session.js';
 import {
   loadAccountProfiles,
   resolveAccountSelection,
@@ -78,7 +83,8 @@ export function setSessionsChangedCallback(cb: () => void): void {
 }
 import { EventStore } from './event-store.js';
 import { capturePromptComparison } from './prompt-compare.js';
-import { shouldAutoRename, extractRecentPrompts, generateSessionName } from './auto-rename.js';
+import { accountSessionName } from './account-session-name.js';
+import { shouldAutoRename, extractRecentPrompts } from './auto-rename.js';
 import {
   registerSession,
   updateSessionTitle,
@@ -719,12 +725,14 @@ function stageImages(cwd: string, images: Array<{ data: string; mediaType: strin
 function makeUserMessage(
   content: string,
   priority: 'now' | 'next' | 'later' = 'next',
-): SDKUserMessage {
+  messageId?: string,
+): SDKUserMessage & { mitzoMessageId?: string } {
   return {
     type: 'user',
     message: { role: 'user', content },
     parent_tool_use_id: null,
     priority,
+    ...(messageId ? { mitzoMessageId: messageId } : {}),
   };
 }
 
@@ -740,6 +748,7 @@ export async function startChat(
     accountId?: string;
     accountProfiles?: AccountProfiles;
     extraTools?: string;
+    skillAllowedTools?: string[];
     isolation?: boolean;
     mode?: MitzoMode;
     images?: Array<{ data: string; mediaType: string }>;
@@ -773,6 +782,7 @@ async function _startChatInner(
     accountId?: string;
     accountProfiles?: AccountProfiles;
     extraTools?: string;
+    skillAllowedTools?: string[];
     isolation?: boolean;
     mode?: MitzoMode;
     images?: Array<{ data: string; mediaType: string }>;
@@ -784,6 +794,8 @@ async function _startChatInner(
   },
 ) {
   let accountBinding;
+  let codexProfile: CodexAccountProfile | undefined;
+  let apiKey: string | undefined;
   let accountEnv: Record<string, string> | undefined;
   try {
     const storedBinding = options.resume
@@ -794,8 +806,37 @@ async function _startChatInner(
       (options.accountId || storedBinding ? loadAccountProfiles() : undefined);
     accountBinding = resolveAccountSelection(options, storedBinding, !!options.resume, profiles);
     if (accountBinding) {
-      options = { ...options, model: accountBinding.model };
-      accountEnv = profiles!.sdkEnv(accountBinding, sdkEnv());
+      options = {
+        ...options,
+        model:
+          accountBinding.provider === 'openai-codex' && options.accountId
+            ? (options.model ?? accountBinding.model)
+            : accountBinding.model,
+      };
+      if (accountBinding.provider === 'openai-codex') {
+        if (options.images?.length)
+          throw new Error('Codex image attachments are not yet supported');
+        if (options.skillAllowedTools)
+          throw new Error('Codex restricted skill tool ceilings are not yet supported');
+        codexProfile = profiles!.codexProfile(accountBinding);
+        const preflight = CodexAppServerClient.launch(codexProfile.credentialRef);
+        try {
+          await preflight.initialize();
+          await verifyCodexAccount(preflight, codexProfile, accountBinding);
+        } finally {
+          preflight.close();
+        }
+        accountEnv = codexEnvironment(codexProfile.credentialRef, process.env);
+      } else if (accountBinding.provider === 'openai') {
+        if (options.images?.length)
+          throw new Error('OpenAI API image attachments are not yet supported');
+        apiKey = await credentials.resolve(profiles!.apiCredential(accountBinding));
+        accountEnv = Object.fromEntries(
+          ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
+            process.env[key] ? [[key, process.env[key]!]] : [],
+          ),
+        );
+      } else accountEnv = profiles!.sdkEnv(accountBinding, sdkEnv());
     }
   } catch (err: unknown) {
     send(transport, {
@@ -810,7 +851,8 @@ async function _startChatInner(
   const baseCwd = resolveResumeCwd(options);
 
   if (options.resume) {
-    const validation = validateResumable(baseCwd, options.resume);
+    const validation =
+      codexProfile || apiKey ? { valid: true } : validateResumable(baseCwd, options.resume);
     if (!validation.valid) {
       log.warn('session not resumable, starting fresh', {
         sessionId: options.resume,
@@ -1031,7 +1073,7 @@ async function _startChatInner(
 
   // Resolve SDK session UUID for resume — worktree IDs are not valid SDK session IDs
   let resolvedResume: string | undefined;
-  if (options.resume) {
+  if (options.resume && !codexProfile && !apiKey) {
     if (!BASE_REPO) {
       log.warn('REPO_PATH unset — resume will use raw worktree ID, SDK may reject it');
     }
@@ -1040,9 +1082,10 @@ async function _startChatInner(
   }
 
   // Bound sessions have durable routing before the SDK can create history or side effects.
-  const newSdkSessionId = !resolvedResume
-    ? (options.initialSessionId ?? (accountBinding ? randomUUID() : undefined))
-    : undefined;
+  const newSdkSessionId =
+    !resolvedResume && !options.resume
+      ? (options.initialSessionId ?? (accountBinding ? randomUUID() : undefined))
+      : undefined;
   try {
     if (newSdkSessionId) {
       eventStore.upsertSession({
@@ -1054,32 +1097,87 @@ async function _startChatInner(
         agentName,
       });
     }
-    const q = query({
-      prompt: inputQueue as AsyncIterable<SDKUserMessage>,
-      options: {
-        cwd,
+    let q: AsyncIterable<Record<string, unknown>> & NonNullable<typeof session.queryInstance>;
+    if (codexProfile) {
+      const conversationId = options.resume ?? newSdkSessionId!;
+      session.sessionId = conversationId;
+      options.onSessionResolved?.(conversationId);
+      send(transport, { type: 'session_id', sessionId: conversationId });
+      const messageId = options.clientMsgId ?? randomUUID();
+      storeAndEchoIfNew(
+        conversationId,
+        messageId,
+        fullPrompt,
+        clientId,
+        transport,
+        session.observers,
+      );
+      q = await openCodexChat({
+        resume: !!options.resume,
+        conversationId,
+        binding: accountBinding!,
+        profile: codexProfile,
+        session,
+        registry,
+        prompt: fullPrompt,
+        model: options.model,
+        messageId,
+        systemPrompt: systemPromptAppend,
         env: sessionEnv,
-        abortController,
-        includePartialMessages: true,
-        settingSources: ['project'],
-        systemPrompt: {
-          type: 'preset',
-          preset: 'claude_code',
-          append: systemPromptAppend,
+        mcpServers: allMcpServers,
+      });
+    } else if (apiKey) {
+      const conversationId = options.resume ?? newSdkSessionId!;
+      session.sessionId = conversationId;
+      options.onSessionResolved?.(conversationId);
+      send(transport, { type: 'session_id', sessionId: conversationId });
+      storeAndEchoIfNew(
+        conversationId,
+        options.clientMsgId ?? randomUUID(),
+        fullPrompt,
+        clientId,
+        transport,
+        session.observers,
+      );
+      q = await openResponsesChat({
+        resume: !!options.resume,
+        conversationId,
+        binding: accountBinding!,
+        apiKey,
+        session,
+        registry,
+        input: inputQueue,
+        systemPrompt: systemPromptAppend,
+        env: sessionEnv,
+        mcpServers: allMcpServers,
+      });
+    } else
+      q = query({
+        prompt: inputQueue as AsyncIterable<SDKUserMessage>,
+        options: {
+          cwd,
+          env: sessionEnv,
+          abortController,
+          includePartialMessages: true,
+          settingSources: ['project'],
+          systemPrompt: {
+            type: 'preset',
+            preset: 'claude_code',
+            append: systemPromptAppend,
+          },
+          permissionMode: MODE_TO_SDK[mode] as 'plan' | 'default' | 'bypassPermissions',
+          allowedTools: [...modeAllowed, ...mcpAllowed, ...extraTools],
+          thinking: resolveThinking(options.model),
+          ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
+          ...(resolvedResume ? { resume: resolvedResume } : {}),
+          ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
+          ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
+          ...(hooks ? { hooks } : {}),
+          canUseTool: buildPermissionHandler(clientId, registry, {
+            onDemandCreate: buildOnDemandCreate(wtId),
+          }),
         },
-        permissionMode: MODE_TO_SDK[mode] as 'plan' | 'default' | 'bypassPermissions',
-        allowedTools: [...modeAllowed, ...mcpAllowed, ...extraTools],
-        thinking: resolveThinking(options.model),
-        ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
-        ...(resolvedResume ? { resume: resolvedResume } : {}),
-        ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
-        ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
-        ...(hooks ? { hooks } : {}),
-        canUseTool: buildPermissionHandler(clientId, registry, {
-          onDemandCreate: buildOnDemandCreate(wtId),
-        }),
-      },
-    });
+      }) as unknown as typeof q;
 
     session.queryInstance = q;
 
@@ -1092,7 +1190,7 @@ async function _startChatInner(
     // For resumed sessions the prompt is sent to the SDK but was never stored
     // in the event store — making user messages invisible after WS reconnect.
     // Store and echo it here so the frontend can replay it.
-    if (options.resume) {
+    if (options.resume && !codexProfile && !apiKey) {
       const messageId =
         options.clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-resume`;
       storeAndEchoIfNew(
@@ -1111,7 +1209,7 @@ async function _startChatInner(
       registry,
       abortController,
       eventStore,
-      options.resume ? undefined : fullPrompt,
+      options.resume || codexProfile || apiKey ? undefined : fullPrompt,
       {
         connRegistry: _connRegistry ?? undefined,
         initialClientMsgId: options.clientMsgId,
@@ -1174,7 +1272,7 @@ async function tryAutoRename(sessionId: string, clientId: string): Promise<void>
 
     const events = eventStore.getSessionEvents(sessionId);
     const prompts = extractRecentPrompts(events);
-    const newName = await generateSessionName(prompts);
+    const newName = await accountSessionName(prompts, sessionMeta.accountBinding);
     if (!newName) return;
 
     log.info('auto-renaming session', { sessionId, promptCount, newName });
@@ -1252,12 +1350,52 @@ export function sendToChat(
   images?: Array<{ data: string; mediaType: string }>,
   contextBlocks?: string[],
   clientMsgId?: string,
+  model?: string,
 ): boolean {
   return withSpan('chat.send', { 'chat.clientId': clientId }, () => {
     const session = registry.get(clientId);
     if (!session?.inputQueue) return false;
+    const codex = getCodexRuntime(session);
+    const responses = getResponsesRuntime(session);
+    if (codex && (images?.length || session.activeSkillPolicy)) {
+      send(session.transport, {
+        type: 'error',
+        sessionId: session.sessionId,
+        error: 'Codex images and restricted skill tool ceilings are not yet supported',
+      });
+      return false;
+    }
     const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-send`;
+    if (responses && session.sessionId && eventStore.hasUserMessage(session.sessionId, messageId))
+      return true;
+    if (codex) {
+      try {
+        // Persist before public acknowledgement; retries also repair older echo-only entries.
+        codex.enqueue({ id: messageId, prompt: fullPrompt, ...(model ? { model } : {}) });
+        if (model) session.model = model;
+      } catch {
+        send(session.transport, {
+          type: 'error',
+          sessionId: session.sessionId,
+          error:
+            'Message could not be saved to the Codex queue. Retry after checking storage and connection.',
+        });
+        return false;
+      }
+    }
+    if (responses) {
+      try {
+        responses.prepare(messageId, fullPrompt);
+      } catch {
+        send(session.transport, {
+          type: 'error',
+          sessionId: session.sessionId,
+          error: 'Wait for the active OpenAI API turn to finish before sending another message.',
+        });
+        return false;
+      }
+    }
     if (session.sessionId) {
       const isDup = storeAndEchoIfNew(
         session.sessionId,
@@ -1267,7 +1405,7 @@ export function sendToChat(
         session.transport,
         session.observers,
       );
-      if (isDup) return true;
+      if (isDup && !codex) return true;
       tryAutoRename(session.sessionId, clientId).catch(() => {
         /* errors logged internally */
       });
@@ -1279,7 +1417,19 @@ export function sendToChat(
       send(session.transport, echo);
       broadcastToObservers(session.observers, echo);
     }
-    session.inputQueue.push(makeUserMessage(fullPrompt, 'next'));
+    if (codex) {
+      void codex.startQueued().catch(() =>
+        send(session.transport, {
+          type: 'error',
+          sessionId: session.sessionId,
+          error:
+            'Codex queue is paused or unavailable. Inspect interrupted work before continuing.',
+        }),
+      );
+    } else
+      session.inputQueue.push(
+        makeUserMessage(fullPrompt, 'next', responses ? messageId : undefined),
+      );
     return true;
   });
 }
@@ -1296,6 +1446,21 @@ export async function interruptChat(
   return withSpanAsync('chat.interrupt', { 'chat.clientId': clientId }, async () => {
     const session = registry.get(clientId);
     if (!session?.queryInstance || !session?.inputQueue) return false;
+    const codex = getCodexRuntime(session);
+    if (codex) {
+      if (images?.length || session.activeSkillPolicy) {
+        send(session.transport, {
+          type: 'error',
+          sessionId: session.sessionId,
+          error:
+            'This Codex task cannot change model or use unsupported attachments or skill ceilings',
+        });
+        return false;
+      }
+      if (model) codex.validateModel(model);
+      await codex.interrupt();
+      return sendToChat(clientId, prompt, images, contextBlocks, clientMsgId, model);
+    }
     if (model) session.model = model;
     const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-interrupt`;
@@ -1415,13 +1580,30 @@ export function cleanupSessionWorktrees(
   if (primary) session.worktreePaths.set('primary', primary);
 }
 
-/** Echo a closeout prompt to the frontend as a user bubble before injecting into the SDK. */
-function echoCloseoutPrompt(
+/** Persist, echo, and enqueue a closeout prompt through the active provider runtime. */
+function queueCloseoutPrompt(
   session: import('./session-registry.js').ManagedSession,
   clientId: string,
   prompt: string,
 ): void {
   const messageId = `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-closeout`;
+  const codex = getCodexRuntime(session);
+  const responses = getResponsesRuntime(session);
+  if (codex) {
+    try {
+      codex.enqueue({ id: messageId, prompt });
+    } catch (error) {
+      log.warn('failed to persist Codex closeout prompt', { clientId, error });
+      return;
+    }
+  } else if (responses) {
+    try {
+      responses.prepare(messageId, prompt);
+    } catch (error) {
+      log.warn('failed to persist OpenAI API closeout prompt', { clientId, error });
+      return;
+    }
+  }
   if (session.sessionId) {
     storeAndEchoIfNew(
       session.sessionId,
@@ -1434,6 +1616,11 @@ function echoCloseoutPrompt(
   } else {
     log.debug('skipping closeout echo — session not yet resolved', { clientId });
   }
+  if (codex)
+    void codex
+      .startQueued()
+      .catch((error) => log.warn('failed to start Codex closeout prompt', { clientId, error }));
+  else session.inputQueue?.push(makeUserMessage(prompt, 'now', responses ? messageId : undefined));
 }
 
 const CLOSEOUT_PROMPT = `This session is closing in 10 minutes due to inactivity.
@@ -1491,8 +1678,7 @@ function _closeoutSessionInner(clientId: string): void {
 
   log.info('injecting closeout prompt', { clientId, wtId: session.wtId });
 
-  echoCloseoutPrompt(session, clientId, CLOSEOUT_PROMPT);
-  session.inputQueue.push(makeUserMessage(CLOSEOUT_PROMPT, 'now'));
+  queueCloseoutPrompt(session, clientId, CLOSEOUT_PROMPT);
 
   // The registry's CLOSEOUT_TIMEOUT_MS timer will abort the session after
   // 10 minutes regardless. When the session is finally aborted (by the
@@ -1576,8 +1762,7 @@ export function closeSessionByUser(clientId: string): void {
 
     log.info('user-initiated closeout', { clientId, wtId: session.wtId });
 
-    echoCloseoutPrompt(session, clientId, USER_CLOSEOUT_PROMPT);
-    session.inputQueue.push(makeUserMessage(USER_CLOSEOUT_PROMPT, 'now'));
+    queueCloseoutPrompt(session, clientId, USER_CLOSEOUT_PROMPT);
 
     // Register abort listener to finalize with closed_by: 'user'
     if (session.wtId) {
@@ -1771,6 +1956,12 @@ export async function renameSessionById(
   title: string,
   manual = true,
 ): Promise<void> {
+  const provider = eventStore.getSession(sessionId)?.accountBinding?.provider;
+  if (provider === 'openai' || provider === 'openai-codex') {
+    if (manual) eventStore.markManuallyRenamed(sessionId);
+    eventStore.upsertSession({ sessionId, summary: title });
+    return;
+  }
   const errors: string[] = [];
   for (const dir of getSessionDirs()) {
     try {

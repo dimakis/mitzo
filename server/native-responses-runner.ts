@@ -50,6 +50,8 @@ function recoverToolResults(state: NativeResponsesState) {
  */
 export class NativeResponsesRunner {
   private active?: AbortController;
+  private prepared = new Map<string, { prompt: string; state: NativeResponsesState }>();
+  private idleWaiters: (() => void)[] = [];
   constructor(private options: NativeResponsesOptions) {
     if (options.binding.provider !== 'openai')
       throw new Error('Native Responses requires an explicit OpenAI API account');
@@ -63,14 +65,46 @@ export class NativeResponsesRunner {
   }
   interrupt() {
     this.active?.abort();
+    for (const { state } of this.prepared.values()) {
+      state.status = 'interrupted';
+      try {
+        this.options.store.save(this.options.conversationId, this.options.binding, state);
+      } catch {
+        log.warn('could not persist prepared interruption; startup recovery required', {
+          conversationId: this.options.conversationId,
+        });
+      }
+    }
+    this.prepared.clear();
+  }
+  isRunning() {
+    return !!this.active || this.prepared.size > 0;
+  }
+  waitUntilIdle() {
+    if (!this.active) return Promise.resolve();
+    return new Promise<void>((resolve) => this.idleWaiters.push(resolve));
+  }
+  /** Durably claim a follow-up before the public transcript acknowledges it. */
+  prepare(messageId: string, prompt: string) {
+    if (this.active || this.prepared.size)
+      throw new Error('Native Responses conversation already running');
+    const state = this.options.store.begin(this.options.conversationId, this.options.binding);
+    recoverToolResults(state);
+    state.history.push({ role: 'user', content: prompt });
+    this.options.store.save(this.options.conversationId, this.options.binding, state);
+    this.prepared.set(messageId, { prompt, state });
   }
   // Lazy generator: merely constructing it starts no work and holds no lease.
   // At first next(), both guards run synchronously before any await/yield.
-  async *run(prompt: string, signal?: AbortSignal) {
+  async *run(prompt: string, signal?: AbortSignal, messageId?: string) {
     if (this.active) throw new Error('Native Responses conversation already running');
     signal?.throwIfAborted();
     const opts = this.options;
-    const state = opts.store.begin(opts.conversationId, opts.binding);
+    const prepared = messageId ? this.prepared.get(messageId) : undefined;
+    if (messageId && (!prepared || prepared.prompt !== prompt))
+      throw new Error('Native Responses prepared message identity changed');
+    if (messageId) this.prepared.delete(messageId);
+    const state = prepared?.state ?? opts.store.begin(opts.conversationId, opts.binding);
     const abort = new AbortController();
     this.active = abort;
     const onAbort = () => abort.abort();
@@ -78,9 +112,11 @@ export class NativeResponsesRunner {
     const save = () => opts.store.save(opts.conversationId, opts.binding, state);
     let completed = false;
     try {
-      recoverToolResults(state);
-      state.history.push({ role: 'user', content: prompt });
-      save();
+      if (!prepared) {
+        recoverToolResults(state);
+        state.history.push({ role: 'user', content: prompt });
+        save();
+      }
       const session = new ResponsesSession(
         {
           model: opts.binding.model,
@@ -133,6 +169,7 @@ export class NativeResponsesRunner {
       abort.abort();
       signal?.removeEventListener('abort', onAbort);
       this.active = undefined;
+      this.idleWaiters.splice(0).forEach((resolve) => resolve());
       if (!completed) {
         state.status = 'interrupted';
         try {

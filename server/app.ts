@@ -1,3 +1,6 @@
+import { AccountAliases } from './account-aliases.js';
+import { readCodexQueue, getCodexRuntime } from './codex-chat-session.js';
+import { createCodexPathProtection } from './codex-private-path.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import express from 'express';
 import cookieParser from 'cookie-parser';
@@ -1105,9 +1108,33 @@ app.post('/api/auth/logout', (_req, res) => {
 
 app.get('/api/auth/check', (_req, res) => res.json({ ok: true }));
 
+const accountAliases = new AccountAliases(join(BASE_REPO || '.', '.mitzo', 'account-aliases.json'));
+
+app.put('/api/accounts/:id/alias', (req, res) => {
+  try {
+    const account = loadAccountProfiles()
+      .catalog()
+      .find((a) => a.id === req.params.id);
+    if (!account) {
+      res.status(404).json({ error: 'Account unavailable' });
+      return;
+    }
+    accountAliases.set(account.id, req.body.alias);
+    res.json({ label: accountAliases.label(account.id, account.label) });
+  } catch {
+    res
+      .status(400)
+      .json({ error: 'Cannot save alias. Use at most 80 characters and check storage.' });
+  }
+});
+
 app.get('/api/accounts', (_req, res) => {
   try {
-    res.json(loadAccountProfiles().catalog());
+    res.json(
+      loadAccountProfiles()
+        .catalog()
+        .map((a) => ({ ...a, label: accountAliases.label(a.id, a.label) })),
+    );
   } catch {
     res
       .status(503)
@@ -1248,10 +1275,67 @@ app.get('/api/sessions/:id/meta', (req, res) => {
     isActive: meta.isActive,
     state: meta.state,
     totalTokens,
-    ...(meta.accountBinding ? { accountBinding: meta.accountBinding } : {}),
+    ...(meta.accountBinding
+      ? {
+          accountBinding: {
+            ...meta.accountBinding,
+            accountLabel: accountAliases.label(
+              meta.accountBinding.accountId,
+              meta.accountBinding.accountLabel,
+            ),
+          },
+        }
+      : {}),
+    ...(meta.accountBinding?.provider === 'openai-codex'
+      ? {
+          modelSelection: (() => {
+            try {
+              const profile = loadAccountProfiles()
+                .catalog()
+                .find((a) => a.id === meta.accountBinding!.accountId);
+              if (!profile) return undefined;
+              const queue = readCodexQueue(
+                meta.sessionId,
+                meta.accountBinding!,
+                registry.findBySessionId(meta.sessionId)?.session,
+              );
+              return {
+                model: queue && 'model' in queue ? queue.model : meta.accountBinding!.model,
+                models: profile.models,
+              };
+            } catch {
+              return undefined;
+            }
+          })(),
+          codexQueue: readCodexQueue(
+            meta.sessionId,
+            meta.accountBinding,
+            registry.findBySessionId(meta.sessionId)?.session,
+          ),
+        }
+      : {}),
     totalCostUsd: meta.totalCostUsd,
     numTurns: meta.numTurns,
   });
+});
+
+app.post('/api/sessions/:id/codex-queue/continue', async (req, res) => {
+  const session = registry.findBySessionId(req.params.id)?.session;
+  const runtime = session ? getCodexRuntime(session) : undefined;
+  if (!runtime) {
+    res
+      .status(409)
+      .json({ error: 'Send a message to reconnect this task before continuing its queue.' });
+    return;
+  }
+  try {
+    await runtime.acknowledgeRecovery();
+    res.json({ ok: true });
+  } catch {
+    res
+      .status(409)
+      .json({ error: 'Cannot continue this queue. Check account configuration and connection.' });
+  }
 });
 
 app.get('/api/sessions/:id/events', (req, res) => {
@@ -1300,7 +1384,24 @@ app.get('/api/worktrees', (_req, res) => {
 
 // --- File viewer API ---
 
+const privatePathSnapshot = createCodexPathProtection(() =>
+  loadAccountProfiles().privateCodexRoots(),
+);
+function createAllowedPathChecker() {
+  const isPrivate = privatePathSnapshot();
+  return (filePath: string): boolean => {
+    try {
+      if (isPrivate(filePath)) return false;
+    } catch {
+      return false;
+    }
+    return isConfiguredAllowedPath(filePath);
+  };
+}
 export function isAllowedPath(filePath: string): boolean {
+  return createAllowedPathChecker()(filePath);
+}
+function isConfiguredAllowedPath(filePath: string): boolean {
   const resolved = resolve(filePath);
   if (BASE_REPO && resolved.startsWith(resolve(BASE_REPO))) return true;
   if (BASE_REPO && resolved.startsWith(resolve(`${BASE_REPO}-sessions`))) return true;
@@ -1315,10 +1416,10 @@ export function isAllowedPath(filePath: string): boolean {
   return false;
 }
 
-function resolveRoot(queryRoot: string | undefined): string {
+function resolveRoot(queryRoot: string | undefined, allowed = isAllowedPath): string {
   if (!queryRoot) return BASE_REPO;
   const resolved = resolve(queryRoot);
-  if (!isAllowedPath(resolved)) return BASE_REPO;
+  if (!allowed(resolved)) return BASE_REPO;
   return resolved;
 }
 
@@ -1363,9 +1464,10 @@ app.get('/api/files/roots', (_req, res) => {
 });
 
 app.get('/api/files/list', (req, res) => {
-  const root = resolveRoot(req.query.root as string | undefined);
+  const allowed = createAllowedPathChecker();
+  const root = resolveRoot(req.query.root as string | undefined, allowed);
   const dir = (req.query.dir as string) || root;
-  if (!dir || !isAllowedPath(dir)) {
+  if (!dir || !allowed(dir)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
   }
@@ -1375,7 +1477,7 @@ app.get('/api/files/list', (req, res) => {
   }
   try {
     const entries = readdirSync(dir)
-      .filter((name) => !name.startsWith('.'))
+      .filter((name) => !name.startsWith('.') && allowed(join(dir, name)))
       .map((name) => {
         const full = join(dir, name);
         try {
@@ -1400,9 +1502,10 @@ app.get('/api/files/list', (req, res) => {
 });
 
 app.get('/api/files', (req, res) => {
-  const root = resolveRoot(req.query.root as string | undefined);
+  const allowed = createAllowedPathChecker();
+  const root = resolveRoot(req.query.root as string | undefined, allowed);
   const dir = (req.query.dir as string) || root;
-  if (!dir || !isAllowedPath(dir)) {
+  if (!dir || !allowed(dir)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
   }
@@ -1412,7 +1515,7 @@ app.get('/api/files', (req, res) => {
   }
   try {
     const entries = readdirSync(dir)
-      .filter((name) => !name.startsWith('.'))
+      .filter((name) => !name.startsWith('.') && allowed(join(dir, name)))
       .map((name) => {
         const full = join(dir, name);
         try {

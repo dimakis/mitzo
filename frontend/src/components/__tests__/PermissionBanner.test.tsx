@@ -44,10 +44,10 @@ describe('PermissionBanner', () => {
     expect(onRespond).toHaveBeenCalledWith('p1', 'once', 'Bash');
   });
 
-  it('Always Allow calls onRespond with correct args', () => {
+  it('session allowance calls onRespond with correct args', () => {
     const onRespond = vi.fn();
     render(<PermissionBanner {...defaultProps} onRespond={onRespond} />);
-    fireEvent.click(screen.getByText('Always Allow'));
+    fireEvent.click(screen.getByText('Allow for session'));
     expect(onRespond).toHaveBeenCalledWith('p1', 'always', 'Bash');
   });
 
@@ -86,4 +86,131 @@ describe('PermissionBanner', () => {
       rafSpy.mockRestore();
     }
   });
+
+  it('renders questions as choices and returns answers instead of an approval', () => {
+    const onRespond = vi.fn();
+    render(
+      <PermissionBanner
+        {...defaultProps}
+        toolName="AskUserQuestion"
+        onRespond={onRespond}
+        questions={[
+          {
+            id: 'account',
+            question: 'Which account?',
+            header: 'Account',
+            multiSelect: false,
+            options: [
+              { label: 'Personal', description: 'ChatGPT plan' },
+              { label: 'Work', description: 'API billing' },
+            ],
+          },
+        ]}
+      />,
+    );
+    expect(screen.queryByText('Always Allow')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Send answer' }).hasAttribute('disabled')).toBe(true);
+    fireEvent.click(screen.getByLabelText(/Personal/));
+    fireEvent.click(screen.getByRole('button', { name: 'Send answer' }));
+    expect(onRespond).toHaveBeenCalledWith('p1', 'once', 'AskUserQuestion', {
+      account: ['Personal'],
+    });
+  });
+  it('accepts a free-text answer and multiple selections', () => {
+    const onRespond = vi.fn();
+    render(
+      <PermissionBanner
+        {...defaultProps}
+        toolName="AskUserQuestion"
+        onRespond={onRespond}
+        questions={[
+          {
+            id: 'q',
+            question: 'Which features?',
+            header: 'Features',
+            multiSelect: true,
+            options: [
+              { label: 'Chat', description: '' },
+              { label: 'Tools', description: '' },
+            ],
+          },
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText('Chat'));
+    fireEvent.click(screen.getByLabelText('Tools'));
+    fireEvent.change(screen.getByLabelText('Your answer'), { target: { value: 'Also voice' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send answer' }));
+    expect(onRespond).toHaveBeenCalledWith('p1', 'once', 'AskUserQuestion', {
+      q: ['Chat', 'Tools', 'Also voice'],
+    });
+  });
+  it('uses the server deadline after reconnect instead of restarting two minutes', () => {
+    const onRespond = vi.fn();
+    render(
+      <PermissionBanner {...defaultProps} onRespond={onRespond} expiresAt={Date.now() + 3000} />,
+    );
+    act(() => vi.advanceTimersByTime(3000));
+    expect(onRespond).toHaveBeenCalledTimes(1);
+    expect(onRespond).toHaveBeenCalledWith('p1', 'deny', 'Bash');
+  });
+  it('shows full approval input and explains the scope of session allowance', () => {
+    const input = 'x'.repeat(450);
+    render(<PermissionBanner {...defaultProps} toolInput={input} />);
+    expect(screen.getByText(input)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Allow for session' })).toBeTruthy();
+  });
+
+  it('accepts provider question IDs that match object prototype names', () => {
+    const onRespond = vi.fn();
+    render(
+      <PermissionBanner
+        {...defaultProps}
+        toolName="AskUserQuestion"
+        onRespond={onRespond}
+        questions={[
+          {
+            id: 'constructor',
+            question: 'Choose',
+            header: 'Choice',
+            multiSelect: false,
+            options: [{ label: 'Yes', description: '' }],
+          },
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText('Yes'));
+    fireEvent.click(screen.getByRole('button', { name: 'Send answer' }));
+    expect(onRespond).toHaveBeenCalledWith('p1', 'once', 'AskUserQuestion', {
+      constructor: ['Yes'],
+    });
+  });
+});
+
+it('hides free text for restricted choices and masks secret input', () => {
+  const { container } = render(
+    <PermissionBanner
+      {...defaultProps}
+      questions={[
+        {
+          id: 'choice',
+          question: 'Choose one',
+          header: 'Choice',
+          options: [{ label: 'Work', description: '' }],
+          multiSelect: false,
+          allowFreeform: false,
+        },
+        {
+          id: 'secret',
+          question: 'Enter secret',
+          header: 'Secret',
+          options: [],
+          multiSelect: false,
+          isSecret: true,
+        },
+      ]}
+    />,
+  );
+  expect(container.querySelectorAll('textarea')).toHaveLength(0);
+  expect(container.querySelector('input[type="password"]')).toBeTruthy();
 });

@@ -110,6 +110,9 @@ interface SessionEndMsg {
 }
 
 interface PermissionRequestMsg {
+  sessionId?: string;
+  questions?: import('@mitzo/protocol').UserQuestion[];
+  expiresAt?: number;
   type: 'permission_request';
   permId: string;
   toolName: string;
@@ -123,6 +126,13 @@ interface PermissionRequestMsg {
 interface PermissionTimeoutMsg {
   type: 'permission_timeout';
   permId: string;
+  sessionId?: string;
+}
+
+interface PermissionResolvedMsg {
+  type: 'permission_resolved';
+  permId: string;
+  sessionId?: string;
 }
 
 interface ErrorMsg {
@@ -234,6 +244,7 @@ export type ServerMessage =
   | SessionEndMsg
   | PermissionRequestMsg
   | PermissionTimeoutMsg
+  | PermissionResolvedMsg
   | ErrorMsg
   | SessionTakeoverMsg
   | ModeChangedMsg

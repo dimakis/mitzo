@@ -21,17 +21,18 @@ describe('Subagent Event Emission', () => {
       close: vi.fn(),
     } as unknown as SessionTransport;
 
+    const session = {
+      transport: mockTransport,
+      sessionId: 'test-session',
+      cumulativeSessionTokens: 0,
+      cumulativeCostUsd: 0,
+      currentSnapshot: null,
+      cwd: '/test',
+      mode: 'agent' as const,
+      observers: new Set(),
+    };
     mockRegistry = {
-      get: vi.fn(() => ({
-        transport: mockTransport,
-        sessionId: 'test-session',
-        cumulativeSessionTokens: 0,
-        cumulativeCostUsd: 0,
-        currentSnapshot: null,
-        cwd: '/test',
-        mode: 'agent' as const,
-        observers: new Set(),
-      })),
+      get: vi.fn(() => session),
       setSessionId: vi.fn(),
       isAttached: vi.fn(() => true),
       isSuspended: vi.fn(() => false),

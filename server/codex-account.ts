@@ -10,6 +10,7 @@ const Profile = z
     credentialRef: z.string().refine(isAbsolute),
     email: z.string().min(1),
     planType: z.string().min(1),
+    workspaceId: z.string().min(1).optional(),
     model: z.string().min(1),
   })
   .strict();
@@ -35,7 +36,13 @@ export async function verifyCodexAccount(
     model: profile.model,
     profileRevision: createHash('sha256')
       .update(
-        JSON.stringify(['openai-codex', profile.credentialRef, profile.email, profile.planType]),
+        JSON.stringify([
+          'openai-codex',
+          profile.credentialRef,
+          profile.email,
+          profile.planType,
+          profile.workspaceId,
+        ]),
       )
       .digest('hex'),
   };

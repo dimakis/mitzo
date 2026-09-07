@@ -122,3 +122,30 @@ describe('saved selection policy', () => {
     ).toThrow(/original account/i);
   });
 });
+
+describe('work OpenAI API profile', () => {
+  const api = {
+    id: 'work-api',
+    label: 'Work OpenAI',
+    provider: 'openai',
+    credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
+    models: [{ id: 'test-model', label: 'Test model' }],
+  };
+  it('publishes API billing without exposing its secret-store reference', () => {
+    const profiles = new AccountProfiles([api]);
+    const binding = profiles.resolve('work-api', 'test-model');
+    expect(profiles.apiCredential(binding)).toEqual(api.credentialRef);
+    expect(profiles.catalog()[0]).toMatchObject({
+      provider: 'openai',
+      billing: 'openai-api',
+      capabilities: { images: false },
+    });
+    expect(JSON.stringify(profiles.catalog())).not.toContain('keychain');
+    expect(() => profiles.sdkEnv(binding, {})).toThrow('native');
+    expect(() =>
+      new AccountProfiles([
+        { ...api, credentialRef: { ...api.credentialRef, account: 'other' } },
+      ]).resume(binding),
+    ).toThrow('changed');
+  });
+});

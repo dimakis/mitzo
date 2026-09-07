@@ -517,7 +517,7 @@ describe('startChat stores user message for resumed sessions', () => {
     // Region between the resume guard and runQueryLoop — bounds the block
     // without fragile brace-matching or magic byte offsets.
     const start = chatSource.indexOf(
-      'if (options.resume) {',
+      '// For resumed sessions the prompt is sent to the SDK',
       chatSource.indexOf('session.queryInstance = q'),
     );
     const end = chatSource.indexOf('await runQueryLoop(', start);
@@ -537,7 +537,7 @@ describe('startChat stores user message for resumed sessions', () => {
 
   it('uses clientMsgId with resume fallback for messageId', () => {
     const start = chatSource.indexOf(
-      'if (options.resume) {',
+      '// For resumed sessions the prompt is sent to the SDK',
       chatSource.indexOf('session.queryInstance = q'),
     );
     const end = chatSource.indexOf('await runQueryLoop(', start);
@@ -573,7 +573,7 @@ describe('resume resolves SDK session ID', () => {
 
   it('resolvedResume is computed before the query() call', () => {
     const resolveIdx = chatSource.indexOf('let resolvedResume');
-    const queryIdx = chatSource.indexOf('const q = query(');
+    const queryIdx = chatSource.indexOf('q = query(');
     expect(resolveIdx).toBeGreaterThan(-1);
     expect(queryIdx).toBeGreaterThan(resolveIdx);
   });
@@ -842,36 +842,29 @@ describe('closeout prompts echo to frontend', () => {
     chatSource = readFileSync(join(import.meta.dirname, '..', 'chat.ts'), 'utf-8');
   });
 
-  it('echoCloseoutPrompt helper calls storeAndEchoIfNew', () => {
-    const fnStart = chatSource.indexOf('function echoCloseoutPrompt(');
+  it('queueCloseoutPrompt persists Codex work before echoing it', () => {
+    const fnStart = chatSource.indexOf('function queueCloseoutPrompt(');
     expect(fnStart).toBeGreaterThan(-1);
     const fnEnd = chatSource.indexOf('\n}', fnStart);
     const fnBody = chatSource.slice(fnStart, fnEnd);
+    expect(fnBody.indexOf('codex.enqueue(')).toBeLessThan(fnBody.indexOf('storeAndEchoIfNew('));
     expect(fnBody).toContain('storeAndEchoIfNew(');
     expect(fnBody).toContain("log.debug('skipping closeout echo");
   });
 
-  it('auto-closeout calls echoCloseoutPrompt before inputQueue.push', () => {
+  it('auto-closeout uses the provider-aware closeout queue', () => {
     const fnStart = chatSource.indexOf('function _closeoutSessionInner(');
     expect(fnStart).toBeGreaterThan(-1);
     const fnEnd = chatSource.indexOf('\n}', fnStart);
     const fnBody = chatSource.slice(fnStart, fnEnd);
-    const echoIdx = fnBody.indexOf('echoCloseoutPrompt(');
-    const pushIdx = fnBody.indexOf('session.inputQueue.push(');
-    expect(echoIdx).toBeGreaterThan(-1);
-    expect(pushIdx).toBeGreaterThan(-1);
-    expect(echoIdx).toBeLessThan(pushIdx);
+    expect(fnBody).toContain('queueCloseoutPrompt(session, clientId, CLOSEOUT_PROMPT)');
   });
 
-  it('user-closeout calls echoCloseoutPrompt before inputQueue.push', () => {
+  it('user-closeout uses the provider-aware closeout queue', () => {
     const fnStart = chatSource.indexOf('export function closeSessionByUser(');
     expect(fnStart).toBeGreaterThan(-1);
     const fnEnd = chatSource.indexOf('\nexport function', fnStart + 1);
     const fnBody = chatSource.slice(fnStart, fnEnd > -1 ? fnEnd : undefined);
-    const echoIdx = fnBody.indexOf('echoCloseoutPrompt(');
-    const pushIdx = fnBody.indexOf('session.inputQueue.push(');
-    expect(echoIdx).toBeGreaterThan(-1);
-    expect(pushIdx).toBeGreaterThan(-1);
-    expect(echoIdx).toBeLessThan(pushIdx);
+    expect(fnBody).toContain('queueCloseoutPrompt(session, clientId, USER_CLOSEOUT_PROMPT)');
   });
 });

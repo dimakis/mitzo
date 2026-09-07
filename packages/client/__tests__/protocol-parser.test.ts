@@ -338,6 +338,15 @@ describe('permission events', () => {
     );
     expect(r.messagesActions).toEqual([{ type: 'PERMISSION_TIMEOUT', permId: 'p1' }]);
   });
+  it('permission_resolved dispatches PERMISSION_TIMEOUT', () => {
+    const r = parseServerMessage(
+      { type: 'permission_resolved', permId: 'p1' },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.messagesActions).toEqual([{ type: 'PERMISSION_TIMEOUT', permId: 'p1' }]);
+  });
 });
 
 // ─── Error handling ──────────────────────────────────────────────────────────
@@ -1033,5 +1042,29 @@ describe('subagent_cancelled', () => {
       parentBlockId: 'blk-parent-1',
       summary: 'Cancelled',
     });
+  });
+});
+
+it('preserves structured questions and the server deadline', () => {
+  const questions = [
+    { id: 'q1', question: 'Which account?', header: 'Account', multiSelect: false, options: [] },
+  ];
+  const result = parseServerMessage(
+    {
+      type: 'permission_request',
+      permId: 'p1',
+      toolName: 'AskUserQuestion',
+      toolInput: '',
+      questions,
+      expiresAt: 1234,
+      sessionId: 's1',
+    },
+    makeState(),
+    makeCallbacks(),
+    POOL_KEY,
+  );
+  expect(result.messagesActions).toContainEqual({
+    type: 'PERMISSION_REQUEST',
+    payload: expect.objectContaining({ questions, expiresAt: 1234, sessionId: 's1' }),
   });
 });

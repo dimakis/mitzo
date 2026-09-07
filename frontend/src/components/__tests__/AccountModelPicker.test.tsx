@@ -101,3 +101,79 @@ it('reports malformed catalogs and notifies the pending-prompt owner', async () 
   expect(onUnavailable).toHaveBeenCalledTimes(1);
   expect(screen.getByRole('button', { name: 'Retry accounts' })).toBeTruthy();
 });
+
+it('allows a bound Codex chat to select its next model without changing subscription', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      accountBinding: { accountId: 'personal', accountLabel: 'Personal', model: 'luna' },
+      modelSelection: {
+        model: 'luna',
+        models: [
+          { id: 'luna', label: 'Luna' },
+          { id: 'terra', label: 'Terra' },
+        ],
+      },
+    }),
+  } as Response);
+  const onChange = vi.fn();
+  render(<AccountModelPicker sessionId="saved" preferredModel="wrong" onChange={onChange} />);
+  await screen.findByLabelText('Model');
+  expect(screen.queryByLabelText('Account')).toBeNull();
+  fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'terra' } });
+  expect(onChange).toHaveBeenLastCalledWith({ accountId: 'personal', model: 'terra' });
+});
+it('saves a subscription alias without changing the selected account or model', async () => {
+  vi.mocked(apiFetch).mockImplementation(
+    async (path) =>
+      ({
+        ok: true,
+        json: async () => (path === '/api/accounts' ? profiles : { label: 'My work subscription' }),
+      }) as Response,
+  );
+  const onChange = vi.fn();
+  render(<AccountModelPicker sessionId={null} preferredModel="sonnet" onChange={onChange} />);
+  await screen.findByLabelText('Account');
+  fireEvent.click(screen.getByRole('button', { name: 'Edit account alias' }));
+  fireEvent.change(screen.getByLabelText('Account alias'), {
+    target: { value: 'My work subscription' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save alias' }));
+  await screen.findByText('My work subscription');
+  expect(apiFetch).toHaveBeenCalledWith(
+    '/api/accounts/work/alias',
+    expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({ alias: 'My work subscription' }),
+    }),
+  );
+  expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' });
+});
+
+it('offers an explicit legacy choice after a catalog failure without silently switching accounts', async () => {
+  vi.mocked(apiFetch).mockRejectedValueOnce(new Error('Network unavailable'));
+  const onChange = vi.fn();
+  render(<AccountModelPicker sessionId={null} preferredModel="legacy-model" onChange={onChange} />);
+  const fallback = await screen.findByRole('button', { name: 'Use legacy server account' });
+  expect(onChange).not.toHaveBeenCalledWith(expect.objectContaining({ model: expect.any(String) }));
+  vi.mocked(apiFetch).mockResolvedValueOnce({
+    ok: true,
+    json: async () => [{ id: 'legacy-model', label: 'Legacy model' }],
+  } as Response);
+  fireEvent.click(fallback);
+  await waitFor(() => expect(onChange).toHaveBeenCalledWith({ model: 'legacy-model' }));
+});
+
+it('waits for accepted session metadata to become available', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce({ ok: false, status: 404 } as Response)
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        accountBinding: { accountId: 'work', accountLabel: 'Work API', model: 'nano' },
+      }),
+    } as Response);
+  render(<AccountModelPicker sessionId="starting" preferredModel="nano" onChange={vi.fn()} />);
+  await screen.findByText('Work API · nano');
+  expect(screen.queryByRole('alert')).toBeNull();
+});

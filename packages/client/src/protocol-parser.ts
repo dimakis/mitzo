@@ -363,6 +363,9 @@ export function parseServerMessage(
         type: 'PERMISSION_REQUEST',
         payload: {
           permId: msg.permId as string,
+          sessionId: msg.sessionId as string | undefined,
+          expiresAt: msg.expiresAt as number | undefined,
+          questions: msg.questions as import('@mitzo/protocol').UserQuestion[] | undefined,
           toolName: msg.toolName as string,
           toolInput: msg.toolInput as string,
           title: msg.title as string | undefined,
@@ -373,6 +376,7 @@ export function parseServerMessage(
       });
       break;
 
+    case 'permission_resolved':
     case 'permission_timeout':
       result.messagesActions.push({
         type: 'PERMISSION_TIMEOUT',

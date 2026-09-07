@@ -40,7 +40,16 @@ export class NativeResponsesStore {
     if (!row) return undefined;
     if (row.binding !== this.bindingKey(binding))
       throw new Error('Native Responses account/model binding changed');
-    return JSON.parse(row.state) as NativeResponsesState;
+    const state = JSON.parse(row.state) as NativeResponsesState & {
+      checkpoint?: ResponsesCheckpoint & { historyLength?: number };
+    };
+    if (state.checkpoint && state.checkpoint.historyLength !== undefined) {
+      state.checkpoint.history = structuredClone(
+        state.history.slice(0, state.checkpoint.historyLength),
+      );
+      delete state.checkpoint.historyLength;
+    }
+    return state;
   }
   begin(conversationId: string, binding: AccountBinding): NativeResponsesState {
     return this.db.transaction(() => {
@@ -54,14 +63,13 @@ export class NativeResponsesStore {
   }
   save(conversationId: string, binding: AccountBinding, state: NativeResponsesState) {
     // Explicit fields only: credentials and runner configuration are never serialized.
-    const checkpoint =
-      state.checkpoint &&
-      ({
-        accountId: state.checkpoint.accountId,
-        model: state.checkpoint.model,
-        history: state.checkpoint.history,
-        input: state.checkpoint.input,
-      } satisfies Record<keyof ResponsesCheckpoint, unknown>);
+    const checkpoint = state.checkpoint && {
+      accountId: state.checkpoint.accountId,
+      model: state.checkpoint.model,
+      // Persist only the prefix boundary; the history itself already exists at state level.
+      historyLength: state.checkpoint.history.length,
+      input: state.checkpoint.input,
+    };
     const result = this.db
       .prepare(
         'INSERT INTO native_responses VALUES (?, ?, ?) ON CONFLICT(conversation_id) DO UPDATE SET state = excluded.state WHERE native_responses.binding = excluded.binding',

@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import type { EventEmitter } from 'node:events';
 import type { Readable, Writable } from 'node:stream';
 import { isAbsolute } from 'node:path';
+import { codexRuntimeOverrides } from './codex-runtime-policy.js';
 
 type JsonObject = Record<string, unknown>;
 interface RpcProcess extends EventEmitter {
@@ -10,6 +11,11 @@ interface RpcProcess extends EventEmitter {
   stdout: Readable;
   stderr: Readable;
   kill(): unknown;
+}
+export interface CodexLifecycleTransport {
+  onNotification(method: string, params: JsonObject): void;
+  onRequest(method: string, params: JsonObject, signal: AbortSignal): Promise<JsonObject>;
+  onClose(error: Error): void;
 }
 interface Pending {
   resolve: (value: unknown) => void;
@@ -33,6 +39,9 @@ export function codexEnvironment(
 /** Private stdio transport. It never retries a request with an uncertain outcome. */
 export class CodexAppServerClient {
   private sequence = 0;
+  private readonly hostAbort = new AbortController();
+  private readonly hostRequests = new Set<string | number>();
+  private readonly lifecycle?: CodexLifecycleTransport;
   private pending = new Map<number, Pending>();
   private buffer = Buffer.alloc(0);
   private closed = false;
@@ -43,8 +52,13 @@ export class CodexAppServerClient {
 
   constructor(
     private child: RpcProcess,
-    options: { timeoutMs?: number; maxFrameBytes?: number } = {},
+    options: {
+      timeoutMs?: number;
+      maxFrameBytes?: number;
+      lifecycle?: CodexLifecycleTransport;
+    } = {},
   ) {
+    this.lifecycle = options.lifecycle;
     this.timeoutMs = options.timeoutMs ?? 30_000;
     this.maxFrameBytes = options.maxFrameBytes ?? 4 * 1024 * 1024;
     child.stdout.on('data', (chunk: Buffer) => this.receive(chunk));
@@ -57,7 +71,11 @@ export class CodexAppServerClient {
     child.stderr.on('error', () => this.close());
   }
 
-  static launch(credentialRef: string, base: NodeJS.ProcessEnv = process.env) {
+  static launch(
+    credentialRef: string,
+    base: NodeJS.ProcessEnv = process.env,
+    lifecycle?: CodexLifecycleTransport,
+  ) {
     return new CodexAppServerClient(
       spawn(
         'codex',
@@ -68,9 +86,16 @@ export class CodexAppServerClient {
           'forced_login_method="chatgpt"',
           '-c',
           'model_provider="openai"',
+          ...(lifecycle
+            ? Object.entries(codexRuntimeOverrides({})).flatMap(([key, value]) => [
+                '-c',
+                `${key}=${JSON.stringify(value)}`,
+              ])
+            : []),
         ],
         { env: codexEnvironment(credentialRef, base), stdio: ['pipe', 'pipe', 'pipe'] },
       ),
+      { lifecycle },
     );
   }
 
@@ -88,8 +113,24 @@ export class CodexAppServerClient {
   request(method: string, params: JsonObject): Promise<unknown> {
     if (this.closed) return Promise.reject(new Error('Codex connection closed'));
     if (!this.ready) return Promise.reject(new Error('Codex connection not initialized'));
-    if (!['account/read', 'model/list'].includes(method))
-      return Promise.reject(new Error('Codex connection supports preflight only'));
+    const allowed = ['account/read', 'model/list'];
+    if (this.lifecycle)
+      allowed.push(
+        'config/read',
+        'thread/start',
+        'thread/resume',
+        'thread/read',
+        'turn/start',
+        'turn/interrupt',
+      );
+    if (!allowed.includes(method))
+      return Promise.reject(
+        new Error(
+          this.lifecycle
+            ? 'Codex method not supported'
+            : 'Codex connection supports preflight only',
+        ),
+      );
     return this.sendRequest(method, params);
   }
 
@@ -103,7 +144,10 @@ export class CodexAppServerClient {
       request.reject(error);
     }
     this.pending.clear();
+    this.hostAbort.abort();
+    this.hostRequests.clear();
     this.child.kill();
+    this.lifecycle?.onClose(error);
   }
 
   private sendRequest(method: string, params: JsonObject): Promise<unknown> {
@@ -128,6 +172,43 @@ export class CodexAppServerClient {
     this.child.stdin.write(JSON.stringify(value) + '\n');
   }
 
+  private handleHostRequest(id: string | number, method: string, params: JsonObject) {
+    if (!this.lifecycle) {
+      try {
+        this.write({ id, error: { code: -32601, message: 'Unsupported Codex request' } });
+      } catch {
+        this.close();
+      }
+      return;
+    }
+    // Repeated in-flight requests must not execute a side effect twice.
+    if (this.hostRequests.has(id)) {
+      try {
+        this.write({ id, error: { code: -32600, message: 'Duplicate Codex request' } });
+      } catch {
+        this.close();
+      }
+      return;
+    }
+    this.hostRequests.add(id);
+    Promise.resolve()
+      .then(() => {
+        this.hostAbort.signal.throwIfAborted();
+        return this.lifecycle!.onRequest(method, params, this.hostAbort.signal);
+      })
+      .then(
+        (result) => {
+          if (!this.closed) this.write({ id, result });
+        },
+        () => {
+          if (!this.closed)
+            this.write({ id, error: { code: -32603, message: 'Host request failed' } });
+        },
+      )
+      .catch(() => this.close())
+      .finally(() => this.hostRequests.delete(id));
+  }
+
   private receive(chunk: Buffer) {
     if (this.closed) return;
     this.buffer = Buffer.concat([this.buffer, chunk]);
@@ -140,18 +221,13 @@ export class CodexAppServerClient {
         if (!frame || typeof frame !== 'object' || Array.isArray(frame)) throw new Error();
         const message = frame as JsonObject;
         if (typeof message.method === 'string') {
-          // No tool execution is authorized by this connection foundation.
-          if (message.id !== undefined) {
-            try {
-              this.write({
-                id: message.id,
-                error: { code: -32601, message: 'Unsupported Codex request' },
-              });
-            } catch {
-              this.close();
-              return;
-            }
-          }
+          const params = message.params ?? {};
+          if (!params || typeof params !== 'object' || Array.isArray(params)) throw new Error();
+          if (message.id === undefined) {
+            this.lifecycle?.onNotification(message.method, params as JsonObject);
+          } else if (typeof message.id === 'string' || typeof message.id === 'number') {
+            this.handleHostRequest(message.id, message.method, params as JsonObject);
+          } else throw new Error();
           continue;
         }
         if (typeof message.id !== 'number') throw new Error();

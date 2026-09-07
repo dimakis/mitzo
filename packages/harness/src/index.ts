@@ -27,6 +27,7 @@ export {
   hasPending,
   denyPendingBySession,
   getPendingCountBySession,
+  getPendingRequestsBySession,
 } from './permissions.js';
 
 // Tool tiers
@@ -67,7 +68,7 @@ export {
 } from './constants.js';
 
 // Permission handler
-export { buildPermissionHandler } from './permission-handler.js';
+export { UserQuestionsSchema, buildPermissionHandler } from './permission-handler.js';
 
 // Auto-rename
 export {

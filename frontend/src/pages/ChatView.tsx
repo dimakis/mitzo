@@ -1,3 +1,4 @@
+import { CodexQueueStatus } from '../components/CodexQueueStatus';
 import { AccountModelPicker, type AccountSelection } from '../components/AccountModelPicker';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
@@ -95,11 +96,17 @@ export function ChatView() {
     });
   }, []);
 
+  const awaitingNewSession = useRef(false);
+
   // Sync route param → store session
   useEffect(() => {
+    awaitingNewSession.current = !sessionId && !activeSessionId;
     if (sessionId && sessionId !== activeSessionId) {
       storeSwitchSession(sessionId);
     } else if (!sessionId && activeSessionId) {
+      // Keep the guard false for this render: the URL-sync effect below still
+      // sees the stale active ID and must not navigate back to it. The render
+      // after newSession clears the store arms the guard for the replacement ID.
       storeNewSession();
     }
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -124,10 +131,12 @@ export function ChatView() {
 
   // When store assigns a session (new conversation), update URL
   useEffect(() => {
-    if (activeSessionId && !sessionId && window.location.pathname === '/chat') {
-      window.history.replaceState(null, '', `/chat/${activeSessionId}`);
+    if (!sessionId && !activeSessionId) awaitingNewSession.current = true;
+    if (activeSessionId && !sessionId && awaitingNewSession.current) {
+      awaitingNewSession.current = false;
+      navigate(`/chat/${activeSessionId}`, { replace: true });
     }
-  }, [activeSessionId, sessionId]);
+  }, [activeSessionId, sessionId, navigate]);
 
   // Hydrate branch/worktree/token state from persisted metadata
   useEffect(() => {
@@ -155,7 +164,7 @@ export function ChatView() {
     storeDispatchMessages({ type: 'SET_SESSION_CONTEXT', context: pendingSession.context });
     // Auto-send the prompt
     storeSendMessage(pendingSession.prompt, {
-      ...(!activeSessionId && accountSelection ? accountSelection : {}),
+      ...(accountSelection ?? {}),
       mode,
       ...(pendingSession.telosTaskId ? { telosTaskId: pendingSession.telosTaskId } : {}),
       ...(pendingSession.agentName ? { agentName: pendingSession.agentName } : {}),
@@ -185,10 +194,12 @@ export function ChatView() {
       return false;
     }
     voice.stopSpeaking();
+    // Codex supports per-turn model changes. The server ignores these fields for
+    // sessions bound to other providers and rejects cross-account rebinding.
     storeSendMessage(text, {
       images,
       contextBlocks: ctxBlocks,
-      ...(!activeSessionId && accountSelection ? accountSelection : {}),
+      ...(accountSelection ?? {}),
       mode,
       cwd: searchParams.get('cwd') ?? undefined,
       extraTools: searchParams.get('extraTools') ?? undefined,
@@ -200,7 +211,8 @@ export function ChatView() {
 
   function handleInterrupt(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): void {
     voice.stopSpeaking();
-    storeInterruptMessage(text, { images, contextBlocks: ctxBlocks });
+    // Preserve the same per-turn Codex selection when interrupting an active turn.
+    storeInterruptMessage(text, { images, contextBlocks: ctxBlocks, ...(accountSelection ?? {}) });
     forceScrollToBottom();
   }
 
@@ -215,8 +227,9 @@ export function ChatView() {
     permId: string,
     decision: 'once' | 'always' | 'deny',
     _toolName: string,
+    answers?: import('@mitzo/protocol').QuestionAnswers,
   ) {
-    storeRespondToPermission(permId, decision);
+    storeRespondToPermission(permId, decision, answers);
   }
 
   function handleModeChange(newMode: 'ask' | 'agent' | 'auto') {
@@ -302,6 +315,7 @@ export function ChatView() {
         />
       </div>
 
+      <CodexQueueStatus sessionId={activeSessionId} />
       <ChatArea
         messages={messages.messages}
         current={messages.current}

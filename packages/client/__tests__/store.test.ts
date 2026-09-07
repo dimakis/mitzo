@@ -590,7 +590,7 @@ describe('stopGeneration', () => {
 });
 
 describe('respondToPermission', () => {
-  it('sends v2 permission_response with sessionId and clears pending', async () => {
+  it('keeps the card until server acknowledgement after sending its decision', async () => {
     const store = createReadyStore();
     await store.getState().switchSession('test-session');
 
@@ -606,7 +606,13 @@ describe('respondToPermission', () => {
 
     store.getState().respondToPermission('perm-1', 'once');
 
-    // Banner should be dismissed
+    // Transport acceptance is not server acceptance.
+    expect(store.getState().messages.permission?.permId).toBe('perm-1');
+    lastWs.simulateMessage({
+      type: 'permission_resolved',
+      permId: 'perm-1',
+      sessionId: 'test-session',
+    });
     expect(store.getState().messages.permission).toBeNull();
 
     const sent = lastWs.parsedSent();
@@ -621,7 +627,7 @@ describe('respondToPermission', () => {
 });
 
 describe('respondToPermission — queued on disconnect', () => {
-  it('clears permission and queues the message when WS is reconnecting', async () => {
+  it('keeps permission visible while a response is queued during reconnect', async () => {
     const store = createReadyStore();
     await store.getState().switchSession('test-session');
 
@@ -640,8 +646,8 @@ describe('respondToPermission — queued on disconnect', () => {
 
     store.getState().respondToPermission('perm-1', 'once');
 
-    // Banner should still clear — message is queued for delivery on reconnect
-    expect(store.getState().messages.permission).toBeNull();
+    // Keep the card available until the server resolves it.
+    expect(store.getState().messages.permission?.permId).toBe('perm-1');
   });
 });
 
@@ -1299,4 +1305,34 @@ describe('delivery status', () => {
     expect(store.getState().sendStatus).toBeNull();
     expect(store.getState().sendError).toBe('Rejected');
   });
+});
+it('sends question answers without losing the request identity', async () => {
+  const store = createReadyStore();
+  await store.getState().switchSession('test-session');
+  const answers = { q1: ['Personal'] };
+  store.getState().respondToPermission('question-1', 'once', answers);
+  expect(lastWs.parsedSent()).toContainEqual({
+    type: 'permission_response',
+    sessionId: 'test-session',
+    permId: 'question-1',
+    decision: 'once',
+    answers,
+  });
+});
+
+it('keeps a second prompt visible after responding to the first', async () => {
+  const store = createReadyStore();
+  await store.getState().switchSession('test-session');
+  for (const permId of ['p1', 'p2'])
+    lastWs.simulateMessage({
+      type: 'permission_request',
+      sessionId: 'test-session',
+      permId,
+      toolName: 'Bash',
+      toolInput: 'pwd',
+    });
+  store.getState().respondToPermission('p1', 'deny');
+  expect(store.getState().messages.permission?.permId).toBe('p1');
+  lastWs.simulateMessage({ type: 'permission_resolved', permId: 'p1', sessionId: 'test-session' });
+  expect(store.getState().messages.permission?.permId).toBe('p2');
 });

@@ -1,3 +1,5 @@
+import { AccountModelPicker, type AccountSelection } from '../components/AccountModelPicker';
+import { CodexQueueStatus } from '../components/CodexQueueStatus';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { DesktopShell } from '../components/DesktopShell';
@@ -46,6 +48,7 @@ export function DesktopChatView() {
   const connected = connection.status === 'connected';
 
   // Local model state — persisted to localStorage, sent in payload
+  const [accountSelection, setAccountSelection] = useState<AccountSelection | null>(null);
   const [modelState, setModelState] = useState(getPreferredModel);
   const setModel = useCallback(
     (id: string) => {
@@ -54,6 +57,14 @@ export function DesktopChatView() {
       storeSetModel(id);
     },
     [storeSetModel],
+  );
+
+  const selectAccount = useCallback(
+    (selection: AccountSelection | null) => {
+      setAccountSelection(selection);
+      if (selection) setModel(selection.model);
+    },
+    [setModel],
   );
 
   const [mode, setMode] = useState<'ask' | 'agent' | 'auto'>(
@@ -70,8 +81,11 @@ export function DesktopChatView() {
     });
   }, []);
 
+  const awaitingNewSession = useRef(false);
+
   // Sync route param → store session
   useEffect(() => {
+    awaitingNewSession.current = !sessionId && !activeSessionId;
     if (sessionId && sessionId !== activeSessionId) {
       storeSwitchSession(sessionId);
     } else if (!sessionId && activeSessionId) {
@@ -99,10 +113,12 @@ export function DesktopChatView() {
 
   // When store assigns a session (new conversation), update URL
   useEffect(() => {
-    if (activeSessionId && !sessionId && window.location.pathname === '/chat') {
-      window.history.replaceState(null, '', `/chat/${activeSessionId}`);
+    if (!sessionId && !activeSessionId) awaitingNewSession.current = true;
+    if (activeSessionId && !sessionId && awaitingNewSession.current) {
+      awaitingNewSession.current = false;
+      navigate(`/chat/${activeSessionId}`, { replace: true });
     }
-  }, [activeSessionId, sessionId]);
+  }, [activeSessionId, sessionId, navigate]);
 
   // Hydrate branch/worktree/token state from persisted metadata
   useEffect(() => {
@@ -122,6 +138,7 @@ export function DesktopChatView() {
   // ── Actions ──────────────────────────────────────────────────────────────
 
   function handleSend(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): boolean {
+    if (!activeSessionId && !accountSelection) return false;
     if (activeSessionId && connection.status !== 'connected') {
       storeDispatchMessages({ type: 'CONNECTION_LOST' });
       return false;
@@ -130,7 +147,7 @@ export function DesktopChatView() {
     storeSendMessage(text, {
       images,
       contextBlocks: ctxBlocks,
-      model: modelState,
+      ...(accountSelection ?? {}),
       mode,
       cwd: searchParams.get('cwd') ?? undefined,
       extraTools: searchParams.get('extraTools') ?? undefined,
@@ -142,7 +159,7 @@ export function DesktopChatView() {
 
   function handleInterrupt(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): void {
     voice.stopSpeaking();
-    storeInterruptMessage(text, { images, contextBlocks: ctxBlocks, model: modelState });
+    storeInterruptMessage(text, { images, contextBlocks: ctxBlocks, ...(accountSelection ?? {}) });
     forceScrollToBottom();
   }
 
@@ -157,8 +174,9 @@ export function DesktopChatView() {
     permId: string,
     decision: 'once' | 'always' | 'deny',
     _toolName: string,
+    answers?: import('@mitzo/protocol').QuestionAnswers,
   ) {
-    storeRespondToPermission(permId, decision);
+    storeRespondToPermission(permId, decision, answers);
   }
 
   function handleModeChange(newMode: 'ask' | 'agent' | 'auto') {
@@ -192,20 +210,12 @@ export function DesktopChatView() {
                 !
               </span>
             )}
-            <select
-              className="chat-model-select"
-              value={modelState}
-              onChange={(e) => setModel(e.target.value)}
+            <AccountModelPicker
+              sessionId={activeSessionId}
+              preferredModel={modelState}
+              onChange={selectAccount}
               disabled={messages.running}
-            >
-              <option value="claude-opus-4-8">Opus 4.8</option>
-              <option value="claude-opus-4-8:max">Opus 4.8 Max</option>
-              <option value="claude-opus-4-6">Opus 4.6</option>
-              <option value="claude-sonnet-5">Sonnet 5</option>
-              <option value="claude-sonnet-4-6">Sonnet 4.6</option>
-              <option value="claude-sonnet-4-5">Sonnet 4.5</option>
-              <option value="claude-haiku-4-5">Haiku 4.5</option>
-            </select>
+            />
             <div className="mode-pills">
               {(['ask', 'agent', 'auto'] as const).map((m) => (
                 <button
@@ -245,6 +255,7 @@ export function DesktopChatView() {
               onVoiceChange={voice.setVoice}
             />
           </header>
+          <CodexQueueStatus sessionId={activeSessionId} />
           <ChatArea
             messages={messages.messages}
             current={messages.current}
@@ -259,6 +270,11 @@ export function DesktopChatView() {
           />
           <ScrollFab scrollRef={scrollRef} />
           <ChatInput
+            sendDisabledReason={
+              !activeSessionId && !accountSelection
+                ? 'Select an account before sending.'
+                : undefined
+            }
             onSend={handleSend}
             onStop={handleStop}
             onInterrupt={handleInterrupt}

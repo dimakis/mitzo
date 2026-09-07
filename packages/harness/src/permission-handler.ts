@@ -1,5 +1,7 @@
+import { z } from 'zod';
+import type { PermissionRequest, UserQuestion } from '@mitzo/protocol';
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
-import { registerPending, removePending, hasPending } from './permissions.js';
+import { registerPending, resolvePending, hasPending } from './permissions.js';
 import { sendPermissionNotification, isConfigured as ntfyConfigured } from './notify.js';
 import {
   sendPermissionNotification as pushoverSendPermission,
@@ -13,9 +15,33 @@ import { PERMISSION_TIMEOUT_MS, NTFY_NOTIFICATION_DELAY_MS } from './constants.j
 import type { SessionRegistry } from './session-registry.js';
 import type { SessionTransport } from './session-transport.js';
 
+export const UserQuestionsSchema = z
+  .array(
+    z.object({
+      question: z.string().min(1).max(4000),
+      header: z.string().max(80).default('Question'),
+      options: z
+        .array(
+          z.object({
+            label: z.string().min(1).max(4000),
+            description: z.string().max(4000).default(''),
+          }),
+        )
+        .max(8)
+        .default([]),
+      multiSelect: z.boolean().default(false),
+    }),
+  )
+  .min(1)
+  .max(4)
+  .refine((questions) => new Set(questions.map((q) => q.question)).size === questions.length);
+
 function transportSend(transport: SessionTransport, data: Record<string, unknown>): void {
-  if (transport.isOpen()) {
-    transport.send(data);
+  try {
+    if (transport.isOpen()) transport.send(data);
+  } catch {
+    // A socket can close after isOpen(). Pending requests remain available
+    // for reconnect replay; delivery failure must not reject tool resolution.
   }
 }
 
@@ -60,6 +86,9 @@ export function buildPermissionHandler(
       displayName?: string;
       description?: string;
       decisionReason?: string;
+      forcePrompt?: boolean;
+      /** Provider adapter supplies validated questions, preserving provider IDs. */
+      questions?: UserQuestion[];
     },
   ): Promise<PermissionResult> => {
     const session = registry.get(clientId);
@@ -72,6 +101,17 @@ export function buildPermissionHandler(
       return { behavior: 'deny', message: 'Tool not allowed by active skill policy' };
     }
 
+    let questions: UserQuestion[] | undefined = opts.questions;
+    if (!questions && toolName === 'AskUserQuestion') {
+      const parsed = UserQuestionsSchema.safeParse(_toolInput.questions);
+      if (!parsed.success)
+        return {
+          behavior: 'deny',
+          message: 'Invalid user questions. Ask up to four distinct questions.',
+        };
+      questions = parsed.data.map((question) => ({ id: question.question, ...question }));
+    }
+
     const worktreeViolation = await checkWorktreePolicy(session, toolName, _toolInput, {
       onDemandCreate: handlerOpts?.onDemandCreate,
     });
@@ -79,11 +119,11 @@ export function buildPermissionHandler(
       return { behavior: 'deny', message: worktreeViolation };
     }
 
-    if (shouldAutoAllow(toolName, session.mode)) {
+    if (!questions && !opts.forcePrompt && shouldAutoAllow(toolName, session.mode)) {
       return { behavior: 'allow', updatedInput: _toolInput };
     }
 
-    if (isAllowListed(session.sessionAllowList, toolName)) {
+    if (!questions && !opts.forcePrompt && isAllowListed(session.sessionAllowList, toolName)) {
       return {
         behavior: 'allow',
         decisionClassification: 'user_permanent',
@@ -102,38 +142,57 @@ export function buildPermissionHandler(
 
       const permId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+      let resolutionEvent = 'permission_resolved';
+      let notificationTimer: ReturnType<typeof setTimeout> | undefined;
       const wrappedResolve = (result: PermissionResult) => {
+        clearTimeout(timeout);
+        clearTimeout(notificationTimer);
+        opts.signal.removeEventListener('abort', onAbort);
         if (result.behavior === 'allow' && result.decisionClassification === 'user_permanent') {
           addToAllowList(session.sessionAllowList, toolName);
         }
+        const resolved = { type: resolutionEvent, permId, sessionId: session.sessionId };
+        transportSend(session.transport, resolved);
+        for (const observer of session.observers) transportSend(observer, resolved);
         resolve(result);
       };
 
       const onAbort = () => {
         if (hasPending(permId)) {
-          removePending(permId);
-          resolve({ behavior: 'deny', message: 'Aborted' });
-          transportSend(session.transport, { type: 'permission_timeout', permId });
+          resolutionEvent = 'permission_timeout';
+          resolvePending(permId, 'deny');
         }
       };
       opts.signal.addEventListener('abort', onAbort, { once: true });
 
-      registerPending(permId, toolName, wrappedResolve, _toolInput, tier, session.sessionId);
-
-      transportSend(session.transport, {
-        type: 'permission_request',
+      const request: PermissionRequest = {
         permId,
         toolName,
-        toolInput: inputSummary,
+        toolInput: questions
+          ? ''
+          : toolName === 'Bash' && typeof _toolInput.command === 'string'
+            ? _toolInput.command
+            : JSON.stringify(_toolInput, null, 2),
         title: opts.title,
         description: opts.description,
         displayName: opts.displayName,
-        decisionReason: opts.decisionReason,
         tier,
-      });
+        sessionId: session.sessionId,
+        expiresAt: Date.now() + PERMISSION_TIMEOUT_MS,
+        ...(questions ? { questions } : {}),
+      };
+      registerPending(
+        permId,
+        toolName,
+        wrappedResolve,
+        _toolInput,
+        tier,
+        session.sessionId,
+        request,
+      );
 
       if (ntfyConfigured() || pushoverConfigured()) {
-        setTimeout(() => {
+        notificationTimer = setTimeout(() => {
           if (hasPending(permId)) {
             if (ntfyConfigured())
               sendPermissionNotification(toolName, inputSummary, permId, session.sessionId);
@@ -143,14 +202,13 @@ export function buildPermissionHandler(
         }, NTFY_NOTIFICATION_DELAY_MS);
       }
 
-      setTimeout(() => {
+      const timeout = setTimeout(() => {
         if (hasPending(permId)) {
-          removePending(permId);
-          opts.signal.removeEventListener('abort', onAbort);
-          resolve({ behavior: 'deny', message: 'Permission request timed out' });
-          transportSend(session.transport, { type: 'permission_timeout', permId });
+          resolutionEvent = 'permission_timeout';
+          resolvePending(permId, 'deny');
         }
       }, PERMISSION_TIMEOUT_MS);
+      transportSend(session.transport, { type: 'permission_request', ...request });
     });
   };
 }

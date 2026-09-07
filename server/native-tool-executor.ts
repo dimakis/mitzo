@@ -1,29 +1,41 @@
-import { spawn } from 'node:child_process';
 import { open, realpath, writeFile } from 'node:fs/promises';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import {
   buildPermissionHandler,
+  UserQuestionsSchema,
   type SessionRegistry,
   type ToolDefinition,
   type ToolUseBlock,
   type ToolResultBlock,
 } from '@mitzo/harness';
 
+const approval = {
+  require_approval: z
+    .boolean()
+    .optional()
+    .describe('Set true to request an explicit Mitzo approval card before this exact action.'),
+};
 const schemas = {
+  AskUserQuestion: z.object({ questions: UserQuestionsSchema }).strict(),
   Read: z.object({ file_path: z.string().min(1) }).strict(),
-  Write: z.object({ file_path: z.string().min(1), content: z.string() }).strict(),
+  Write: z.object({ file_path: z.string().min(1), content: z.string(), ...approval }).strict(),
   Edit: z
-    .object({ file_path: z.string().min(1), old_string: z.string().min(1), new_string: z.string() })
+    .object({
+      file_path: z.string().min(1),
+      old_string: z.string().min(1),
+      new_string: z.string(),
+      ...approval,
+    })
     .strict(),
-  Bash: z.object({ command: z.string().min(1) }).strict(),
 };
 const descriptions = {
+  AskUserQuestion:
+    'Ask structured questions in Mitzo and wait for the user’s answers. Questions do not authorize tool execution.',
   Read: 'Read a UTF-8 file. Paths are relative to the session cwd unless absolute.',
   Write: 'Write a UTF-8 file in an existing directory.',
   Edit: 'Replace exactly one occurrence of old_string in a UTF-8 file.',
-  Bash: 'Run a shell command in the session cwd. Commands have a bounded runtime and output.',
 };
 export const nativeToolDefinitions: ToolDefinition[] = Object.entries(schemas).map(
   ([name, schema]) => ({
@@ -48,6 +60,7 @@ async function canonicalPath(path: string): Promise<string> {
 export interface NativeToolOptions {
   /** Explicit child environment. The executor never inherits process.env or API credentials. */
   env: Record<string, string>;
+  forcePrompt?: boolean;
   timeoutMs?: number;
   maxOutputBytes?: number;
   onDemandCreate?: NonNullable<Parameters<typeof buildPermissionHandler>[2]>['onDemandCreate'];
@@ -71,64 +84,6 @@ async function readBounded(path: string, limit: number, signal: AbortSignal): Pr
   }
 }
 
-function shell(
-  command: string,
-  cwd: string,
-  signal: AbortSignal,
-  options: NativeToolOptions,
-): Promise<string> {
-  return new Promise((resolveResult, reject) => {
-    const child = spawn('/bin/sh', ['-c', command], {
-      cwd,
-      env: options.env,
-      detached: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    let size = 0;
-    let failure: string | undefined;
-    const kill = (reason: string) => {
-      failure ??= reason;
-      if (child.pid) {
-        try {
-          process.kill(-child.pid, 'SIGKILL');
-        } catch {
-          /* Already exited. */
-        }
-      }
-    };
-    const onAbort = () => kill('Tool execution cancelled');
-    signal.addEventListener('abort', onAbort, { once: true });
-    if (signal.aborted) onAbort();
-    const timer = setTimeout(() => kill('Shell command timed out'), options.timeoutMs ?? 60_000);
-    const collect = (chunks: Buffer[]) => (chunk: Buffer) => {
-      size += chunk.length;
-      if (size > (options.maxOutputBytes ?? 64 * 1024)) kill('Shell output limit exceeded');
-      else chunks.push(chunk);
-    };
-    child.stdout.on('data', collect(stdout));
-    child.stderr.on('data', collect(stderr));
-    const cleanup = () => {
-      clearTimeout(timer);
-      signal.removeEventListener('abort', onAbort);
-    };
-    child.on('error', () => {
-      cleanup();
-      reject(new Error('Shell command could not start'));
-    });
-    child.on('close', (code) => {
-      cleanup();
-      const output =
-        Buffer.concat(stdout).toString('utf8') +
-        (stderr.length ? `\n--- stderr ---\n${Buffer.concat(stderr).toString('utf8')}` : '');
-      if (failure) reject(new Error(failure));
-      else if (code !== 0) reject(new Error(`Shell exited with code ${code}: ${output}`));
-      else resolveResult(output);
-    });
-  });
-}
-
 /** Native side effects use the same skill → worktree → mode/approval policy as SDK tools. */
 export function createNativeToolExecutor(
   clientId: string,
@@ -149,12 +104,27 @@ export function createNativeToolExecutor(
       signal.throwIfAborted();
       const session = registry.get(clientId);
       if (!session?.cwd) return result('Session workspace is unavailable', true);
-      if (session.mode === 'ask' && block.name !== 'Read')
+      if (session.mode === 'ask' && !['Read', 'AskUserQuestion'].includes(block.name))
         return result('Ask mode only permits read-only native tools', true);
       if (!Object.hasOwn(schemas, block.name)) return result('Native tool is unavailable', true);
       const parsed = schemas[block.name as keyof typeof schemas].safeParse(block.input);
       if (!parsed.success) return result('Invalid native tool input', true);
+      if (block.name === 'AskUserQuestion') {
+        const permission = await canUseTool(block.name, parsed.data, {
+          signal,
+          toolUseID: block.id,
+        });
+        signal.throwIfAborted();
+        return permission.behavior === 'allow'
+          ? result(JSON.stringify({ answers: permission.updatedInput?.answers }))
+          : result(permission.message, true);
+      }
       const input = { ...parsed.data };
+      if ('questions' in input) return result('Invalid tool input', true);
+      const forcePrompt =
+        options.forcePrompt === true ||
+        ('require_approval' in input && input.require_approval === true);
+      if ('require_approval' in input) delete input.require_approval;
       const roots: { canonical: string; original: string }[] = [];
       for (const entry of session.worktreePaths.values()) {
         try {
@@ -178,14 +148,16 @@ export function createNativeToolExecutor(
         if (root)
           input.file_path = resolve(root.original, relative(root.canonical, input.file_path));
       }
-      const permission = await canUseTool(block.name, input, { signal, toolUseID: block.id });
+      const permission = await canUseTool(block.name, input, {
+        signal,
+        toolUseID: block.id,
+        forcePrompt,
+      });
       signal.throwIfAborted();
       if (permission.behavior !== 'allow') return result(permission.message, true);
       // The shared handler returns the checked input. Never execute unchecked replacements.
       if (!isDeepStrictEqual(permission.updatedInput, input))
         return result('Tool input changed during approval; retry the tool', true);
-      if ('command' in input)
-        return result(await shell(input.command, session.cwd, signal, options));
       if (block.name === 'Write') {
         const write = schemas.Write.parse(input);
         await writeFile(write.file_path, write.content, { encoding: 'utf8', signal });
