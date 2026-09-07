@@ -734,6 +734,7 @@ export async function startChat(
   prompt: string,
   options: {
     resume?: string;
+    initialSessionId?: string;
     cwd?: string;
     model?: string;
     accountId?: string;
@@ -766,6 +767,7 @@ async function _startChatInner(
   prompt: string,
   options: {
     resume?: string;
+    initialSessionId?: string;
     cwd?: string;
     model?: string;
     accountId?: string;
@@ -870,6 +872,16 @@ async function _startChatInner(
   const inputQueue = new AsyncQueue<SDKUserMessage>();
   inputQueue.push(makeUserMessage(fullPrompt, 'now'));
 
+  if (options.initialSessionId) {
+    eventStore.upsertSession({
+      sessionId: options.initialSessionId,
+      cwd,
+      mode,
+      initialPrompt: fullPrompt,
+      ...(accountBinding ? { accountBinding } : {}),
+    });
+  }
+
   registry.register(clientId, {
     transport,
     abortController,
@@ -880,7 +892,9 @@ async function _startChatInner(
     worktreePath,
     agentName,
     // Set sessionId early so pre-assistant events are persisted (iOS reconnect).
-    ...(options.resume ? { sessionId: options.resume } : {}),
+    ...((options.resume ?? options.initialSessionId)
+      ? { sessionId: options.resume ?? options.initialSessionId }
+      : {}),
     ...(options.telosTaskId ? { telosTaskId: options.telosTaskId } : {}),
   });
 
@@ -1026,7 +1040,9 @@ async function _startChatInner(
   }
 
   // Bound sessions have durable routing before the SDK can create history or side effects.
-  const newSdkSessionId = accountBinding && !resolvedResume ? randomUUID() : undefined;
+  const newSdkSessionId = !resolvedResume
+    ? (options.initialSessionId ?? (accountBinding ? randomUUID() : undefined))
+    : undefined;
   try {
     if (newSdkSessionId) {
       eventStore.upsertSession({
@@ -1098,6 +1114,7 @@ async function _startChatInner(
       options.resume ? undefined : fullPrompt,
       {
         connRegistry: _connRegistry ?? undefined,
+        initialClientMsgId: options.clientMsgId,
         onSessionResolved: (sessionId: string) => {
           // Persist boot context for new sessions (resume sessions already persisted above)
           if (!options.resume) {

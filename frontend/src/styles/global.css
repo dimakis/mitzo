@@ -6280,3 +6280,10 @@ textarea:focus {
   overflow-wrap: anywhere;
   line-height: 1.5;
 }
+
+.chat-delivery-status {
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+}

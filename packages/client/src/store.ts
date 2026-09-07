@@ -174,8 +174,6 @@ function removeTaskFromTree(tasks: Task[], id: string): Task[] {
     });
 }
 
-const PENDING_SEND_TIMEOUT_MS = 5_000;
-
 // ─── Factory ─────────────────────────────────────────────────────────────────
 
 export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStoreState> {
@@ -184,12 +182,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     ? new SseConnection(options.sseConfig)
     : new MitzoConnection(options.wsConfig);
 
-  const parserState: ProtocolParserState & {
-    pendingSendTimer?: ReturnType<typeof setTimeout>;
-  } = {
-    currentSessionId: undefined,
-    pendingSend: [],
-  };
+  const parserState: ProtocolParserState = { currentSessionId: undefined };
 
   let recoveryInFlight = false;
 
@@ -220,13 +213,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
   // syncRunningState removed — running state is server-authoritative via
   // session_state_changed events. Periodic sync covers iOS foreground gaps.
-
-  function clearPendingSendTimer() {
-    if (parserState.pendingSendTimer) {
-      clearTimeout(parserState.pendingSendTimer);
-      parserState.pendingSendTimer = undefined;
-    }
-  }
 
   const store = createStore<MitzoStoreState>((set, get) => ({
     // ── Initial state ────────────────────────────────────────────────────
@@ -262,8 +248,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         connection.clearSession(oldId);
       }
       parserState.currentSessionId = id;
-      parserState.pendingSend = [];
-      clearPendingSendTimer();
       connection.clearPendingSends();
 
       set((s) => ({
@@ -294,8 +278,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         connection.clearSession(sid);
       }
       parserState.currentSessionId = undefined;
-      parserState.pendingSend = [];
-      clearPendingSendTimer();
       connection.clearPendingSends();
       connection.send({ type: 'switch_session', sessionId: null });
       set({
@@ -314,7 +296,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     sendMessage(text: string, opts?: SendMessageOptions) {
       const clientMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const wasRunning = get().messages.running;
 
       const buildPayload = (): Record<string, unknown> => {
         const msg: Record<string, unknown> = {
@@ -353,38 +334,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
       const msg = buildPayload();
 
-      if (wasRunning) {
-        parserState.pendingSend.push(msg);
-        // Safety net: if no session_end arrives within 5s (e.g. stale running
-        // state after reconnect), flush the first pending message as a new session.
-        if (parserState.pendingSendTimer) clearTimeout(parserState.pendingSendTimer);
-        parserState.pendingSendTimer = setTimeout(function drainOne() {
-          const pending = parserState.pendingSend.shift();
-          if (!pending) {
-            parserState.pendingSendTimer = undefined;
-            return;
-          }
-          // Optimistic running=true so UI shows stop button immediately
-          set((s) => ({
-            messages: messagesReducer(s.messages, {
-              type: 'SESSION_STATE_CHANGED',
-              state: 'running',
-            }),
-          }));
-          connection.send(pending);
-          // Reschedule for remaining queued messages
-          if (parserState.pendingSend.length > 0) {
-            parserState.pendingSendTimer = setTimeout(drainOne, PENDING_SEND_TIMEOUT_MS);
-          } else {
-            parserState.pendingSendTimer = undefined;
-          }
-        }, PENDING_SEND_TIMEOUT_MS);
-      } else {
-        const sent = connection.send(msg);
-        if (!sent) {
-          set({ sendError: 'Not connected. Message will be sent when reconnected.' });
-        }
-      }
+      const sent = connection.send(msg);
+      if (!sent) set({ sendError: 'Message could not be queued. Please retry.' });
     },
 
     interruptMessage(text: string, opts?: SendMessageOptions) {
@@ -694,10 +645,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       return api.getSessionMessages(sessionId);
     },
 
-    onSendQueued(msg: Record<string, unknown>) {
-      connection.send(msg);
-    },
-
     onReconnected() {
       const activeId = parserState.currentSessionId;
       if (activeId) fetchAndRestoreMessages(activeId);
@@ -718,6 +665,34 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   };
 
   function wsListener(msg: Record<string, unknown>) {
+    if (
+      msg.type === '_send_pending' ||
+      msg.type === '_send_failed' ||
+      msg.type === '_send_accepted'
+    ) {
+      const visible = store
+        .getState()
+        .messages.messages.some((m) => m.messageId === msg.clientMsgId);
+      if (visible) {
+        store.setState({
+          sendError:
+            msg.type === '_send_pending'
+              ? msg.retrying
+                ? 'Reconnecting — your message will retry automatically.'
+                : 'Sending…'
+              : msg.type === '_send_failed'
+                ? String(msg.error)
+                : null,
+        });
+        if (
+          msg.type === '_send_accepted' &&
+          typeof msg.sessionId === 'string' &&
+          !parserState.currentSessionId
+        )
+          callbacks.onSessionAssigned(msg.sessionId as string);
+      }
+      return;
+    }
     // Foreground recovery: when the page becomes visible again (iOS may have
     // evicted it from memory, losing in-memory state), re-fetch messages from
     // the REST API if we have an active session but no messages in the store.
@@ -761,12 +736,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     const result = parseServerMessage(msg as WsMsg, parserState, callbacks, 'v2');
-
-    // If the queue is now empty, cancel the safety-net timer — the normal
-    // session_end flush path handled it.
-    if (parserState.pendingSend.length === 0 && parserState.pendingSendTimer) {
-      clearPendingSendTimer();
-    }
 
     for (const action of result.messagesActions) {
       store.setState((s) => ({

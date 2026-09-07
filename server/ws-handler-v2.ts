@@ -50,7 +50,6 @@ import {
   closeSessionByUser,
   isActive,
   reattachChat,
-  rekeyChat,
   BASE_REPO,
   discoverSession,
 } from './chat.js';
@@ -268,28 +267,20 @@ export function handleReconnect(
           });
           ctx.sessionRegistry.remove(found!.clientId);
         }
-        if (found && running && !ctx.sessionRegistry.isAttached(found.clientId)) {
-          const ownerConnection = getOwnerConnection(found.clientId);
+        if (found && running) {
+          const ownerConnection =
+            found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
           const ownerGone = !ctx.connRegistry.get(ownerConnection);
           const isOwner = ownerConnection === connectionId;
-          if (isOwner || ownerGone) {
+          if ((isOwner && !ctx.sessionRegistry.isAttached(found.clientId)) || ownerGone) {
             const conn = ctx.connRegistry.get(connectionId);
             if (conn) {
               reattachChat(found.clientId, conn.transport);
-              const newClientId = `${connectionId}:${entry.sessionId}`;
-              if (found.clientId !== newClientId) {
-                rekeyChat(found.clientId, newClientId);
-                log.info('rekeyed session to new connection', {
-                  connectionId,
-                  sessionId: entry.sessionId,
-                  oldClientId: found.clientId,
-                  newClientId,
-                });
-              }
+              if (found.session) found.session.ownerConnectionId = connectionId;
               log.info('reattached detached session on reconnect', {
                 connectionId,
                 sessionId: entry.sessionId,
-                clientId: newClientId,
+                clientId: found.clientId,
                 ownerGone,
               });
             }
@@ -452,8 +443,9 @@ export function handleSendV2(
   transport: SessionTransport,
   msg: SendMsg,
   ctx: V2HandlerContext,
-): void {
-  withSpan(
+  delivery?: { initialSessionId?: string },
+): 'native' | void {
+  return withSpan<'native' | void>(
     'ws.send',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId ?? 'new' },
     (span) => {
@@ -488,7 +480,7 @@ export function handleSendV2(
                 error: `Command /${resolution.name} failed: ${err instanceof Error ? err.message : 'unknown'}`,
               });
             });
-          return;
+          return 'native';
         }
 
         if (resolution.type === 'error') {
@@ -547,11 +539,12 @@ export function handleSendV2(
             storeState !== 'CLOSING' &&
             storeState !== null
           ) {
-            const ownerConnection = getOwnerConnection(found.clientId);
+            const ownerConnection =
+              found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
             const isOwner = ownerConnection === connectionId;
             const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
 
-            let activeClientId = found.clientId;
+            const activeClientId = found.clientId;
             if (!isOwner) {
               const oldTransport = found.session?.transport;
               if (oldTransport?.isOpen()) {
@@ -561,11 +554,7 @@ export function handleSendV2(
               denyPendingBySession(sessionId);
 
               reattachChat(found.clientId, transport);
-              const newClientId = `${connectionId}:${sessionId}`;
-              if (found.clientId !== newClientId) {
-                rekeyChat(found.clientId, newClientId);
-                activeClientId = newClientId;
-              }
+              if (found.session) found.session.ownerConnectionId = connectionId;
               log.info('takeover on send', {
                 connectionId,
                 sessionId,
@@ -575,6 +564,7 @@ export function handleSendV2(
               });
             } else if (isDetached) {
               reattachChat(found.clientId, transport);
+              if (found.session) found.session.ownerConnectionId = connectionId;
               log.info('reattached own detached session on send', {
                 connectionId,
                 sessionId,
@@ -584,7 +574,8 @@ export function handleSendV2(
             applySkillPolicy(activeClientId);
             ctx.connRegistry.watch(connectionId, sessionId);
             ctx.connRegistry.setActive(connectionId, sessionId);
-            sendToChat(activeClientId, prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
+            if (!sendToChat(activeClientId, prompt, msg.images, msg.contextBlocks, msg.clientMsgId))
+              throw new Error('Session is not accepting input. Please retry.');
             span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');
             return;
           }
@@ -619,7 +610,12 @@ export function handleSendV2(
             clientMsgId: msg.clientMsgId,
             telosTaskId: msg.telosTaskId,
             agentName: msg.agentName,
-          });
+          }).catch((err: unknown) =>
+            transport.send({
+              type: 'error',
+              error: err instanceof Error ? err.message : 'Session startup failed',
+            }),
+          );
           applySkillPolicy(sessionClientId);
         } else {
           const sessionClientId = `${connectionId}:new-${randomUUID().slice(0, 8)}`;
@@ -629,6 +625,7 @@ export function handleSendV2(
             ctx.connRegistry.setActive(connectionId, resolvedId);
           };
           startChat(transport, sessionClientId, prompt, {
+            initialSessionId: delivery?.initialSessionId,
             cwd: msg.cwd,
             model: msg.model,
             accountId: msg.accountId,
@@ -642,7 +639,12 @@ export function handleSendV2(
             onSessionResolved,
             telosTaskId: msg.telosTaskId,
             agentName: msg.agentName,
-          });
+          }).catch((err: unknown) =>
+            transport.send({
+              type: 'error',
+              error: err instanceof Error ? err.message : 'Session startup failed',
+            }),
+          );
           applySkillPolicy(sessionClientId);
         }
       } catch (err: unknown) {
@@ -681,7 +683,7 @@ export function handleInterruptV2(
       const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
       if (!found) return;
 
-      let activeClientId = found.clientId;
+      const activeClientId = found.clientId;
       const storeState = ctx.eventStore.getSessionState(msg.sessionId);
 
       // Phase 2: detect state mismatches (observability only)
@@ -706,7 +708,8 @@ export function handleInterruptV2(
         storeState !== 'CLOSING' &&
         storeState !== null
       ) {
-        const ownerConnection = getOwnerConnection(found.clientId);
+        const ownerConnection =
+          found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
         const isOwner = ownerConnection === connectionId;
         const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
 
@@ -719,11 +722,7 @@ export function handleInterruptV2(
           denyPendingBySession(msg.sessionId);
 
           reattachChat(found.clientId, transport);
-          const newClientId = `${connectionId}:${msg.sessionId}`;
-          if (found.clientId !== newClientId) {
-            rekeyChat(found.clientId, newClientId);
-            activeClientId = newClientId;
-          }
+          if (found.session) found.session.ownerConnectionId = connectionId;
           log.info('takeover on interrupt', {
             connectionId,
             sessionId: msg.sessionId,
@@ -733,6 +732,7 @@ export function handleInterruptV2(
           });
         } else if (isDetached) {
           reattachChat(found.clientId, transport);
+          if (found.session) found.session.ownerConnectionId = connectionId;
         }
 
         ctx.connRegistry.watch(connectionId, msg.sessionId);
@@ -844,7 +844,8 @@ export function handleSessionSuspend(
           continue;
         }
 
-        const ownerConnection = getOwnerConnection(found.clientId);
+        const ownerConnection =
+          found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
         if (ownerConnection !== connectionId) {
           log.warn('suspend: not owner', {
             connectionId,
@@ -893,7 +894,8 @@ export function handleSessionClose(
         return;
       }
 
-      const ownerConnection = getOwnerConnection(found.clientId);
+      const ownerConnection =
+        found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
       if (ownerConnection !== connectionId) {
         log.warn('close: not owner', {
           connectionId,

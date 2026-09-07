@@ -1,0 +1,98 @@
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { SendOutbox } from '../send-outbox.js';
+
+const prompt = { type: 'send', sessionId: null, clientMsgId: 'one', prompt: 'hello' };
+const ack = (id = 'one') =>
+  ({
+    ok: true,
+    status: 202,
+    json: async () => ({ accepted: true, clientMsgId: id, sessionId: 'session' }),
+  }) as Response;
+afterEach(() => vi.useRealTimers());
+
+describe('send outbox', () => {
+  it('retries a lost response with the identical command ID without waiting for SSE', async () => {
+    vi.useFakeTimers();
+    const fetch = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('lost response'))
+      .mockResolvedValue(ack());
+    const notify = vi.fn();
+    const outbox = new SendOutbox({ fetch, notify, url: '/send' });
+    outbox.start();
+    outbox.enqueue(prompt, 0);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[0][1].body).toBe(fetch.mock.calls[1][1].body);
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({ type: '_send_accepted', clientMsgId: 'one', sessionId: 'session' }),
+    );
+    outbox.stop();
+  });
+
+  it('times out a hung POST and retries automatically', async () => {
+    vi.useFakeTimers();
+    const fetch = vi
+      .fn()
+      .mockReturnValueOnce(new Promise(() => {}))
+      .mockResolvedValue(ack());
+    const outbox = new SendOutbox({ fetch, notify: vi.fn(), url: '/send', timeoutMs: 100 });
+    outbox.start();
+    outbox.enqueue(prompt, 0);
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    outbox.stop();
+  });
+
+  it('also times out a response whose body never arrives', async () => {
+    vi.useFakeTimers();
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 202, json: () => new Promise(() => {}) })
+      .mockResolvedValue(ack());
+    const outbox = new SendOutbox({ fetch, notify: vi.fn(), url: '/send', timeoutMs: 100 });
+    outbox.start();
+    outbox.enqueue(prompt, 0);
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    outbox.stop();
+  });
+
+  it('binds rapid follow-ups to the first accepted session while keeping new drafts separate', async () => {
+    vi.useFakeTimers();
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(ack())
+      .mockResolvedValueOnce(ack('two'))
+      .mockResolvedValueOnce(ack('three'));
+    const outbox = new SendOutbox({ fetch, notify: vi.fn(), url: '/send' });
+    outbox.enqueue(prompt, 0);
+    outbox.enqueue({ ...prompt, clientMsgId: 'two' }, 0);
+    outbox.enqueue({ ...prompt, clientMsgId: 'three' }, 1);
+    outbox.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(JSON.parse(fetch.mock.calls[1][1].body).sessionId).toBe('session');
+    expect(JSON.parse(fetch.mock.calls[2][1].body).sessionId).toBeNull();
+    outbox.stop();
+  });
+
+  it('restores unacknowledged prompts after a reload', async () => {
+    vi.useFakeTimers();
+    let value: string | null = null;
+    const storage = {
+      getItem: () => value,
+      setItem: (_: string, v: string) => {
+        value = v;
+      },
+    };
+    const first = new SendOutbox({ fetch: vi.fn(), notify: vi.fn(), url: '/send', storage });
+    first.enqueue(prompt, 0);
+    const fetch = vi.fn().mockResolvedValue(ack());
+    const second = new SendOutbox({ fetch, notify: vi.fn(), url: '/send', storage });
+    second.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual(prompt);
+    expect(JSON.parse(value!)).toEqual([]);
+    second.stop();
+  });
+});

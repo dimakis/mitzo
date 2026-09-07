@@ -86,6 +86,67 @@ describe('SseConnection', () => {
     vi.useRealTimers();
   });
 
+  it('rebuilds a seemingly connected stream when the page returns to foreground', () => {
+    const doc = new EventTarget();
+    Object.assign(doc, { visibilityState: 'visible' });
+    vi.stubGlobal('document', doc);
+    vi.stubGlobal('addEventListener', vi.fn());
+    vi.stubGlobal('removeEventListener', vi.fn());
+    const conn = new SseConnection(createConfig());
+    try {
+      conn.connect();
+      const old = lastES();
+      old._emit('welcome', { connectionId: 'old' });
+      doc.dispatchEvent(new Event('visibilitychange'));
+      expect(old.readyState).toBe(2);
+      expect(MockEventSource.instances).toHaveLength(2);
+      expect(conn.isConnected()).toBe(false);
+    } finally {
+      conn.disconnect();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('submits the first prompt while SSE and reconnect are unavailable', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 202,
+      json: async () => ({ accepted: true, clientMsgId: 'first', sessionId: 'session' }),
+    });
+    const listener = vi.fn();
+    const conn = new SseConnection(createConfig({ fetch }));
+    conn.onMessage(listener);
+    conn.connect();
+    conn.send({ type: 'send', prompt: 'first', clientMsgId: 'first', sessionId: null });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch).toHaveBeenCalledWith(
+      'https://localhost:3100/api/chat/send',
+      expect.objectContaining({ body: expect.stringContaining('first') }),
+    );
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({ type: '_send_accepted', sessionId: 'session' }),
+    );
+    expect(conn.getTrackedSessions()).toContain('session');
+    lastES()._emit('welcome', { connectionId: 'fresh' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch).toHaveBeenCalledWith(
+      'https://localhost:3100/api/chat/reconnect',
+      expect.objectContaining({ body: expect.stringContaining('session') }),
+    );
+    conn.disconnect();
+  });
+
+  it('rebuilds the stream when a reconnect POST hangs', async () => {
+    const fetch = vi.fn().mockReturnValue(new Promise(() => {}));
+    const conn = new SseConnection(createConfig({ fetch }));
+    conn.connect();
+    conn.trackSeq('session', 1);
+    lastES()._emit('welcome', { connectionId: 'old' });
+    await vi.advanceTimersByTimeAsync(15500);
+    expect(MockEventSource.instances).toHaveLength(2);
+    conn.disconnect();
+  });
+
   // ─── Connection lifecycle ────────────────────────────────────────────────
 
   it('creates EventSource on connect()', () => {
@@ -166,16 +227,16 @@ describe('SseConnection', () => {
     conn.connect();
     lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
 
-    conn.send({ type: 'send', sessionId: 'sess-1', prompt: 'hello', clientMsgId: 'msg-1' });
+    conn.send({ type: 'watch', sessionId: 'sess-1', prompt: 'hello', clientMsgId: 'msg-1' });
 
-    expect(mockFetch).toHaveBeenCalledWith('https://localhost:3100/api/chat/send', {
+    expect(mockFetch).toHaveBeenCalledWith('https://localhost:3100/api/chat/watch', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-Connection-ID': 'conn-abc',
       },
       body: JSON.stringify({
-        type: 'send',
+        type: 'watch',
         sessionId: 'sess-1',
         prompt: 'hello',
         clientMsgId: 'msg-1',
@@ -190,7 +251,7 @@ describe('SseConnection', () => {
     lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
 
     const types: Array<[string, string]> = [
-      ['send', 'send'],
+      ['watch', 'watch'],
       ['stop', 'stop'],
       ['interrupt', 'interrupt'],
       ['permission_response', 'permission'],
@@ -229,7 +290,7 @@ describe('SseConnection', () => {
     conn.connect();
 
     // Not yet connected — should queue
-    const queued = conn.send({ type: 'send', prompt: 'queued', clientMsgId: 'q-1' });
+    const queued = conn.send({ type: 'watch', prompt: 'queued', clientMsgId: 'q-1' });
     expect(queued).toBe(true);
     expect(mockFetch).not.toHaveBeenCalled();
 
@@ -237,7 +298,7 @@ describe('SseConnection', () => {
     lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
 
     expect(mockFetch).toHaveBeenCalledWith(
-      'https://localhost:3100/api/chat/send',
+      'https://localhost:3100/api/chat/watch',
       expect.objectContaining({ method: 'POST' }),
     );
   });
@@ -247,7 +308,7 @@ describe('SseConnection', () => {
     conn.connect();
 
     for (let i = 0; i < 101; i++) {
-      conn.send({ type: 'send', prompt: `msg-${i}`, clientMsgId: `id-${i}` });
+      conn.send({ type: 'watch', prompt: `msg-${i}`, clientMsgId: `id-${i}` });
     }
 
     // clearPendingSends exposes queue length indirectly
@@ -261,12 +322,12 @@ describe('SseConnection', () => {
     expect(mockFetch).toHaveBeenCalledTimes(100);
   });
 
-  it('clearPendingSends() empties the queue', () => {
+  it('clearPendingSends() empties the control queue', () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true });
     const conn = new SseConnection(createConfig({ fetch: mockFetch }));
     conn.connect();
 
-    conn.send({ type: 'send', prompt: 'will be cleared', clientMsgId: 'c-1' });
+    conn.send({ type: 'watch', prompt: 'will be cleared', clientMsgId: 'c-1' });
     conn.clearPendingSends();
 
     lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
@@ -423,7 +484,7 @@ describe('SseConnection', () => {
 
     // Resolve the FIRST (stale) reconnect POST
     resolveFirst({ ok: true });
-    await vi.runAllTimersAsync();
+    await vi.advanceTimersByTimeAsync(0);
 
     // Must NOT set _connected — connectionId has moved on to conn-ghi
     expect(conn.isConnected()).toBe(false);
@@ -432,7 +493,7 @@ describe('SseConnection', () => {
     // Resolve the SECOND (current) reconnect POST
     listener.mockClear();
     resolveSecond({ ok: true });
-    await vi.runAllTimersAsync();
+    await vi.advanceTimersByTimeAsync(0);
 
     // Now _connected should be true
     expect(conn.isConnected()).toBe(true);
@@ -459,7 +520,7 @@ describe('SseConnection', () => {
 
     // Force reconnect — sends are now queued
     conn.checkAndReconnect(true);
-    conn.send({ type: 'send', prompt: 'queued msg', clientMsgId: 'q-1' });
+    conn.send({ type: 'watch', prompt: 'queued msg', clientMsgId: 'q-1' });
     postEndpoints.length = 0;
 
     // Welcome — reconnect POST fires, queued send waits
@@ -472,7 +533,7 @@ describe('SseConnection', () => {
     resolveReconnect({ ok: true });
     await vi.runAllTimersAsync();
 
-    expect(postEndpoints).toEqual(['reconnect', 'send']);
+    expect(postEndpoints).toEqual(['reconnect', 'watch']);
   });
 
   it('stays disconnected when reconnect POST fails', async () => {
@@ -491,7 +552,7 @@ describe('SseConnection', () => {
 
     // Force reconnect
     conn.checkAndReconnect(true);
-    conn.send({ type: 'send', prompt: 'should stay queued', clientMsgId: 'q-1' });
+    conn.send({ type: 'watch', prompt: 'should stay queued', clientMsgId: 'q-1' });
     listener.mockClear();
 
     // New welcome — reconnect POST will fail
@@ -625,7 +686,7 @@ describe('SseConnection', () => {
 
     // Force reconnect and queue a send
     conn.checkAndReconnect(true);
-    conn.send({ type: 'send', prompt: 'must survive', clientMsgId: 'q-1' });
+    conn.send({ type: 'watch', prompt: 'must survive', clientMsgId: 'q-1' });
     postEndpoints.length = 0;
 
     // First welcome — reconnect fails, send stays queued
@@ -638,7 +699,7 @@ describe('SseConnection', () => {
     lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-ghi' });
     await vi.runAllTimersAsync();
     expect(conn.isConnected()).toBe(true);
-    expect(postEndpoints).toEqual(['reconnect', 'send']);
+    expect(postEndpoints).toEqual(['reconnect', 'watch']);
   });
 
   it('schedules delayed reconnect when reconnect POST fails', async () => {
@@ -778,7 +839,7 @@ describe('SseConnection', () => {
     expect(listener).toHaveBeenCalledWith({ type: '_open' });
   });
 
-  it('does not send reconnect POST on first connection', () => {
+  it('restores tracked sessions on the first connection', () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true });
     const conn = new SseConnection(createConfig({ fetch: mockFetch }));
     conn.connect();
@@ -786,10 +847,10 @@ describe('SseConnection', () => {
     // Track a session BEFORE welcome (simulating a pre-existing session)
     conn.trackSeq('sess-1', 5);
 
-    // First welcome — _isReconnect is false, so no reconnect POST
+    // A restored/accepted session needs replay even on the first stream.
     lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
 
-    expect(mockFetch).not.toHaveBeenCalledWith(
+    expect(mockFetch).toHaveBeenCalledWith(
       'https://localhost:3100/api/chat/reconnect',
       expect.any(Object),
     );

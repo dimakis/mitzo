@@ -1,6 +1,7 @@
 // HTTP POST endpoints for chat operations — thin wrappers around ws-handler-v2.
 
 import { Router } from 'express';
+import { acceptSendCommand } from './send-command.js';
 import type { Request, Response } from 'express';
 import {
   V2SendMessage,
@@ -95,18 +96,42 @@ export function createChatRestRouter(
   const router = Router();
 
   router.post('/send', (req, res) => {
-    const connectionId = getConnectionId(req, res);
-    if (!connectionId) return;
-    const transport = getTransport(connectionId, sseRegistry, ctx.connRegistry, res);
-    if (!transport) return;
     const msg = validateBody(V2SendMessage, req.body, res);
     if (!msg) return;
+    const connectionId =
+      (req.headers['x-connection-id'] as string | undefined) ?? `send-${msg.clientMsgId}`;
     try {
-      handleSendV2(connectionId, transport, msg, ctx);
-      res.status(202).json({ ok: true });
+      const receipt = acceptSendCommand(ctx.eventStore, msg, (command, sessionId) => {
+        const delegate = new SseTransport(connectionId, sseRegistry);
+        const transport = {
+          isOpen: () => delegate.isOpen() || ctx.connRegistry.hasOpenWatchers(sessionId),
+          send(data: Record<string, unknown>) {
+            const event =
+              data.type === 'native_command_result' && !command.sessionId
+                ? data
+                : { ...data, sessionId: data.sessionId ?? sessionId };
+            if (data.type === 'error') {
+              ctx.eventStore.failSendCommand(command.clientMsgId, String(data.error));
+              ctx.eventStore.append(sessionId, 'error', { ...event, v: 2 });
+            }
+            if (ctx.connRegistry.hasOpenWatchers(sessionId))
+              ctx.connRegistry.broadcast(sessionId, event);
+            else delegate.send(event);
+          },
+        };
+        const outcome = handleSendV2(connectionId, transport, command, ctx, {
+          initialSessionId: command.sessionId ? undefined : sessionId,
+        });
+        if (outcome === 'native') return false;
+      });
+      res.status(202).json(receipt);
     } catch (err) {
       log.error('POST /chat/send failed', { connectionId, error: String(err) });
-      res.status(500).json({ ok: false, error: 'Internal server error' });
+      res.status(422).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Send failed',
+        clientMsgId: msg.clientMsgId,
+      });
     }
   });
 
