@@ -1,10 +1,10 @@
-# Codex app-server chat lifecycle (development only)
+# Native chat lifecycle and account deployment
 
-The ChatGPT subscription route now connects to Mitzo chat through a managed Codex
-app-server process. It remains hidden unless `MITZO_CODEX_DEV_ENABLED=1` and
-`NODE_ENV` is not `production`. This is an isolated development integration, pending
-end-to-end and physical-phone acceptance. The direct Responses API route remains
-separate; neither route falls back to the other.
+The ChatGPT subscription route uses a managed Codex app-server process. Enable it
+explicitly with `MITZO_CODEX_ENABLED=1`; the development-only alternative is
+`MITZO_CODEX_DEV_ENABLED=1` outside production. Work OpenAI accounts use the Responses
+API through the native runner. Vertex retains the Claude Agent SDK route. Providers
+never silently fall back to each other.
 
 ## Account and process ownership
 
@@ -78,63 +78,44 @@ Built-in skill listing/reading remains available with the tested CLI flags. This
 is not a general proof against future CLI tool surfaces. Revalidate the generated
 protocol schema and advertised tools when updating Codex.
 
-Restricted skill tool ceilings, configured project hooks, images, native Codex
-structured questions, subagents, compaction, and reasoning-summary UI are not yet
-supported by this route. Unsupported image/skill/hook requests fail explicitly;
-this slice does not provide full feature parity. Shared question/approval UI work
-is maintained separately and still needs integration acceptance. Account selection
-also needs complete capability-aware attachment controls before activation.
+Restricted skill tool ceilings, images, subagents, and compaction are not supported
+by the Codex route. New conversations advertise Read, Write, Edit, Bash, and
+AskUserQuestion. Mutating tools can request a real approval card with
+`require_approval: true`; configured permission policy remains authoritative.
+Native Codex requestUserInput requests also use the shared question cards.
+Only provider reasoning summaries are displayed, never raw private reasoning.
+Resumed provider threads retain their original dynamic tool catalog: start a new
+chat to obtain newly introduced tools.
 
-## Verification and remaining acceptance
+## Credentials and project hooks
 
-The tests cover transport failure, bindings, event translation, sequential queues,
-command/tool deduplication, restart pause, cancellation, native/MCP permission
-routing, private paths, dispatch, and explicit queue continuation UI. Review
-regressions cover early completion before turn identity is confirmed, shutdown
-during interruption, cleanup idempotency, and explicit recovery in a replacement
-runtime. MCP cards use canonical tool names while retaining stable wire IDs. Existing
-Vertex and SDK tests remain part of the full suite.
+OpenAI API profiles use a credential reference, for example
+`{"provider":"keychain","service":"com.mitzo.openai","account":"work"}`.
+The credential resolver registry accepts additional provider implementations.
+Resolution fails closed; secrets are not stored in account profiles, tool
+environments, or session metadata. The API model is fixed for the conversation.
+Its private native history is separate from the Codex durable follow-up queue.
 
-A live synthetic `MITZO_OK` turn using `gpt-5.6-luna` and an existing ChatGPT login
-completed successfully through the conversation controller, without an API key.
-Subsequent browser tests verified actual chat/query-loop/SSE execution, reply
-restoration after refresh, desktop account controls, alias persistence, and a
-Luna → Terra → Luna sequence in one conversation retaining earlier context. The
-user confirmed the initial mobile-width chat flow worked. Live Luna Read calls
-rendered the tool card, file contents, and final answer, including a browser refresh
-during a follow-up read. The query loop now follows the same session object when
-its client connection is rekeyed. WebSocket-specific and
-shared question/approval behavior, additional tool/recovery acceptance, and full
-physical-phone scenarios remain required before activation.
-Long-history bounds and tool-catalog changes across resumed provider threads also
-need further validation. Production deployment is outside this development slice.
+Supported command hooks are SessionStart, PreToolUse, PostToolUse, Stop and
+SessionEnd. Unsupported hook kinds fail explicitly. Hooks execute with a temporary
+private HOME and the project directory in CLAUDE_PROJECT_DIR; they do not inherit
+personal HOME credentials. Startup context is appended to the prompt, pre-tool
+updates are revalidated, denial blocks execution, and ask requests an approval
+card. A post-tool failure reports that the tool already ran; it must not be retried
+blindly. Stop hooks gate completion. This is a bounded compatibility layer, not full
+SDK hook parity; nonblocking Stop context is not injected as another model turn.
 
-Protocol reference: [Codex app-server](https://learn.chatgpt.com/docs/app-server).
-The local CLI-generated schema should be rechecked on version changes.
+## Deployment verification
 
-Account email matching deliberately requires the exact provider-reported value. Configure that value verbatim; preflight does not assume that differently cased login identifiers are interchangeable. The profile revision also retains the exact configured identity.
+The integrated branch includes structured questions and approval acknowledgement
+from #454, on top of merged #453 and #455. Automated coverage includes permissions,
+queue recovery, native hooks, credential redaction, API routing, reasoning summaries,
+and account startup/navigation regressions. The full suite passed 3,431 tests before
+the final desktop feedback and alias-read tests; CI validates the final commit.
 
-The combined lifecycle and durable prompt-delivery branch passes 3,388 tests across
-230 files, including accepted Codex session/message identity on start and resume,
-preflight reply failure sanitization, and lost-acknowledgement reconnect delivery.
-Server/frontend builds, lint, and formatting also pass. These automated checks do
-not replace the live acceptance gaps below.
-
-## Follow-up wiring acceptance
-
-The live Read tests verify tool execution, not approval cards. The Codex route has
-no explicit Mitzo approval-request tool and does not yet map native structured
-question requests. The shared prompt currently asks for confirmation before every
-mutation, while Agent mode permits local edits through its tool policy. A textual
-“approve” exchange is not evidence of the structured approval flow. Reconcile
-these behaviors with the shared question/approval work in a separate integration
-session; verify allow, deny, cancellation, and reconnect without repeating effects.
-
-Also audit reasoning-summary events, capability-aware attachments, hooks and skill
-ceilings, subagents/compaction, and provider-specific history/rename paths. The dev
-Codex chat still attempts Anthropic-based auto-rename and SDK session rename, which
-fall back or fail without those credentials. Keep subscription routing explicit.
-Merged prompt-delivery recovery needs Codex-specific live acceptance in addition
-to the shared transport tests, including desktop delivery state and authentication
-loss. Full physical-phone, MCP approval, and long-history/tool-catalog recovery
-acceptance remain open.
+Live testing verified a Keychain-backed Responses Read call and answered structured
+question. A fresh Luna conversation displayed a real Write approval card; denying
+it left the file absent. Earlier checks covered Luna/Terra model changes, aliases,
+and Read/reconnect behavior. The iOS app builds and signs successfully; installation
+and physical-phone acceptance remain deferred. These checks do not establish full
+MCP, long-history, changed-tool-catalog, or physical-phone parity.
