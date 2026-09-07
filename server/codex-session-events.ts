@@ -6,7 +6,10 @@ function object(value: unknown): ObjectValue {
 }
 /** Converts Codex text/host-tool events into the existing query-loop event contract. */
 export class CodexSessionEvents {
-  private texts = new Map<string, { text: string; closed: boolean; messageId: string }>();
+  private texts = new Map<
+    string,
+    { text: string; closed: boolean; messageId: string; kind: 'text' | 'thinking' }
+  >();
   private finishedTurns = new Set<string>();
   constructor(
     private conversationId: string,
@@ -20,12 +23,12 @@ export class CodexSessionEvents {
   private stream(event: StreamEvent) {
     this.emit({ type: 'stream_event', event, parent_tool_use_id: null });
   }
-  private start(id: string) {
+  private start(id: string, kind: 'text' | 'thinking' = 'text') {
     let item = this.texts.get(id);
     if (item) return item;
     // The existing renderer has one active assistant message. Finish it before another begins.
     this.flush();
-    item = { text: '', closed: false, messageId: randomUUID() };
+    item = { text: '', closed: false, messageId: randomUUID(), kind };
     this.texts.set(id, item);
     this.stream({
       type: 'message_start',
@@ -39,7 +42,8 @@ export class CodexSessionEvents {
     this.stream({
       type: 'content_block_start',
       index: 0,
-      content_block: { type: 'text', text: '' },
+      content_block:
+        kind === 'thinking' ? { type: 'thinking', thinking: '' } : { type: 'text', text: '' },
     });
     return item;
   }
@@ -52,7 +56,13 @@ export class CodexSessionEvents {
       type: 'assistant',
       session_id: this.conversationId,
       parent_tool_use_id: null,
-      message: { content: [{ type: 'text', text: item.text }] },
+      message: {
+        content: [
+          item.kind === 'thinking'
+            ? { type: 'thinking', thinking: item.text }
+            : { type: 'text', text: item.text },
+        ],
+      },
     });
   }
   flush() {
@@ -60,6 +70,47 @@ export class CodexSessionEvents {
   }
   notification(method: string, params: ObjectValue) {
     if (params.threadId !== this.threadId) return;
+    if (
+      method === 'item/reasoning/summaryTextDelta' &&
+      typeof params.itemId === 'string' &&
+      typeof params.delta === 'string' &&
+      Number.isInteger(params.summaryIndex)
+    ) {
+      const item = this.start(`reasoning:${params.itemId}:${params.summaryIndex}`, 'thinking');
+      if (item.closed) return;
+      item.text += params.delta;
+      this.stream({
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'thinking_delta', thinking: params.delta },
+      });
+      return;
+    }
+    if (method === 'item/completed') {
+      const final = object(params.item);
+      if (
+        final.type === 'reasoning' &&
+        typeof final.id === 'string' &&
+        Array.isArray(final.summary)
+      ) {
+        final.summary.forEach((text, index) => {
+          if (typeof text !== 'string' || !text) return;
+          const id = `reasoning:${final.id}:${index}`;
+          const item = this.start(id, 'thinking');
+          if (item.closed) return;
+          if (!item.text) {
+            item.text = text;
+            this.stream({
+              type: 'content_block_delta',
+              index: 0,
+              delta: { type: 'thinking_delta', thinking: text },
+            });
+          }
+          this.complete(id);
+        });
+        return;
+      }
+    }
     if (
       method === 'item/agentMessage/delta' &&
       typeof params.itemId === 'string' &&

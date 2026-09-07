@@ -92,3 +92,41 @@ it('renders host tool calls and results without putting provider continuation ID
     parent_tool_use_id: null,
   });
 });
+
+it('renders provider reasoning summaries as thinking without exposing raw reasoning', () => {
+  const events: Record<string, unknown>[] = [];
+  const m = new CodexSessionEvents('app', 'provider', 'model', (e) => events.push(e));
+  m.notification('item/reasoning/textDelta', {
+    threadId: 'provider',
+    itemId: 'r',
+    delta: 'private raw reasoning',
+  });
+  m.notification('item/reasoning/summaryTextDelta', {
+    threadId: 'provider',
+    itemId: 'r',
+    summaryIndex: 0,
+    delta: 'Checking ',
+  });
+  m.notification('item/reasoning/summaryTextDelta', {
+    threadId: 'provider',
+    itemId: 'r',
+    summaryIndex: 0,
+    delta: 'the file',
+  });
+  m.notification('item/completed', {
+    threadId: 'provider',
+    item: {
+      type: 'reasoning',
+      id: 'r',
+      summary: ['Checking the file'],
+      content: ['private raw reasoning'],
+    },
+  });
+  m.notification('turn/completed', { threadId: 'provider', turn: { id: 't' } });
+  expect(events.filter((e) => e.type === 'assistant')).toEqual([
+    expect.objectContaining({
+      message: { content: [{ type: 'thinking', thinking: 'Checking the file' }] },
+    }),
+  ]);
+  expect(JSON.stringify(events)).not.toContain('private raw reasoning');
+});
