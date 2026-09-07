@@ -73,6 +73,15 @@ export async function openCodexChat(options: Options) {
     signal: options.session.abortController.signal,
   });
   const events = new AsyncQueue<Record<string, unknown>>();
+  let closed = false;
+  function finish() {
+    if (closed) return;
+    closed = true;
+    signal.removeEventListener('abort', close);
+    events.close();
+    void mcp.close();
+    runtimes.delete(options.session);
+  }
   const runtime = new CodexConversation({
     conversationId: options.conversationId,
     cwd: options.session.cwd!,
@@ -92,11 +101,7 @@ export async function openCodexChat(options: Options) {
     createClient: (callbacks) =>
       CodexAppServerClient.launch(options.profile.credentialRef, process.env, callbacks),
     emit: (event) => events.push(event),
-    onClosed: () => {
-      events.close();
-      void mcp.close();
-      runtimes.delete(options.session);
-    },
+    onClosed: finish,
     executeTool: async (name, input, signal) => {
       const owner = options.registry.findBySessionId(options.conversationId);
       if (!owner) throw new Error('Codex session unavailable');
@@ -134,13 +139,11 @@ export async function openCodexChat(options: Options) {
         });
     },
   });
-  const close = () => {
-    signal.removeEventListener('abort', close);
+  function close() {
+    if (closed) return;
     runtime.close();
-    void mcp.close();
-    events.close();
-    runtimes.delete(options.session);
-  };
+    finish();
+  }
   signal.addEventListener('abort', close, { once: true });
   try {
     signal.throwIfAborted();

@@ -17,6 +17,9 @@ vi.mock('../codex-conversation-store.js', () => ({
 }));
 vi.mock('../codex-conversation.js', () => ({
   CodexConversation: class {
+    constructor(options: { onClosed: () => void }) {
+      mocks.close.mockImplementation(options.onClosed);
+    }
     initialize = mocks.initialize;
     close = mocks.close;
     send = mocks.send;
@@ -50,4 +53,16 @@ it('closes an initialization aborted before the first turn starts', async () => 
   expect(mocks.close).toHaveBeenCalled();
   expect(mocks.mcpClose).toHaveBeenCalled();
   expect(mocks.send).not.toHaveBeenCalled();
+});
+
+it('cleans each resource once across explicit close, runtime close and abort', async () => {
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const abort = new AbortController();
+  const chat = await openCodexChat(options(abort));
+  chat.close();
+  chat.close();
+  abort.abort();
+  expect(mocks.close).toHaveBeenCalledTimes(1);
+  expect(mocks.mcpClose).toHaveBeenCalledTimes(1);
 });
