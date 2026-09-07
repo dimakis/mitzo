@@ -61,6 +61,9 @@ interface Options {
 }
 /** Shared chat adapter. Execution remains gated by the account catalog and unsupported capabilities fail explicitly. */
 export async function openCodexChat(options: Options) {
+  const signal = options.session.abortController.signal;
+  signal.throwIfAborted();
+  const privateStorage = store();
   const mcp = await connectCodexMcpTools(options.mcpServers, {
     cwd: options.session.cwd!,
     env: options.env,
@@ -72,7 +75,7 @@ export async function openCodexChat(options: Options) {
     cwd: options.session.cwd!,
     profile: options.profile,
     storedBinding: options.binding,
-    store: store(),
+    store: privateStorage,
     systemPrompt: options.systemPrompt,
     tools: [...nativeToolDefinitions, ...mcp.definitions],
     createClient: (callbacks) =>
@@ -121,19 +124,23 @@ export async function openCodexChat(options: Options) {
     },
   });
   const close = () => {
+    signal.removeEventListener('abort', close);
     runtime.close();
+    void mcp.close();
     events.close();
     runtimes.delete(options.session);
   };
+  signal.addEventListener('abort', close, { once: true });
   try {
+    signal.throwIfAborted();
     await runtime.initialize();
+    signal.throwIfAborted();
     runtimes.set(options.session, runtime);
     await runtime.send({ id: options.messageId, prompt: options.prompt });
   } catch (error) {
     close();
     throw error;
   }
-  options.session.abortController.signal.addEventListener('abort', close, { once: true });
   return {
     [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](),
     interrupt: () => runtime.interrupt(),
