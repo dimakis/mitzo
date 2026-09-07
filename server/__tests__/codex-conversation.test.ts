@@ -27,6 +27,7 @@ async function setup() {
     close: vi.fn(),
     request: vi.fn(async (method: string, params: Record<string, unknown>) => {
       requests.push({ method, params });
+      if (method === 'config/read') return { config: {} };
       if (method === 'account/read')
         return { account: { type: 'chatgpt', email: 'test@example.com', planType: 'test' } };
       if (method === 'thread/start' || method === 'thread/resume')

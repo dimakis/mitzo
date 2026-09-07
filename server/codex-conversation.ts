@@ -8,6 +8,7 @@ import {
   type CodexCommand,
   type CodexCommandInput,
 } from './codex-conversation-store.js';
+import { codexRuntimeOverrides } from './codex-runtime-policy.js';
 import { CodexSessionEvents } from './codex-session-events.js';
 type ObjectValue = Record<string, unknown>;
 interface Rpc {
@@ -71,6 +72,12 @@ export class CodexConversation {
     this.opts.store.create(this.opts.conversationId, this.binding, this.opts.cwd);
     const state = this.opts.store.read(this.opts.conversationId, this.binding);
     this.paused = !!state.recovery;
+    const configResponse = z
+      .object({ config: z.unknown() })
+      .parse(
+        await this.client.request('config/read', { cwd: this.opts.cwd, includeLayers: false }),
+      );
+    const runtimeConfig = codexRuntimeOverrides(configResponse.config);
     const method = state.threadId ? 'thread/resume' : 'thread/start';
     const result = z
       .object({
@@ -85,6 +92,7 @@ export class CodexConversation {
           modelProvider: 'openai',
           allowProviderModelFallback: false,
           cwd: this.opts.cwd,
+          config: runtimeConfig,
           environments: [],
           approvalPolicy: 'never',
           sandbox: 'read-only',
