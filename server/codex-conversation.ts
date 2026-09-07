@@ -141,7 +141,12 @@ export class CodexConversation {
     // Built-in Codex skill readers cannot yet be mediated; do not silently weaken a ceiling.
     if (input.allowedTools)
       throw new Error('Codex execution does not yet support restricted skill tool ceilings');
-    const model = input.model ?? this.binding!.model;
+    const commands = this.queue();
+    const model =
+      input.model ??
+      commands.find((c) => c.id === input.id)?.model ??
+      commands.at(-1)?.model ??
+      this.binding!.model;
     this.validateModel(model);
     this.opts.store.enqueue(this.opts.conversationId, this.binding!, { ...input, model });
     this.opts.onQueueChange?.();

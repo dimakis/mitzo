@@ -48,6 +48,7 @@ export function AccountModelPicker({
   useEffect(() => {
     let disposed = false;
     setError('');
+    setEditingAlias(false);
     setBindingLabel('');
     setSelection(null);
     setEmpty(false);
@@ -156,6 +157,7 @@ export function AccountModelPicker({
           className="chat-model-select"
           value={account.id}
           onChange={(e) => {
+            setEditingAlias(false);
             const nextAccount = accounts.find((a) => a.id === e.target.value)!;
             const next = { accountId: nextAccount.id, model: nextAccount.models[0].id };
             setSelection(next);

@@ -194,3 +194,13 @@ it('pins an allowed model to each queued command while retaining the subscriptio
   );
   expect(c.queue()).toHaveLength(2);
 });
+
+it('keeps the last selected model for follow-ups that omit a model and deduplicates older retries', async () => {
+  const { c } = await setup();
+  await c.send({ id: 'first', prompt: 'one' });
+  await c.send({ id: 'second', prompt: 'two', model: 'other-model' });
+  await c.send({ id: 'third', prompt: 'three' });
+  expect(c.queue().map((q) => q.model)).toEqual(['test-model', 'other-model', 'other-model']);
+  await c.send({ id: 'first', prompt: 'one' });
+  expect(c.queue()).toHaveLength(3);
+});
