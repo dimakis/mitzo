@@ -175,7 +175,17 @@ function sendBootContext(connectionId: string, sessionId: string, ctx: V2Handler
   if (!conn) return;
 
   for (const request of getPendingRequestsBySession(sessionId)) {
-    conn.transport.send({ type: 'permission_request', ...request });
+    try {
+      conn.transport.send({ type: 'permission_request', ...request });
+    } catch (err) {
+      // Leave the request pending for the next reconnect and continue with
+      // other replay messages, including the boot context.
+      log.warn('permission replay delivery failed', {
+        sessionId,
+        permId: request.permId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   // Hot path: running session with in-memory cache

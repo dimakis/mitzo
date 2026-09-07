@@ -48,7 +48,7 @@ import {
 } from '../chat.js';
 import { setSkillPolicy, clearSkillPolicy } from '../skill-policy.js';
 import { resolveSlashCommand } from '../slash-commands.js';
-import { denyPendingBySession } from '../permissions.js';
+import { denyPendingBySession, getPendingRequestsBySession } from '../permissions.js';
 
 import {
   handleHello,
@@ -327,6 +327,46 @@ describe('handleReconnect', () => {
 // ─── boot_context replay (sendBootContext helper, tested via handlers) ──────
 
 describe('boot_context replay', () => {
+  it('continues replay and boot context delivery when one permission send throws', () => {
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'c1:sess-1',
+      session: { bootContext: { source: 'contexgin', tokenCount: 100 } },
+    });
+    sessionReg.isActive.mockReturnValue(true);
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ isActive: true });
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    const send = transport.send;
+    transport.send = (message) => {
+      if (message.type === 'permission_request' && message.permId === 'p1')
+        throw new Error('socket closed');
+      send(message);
+    };
+    ctx.connRegistry.register('c1', transport);
+    vi.mocked(getPendingRequestsBySession).mockReturnValueOnce([
+      { permId: 'p1', toolName: 'Bash', toolInput: 'first', sessionId: 'sess-1' },
+      { permId: 'p2', toolName: 'Bash', toolInput: 'second', sessionId: 'sess-1' },
+    ]);
+    expect(() =>
+      handleReconnect(
+        'c1',
+        { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
+        ctx,
+      ),
+    ).not.toThrow();
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({ type: 'permission_request', permId: 'p2' }),
+    );
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({ type: 'boot_context', source: 'contexgin', sessionId: 'sess-1' }),
+    );
+  });
+
   it('handleReconnect sends boot_context with sessionId from in-memory cache', () => {
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({

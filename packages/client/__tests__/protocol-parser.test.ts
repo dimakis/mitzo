@@ -346,6 +346,15 @@ describe('permission events', () => {
     );
     expect(r.messagesActions).toEqual([{ type: 'PERMISSION_TIMEOUT', permId: 'p1' }]);
   });
+  it('permission_resolved dispatches PERMISSION_TIMEOUT', () => {
+    const r = parseServerMessage(
+      { type: 'permission_resolved', permId: 'p1' },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.messagesActions).toEqual([{ type: 'PERMISSION_TIMEOUT', permId: 'p1' }]);
+  });
 });
 
 // ─── Error handling ──────────────────────────────────────────────────────────
