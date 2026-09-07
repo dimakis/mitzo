@@ -32,3 +32,11 @@ it('mobile uses five calm destinations without backlog badges', () => {
   expect(screen.getByRole('link', { name: 'Work' }).getAttribute('aria-current')).toBe('page');
   expect(screen.getByRole('link', { name: 'Chats' }).getAttribute('href')).toBe('/sessions');
 });
+it('desktop highlights Chats inside an existing conversation', () => {
+  render(
+    <MemoryRouter initialEntries={['/chat/session-1']}>
+      <DesktopNav />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('link', { name: 'Chats' }).getAttribute('aria-current')).toBe('page');
+});

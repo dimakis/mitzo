@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 
 const primary = [
   { label: 'Today', path: '/', end: true },
@@ -12,6 +12,7 @@ const secondary = [
   { label: 'Files', path: '/files', end: false },
 ];
 export function WorkspaceNav({ desktop = false }: { desktop?: boolean }) {
+  const { pathname } = useLocation();
   const items = [
     ...primary,
     ...(desktop ? secondary : []),
@@ -22,18 +23,26 @@ export function WorkspaceNav({ desktop = false }: { desktop?: boolean }) {
       className={desktop ? 'workspace-nav' : 'tab-bar workspace-tabs'}
       aria-label="Main navigation"
     >
-      {items.map(({ label, path, end }) => (
-        <NavLink
-          key={path}
-          to={path}
-          end={end}
-          className={({ isActive }) =>
-            `workspace-nav-link${isActive ? ' workspace-nav-link--active' : ''}`
-          }
-        >
-          {label}
-        </NavLink>
-      ))}
+      {items.map(({ label, path, end }) => {
+        const active =
+          (end ? pathname === path : pathname === path || pathname.startsWith(path + '/')) ||
+          (label === 'Chats' && (pathname === '/chat' || pathname.startsWith('/chat/'))) ||
+          (!desktop &&
+            label === 'More' &&
+            ['/tasks', '/calendar', '/files', '/focus'].some(
+              (p) => pathname === p || pathname.startsWith(p + '/'),
+            ));
+        return (
+          <Link
+            key={path}
+            to={path}
+            aria-current={active ? 'page' : undefined}
+            className={`workspace-nav-link${active ? ' workspace-nav-link--active' : ''}`}
+          >
+            {label}
+          </Link>
+        );
+      })}
     </nav>
   );
 }

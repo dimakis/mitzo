@@ -1,105 +1,52 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, afterEach, beforeAll } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
-
-vi.mock('../../hooks/useTabBadges', () => ({
-  useTabBadges: () => ({ inboxCount: 3, todoCount: 0 }),
-}));
-
-vi.mock('../../hooks/useMediaQuery', () => ({
-  useIsDesktop: () => false,
-}));
-
-const mockNavigate = vi.fn();
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual('react-router-dom');
-  return { ...actual, useNavigate: () => mockNavigate };
-});
-
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { TabBar } from '../TabBar';
-
-beforeAll(() => {
-  Object.defineProperty(window, 'matchMedia', {
-    writable: true,
-    value: vi.fn().mockImplementation((query: string) => ({
-      matches: false,
-      media: query,
-      onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })),
-  });
-});
-
+const media = vi.hoisted(() => ({ desktop: false }));
+vi.mock('../../hooks/useMediaQuery', () => ({ useIsDesktop: () => media.desktop }));
 afterEach(() => {
   cleanup();
-  mockNavigate.mockClear();
+  media.desktop = false;
 });
-
+function Location() {
+  return <output data-testid="location">{useLocation().pathname}</output>;
+}
 function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <TabBar />
+      <Location />
     </MemoryRouter>,
   );
 }
-
 describe('TabBar', () => {
-  it('renders five tab items', () => {
+  it('renders five named destinations', () => {
     renderAt('/');
-    const tabs = screen.getAllByRole('button');
-    expect(tabs.length).toBe(5);
+    expect(screen.getAllByRole('link')).toHaveLength(5);
+    for (const name of ['Today', 'Chats', 'Proposals', 'Work', 'More'])
+      expect(screen.getByRole('link', { name })).toBeTruthy();
   });
-
-  it('shows tab labels', () => {
+  it('highlights Today on the home route', () => {
     renderAt('/');
-    expect(screen.getByText('Chat')).toBeTruthy();
-    expect(screen.getByText('Calendar')).toBeTruthy();
-    expect(screen.getByText('Inbox')).toBeTruthy();
-    expect(screen.getByText('Telos')).toBeTruthy();
-    expect(screen.getByText('More')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Today' }).getAttribute('aria-current')).toBe('page');
   });
-
-  it('highlights Chat tab on home route', () => {
-    renderAt('/');
-    const chatTab = screen.getByText('Chat').closest('button');
-    expect(chatTab?.className).toContain('tab-bar-item--active');
-  });
-
-  it('highlights More tab on /tasks route', () => {
+  it('highlights More for its secondary destinations', () => {
     renderAt('/tasks');
-    const moreTab = screen.getByText('More').closest('button');
-    expect(moreTab?.className).toContain('tab-bar-item--active');
+    expect(screen.getByRole('link', { name: 'More' }).getAttribute('aria-current')).toBe('page');
   });
-
-  it('shows badge on Inbox tab when count > 0', () => {
-    renderAt('/');
-    const badge = screen.getByText('3');
-    expect(badge.className).toContain('tab-bar-badge');
-  });
-
-  it('does not show badge on Telos tab when count is 0', () => {
-    renderAt('/');
-    const todosTab = screen.getByText('Telos').closest('button');
-    expect(todosTab?.querySelector('.tab-bar-badge')).toBeNull();
-  });
-
-  it('navigates when tab is clicked', () => {
-    renderAt('/');
-    fireEvent.click(screen.getByText('Calendar'));
-    expect(mockNavigate).toHaveBeenCalledWith('/calendar');
-  });
-
-  it('uses the tab-bar CSS class', () => {
+  it('does not turn backlog size into notification badges', () => {
     const { container } = renderAt('/');
-    expect(container.querySelector('.tab-bar')).toBeTruthy();
+    expect(container.querySelector('.tab-bar-badge')).toBeNull();
+  });
+  it('navigates to conversation history', () => {
+    renderAt('/');
+    fireEvent.click(screen.getByRole('link', { name: 'Chats' }));
+    expect(screen.getByTestId('location').textContent).toBe('/sessions');
+  });
+  it('uses the fixed tab bar and hides on desktop', () => {
+    media.desktop = true;
+    renderAt('/');
+    expect(screen.queryByRole('navigation')).toBeNull();
   });
 });
-
-// Desktop rendering is guarded by useIsDesktop() in TabBar.
-// Verified via the useIsDesktop mock returning false above — if it returned true,
-// all tests would fail because the component wouldn't render.
