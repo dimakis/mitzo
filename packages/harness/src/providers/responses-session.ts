@@ -84,10 +84,13 @@ async function* readEvents(body: ReadableStream<Uint8Array>) {
 function inputMessages(messages: ConversationMessage[]): Record<string, unknown>[] {
   return messages.flatMap((message) => {
     if (message.role !== 'user')
-      throw new Error('OpenAI resume requires a matching history checkpoint');
+      throw new Error(
+        'OpenAI new input must contain only user messages; assistant history requires a checkpoint',
+      );
     if (typeof message.content === 'string') return [{ role: 'user', content: message.content }];
     return message.content.map((block): Record<string, unknown> => {
       if (block.type === 'text') return { role: 'user', content: block.text };
+      // Responses has no is_error field: tool failures are conveyed in the output text.
       if (block.type === 'tool_result')
         return { type: 'function_call_output', call_id: block.tool_use_id, output: block.content };
       throw new Error('Unsupported OpenAI input content block');
