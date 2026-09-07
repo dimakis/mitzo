@@ -104,15 +104,26 @@ export function createChatRestRouter(
       const receipt = acceptSendCommand(ctx.eventStore, msg, (command, sessionId) => {
         const delegate = new SseTransport(connectionId, sseRegistry);
         const transport = {
-          isOpen: () => delegate.isOpen() || ctx.connRegistry.hasOpenWatchers(sessionId),
+          // This transport accepts events into durable storage even offline.
+          isOpen: () => true,
           send(data: Record<string, unknown>) {
-            const event =
+            let event =
               data.type === 'native_command_result' && !command.sessionId
                 ? data
                 : { ...data, sessionId: data.sessionId ?? sessionId };
             if (data.type === 'error') {
               ctx.eventStore.failSendCommand(command.clientMsgId, String(data.error));
-              ctx.eventStore.append(sessionId, 'error', { ...event, v: 2 });
+            }
+            // Query-loop events already carry their durable sequence. Early
+            // startup metadata uses this boundary as its persistence point.
+            if (event.sessionId && typeof event.seq !== 'number') {
+              const durable = { ...event, v: 2 };
+              const seq = ctx.eventStore.append(
+                String(event.sessionId),
+                String(event.type),
+                durable,
+              );
+              event = { ...durable, seq };
             }
             if (ctx.connRegistry.hasOpenWatchers(sessionId))
               ctx.connRegistry.broadcast(sessionId, event);
@@ -133,6 +144,21 @@ export function createChatRestRouter(
         clientMsgId: msg.clientMsgId,
       });
     }
+  });
+
+  // The HTTP response alone cannot establish SSE liveness.
+  router.post('/probe', (req, res) => {
+    const connectionId = getConnectionId(req, res);
+    if (!connectionId) return;
+    const transport = getTransport(connectionId, sseRegistry, ctx.connRegistry, res);
+    if (!transport) return;
+    const nonce = req.body?.nonce;
+    if (typeof nonce !== 'string' || nonce.length > 100 || !nonce) {
+      res.status(400).json({ ok: false });
+      return;
+    }
+    transport.send({ type: '_probe', nonce });
+    res.status(202).json({ ok: true });
   });
 
   router.post('/interrupt', (req, res) => {

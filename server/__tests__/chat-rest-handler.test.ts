@@ -99,6 +99,39 @@ describe('chat-rest-handler', () => {
 
   // ─── Header validation ──────────────────────────────────────────────────
 
+  it('returns a liveness nonce through the existing SSE connection', async () => {
+    const transport = connRegistry.get(CONNECTION_ID)!.transport;
+    const send = vi.spyOn(transport, 'send');
+    const response = await request(testApp)
+      .post('/api/chat/probe')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send({ nonce: 'probe-1' });
+    expect(response.status).toBe(202);
+    expect(send).toHaveBeenCalledWith({ type: '_probe', nonce: 'probe-1' });
+  });
+
+  it('persists startup events before a stream exists without duplicating sequenced events', async () => {
+    vi.mocked(handleSendV2).mockImplementationOnce((_id, transport, _msg, _ctx, delivery) => {
+      if (transport.isOpen()) transport.send({ type: 'session_info', branch: 'main' });
+      const sid = delivery!.initialSessionId!;
+      const seq = eventStore.append(sid, 'message_start', {
+        v: 2,
+        type: 'message_start',
+        messageId: 'm',
+      });
+      transport.send({ v: 2, type: 'message_start', messageId: 'm', seq });
+    });
+    const response = await request(testApp).post('/api/chat/send').send({
+      type: 'send',
+      sessionId: null,
+      prompt: 'hello',
+      clientMsgId: 'early',
+    });
+    expect(response.status).toBe(202);
+    const events = eventStore.getEventsAfter(response.body.sessionId, 0);
+    expect(events.map((e) => e.type)).toEqual(['session_info', 'message_start']);
+  });
+
   it('accepts the first prompt with no SSE stream and deduplicates a retry', async () => {
     const message = { type: 'send', sessionId: null, prompt: 'hello', clientMsgId: 'msg-1' };
     const first = await request(testApp).post('/api/chat/send').send(message);

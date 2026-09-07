@@ -130,7 +130,7 @@ describe('SseConnection', () => {
     conn.disconnect();
   });
 
-  it('rebuilds a seemingly connected stream when the page returns to foreground', () => {
+  it('rebuilds a seemingly connected stream when its foreground probe receives no reply', async () => {
     const doc = new EventTarget();
     Object.assign(doc, { visibilityState: 'visible' });
     vi.stubGlobal('document', doc);
@@ -142,9 +142,37 @@ describe('SseConnection', () => {
       const old = lastES();
       old._emit('welcome', { connectionId: 'old' });
       doc.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(1000);
       expect(old.readyState).toBe(2);
       expect(MockEventSource.instances).toHaveLength(2);
       expect(conn.isConnected()).toBe(false);
+    } finally {
+      conn.disconnect();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('keeps a stream that delivers the foreground probe over SSE', async () => {
+    const doc = new EventTarget();
+    Object.assign(doc, { visibilityState: 'visible' });
+    vi.stubGlobal('document', doc);
+    vi.stubGlobal('addEventListener', vi.fn());
+    vi.stubGlobal('removeEventListener', vi.fn());
+    const fetch = vi.fn().mockResolvedValue({ ok: true });
+    const conn = new SseConnection(createConfig({ fetch }));
+    try {
+      conn.connect();
+      const es = lastES();
+      es._emit('welcome', { connectionId: 'healthy' });
+      conn.trackSeq('suspended-session', 12);
+      doc.dispatchEvent(new Event('visibilitychange'));
+      const call = fetch.mock.calls.find(([url]) => url.endsWith('/probe'));
+      expect(call).toBeDefined();
+      es._emit('message', { type: '_probe', nonce: JSON.parse(String(call![1].body)).nonce });
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(MockEventSource.instances).toHaveLength(1);
+      expect(fetch.mock.calls.some(([url]) => url.endsWith('/reconnect'))).toBe(true);
+      expect(conn.isConnected()).toBe(true);
     } finally {
       conn.disconnect();
       vi.unstubAllGlobals();

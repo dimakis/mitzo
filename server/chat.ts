@@ -1230,7 +1230,7 @@ function storeAndEchoIfNew(
   if (eventStore.hasUserMessage(sessionId, messageId)) {
     return true;
   }
-  eventStore.append(sessionId, 'user_message', {
+  const seq = eventStore.append(sessionId, 'user_message', {
     v: 2,
     type: 'user_message',
     ts: Date.now(),
@@ -1239,7 +1239,7 @@ function storeAndEchoIfNew(
   });
   eventStore.updateLastSpeaker(sessionId, 'user');
   _onSessionChange?.(clientId, 'user_message');
-  const echo = { type: 'user_message', v: 2, messageId, text, sessionId };
+  const echo = { type: 'user_message', v: 2, messageId, text, sessionId, seq };
   send(transport, echo);
   broadcastToObservers(observers, echo);
   return false;

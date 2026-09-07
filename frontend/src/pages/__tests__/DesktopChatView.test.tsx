@@ -118,6 +118,7 @@ function createMockStore() {
     },
     progress: { blocks: {}, toolIndex: {} },
     sendError: null,
+    sendStatus: null,
     dispatchMessages: vi.fn(),
     switchSession: vi.fn().mockResolvedValue(undefined),
     newSession: vi.fn(),

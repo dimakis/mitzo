@@ -49,13 +49,36 @@ Other review suggestions were intentionally not adopted:
   not equivalent to a successful native command and must not discard the outbox
   entry. Persistent malformed responses keep delivery pending, visibly, rather
   than claiming success or inviting a duplicate command.
-- Stopping during delivery leaves the unacknowledged command for a deduplicated
-  retry on restart. The retry emits the acceptance notification; a regression
-  test verifies this lifecycle.
-- Foreground recovery rebuilds the stream on desktop as well as mobile. Local
-  EventSource readiness does not prove the connection survived suspension.
-  Restricting recovery to a platform would reintroduce that assumption.
+- Stopping delivery pauses new sends while allowing the bounded in-flight
+  request to settle. A valid receipt is saved immediately, even while stopped.
+  An unresolved request remains eligible for a deduplicated retry on restart.
+- Browser foreground recovery probes the existing stream with a nonce delivered
+  over SSE. A matching reply preserves the stream and resumes/replays suspended
+  sessions. Missing replies rebuild the stream after one second. HTTP success
+  alone never proves SSE liveness. Native force-reconnect and bfcache recovery
+  remain available; prompt delivery never waits for the probe.
 - The post-dispatch receipt read remains: legacy handlers report some synchronous
   failures through transport events rather than throwing. The durable failure
   check prevents those paths from returning a successful receipt. Replacing the
   handler result contract is separate work, not a cosmetic simplification.
+
+## Second review and integration with #456
+
+Startup metadata now enters the durable event log through the HTTP command
+transport even without a stream. Already sequenced query events are not appended
+again, and user-message echoes carry the sequence of their original append.
+Delivery status is separate from delivery errors. Tests cover stopped
+acknowledgements, 429/5xx retries, invalid receipt identities, pending retry status,
+queue capacity, startup persistence, and healthy/dead foreground probes.
+
+Merge #455 before integrating #456's provider lifecycle. #456 is stacked on #453;
+#453 must land before #456, but neither is required by #455. A merge simulation
+against #456 at e4322eb found conflicts in server/chat.ts,
+server/ws-handler-v2.ts and frontend/src/styles/global.css. Reconcile those in
+the provider stack after this transport change, preserving initialSessionId,
+clientMsgId, the stable runtime registry key and account/provider selection.
+In particular, the transport receipt must identify the same session as the
+Codex conversation and its durable queue. Repeat lost-acknowledgement and
+foreground/reconnect tests through the provider queue to prove a retry creates
+one queue entry and executes one turn. Do not infer compatibility from a clean
+textual merge or activate the development-gated provider as part of this fix.

@@ -87,6 +87,7 @@ export interface MitzoStoreState {
 
   // Error state
   sendError: string | null;
+  sendStatus: string | null;
 
   // Pending session (for "Start Session" from inbox/todo)
   pendingSession: PendingSession | null;
@@ -230,6 +231,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     tokens: INITIAL_TOKENS_STATE,
     progress: INITIAL_PROGRESS_STATE,
     sendError: null,
+    sendStatus: null,
     pendingSession: null,
 
     // ── Actions ──────────────────────────────────────────────────────────
@@ -254,6 +256,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         sessions: { ...s.sessions, active: id },
         messages: INITIAL_MESSAGES_STATE,
         sendError: null,
+        sendStatus: null,
         permissions: INITIAL_PERMISSIONS_STATE,
         tokens: INITIAL_TOKENS_STATE,
         progress: INITIAL_PROGRESS_STATE,
@@ -285,6 +288,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         sessions: { ...get().sessions, active: null },
         messages: INITIAL_MESSAGES_STATE,
         sendError: null,
+        sendStatus: null,
         permissions: INITIAL_PERMISSIONS_STATE,
         progress: INITIAL_PROGRESS_STATE,
       });
@@ -332,6 +336,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           contextBlocks: opts?.contextBlocks,
         }),
         sendError: null,
+        sendStatus: null,
       }));
 
       const msg = buildPayload();
@@ -677,14 +682,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         .messages.messages.some((m) => m.messageId === msg.clientMsgId);
       if (visible) {
         store.setState({
-          sendError:
+          sendError: msg.type === '_send_failed' ? String(msg.error) : null,
+          sendStatus:
             msg.type === '_send_pending'
               ? msg.retrying
                 ? 'Reconnecting — your message will retry automatically.'
                 : 'Sending…'
-              : msg.type === '_send_failed'
-                ? String(msg.error)
-                : null,
+              : null,
         });
         if (
           msg.type === '_send_accepted' &&

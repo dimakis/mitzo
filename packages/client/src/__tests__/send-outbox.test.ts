@@ -73,7 +73,7 @@ describe('send outbox', () => {
     },
   );
 
-  it('acknowledges a stopped in-flight prompt on restart using the same command ID', async () => {
+  it('captures an in-flight acknowledgement while stopped without starting another prompt', async () => {
     vi.useFakeTimers();
     let resolve!: (response: Response) => void;
     const fetch = vi
@@ -83,20 +83,83 @@ describe('send outbox', () => {
           resolve = r;
         }),
       )
-      .mockResolvedValue(ack());
+      .mockResolvedValue(ack('two'));
     const notify = vi.fn();
     const outbox = new SendOutbox({ fetch, notify, url: '/send' });
     outbox.start();
     outbox.enqueue(prompt, 0);
+    outbox.enqueue({ ...prompt, clientMsgId: 'two' }, 0);
     outbox.stop();
     resolve(ack());
     await vi.advanceTimersByTimeAsync(0);
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({ type: '_send_accepted', clientMsgId: 'one' }),
+    );
+    expect(fetch).toHaveBeenCalledTimes(1);
     outbox.start();
     await vi.advanceTimersByTimeAsync(0);
+    expect(JSON.parse(fetch.mock.calls[1][1].body).clientMsgId).toBe('two');
+    outbox.stop();
+  });
+
+  it.each([429, 500, 503])(
+    'retries HTTP %s with the same identity and reports retry status',
+    async (status) => {
+      vi.useFakeTimers();
+      const fetch = vi.fn().mockResolvedValueOnce({ status }).mockResolvedValue(ack());
+      const notify = vi.fn();
+      const outbox = new SendOutbox({ fetch, notify, url: '/send' });
+      outbox.start();
+      outbox.enqueue(prompt, 0);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(fetch.mock.calls[0][1].body).toBe(fetch.mock.calls[1][1].body);
+      expect(notify).toHaveBeenCalledWith(
+        expect.objectContaining({ type: '_send_pending', retrying: true, clientMsgId: 'one' }),
+      );
+      outbox.stop();
+    },
+  );
+
+  it.each([
+    { accepted: 'true', clientMsgId: 'one' },
+    { accepted: true, clientMsgId: 'wrong' },
+  ])('retains a receipt with invalid identity or acceptance: %j', async (receipt) => {
+    vi.useFakeTimers();
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 202,
+        json: async () => ({ ...receipt, sessionId: 'session' }),
+      })
+      .mockResolvedValue(ack());
+    const outbox = new SendOutbox({ fetch, notify: vi.fn(), url: '/send' });
+    outbox.start();
+    outbox.enqueue(prompt, 0);
+    await vi.advanceTimersByTimeAsync(1000);
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(fetch.mock.calls[0][1].body).toBe(fetch.mock.calls[1][1].body);
-    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ type: '_send_accepted' }));
     outbox.stop();
+  });
+
+  it('rejects a full queue without discarding an accepted entry', () => {
+    let saved = '';
+    const outbox = new SendOutbox({
+      fetch: vi.fn(),
+      notify: vi.fn(),
+      url: '/send',
+      storage: {
+        getItem: () => null,
+        setItem: (_, value) => {
+          saved = value;
+        },
+      },
+    });
+    for (let i = 0; i < 100; i++)
+      expect(outbox.enqueue({ ...prompt, clientMsgId: String(i) }, 0)).toBe(true);
+    expect(outbox.enqueue({ ...prompt, clientMsgId: 'overflow' }, 0)).toBe(false);
+    expect(JSON.parse(saved)).toHaveLength(100);
+    expect(JSON.parse(saved)[0].body.clientMsgId).toBe('0');
   });
 
   it('retries a lost response with the identical command ID without waiting for SSE', async () => {

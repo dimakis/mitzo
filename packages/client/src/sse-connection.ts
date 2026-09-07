@@ -43,6 +43,8 @@ export class SseConnection implements ChatConnection {
     dirty: boolean;
   } | null = null;
   private outbox: SendOutbox;
+  private foregroundProbe: { nonce: string; cancel: () => void } | null = null;
+  private probeCounter = 0;
   private listener: ConnectionListener | null = null;
   private seqBySession = new Map<string, number>();
   private pendingSends: Array<{ endpoint: string; body: Record<string, unknown> }> = [];
@@ -94,6 +96,7 @@ export class SseConnection implements ChatConnection {
   }
 
   disconnect(): void {
+    this.foregroundProbe?.cancel();
     this.outbox.stop();
     this.clearPendingSends();
     this.removeBrowserListeners();
@@ -217,6 +220,7 @@ export class SseConnection implements ChatConnection {
    */
   checkAndReconnect(force = false): void {
     if (!force && this._connected) return;
+    this.foregroundProbe?.cancel();
     if (this.reconnectTimer) return;
     if (this.es) {
       this.es.close();
@@ -282,6 +286,16 @@ export class SseConnection implements ChatConnection {
       try {
         msg = JSON.parse(e.data);
       } catch {
+        return;
+      }
+
+      if (msg.type === '_probe') {
+        if (this.foregroundProbe && msg.nonce === this.foregroundProbe.nonce) {
+          this.foregroundProbe.cancel();
+          // Backgrounding suspended the sessions even if the stream survived.
+          if (this._connectionId && this.seqBySession.size)
+            void this.doReconnectPost(this._connectionId, es);
+        }
         return;
       }
 
@@ -465,12 +479,46 @@ export class SseConnection implements ChatConnection {
 
   // ─── Browser lifecycle ─────────────────────────────────────────────────────
 
+  private probeForeground(): void {
+    if (!this._connected || !this.es || !this._connectionId) {
+      this.checkAndReconnect();
+      return;
+    }
+    if (this.foregroundProbe) return;
+    const es = this.es;
+    const connectionId = this._connectionId;
+    const nonce = String(++this.probeCounter);
+    const abort = new AbortController();
+    const cancel = () => {
+      clearTimeout(timer);
+      abort.abort();
+      if (this.foregroundProbe?.nonce === nonce) this.foregroundProbe = null;
+    };
+    const fail = () => {
+      if (this.foregroundProbe?.nonce !== nonce) return;
+      cancel();
+      if (this.es === es && this._connectionId === connectionId) this.checkAndReconnect(true);
+    };
+    const timer = setTimeout(fail, 1000);
+    this.foregroundProbe = { nonce, cancel };
+    void this.config
+      .fetch(`${this.config.baseUrl}/api/chat/probe`, {
+        method: 'POST',
+        signal: abort.signal,
+        headers: { 'Content-Type': 'application/json', 'X-Connection-ID': connectionId },
+        body: JSON.stringify({ nonce }),
+      })
+      .then((res) => {
+        if (!res.ok) fail();
+      }, fail);
+  }
+
   private addBrowserListeners(): void {
     if (typeof globalThis.document === 'undefined') return;
 
     this.boundOnVisibility = () => {
       if (document.visibilityState === 'visible') {
-        this.checkAndReconnect(true);
+        this.probeForeground();
         this.listener?.({ type: '_foreground' });
       } else if (document.visibilityState === 'hidden') {
         this.sendSuspend();

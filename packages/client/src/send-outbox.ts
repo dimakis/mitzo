@@ -17,7 +17,6 @@ export class SendOutbox {
   private active = false;
   private busy = false;
   private timer?: ReturnType<typeof setTimeout>;
-  private abort?: AbortController;
   private failures = 0;
   private readonly key: string;
 
@@ -47,7 +46,7 @@ export class SendOutbox {
     this.active = false;
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
-    this.abort?.abort();
+    // Pause new work; the bounded in-flight request may still acknowledge.
   }
 
   enqueue(body: Record<string, unknown>, scope: number): boolean {
@@ -76,7 +75,6 @@ export class SendOutbox {
     this.busy = true;
     const entry = this.entries[0];
     const abort = new AbortController();
-    this.abort = abort;
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
       const { response, receipt } = await Promise.race([
@@ -105,7 +103,6 @@ export class SendOutbox {
           timeout = setTimeout(() => abort.abort(), this.config.timeoutMs ?? 15000);
         }),
       ]);
-      if (!this.active) return;
       if (!response.ok) {
         this.entries.shift();
         this.config.notify({
@@ -155,7 +152,6 @@ export class SendOutbox {
       }
     } finally {
       if (timeout) clearTimeout(timeout);
-      this.abort = undefined;
       this.busy = false;
       if (this.active && !this.timer) void this.pump();
     }

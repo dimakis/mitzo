@@ -1277,3 +1277,26 @@ describe('account selection', () => {
     });
   });
 });
+
+describe('delivery status', () => {
+  it('keeps pending delivery separate from an error', () => {
+    const store = createMitzoStore(makeOptions());
+    lastWs.completeHandshake();
+    store.getState().sendMessage('hello');
+    const command = lastWs.parsedSent().find((m) => m.type === 'send')!;
+    lastWs.simulateMessage({
+      type: '_send_pending',
+      clientMsgId: command.clientMsgId,
+      retrying: true,
+    });
+    expect(store.getState().sendError).toBeNull();
+    expect(store.getState().sendStatus).toContain('retry');
+    lastWs.simulateMessage({
+      type: '_send_failed',
+      clientMsgId: command.clientMsgId,
+      error: 'Rejected',
+    });
+    expect(store.getState().sendStatus).toBeNull();
+    expect(store.getState().sendError).toBe('Rejected');
+  });
+});
