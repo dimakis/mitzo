@@ -13,7 +13,6 @@ it('disables inherited MCP servers and native execution paths while keeping host
     'image_generation',
     'multi_agent',
     'hooks',
-    'code_mode_host',
   ])
     expect(c[`features.${feature}`]).toBe(false);
   expect(c['agents.enabled']).toBe(false);
@@ -27,4 +26,12 @@ it('rejects custom OpenAI routing and unsupported configuration names rather tha
     }),
   ).toThrow('routing');
   expect(() => codexRuntimeOverrides({ mcp_servers: { 'ambiguous.name': {} } })).toThrow('MCP');
+});
+
+it('allows model-required code-mode dispatch while keeping native execution disabled', () => {
+  const c = codexRuntimeOverrides({});
+  expect(c['features.code_mode_host']).toBe(true);
+  expect(c['features.code_mode']).toBe(false);
+  expect(c['features.shell_tool']).toBe(false);
+  expect(c['features.unified_exec']).toBe(false);
 });

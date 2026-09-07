@@ -24,7 +24,6 @@ export function codexRuntimeOverrides(configuration: unknown): Record<string, un
     'view_image',
     'multi_agent',
     'hooks',
-    'code_mode_host',
     'code_mode',
     'sleep_tool',
     'goals',
@@ -33,6 +32,9 @@ export function codexRuntimeOverrides(configuration: unknown): Record<string, un
     'memories',
   ])
     config[`features.${feature}`] = false;
+  // Code-mode-only models dispatch registered host tools through the JS wrapper.
+  // This enables that dispatcher; native execution tools remain disabled above.
+  config['features.code_mode_host'] = true;
   for (const name of Object.keys(parsed.data.mcp_servers ?? {})) {
     if (!/^[A-Za-z0-9_-]+$/.test(name))
       throw new Error('Unsupported inherited Codex MCP server name');
