@@ -17,14 +17,26 @@ such as `gpt-5.6-luna` for smoke tests. Never put tokens in this profile file.
 The adapter passes an allowlisted environment to Codex, excluding API keys and
 alternate-provider variables, and requires ChatGPT authentication. Account metadata
 is checked at initialization and before every queued turn. The durable application
-binding pins the selected account configuration and model; model/provider fallback
-is disabled. No automatic login, logout, or token copying occurs.
+binding pins the selected account configuration and starting model. Each queued
+turn records its selected model from that account’s current allowlist; changing
+models between turns does not change subscriptions. Model/provider fallback is disabled. No automatic login, logout, or token copying occurs.
 
 The installed CLI's account schema exposes email and plan, not stable workspace
 identity. External changes to a shared login can still race the per-turn check.
 These checks do not provide atomic pinning of a mutable login directory.
 
 ## Chat, queue, and tool behavior
+
+Desktop and mobile share the account/model picker. Existing Codex conversations
+can select Luna, Terra, or another configured model for their next turn while the
+subscription stays fixed. The picker is disabled during generation. Queued work
+retains the model selected when it was submitted. Other provider routes retain
+their existing binding policy.
+
+The **Rename** control saves a display alias per stable account ID in the server's
+`.mitzo/account-aliases.json`. Aliases apply across browsers and existing chats;
+they do not alter credentials, account identity, or billing. Saving a blank alias
+restores the configured label.
 
 - Canonical Mitzo conversation IDs map privately to provider thread IDs. Context
   assembled by the existing chat path is passed to the Codex thread and prompt.
@@ -74,9 +86,12 @@ Vertex and SDK tests remain part of the full suite.
 
 A live synthetic `MITZO_OK` turn using `gpt-5.6-luna` and an existing ChatGPT login
 completed successfully through the conversation controller, without an API key.
-This verifies controller execution and subscription access, not the full mobile
-chat path. Full WebSocket/query-loop execution, shared question/approval behavior,
-mobile layout, and physical-phone acceptance remain required before activation.
+Subsequent browser tests verified actual chat/query-loop/SSE execution, reply
+restoration after refresh, desktop account controls, alias persistence, and a
+Luna → Terra → Luna sequence in one conversation retaining earlier context. The
+user confirmed the initial mobile-width chat flow worked. WebSocket-specific and
+shared question/approval behavior, additional tool/recovery acceptance, and full
+physical-phone scenarios remain required before activation.
 Long-history bounds and tool-catalog changes across resumed provider threads also
 need further validation. Production deployment is outside this development slice.
 
