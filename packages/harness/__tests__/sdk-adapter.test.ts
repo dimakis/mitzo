@@ -213,6 +213,23 @@ describe('sdkWrapperEmitter', () => {
     expect((textBlocks[0] as { text: string }).text).toBe('Here is the answer');
   });
 
+  it('accepts final input token counts reported by Responses message_delta', async () => {
+    const turn = textTurnEvents('done');
+    for (const event of turn) {
+      if (event.type === 'message_delta') event.usage.input_tokens = 321;
+    }
+    const events = await collect(
+      sdkWrapperEmitter(mockSession([turn]), [{ role: 'user', content: 'hi' }], {
+        sessionId: 'usage-delta',
+        startMs: Date.now(),
+      }),
+    );
+    expect(events.find((event) => event.type === 'assistant')?.usage).toMatchObject({
+      input_tokens: 321,
+      output_tokens: 10,
+    });
+  });
+
   it('accumulates usage from message_start and message_delta', async () => {
     const session = mockSession([textTurnEvents('hello')]);
     const messages: ConversationMessage[] = [{ role: 'user', content: 'hi' }];
