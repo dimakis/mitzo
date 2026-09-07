@@ -49,7 +49,12 @@ restores the configured label.
   before execution; a duplicate is reported as uncertain and is not rerun.
 - Private SQLite state lives under `MITZO_CODEX_PRIVATE_DIR` (default
   `~/.mitzo/private/codex`). Public file APIs exclude this directory and configured
-  Codex login roots, including symlink aliases.
+  Codex login roots, including symlink aliases. Directory listings load the account
+  configuration once per request. Previously known private roots stay protected if
+  a profile is removed or the profile file becomes unreadable, while ordinary
+  browsing continues. A cold start with no valid root snapshot still fails closed
+  until the configuration is repaired; unknown credential paths cannot safely be
+  guessed. Non-missing-path resolution errors also deny access.
 - Interrupt and process loss pause queued work. Startup marks unfinished commands
   interrupted. Queued messages require explicit continuation; interrupted actions
   are never automatically replayed. The chat status shows the saved queue and
@@ -84,7 +89,10 @@ also needs complete capability-aware attachment controls before activation.
 
 The tests cover transport failure, bindings, event translation, sequential queues,
 command/tool deduplication, restart pause, cancellation, native/MCP permission
-routing, private paths, dispatch, and explicit queue continuation UI. Existing
+routing, private paths, dispatch, and explicit queue continuation UI. Review
+regressions cover early completion before turn identity is confirmed, shutdown
+during interruption, cleanup idempotency, and explicit recovery in a replacement
+runtime. MCP cards use canonical tool names while retaining stable wire IDs. Existing
 Vertex and SDK tests remain part of the full suite.
 
 A live synthetic `MITZO_OK` turn using `gpt-5.6-luna` and an existing ChatGPT login
