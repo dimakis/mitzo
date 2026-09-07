@@ -1,0 +1,2612 @@
+<div id="mitzo-design" aria-label="Mitzo implementation design preview">
+  <style>
+    #mitzo-design {
+      --m-bg: light-dark(#faf9f6, #131416);
+      --m-fg: light-dark(#202127, #f2f2f5);
+      --m-muted: light-dark(#62636b, #aaaab4);
+      --m-line: light-dark(#dedee3, #33343d);
+      --m-panel: light-dark(#efedf8, #242131);
+      --m-accent: light-dark(#5e42b8, #b5a1ff);
+      --m-neutral: light-dark(#f0efed, #1c1d21);
+      font:
+        16px/1.5 -apple-system,
+        BlinkMacSystemFont,
+        'Segoe UI',
+        sans-serif;
+      color: var(--m-fg);
+      max-width: 430px;
+      margin: 0 auto;
+      background: var(--m-bg);
+      border: 1px solid var(--m-line);
+      border-radius: 22px;
+      overflow: hidden;
+    }
+    #mitzo-design * {
+      box-sizing: border-box;
+    }
+    #mitzo-design button,
+    #mitzo-design input,
+    #mitzo-design textarea,
+    #mitzo-design select {
+      font: inherit;
+    }
+    #mitzo-design button {
+      color: inherit;
+      cursor: pointer;
+    }
+    #mitzo-design button:focus-visible,
+    #mitzo-design input:focus-visible,
+    #mitzo-design textarea:focus-visible,
+    #mitzo-design select:focus-visible {
+      outline: 2px solid var(--m-accent);
+      outline-offset: 3px;
+    }
+    #mitzo-design button:disabled {
+      cursor: default;
+      opacity: 0.6;
+    }
+    #mitzo-design header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 22px 6px;
+    }
+    #mitzo-design .brand {
+      font-weight: 500;
+      letter-spacing: -0.5px;
+    }
+    #mitzo-design .icon {
+      border: 0;
+      background: transparent;
+      padding: 10px;
+      display: grid;
+      place-items: center;
+      min-width: 44px;
+      min-height: 44px;
+    }
+    #mitzo-design main {
+      padding: 10px 22px 22px;
+    }
+    #mitzo-design h1 {
+      font-size: 24px;
+      line-height: 1.25;
+      font-weight: 500;
+      letter-spacing: -0.6px;
+      margin: 6px 0 20px;
+    }
+    #mitzo-design h2 {
+      font-size: 14px;
+      font-weight: 500;
+      margin: 0;
+    }
+    #mitzo-design h3 {
+      font-size: 16px;
+      font-weight: 500;
+      margin: 7px 0;
+    }
+    #mitzo-design p {
+      margin: 6px 0 12px;
+    }
+    #mitzo-design .meta {
+      font-size: 12px;
+      color: var(--m-muted);
+    }
+    #mitzo-design .eyebrow {
+      font-size: 12px;
+      color: var(--m-accent);
+      margin-bottom: 8px;
+      letter-spacing: 0.3px;
+    }
+    #mitzo-design .brief {
+      background: var(--m-panel);
+      padding: 18px;
+      border-radius: 16px;
+      margin-bottom: 22px;
+    }
+    #mitzo-design .primary {
+      background: var(--m-accent);
+      color: var(--m-bg);
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 16px;
+      min-height: 44px;
+      font-weight: 500;
+    }
+    #mitzo-design .secondary {
+      border: 1px solid var(--m-line);
+      background: transparent;
+      border-radius: 10px;
+      padding: 9px 13px;
+      min-height: 44px;
+    }
+    #mitzo-design .text-action {
+      border: 0;
+      background: transparent;
+      color: var(--m-accent);
+      padding: 10px 0;
+      min-height: 44px;
+      font-size: 12px;
+      text-align: left;
+    }
+    #mitzo-design .section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+    }
+    #mitzo-design .row {
+      padding: 14px 0;
+      border-bottom: 1px solid var(--m-line);
+    }
+    #mitzo-design .row-title {
+      font-size: 15px;
+      font-weight: 500;
+      margin-bottom: 4px;
+    }
+    #mitzo-design .actions {
+      display: flex;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+    #mitzo-design .row-link {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      text-align: left;
+      border: 0;
+      border-bottom: 1px solid var(--m-line);
+      padding: 15px 0;
+      background: transparent;
+    }
+    #mitzo-design .row-link .meta {
+      display: block;
+      margin-top: 3px;
+    }
+    #mitzo-design .gap {
+      margin-top: 24px;
+    }
+    #mitzo-design .composer {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--m-line);
+      padding: 6px 8px 6px 14px;
+      border-radius: 14px;
+      background: var(--m-bg);
+      margin-top: 18px;
+    }
+    #mitzo-design .composer input {
+      width: 100%;
+      min-width: 0;
+      border: 0;
+      background: transparent;
+      color: var(--m-fg);
+      font-size: 16px;
+      outline-offset: 5px;
+    }
+    #mitzo-design input::placeholder {
+      color: var(--m-muted);
+    }
+    #mitzo-design nav {
+      display: flex;
+      justify-content: space-around;
+      border-top: 1px solid var(--m-line);
+      padding: 7px 3px 12px;
+    }
+    #mitzo-design nav button {
+      border: 0;
+      background: transparent;
+      display: flex;
+      align-items: center;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 11px;
+      padding: 8px 6px;
+      min-width: 52px;
+      min-height: 52px;
+    }
+    #mitzo-design nav button[aria-current='page'] {
+      color: var(--m-accent);
+    }
+    #mitzo-design .note {
+      font-size: 11px;
+      color: var(--m-muted);
+      padding: 0 22px 12px;
+    }
+    #mitzo-design .scope {
+      background: var(--m-neutral);
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin-bottom: 18px;
+    }
+    #mitzo-design .scope button {
+      display: block;
+      background: transparent;
+      border: 0;
+      text-align: left;
+      padding: 5px 0;
+      min-height: 44px;
+      width: 100%;
+    }
+    #mitzo-design .numbers {
+      font-variant-numeric: tabular-nums;
+    }
+    #mitzo-design .usage-strip {
+      display: flex;
+      gap: 18px;
+      font-size: 12px;
+      color: var(--m-muted);
+      flex-wrap: wrap;
+    }
+    #mitzo-design .message {
+      padding: 14px 0;
+    }
+    #mitzo-design .message.user {
+      padding: 14px;
+      background: var(--m-neutral);
+      border-radius: 14px;
+      margin: 14px 0 8px;
+    }
+    #mitzo-design .speaker {
+      font-size: 12px;
+      color: var(--m-muted);
+      margin-bottom: 6px;
+    }
+    #mitzo-design .message p {
+      font-size: 15px;
+    }
+    #mitzo-design .metric {
+      font-size: 24px;
+      line-height: 1.25;
+      font-weight: 500;
+      margin: 8px 0;
+      font-variant-numeric: tabular-nums;
+    }
+    #mitzo-design .breakdown {
+      margin: 12px 0;
+    }
+    #mitzo-design .breakdown div {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 7px 0;
+      font-size: 13px;
+    }
+    #mitzo-design .breakdown .subset {
+      padding-left: 12px;
+      color: var(--m-muted);
+      font-size: 12px;
+    }
+    #mitzo-design .meter {
+      height: 5px;
+      background: var(--m-line);
+      border-radius: 3px;
+      margin: 10px 0;
+    }
+    #mitzo-design .meter span {
+      display: block;
+      height: 100%;
+      width: 71.333%;
+      background: var(--m-accent);
+      border-radius: 3px;
+    }
+    #mitzo-design .check {
+      display: flex;
+      gap: 9px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--m-line);
+      font-size: 14px;
+    }
+    #mitzo-design .check i {
+      flex-shrink: 0;
+      color: var(--m-accent);
+      margin-top: 3px;
+    }
+    #mitzo-design .check .meta {
+      display: block;
+      margin-top: 3px;
+    }
+    #mitzo-design .filters {
+      display: flex;
+      gap: 8px;
+      margin: 12px 0 18px;
+      flex-wrap: wrap;
+    }
+    #mitzo-design .filters select {
+      max-width: 100%;
+      border: 1px solid var(--m-line);
+      background: var(--m-bg);
+      color: var(--m-fg);
+      border-radius: 8px;
+      padding: 10px;
+      font-size: 13px;
+      min-height: 44px;
+    }
+    #mitzo-design .small {
+      font-size: 13px;
+    }
+    #mitzo-design .insight {
+      border-left: 2px solid var(--m-line);
+      padding-left: 12px;
+      font-size: 13px;
+      color: var(--m-muted);
+      margin: 16px 0;
+    }
+    #mitzo-design .token-home {
+      margin-top: 4px;
+    }
+    #mitzo-design .toast {
+      padding: 12px 22px;
+      font-size: 13px;
+      background: var(--m-panel);
+    }
+    #mitzo-design .toast button {
+      background: transparent;
+      border: 0;
+      color: var(--m-accent);
+      padding: 8px;
+      min-height: 44px;
+    }
+    #mitzo-design [hidden] {
+      display: none !important;
+    }
+    #mitzo-design .status {
+      font-size: 12px;
+      color: var(--m-accent);
+    }
+    #mitzo-design .full {
+      width: 100%;
+      margin-top: 16px;
+    }
+    #mitzo-design .check-option {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 44px;
+      font-size: 14px;
+    }
+    #mitzo-design .check-option input {
+      accent-color: var(--m-accent);
+      width: 18px;
+      height: 18px;
+    }
+    #mitzo-design .search-input {
+      width: 100%;
+      padding: 12px;
+      border-radius: 10px;
+      background: var(--m-bg);
+      border: 1px solid var(--m-line);
+      color: var(--m-fg);
+      margin-bottom: 12px;
+      font-size: 16px;
+    }
+    @media (max-width: 360px) {
+      #mitzo-design main {
+        padding-left: 16px;
+        padding-right: 16px;
+      }
+      #mitzo-design header {
+        padding-left: 16px;
+        padding-right: 16px;
+      }
+      #mitzo-design .brief {
+        padding: 15px;
+      }
+    }
+    #mitzo-design .record-name {
+      display: block;
+      font-size: 15px;
+      font-weight: 500;
+      margin: 4px 0;
+    }
+    #mitzo-design .segments {
+      display: flex;
+      gap: 4px;
+      padding: 4px;
+      background: var(--m-neutral);
+      border-radius: 12px;
+      flex-wrap: wrap;
+      margin: 8px 0 4px;
+    }
+    #mitzo-design .segments button {
+      flex: 1;
+      border: 0;
+      background: transparent;
+      border-radius: 8px;
+      padding: 10px 8px;
+      min-height: 44px;
+      font-size: 13px;
+      white-space: nowrap;
+      color: var(--m-muted);
+    }
+    #mitzo-design .segments button[aria-pressed='true'] {
+      background: var(--m-panel);
+      color: var(--m-accent);
+    }
+    #mitzo-design .footnote {
+      color: var(--m-muted);
+      font-size: 12px;
+      margin-top: 24px;
+      padding-top: 16px;
+      border-top: 1px solid var(--m-line);
+    }
+    #mitzo-design .field {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 13px;
+      margin: 18px 0;
+    }
+    #mitzo-design .field input,
+    #mitzo-design .field textarea,
+    #mitzo-design .field select {
+      width: 100%;
+      max-width: 100%;
+      background: var(--m-bg);
+      color: var(--m-fg);
+      border: 1px solid var(--m-line);
+      border-radius: 10px;
+      padding: 12px;
+      font-size: 16px;
+      resize: vertical;
+      min-height: 44px;
+    }
+    #mitzo-design .profile-row,
+    #mitzo-design .account-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+      text-align: left;
+      border: 0;
+      background: transparent;
+      padding: 18px 0;
+      color: var(--m-fg);
+    }
+    #mitzo-design .account-row {
+      border-bottom: 1px solid var(--m-line);
+    }
+    #mitzo-design .profile-row .meta,
+    #mitzo-design .account-row .meta {
+      display: block;
+      overflow-wrap: anywhere;
+    }
+    #mitzo-design .avatar,
+    #mitzo-design .provider-mark {
+      display: grid;
+      place-items: center;
+      flex: 0 0 40px;
+      height: 40px;
+      background: var(--m-panel);
+      color: var(--m-accent);
+      font-size: 14px;
+      border-radius: 12px;
+    }
+    #mitzo-design .provider-mark {
+      background: var(--m-neutral);
+      color: var(--m-fg);
+    }
+    #mitzo-design .trailing {
+      margin-left: auto;
+    }
+    #mitzo-design .agenda-item {
+      display: flex;
+      gap: 14px;
+      align-items: center;
+    }
+    #mitzo-design .agenda-time {
+      flex: 0 0 48px;
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+    }
+    #mitzo-design .permission-list div {
+      padding: 12px 0;
+      border-bottom: 1px solid var(--m-line);
+      font-size: 14px;
+    }
+    #mitzo-design .run-card {
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: var(--m-neutral);
+      border: 0;
+      border-radius: 12px;
+      padding: 16px;
+      margin-top: 10px;
+    }
+    #mitzo-design .run-card > span {
+      display: block;
+    }
+    #mitzo-design .run-next {
+      font-size: 12px;
+      color: var(--m-accent);
+      margin-top: 12px;
+    }
+    #mitzo-design details summary {
+      font-size: 13px;
+      cursor: pointer;
+      min-height: 44px;
+      padding: 10px 0;
+    }
+    #mitzo-design .account-row > span:nth-child(2) {
+      min-width: 0;
+    }
+    #mitzo-design .small,
+    #mitzo-design h1,
+    #mitzo-design .row-title,
+    #mitzo-design .record-name {
+      overflow-wrap: anywhere;
+    }
+    #mitzo-design .field input::placeholder,
+    #mitzo-design .field textarea::placeholder {
+      color: var(--m-muted);
+    }
+
+    #mitzo-design {
+      --x-bg: var(--m-bg);
+      --x-fg: var(--m-fg);
+      --x-muted: var(--m-muted);
+      --x-line: var(--m-line);
+      --x-panel: var(--m-panel);
+      --x-accent: var(--m-accent);
+      --x-neutral: var(--m-neutral);
+    }
+    #mitzo-design .session-tray-preview {
+      background: var(--x-neutral);
+      border: 1px solid var(--x-line);
+      border-radius: 12px;
+      margin: 14px 0 20px;
+      overflow: hidden;
+    }
+    #mitzo-design .tray-handle {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      width: 100%;
+      text-align: left;
+      border: 0;
+      background: transparent;
+      color: var(--x-fg);
+      padding: 14px;
+      min-height: 44px;
+      font-size: 13px;
+    }
+    #mitzo-design .tray-content {
+      padding: 0 16px 16px;
+    }
+    #mitzo-design .tray-sizes {
+      display: flex;
+      gap: 12px;
+      justify-content: flex-end;
+    }
+    #mitzo-design .tray-sizes button,
+    #mitzo-design .symposium-heading button,
+    #mitzo-design .symposium-cancel,
+    #mitzo-design .symposium-close,
+    #mitzo-design .symposium-review {
+      border: 0;
+      background: transparent;
+      color: var(--x-accent);
+      font-size: 12px;
+      padding: 10px 0;
+      min-height: 44px;
+    }
+    #mitzo-design .tray-sizes button[aria-pressed='true'] {
+      text-decoration: underline;
+      text-underline-offset: 4px;
+    }
+    #mitzo-design .tray-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    #mitzo-design .tray-resource {
+      width: 100%;
+      display: block;
+      border: 0;
+      border-bottom: 1px solid var(--x-line);
+      padding: 12px 0;
+      background: transparent;
+      color: var(--x-fg);
+      font-size: 13px;
+      text-align: left;
+      overflow-wrap: anywhere;
+    }
+    #mitzo-design .tray-resource span,
+    #mitzo-design .seat-turn > span:last-child {
+      display: block;
+      color: var(--x-muted);
+      font-size: 12px;
+      margin-top: 4px;
+    }
+    #mitzo-design .tray-context {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      min-height: 44px;
+    }
+    #mitzo-design .tray-extra,
+    #mitzo-design .tray-resource-detail,
+    #mitzo-design .symposium-review-detail {
+      font-size: 12px;
+      color: var(--x-muted);
+      padding-top: 14px;
+    }
+    #mitzo-design .symposium-preview {
+      border-bottom: 1px solid var(--x-line);
+      margin: 12px 0 20px;
+      padding: 0 0 12px;
+    }
+    #mitzo-design .symposium-heading {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: var(--x-muted);
+    }
+    #mitzo-design .symposium-setup {
+      background: var(--x-panel);
+      border-radius: 12px;
+      padding: 16px;
+      margin-top: 10px;
+      font-size: 13px;
+    }
+    #mitzo-design .seat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      padding: 12px 0;
+    }
+    #mitzo-design .seat-grid > div > span {
+      display: block;
+      font-size: 12px;
+      color: var(--x-muted);
+    }
+    #mitzo-design .seat-name {
+      color: var(--x-accent) !important;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    #mitzo-design .symposium-setup > label:not(.tray-context) {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin: 10px 0;
+      flex-wrap: wrap;
+      font-size: 12px;
+    }
+    #mitzo-design .symposium-setup select,
+    #mitzo-design .symposium-setup input[type='number'] {
+      background: var(--x-bg);
+      color: var(--x-fg);
+      border: 1px solid var(--x-line);
+      border-radius: 8px;
+      font: inherit;
+      font-size: 16px;
+      padding: 8px;
+      max-width: 100%;
+      min-height: 44px;
+    }
+    #mitzo-design .symposium-setup input[type='number'] {
+      width: 90px;
+    }
+    #mitzo-design .symposium-start {
+      background: var(--x-accent);
+      color: var(--x-bg);
+      border: 0;
+      border-radius: 9px;
+      padding: 10px 14px;
+      min-height: 44px;
+      font-size: 13px;
+      margin-right: 14px;
+    }
+    #mitzo-design .symposium-summary {
+      font-size: 12px;
+      color: var(--x-muted);
+      padding: 12px 0;
+    }
+    #mitzo-design .seat-turn {
+      padding: 14px 0;
+      border-bottom: 1px solid var(--x-line);
+    }
+    #mitzo-design .seat-turn p {
+      font-size: 14px;
+    }
+    @media (max-width: 620px) {
+      #mitzo-design .tray-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+  <header>
+    <span class="brand">Mitzo</span
+    ><button class="icon" aria-label="Search Mitzo" data-screen="search">
+      <i data-lucide="search" aria-hidden="true"></i>
+    </button>
+  </header>
+  <main>
+    <section data-page="today">
+      <div class="meta">MONDAY, 7 SEPTEMBER</div>
+      <h1 id="m-greeting">A little clarity for tomorrow.</h1>
+      <div class="brief">
+        <div class="eyebrow" id="m-time-label">EVENING REVIEW</div>
+        <h2 id="m-brief-title">Close today. Choose tomorrow’s focus.</h2>
+        <p>Review what changed across your calendar, email and Jira.</p>
+        <button class="primary" data-screen="briefing" id="m-brief-action">Review my day →</button>
+      </div>
+      <div class="section-head">
+        <h2>Your focus</h2>
+        <button class="text-action" data-screen="focus">Edit focus</button>
+      </div>
+      <div class="row" id="m-onboarding">
+        <div class="row-title">Secure executive onboarding</div>
+        <div class="meta">Pinned by you · TELOS</div>
+        <div class="actions">
+          <button class="text-action" data-screen="task">Open task →</button
+          ><button class="text-action" id="m-later">Later</button>
+        </div>
+      </div>
+      <div class="row">
+        <div class="row-title">Resolve Centaur PR 455 review issues</div>
+        <div class="meta">Pinned by you · Continue recent work</div>
+        <div class="actions">
+          <button class="text-action" data-screen="chat">Continue →</button
+          ><button class="text-action" data-screen="goal">View goal</button>
+        </div>
+      </div>
+      <button class="text-action" data-screen="work" data-work-entry="tasks">
+        All tasks · 70 →
+      </button>
+      <h2 class="gap">Pick up where you left off</h2>
+      <button class="row-link" data-screen="chat">
+        <span
+          >Centaur PR 455 review<span class="meta">Last active 30 minutes ago</span
+          ><span class="meta token-home" hidden>18.2k tokens · session</span></span
+        ><span aria-hidden="true">→</span>
+      </button>
+      <form class="composer" data-composer>
+        <input aria-label="Ask Mitzo" placeholder="Ask Mitzo anything…" autocomplete="off" /><button
+          class="icon"
+          aria-label="Start conversation"
+        >
+          <i data-lucide="arrow-up" aria-hidden="true"></i>
+        </button>
+      </form>
+    </section>
+    <section data-page="chat" hidden>
+      <div class="meta">CONVERSATION</div>
+      <h1>Centaur PR 455 review</h1>
+      <div class="session-tray-preview" aria-label="Session resources preview">
+        <button class="tray-handle" aria-expanded="false">
+          Session · Sources &amp; Outputs <span>⌄</span>
+        </button>
+        <div class="tray-content" hidden>
+          <div class="tray-sizes" aria-label="Tray size">
+            <button data-tray-size="half" aria-pressed="true">Half</button
+            ><button data-tray-size="full" aria-pressed="false">Full</button
+            ><button data-tray-size="peek">Close</button>
+          </div>
+          <div class="tray-grid">
+            <section>
+              <h3>Outputs</h3>
+              <button
+                class="tray-resource"
+                data-resource-preview="Review summary · generated Markdown output"
+              >
+                Review summary.md <span>Generated file · sample</span></button
+              ><button
+                class="tray-resource"
+                data-resource-preview="Verification results · generated output linked to this goal"
+              >
+                Verification results <span>Result from tool execution</span>
+              </button>
+            </section>
+            <section>
+              <h3>Sources</h3>
+              <div class="tray-resource">
+                PR 455 review comments <span>Context referenced by the conversation</span>
+              </div>
+              <div class="tray-resource">
+                Repository context <span>Session and boot context</span>
+              </div>
+              <label class="tray-context"
+                ><input type="checkbox" checked />Include repository context</label
+              >
+              <div class="tray-extra" hidden>
+                <h3>Session context</h3>
+                <p>Isolated worktree · selected source context retained.</p>
+                <p>
+                  Draft attachments and their removal controls live here, alongside the existing
+                  ContextPanel.
+                </p>
+              </div>
+            </section>
+          </div>
+          <div class="tray-resource-detail" aria-live="polite" hidden></div>
+        </div>
+      </div>
+      <div class="symposium-preview">
+        <div class="symposium-heading">
+          <span>Discuss this goal from two perspectives</span
+          ><button class="symposium-open">Set up symposium →</button>
+        </div>
+        <div class="symposium-setup" hidden>
+          <h3>Symposium</h3>
+          <p>Two seats, one linked goal. This is a proposed frontend over #446’s configuration.</p>
+          <div class="seat-grid">
+            <div><span class="seat-name">Architect</span><span>Model A · sample</span></div>
+            <div><span class="seat-name">Critic</span><span>Model B · sample</span></div>
+          </div>
+          <label
+            >Turn order<select class="symposium-turn-mode">
+              <option value="round-robin">Round robin</option>
+              <option value="directed">Directed</option>
+              <option value="budgeted">Budgeted</option>
+            </select></label
+          ><label
+            >Maximum turns<input
+              class="symposium-max-turns"
+              type="number"
+              value="6"
+              min="2"
+              max="20" /></label
+          ><label class="tray-context"
+            ><input class="symposium-manual" type="checkbox" checked />Review each response before
+            delivery</label
+          ><button class="symposium-start">Preview symposium</button
+          ><button class="symposium-cancel">Keep chatting</button>
+        </div>
+        <div class="symposium-turns" hidden>
+          <div class="symposium-heading">
+            <h3>Symposium · PR 455 review</h3>
+            <button class="symposium-close">Close preview</button>
+          </div>
+          <div class="symposium-summary">Round robin · 2 of 6 turns · manual review</div>
+          <div class="seat-turn">
+            <span class="seat-name">Architect · Model A</span>
+            <p>
+              Keep the implementation focused on the review findings, then verify the affected
+              behavior.
+            </p>
+            <span>2.0k tokens · sample contribution</span>
+          </div>
+          <div class="seat-turn">
+            <span class="seat-name">Critic · Model B</span>
+            <p>
+              Before closing the goal, attach the final check results so completion is supported by
+              evidence.
+            </p>
+            <span>1.8k tokens · sample contribution</span>
+          </div>
+          <div class="symposium-summary">
+            3.8k symposium tokens · included once in goal accounting
+          </div>
+          <button class="symposium-review">Review response before delivery →</button>
+          <div class="symposium-review-detail" hidden>
+            Sample response held for your review. Delivery remains a distinct, explicit action; this
+            preview sends nothing.
+          </div>
+        </div>
+      </div>
+      <div class="scope">
+        <button data-screen="goal">
+          <span class="meta">GOAL</span><br />Resolve PR 455 review issues →</button
+        ><button
+          data-screen="usage"
+          aria-label="View token usage: session 18.2 thousand tokens; goal 42.8 thousand tokens"
+        >
+          <span class="usage-strip numbers"
+            ><span>Session <strong>18.2k</strong></span
+            ><span>Goal <strong>42.8k tokens</strong></span></span
+          >
+        </button>
+      </div>
+      <div class="message user">
+        <div class="speaker">You</div>
+        <p>Work through the review issues and verify the fixes.</p>
+      </div>
+      <div class="message">
+        <div class="speaker">Mitzo · illustrative response</div>
+        <p>The fixes are ready. The focused checks pass; final verification is still running.</p>
+        <p class="meta">The goal stays active until its acceptance criteria are met.</p>
+        <button class="text-action" data-screen="goal">View progress and evidence →</button>
+      </div>
+      <div id="m-local-messages"></div>
+      <form class="composer" data-composer>
+        <input aria-label="Message Mitzo" placeholder="Message Mitzo…" autocomplete="off" /><button
+          class="icon"
+          aria-label="Send preview message"
+        >
+          <i data-lucide="arrow-up" aria-hidden="true"></i>
+        </button>
+      </form>
+    </section>
+    <section data-page="goal" hidden>
+      <div class="section-head">
+        <div class="meta">GOAL · CENTAUR</div>
+        <span class="status" id="m-goal-status">Active</span>
+      </div>
+      <h1>Resolve PR 455 review issues</h1>
+      <p class="small">
+        Address the review findings and verify that the affected behavior passes the agreed checks.
+      </p>
+      <div class="brief gap">
+        <div class="meta" id="m-goal-metric-label">Tokens spent</div>
+        <div class="metric">42.8k <span class="meta">tokens</span></div>
+        <div class="meta">Across 2 conversations and delegated work</div>
+        <div
+          class="meter"
+          role="progressbar"
+          aria-label="Token budget used"
+          aria-valuenow="42800"
+          aria-valuemin="0"
+          aria-valuemax="60000"
+        >
+          <span></span>
+        </div>
+        <div class="section-head">
+          <span class="meta numbers">42.8k of 60k budget</span
+          ><button class="text-action" data-screen="usage">Breakdown →</button>
+        </div>
+      </div>
+      <button class="text-action" data-screen="agents">Open agent taskboard →</button>
+      <h2>Acceptance criteria</h2>
+      <div class="check">
+        <i data-lucide="circle-check" aria-hidden="true"></i
+        ><span>Review findings addressed<span class="meta">Linked changes available</span></span>
+      </div>
+      <div class="check">
+        <i data-lucide="circle-check" aria-hidden="true"></i
+        ><span>Focused regression checks pass<span class="meta">Check results attached</span></span>
+      </div>
+      <div class="check">
+        <i data-lucide="circle" aria-hidden="true"></i
+        ><span id="m-final-check"
+          >Final verification completes<span class="meta">In progress</span></span
+        >
+      </div>
+      <h2 class="gap">Activity</h2>
+      <div class="row small">
+        <span id="m-verification-activity">Verification running</span>
+        <div class="meta">2 minutes ago · Mitzo</div>
+      </div>
+      <button class="row-link" data-screen="chat">
+        <span
+          >Continue conversation<span class="meta numbers">18.2k tokens in this session</span></span
+        ><span aria-hidden="true">→</span></button
+      ><button class="text-action" data-screen="efficiency">View stack efficiency →</button>
+    </section>
+    <section data-page="usage" hidden>
+      <button class="text-action" data-screen="goal">← Goal details</button>
+      <h1>Where the tokens went</h1>
+      <div class="meta">GOAL TOTAL · ALL ATTRIBUTED CALLS</div>
+      <div class="metric">42,800 <span class="meta">tokens</span></div>
+      <div class="meta">Complete reporting · updated 2 minutes ago</div>
+      <div class="breakdown gap numbers">
+        <div><span>Input</span><span>35,600</span></div>
+        <div class="subset"><span>Of which cached</span><span>21,000</span></div>
+        <div><span>Output</span><span>7,200</span></div>
+        <div class="subset"><span>Of which reasoning</span><span>2,800</span></div>
+      </div>
+      <p class="insight">
+        Cached input and reasoning are included in the totals above. Delegated calls and retries
+        count toward the goal.
+      </p>
+      <h2 class="gap">By execution role</h2>
+      <div class="breakdown numbers">
+        <div><span>Coordinator</span><span>20,400</span></div>
+        <div><span>Implementation</span><span>14,100</span></div>
+        <div><span>Verification</span><span>8,300</span></div>
+      </div>
+      <h2 class="gap">By conversation</h2>
+      <div class="breakdown numbers">
+        <div><span>Current conversation</span><span>18,200</span></div>
+        <div><span>Earlier investigation</span><span>24,600</span></div>
+      </div>
+      <p class="meta">Each breakdown partitions the same 42,800 tokens. Counts are illustrative.</p>
+      <button class="text-action" data-screen="efficiency">View stack efficiency →</button>
+    </section>
+    <section data-page="efficiency" hidden>
+      <div class="meta">STACK EFFICIENCY</div>
+      <h1>Fewer tokens to done.</h1>
+      <div class="filters">
+        <select aria-label="Efficiency period" id="m-period">
+          <option value="30">August cohort</option>
+          <option value="7">September cohort</option></select
+        ><select aria-label="Goal cohort" id="m-cohort">
+          <option value="review">Code review fixes</option>
+          <option value="all">All goal types</option>
+        </select>
+      </div>
+      <div class="brief">
+        <div class="meta">MEDIAN TOKENS TO GOAL</div>
+        <div class="metric" id="m-median">38.4k <span class="meta">tokens</span></div>
+        <div class="small" id="m-comparison">18% lower than the previous matched period</div>
+        <div class="meta" style="margin-top: 10px" id="m-cohort-note">
+          24 achieved goals · same acceptance standard
+        </div>
+      </div>
+      <h2>Keep the outcome in view</h2>
+      <div class="breakdown numbers">
+        <div><span>Achievement rate</span><span id="m-rate">24 / 28</span></div>
+        <div class="subset"><span>Still active at cutoff</span><span id="m-active">2</span></div>
+        <div class="subset"><span>Cancelled</span><span id="m-cancelled">2</span></div>
+        <div><span>Median time to goal</span><span id="m-duration">18 min</span></div>
+        <div><span>Reopened within 7 days</span><span id="m-reopened">1 / 24</span></div>
+        <div><span>Usage reporting coverage</span><span>100%</span></div>
+      </div>
+      <p class="meta" id="m-cohort-definition">
+        Creation cohort: 1–30 Aug; observed through 7 Sep. Reopen window complete for all 24
+        achievements.
+      </p>
+      <h2 class="gap">Consumption by scope</h2>
+      <div class="breakdown numbers">
+        <div><span>Selected goals</span><span id="m-attributed">1.24M</span></div>
+        <div><span>Stack overhead</span><span id="m-overhead">86k</span></div>
+        <div><span>Stack unattributed chats</span><span id="m-unattributed">112k</span></div>
+      </div>
+      <p class="meta">
+        Selected-goal usage includes retries, active and cancelled goals. Overhead and unattributed
+        chats cover the whole stack in the selected period.
+      </p>
+      <p class="insight">
+        Illustrative dataset. A real reduction is shown only for comparable outcomes, with model mix
+        and measurement coverage disclosed.
+      </p>
+    </section>
+    <section data-page="chats" hidden>
+      <div class="section-head">
+        <div class="meta">CHATS</div>
+        <button class="text-action" data-screen="new-chat">New chat +</button>
+      </div>
+      <h1>Keep the work moving.</h1>
+      <input
+        class="search-input"
+        id="m-chat-search"
+        aria-label="Search conversations"
+        placeholder="Search conversations…"
+      />
+      <div class="segments" aria-label="Conversation filters">
+        <button data-chat-filter="all" aria-pressed="true">All</button
+        ><button data-chat-filter="active" aria-pressed="false">Active</button
+        ><button data-chat-filter="saved" aria-pressed="false">Saved</button>
+      </div>
+      <div id="m-chat-list">
+        <div data-chat-group>
+          <h2 class="gap">In progress</h2>
+          <button
+            class="row-link"
+            data-chat-record="centaur pr 455 review"
+            data-chat-state="active"
+            data-chat-saved="true"
+            data-screen="chat"
+          >
+            <span
+              ><span class="status">Verification running</span
+              ><span class="record-name">Centaur PR 455 review</span
+              ><span class="meta">Fixes ready · waiting for final checks</span
+              ><span class="meta numbers">30 min ago · 18.2k session tokens</span></span
+            ><span aria-hidden="true">→</span>
+          </button>
+        </div>
+        <div data-chat-group>
+          <h2 class="gap">Earlier</h2>
+          <button
+            class="row-link"
+            data-chat-record="pr 455 investigation"
+            data-chat-state="complete"
+            data-chat-saved="false"
+            data-screen="history"
+          >
+            <span
+              ><span class="record-name">PR 455 investigation</span
+              ><span class="meta">Review findings mapped to affected code</span
+              ><span class="meta numbers">Yesterday · 24.6k session tokens</span></span
+            ><span aria-hidden="true">→</span>
+          </button>
+        </div>
+      </div>
+      <p class="meta gap" id="m-chat-empty" hidden>No conversations match this filter.</p>
+      <div class="footnote">
+        Token counts stay with every conversation.<br />Open a goal to see its full spend.
+      </div>
+    </section>
+    <section data-page="new-chat" hidden>
+      <div class="meta">NEW CONVERSATION</div>
+      <h1>What would you like to get done?</h1>
+      <p class="small">Describe the outcome, or ask a question.</p>
+      <div id="m-new-messages"></div>
+      <form class="composer" data-composer>
+        <input
+          aria-label="New conversation message"
+          placeholder="Ask Mitzo…"
+          autocomplete="off"
+        /><button class="icon" aria-label="Start preview conversation">
+          <i data-lucide="arrow-up" aria-hidden="true"></i>
+        </button>
+      </form>
+      <p class="meta gap">Preview messages stay in this design. No model calls are made.</p>
+    </section>
+    <section data-page="work" hidden>
+      <div class="section-head">
+        <div class="meta">WORK</div>
+        <button class="text-action" data-screen="create-goal">New goal +</button>
+      </div>
+      <h1>A clear path to done.</h1>
+      <div class="segments" aria-label="Work views">
+        <button data-work-view="goals" aria-pressed="true">TELOS</button
+        ><button data-work-view="tasks" aria-pressed="false">Tasks</button
+        ><button data-work-view="agents" aria-pressed="false">Agents</button>
+      </div>
+      <div data-work-panel="goals">
+        <div class="brief gap">
+          <div class="eyebrow">TELOS · PRIORITIES</div>
+          <h2>Keep delivery moving.</h2>
+          <p class="small">Bring active outcomes, their next steps and agent work into one view.</p>
+          <button class="text-action" data-screen="telos">Open TELOS →</button>
+        </div>
+        <h2 class="gap">Active</h2>
+        <button class="row-link" data-screen="goal">
+          <span
+            ><span class="record-name">Resolve PR 455 review issues</span
+            ><span class="meta">2 of 3 acceptance criteria met</span
+            ><span class="meta numbers">42.8k tokens spent · 60k budget</span></span
+          ><span aria-hidden="true">→</span>
+        </button>
+        <div id="m-created-goals"></div>
+        <h2 class="gap">Achieved</h2>
+        <button class="row-link" data-screen="achieved">
+          <span
+            ><span class="record-name">Reconcile mobile release notes</span
+            ><span class="meta">Verified yesterday</span
+            ><span class="meta numbers">26.1k tokens to goal</span></span
+          ><span aria-hidden="true">→</span></button
+        ><button class="text-action gap" data-screen="efficiency">
+          See efficiency across goals →
+        </button>
+      </div>
+      <div data-work-panel="tasks" hidden>
+        <h2 class="gap">Your focus</h2>
+        <button class="row-link" data-screen="task" data-task-id="onboarding">
+          <span>Secure executive onboarding<span class="meta">Pinned by you · TELOS</span></span
+          ><span aria-hidden="true">→</span>
+        </button>
+        <h2 class="gap">Backlog</h2>
+        <button class="row-link" data-screen="task" data-task-id="markdown">
+          <span
+            >Add Markdown rendering to AGENTS.md<span class="meta"
+              >ContexGin · Added yesterday</span
+            ></span
+          ><span aria-hidden="true">→</span>
+        </button>
+        <div class="footnote">2 sample tasks shown · full task list connects here.</div>
+      </div>
+      <div data-work-panel="agents" hidden>
+        <div class="brief gap">
+          <div class="eyebrow">AGENT TASKBOARD</div>
+          <h2 id="m-agent-summary">1 running · 1 waiting · 1 complete</h2>
+          <p class="small">Track execution and intervene where it matters.</p>
+          <button class="text-action" data-screen="agents">Open taskboard →</button>
+        </div>
+        <button class="row-link" data-screen="agent-run">
+          <span
+            >Verify PR 455 fixes<span class="meta numbers"
+              >Verification · 8.3k tokens spent</span
+            ></span
+          ><span aria-hidden="true">→</span>
+        </button>
+      </div>
+    </section>
+    <section data-page="task" hidden>
+      <button class="text-action" data-screen="work" data-work-entry="tasks">← Work</button>
+      <div class="section-head">
+        <div class="meta" id="m-task-source">TELOS · TASK</div>
+        <span class="status">To do</span>
+      </div>
+      <h1 id="m-task-title">Secure executive onboarding</h1>
+      <h2>Next step</h2>
+      <p class="small" id="m-task-step">
+        Agree the onboarding access requirements and who owns each step.
+      </p>
+      <div class="row">
+        <div class="meta">Focus</div>
+        <label class="check-option"
+          ><input id="m-task-pin" type="checkbox" checked />Keep in my focus</label
+        >
+      </div>
+      <div class="row">
+        <div class="meta">Goal</div>
+        <div class="small">Not linked to a goal</div>
+        <button class="text-action" data-screen="create-goal">Define an outcome →</button>
+      </div>
+      <h2 class="gap">Source context</h2>
+      <p class="small" id="m-task-context">
+        Coordinate Mitzo and OpenShell access as part of executive onboarding.
+      </p>
+      <div class="footnote">
+        Sample next step. Source text and links remain attached in the connected product.
+      </div>
+    </section>
+    <section data-page="inbox" hidden>
+      <div class="meta">INBOX</div>
+      <h1>Only what needs you.</h1>
+      <div class="segments" aria-label="Inbox views">
+        <button data-inbox-view="requests" aria-pressed="true">
+          Needs you <span id="m-inbox-count">2</span></button
+        ><button data-inbox-view="updates" aria-pressed="false">Updates</button>
+      </div>
+      <div data-inbox-panel="requests">
+        <div id="m-inbox-caught-up" class="brief gap" hidden>
+          <h2>You’re caught up.</h2>
+          <p class="small">Nothing needs your action in this preview.</p>
+        </div>
+        <div class="brief gap" id="m-inbox-lead">
+          <div class="eyebrow">DECISION REQUESTED</div>
+          <h2>Confirm the onboarding owner</h2>
+          <p class="small">Assign an owner before the access checklist can move forward.</p>
+          <div class="meta">Jira · Executive onboarding</div>
+          <button class="text-action" data-screen="request">Review request →</button>
+        </div>
+        <div class="row">
+          <span class="status">Connection needs attention</span>
+          <div class="row-title">Restore Jira updates</div>
+          <div class="meta" id="m-inbox-connection-copy">Reconnect to resume syncing requests.</div>
+          <button class="text-action" data-provider="jira">Review connection →</button>
+        </div>
+      </div>
+      <div data-inbox-panel="updates" hidden>
+        <h2 class="gap">Today</h2>
+        <button class="row-link" data-screen="chat">
+          <span
+            >PR 455 checks progressed<span class="meta"
+              >GitHub · Verification still running</span
+            ></span
+          ><span aria-hidden="true">→</span></button
+        ><button class="row-link" data-screen="achieved">
+          <span>Release notes reconciled<span class="meta">Mitzo · Goal achieved</span></span
+          ><span aria-hidden="true">→</span>
+        </button>
+        <div class="footnote">Updates do not add to the navigation badge.</div>
+      </div>
+    </section>
+    <section data-page="more" hidden>
+      <div class="meta">MORE</div>
+      <h1>Your Mitzo.</h1>
+      <button class="profile-row" data-screen="profile">
+        <span class="avatar" aria-hidden="true">D</span
+        ><span>Dimitri<span class="meta">Profile &amp; security</span></span
+        ><span class="trailing" aria-hidden="true">→</span>
+      </button>
+      <h2 class="gap">Your workspace</h2>
+      <button class="row-link" data-screen="integrations">
+        <span
+          >Connected accounts<span class="meta" id="m-account-summary"
+            >1 connected · 1 needs attention</span
+          ></span
+        ><span aria-hidden="true">→</span></button
+      ><button class="row-link" data-screen="calendar">
+        <span>Calendar<span class="meta">Your schedule and meeting context</span></span
+        ><span aria-hidden="true">→</span></button
+      ><button class="row-link" data-screen="efficiency">
+        <span>Stack efficiency<span class="meta">Tokens to goal and outcome quality</span></span
+        ><span aria-hidden="true">→</span>
+      </button>
+      <h2 class="gap">Preferences</h2>
+      <label class="check-option row"
+        ><input type="checkbox" id="m-show-tokens" />Show session tokens on Today</label
+      ><button class="row-link" data-screen="preferences">
+        <span
+          >Notifications &amp; display<span class="meta"
+            >Attention, appearance and timezone</span
+          ></span
+        ><span aria-hidden="true">→</span></button
+      ><button class="row-link" data-screen="system">
+        <span>System status<span class="meta">Services and technical diagnostics</span></span
+        ><span aria-hidden="true">→</span>
+      </button>
+    </section>
+    <section data-page="briefing" hidden>
+      <button class="text-action" data-screen="today">← Today</button>
+      <div class="meta">EVENING REVIEW · MONDAY 7 SEPTEMBER</div>
+      <h1>Where things stand.</h1>
+      <div class="brief">
+        <h2>One decision to carry forward.</h2>
+        <p class="small">
+          Onboarding ownership needs a decision. PR 455 verification is still in progress.
+        </p>
+        <button class="text-action" data-screen="request">Review the decision →</button>
+      </div>
+      <h2>From your sources</h2>
+      <button class="row-link" data-screen="calendar">
+        <span
+          >Today’s meetings are complete<span class="meta"
+            >Calendar · checked 5 minutes ago</span
+          ></span
+        ><span aria-hidden="true">→</span></button
+      ><button class="row-link" data-screen="chat">
+        <span
+          >PR 455: focused checks passed<span class="meta"
+            >Saved conversation · 30 minutes ago</span
+          ></span
+        ><span aria-hidden="true">→</span>
+      </button>
+      <div class="row" id="m-brief-jira-warning">
+        <h2>Jira updates may be incomplete</h2>
+        <p class="meta">Last synced yesterday. Reconnect to check for new requests.</p>
+        <button class="text-action" data-provider="jira">Review connection →</button>
+      </div>
+      <div class="footnote">
+        Illustrative briefing from sample records. A real briefing links each claim to its source
+        and freshness.
+      </div>
+    </section>
+    <section data-page="focus" hidden>
+      <div class="meta">YOUR FOCUS</div>
+      <h1>Choose what matters.</h1>
+      <p class="small">Keep up to three items in focus.</p>
+      <label class="check-option"
+        ><input type="checkbox" id="m-focus-onboarding" checked />Secure executive onboarding</label
+      ><label class="check-option"
+        ><input type="checkbox" checked disabled />Resolve PR 455 review issues</label
+      ><button class="primary full" id="m-save-focus">Save focus</button>
+    </section>
+    <section data-page="search" hidden>
+      <div class="meta">SEARCH</div>
+      <h1>Find your work.</h1>
+      <input
+        class="search-input"
+        id="m-search"
+        aria-label="Search preview records"
+        placeholder="Search chats and goals…"
+      />
+      <div id="m-search-results">
+        <button class="row-link" data-screen="goal" data-search-record="centaur pr 455 review">
+          <span>Resolve PR 455 review issues<span class="meta">Goal</span></span
+          ><span aria-hidden="true">→</span></button
+        ><button
+          class="row-link"
+          data-screen="task"
+          data-search-record="secure executive onboarding"
+        >
+          <span>Secure executive onboarding<span class="meta">Task</span></span
+          ><span aria-hidden="true">→</span>
+        </button>
+      </div>
+      <p class="meta" id="m-no-results" hidden>No matching sample records.</p>
+    </section>
+    <section data-page="calendar" hidden>
+      <div class="section-head">
+        <div class="meta">CALENDAR</div>
+        <button class="text-action" data-provider="google">Google Workspace</button>
+      </div>
+      <h1>Room for what matters.</h1>
+      <div class="segments" aria-label="Agenda day">
+        <button data-agenda-day="today" aria-pressed="true">Mon 7 · Today</button
+        ><button data-agenda-day="tomorrow" aria-pressed="false">Tue 8</button>
+      </div>
+      <div class="meta gap">Europe/Dublin · sample schedule</div>
+      <div data-agenda-panel="today">
+        <div class="agenda-item">
+          <div class="agenda-time">09:30<br /><span class="meta">30 min</span></div>
+          <button class="row-link" data-event="review">
+            <span
+              >Engineering check-in<span class="meta"
+                >Ended · release and review progress</span
+              ></span
+            ><span aria-hidden="true">→</span>
+          </button>
+        </div>
+        <div class="agenda-item">
+          <div class="agenda-time">14:00<br /><span class="meta">45 min</span></div>
+          <button class="row-link" data-event="onboarding">
+            <span>Executive onboarding<span class="meta">Ended · access and ownership</span></span
+            ><span aria-hidden="true">→</span>
+          </button>
+        </div>
+        <div class="brief gap">
+          <h2>That’s today wrapped up.</h2>
+          <p class="small">Review tomorrow’s schedule or close out today’s work.</p>
+          <button class="text-action" data-screen="briefing">Open evening review →</button>
+        </div>
+      </div>
+      <div data-agenda-panel="tomorrow" hidden>
+        <div class="agenda-item">
+          <div class="agenda-time">10:00<br /><span class="meta">30 min</span></div>
+          <button class="row-link" data-event="planning">
+            <span>Release planning<span class="meta">Roadmap and open decisions</span></span
+            ><span aria-hidden="true">→</span>
+          </button>
+        </div>
+        <div class="agenda-item">
+          <div class="agenda-time">13:00<br /><span class="meta">60 min</span></div>
+          <button class="row-link" data-event="focus">
+            <span>Focus time<span class="meta">Reserved on your calendar</span></span
+            ><span aria-hidden="true">→</span>
+          </button>
+        </div>
+      </div>
+    </section>
+    <section data-page="integrations" hidden>
+      <button class="text-action" data-screen="more">← More</button>
+      <h1>Connected accounts</h1>
+      <p class="small">Bring your context together. Choose what Mitzo can access.</p>
+      <button class="account-row" data-provider="google">
+        <span class="provider-mark" aria-hidden="true">G</span
+        ><span
+          ><span class="record-name">Google Workspace</span
+          ><span class="meta" data-provider-summary="google"
+            >Connected · work@example.com</span
+          ></span
+        ><span class="trailing" aria-hidden="true">→</span>
+      </button>
+      <button class="account-row" data-provider="jira">
+        <span class="provider-mark" aria-hidden="true">J</span
+        ><span
+          ><span class="record-name">Jira</span
+          ><span class="meta" data-provider-summary="jira"
+            >Needs reconnecting · Work workspace</span
+          ></span
+        ><span class="trailing" aria-hidden="true">→</span>
+      </button>
+      <button class="account-row" data-provider="github">
+        <span class="provider-mark" aria-hidden="true">GH</span
+        ><span
+          ><span class="record-name">GitHub</span
+          ><span class="meta" data-provider-summary="github">Not connected</span></span
+        ><span class="trailing" aria-hidden="true">→</span>
+      </button>
+      <div class="footnote">
+        Account identities and connection states are examples. No accounts are connected by this
+        preview.
+      </div>
+    </section>
+    <section data-page="history" hidden>
+      <button class="text-action" data-screen="chats">← Chats</button>
+      <h1>PR 455 investigation</h1>
+      <div class="scope">
+        <button data-screen="goal">Goal: Resolve PR 455 review issues →</button>
+        <div class="usage-strip numbers">Session 24.6k tokens · Goal 42.8k</div>
+      </div>
+      <div class="message">
+        <div class="speaker">Mitzo · yesterday</div>
+        <p>
+          The review findings are mapped to the affected code. Implementation and verification
+          continue in the follow-up conversation.
+        </p>
+      </div>
+      <button class="primary" data-screen="chat">Continue current work →</button>
+    </section>
+    <section data-page="telos" hidden>
+      <button class="text-action" data-screen="work">← Work</button>
+      <div class="section-head">
+        <div class="meta">TELOS</div>
+        <button class="text-action" data-screen="create-goal">New goal +</button>
+      </div>
+      <h1>Purpose into progress.</h1>
+      <div class="scope">
+        <div class="eyebrow">CURRENT PRIORITY</div>
+        <h2>Keep delivery moving</h2>
+        <p class="small">Resolve review issues and make release readiness visible.</p>
+        <div class="meta">Illustrative priority · user selected</div>
+      </div>
+      <div class="segments" aria-label="TELOS views">
+        <button data-telos-view="now" aria-pressed="true">Now</button
+        ><button data-telos-view="next" aria-pressed="false">Next</button
+        ><button data-telos-view="done" aria-pressed="false">Achieved</button>
+      </div>
+      <div data-telos-panel="now">
+        <div class="row">
+          <div class="status">Active goal</div>
+          <h3>Resolve PR 455 review issues</h3>
+          <p class="small">Next: finish verification and attach the results.</p>
+          <div class="meta numbers">2 / 3 criteria met · 42.8k tokens spent</div>
+          <div class="actions">
+            <button class="text-action" data-screen="goal">View goal →</button
+            ><button class="text-action" data-screen="agents">Agent work</button>
+          </div>
+        </div>
+        <div class="row">
+          <div class="status">Needs your decision</div>
+          <h3>Secure executive onboarding</h3>
+          <p class="small">Next: agree the owner for the access checklist.</p>
+          <div class="meta">Pinned task · no linked goal yet</div>
+          <button class="text-action" data-screen="request">Review decision →</button>
+        </div>
+      </div>
+      <div data-telos-panel="next" hidden>
+        <div class="row">
+          <h3>Add Markdown rendering to AGENTS.md</h3>
+          <p class="small">Define the expected rendering behavior before starting agent work.</p>
+          <div class="meta">Backlog task · ContexGin</div>
+          <button class="text-action" data-screen="task" data-task-id="markdown">
+            Review task →
+          </button>
+        </div>
+      </div>
+      <div data-telos-panel="done" hidden>
+        <button class="row-link" data-screen="achieved">
+          <span
+            >Reconcile mobile release notes<span class="meta">Outcome verified · yesterday</span
+            ><span class="meta numbers">26.1k tokens to goal</span></span
+          ><span aria-hidden="true">→</span>
+        </button>
+      </div>
+      <div class="footnote">
+        Priorities lead to goals. Goals link to tasks and agent runs. Token accounting follows the
+        goal.
+      </div>
+    </section>
+    <section data-page="agents" hidden>
+      <button class="text-action" data-screen="work">← Work</button>
+      <div class="meta">AGENT TASKBOARD</div>
+      <h1>See the work happening.</h1>
+      <div class="scope">
+        <div class="meta">GOAL FILTER</div>
+        <button data-screen="goal">Resolve PR 455 review issues →</button>
+        <div class="usage-strip numbers">
+          <span>Goal spend 42.8k tokens</span><span>3 execution roles</span>
+        </div>
+      </div>
+      <div class="segments" aria-label="Agent taskboard filter">
+        <button data-agent-filter="all" aria-pressed="true">All</button
+        ><button data-agent-filter="running" aria-pressed="false">Running</button
+        ><button data-agent-filter="waiting" aria-pressed="false">Waiting</button
+        ><button data-agent-filter="complete" aria-pressed="false">Done</button>
+      </div>
+      <div class="board-lane" data-agent-lane="running">
+        <h2 class="gap" id="m-running-label">Running · 1</h2>
+        <button class="run-card" data-screen="agent-run">
+          <span class="status" id="m-run-status-card">Running</span
+          ><span class="record-name">Verify PR 455 fixes</span
+          ><span class="meta">Verification agent · final checks</span
+          ><span class="meta numbers">8.3k tokens · updated 2 min ago</span
+          ><span class="run-next">Next: attach check results →</span>
+        </button>
+      </div>
+      <div class="board-lane" data-agent-lane="waiting">
+        <h2 class="gap">Waiting · 1</h2>
+        <button class="run-card" data-screen="coordinator">
+          <span class="status">Waiting on verification</span
+          ><span class="record-name">Close out PR 455 review</span
+          ><span class="meta">Coordinator · dependency wait</span
+          ><span class="meta numbers">20.4k tokens · no call in flight</span
+          ><span class="run-next">No user action needed →</span>
+        </button>
+      </div>
+      <div class="board-lane" data-agent-lane="complete">
+        <h2 class="gap">Complete · 1</h2>
+        <button class="run-card" data-screen="implementation">
+          <span class="status">Complete</span><span class="record-name">Apply the review fixes</span
+          ><span class="meta">Implementation agent · changes ready</span
+          ><span class="meta numbers">14.1k tokens · execution complete</span
+          ><span class="run-next">Inspect result →</span>
+        </button>
+      </div>
+      <div class="footnote">
+        Each role’s calls count once toward the goal. A completed agent task does not by itself mean
+        the goal is achieved.
+      </div>
+    </section>
+    <section data-page="agent-run" hidden>
+      <button class="text-action" data-screen="agents">← Agent taskboard</button>
+      <div class="status" id="m-run-status">Running</div>
+      <h1>Verify PR 455 fixes</h1>
+      <div class="meta">Verification agent · run verify-03</div>
+      <div class="scope gap">
+        <div class="meta">TOKENS SPENT · THIS EXECUTION ROLE</div>
+        <div class="metric">8.3k <span class="meta">tokens</span></div>
+        <button data-screen="goal">Goal total: 42.8k tokens →</button>
+      </div>
+      <h2>Current step</h2>
+      <p class="small" id="m-run-step">
+        Run the final checks, then attach the results to the goal.
+      </p>
+      <div class="actions">
+        <button class="secondary" id="m-pause-run">Pause run</button
+        ><button class="text-action" data-screen="chat">Open conversation →</button>
+      </div>
+      <h2 class="gap">Activity</h2>
+      <div class="row small">
+        Final verification started
+        <div class="meta">2 minutes ago</div>
+      </div>
+      <div class="row small">
+        Focused checks passed
+        <div class="meta">5 minutes ago · result attached</div>
+      </div>
+      <details class="gap">
+        <summary>Execution details</summary>
+        <div class="breakdown numbers">
+          <div><span>Input</span><span>6,900</span></div>
+          <div><span>Output</span><span>1,400</span></div>
+        </div>
+        <div class="meta">
+          Sample trace · model identity and request IDs appear here when available.
+        </div>
+      </details>
+      <div class="footnote">
+        Pause is simulated locally. In production it takes effect after the current call or a safe
+        execution boundary.
+      </div>
+    </section>
+    <section data-page="coordinator" hidden>
+      <button class="text-action" data-screen="agents">← Agent taskboard</button>
+      <div class="status">Waiting on dependency</div>
+      <h1>Close out PR 455 review</h1>
+      <div class="meta">Coordinator · no call in flight</div>
+      <div class="scope gap">
+        <div class="meta">Tokens spent · coordinator calls</div>
+        <div class="metric">20.4k <span class="meta">tokens</span></div>
+      </div>
+      <h2>Waiting for</h2>
+      <button class="row-link" data-screen="agent-run">
+        <span
+          >Final verification<span class="meta"
+            >Resumes when check results are available</span
+          ></span
+        ><span aria-hidden="true">→</span></button
+      ><button class="text-action" data-screen="goal">View goal acceptance criteria →</button>
+      <div class="footnote">
+        Waiting is event-driven; checking this screen does not invoke a model.
+      </div>
+    </section>
+    <section data-page="implementation" hidden>
+      <button class="text-action" data-screen="agents">← Agent taskboard</button>
+      <div class="status">Execution complete</div>
+      <h1>Apply the review fixes</h1>
+      <div class="meta">Implementation agent</div>
+      <div class="scope gap">
+        <div class="meta">Tokens spent · implementation calls</div>
+        <div class="metric">14.1k <span class="meta">tokens</span></div>
+      </div>
+      <h2>Result</h2>
+      <p class="small">
+        Changes address the review findings. Focused regression checks pass; final goal verification
+        is still pending.
+      </p>
+      <button class="text-action" data-screen="chat">Read the implementation summary →</button
+      ><button class="row-link" data-screen="goal">
+        <span>Goal remains active<span class="meta">42.8k tokens spent across all roles</span></span
+        ><span aria-hidden="true">→</span>
+      </button>
+    </section>
+    <section data-page="create-goal" hidden>
+      <button class="text-action" data-screen="work">← Work</button>
+      <h1>Define done.</h1>
+      <p class="small">A clear outcome gives the work—and its token usage—a destination.</p>
+      <form id="m-create-goal-form">
+        <label class="field"
+          >Goal name<input
+            name="title"
+            required
+            maxlength="120"
+            placeholder="What do you want to achieve?" /></label
+        ><label class="field"
+          >Done when<textarea
+            name="outcome"
+            required
+            rows="3"
+            placeholder="Describe the result you can verify."
+          ></textarea></label
+        ><label class="field"
+          >Token budget · optional<input
+            name="budget"
+            type="number"
+            min="1"
+            step="1"
+            placeholder="e.g. 60000"
+        /></label>
+        <div class="meta">
+          A budget is an attention threshold. It does not stop work automatically.
+        </div>
+        <button class="primary full">Create goal</button>
+      </form>
+    </section>
+    <section data-page="new-goal" hidden>
+      <button class="text-action" data-screen="work">← Work</button>
+      <div class="status">Planned</div>
+      <h1 id="m-new-goal-title">New goal</h1>
+      <h2>Done when</h2>
+      <p class="small" id="m-new-goal-outcome"></p>
+      <div class="scope gap">
+        <div class="meta">Tokens spent</div>
+        <div class="metric">0 <span class="meta">tokens</span></div>
+        <div class="meta">No runs started</div>
+        <div class="meta" id="m-new-goal-budget"></div>
+      </div>
+      <p class="meta">Created locally in this preview. No work has been started.</p>
+    </section>
+    <section data-page="achieved" hidden>
+      <button class="text-action" data-screen="work">← Work</button>
+      <div class="status">Achieved · verified yesterday</div>
+      <h1>Reconcile mobile release notes</h1>
+      <p class="small">
+        Published changes are accounted for in the release notes, with each entry linked to its
+        source.
+      </p>
+      <div class="brief gap">
+        <div class="meta">Tokens to goal</div>
+        <div class="metric">26.1k <span class="meta">tokens</span></div>
+        <div class="meta">Complete reporting · 1 conversation</div>
+      </div>
+      <h2>Completion evidence</h2>
+      <div class="check">
+        <span>✓</span
+        ><span
+          >Release entries reconciled<span class="meta"
+            >All changes matched to the release manifest</span
+          ></span
+        >
+      </div>
+      <div class="check">
+        <span>✓</span
+        ><span
+          >Source links verified<span class="meta">Verification completed yesterday</span></span
+        >
+      </div>
+      <div class="footnote">Sample outcome and evidence for design review.</div>
+      <button class="text-action" data-screen="efficiency">See stack efficiency →</button>
+    </section>
+    <section data-page="request" hidden>
+      <button class="text-action" data-screen="inbox">← Inbox</button>
+      <div class="eyebrow">DECISION REQUESTED · JIRA</div>
+      <h1>Who owns onboarding?</h1>
+      <p class="small">The access checklist needs a named owner before work can continue.</p>
+      <div class="scope">
+        <div class="meta">RELATED WORK</div>
+        <button data-screen="task">Secure executive onboarding →</button>
+      </div>
+      <label class="field"
+        >Your response<textarea id="m-response" rows="3">
+I’ll coordinate the owner assignment. Please keep the access checklist attached to this task.</textarea></label
+      ><button class="primary" id="m-save-response">Save response draft</button>
+      <div class="actions">
+        <button class="text-action" id="m-dismiss-request">Remove from Needs you</button>
+      </div>
+      <div class="footnote">
+        This preview saves a local draft. Sending in the connected app is a separate explicit
+        action.
+      </div>
+    </section>
+    <section data-page="account" hidden>
+      <button class="text-action" data-screen="integrations">← Connected accounts</button>
+      <div class="status" id="m-account-status">Connected</div>
+      <h1 id="m-provider-title">Google Workspace</h1>
+      <p class="small" id="m-account-identity">work@example.com</p>
+      <h2>What Mitzo can access</h2>
+      <div id="m-permissions" class="permission-list"></div>
+      <div class="row">
+        <div class="meta">Sync status</div>
+        <div class="small" id="m-sync-status">Up to date · checked 5 minutes ago</div>
+      </div>
+      <button class="primary full" id="m-connect">Review connection</button
+      ><button class="text-action" id="m-disconnect">Disconnect account</button>
+      <p class="meta" id="m-account-note">Choose a source to review access.</p>
+    </section>
+    <section data-page="authorize" hidden>
+      <button class="text-action" data-screen="account">← Account details</button>
+      <div class="meta">CONNECT ACCOUNT</div>
+      <h1 id="m-authorize-title">Connect GitHub</h1>
+      <p class="small">You’ll choose an account and review access with the provider.</p>
+      <div class="scope">
+        <h2>Access requested</h2>
+        <p class="small" id="m-authorize-permissions">
+          Read selected repositories, pull requests and checks.
+        </p>
+      </div>
+      <button class="primary full" id="m-simulate-connect">Preview successful connection</button
+      ><button class="text-action" data-screen="account">Cancel</button>
+      <div class="footnote">
+        Prototype transition only. The implemented button opens provider authorization; Mitzo does
+        not ask for the provider’s password.
+      </div>
+    </section>
+    <section data-page="disconnect" hidden>
+      <button class="text-action" data-screen="account">← Account details</button>
+      <h1 id="m-disconnect-title">Disconnect account?</h1>
+      <p class="small">
+        New updates from this account will stop. Existing conversations and source references stay
+        in Mitzo under your retention settings.
+      </p>
+      <div class="actions">
+        <button class="secondary" data-screen="account">Keep connected</button
+        ><button class="primary" id="m-confirm-disconnect">Disconnect in preview</button>
+      </div>
+      <div class="footnote">
+        Account disconnection and deletion of stored data are separate actions.
+      </div>
+    </section>
+    <section data-page="profile" hidden>
+      <button class="text-action" data-screen="more">← More</button>
+      <h1>Profile &amp; security</h1>
+      <div class="profile-row">
+        <span class="avatar" aria-hidden="true">D</span
+        ><span>Dimitri<span class="meta">work@example.com · example identity</span></span>
+      </div>
+      <div class="row">
+        <h2>Sign-in method</h2>
+        <p class="small">Workspace passphrase</p>
+      </div>
+      <div class="row">
+        <h2>Current session</h2>
+        <p class="small">This device</p>
+        <div class="meta">Active now · sample session</div>
+      </div>
+      <button class="text-action" id="m-sign-out">Preview sign out →</button>
+      <div class="footnote">Signing out of Mitzo does not disconnect linked services.</div>
+    </section>
+    <section data-page="login" hidden>
+      <div class="eyebrow">WELCOME TO MITZO</div>
+      <h1>Your work.<br />A clearer next step.</h1>
+      <p class="small">Sign in to return to your goals, conversations and connected accounts.</p>
+      <button class="primary full" id="m-sign-in">Preview Mitzo sign-in →</button>
+      <div class="footnote">
+        The production sign-in method follows your workspace identity setup. No credentials are
+        collected here.
+      </div>
+    </section>
+    <section data-page="preferences" hidden>
+      <button class="text-action" data-screen="more">← More</button>
+      <h1>A calmer workspace.</h1>
+      <h2>Notify me about</h2>
+      <label class="check-option row"
+        ><input type="checkbox" checked />Requests that need my decision</label
+      ><label class="check-option row"
+        ><input type="checkbox" checked />Goal completion or blocked work</label
+      ><label class="check-option row"><input type="checkbox" />Informational updates</label
+      ><label class="field gap"
+        >Appearance<select id="m-appearance">
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select></label
+      >
+      <div class="row">
+        <h2>Timezone</h2>
+        <div class="small">Europe/Dublin</div>
+        <div class="meta">Used for your briefing and calendar</div>
+      </div>
+      <div class="footnote">Preferences apply locally in this preview.</div>
+    </section>
+    <section data-page="system" hidden>
+      <button class="text-action" data-screen="more">← More</button>
+      <h1>System status</h1>
+      <div class="row">
+        <span class="record-name">yapper</span><span class="meta">Available · sample status</span>
+      </div>
+      <div class="row">
+        <span class="record-name">contexgin</span
+        ><span class="meta">Available · sample status</span>
+      </div>
+      <div class="row">
+        <h2>Usage reporting</h2>
+        <p class="small">No unreported model calls in this sample</p>
+      </div>
+      <button class="text-action" data-screen="usage">Inspect goal usage →</button>
+      <div class="footnote">
+        Detailed session IDs, model versions and logs belong in diagnostics reached from here.
+      </div>
+    </section>
+    <section data-page="event" hidden>
+      <button class="text-action" data-screen="calendar">← Calendar</button>
+      <div class="meta">GOOGLE CALENDAR</div>
+      <h1 id="m-event-title">Executive onboarding</h1>
+      <p class="small" id="m-event-time">Monday 7 September · 14:00–14:45</p>
+      <div class="meta">Europe/Dublin</div>
+      <h2 class="gap">Context</h2>
+      <p class="small" id="m-event-context">Access requirements, ownership and next steps.</p>
+      <button class="row-link" data-screen="task">
+        <span>Secure executive onboarding<span class="meta">Related work</span></span
+        ><span aria-hidden="true">→</span>
+      </button>
+      <div class="scope gap">
+        <h2>Meeting notes</h2>
+        <p class="small" id="m-event-notes">
+          Confirm the owner and keep the access checklist attached to the task.
+        </p>
+        <div class="meta">Sample saved notes · no summary generated on open</div>
+      </div>
+    </section>
+  </main>
+  <div class="toast" id="m-toast" aria-live="polite" hidden>
+    <span></span><button id="m-undo" hidden>Undo</button>
+  </div>
+  <nav aria-label="Main navigation">
+    <button data-screen="today" aria-current="page">
+      <i data-lucide="sun" aria-hidden="true"></i>Today</button
+    ><button data-screen="chats">
+      <i data-lucide="message-circle" aria-hidden="true"></i>Chats</button
+    ><button data-screen="inbox"><i data-lucide="inbox" aria-hidden="true"></i>Inbox</button
+    ><button data-screen="work"><i data-lucide="layers" aria-hidden="true"></i>Work</button
+    ><button data-screen="more"><i data-lucide="ellipsis" aria-hidden="true"></i>More</button>
+  </nav>
+  <div class="note">Design preview v2 · all accounts, work and token counts are illustrative</div>
+  <script>
+    (() => {
+      const root = document.getElementById('mitzo-design');
+      const pages = [...root.querySelectorAll('[data-page]')];
+      const state = { page: 'work', time: 'Evening', goalState: 'Active', homeTokens: false };
+      const toast = root.querySelector('#m-toast');
+      function showToast(message, undo = false) {
+        toast.hidden = false;
+        toast.querySelector('span').textContent = message;
+        root.querySelector('#m-undo').hidden = !undo;
+      }
+      function show(page) {
+        state.page = page;
+        root.querySelector('nav').hidden = page === 'login';
+        root.querySelector('header').hidden = page === 'login';
+        pages.forEach((p) => (p.hidden = p.dataset.page !== page));
+        toast.hidden = true;
+        const group = ['chat', 'new-chat', 'history'].includes(page)
+          ? 'chats'
+          : [
+                'goal',
+                'usage',
+                'task',
+                'focus',
+                'telos',
+                'agents',
+                'agent-run',
+                'coordinator',
+                'implementation',
+                'achieved',
+                'create-goal',
+                'new-goal',
+              ].includes(page)
+            ? 'work'
+            : [
+                  'efficiency',
+                  'calendar',
+                  'integrations',
+                  'account',
+                  'authorize',
+                  'disconnect',
+                  'profile',
+                  'login',
+                  'preferences',
+                  'system',
+                  'event',
+                ].includes(page)
+              ? 'more'
+              : ['briefing', 'search'].includes(page)
+                ? 'today'
+                : page === 'request'
+                  ? 'inbox'
+                  : page;
+        root.querySelectorAll('nav button').forEach((b) => {
+          if (b.dataset.screen === group) b.setAttribute('aria-current', 'page');
+          else b.removeAttribute('aria-current');
+        });
+      }
+      root.querySelectorAll('[data-screen]').forEach((b) =>
+        b.addEventListener('click', () => {
+          if (b.dataset.screen === 'task')
+            root.querySelector('#m-task-title').textContent = b.textContent.includes('Markdown')
+              ? 'Add Markdown rendering to AGENTS.md'
+              : 'Secure executive onboarding';
+          show(b.dataset.screen);
+        }),
+      );
+      root.querySelector('#m-later').onclick = () => {
+        root.querySelector('#m-onboarding').hidden = true;
+        root.querySelector('#m-focus-onboarding').checked = false;
+        showToast('Removed from focus. The task stays in Work.', true);
+      };
+      root.querySelector('#m-undo').onclick = () => {
+        root.querySelector('#m-onboarding').hidden = false;
+        root.querySelector('#m-focus-onboarding').checked = true;
+        toast.hidden = true;
+      };
+      root.querySelector('#m-save-focus').onclick = () => {
+        root.querySelector('#m-onboarding').hidden =
+          !root.querySelector('#m-focus-onboarding').checked;
+        show('today');
+        showToast('Focus updated in this preview.');
+      };
+      root.querySelector('#m-show-tokens').onchange = (e) => {
+        state.homeTokens = e.target.checked;
+        render();
+      };
+      root.querySelectorAll('[data-composer]').forEach(
+        (form) =>
+          (form.onsubmit = (e) => {
+            e.preventDefault();
+            const input = form.querySelector('input');
+            const value = input.value.trim();
+            if (!value) return;
+            const message = document.createElement('div');
+            message.className = 'message user';
+            const speaker = document.createElement('div');
+            speaker.className = 'speaker';
+            speaker.textContent = 'You · local preview';
+            const text = document.createElement('p');
+            text.textContent = value;
+            message.append(speaker, text);
+            const continuing = state.page === 'chat';
+            root
+              .querySelector(continuing ? '#m-local-messages' : '#m-new-messages')
+              .append(message);
+            input.value = '';
+            show(continuing ? 'chat' : 'new-chat');
+            showToast('Preview only. No message sent and no tokens consumed.');
+          }),
+      );
+      root.querySelector('#m-search').oninput = (e) => {
+        let count = 0;
+        root.querySelectorAll('[data-search-record]').forEach((r) => {
+          r.hidden = !r.dataset.searchRecord.includes(e.target.value.toLowerCase().trim());
+          if (!r.hidden) count++;
+        });
+        root.querySelector('#m-no-results').hidden = count !== 0;
+      };
+      function updateEfficiency() {
+        const short = root.querySelector('#m-period').value === '7';
+        const all = root.querySelector('#m-cohort').value === 'all';
+        root.querySelector('#m-median').innerHTML =
+          (short ? (all ? '44.1k' : '36.2k') : all ? '51.7k' : '38.4k') +
+          ' <span class="meta">tokens</span>';
+        root.querySelector('#m-comparison').textContent = short
+          ? 'Comparison withheld · small sample'
+          : all
+            ? 'Mixed workload · no like-for-like comparison'
+            : '18% lower than the previous matched period';
+        root.querySelector('#m-cohort-note').textContent = short
+          ? all
+            ? '8 achieved goals · mixed acceptance standards'
+            : '5 achieved goals · small sample'
+          : all
+            ? '41 achieved goals · mixed acceptance standards'
+            : '24 achieved goals · same acceptance standard';
+        const values =
+          short && all
+            ? [
+                '8 / 12',
+                '3',
+                '1',
+                '24 min',
+                'Not yet observable',
+                '1–7 Sep; observed through 7 Sep. Seven-day reopen window not yet complete.',
+                '430k',
+                '19k',
+                '24k',
+              ]
+            : short
+              ? [
+                  '5 / 8',
+                  '2',
+                  '1',
+                  '21 min',
+                  'Not yet observable',
+                  '1–7 Sep; observed through 7 Sep. Seven-day reopen window not yet complete.',
+                  '238k',
+                  '19k',
+                  '24k',
+                ]
+              : all
+                ? [
+                    '41 / 49',
+                    '5',
+                    '3',
+                    '26 min',
+                    '3 / 41',
+                    '1–30 Aug; observed through 7 Sep. Reopen window complete for all 41 achievements.',
+                    '2.71M',
+                    '86k',
+                    '112k',
+                  ]
+                : [
+                    '24 / 28',
+                    '2',
+                    '2',
+                    '18 min',
+                    '1 / 24',
+                    '1–30 Aug; observed through 7 Sep. Reopen window complete for all 24 achievements.',
+                    '1.24M',
+                    '86k',
+                    '112k',
+                  ];
+        [
+          'm-rate',
+          'm-active',
+          'm-cancelled',
+          'm-duration',
+          'm-reopened',
+          'm-cohort-definition',
+          'm-attributed',
+          'm-overhead',
+          'm-unattributed',
+        ].forEach(
+          (id, i) =>
+            (root.querySelector('#' + id).textContent =
+              (i === 5 ? 'Creation cohort: ' : '') + values[i]),
+        );
+      }
+      root.querySelector('#m-period').onchange = updateEfficiency;
+      root.querySelector('#m-cohort').onchange = updateEfficiency;
+      function render() {
+        const evening = state.time === 'Evening';
+        root.querySelector('#m-greeting').textContent = evening
+          ? 'A little clarity for tomorrow.'
+          : 'Start with what matters.';
+        root.querySelector('#m-time-label').textContent = evening
+          ? 'EVENING REVIEW'
+          : 'MORNING BRIEFING';
+        root.querySelector('#m-brief-title').textContent = evening
+          ? 'Close today. Choose tomorrow’s focus.'
+          : 'Your day, brought together.';
+        root.querySelector('#m-brief-action').textContent = evening
+          ? 'Review my day →'
+          : 'Brief me →';
+        root.querySelectorAll('.token-home').forEach((e) => (e.hidden = !state.homeTokens));
+        root.querySelector('#m-show-tokens').checked = state.homeTokens;
+        root.querySelector('#m-goal-status').textContent = state.goalState;
+        root.querySelector('#m-verification-activity').textContent =
+          state.goalState === 'Achieved'
+            ? 'Goal achieved · verification passed'
+            : 'Verification running';
+        root.querySelector('#m-final-check').previousElementSibling.style.color =
+          state.goalState === 'Achieved' ? 'var(--m-accent)' : 'var(--m-muted)';
+        root.querySelector('#m-goal-metric-label').textContent =
+          state.goalState === 'Achieved' ? 'Tokens to goal' : 'Tokens spent';
+        root.querySelector('#m-final-check').innerHTML =
+          state.goalState === 'Achieved'
+            ? 'Final verification completes<span class="meta">Passed · evidence attached</span>'
+            : 'Final verification completes<span class="meta">In progress</span>';
+      }
+      const providers = {
+        google: {
+          name: 'Google Workspace',
+          status: 'connected',
+          identity: 'work@example.com',
+          permissions: ['Read selected calendar events', 'Read email selected for your briefing'],
+          access: 'Read selected calendar events and email for your briefing.',
+        },
+        jira: {
+          name: 'Jira',
+          status: 'reconnect',
+          identity: 'Work workspace',
+          permissions: ['Read issues in selected projects', 'Read comments and issue status'],
+          access: 'Read issues, comments and status in selected projects.',
+        },
+        github: {
+          name: 'GitHub',
+          status: 'disconnected',
+          identity: 'Selected repositories',
+          permissions: ['Read selected repositories and pull requests', 'Read check results'],
+          access: 'Read selected repositories, pull requests and check results.',
+        },
+      };
+      let selectedProvider = 'google';
+      let requestDismissed = false;
+      let paused = false;
+      let agentFilter = 'all';
+      let taskId = 'onboarding';
+      function openProvider(key) {
+        selectedProvider = key;
+        renderProvider();
+        show('account');
+      }
+      function renderProvider() {
+        const p = providers[selectedProvider];
+        const connected = p.status === 'connected';
+        const reconnect = p.status === 'reconnect';
+        root.querySelector('#m-provider-title').textContent = p.name;
+        root.querySelector('#m-account-identity').textContent = p.identity;
+        root.querySelector('#m-account-status').textContent = connected
+          ? 'Connected'
+          : reconnect
+            ? 'Needs reconnecting'
+            : 'Not connected';
+        root.querySelector('#m-permissions').replaceChildren(
+          ...p.permissions.map((t) => {
+            const d = document.createElement('div');
+            d.textContent = t;
+            return d;
+          }),
+        );
+        root.querySelector('#m-sync-status').textContent = connected
+          ? 'Up to date · sample connection'
+          : reconnect
+            ? 'Sync paused · last successful sync yesterday'
+            : 'No sync until you connect';
+        root.querySelector('#m-connect').textContent = connected
+          ? 'Review access'
+          : reconnect
+            ? 'Reconnect ' + p.name
+            : 'Connect ' + p.name;
+        root.querySelector('#m-disconnect').hidden = p.status === 'disconnected';
+        root.querySelector('#m-account-note').textContent =
+          'Read access only in this design. Sending messages or editing sources requires separate permissions and explicit action.';
+        root.querySelector('#m-authorize-title').textContent =
+          (reconnect ? 'Reconnect ' : connected ? 'Review ' : 'Connect ') + p.name;
+        root.querySelector('#m-authorize-permissions').textContent = p.access;
+        root.querySelector('#m-disconnect-title').textContent = 'Disconnect ' + p.name + '?';
+        Object.entries(providers).forEach(([key, value]) => {
+          root.querySelector('[data-provider-summary="' + key + '"]').textContent =
+            (value.status === 'connected'
+              ? 'Connected · '
+              : value.status === 'reconnect'
+                ? 'Needs reconnecting · '
+                : 'Not connected') + (value.status === 'disconnected' ? '' : value.identity);
+        });
+        const connectedCount = Object.values(providers).filter(
+          (x) => x.status === 'connected',
+        ).length;
+        const attention = Object.values(providers).filter((x) => x.status === 'reconnect').length;
+        root.querySelector('#m-account-summary').textContent =
+          connectedCount + ' connected' + (attention ? ' · ' + attention + ' needs attention' : '');
+        updateInboxCount();
+      }
+      root
+        .querySelectorAll('[data-provider]')
+        .forEach((b) => (b.onclick = () => openProvider(b.dataset.provider)));
+      root.querySelector('#m-connect').onclick = () => {
+        renderProvider();
+        show('authorize');
+      };
+      root.querySelector('#m-simulate-connect').onclick = () => {
+        providers[selectedProvider].status = 'connected';
+        renderProvider();
+        show('account');
+        showToast('Connected in the preview only. No real authorization took place.');
+      };
+      root.querySelector('#m-disconnect').onclick = () => {
+        renderProvider();
+        show('disconnect');
+      };
+      root.querySelector('#m-confirm-disconnect').onclick = () => {
+        providers[selectedProvider].status = 'disconnected';
+        renderProvider();
+        show('integrations');
+        showToast('Disconnected in the preview only.');
+      };
+      function updateInboxCount() {
+        root.querySelector('#m-brief-jira-warning').hidden = providers.jira.status === 'connected';
+        const needsReconnect = providers.jira.status === 'reconnect';
+        root.querySelector('#m-inbox-count').textContent =
+          (requestDismissed ? 0 : 1) + (needsReconnect ? 1 : 0);
+        root.querySelector('#m-inbox-connection-copy').textContent = needsReconnect
+          ? 'Reconnect to resume syncing requests.'
+          : providers.jira.status === 'connected'
+            ? 'Jira is connected in this preview.'
+            : 'Jira is not connected.';
+        root.querySelector('#m-inbox-connection-copy').closest('.row').hidden = !needsReconnect;
+        const count = (requestDismissed ? 0 : 1) + (needsReconnect ? 1 : 0);
+        root.querySelector('#m-inbox-caught-up').hidden = count !== 0;
+        root
+          .querySelector('[data-page="inbox"] [data-inbox-panel="requests"]')
+          .setAttribute('aria-label', count + ' actionable requests');
+      }
+      function bindSwitch(key, panelKey, after) {
+        root.querySelectorAll('[data-' + key + ']').forEach(
+          (b) =>
+            (b.onclick = () => {
+              const value = b.getAttribute('data-' + key);
+              root
+                .querySelectorAll('[data-' + key + ']')
+                .forEach((x) => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
+              root
+                .querySelectorAll('[data-' + panelKey + ']')
+                .forEach((x) => (x.hidden = x.getAttribute('data-' + panelKey) !== value));
+              if (after) after(value);
+            }),
+        );
+      }
+      bindSwitch('work-view', 'work-panel');
+      root
+        .querySelectorAll('[data-work-entry]')
+        .forEach((b) =>
+          b.addEventListener('click', () =>
+            root.querySelector('[data-work-view="' + b.dataset.workEntry + '"]').click(),
+          ),
+        );
+      bindSwitch('inbox-view', 'inbox-panel');
+      bindSwitch('telos-view', 'telos-panel');
+      bindSwitch('agenda-day', 'agenda-panel');
+      let chatFilter = 'all';
+      function filterChats() {
+        const query = root.querySelector('#m-chat-search').value.trim().toLowerCase();
+        let count = 0;
+        root.querySelectorAll('[data-chat-record]').forEach((b) => {
+          const matches =
+            b.dataset.chatRecord.includes(query) &&
+            (chatFilter === 'all' ||
+              (chatFilter === 'active' && b.dataset.chatState === 'active') ||
+              (chatFilter === 'saved' && b.dataset.chatSaved === 'true'));
+          b.hidden = !matches;
+          if (matches) count++;
+        });
+        root
+          .querySelectorAll('[data-chat-group]')
+          .forEach(
+            (g) =>
+              (g.hidden = ![...g.querySelectorAll('[data-chat-record]')].some((b) => !b.hidden)),
+          );
+        root.querySelector('#m-chat-empty').hidden = count > 0;
+      }
+      root.querySelector('#m-chat-search').oninput = filterChats;
+      root.querySelectorAll('[data-chat-filter]').forEach(
+        (b) =>
+          (b.onclick = () => {
+            chatFilter = b.dataset.chatFilter;
+            root
+              .querySelectorAll('[data-chat-filter]')
+              .forEach((x) => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
+            filterChats();
+          }),
+      );
+      root.querySelector('#m-create-goal-form').onsubmit = (e) => {
+        e.preventDefault();
+        const form = e.target;
+        const title = form.elements.title.value.trim();
+        const outcome = form.elements.outcome.value.trim();
+        if (!title || !outcome) return;
+        root.querySelector('#m-new-goal-title').textContent = title;
+        root.querySelector('#m-new-goal-outcome').textContent = outcome;
+        root.querySelector('#m-new-goal-budget').textContent = form.elements.budget.value
+          ? 'Budget: ' + Number(form.elements.budget.value).toLocaleString() + ' tokens'
+          : 'No token budget set';
+        const button = document.createElement('button');
+        button.className = 'row-link';
+        const label = document.createElement('span');
+        label.textContent = title;
+        const meta = document.createElement('span');
+        meta.className = 'meta';
+        meta.textContent = 'Planned · 0 tokens spent';
+        label.append(meta);
+        button.append(label);
+        button.onclick = () => show('new-goal');
+        root.querySelector('#m-created-goals').replaceChildren(button);
+        form.reset();
+        show('new-goal');
+      };
+      root.querySelector('#m-save-response').onclick = () =>
+        showToast('Response draft saved locally. Nothing sent to Jira.');
+      root.querySelector('#m-dismiss-request').onclick = () => {
+        requestDismissed = true;
+        root.querySelector('#m-inbox-lead').hidden = true;
+        updateInboxCount();
+        show('inbox');
+        showToast('Removed locally. The source issue is unchanged.');
+      };
+      root.querySelector('#m-appearance').onchange = (e) => {
+        if (e.target.value === 'system') root.style.removeProperty('color-scheme');
+        else root.style.colorScheme = e.target.value;
+      };
+      root.querySelector('#m-sign-out').onclick = () => {
+        show('login');
+        showToast('Preview sign-out only. Your real session is unchanged.');
+      };
+      root.querySelector('#m-sign-in').onclick = () => {
+        show('today');
+        showToast('Preview sign-in only. No credentials were requested.');
+      };
+      root.querySelectorAll('[data-screen="task"]').forEach((b) =>
+        b.addEventListener('click', () => {
+          taskId = b.dataset.taskId || 'onboarding';
+          const markdown = taskId === 'markdown';
+          root.querySelector('#m-task-source').textContent = markdown
+            ? 'CONTEXGIN · TASK'
+            : 'TELOS · TASK';
+          root.querySelector('#m-task-title').textContent = markdown
+            ? 'Add Markdown rendering to AGENTS.md'
+            : 'Secure executive onboarding';
+          root.querySelector('#m-task-step').textContent = markdown
+            ? 'Define which Markdown elements and code blocks the renderer needs to support.'
+            : 'Agree the onboarding access requirements and who owns each step.';
+          root.querySelector('#m-task-context').textContent = markdown
+            ? 'Render AGENTS.md content clearly inside the ContexGin interface.'
+            : 'Coordinate Mitzo and OpenShell access as part of executive onboarding.';
+          root.querySelector('#m-task-pin').checked = markdown
+            ? false
+            : !root.querySelector('#m-onboarding').hidden;
+        }),
+      );
+      root.querySelector('#m-task-pin').onchange = (e) => {
+        if (taskId === 'onboarding') {
+          root.querySelector('#m-onboarding').hidden = !e.target.checked;
+          root.querySelector('#m-focus-onboarding').checked = e.target.checked;
+        } else {
+          e.target.checked = false;
+          showToast('Use Edit focus on Today to choose the full focus set.');
+        }
+      };
+      const events = {
+        review: [
+          'Engineering check-in',
+          'Monday 7 September · 09:30–10:00',
+          'Release and review progress.',
+          'PR 455 verification continues after the focused checks.',
+        ],
+        onboarding: [
+          'Executive onboarding',
+          'Monday 7 September · 14:00–14:45',
+          'Access requirements, ownership and next steps.',
+          'Confirm the owner and keep the access checklist attached to the task.',
+        ],
+        planning: [
+          'Release planning',
+          'Tuesday 8 September · 10:00–10:30',
+          'Roadmap and open decisions.',
+          'Carry forward any unresolved release dependencies.',
+        ],
+        focus: [
+          'Focus time',
+          'Tuesday 8 September · 13:00–14:00',
+          'Reserved time for focused work.',
+          'Pick a goal from TELOS before starting.',
+        ],
+      };
+      root.querySelectorAll('[data-event]').forEach(
+        (b) =>
+          (b.onclick = () => {
+            const values = events[b.dataset.event];
+            ['m-event-title', 'm-event-time', 'm-event-context', 'm-event-notes'].forEach(
+              (id, i) => (root.querySelector('#' + id).textContent = values[i]),
+            );
+            root.querySelector('[data-page="event"] .row-link').hidden =
+              b.dataset.event !== 'onboarding';
+            show('event');
+          }),
+      );
+      function filterAgents() {
+        root
+          .querySelectorAll('[data-agent-filter]')
+          .forEach((b) =>
+            b.setAttribute(
+              'aria-pressed',
+              b.dataset.agentFilter === agentFilter ? 'true' : 'false',
+            ),
+          );
+        root
+          .querySelectorAll('[data-agent-lane]')
+          .forEach(
+            (l) => (l.hidden = agentFilter !== 'all' && l.dataset.agentLane !== agentFilter),
+          );
+      }
+      root.querySelectorAll('[data-agent-filter]').forEach(
+        (b) =>
+          (b.onclick = () => {
+            agentFilter = b.dataset.agentFilter;
+            filterAgents();
+          }),
+      );
+      root.querySelector('#m-pause-run').onclick = () => {
+        paused = !paused;
+        root.querySelector('#m-pause-run').textContent = paused ? 'Resume run' : 'Pause run';
+        root.querySelector('#m-run-status').textContent = paused ? 'Paused' : 'Running';
+        root.querySelector('#m-run-status-card').textContent = paused ? 'Paused by you' : 'Running';
+        root.querySelector('#m-running-label').textContent = paused ? 'Paused · 1' : 'Running · 1';
+        root.querySelector('#m-agent-summary').textContent = paused
+          ? '1 paused · 1 waiting · 1 complete'
+          : '1 running · 1 waiting · 1 complete';
+        root.querySelector('#m-run-step').textContent = paused
+          ? 'Paused at a safe boundary. Resume to continue final verification.'
+          : 'Run the final checks, then attach the results to the goal.';
+        root.querySelector('#m-running-label').parentElement.dataset.agentLane = paused
+          ? 'paused'
+          : 'running';
+        filterAgents();
+        showToast(
+          paused
+            ? 'Paused in this preview. No real execution was interrupted.'
+            : 'Resumed in this preview. No real execution was started.',
+        );
+      };
+      renderProvider();
+
+      const tray = root.querySelector('.session-tray-preview');
+      let traySnap = 'peek';
+      function setTraySnap(snap) {
+        traySnap = snap;
+        tray.dataset.snap = snap;
+        tray.querySelector('.tray-content').hidden = snap === 'peek';
+        tray
+          .querySelector('.tray-handle')
+          .setAttribute('aria-expanded', snap === 'peek' ? 'false' : 'true');
+        tray.querySelector('.tray-extra').hidden = snap !== 'full';
+        tray
+          .querySelectorAll('[data-tray-size]')
+          .forEach((b) =>
+            b.setAttribute('aria-pressed', b.dataset.traySize === snap ? 'true' : 'false'),
+          );
+      }
+      tray.querySelector('.tray-handle').onclick = () =>
+        setTraySnap(traySnap === 'peek' ? 'half' : 'peek');
+      tray
+        .querySelectorAll('[data-tray-size]')
+        .forEach((b) => (b.onclick = () => setTraySnap(b.dataset.traySize)));
+      tray.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          setTraySnap('peek');
+          tray.querySelector('.tray-handle').focus();
+        }
+      });
+      tray.querySelectorAll('[data-resource-preview]').forEach(
+        (b) =>
+          (b.onclick = () => {
+            const d = tray.querySelector('.tray-resource-detail');
+            d.hidden = false;
+            d.textContent = b.dataset.resourcePreview + ' · illustrative preview; no file opened.';
+          }),
+      );
+      const symposium = root.querySelector('.symposium-preview');
+      const ordinaryBlocks = [
+        ...root.querySelectorAll(
+          '#d-chat-content, [data-page="chat"] > .scope, [data-page="chat"] > .message, #m-local-messages',
+        ),
+      ];
+      let previousBlockVisibility = [];
+      symposium.querySelector('.symposium-open').onclick = () =>
+        (symposium.querySelector('.symposium-setup').hidden = false);
+      symposium.querySelector('.symposium-cancel').onclick = () =>
+        (symposium.querySelector('.symposium-setup').hidden = true);
+      symposium.querySelector('.symposium-start').onclick = () => {
+        const input = symposium.querySelector('.symposium-max-turns');
+        if (!input.reportValidity()) return;
+        if (symposium.querySelector('.symposium-turns').hidden) {
+          previousBlockVisibility = ordinaryBlocks.map((b) => b.hidden);
+          ordinaryBlocks.forEach((b) => (b.hidden = true));
+        }
+        const order =
+          symposium.querySelector('.symposium-turn-mode').selectedOptions[0].textContent;
+        const manual = symposium.querySelector('.symposium-manual').checked;
+        symposium.querySelector('.symposium-setup').hidden = true;
+        symposium.querySelector('.symposium-turns').hidden = false;
+        symposium.querySelector('.symposium-summary').textContent =
+          order +
+          ' · 2 of ' +
+          input.value +
+          ' turns · ' +
+          (manual ? 'manual review' : 'automatic delivery');
+        symposium.querySelector('.symposium-review').hidden = !manual;
+        symposium.querySelector('.symposium-review-detail').hidden = true;
+      };
+      symposium.querySelector('.symposium-close').onclick = () => {
+        symposium.querySelector('.symposium-turns').hidden = true;
+        ordinaryBlocks.forEach((b, i) => (b.hidden = previousBlockVisibility[i] ?? false));
+      };
+      symposium.querySelector('.symposium-review').onclick = () =>
+        (symposium.querySelector('.symposium-review-detail').hidden = false);
+      setTraySnap('peek');
+
+      render();
+      show('work');
+      if (globalThis.Tweak) {
+        const tweak = new Tweak({
+          container: root,
+          onChange: () => {
+            render();
+            show(state.page);
+          },
+        });
+        tweak.addSelect(state, 'page', {
+          label: 'Screen',
+          options: [
+            { label: 'Today', value: 'today' },
+            { label: 'Conversation', value: 'chat' },
+            { label: 'Goal', value: 'goal' },
+            { label: 'Token breakdown', value: 'usage' },
+            { label: 'Efficiency', value: 'efficiency' },
+            { label: 'Chats', value: 'chats' },
+            { label: 'Inbox', value: 'inbox' },
+            { label: 'TELOS', value: 'telos' },
+            { label: 'Agent taskboard', value: 'agents' },
+            { label: 'Calendar', value: 'calendar' },
+            { label: 'Accounts', value: 'integrations' },
+            { label: 'More', value: 'more' },
+          ],
+        });
+        tweak.addSelect(state, 'time', { label: 'Time of day', options: ['Evening', 'Morning'] });
+        tweak.addToggle(state, 'homeTokens', { label: 'Show tokens on Today' });
+      }
+    })();
+  </script>
+</div>
