@@ -130,3 +130,38 @@ it('replays only unresolved prompts with the original deadline and protects sess
     sessionId: 'conversation',
   });
 });
+
+it('shows complete approval arguments rather than the notification summary', async () => {
+  const { applyTierOverrides } = await import('../src/tool-tiers.js');
+  applyTierOverrides({ Bash: 'unknown' });
+  try {
+    const { handler, sent, abort } = setup();
+    const command = 'echo ' + 'long-command '.repeat(60);
+    const result = handler('Bash', { command }, { signal: abort.signal, toolUseID: 'b1' });
+    await vi.waitFor(() => expect(sent[0]).toBeDefined());
+    expect(sent[0].toolInput).toContain(command);
+    resolvePending(sent[0].permId as string, 'deny');
+    await result;
+  } finally {
+    applyTierOverrides({});
+  }
+});
+
+it('keeps an unresolved question replayable when a transport closes during send', async () => {
+  const { getPendingRequestsBySession } = await import('../src/permissions.js');
+  const { handler, registry, abort } = setup();
+  registry.get('client')!.transport.send = () => {
+    throw new Error('socket closed');
+  };
+  const result = handler(
+    'AskUserQuestion',
+    { questions },
+    { signal: abort.signal, toolUseID: 'q1' },
+  );
+  const checked = expect(result).resolves.toMatchObject({ behavior: 'deny' });
+  await vi.waitFor(() => expect(getPendingRequestsBySession('conversation')).toHaveLength(1));
+  expect(() =>
+    resolvePending(getPendingRequestsBySession('conversation')[0].permId, 'deny'),
+  ).not.toThrow();
+  await checked;
+});

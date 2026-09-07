@@ -37,8 +37,11 @@ const Questions = z
   .refine((questions) => new Set(questions.map((q) => q.question)).size === questions.length);
 
 function transportSend(transport: SessionTransport, data: Record<string, unknown>): void {
-  if (transport.isOpen()) {
-    transport.send(data);
+  try {
+    if (transport.isOpen()) transport.send(data);
+  } catch {
+    // A socket can close after isOpen(). Pending requests remain available
+    // for reconnect replay; delivery failure must not reject tool resolution.
   }
 }
 
@@ -165,7 +168,11 @@ export function buildPermissionHandler(
       const request: PermissionRequest = {
         permId,
         toolName,
-        toolInput: inputSummary,
+        toolInput: questions
+          ? ''
+          : toolName === 'Bash' && typeof _toolInput.command === 'string'
+            ? _toolInput.command
+            : JSON.stringify(_toolInput, null, 2),
         title: opts.title,
         description: opts.description,
         displayName: opts.displayName,
