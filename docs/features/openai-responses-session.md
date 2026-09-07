@@ -6,7 +6,9 @@ The adapter translates streamed text/refusals and function calls into the events
 
 Requests use `store: false` and request encrypted reasoning continuation data. `checkpoint()` returns a server-only snapshot containing the normalized application history and the original provider input/output items. Persist it beside the durable account binding after successful turns. Restore it with the same account ID and model; follow-up history must extend the checkpoint exactly. The snapshot contains private conversation data, not the API credential, and must not be exposed in the public account catalog or sent to the phone. Credential-reference identity remains the account-profile layer's responsibility.
 
-Provider failure, incomplete output, malformed function arguments, mismatched history, and truncated streams throw rather than returning a successful tool turn. The request uses the supplied AbortSignal. Concurrent calls on the same instance are rejected. Final input usage is passed through the existing adapter, since Responses supplies it at completion.
+Provider failure, incomplete output, malformed function arguments, mismatched history, and truncated streams throw rather than returning a successful tool turn. The request uses the supplied AbortSignal. Concurrent calls on the same instance are rejected. Final input usage is passed through the existing adapter, since Responses supplies it at completion. Initial streamed token counts are zero until that final usage arrives. Both terminated and incomplete event frames enforce a 4-MiB UTF-8 limit before JSON parsing.
+
+The API endpoint is intentionally fixed to OpenAI for this native slice. Arbitrary proxy/base-URL routing is outside the account and credential contract; tests inject fetch without redirecting credentials to another host.
 
 ## Current boundary
 

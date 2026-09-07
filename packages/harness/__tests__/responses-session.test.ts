@@ -327,6 +327,27 @@ describe('ResponsesSession', () => {
     );
   });
 
+  it.each(['', '\n\n'])('rejects oversized stream frames with delimiter %j', async (delimiter) => {
+    const frame =
+      'data: ' +
+      JSON.stringify({
+        type: 'response.created',
+        response: { id: 'oversized', padding: 'x'.repeat(4 * 1024 * 1024) },
+      });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(frame + delimiter)));
+    const session = new ResponsesSession(config, { accountId: 'personal', apiKey: 'test' });
+    await expect(collect(session)).rejects.toThrow('OpenAI response stream event is too large');
+    expect(session.checkpoint().history).toEqual([]);
+  });
+  it('omits tools from text-only requests with an empty tool catalog', async () => {
+    const fetcher = vi.fn().mockResolvedValue(response(textEvents()));
+    vi.stubGlobal('fetch', fetcher);
+    await collect(
+      new ResponsesSession({ ...config, tools: [] }, { accountId: 'personal', apiKey: 'test' }),
+    );
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).not.toHaveProperty('tools');
+  });
+
   it('surfaces streamed refusal text', async () => {
     const events = textEvents('Cannot help with that.').map((event) =>
       event.type === 'response.output_text.delta'

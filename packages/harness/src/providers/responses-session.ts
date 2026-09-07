@@ -56,6 +56,8 @@ async function* readEvents(body: ReadableStream<Uint8Array>) {
       let boundary: RegExpExecArray | null;
       while ((boundary = /\r?\n\r?\n/.exec(buffer))) {
         const frame = buffer.slice(0, boundary.index);
+        if (Buffer.byteLength(frame) > 4 * 1024 * 1024)
+          throw new Error('OpenAI response stream event is too large');
         buffer = buffer.slice(boundary.index + boundary[0].length);
         const data = frame
           .split(/\r?\n/)
@@ -71,7 +73,7 @@ async function* readEvents(body: ReadableStream<Uint8Array>) {
           }
         }
       }
-      if (buffer.length > 4 * 1024 * 1024)
+      if (Buffer.byteLength(buffer) > 4 * 1024 * 1024)
         throw new Error('OpenAI response stream event is too large');
       if (done) break;
     }
@@ -236,13 +238,15 @@ export class ResponsesSession implements ModelSession {
           store: false,
           include: ['reasoning.encrypted_content'],
           input,
-          tools: this.config.tools?.map((tool) => ({
-            type: 'function',
-            name: tool.name,
-            description: tool.description,
-            parameters: tool.input_schema,
-            strict: false,
-          })),
+          tools: this.config.tools?.length
+            ? this.config.tools.map((tool) => ({
+                type: 'function',
+                name: tool.name,
+                description: tool.description,
+                parameters: tool.input_schema,
+                strict: false,
+              }))
+            : undefined,
         }),
       });
       if (!response.ok) throw new Error(`OpenAI API request failed (${response.status})`);
