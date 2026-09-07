@@ -54,6 +54,7 @@ export interface MessagesState {
   current: StreamingMessage | null;
   running: boolean;
   permission: PermissionRequest | null;
+  permissionQueue?: PermissionRequest[];
   branch: string | null;
   isWorktree: boolean;
   wtId: string | null;
@@ -387,14 +388,21 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
       return { ...state, current: { messageId: action.messageId, blocks, blockOrder } };
     }
 
-    case 'PERMISSION_REQUEST':
-      return { ...state, permission: action.payload };
+    case 'PERMISSION_REQUEST': {
+      if (state.permission?.permId === action.payload.permId)
+        return { ...state, permission: action.payload };
+      const queue = state.permissionQueue ?? [];
+      if (queue.some((p) => p.permId === action.payload.permId)) return state;
+      return state.permission
+        ? { ...state, permissionQueue: [...queue, action.payload] }
+        : { ...state, permission: action.payload };
+    }
 
-    case 'PERMISSION_TIMEOUT':
-      return {
-        ...state,
-        permission: state.permission?.permId === action.permId ? null : state.permission,
-      };
+    case 'PERMISSION_TIMEOUT': {
+      const queue = (state.permissionQueue ?? []).filter((p) => p.permId !== action.permId);
+      if (state.permission?.permId !== action.permId) return { ...state, permissionQueue: queue };
+      return { ...state, permission: queue[0] ?? null, permissionQueue: queue.slice(1) };
+    }
 
     case 'ERROR':
       return {

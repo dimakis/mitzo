@@ -144,6 +144,9 @@ export function buildPermissionHandler(
         if (result.behavior === 'allow' && result.decisionClassification === 'user_permanent') {
           addToAllowList(session.sessionAllowList, toolName);
         }
+        const resolved = { type: 'permission_resolved', permId, sessionId: session.sessionId };
+        transportSend(session.transport, resolved);
+        for (const observer of session.observers) transportSend(observer, resolved);
         resolve(result);
       };
 

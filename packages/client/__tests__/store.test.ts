@@ -1357,3 +1357,18 @@ it('sends question answers without losing the request identity', async () => {
     answers,
   });
 });
+
+it('keeps a second prompt visible after responding to the first', async () => {
+  const store = createReadyStore();
+  await store.getState().switchSession('test-session');
+  for (const permId of ['p1', 'p2'])
+    lastWs.simulateMessage({
+      type: 'permission_request',
+      sessionId: 'test-session',
+      permId,
+      toolName: 'Bash',
+      toolInput: 'pwd',
+    });
+  store.getState().respondToPermission('p1', 'deny');
+  expect(store.getState().messages.permission?.permId).toBe('p2');
+});

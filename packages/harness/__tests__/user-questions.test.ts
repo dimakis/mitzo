@@ -105,3 +105,28 @@ it('cancellation removes the pending question and its timers', async () => {
     vi.useRealTimers();
   }
 });
+
+it('replays only unresolved prompts with the original deadline and protects session identity', async () => {
+  const { getPendingRequestsBySession } = await import('../src/permissions.js');
+  const { handler, sent, abort } = setup();
+  const result = handler(
+    'AskUserQuestion',
+    { questions },
+    { signal: abort.signal, toolUseID: 'q1' },
+  );
+  await vi.waitFor(() => expect(sent[0]?.questions).toBeDefined());
+  const request = getPendingRequestsBySession('conversation')[0];
+  expect(request.permId).toBe(sent[0].permId);
+  expect(request.expiresAt).toBe(sent[0].expiresAt);
+  expect(resolvePending(request.permId, 'deny', undefined, 'other-session')).toBe(false);
+  expect(
+    resolvePending(request.permId, 'once', { 'Which account?': ['Personal'] }, 'conversation'),
+  ).toBe(true);
+  await result;
+  expect(getPendingRequestsBySession('conversation')).toEqual([]);
+  expect(sent).toContainEqual({
+    type: 'permission_resolved',
+    permId: request.permId,
+    sessionId: 'conversation',
+  });
+});

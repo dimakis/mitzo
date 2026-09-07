@@ -41,7 +41,11 @@ type SetModeMsg = z.infer<typeof V2SetModeMessage>;
 import { randomUUID } from 'crypto';
 import { withSpan, withSpanAsync } from './tracing.js';
 import { SpanStatusCode } from '@opentelemetry/api';
-import { resolvePending, denyPendingBySession } from './permissions.js';
+import {
+  resolvePending,
+  denyPendingBySession,
+  getPendingRequestsBySession,
+} from './permissions.js';
 import {
   startChat,
   sendToChat,
@@ -169,6 +173,10 @@ export function detectStateMismatch(
 function sendBootContext(connectionId: string, sessionId: string, ctx: V2HandlerContext): void {
   const conn = ctx.connRegistry.get(connectionId);
   if (!conn) return;
+
+  for (const request of getPendingRequestsBySession(sessionId)) {
+    conn.transport.send({ type: 'permission_request', ...request });
+  }
 
   // Hot path: running session with in-memory cache
   const found = ctx.sessionRegistry.findBySessionId(sessionId);
@@ -790,7 +798,7 @@ export function handlePermissionResponseV2(
       'ws.permId': msg.permId,
     },
     () => {
-      resolvePending(msg.permId, msg.decision ?? 'deny', msg.answers);
+      resolvePending(msg.permId, msg.decision ?? 'deny', msg.answers, msg.sessionId);
       log.info('permission_response', {
         connectionId,
         sessionId: msg.sessionId,

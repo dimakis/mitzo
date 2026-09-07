@@ -32,6 +32,7 @@ vi.mock('../skill-policy.js', () => ({
 
 vi.mock('../permissions.js', () => ({
   resolvePending: vi.fn(),
+  getPendingRequestsBySession: vi.fn().mockReturnValue([]),
   denyPendingBySession: vi.fn().mockReturnValue(0),
 }));
 

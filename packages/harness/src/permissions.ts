@@ -31,9 +31,10 @@ export function resolvePending(
   permId: string,
   decision: 'once' | 'always' | 'deny',
   answers?: QuestionAnswers,
+  sessionId?: string,
 ): boolean {
   const entry = pending.get(permId);
-  if (!entry) return false;
+  if (!entry || (sessionId && entry.sessionId && entry.sessionId !== sessionId)) return false;
 
   let toolInput = entry.toolInput;
   if (entry.request?.questions && decision !== 'deny') {

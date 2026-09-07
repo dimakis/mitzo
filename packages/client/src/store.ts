@@ -449,7 +449,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       if (sent) {
         set((s) => ({
           permissions: { pending: null },
-          messages: { ...s.messages, permission: null },
+          messages: messagesReducer(s.messages, { type: 'PERMISSION_TIMEOUT', permId }),
         }));
       }
       // If not sent, leave the banner visible so user can retry

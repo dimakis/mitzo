@@ -397,6 +397,7 @@ export function parseServerMessage(
       });
       break;
 
+    case 'permission_resolved':
     case 'permission_timeout':
       result.messagesActions.push({
         type: 'PERMISSION_TIMEOUT',
