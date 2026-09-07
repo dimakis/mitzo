@@ -13,7 +13,7 @@ export type {
 
 // Connection registry (v2 single-WS protocol)
 export { ConnectionRegistry } from './connection-registry.js';
-export type { Connection, EventStoreAdapter } from './connection-registry.js';
+export type { Connection } from './connection-registry.js';
 
 // SSE registry (broadcast events)
 export { SseRegistry } from './sse-registry.js';
