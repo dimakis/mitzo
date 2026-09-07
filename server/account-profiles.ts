@@ -120,6 +120,8 @@ export function loadAccountProfiles(): AccountProfiles {
       );
     }
   }
+  // Existing Vertex project configuration supplies a visible, explicitly selected billing
+  // profile; catalog presence alone never launches a request. Set USE_VERTEX=0 to hide it.
   const projectId = process.env.ANTHROPIC_VERTEX_PROJECT_ID;
   if (!projectId || process.env.CLAUDE_CODE_USE_VERTEX === '0') return new AccountProfiles([]);
   return new AccountProfiles([

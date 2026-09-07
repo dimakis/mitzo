@@ -39,6 +39,9 @@ export function AccountModelPicker({
   const callbacks = useRef({ onChange, onUnavailable });
   callbacks.current = { onChange, onUnavailable };
   useEffect(() => {
+    if (error || empty) onUnavailable?.();
+  }, [error, empty, onUnavailable]);
+  useEffect(() => {
     let disposed = false;
     setError('');
     setBindingLabel('');
@@ -62,17 +65,18 @@ export function AccountModelPicker({
               : 'Existing task · legacy account',
           );
         } else {
-          const parsed = legacy ? modelsSchema.safeParse(data) : catalogSchema.safeParse(data);
+          const parsed = legacy
+            ? modelsSchema
+                .transform((models) => [{ id: '', label: 'Legacy server account', models }])
+                .safeParse(data)
+            : catalogSchema.safeParse(data);
           if (!parsed.success)
             throw new Error(
               'Invalid account information. Retry or check the server configuration.',
             );
-          const catalog: Account[] = legacy
-            ? [{ id: '', label: 'Legacy server account', models: modelsSchema.parse(data) }]
-            : catalogSchema.parse(data);
+          const catalog: Account[] = parsed.data;
           if (!catalog.length) {
             setEmpty(true);
-            callbacks.current.onUnavailable?.();
             return;
           }
           setAccounts(catalog);
@@ -90,7 +94,6 @@ export function AccountModelPicker({
       .catch((err: unknown) => {
         if (!disposed) {
           setError(err instanceof Error ? err.message : 'Account information unavailable.');
-          callbacks.current.onUnavailable?.();
         }
       });
     return () => {

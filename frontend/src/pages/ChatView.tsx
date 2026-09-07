@@ -325,6 +325,9 @@ export function ChatView() {
         onInterrupt={handleInterrupt}
         running={messages.running}
         initialText={initialPrompt}
+        sendDisabledReason={
+          !activeSessionId && !accountSelection ? 'Select an account before sending.' : undefined
+        }
         voice={voice}
         branch={messages.branch || undefined}
         isWorktree={messages.isWorktree}
