@@ -282,63 +282,63 @@ describe('ResponsesSession', () => {
     ).rejects.toThrow('Aborted');
     expect(fetcher.mock.calls[0][1].signal).toBe(controller.signal);
   });
-});
 
-it('surfaces streamed refusal text', async () => {
-  const events = textEvents('Cannot help with that.').map((event) =>
-    event.type === 'response.output_text.delta'
-      ? { ...event, type: 'response.refusal.delta' }
-      : event,
-  );
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(events)));
-  const session = new ResponsesSession(config, { accountId: 'personal', apiKey: 'test' });
-  expect(await collect(session)).toContainEqual({
-    type: 'content_block_delta',
-    index: 0,
-    delta: { type: 'text_delta', text: 'Cannot help with that.' },
+  it('surfaces streamed refusal text', async () => {
+    const events = textEvents('Cannot help with that.').map((event) =>
+      event.type === 'response.output_text.delta'
+        ? { ...event, type: 'response.refusal.delta' }
+        : event,
+    );
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(events)));
+    const session = new ResponsesSession(config, { accountId: 'personal', apiKey: 'test' });
+    expect(await collect(session)).toContainEqual({
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'text_delta', text: 'Cannot help with that.' },
+    });
   });
-});
 
-it('keeps interleaved function calls at distinct output indexes separate', async () => {
-  const calls = [0, 1].map((i) => ({
-    type: 'function_call',
-    call_id: `call-${i}`,
-    name: 'Read',
-    arguments: JSON.stringify({ file_path: `file-${i}` }),
-  }));
-  vi.stubGlobal(
-    'fetch',
-    vi.fn().mockResolvedValue(
-      response([
-        { type: 'response.created', response: { id: 'resp-multi', model: config.model } },
-        ...calls.map((call, i) => ({
-          type: 'response.output_item.added',
-          output_index: i + 2,
-          item: { ...call, arguments: '' },
-        })),
-        ...[1, 0].flatMap((i) => [
-          {
-            type: 'response.function_call_arguments.delta',
-            output_index: i + 2,
-            delta: calls[i].arguments,
-          },
-          { type: 'response.output_item.done', output_index: i + 2, item: calls[i] },
-        ]),
-        {
-          type: 'response.completed',
-          response: { output: calls, usage: { input_tokens: 1, output_tokens: 2 } },
-        },
-      ]),
-    ),
-  );
-  const session = new ResponsesSession(config, { accountId: 'personal', apiKey: 'test' });
-  await collect(session);
-  expect(session.checkpoint().history.at(-1)?.content).toEqual(
-    calls.map((call, i) => ({
-      type: 'tool_use',
-      id: call.call_id,
+  it('keeps interleaved function calls at distinct output indexes separate', async () => {
+    const calls = [0, 1].map((i) => ({
+      type: 'function_call',
+      call_id: `call-${i}`,
       name: 'Read',
-      input: { file_path: `file-${i}` },
-    })),
-  );
+      arguments: JSON.stringify({ file_path: `file-${i}` }),
+    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        response([
+          { type: 'response.created', response: { id: 'resp-multi', model: config.model } },
+          ...calls.map((call, i) => ({
+            type: 'response.output_item.added',
+            output_index: i + 2,
+            item: { ...call, arguments: '' },
+          })),
+          ...[1, 0].flatMap((i) => [
+            {
+              type: 'response.function_call_arguments.delta',
+              output_index: i + 2,
+              delta: calls[i].arguments,
+            },
+            { type: 'response.output_item.done', output_index: i + 2, item: calls[i] },
+          ]),
+          {
+            type: 'response.completed',
+            response: { output: calls, usage: { input_tokens: 1, output_tokens: 2 } },
+          },
+        ]),
+      ),
+    );
+    const session = new ResponsesSession(config, { accountId: 'personal', apiKey: 'test' });
+    await collect(session);
+    expect(session.checkpoint().history.at(-1)?.content).toEqual(
+      calls.map((call, i) => ({
+        type: 'tool_use',
+        id: call.call_id,
+        name: 'Read',
+        input: { file_path: `file-${i}` },
+      })),
+    );
+  });
 });
