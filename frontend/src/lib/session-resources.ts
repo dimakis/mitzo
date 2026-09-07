@@ -27,7 +27,14 @@ function basename(path: string): string {
 }
 
 function cleanUrl(value: string): string {
-  return value.replace(/[),.;!?]+$/, '');
+  let cleaned = value.replace(/[.,;!?]+$/, '');
+  while (cleaned.endsWith(')')) {
+    const openParens = (cleaned.match(/\(/g) ?? []).length;
+    const closeParens = (cleaned.match(/\)/g) ?? []).length;
+    if (closeParens <= openParens) break;
+    cleaned = cleaned.slice(0, -1).replace(/[.,;!?]+$/, '');
+  }
+  return cleaned;
 }
 
 export function collectSessionResources(
