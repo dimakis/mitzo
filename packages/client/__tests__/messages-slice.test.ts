@@ -1672,3 +1672,19 @@ describe('foreground recovery race — full sequence', () => {
     expect(next.current!.messageId).toBe('asst-3');
   });
 });
+
+it('queues concurrent prompts and deduplicates reconnect replay', () => {
+  const first = { permId: 'p1', toolName: 'AskUserQuestion', toolInput: '' };
+  const second = { permId: 'p2', toolName: 'Bash', toolInput: 'pwd' };
+  let state = messagesReducer(INITIAL_MESSAGES_STATE, {
+    type: 'PERMISSION_REQUEST',
+    payload: first,
+  });
+  state = messagesReducer(state, { type: 'PERMISSION_REQUEST', payload: second });
+  state = messagesReducer(state, { type: 'PERMISSION_REQUEST', payload: second });
+  expect(state.permission?.permId).toBe('p1');
+  state = messagesReducer(state, { type: 'PERMISSION_TIMEOUT', permId: 'p1' });
+  expect(state.permission?.permId).toBe('p2');
+  state = messagesReducer(state, { type: 'PERMISSION_TIMEOUT', permId: 'p2' });
+  expect(state.permission).toBeNull();
+});
