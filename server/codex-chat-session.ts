@@ -41,6 +41,7 @@ export function readCodexQueue(
     const commands = live?.queue() ?? store().commands(conversationId, binding);
     return {
       model: commands.at(-1)?.model ?? binding.model,
+      reasoningEffort: commands.at(-1)?.reasoningEffort,
       paused: live?.isPaused() ?? true,
       connected: !!live,
       queued: commands.filter((c) => c.status === 'queued').length,
@@ -60,6 +61,8 @@ interface Options {
   registry: SessionRegistry;
   prompt: string;
   model?: string;
+  reasoningEffort?: string;
+  images?: Array<{ data: string; mediaType: string }>;
   messageId: string;
   systemPrompt: string;
   env: Record<string, string>;
@@ -119,7 +122,18 @@ export async function openCodexChat(options: Options) {
     beforeComplete: async (signal) => {
       await hooks.run('Stop', { stop_hook_active: false }, signal);
     },
-    validateModel: (model) => {
+    validateModel: (model, reasoningEffort) => {
+      const entry = loadAccountProfiles()
+        .catalog()
+        .find((a) => a.id === options.binding.accountId)
+        ?.models.find((m) => m.id === model);
+      if (
+        reasoningEffort &&
+        (!entry ||
+          !('reasoningEfforts' in entry) ||
+          !(entry.reasoningEfforts as string[] | undefined)?.includes(reasoningEffort))
+      )
+        throw new Error('Thinking level unavailable for this model');
       const current = loadAccountProfiles().resolve(options.binding.accountId, model);
       if (
         current.provider !== options.binding.provider ||
@@ -189,7 +203,13 @@ export async function openCodexChat(options: Options) {
     await runtime.initialize();
     signal.throwIfAborted();
     runtimes.set(options.session, runtime);
-    await runtime.send({ id: options.messageId, prompt: options.prompt, model: options.model });
+    await runtime.send({
+      id: options.messageId,
+      prompt: options.prompt,
+      model: options.model,
+      reasoningEffort: options.reasoningEffort,
+      images: options.images,
+    });
   } catch (error) {
     close();
     throw error;

@@ -199,3 +199,75 @@ it('falls back quickly when a legacy session has no event-store metadata', async
   expect(onChange).toHaveBeenLastCalledWith({ model: 'sonnet' });
   expect(apiFetch).toHaveBeenCalledTimes(4);
 });
+it('offers model-specific thinking choices and resets them when changing model', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    json: async () => [
+      {
+        id: 'personal',
+        label: 'ChatGPT',
+        models: [
+          {
+            id: 'gpt-a',
+            label: 'GPT A',
+            reasoningEfforts: ['low', 'high'],
+            defaultReasoningEffort: 'high',
+          },
+          {
+            id: 'gpt-b',
+            label: 'GPT B',
+            reasoningEfforts: ['medium'],
+            defaultReasoningEffort: 'medium',
+          },
+        ],
+      },
+    ],
+  } as Response);
+  const onChange = vi.fn();
+  render(<AccountModelPicker sessionId={null} preferredModel="gpt-a" onChange={onChange} />);
+  const thinking = await screen.findByLabelText('Thinking');
+  fireEvent.change(thinking, { target: { value: 'low' } });
+  expect(onChange).toHaveBeenLastCalledWith({
+    accountId: 'personal',
+    model: 'gpt-a',
+    reasoningEffort: 'low',
+  });
+  fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'gpt-b' } });
+  expect(onChange).toHaveBeenLastCalledWith({
+    accountId: 'personal',
+    model: 'gpt-b',
+    reasoningEffort: 'medium',
+  });
+});
+it('refreshes on request while preserving the selected account and thinking level', async () => {
+  const accounts = [
+    profiles[0],
+    {
+      id: 'personal',
+      label: 'Personal',
+      models: [
+        {
+          id: 'gpt',
+          label: 'GPT',
+          reasoningEfforts: ['low', 'high'],
+          defaultReasoningEffort: 'low',
+        },
+      ],
+    },
+  ];
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => accounts } as Response);
+  const onChange = vi.fn();
+  render(<AccountModelPicker sessionId={null} preferredModel="sonnet" onChange={onChange} />);
+  fireEvent.change(await screen.findByLabelText('Account'), { target: { value: 'personal' } });
+  fireEvent.change(screen.getByLabelText('Thinking'), { target: { value: 'high' } });
+  fireEvent.click(screen.getByText('Refresh models'));
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith('/api/accounts?refresh=1', expect.anything()),
+  );
+  await screen.findByLabelText('Thinking');
+  expect(onChange).toHaveBeenLastCalledWith({
+    accountId: 'personal',
+    model: 'gpt',
+    reasoningEffort: 'high',
+  });
+});

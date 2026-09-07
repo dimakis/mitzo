@@ -82,6 +82,7 @@ export const V2SendMessage = z.object({
   clientMsgId: z.string().min(1),
   accountId: z.string().min(1).optional(),
   model: z.string().optional(),
+  reasoningEffort: z.string().min(1).max(32).optional(),
   mode: z.enum(['ask', 'agent', 'auto']).optional(),
   cwd: z.string().optional(),
   extraTools: z.string().optional(),
@@ -101,6 +102,7 @@ export const V2InterruptMessage = z.object({
   prompt: z.string().min(1),
   clientMsgId: z.string().min(1),
   model: z.string().optional(),
+  reasoningEffort: z.string().min(1).max(32).optional(),
   images: z.array(ImageSchema).optional(),
   contextBlocks: z.array(z.string()).optional(),
 });

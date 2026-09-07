@@ -5,16 +5,49 @@ import { apiFetch } from '../lib/api-fetch';
 export interface AccountSelection {
   accountId?: string;
   model: string;
+  reasoningEffort?: string;
 }
 interface Account {
   id: string;
   label: string;
-  models: { id: string; label: string }[];
+  modelDiscovery?: { stale: boolean };
+  models: {
+    id: string;
+    label: string;
+    reasoningEfforts?: string[];
+    defaultReasoningEffort?: string;
+  }[];
 }
-const modelsSchema = z.array(z.object({ id: z.string().min(1), label: z.string().min(1) })).min(1);
+const modelsSchema = z
+  .array(
+    z.object({
+      id: z.string().min(1),
+      label: z.string().min(1),
+      reasoningEfforts: z.array(z.string()).optional(),
+      defaultReasoningEffort: z.string().optional(),
+    }),
+  )
+  .min(1);
 const catalogSchema = z.array(
-  z.object({ id: z.string().min(1), label: z.string().min(1), models: modelsSchema }),
+  z.object({
+    id: z.string().min(1),
+    label: z.string().min(1),
+    modelDiscovery: z.object({ stale: z.boolean() }).optional(),
+    models: modelsSchema,
+  }),
 );
+
+function withThinking(selection: AccountSelection, account: Account): AccountSelection {
+  const model = account.models.find((m) => m.id === selection.model);
+  const effort = model?.reasoningEfforts?.includes(selection.reasoningEffort ?? '')
+    ? selection.reasoningEffort
+    : model?.defaultReasoningEffort;
+  return {
+    accountId: selection.accountId,
+    model: selection.model,
+    ...(effort && model?.reasoningEfforts?.includes(effort) ? { reasoningEffort: effort } : {}),
+  };
+}
 
 export function AccountModelPicker({
   sessionId,
@@ -31,6 +64,8 @@ export function AccountModelPicker({
 }) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selection, setSelection] = useState<AccountSelection | null>(null);
+  const selectionRef = useRef(selection);
+  if (selection) selectionRef.current = selection;
   const [bindingLabel, setBindingLabel] = useState('');
   const [editingAlias, setEditingAlias] = useState(false);
   const [alias, setAlias] = useState('');
@@ -55,11 +90,12 @@ export function AccountModelPicker({
     setSelection(null);
     setEmpty(false);
     callbacks.current.onChange(null);
-    const url = sessionId
+    const baseUrl = sessionId
       ? `/api/sessions/${encodeURIComponent(sessionId)}/meta`
       : legacy
         ? '/api/models'
         : '/api/accounts';
+    const url = baseUrl + (attempt ? '?refresh=1' : '');
     const controller = new AbortController();
     async function fetchMetadata() {
       const retryDelays = [100, 200, 400];
@@ -95,7 +131,11 @@ export function AccountModelPicker({
         if (disposed) return;
         if (sessionId) {
           const modelSelection = z
-            .object({ model: z.string(), models: modelsSchema })
+            .object({
+              model: z.string(),
+              models: modelsSchema,
+              reasoningEffort: z.string().optional(),
+            })
             .safeParse(data.modelSelection);
           if (data.accountBinding && modelSelection.success) {
             const account = {
@@ -104,7 +144,14 @@ export function AccountModelPicker({
               models: modelSelection.data.models,
             };
             setAccounts([account]);
-            const next = { accountId: account.id, model: modelSelection.data.model };
+            const next = withThinking(
+              {
+                accountId: account.id,
+                model: modelSelection.data.model,
+                reasoningEffort: modelSelection.data.reasoningEffort,
+              },
+              account,
+            );
             setSelection(next);
             callbacks.current.onChange(next);
           } else {
@@ -135,15 +182,20 @@ export function AccountModelPicker({
             return;
           }
           setAccounts(catalog);
-          const first = catalog[0];
+          const previous = attempt ? selectionRef.current : null;
+          const first = catalog.find((a) => a.id === previous?.accountId) ?? catalog[0];
           const next = {
             ...(!legacy ? { accountId: first.id } : {}),
-            model: first.models.some((m) => m.id === preferredModel)
-              ? preferredModel
+            model: first.models.some((m) => m.id === (previous?.model ?? preferredModel))
+              ? (previous?.model ?? preferredModel)
               : first.models[0].id,
           };
-          setSelection(next);
-          callbacks.current.onChange(next);
+          const selected = withThinking(
+            { ...next, reasoningEffort: previous?.reasoningEffort },
+            first,
+          );
+          setSelection(selected);
+          callbacks.current.onChange(selected);
         }
       })
       .catch((err: unknown) => {
@@ -203,7 +255,10 @@ export function AccountModelPicker({
           onChange={(e) => {
             setEditingAlias(false);
             const nextAccount = accounts.find((a) => a.id === e.target.value)!;
-            const next = { accountId: nextAccount.id, model: nextAccount.models[0].id };
+            const next = withThinking(
+              { accountId: nextAccount.id, model: nextAccount.models[0].id },
+              nextAccount,
+            );
             setSelection(next);
             onChange(next);
           }}
@@ -279,17 +334,55 @@ export function AccountModelPicker({
         className="chat-model-select"
         value={selection.model}
         onChange={(e) => {
-          const next = { ...selection, model: e.target.value };
+          const next = withThinking(
+            { accountId: selection.accountId, model: e.target.value },
+            account,
+          );
           setSelection(next);
           onChange(next);
         }}
       >
+        {!account.models.some((m) => m.id === selection.model) && (
+          <option value={selection.model} disabled>
+            {selection.model} (unavailable)
+          </option>
+        )}
         {account.models.map((m) => (
           <option key={m.id} value={m.id}>
             {m.label}
           </option>
         ))}
       </select>
+      {!!account.models.find((m) => m.id === selection.model)?.reasoningEfforts?.length && (
+        <select
+          aria-label="Thinking"
+          className="chat-model-select"
+          disabled={disabled}
+          value={selection.reasoningEffort ?? ''}
+          onChange={(e) => {
+            const next = { ...selection, reasoningEffort: e.target.value };
+            setSelection(next);
+            onChange(next);
+          }}
+        >
+          {!selection.reasoningEffort && <option value="">Model default</option>}
+          {account.models
+            .find((m) => m.id === selection.model)
+            ?.reasoningEfforts?.map((effort) => (
+              <option key={effort} value={effort}>
+                Thinking: {effort}
+              </option>
+            ))}
+        </select>
+      )}
+      {account.modelDiscovery?.stale && (
+        <span role="status">Model refresh failed. Showing the last available list.</span>
+      )}
+      {!legacy && (
+        <button disabled={disabled} onClick={() => setAttempt((n) => n + 1)}>
+          Refresh models
+        </button>
+      )}
     </>
   );
 }
