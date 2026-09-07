@@ -3,6 +3,8 @@ import { PassThrough } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CodexAppServerClient, codexEnvironment } from '../codex-app-server-client.js';
 
+vi.mock('../application-version.js', () => ({ applicationVersion: '9.8.7-test' }));
+
 function processStub() {
   const child = Object.assign(new EventEmitter(), {
     stdin: new PassThrough(),
@@ -42,7 +44,10 @@ describe('Codex app-server transport', () => {
     const { child, sent, reply } = processStub();
     const client = new CodexAppServerClient(child);
     const ready = client.initialize();
-    expect(sent[0]).toMatchObject({ method: 'initialize' });
+    expect(sent[0]).toMatchObject({
+      method: 'initialize',
+      params: { clientInfo: { version: '9.8.7-test' } },
+    });
     reply({ id: sent[0].id, result: {} });
     await ready;
     expect(sent[1]).toMatchObject({ method: 'initialized' });
@@ -92,6 +97,22 @@ describe('Codex app-server transport', () => {
       await pending;
       expect(child.kill).toHaveBeenCalled();
     }
+  });
+
+  it('reports a failed server-request reply as a connection failure without exposing details', async () => {
+    const { child, sent, reply } = processStub();
+    const client = new CodexAppServerClient(child);
+    const ready = client.initialize();
+    reply({ id: sent[0].id, result: {} });
+    await ready;
+    const pending = client.request('account/read', {});
+    vi.spyOn(child.stdin, 'write').mockImplementation(() => {
+      throw new Error('private-write-secret');
+    });
+    reply({ id: 'approval', method: 'tool/approval', params: {} });
+    await expect(pending).rejects.toThrow('Codex connection closed');
+    await expect(pending).rejects.not.toThrow('private-write-secret');
+    expect(child.kill).toHaveBeenCalledTimes(1);
   });
 
   it('rejects unhandled server requests instead of allowing tools', async () => {

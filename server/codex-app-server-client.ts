@@ -1,3 +1,4 @@
+import { applicationVersion } from './application-version.js';
 import { spawn } from 'node:child_process';
 import type { EventEmitter } from 'node:events';
 import type { Readable, Writable } from 'node:stream';
@@ -75,7 +76,7 @@ export class CodexAppServerClient {
 
   initialize(): Promise<void> {
     this.initializing ??= this.sendRequest('initialize', {
-      clientInfo: { name: 'mitzo', version: '1.0.0' },
+      clientInfo: { name: 'mitzo', version: applicationVersion },
       capabilities: { experimentalApi: true },
     }).then(() => {
       this.write({ method: 'initialized', params: {} });
@@ -140,11 +141,17 @@ export class CodexAppServerClient {
         const message = frame as JsonObject;
         if (typeof message.method === 'string') {
           // No tool execution is authorized by this connection foundation.
-          if (message.id !== undefined)
-            this.write({
-              id: message.id,
-              error: { code: -32601, message: 'Unsupported Codex request' },
-            });
+          if (message.id !== undefined) {
+            try {
+              this.write({
+                id: message.id,
+                error: { code: -32601, message: 'Unsupported Codex request' },
+              });
+            } catch {
+              this.close();
+              return;
+            }
+          }
           continue;
         }
         if (typeof message.id !== 'number') throw new Error();

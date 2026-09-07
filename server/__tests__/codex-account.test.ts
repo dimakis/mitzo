@@ -67,3 +67,9 @@ it('rejects invalid profiles and malformed account responses without echoing sec
     verifyCodexAccount(client, { ...profile, credentialRef: 'relative' }),
   ).rejects.toThrow('Invalid Codex account profile');
 });
+
+it('requires the exact provider-reported email rather than assuming case equivalence', async () => {
+  await expect(
+    verifyCodexAccount(rpc(), { ...profile, email: 'Person@example.test' }),
+  ).rejects.toThrow('Codex account does not match');
+});

@@ -71,3 +71,5 @@ replace enforcement. Do not enable execution while this remains unverified.
 
 Protocol reference: [Codex app-server](https://learn.chatgpt.com/docs/app-server).
 The local CLI-generated schema should be rechecked on version changes.
+
+Account email matching deliberately requires the exact provider-reported value. Configure that value verbatim; preflight does not assume that differently cased login identifiers are interchangeable. The profile revision also retains the exact configured identity.
