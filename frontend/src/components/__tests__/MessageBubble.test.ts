@@ -121,7 +121,7 @@ describe('MessageBubble', () => {
     const clickEvent = { preventDefault: vi.fn() };
     // Extract onClick from rendered component — render via createElement to get props
     const rendered = anchor({ href: fileHref, children: '/tmp/output.md' });
-    rendered.props.onClick(clickEvent);
+    rendered.props.children[0].props.onClick(clickEvent);
 
     expect(clickEvent.preventDefault).toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith(
@@ -291,7 +291,7 @@ describe('TextBubble markdown preview card promotion', () => {
     const anchor = capturedComponents!.a;
     const fileHref = `${FILE_SCHEME}${encodeURIComponent('/tmp/notes.md')}`;
     const rendered = anchor({ href: fileHref, children: '/tmp/notes.md' });
-    expect(rendered.props['data-file-path']).toBe('/tmp/notes.md');
+    expect(rendered.props.children[0].props['data-file-path']).toBe('/tmp/notes.md');
   });
 });
 

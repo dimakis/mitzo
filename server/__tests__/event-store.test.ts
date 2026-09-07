@@ -564,13 +564,15 @@ describe('EventStore', () => {
       expect(attention[0].sessionId).toBe('sess-1');
     });
 
-    it('excludes inactive sessions', () => {
+    it('includes completed sessions whose assistant response still needs attention', () => {
       store.upsertSession({ sessionId: 'sess-1', summary: 'Closed' });
       store.updateLastSpeaker('sess-1', 'assistant');
       store.markSessionInactive('sess-1');
 
       const attention = store.getAttentionSessions();
-      expect(attention).toHaveLength(0);
+      expect(attention).toHaveLength(1);
+      expect(attention[0].sessionId).toBe('sess-1');
+      expect(attention[0].isActive).toBe(false);
     });
 
     it('excludes hidden sessions', () => {
