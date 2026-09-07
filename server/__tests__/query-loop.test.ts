@@ -2205,3 +2205,44 @@ describe('runQueryLoop', () => {
     });
   });
 });
+
+it('continues tool events through the new owner after the same session is rekeyed', async () => {
+  const oldTransport = fakeTransport();
+  const newTransport = fakeTransport();
+  const registry = fakeRegistry(oldTransport);
+  const session = registry.get('old')!;
+  session.sessionId = 'saved';
+  let owner = 'old';
+  vi.mocked(registry.get).mockImplementation((id) => (id === owner ? session : undefined));
+  registry.findBySessionId = vi.fn((id) => (id === 'saved' ? { clientId: owner, session } : null));
+  async function* stream() {
+    yield { type: 'system', subtype: 'init', session_id: 'saved' };
+    owner = 'new';
+    session.transport = newTransport;
+    yield {
+      type: 'stream_event',
+      event: { type: 'message_start', message: { id: 'tool-message' } },
+    };
+    yield {
+      type: 'stream_event',
+      event: {
+        type: 'content_block_start',
+        index: 0,
+        content_block: { type: 'tool_use', id: 'read-1', name: 'Read', input: {} },
+      },
+    };
+    yield { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } };
+    yield {
+      type: 'user',
+      message: {
+        content: [{ type: 'tool_result', tool_use_id: 'read-1', content: '# Test workspace' }],
+      },
+    };
+    yield { type: 'result', session_id: 'saved' };
+  }
+  await runQueryLoop(stream(), 'old', registry, new AbortController());
+  expect(newTransport.sent).toContainEqual(
+    expect.objectContaining({ type: 'tool_result', toolId: 'read-1' }),
+  );
+  expect(registry.remove).toHaveBeenCalledWith('new');
+});

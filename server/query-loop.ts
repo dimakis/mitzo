@@ -216,6 +216,19 @@ async function _runQueryLoopInner(
   initialPrompt?: string,
   options?: QueryLoopOptions,
 ) {
+  // Registry keys change when a refreshed connection takes ownership. Follow the
+  // same session object, never a replacement session that happens to reuse an ID.
+  const ownedSession = registry.get(clientId);
+  function currentOwnerSession() {
+    if (!ownedSession) return undefined;
+    if (registry.get(clientId) === ownedSession) return ownedSession;
+    const owner = ownedSession.sessionId
+      ? registry.findBySessionId?.(ownedSession.sessionId)
+      : null;
+    if (owner?.session !== ownedSession) return undefined;
+    clientId = owner.clientId;
+    return ownedSession;
+  }
   const connRegistry = options?.connRegistry;
   const onSessionResolved = options?.onSessionResolved;
   const onInitialPrompt = options?.onInitialPrompt;
@@ -412,12 +425,12 @@ async function _runQueryLoopInner(
           firstEventReceived = true;
           clearTimeout(firstEventTimer);
           // Session state machine: mark ACTIVE on first SDK event (resume path)
-          const sid = resolvedSessionId || registry.get(clientId)?.sessionId;
+          const sid = resolvedSessionId || currentOwnerSession()?.sessionId;
           if (store && sid) {
             store.setSessionState(sid, 'ACTIVE', { clientId, reason: 'first_sdk_event' });
           }
         }
-        const currentSession = registry.get(clientId);
+        const currentSession = currentOwnerSession();
         if (!currentSession) break;
         if (!resolvedSessionId && currentSession.sessionId) {
           resolvedSessionId = currentSession.sessionId;
@@ -1267,7 +1280,7 @@ async function _runQueryLoopInner(
                 const trResult = truncateForTrace(resultText);
 
                 // Store images server-side and build reference array
-                const sid = resolvedSessionId || registry.get(clientId)?.sessionId;
+                const sid = resolvedSessionId || currentOwnerSession()?.sessionId;
                 let imageRefs: { id: string; mediaType: string }[] | undefined;
                 if (resultImages.length > 0 && !sid) {
                   log.warn('dropping tool result images — no sessionId', { clientId });
@@ -1342,7 +1355,7 @@ async function _runQueryLoopInner(
         code: SpanStatusCode.ERROR,
         message: err instanceof Error ? err.message : 'unknown',
       });
-      const currentSession = registry.get(clientId);
+      const currentSession = currentOwnerSession();
       if (currentSession) {
         if (timedOut) {
           const seconds = Math.round(QUERY_FIRST_EVENT_TIMEOUT_MS / 1000);
@@ -1362,7 +1375,7 @@ async function _runQueryLoopInner(
       // It is read in two places after remove: (1) span attributes block reads
       // cumulativeCostUsd, (2) fallback usage recorder reads cumulativeCostUsd.
       // Both are safe due to reference semantics, but keep the ordering if refactoring.
-      const finalSession = registry.get(clientId);
+      const finalSession = currentOwnerSession();
       if (finalSession) {
         finalSession.currentSnapshot = null;
         if (!doneSent) {
