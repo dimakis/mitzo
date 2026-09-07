@@ -54,6 +54,10 @@ export async function openCodexChat(options: Options) {
     createClient: (callbacks) =>
       CodexAppServerClient.launch(options.profile.credentialRef, process.env, callbacks),
     emit: (event) => events.push(event),
+    onClosed: () => {
+      events.close();
+      runtimes.delete(options.session);
+    },
     executeTool: async (name, input, signal) => {
       const owner = options.registry.findBySessionId(options.conversationId);
       if (!owner) throw new Error('Codex session unavailable');
