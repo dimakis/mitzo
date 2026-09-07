@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { AccountProfiles } from '../account-profiles.js';
+import { AccountProfiles, resolveAccountSelection } from '../account-profiles.js';
 import { V2SendMessage } from '@mitzo/protocol';
 
 const profile = {
@@ -13,6 +13,16 @@ const profile = {
 };
 
 describe('explicit account binding', () => {
+  it('resolves and constructs the SDK environment from one supplied profile snapshot', () => {
+    const profiles = new AccountProfiles([profile]);
+    const binding = resolveAccountSelection(
+      { accountId: 'work', model: 'claude-sonnet-4-6' },
+      null,
+      false,
+      profiles,
+    )!;
+    expect(profiles.sdkEnv(binding, {}).ANTHROPIC_VERTEX_PROJECT_ID).toBe('work-project');
+  });
   it('sends only account IDs through the mobile protocol', () => {
     expect(
       V2SendMessage.parse({

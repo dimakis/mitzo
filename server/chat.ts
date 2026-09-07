@@ -1,4 +1,9 @@
-import { loadAccountProfiles, resolveAccountSelection, LEGACY_MODELS } from './account-profiles.js';
+import {
+  loadAccountProfiles,
+  resolveAccountSelection,
+  LEGACY_MODELS,
+  type AccountProfiles,
+} from './account-profiles.js';
 import {
   query,
   listSessions,
@@ -732,6 +737,7 @@ export async function startChat(
     cwd?: string;
     model?: string;
     accountId?: string;
+    accountProfiles?: AccountProfiles;
     extraTools?: string;
     isolation?: boolean;
     mode?: MitzoMode;
@@ -763,6 +769,7 @@ async function _startChatInner(
     cwd?: string;
     model?: string;
     accountId?: string;
+    accountProfiles?: AccountProfiles;
     extraTools?: string;
     isolation?: boolean;
     mode?: MitzoMode;
@@ -777,14 +784,16 @@ async function _startChatInner(
   let accountBinding;
   let accountEnv: Record<string, string> | undefined;
   try {
-    accountBinding = resolveAccountSelection(
-      options,
-      options.resume ? eventStore.getSession(options.resume)?.accountBinding : null,
-      !!options.resume,
-    );
+    const storedBinding = options.resume
+      ? eventStore.getSession(options.resume)?.accountBinding
+      : null;
+    const profiles =
+      options.accountProfiles ??
+      (options.accountId || storedBinding ? loadAccountProfiles() : undefined);
+    accountBinding = resolveAccountSelection(options, storedBinding, !!options.resume, profiles);
     if (accountBinding) {
       options = { ...options, model: accountBinding.model };
-      accountEnv = loadAccountProfiles().sdkEnv(accountBinding, sdkEnv());
+      accountEnv = profiles!.sdkEnv(accountBinding, sdkEnv());
     }
   } catch (err: unknown) {
     send(transport, {

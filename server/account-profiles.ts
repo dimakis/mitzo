@@ -147,6 +147,7 @@ export function resolveAccountSelection(
   selection: { accountId?: string; model?: string },
   stored?: AccountBinding | null,
   resuming = false,
+  profiles?: AccountProfiles,
 ): AccountBinding | undefined {
   if (stored) {
     if (
@@ -158,9 +159,9 @@ export function resolveAccountSelection(
         'This task is bound to its original account and model. Start a new task to change them.',
       );
     }
-    return loadAccountProfiles().resume(stored);
+    return (profiles ?? loadAccountProfiles()).resume(stored);
   }
   if (!selection.accountId) return undefined;
   if (resuming) throw new Error('Existing legacy tasks cannot change accounts. Start a new task.');
-  return loadAccountProfiles().resolve(selection.accountId, selection.model);
+  return (profiles ?? loadAccountProfiles()).resolve(selection.accountId, selection.model);
 }

@@ -51,6 +51,7 @@ export function ChatView() {
   const storeDispatchMessages = useMitzoStore((s) => s.dispatchMessages);
   const storeFetchSessionMeta = useMitzoStore((s) => s.fetchSessionMeta);
   const pendingSession = useMitzoStore((s) => s.pendingSession);
+  const setPendingSession = useMitzoStore((s) => s.setPendingSession);
   const clearPendingSession = useMitzoStore((s) => s.clearPendingSession);
   const sessionContext = useMitzoStore((s) => s.messages.sessionContext);
   const bootContext = useMitzoStore((s) => s.messages.bootContext);
@@ -135,6 +136,13 @@ export function ChatView() {
 
   // Auto-send pending session (from "Start Session" on inbox/todo items)
   const pendingConsumed = useRef<string | null>(null);
+  const [pausedLaunch, setPausedLaunch] = useState<typeof pendingSession>(null);
+  const accountUnavailable = useCallback(() => {
+    if (pendingSession) {
+      setPausedLaunch(pendingSession);
+      clearPendingSession();
+    }
+  }, [pendingSession, clearPendingSession]);
   useEffect(() => {
     if (!pendingSession || !accountSelection) return;
     // Guard against double-consumption of the same pending session
@@ -278,6 +286,7 @@ export function ChatView() {
           sessionId={activeSessionId}
           preferredModel={modelState}
           onChange={selectAccount}
+          onUnavailable={accountUnavailable}
         />
       </div>
 
@@ -294,6 +303,22 @@ export function ChatView() {
         sessionContext={sessionContext}
       />
 
+      {pausedLaunch && (
+        <div role="status" className="chat-account-bar">
+          <p>Launch paused. Select an account before sending.</p>
+          <p>{pausedLaunch.prompt}</p>
+          <button
+            disabled={!accountSelection || messages.running}
+            onClick={() => {
+              setPendingSession(pausedLaunch);
+              setPausedLaunch(null);
+            }}
+          >
+            Send launch prompt
+          </button>
+          <button onClick={() => setPausedLaunch(null)}>Dismiss launch</button>
+        </div>
+      )}
       <ChatInput
         onSend={handleSend}
         onStop={handleStop}
