@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { z } from 'zod';
 
 const Events = ['SessionStart', 'PreToolUse', 'PostToolUse', 'Stop', 'SessionEnd'] as const;
@@ -66,6 +66,48 @@ export class NativeHooks {
       throw new Error('Project hooks are invalid or use an unsupported native hook event.');
     }
   }
+  async executeTool(
+    name: string,
+    input: Record<string, unknown>,
+    signal: AbortSignal,
+    execute: (
+      input: Record<string, unknown>,
+      forcePrompt: boolean,
+    ) => Promise<{ content: string; isError: boolean }>,
+  ): Promise<{ content: string; isError: boolean }> {
+    let executed = false;
+    try {
+      const normalized =
+        typeof input.file_path === 'string'
+          ? { ...input, file_path: resolve(this.cwd, input.file_path) }
+          : input;
+      const pre = await this.run('PreToolUse', { tool_name: name, tool_input: normalized }, signal);
+      const checked = pre.input ?? normalized;
+      signal.throwIfAborted();
+      const result = await execute(checked, pre.forcePrompt);
+      executed = true;
+      if (result.isError) return result;
+      const post = await this.run(
+        'PostToolUse',
+        { tool_name: name, tool_input: checked, tool_response: result.content },
+        signal,
+      );
+      const context = [pre.context, post.context].filter(Boolean).join('\n');
+      return {
+        content: result.content + (context ? `\n\nProject hook feedback:\n${context}` : ''),
+        isError: false,
+      };
+    } catch (error) {
+      return {
+        content: executed
+          ? 'Tool ran, but its post-tool hook failed or was interrupted. Inspect current state before retrying.'
+          : error instanceof Error
+            ? error.message
+            : 'Project hook blocked the tool.',
+        isError: true,
+      };
+    }
+  }
   async run(event: Event, input: Record<string, unknown>, signal: AbortSignal): Promise<Result> {
     const result: Result = { context: '', forcePrompt: false };
     for (const group of this.hooks[event] ?? []) {
@@ -92,6 +134,7 @@ export class NativeHooks {
             child.stdin?.end(
               JSON.stringify({
                 ...input,
+                ...(result.input ? { tool_input: result.input } : {}),
                 hook_event_name: event,
                 session_id: this.sessionId,
                 cwd: this.cwd,

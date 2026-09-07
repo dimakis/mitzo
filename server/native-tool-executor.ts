@@ -63,6 +63,7 @@ async function canonicalPath(path: string): Promise<string> {
 export interface NativeToolOptions {
   /** Explicit child environment. The executor never inherits process.env or API credentials. */
   env: Record<string, string>;
+  forcePrompt?: boolean;
   timeoutMs?: number;
   maxOutputBytes?: number;
   onDemandCreate?: NonNullable<Parameters<typeof buildPermissionHandler>[2]>['onDemandCreate'];
@@ -181,7 +182,9 @@ export function createNativeToolExecutor(
       }
       const input = { ...parsed.data };
       if ('questions' in input) return result('Invalid tool input', true);
-      const forcePrompt = 'require_approval' in input && input.require_approval === true;
+      const forcePrompt =
+        options.forcePrompt === true ||
+        ('require_approval' in input && input.require_approval === true);
       if ('require_approval' in input) delete input.require_approval;
       const roots: { canonical: string; original: string }[] = [];
       for (const entry of session.worktreePaths.values()) {

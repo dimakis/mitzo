@@ -62,3 +62,32 @@ it('fails closed on hook failure without disclosing command output', async () =>
     hooks.run('PreToolUse', { tool_name: 'Write' }, new AbortController().signal),
   ).rejects.toThrow(/^Project PreToolUse hook failed\.$/);
 });
+
+it('holds execution at the hook boundary and forwards approval without broadening policy', async () => {
+  const hooks = setup({
+    PreToolUse: [
+      {
+        hooks: [
+          {
+            type: 'command',
+            command: `printf '%s' '{"hookSpecificOutput":{"permissionDecision":"ask","updatedInput":{"file_path":"checked"}}}'`,
+          },
+        ],
+      },
+    ],
+  });
+  let calls = 0;
+  const result = await hooks.executeTool(
+    'Write',
+    { file_path: 'original' },
+    new AbortController().signal,
+    async (input, forcePrompt) => {
+      calls++;
+      expect(input.file_path).toBe('checked');
+      expect(forcePrompt).toBe(true);
+      return { content: 'written', isError: false };
+    },
+  );
+  expect(calls).toBe(1);
+  expect(result).toEqual({ content: 'written', isError: false });
+});
