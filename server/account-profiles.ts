@@ -182,7 +182,8 @@ export function loadAccountProfiles(): AccountProfiles {
         JSON.parse(readFileSync(process.env.MITZO_ACCOUNT_PROFILES_FILE, 'utf8')),
         {
           codexEnabled:
-            process.env.MITZO_CODEX_DEV_ENABLED === '1' && process.env.NODE_ENV !== 'production',
+            process.env.MITZO_CODEX_ENABLED === '1' ||
+            (process.env.MITZO_CODEX_DEV_ENABLED === '1' && process.env.NODE_ENV !== 'production'),
         },
       );
     } catch {
