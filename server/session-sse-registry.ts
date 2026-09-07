@@ -8,15 +8,15 @@ const log = createLogger('session-sse');
 const HEARTBEAT_INTERVAL_MS = 30_000; // 30s — keeps connection alive through proxies
 
 export class SessionSseRegistry {
-  private streams = new Map<string, Response>();
+  private streams = new Map<string, { response: Response; authSessionId?: string }>();
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   /**
    * Register an SSE response stream for a connection.
    */
-  add(connectionId: string, res: Response): void {
+  add(connectionId: string, res: Response, authSessionId?: string): void {
     // Close any existing stream for this connection (e.g. stale reconnect)
-    const existing = this.streams.get(connectionId);
+    const existing = this.streams.get(connectionId)?.response;
     if (existing) {
       try {
         existing.end();
@@ -25,7 +25,7 @@ export class SessionSseRegistry {
       }
     }
 
-    this.streams.set(connectionId, res);
+    this.streams.set(connectionId, { response: res, authSessionId });
 
     if (this.streams.size === 1) {
       this.startHeartbeat();
@@ -53,7 +53,7 @@ export class SessionSseRegistry {
    * @param id - Optional SSE `id:` field (EventStore seq number for replay)
    */
   sendTo(connectionId: string, data: Record<string, unknown>, id?: string | number): boolean {
-    const res = this.streams.get(connectionId);
+    const res = this.streams.get(connectionId)?.response;
     if (!res) return false;
 
     try {
@@ -79,9 +79,14 @@ export class SessionSseRegistry {
    * Check if a connection has an open SSE stream.
    */
   isOpen(connectionId: string): boolean {
-    const res = this.streams.get(connectionId);
+    const res = this.streams.get(connectionId)?.response;
     if (!res) return false;
     return !res.writableEnded;
+  }
+
+  isOwnedBy(connectionId: string, authSessionId: string | undefined): boolean {
+    const stream = this.streams.get(connectionId);
+    return Boolean(stream && stream.authSessionId === authSessionId);
   }
 
   get size(): number {
@@ -96,9 +101,9 @@ export class SessionSseRegistry {
     log.info('Starting SSE chat heartbeat', { intervalMs: HEARTBEAT_INTERVAL_MS });
     this.heartbeatTimer = setInterval(() => {
       const failures: string[] = [];
-      for (const [connectionId, res] of this.streams) {
+      for (const [connectionId, stream] of this.streams) {
         try {
-          res.write(':heartbeat\n\n');
+          stream.response.write(':heartbeat\n\n');
         } catch {
           failures.push(connectionId);
         }
@@ -120,9 +125,9 @@ export class SessionSseRegistry {
     log.info('Destroying SessionSseRegistry', { streams: this.streams.size });
     this.stopHeartbeat();
 
-    for (const [, res] of this.streams) {
+    for (const [, stream] of this.streams) {
       try {
-        res.end();
+        stream.response.end();
       } catch {
         // best effort
       }

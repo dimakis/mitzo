@@ -42,6 +42,14 @@ describe('SessionSseRegistry', () => {
     expect(registry.isOpen('conn-1')).toBe(true);
   });
 
+  it('binds a stream to the authentication session that opened it', () => {
+    const res = mockResponse();
+    registry.add('conn-1', res, 'auth-session-1');
+
+    expect(registry.isOwnedBy('conn-1', 'auth-session-1')).toBe(true);
+    expect(registry.isOwnedBy('conn-1', 'auth-session-2')).toBe(false);
+  });
+
   it('removes connections', () => {
     const res = mockResponse();
     registry.add('conn-1', res);

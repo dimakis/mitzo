@@ -64,6 +64,11 @@ function buildApp(sseRegistry: SessionSseRegistry, connRegistry: ConnectionRegis
 
   const app = express();
   app.use(express.json());
+  app.use((req, res, next) => {
+    const id = req.headers['x-test-auth'];
+    if (typeof id === 'string') res.locals.authSession = { id };
+    next();
+  });
   app.use('/api/chat', createChatRestRouter(sseRegistry, ctx));
   return { app, ctx };
 }
@@ -112,6 +117,19 @@ describe('chat-rest-handler', () => {
       .send({ nonce: 'probe-1' });
     expect(response.status).toBe(202);
     expect(send).toHaveBeenCalledWith({ type: '_probe', nonce: 'probe-1' });
+  });
+
+  it('rejects a POST authenticated by a different login than the SSE stream', async () => {
+    sseRegistry.add(CONNECTION_ID, mockResponse(), 'login-one');
+
+    const response = await request(testApp)
+      .post('/api/chat/probe')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .set('X-Test-Auth', 'login-two')
+      .send({ nonce: 'probe-1' });
+
+    expect(response.status).toBe(403);
+    expect(response.body.error).toContain('another login');
   });
 
   it('persists startup events before a stream exists without duplicating sequenced events', async () => {

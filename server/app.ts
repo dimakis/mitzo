@@ -13,7 +13,16 @@ import { promisify } from 'util';
 import { createHash, randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import { login, authMiddleware, verifyToken, COOKIE_NAME, MAX_AGE_HOURS } from './auth.js';
+import {
+  login,
+  authMiddleware,
+  verifyToken,
+  registerAuthSession,
+  revokeAuthSession,
+  COOKIE_NAME,
+  MAX_AGE_HOURS,
+  type AuthSession,
+} from './auth.js';
 import {
   getSessions,
   getSessionsCached,
@@ -606,6 +615,13 @@ app.get('/api/events', (req, res) => {
 
   const clientId = randomUUID();
   sseRegistry.add(clientId, res);
+  const authSession = res.locals.authSession as AuthSession | undefined;
+  const unregisterAuth = authSession
+    ? registerAuthSession(authSession, (reason) => {
+        sseRegistry.sendTo(clientId, 'auth_expired', { reason });
+        res.end();
+      })
+    : () => undefined;
 
   // Hydrate: send server version + session overview on connect
   sseRegistry.sendTo(clientId, 'connected', {
@@ -620,7 +636,10 @@ app.get('/api/events', (req, res) => {
     sseRegistry.sendTo(clientId, 'health', healthMonitor.getSnapshot());
   }
 
-  req.on('close', () => sseRegistry.remove(clientId));
+  req.on('close', () => {
+    unregisterAuth();
+    sseRegistry.remove(clientId);
+  });
 });
 
 // REST fallback for service health (iOS WebKit can't do SSE with self-signed certs)
@@ -1090,6 +1109,7 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
   }
   const token = await login(body.data.passphrase);
   if (!token) {
+    res.clearCookie(COOKIE_NAME, { httpOnly: true, sameSite: 'strict' });
     res.status(401).json({ error: 'Invalid passphrase' });
     return;
   }
@@ -1102,7 +1122,8 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
 });
 
 app.post('/api/auth/logout', (_req, res) => {
-  res.clearCookie(COOKIE_NAME);
+  revokeAuthSession(res.locals.authSession as AuthSession | undefined);
+  res.clearCookie(COOKIE_NAME, { httpOnly: true, sameSite: 'strict' });
   res.json({ ok: true });
 });
 

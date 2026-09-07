@@ -202,6 +202,23 @@ describe('auth routes', () => {
     const res = await request(app).post('/api/auth/logout').set('Cookie', authCookie);
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
+    const { login } = await import('../auth.js');
+    authCookie = `cc_auth=${await login(process.env.AUTH_PASSPHRASE!)}`;
+  });
+
+  it('POST /api/auth/logout — revokes the presented bearer token', async () => {
+    const { login } = await import('../auth.js');
+    const token = (await login(process.env.AUTH_PASSPHRASE!))!;
+
+    expect(
+      (await request(app).get('/api/auth/check').set('Authorization', `Bearer ${token}`)).status,
+    ).toBe(200);
+    expect(
+      (await request(app).post('/api/auth/logout').set('Authorization', `Bearer ${token}`)).status,
+    ).toBe(200);
+    expect(
+      (await request(app).get('/api/auth/check').set('Authorization', `Bearer ${token}`)).status,
+    ).toBe(401);
   });
 
   it('GET /api/auth/check — unauthenticated returns 401', async () => {
@@ -227,6 +244,8 @@ describe('bearer token auth', () => {
       .post('/api/auth/login')
       .send({ passphrase: process.env.AUTH_PASSPHRASE });
     bearerToken = res.body.token;
+    const { verifyToken } = await import('../auth.js');
+    expect(await verifyToken(bearerToken)).toBe(true);
   });
 
   it('GET /api/auth/check — accepts Authorization: Bearer header', async () => {

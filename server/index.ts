@@ -15,7 +15,7 @@ import { join } from 'path';
 import { fileURLToPath } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { WsTransport } from './ws-transport.js';
-import { verifyWsAuth, verifyToken } from './auth.js';
+import { authenticateWs, registerAuthSession, type AuthSession } from './auth.js';
 import {
   startChat,
   sendToChat,
@@ -341,10 +341,8 @@ server.on('upgrade', async (req, socket, head) => {
     return;
   }
 
-  const authed =
-    (await verifyWsAuth(req.headers.cookie)) ||
-    (await verifyToken(url.searchParams.get('token') || ''));
-  if (!authed) {
+  const authSession = await authenticateWs(req.headers.cookie, url.searchParams.get('token'));
+  if (!authSession) {
     socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
     socket.destroy();
     return;
@@ -352,6 +350,10 @@ server.on('upgrade', async (req, socket, head) => {
 
   wss.handleUpgrade(req, socket, head, (ws) => {
     const connId = `conn-${crypto.randomUUID()}`;
+    const unregisterAuth = registerAuthSession(authSession, (reason) => {
+      ws.close(4401, reason === 'expired' ? 'Authentication expired' : 'Logged out');
+    });
+    ws.once('close', unregisterAuth);
     log.info('chat connected', { connectionId: connId });
     routeWsClient(ws, connId);
   });
@@ -419,9 +421,16 @@ app.get('/api/chat/events', (req, res) => {
 
   const connectionId = `conn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const transport = new SseTransport(connectionId, chatSseRegistry);
+  const authSession = res.locals.authSession as AuthSession | undefined;
 
-  chatSseRegistry.add(connectionId, res);
+  chatSseRegistry.add(connectionId, res, authSession?.id);
   connRegistry.register(connectionId, transport);
+  const unregisterAuth = authSession
+    ? registerAuthSession(authSession, (reason) => {
+        chatSseRegistry.sendTo(connectionId, { type: 'auth_expired', reason });
+        res.end();
+      })
+    : () => undefined;
 
   // Send welcome with connectionId — client uses this in X-Connection-ID header on POSTs
   chatSseRegistry.sendTo(connectionId, {
@@ -438,6 +447,7 @@ app.get('/api/chat/events', (req, res) => {
   log.info('SSE chat stream connected', { connectionId });
 
   req.on('close', () => {
+    unregisterAuth();
     chatSseRegistry.remove(connectionId);
 
     const conn = connRegistry.get(connectionId);

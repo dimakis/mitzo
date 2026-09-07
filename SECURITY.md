@@ -10,9 +10,11 @@ Given that deployment model, the security posture prioritizes simplicity over de
 
 - **Passphrase + JWT cookie**: login via `POST /api/auth/login` with a plaintext passphrase, which returns an HS256 JWT stored as an httpOnly cookie.
 - **Cookie scope**: `sameSite: strict`, no `secure` flag (HTTP over Tailscale, not HTTPS).
-- **Cookie expiry**: configurable via `COOKIE_MAX_AGE_HOURS` (default: 24h).
-- **WebSocket auth**: upgrade requests are verified against the same JWT cookie.
-- **Insecure defaults blocked**: `auth.ts` refuses to start if `AUTH_PASSPHRASE` or `AUTH_SECRET` are set to the example values from `.env.example`.
+- **Cookie expiry**: configurable via a positive whole-number `COOKIE_MAX_AGE_HOURS` (default: 24h). Active browser SSE and chat WS/SSE streams are closed at the JWT expiry boundary.
+- **WebSocket auth**: upgrade requests are verified against the same JWT. A native query token is explicit and takes precedence over any ambient cookie.
+- **Credential precedence**: explicit bearer and allowed SSE query credentials take precedence over cookies. An invalid explicit credential is rejected instead of falling back to another login context.
+- **Logout**: the presented JWT is revoked in the running server and all active streams using it are closed. Revocations are process-local; expiry remains the durable upper bound after a server restart.
+- **Insecure defaults blocked**: `auth.ts` refuses to start for example credentials, secrets shorter than 32 bytes, or an invalid cookie TTL.
 
 ## Secrets Management
 
@@ -74,7 +76,7 @@ Skill files are read-only markdown loaded from disk (bundled, `~/.mitzo/skills/`
 ## Known Limitations
 
 - **No HTTPS**: traffic is encrypted by Tailscale (WireGuard), but the HTTP layer itself is plaintext. If accessed outside Tailscale, cookies and passphrases would be transmitted in the clear.
-- **No rate limiting**: brute-force passphrase attempts are possible (mitigated by Tailscale network restriction).
+- **Process-local logout revocation**: restarting the service clears the in-memory JWT revocation set. Clients still remove browser/native credentials on logout, and every token remains bounded by its signed expiry.
 - **No CSRF protection**: `sameSite: strict` mitigates most CSRF vectors, but there's no explicit CSRF token.
 - **Single-user**: no user accounts, roles, or audit logging. The passphrase is shared across all access.
 - **MCP credentials in mcp.json**: MCP server tokens (e.g., Jira API tokens) are stored in `~/.cursor/mcp.json`. This file is not managed by Mitzo — it's the user's existing Cursor configuration. Mitzo reads it but never modifies or copies it.

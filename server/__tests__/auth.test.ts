@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { validateConfig, authMiddleware } from '../auth.js';
+import { validateConfig, authMiddleware, registerAuthSession, revokeAuthSession } from '../auth.js';
 import { INTERNAL_TOKEN } from '../internal-token.js';
+import { SignJWT } from 'jose';
 
 describe('validateConfig', () => {
   it('rejects missing passphrase', () => {
@@ -37,6 +38,16 @@ describe('validateConfig', () => {
     ).toMatch(/AUTH_SECRET/);
   });
 
+  it('rejects secrets shorter than 32 characters', () => {
+    expect(validateConfig('good-passphrase', 'short-secret', '1')).toMatch(/32/);
+  });
+
+  it.each(['0', '-1', 'NaN', '1.5', ''])('rejects invalid cookie TTL %j', (ttl) => {
+    expect(
+      validateConfig('good-passphrase', 'a-valid-secret-that-is-long-enough-32chars!!', ttl),
+    ).toMatch(/COOKIE_MAX_AGE_HOURS/);
+  });
+
   it('accepts valid config', () => {
     expect(
       validateConfig('my-secure-passphrase', 'a-valid-secret-that-is-long-enough-32chars!!'),
@@ -63,6 +74,19 @@ describe('login and verifyToken', () => {
     const { verifyToken } = await import('../auth.js');
     expect(await verifyToken('not-a-real-jwt')).toBe(false);
   });
+
+  it('keeps pre-upgrade signed tokens valid until their existing expiry', async () => {
+    const legacyToken = await new SignJWT({ sub: 'user' })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setExpirationTime('1h')
+      .setIssuedAt()
+      .sign(new TextEncoder().encode(process.env.AUTH_SECRET!));
+    const { authenticateToken } = await import('../auth.js');
+
+    expect(await authenticateToken(legacyToken)).toEqual(
+      expect.objectContaining({ id: expect.any(String), expiresAt: expect.any(Number) }),
+    );
+  });
 });
 
 describe('verifyWsAuth', () => {
@@ -87,6 +111,22 @@ describe('verifyWsAuth', () => {
     const token = await login(process.env.AUTH_PASSPHRASE!);
     expect(await verifyWsAuth(`other=foo; cc_auth=${token}; bar=baz`)).toBe(true);
   });
+
+  it('uses an explicit fresh query token instead of a stale cookie', async () => {
+    const { login, authenticateWs } = await import('../auth.js');
+    const token = await login(process.env.AUTH_PASSPHRASE!);
+
+    expect(await authenticateWs('cc_auth=stale', token)).toEqual(
+      expect.objectContaining({ id: expect.any(String) }),
+    );
+  });
+
+  it('does not fall back to a valid cookie when an explicit query token is invalid', async () => {
+    const { login, authenticateWs } = await import('../auth.js');
+    const token = await login(process.env.AUTH_PASSPHRASE!);
+
+    expect(await authenticateWs(`cc_auth=${token}`, 'stale')).toBeNull();
+  });
 });
 
 describe('authMiddleware — internal token', () => {
@@ -101,7 +141,7 @@ describe('authMiddleware — internal token', () => {
   type MockResponse = Parameters<typeof authMiddleware>[1] & { statusCode: number };
 
   function mockRes(): MockResponse {
-    const res = { statusCode: 0 } as unknown as MockResponse;
+    const res = { statusCode: 0, locals: {} } as unknown as MockResponse;
     res.status = (code: number) => {
       res.statusCode = code;
       return res;
@@ -179,6 +219,33 @@ describe('authMiddleware — internal token', () => {
     await vi.waitFor(() => expect(next).toHaveBeenCalledOnce());
   });
 
+  it('prefers an explicit fresh bearer over a stale cookie', async () => {
+    const { login } = await import('../auth.js');
+    const jwt = await login(process.env.AUTH_PASSPHRASE!);
+    const req = mockReq({ authorization: `Bearer ${jwt}` });
+    req.cookies = { cc_auth: 'stale-cookie' };
+    const res = mockRes();
+    const next = vi.fn();
+
+    authMiddleware(req, res, next);
+
+    await vi.waitFor(() => expect(next).toHaveBeenCalledOnce());
+  });
+
+  it('does not fall back to a cookie when an explicit bearer is invalid', async () => {
+    const { login } = await import('../auth.js');
+    const jwt = await login(process.env.AUTH_PASSPHRASE!);
+    const req = mockReq({ authorization: 'Bearer stale-bearer' });
+    req.cookies = { cc_auth: jwt! };
+    const res = mockRes();
+    const next = vi.fn();
+
+    authMiddleware(req, res, next);
+
+    await vi.waitFor(() => expect(res.statusCode).toBe(401));
+    expect(next).not.toHaveBeenCalled();
+  });
+
   it.each(['/events', '/chat/events'])(
     'accepts a valid query token for SSE route %s',
     async (path) => {
@@ -194,6 +261,19 @@ describe('authMiddleware — internal token', () => {
     },
   );
 
+  it('prefers an explicit SSE query token over a stale cookie', async () => {
+    const { login } = await import('../auth.js');
+    const jwt = await login(process.env.AUTH_PASSPHRASE!);
+    const req = mockReq({}, '/chat/events', { token: jwt! });
+    req.cookies = { cc_auth: 'stale-cookie' };
+    const res = mockRes();
+    const next = vi.fn();
+
+    authMiddleware(req, res, next);
+
+    await vi.waitFor(() => expect(next).toHaveBeenCalledOnce());
+  });
+
   it('does not accept query tokens on ordinary API routes', async () => {
     const { login } = await import('../auth.js');
     const jwt = await login(process.env.AUTH_PASSPHRASE!);
@@ -205,5 +285,29 @@ describe('authMiddleware — internal token', () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(401);
+  });
+});
+
+describe('active authentication lifetime', () => {
+  it('closes registered transports when their token is revoked', () => {
+    const close = vi.fn();
+    const session = { id: 'session-to-revoke', expiresAt: Date.now() + 60_000 };
+    const unregister = registerAuthSession(session, close);
+
+    revokeAuthSession(session);
+
+    expect(close).toHaveBeenCalledWith('revoked');
+    unregister();
+  });
+
+  it('closes registered transports when their token expires', async () => {
+    vi.useFakeTimers();
+    const close = vi.fn();
+    registerAuthSession({ id: 'session-to-expire', expiresAt: Date.now() + 1_000 }, close);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(close).toHaveBeenCalledWith('expired');
+    vi.useRealTimers();
   });
 });
