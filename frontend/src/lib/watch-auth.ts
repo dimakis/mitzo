@@ -8,12 +8,15 @@ interface WatchAuthBridgePlugin {
   clearToken(): Promise<void>;
 }
 
-const WatchAuthBridge = registerPlugin<WatchAuthBridgePlugin>('WatchAuthBridge');
+let watchAuthBridge: WatchAuthBridgePlugin | undefined;
+function bridge(): WatchAuthBridgePlugin {
+  return (watchAuthBridge ??= registerPlugin<WatchAuthBridgePlugin>('WatchAuthBridge'));
+}
 
 export async function saveTokenToWatch(token: string): Promise<void> {
   if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'ios') return;
   try {
-    await WatchAuthBridge.saveToken({ token });
+    await bridge().saveToken({ token });
   } catch {
     // Plugin not available or save failed — non-fatal
   }
@@ -22,7 +25,7 @@ export async function saveTokenToWatch(token: string): Promise<void> {
 export async function clearWatchToken(): Promise<void> {
   if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'ios') return;
   try {
-    await WatchAuthBridge.clearToken();
+    await bridge().clearToken();
   } catch {
     // Plugin not available — non-fatal
   }

@@ -165,13 +165,7 @@ CREATE INDEX idx_sessions_state ON sessions(session_id, state);
 // server/event-store.ts
 
 export type SessionState =
-  | 'CREATED'
-  | 'STARTING'
-  | 'ACTIVE'
-  | 'DETACHED'
-  | 'SUSPENDED'
-  | 'CLOSING'
-  | 'ENDED';
+  'CREATED' | 'STARTING' | 'ACTIVE' | 'DETACHED' | 'SUSPENDED' | 'CLOSING' | 'ENDED';
 
 interface SessionStateTransition {
   fromState: SessionState | null;

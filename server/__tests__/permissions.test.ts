@@ -19,7 +19,7 @@ describe('permissions module', () => {
   });
 
   it('resolvePending with "once" calls resolver with allow + user_temporary + updatedInput', () => {
-    let result: any = null;
+    let result: Record<string, unknown> = {};
     registerPending(
       permId,
       'Bash',
@@ -37,7 +37,7 @@ describe('permissions module', () => {
   });
 
   it('resolvePending with "always" passes toolInput as updatedInput', () => {
-    let result: any = null;
+    let result: Record<string, unknown> = {};
     registerPending(
       permId,
       'Edit',
@@ -54,7 +54,7 @@ describe('permissions module', () => {
   });
 
   it('resolvePending with "always" and empty toolInput still sets updatedInput', () => {
-    let result: any = null;
+    let result: Record<string, unknown> = {};
     registerPending(
       permId,
       'Edit',
@@ -71,7 +71,7 @@ describe('permissions module', () => {
   });
 
   it('resolvePending with "deny" calls resolver with deny + user_reject', () => {
-    let result: any = null;
+    let result: Record<string, unknown> = {};
     registerPending(
       permId,
       'Bash',
@@ -106,7 +106,7 @@ describe('permissions module', () => {
   });
 
   it('registerPending works with toolInput and tier', () => {
-    let result: any = null;
+    let result: Record<string, unknown> = {};
     const input = { file_path: '/foo/bar.ts' };
     registerPending(
       permId,

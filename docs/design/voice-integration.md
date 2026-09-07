@@ -171,12 +171,12 @@ interface UseVoiceReturn {
 
 ### States
 
-| State        | Visual         | Behavior                              |
-| ------------ | -------------- | ------------------------------------- |
+| State        | Visual        | Behavior                              |
+| ------------ | ------------- | ------------------------------------- |
 | Idle         | 🎙 grey        | Tap-and-hold to start recording       |
 | Recording    | 🎙 red + pulse | Release to stop, swipe away to cancel |
-| Transcribing | ⏳ spinner     | Waiting for Yapper (batch mode only)  |
-| Unavailable  | (hidden)       | Yapper not reachable                  |
+| Transcribing | ⏳ spinner    | Waiting for Yapper (batch mode only)  |
+| Unavailable  | (hidden)      | Yapper not reachable                  |
 
 ### Mobile Considerations
 

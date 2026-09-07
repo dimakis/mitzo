@@ -1345,7 +1345,7 @@ describe('runQueryLoop', () => {
 
     it('does not fail when observer transport is closed', async () => {
       const closedTransport = fakeTransport();
-      (closedTransport as any).isOpen = () => false;
+      (closedTransport as unknown as { isOpen: () => boolean }).isOpen = () => false;
       const observers = new Set<SessionTransport>([closedTransport]);
       registry = fakeRegistry(transport, { observers });
 

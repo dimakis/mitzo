@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-require-imports, no-undef */
 // Preload script that forces dns.lookup to prefer IPv4.
 // Loaded via NODE_OPTIONS=--require=<this file> before the Agent SDK cli.js starts.
 //

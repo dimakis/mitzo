@@ -17,7 +17,7 @@ interface TodoSection {
   defaultCollapsed: boolean;
 }
 
-export function groupIntoSections(items: TodoItem[]): TodoSection[] {
+function groupIntoSections(items: TodoItem[]): TodoSection[] {
   const focus: TodoItem[] = [];
   const active: TodoItem[] = [];
   const seen: TodoItem[] = [];

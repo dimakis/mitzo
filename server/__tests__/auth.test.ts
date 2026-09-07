@@ -91,16 +91,18 @@ describe('verifyWsAuth', () => {
 
 describe('authMiddleware — internal token', () => {
   function mockReq(headers: Record<string, string> = {}, path = '/tasks') {
-    return { headers, path, cookies: {} } as any;
+    return { headers, path, cookies: {} } as unknown as Parameters<typeof authMiddleware>[0];
   }
 
-  function mockRes() {
-    const res: any = { statusCode: 0 };
+  type MockResponse = Parameters<typeof authMiddleware>[1] & { statusCode: number };
+
+  function mockRes(): MockResponse {
+    const res = { statusCode: 0 } as unknown as MockResponse;
     res.status = (code: number) => {
       res.statusCode = code;
       return res;
     };
-    res.json = vi.fn().mockReturnValue(res);
+    res.json = vi.fn().mockReturnValue(res) as unknown as MockResponse['json'];
     return res;
   }
 

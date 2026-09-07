@@ -367,7 +367,7 @@ describe('SessionRegistry', () => {
     });
 
     it('addObserver returns null for unknown sessionId', () => {
-      expect(registry.addObserver('nonexistent', {} as any)).toBeNull();
+      expect(registry.addObserver('nonexistent', {} as unknown as SessionTransport)).toBeNull();
     });
 
     it('removeObserver removes transport from all sessions', () => {

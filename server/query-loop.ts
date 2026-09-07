@@ -208,7 +208,7 @@ export async function runQueryLoop(
 
 async function _runQueryLoopInner(
   q: AsyncIterable<Record<string, unknown>>,
-  clientId: string,
+  initialClientId: string,
   registry: SessionRegistry,
   abortController: AbortController,
   span: Span,
@@ -216,6 +216,9 @@ async function _runQueryLoopInner(
   initialPrompt?: string,
   options?: QueryLoopOptions,
 ) {
+  // Ownership can move to a refreshed connection while the query remains alive.
+  // Keep that mutable registry key explicit instead of mutating a function parameter.
+  let clientId = initialClientId;
   // Registry keys change when a refreshed connection takes ownership. Follow the
   // same session object, never a replacement session that happens to reuse an ID.
   const ownedSession = registry.get(clientId);
@@ -731,8 +734,7 @@ async function _runQueryLoopInner(
 
                 // Extract usage from message_start
                 const msgUsage = (apiMsg as Record<string, unknown> | undefined)?.usage as
-                  | Record<string, number>
-                  | undefined;
+                  Record<string, number> | undefined;
                 if (msgUsage) {
                   activeSubagents.get(parentToolUseId)!.usage = {
                     inputTokens: msgUsage.input_tokens ?? 0,
@@ -795,8 +797,7 @@ async function _runQueryLoopInner(
             const isParent =
               msg.parent_tool_use_id === null || msg.parent_tool_use_id === undefined;
             const msgUsage = (apiMsg as Record<string, unknown> | undefined)?.usage as
-              | Record<string, number>
-              | undefined;
+              Record<string, number> | undefined;
             const msgInput = msgUsage ? (msgUsage.input_tokens ?? 0) : 0;
             const msgCacheRead = msgUsage ? (msgUsage.cache_read_input_tokens ?? 0) : 0;
             const msgCacheCreation = msgUsage ? (msgUsage.cache_creation_input_tokens ?? 0) : 0;

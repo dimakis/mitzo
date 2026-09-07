@@ -215,13 +215,7 @@ export interface ToolResultImage {
 export type SessionClosedBy = 'user' | 'auto' | 'abandoned';
 
 export type SessionState =
-  | 'CREATED'
-  | 'STARTING'
-  | 'ACTIVE'
-  | 'DETACHED'
-  | 'SUSPENDED'
-  | 'CLOSING'
-  | 'ENDED';
+  'CREATED' | 'STARTING' | 'ACTIVE' | 'DETACHED' | 'SUSPENDED' | 'CLOSING' | 'ENDED';
 
 /**
  * Client-facing session state derived from the internal 7-state machine.

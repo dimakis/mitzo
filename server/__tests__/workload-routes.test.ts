@@ -547,18 +547,25 @@ describe('workload routes', () => {
 
   it('POST /api/workload/items/:id/promote — fallback does not broadcast workload update', async () => {
     const broadcasts: unknown[] = [];
-    const origBroadcast = (app as any)._workloadBroadcast;
-    (app as any)._workloadBroadcast = (msg: unknown) => broadcasts.push(msg);
+    const workloadApp = app as Express & { _workloadBroadcast?: (msg: unknown) => void };
+    const origBroadcast = workloadApp._workloadBroadcast;
+    workloadApp._workloadBroadcast = (msg: unknown) => broadcasts.push(msg);
 
     await request(app)
       .post('/api/workload/items/telos-no-broadcast/promote')
       .set('Cookie', authCookie)
       .send({ title: 'No broadcast test' });
 
-    const workloadBroadcasts = broadcasts.filter((b: any) => b.type === 'workload_item_updated');
+    const workloadBroadcasts = broadcasts.filter(
+      (broadcast) =>
+        typeof broadcast === 'object' &&
+        broadcast !== null &&
+        'type' in broadcast &&
+        broadcast.type === 'workload_item_updated',
+    );
     expect(workloadBroadcasts).toHaveLength(0);
 
-    (app as any)._workloadBroadcast = origBroadcast;
+    workloadApp._workloadBroadcast = origBroadcast;
   });
 
   it('POST /api/workload/items/:id/promote — broadcasts workload_item_updated', async () => {

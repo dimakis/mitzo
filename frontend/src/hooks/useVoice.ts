@@ -229,7 +229,7 @@ export function useVoice(): UseVoiceReturn {
         setError(err instanceof Error ? err.message : 'Mic access failed');
       }
     }
-  }, []);
+  }, [setPartialTranscript]);
 
   const stopRecording = useCallback(async (): Promise<string> => {
     setRecording(false);
@@ -304,7 +304,7 @@ export function useVoice(): UseVoiceReturn {
       streamingActiveRef.current = false;
       releaseStream();
     }
-  }, [releaseStream]);
+  }, [releaseStream, setPartialTranscript]);
 
   const cancelRecording = useCallback(() => {
     // Clean up streaming
@@ -323,7 +323,7 @@ export function useVoice(): UseVoiceReturn {
     setRecording(false);
     setTranscribing(false);
     setPartialTranscript('');
-  }, [releaseStream]);
+  }, [releaseStream, setPartialTranscript]);
 
   // --- TTS: Voice list ---
   const fetchVoices = useCallback(async () => {

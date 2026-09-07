@@ -1266,6 +1266,30 @@ app.get('/api/sessions/:id/meta', (req, res) => {
   }
   const totalTokens =
     meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens;
+  const codexQueue =
+    meta.accountBinding?.provider === 'openai-codex'
+      ? readCodexQueue(
+          meta.sessionId,
+          meta.accountBinding,
+          registry.findBySessionId(meta.sessionId)?.session,
+        )
+      : undefined;
+  let modelSelection: { model: string; models: Array<{ id: string; label: string }> } | undefined;
+  if (meta.accountBinding?.provider === 'openai-codex') {
+    try {
+      const profile = loadAccountProfiles()
+        .catalog()
+        .find((account) => account.id === meta.accountBinding!.accountId);
+      const defaultModel = profile?.models[0];
+      if (profile && defaultModel)
+        modelSelection = {
+          model: codexQueue?.model ?? meta.accountBinding.model ?? defaultModel.id,
+          models: profile.models,
+        };
+    } catch {
+      // Keep metadata available when the optional account catalog is temporarily unreadable.
+    }
+  }
   res.json({
     sessionId: meta.sessionId,
     branch: meta.branch,
@@ -1288,30 +1312,8 @@ app.get('/api/sessions/:id/meta', (req, res) => {
       : {}),
     ...(meta.accountBinding?.provider === 'openai-codex'
       ? {
-          modelSelection: (() => {
-            try {
-              const profile = loadAccountProfiles()
-                .catalog()
-                .find((a) => a.id === meta.accountBinding!.accountId);
-              if (!profile) return undefined;
-              const queue = readCodexQueue(
-                meta.sessionId,
-                meta.accountBinding!,
-                registry.findBySessionId(meta.sessionId)?.session,
-              );
-              return {
-                model: queue && 'model' in queue ? queue.model : meta.accountBinding!.model,
-                models: profile.models,
-              };
-            } catch {
-              return undefined;
-            }
-          })(),
-          codexQueue: readCodexQueue(
-            meta.sessionId,
-            meta.accountBinding,
-            registry.findBySessionId(meta.sessionId)?.session,
-          ),
+          modelSelection,
+          codexQueue,
         }
       : {}),
     totalCostUsd: meta.totalCostUsd,

@@ -2,12 +2,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, cleanup } from '@testing-library/react';
 import { ServiceStatus } from '../ServiceStatus';
+import type { UseServiceHealthReturn } from '../../hooks/useServiceHealth';
 
 // Mock useServiceHealth
-let mockReturn = {
-  services: [] as any[],
-  yapper: null as any,
-  contexgin: null as any,
+let mockReturn: UseServiceHealthReturn = {
+  services: [],
+  yapper: null,
+  contexgin: null,
   checkedAt: 0,
 };
 

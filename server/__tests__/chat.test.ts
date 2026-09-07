@@ -573,7 +573,7 @@ describe('resume resolves SDK session ID', () => {
 
   it('resolvedResume is computed before the query() call', () => {
     const resolveIdx = chatSource.indexOf('let resolvedResume');
-    const queryIdx = chatSource.indexOf('q = query(');
+    const queryIdx = chatSource.indexOf('query({');
     expect(resolveIdx).toBeGreaterThan(-1);
     expect(queryIdx).toBeGreaterThan(resolveIdx);
   });

@@ -42,6 +42,31 @@ it('discovers all configured tools and routes calls through canonical Mitzo perm
   await tools.close();
   expect(close).toHaveBeenCalledOnce();
 });
+it('keeps long canonical tool names within the 64-character wire limit', async () => {
+  const server = 'server_name_that_is_far_longer_than_the_readable_prefix';
+  const tool = 'tool_name_that_is_also_far_longer_than_the_readable_prefix';
+  const canonical = `mcp__${server}__${tool}`;
+  const close = vi.fn(async () => {});
+  const tools = await connectCodexMcpTools(
+    { [server]: { command: 'mcp' } },
+    {
+      cwd: '/workspace',
+      env: {},
+      signal: new AbortController().signal,
+      connect: async () => ({
+        listTools: async () => ({ tools: [{ name: tool, inputSchema: { type: 'object' } }] }),
+        callTool: vi.fn(),
+        close,
+      }),
+    },
+  );
+
+  const wire = tools.definitions[0].name;
+  expect(wire).toHaveLength(42);
+  expect(wire).toMatch(/^[a-zA-Z0-9_-]{1,64}$/);
+  expect(tools.displayName(wire)).toBe(canonical);
+  await tools.close();
+});
 it('denies unknown or disallowed calls and closes connected peers on discovery failure', async () => {
   const call = vi.fn();
   const close = vi.fn(async () => {});

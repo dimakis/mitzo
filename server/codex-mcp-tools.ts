@@ -52,6 +52,10 @@ type Permission = (
   input: Input,
   signal: AbortSignal,
 ) => Promise<{ behavior: 'allow' | 'deny'; updatedInput?: Input }>;
+function mcpWireName(canonical: string): string {
+  const identity = createHash('sha256').update(canonical).digest('hex').slice(0, 32);
+  return `mitzo_mcp_${identity}`;
+}
 /** Owns configured MCP clients; all calls pass the same host permission boundary as native tools. */
 export async function connectCodexMcpTools(
   configs: Record<string, McpServerConfig>,
@@ -86,7 +90,7 @@ export async function connectCodexMcpTools(
         const page = await peer.listTools(cursor);
         for (const tool of page.tools) {
           const canonical = `mcp__${server}__${tool.name}`;
-          const wire = `mitzo_mcp_${createHash('sha256').update(canonical).digest('hex').slice(0, 32)}`;
+          const wire = mcpWireName(canonical);
           if (mapping.has(wire)) throw new Error('Duplicate MCP tool');
           mapping.set(wire, { peer, name: tool.name, canonical });
           definitions.push({
