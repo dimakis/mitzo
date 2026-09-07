@@ -1,6 +1,6 @@
 # Account profiles: first mobile slice
 
-The mobile chat page loads account and model choices from `GET /api/accounts`. A new task sends an account ID and model; the server validates them before starting the existing SDK harness. The selected binding is stored with session metadata when the SDK resolves its session ID. Reloading the conversation displays that saved binding. Follow-up input and resumed tasks retain the binding.
+The mobile chat page loads account and model choices from `GET /api/accounts`. A new task sends an account ID and model; the server validates them before starting the existing SDK harness. For bound tasks, the server preallocates a valid SDK session UUID and stores account binding and boot context together before starting the SDK. Reloading the conversation displays that saved binding. Follow-up input and resumed tasks retain the binding.
 
 This slice implements **Claude on Vertex AI only**. OpenAI API and ChatGPT subscription execution are not yet implemented. Existing clients and legacy conversations retain their previous routing behavior. The desktop chat picker remains unchanged.
 
@@ -32,9 +32,13 @@ The server rejects unknown accounts, unlisted models, malformed profiles, duplic
 
 A nullable `account_binding` column is added to the event store. Bound tasks store account ID, display label, provider, model, and a digest of the routing configuration. Updating a profile's project, region, provider, or credential reference invalidates resume instead of silently changing billing identity. A changed model allowlist is also enforced on resume. Updating a label does not rewrite historical labels.
 
-Changing accounts or models inside a bound task is deferred. Legacy sessions cannot be converted to explicit account profiles by a follow-up request. Old clients that do not send an account ID continue to work. The existing session ID, tool loop, native execution, permission handler, context loading, queue, cancellation, chat transport, and terminal transport are retained.
+Changing accounts or models inside a bound task is deferred; start a new task to change them. Model-only hints from old clients are intentionally ignored for bound tasks because they carry a global preference unrelated to the saved task. An explicit account/model switch is rejected. Legacy sessions cannot be converted to explicit account profiles by a follow-up request. Old clients that do not send an account ID continue to work. The existing session ID, tool loop, native execution, permission handler, context loading, queue, cancellation, chat transport, and terminal transport are retained.
 
-The digest pins a credential reference, not the identity inside a credential file. Replacing the credential file's contents is an operator action that requires care. Binding persistence currently occurs at the first assistant event; failures before the SDK produces a session ID still have the legacy startup-persistence limitation.
+The digest pins a credential reference, not the identity inside a credential file. Replacing the credential file's contents is an operator action that requires care. A failed startup retains the preallocated binding, so later SDK history discovery cannot silently downgrade that task to legacy billing. Legacy unbound sessions retain their previous startup behavior.
+
+Account catalog failures offer a retry without selecting another billing route. An empty catalog offers an explicit legacy-server-account choice. Failed quick launches pause with their prompt and task context preserved until an explicit send.
+
+Profiles are loaded once per send request and the same snapshot is passed to startup. Stored metadata is revalidated at startup as a fail-closed guard, rather than trusting stale early validation.
 
 ## Following slices
 

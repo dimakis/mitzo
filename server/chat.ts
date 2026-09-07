@@ -1025,7 +1025,19 @@ async function _startChatInner(
       (BASE_REPO ? getSessionSdkId(BASE_REPO, options.resume) : undefined) ?? options.resume;
   }
 
+  // Bound sessions have durable routing before the SDK can create history or side effects.
+  const newSdkSessionId = accountBinding && !resolvedResume ? randomUUID() : undefined;
   try {
+    if (newSdkSessionId) {
+      eventStore.upsertSession({
+        sessionId: newSdkSessionId,
+        accountBinding,
+        bootContext: JSON.stringify(bootContextMsg),
+        cwd,
+        mode,
+        agentName,
+      });
+    }
     const q = query({
       prompt: inputQueue as AsyncIterable<SDKUserMessage>,
       options: {
@@ -1044,6 +1056,7 @@ async function _startChatInner(
         thinking: resolveThinking(options.model),
         ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
         ...(resolvedResume ? { resume: resolvedResume } : {}),
+        ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
         ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
         ...(hooks ? { hooks } : {}),
         canUseTool: buildPermissionHandler(clientId, registry, {
@@ -1086,11 +1099,11 @@ async function _startChatInner(
       {
         connRegistry: _connRegistry ?? undefined,
         onSessionResolved: (sessionId: string) => {
-          if (accountBinding) eventStore.upsertSession({ sessionId, accountBinding });
           // Persist boot context for new sessions (resume sessions already persisted above)
           if (!options.resume) {
             eventStore.upsertSession({
               sessionId,
+              ...(accountBinding ? { accountBinding } : {}),
               bootContext: JSON.stringify(bootContextMsg),
             });
           }

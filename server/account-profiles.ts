@@ -88,7 +88,12 @@ export class AccountProfiles {
     for (const key of Object.keys(env)) {
       if (
         /^(ANTHROPIC_|OPENAI_|CLAUDE_CODE_USE_|CLAUDE_CODE_SKIP_|VERTEX_REGION_)/.test(key) ||
-        ['CLOUD_ML_REGION', 'CLAUDE_CODE_OAUTH_TOKEN', 'GOOGLE_API_KEY'].includes(key)
+        [
+          'CLOUD_ML_REGION',
+          'CLAUDE_CODE_OAUTH_TOKEN',
+          'GOOGLE_API_KEY',
+          'GOOGLE_APPLICATION_CREDENTIALS',
+        ].includes(key)
       )
         delete env[key];
     }
@@ -150,6 +155,10 @@ export function resolveAccountSelection(
   profiles?: AccountProfiles,
 ): AccountBinding | undefined {
   if (stored) {
+    if (stored.profileRevision === 'invalid' && stored.provider === 'unavailable')
+      throw new Error(
+        'Stored account binding is corrupt. Start a new task or repair its metadata.',
+      );
     if (
       selection.accountId &&
       (selection.accountId !== stored.accountId ||
@@ -159,6 +168,8 @@ export function resolveAccountSelection(
         'This task is bound to its original account and model. Start a new task to change them.',
       );
     }
+    // Legacy clients attach their global model preference without an account ID.
+    // Ignore that hint for bound tasks; only an explicit account selection may request a switch.
     return (profiles ?? loadAccountProfiles()).resume(stored);
   }
   if (!selection.accountId) return undefined;

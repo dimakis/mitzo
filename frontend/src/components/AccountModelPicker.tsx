@@ -120,7 +120,8 @@ export function AccountModelPicker({
       </>
     );
   if (!selection) return <span>Loading accounts…</span>;
-  const account = accounts.find((a) => a.id === (selection.accountId ?? ''))!;
+  const account = accounts.find((a) => a.id === (selection.accountId ?? ''));
+  if (!account) return <span role="alert">Selected account is unavailable. Reopen the task.</span>;
   return (
     <>
       {legacy ? (
