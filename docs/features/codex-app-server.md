@@ -62,7 +62,10 @@ Codex-native shell, execution, agents, apps, plugins, hooks, computer/browser,
 image-generation, and inherited MCP execution are disabled through runtime
 configuration. Inherited MCP names are explicitly disabled; supported configured
 MCP clients are owned by Mitzo. Custom OpenAI provider routing is rejected.
-Unknown host request methods are rejected.
+Unknown host request methods are rejected. The code-mode host dispatcher is enabled
+for models that require a JavaScript tool wrapper (including Luna). Wrapped calls
+still reach the registered Mitzo tools and permission handler; this does not enable
+native shell execution.
 
 An installed-CLI probe with a synthetic local model endpoint confirmed that an
 unadvertised `exec_command` call was rejected without creating its sentinel file.
@@ -89,7 +92,10 @@ completed successfully through the conversation controller, without an API key.
 Subsequent browser tests verified actual chat/query-loop/SSE execution, reply
 restoration after refresh, desktop account controls, alias persistence, and a
 Luna → Terra → Luna sequence in one conversation retaining earlier context. The
-user confirmed the initial mobile-width chat flow worked. WebSocket-specific and
+user confirmed the initial mobile-width chat flow worked. Live Luna Read calls
+rendered the tool card, file contents, and final answer, including a browser refresh
+during a follow-up read. The query loop now follows the same session object when
+its client connection is rekeyed. WebSocket-specific and
 shared question/approval behavior, additional tool/recovery acceptance, and full
 physical-phone scenarios remain required before activation.
 Long-history bounds and tool-catalog changes across resumed provider threads also
