@@ -321,6 +321,22 @@ export function ChatInput({
           onRemoveImage={removeImage}
         />
       )}
+      {useExternal && images.length > 0 && (
+        <div className="chat-input-previews">
+          {images.map((image, index) => (
+            <div key={index} className="chat-input-preview">
+              <img src={image.preview} alt={`Attachment ${index + 1}`} />
+              <button
+                className="chat-input-preview-remove"
+                aria-label={`Remove attachment ${index + 1}`}
+                onClick={() => removeImage(index)}
+              >
+                &times;
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       {showSlashPicker && (
         <SlashPicker
           query={text.trimStart()}

@@ -6474,6 +6474,27 @@ textarea:focus {
   line-height: 1.2;
 }
 
+.session-tray-draft-count {
+  display: none;
+}
+
+.session-tray[data-snap='peek'] .session-tray-draft-count {
+  position: absolute;
+  top: 0.18rem;
+  right: 0.24rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1rem;
+  height: 1rem;
+  padding: 0 0.2rem;
+  border-radius: 999px;
+  color: var(--text);
+  background: var(--active);
+  font-size: var(--text-2xs);
+  line-height: 1;
+}
+
 .session-tray-content {
   position: absolute;
   inset: calc(env(safe-area-inset-top) + 0.5rem) 0 var(--session-tray-handle-height);

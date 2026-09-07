@@ -157,6 +157,14 @@ export function SessionTray({
           <span className="session-tray-grabber" />
           <span className="session-tray-handle-label">Session</span>
           {resourceCount > 0 && <span className="session-tray-count">{resourceCount}</span>}
+          {draftImages.length > 0 && (
+            <span
+              className="session-tray-draft-count"
+              aria-label={`${draftImages.length} draft image${draftImages.length === 1 ? '' : 's'} attached`}
+            >
+              {draftImages.length}
+            </span>
+          )}
         </button>
 
         <div

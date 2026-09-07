@@ -35,7 +35,7 @@ export function mergeSessionResources(...groups: SessionResources[]): SessionRes
   return { sources: merge('sources'), outputs: merge('outputs') };
 }
 
-const URL_PATTERN = /https?:\/\/[^\s<>"']+/g;
+const URL_PATTERN = /https?:\/\/[^\s<>"'`\]]+/g;
 
 function basename(path: string): string {
   return path.split('/').filter(Boolean).pop() ?? path;

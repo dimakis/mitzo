@@ -145,6 +145,29 @@ describe('collectSessionResources', () => {
     ]);
   });
 
+  it('excludes Markdown delimiters from extracted URLs', () => {
+    const messages: FinishedMessage[] = [
+      {
+        messageId: 'assistant-1',
+        role: 'assistant',
+        blocks: [
+          {
+            blockId: 'a1',
+            blockType: 'text',
+            content:
+              'Inline `http://localhost:3196` and [preview](https://example.com/result) plus https://example.com/reference]',
+          },
+        ],
+      },
+    ];
+
+    expect(collectSessionResources(messages).outputs.map((resource) => resource.href)).toEqual([
+      'http://localhost:3196',
+      'https://example.com/result',
+      'https://example.com/reference',
+    ]);
+  });
+
   it('collects resources recursively from finished and streaming subagents', () => {
     const messages: FinishedMessage[] = [
       {

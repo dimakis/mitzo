@@ -24,6 +24,13 @@ vi.mock('../SessionTray', () => ({
 vi.mock('../MicButton', () => ({
   MicButton: () => null,
 }));
+vi.mock('../../lib/resizeImage', () => ({
+  resizeImage: vi.fn(async () => ({
+    data: 'resized',
+    mediaType: 'image/png',
+    preview: 'data:image/png;base64,resized',
+  })),
+}));
 
 afterEach(() => cleanup());
 
@@ -58,10 +65,18 @@ describe('ChatInput with externalContextBlocks', () => {
     expect(container.querySelector('[data-testid="session-tray"]')).toBeNull();
   });
 
-  it('keeps image attachment available when context blocks are managed by a parent', () => {
-    render(<ChatInput {...baseProps} externalContextBlocks={['boot-context']} />);
+  it('keeps image attachment and removal available when context blocks are managed by a parent', async () => {
+    const { container } = render(
+      <ChatInput {...baseProps} externalContextBlocks={['boot-context']} />,
+    );
 
     expect(screen.getByTitle('Attach image')).toBeTruthy();
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(['image'], 'image.png')] } });
+
+    expect(await screen.findByAltText('Attachment 1')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove attachment 1' }));
+    expect(screen.queryByAltText('Attachment 1')).toBeNull();
   });
 
   it('shows the session tray and removes context and attachment buttons from the input strip', () => {

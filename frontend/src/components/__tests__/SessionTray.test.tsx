@@ -121,6 +121,24 @@ describe('SessionTray', () => {
     );
   });
 
+  it('shows a draft image indicator while the tray is collapsed', () => {
+    render(
+      <SessionTray
+        {...props}
+        draftImages={[
+          {
+            data: 'one',
+            mediaType: 'image/png',
+            preview: 'data:image/png;base64,one',
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByLabelText('1 draft image attached')).toBeTruthy();
+    expect(screen.getByTestId('session-tray').dataset.snap).toBe('peek');
+  });
+
   it('renders collected session sources and outputs', () => {
     render(
       <SessionTray
