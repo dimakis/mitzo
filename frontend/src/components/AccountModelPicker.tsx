@@ -128,6 +128,11 @@ export function AccountModelPicker({
         <button disabled={disabled} onClick={() => setAttempt((value) => value + 1)}>
           Retry accounts
         </button>
+        {!sessionId && !legacy && (
+          <button disabled={disabled} onClick={() => setLegacy(true)}>
+            Use legacy server account
+          </button>
+        )}
       </>
     );
   if (sessionId && !selection)

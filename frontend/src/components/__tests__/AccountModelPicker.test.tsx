@@ -149,3 +149,17 @@ it('saves a subscription alias without changing the selected account or model', 
   );
   expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' });
 });
+
+it('offers an explicit legacy choice after a catalog failure without silently switching accounts', async () => {
+  vi.mocked(apiFetch).mockRejectedValueOnce(new Error('Network unavailable'));
+  const onChange = vi.fn();
+  render(<AccountModelPicker sessionId={null} preferredModel="legacy-model" onChange={onChange} />);
+  const fallback = await screen.findByRole('button', { name: 'Use legacy server account' });
+  expect(onChange).not.toHaveBeenCalledWith(expect.objectContaining({ model: expect.any(String) }));
+  vi.mocked(apiFetch).mockResolvedValueOnce({
+    ok: true,
+    json: async () => [{ id: 'legacy-model', label: 'Legacy model' }],
+  } as Response);
+  fireEvent.click(fallback);
+  await waitFor(() => expect(onChange).toHaveBeenCalledWith({ model: 'legacy-model' }));
+});
