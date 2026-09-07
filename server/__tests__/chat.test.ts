@@ -842,36 +842,29 @@ describe('closeout prompts echo to frontend', () => {
     chatSource = readFileSync(join(import.meta.dirname, '..', 'chat.ts'), 'utf-8');
   });
 
-  it('echoCloseoutPrompt helper calls storeAndEchoIfNew', () => {
-    const fnStart = chatSource.indexOf('function echoCloseoutPrompt(');
+  it('queueCloseoutPrompt persists Codex work before echoing it', () => {
+    const fnStart = chatSource.indexOf('function queueCloseoutPrompt(');
     expect(fnStart).toBeGreaterThan(-1);
     const fnEnd = chatSource.indexOf('\n}', fnStart);
     const fnBody = chatSource.slice(fnStart, fnEnd);
+    expect(fnBody.indexOf('codex.enqueue(')).toBeLessThan(fnBody.indexOf('storeAndEchoIfNew('));
     expect(fnBody).toContain('storeAndEchoIfNew(');
     expect(fnBody).toContain("log.debug('skipping closeout echo");
   });
 
-  it('auto-closeout calls echoCloseoutPrompt before inputQueue.push', () => {
+  it('auto-closeout uses the provider-aware closeout queue', () => {
     const fnStart = chatSource.indexOf('function _closeoutSessionInner(');
     expect(fnStart).toBeGreaterThan(-1);
     const fnEnd = chatSource.indexOf('\n}', fnStart);
     const fnBody = chatSource.slice(fnStart, fnEnd);
-    const echoIdx = fnBody.indexOf('echoCloseoutPrompt(');
-    const pushIdx = fnBody.indexOf('session.inputQueue.push(');
-    expect(echoIdx).toBeGreaterThan(-1);
-    expect(pushIdx).toBeGreaterThan(-1);
-    expect(echoIdx).toBeLessThan(pushIdx);
+    expect(fnBody).toContain('queueCloseoutPrompt(session, clientId, CLOSEOUT_PROMPT)');
   });
 
-  it('user-closeout calls echoCloseoutPrompt before inputQueue.push', () => {
+  it('user-closeout uses the provider-aware closeout queue', () => {
     const fnStart = chatSource.indexOf('export function closeSessionByUser(');
     expect(fnStart).toBeGreaterThan(-1);
     const fnEnd = chatSource.indexOf('\nexport function', fnStart + 1);
     const fnBody = chatSource.slice(fnStart, fnEnd > -1 ? fnEnd : undefined);
-    const echoIdx = fnBody.indexOf('echoCloseoutPrompt(');
-    const pushIdx = fnBody.indexOf('session.inputQueue.push(');
-    expect(echoIdx).toBeGreaterThan(-1);
-    expect(pushIdx).toBeGreaterThan(-1);
-    expect(echoIdx).toBeLessThan(pushIdx);
+    expect(fnBody).toContain('queueCloseoutPrompt(session, clientId, USER_CLOSEOUT_PROMPT)');
   });
 });

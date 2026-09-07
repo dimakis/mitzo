@@ -29,6 +29,7 @@ const CodexProfile = z
     credentialRef: z.string().refine(isAbsolute),
     email: z.string().min(1),
     planType: z.string().min(1),
+    workspaceId: z.string().min(1).optional(),
     models: z.array(z.object({ id: z.string().min(1), label: z.string().min(1) }).strict()).min(1),
   })
   .strict();
@@ -96,7 +97,13 @@ export class AccountProfiles {
       .update(
         JSON.stringify(
           profile.provider === 'openai-codex'
-            ? [profile.provider, profile.credentialRef, profile.email, profile.planType]
+            ? [
+                profile.provider,
+                profile.credentialRef,
+                profile.email,
+                profile.planType,
+                profile.workspaceId,
+              ]
             : profile.provider === 'openai'
               ? [profile.provider, profile.credentialRef]
               : [profile.provider, profile.projectId, profile.region, profile.credentialRef],
@@ -132,6 +139,7 @@ export class AccountProfiles {
       credentialRef: profile.credentialRef,
       email: profile.email,
       planType: profile.planType,
+      ...(profile.workspaceId ? { workspaceId: profile.workspaceId } : {}),
       model: binding.model,
     };
   }

@@ -35,7 +35,7 @@ it('maps streamed text and completion using application identity and ignores oth
     },
   ]);
   expect(events.filter((e) => e.type === 'result')).toEqual([
-    { type: 'result', session_id: 'app-id' },
+    { type: 'result', session_id: 'app-id', is_error: false },
   ]);
   expect(JSON.stringify(events)).not.toContain('provider-id');
   expect(JSON.stringify(events)).not.toContain('secret');
@@ -67,6 +67,26 @@ it('handles final-only text, repeated completion, and flushes partial text on in
   });
   expect(events.filter((e) => e.type === 'assistant').at(-1)).toMatchObject({
     message: { content: [{ type: 'text', text: 'partial' }] },
+  });
+});
+it('reports provider token usage without double-counting cached input', () => {
+  const events: Record<string, unknown>[] = [];
+  const mapper = new CodexSessionEvents('app', 'provider', 'model', (event) => events.push(event));
+  mapper.notification('thread/tokenUsage/updated', {
+    threadId: 'provider',
+    turnId: 'turn',
+    tokenUsage: {
+      last: { inputTokens: 100, cachedInputTokens: 70, outputTokens: 20 },
+      total: {},
+    },
+  });
+  mapper.notification('turn/completed', {
+    threadId: 'provider',
+    turn: { id: 'turn', status: 'completed' },
+  });
+  expect(events.at(-1)).toMatchObject({
+    type: 'result',
+    usage: { input_tokens: 30, cache_read_input_tokens: 70, output_tokens: 20 },
   });
 });
 it('renders host tool calls and results without putting provider continuation IDs into public events', () => {

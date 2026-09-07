@@ -49,12 +49,14 @@ export class NativeHooks {
     private cwd: string,
     private sessionId: string,
     private env: Record<string, string>,
+    enabled = true,
   ) {
     const file = join(cwd, '.claude/settings.json');
     try {
-      this.hooks = existsSync(file)
-        ? (Settings.parse(JSON.parse(readFileSync(file, 'utf8'))).hooks ?? {})
-        : {};
+      this.hooks =
+        enabled && existsSync(file)
+          ? (Settings.parse(JSON.parse(readFileSync(file, 'utf8'))).hooks ?? {})
+          : {};
       if (
         Object.entries(this.hooks).some(
           ([event, groups]) => groups.length && !Events.includes(event as Event),
@@ -179,10 +181,26 @@ export class NativeHooks {
 }
 
 /** Hooks get the session metadata but no personal home credential store or internal API token. */
-export function createNativeHooks(cwd: string, sessionId: string, env: Record<string, string>) {
+export function createNativeHooks(
+  cwd: string,
+  sessionId: string,
+  env: Record<string, string>,
+  options: { trustProjectHooks?: boolean } = {},
+) {
   const home = mkdtempSync(join(tmpdir(), 'mitzo-hook-home-'));
   try {
-    const hooks = new NativeHooks(cwd, sessionId, { ...env, HOME: home });
+    const sourceEnv = env ?? {};
+    const hookEnv = Object.fromEntries(
+      ['PATH', 'TMPDIR', 'TMP', 'TEMP', 'LANG', 'LC_ALL'].flatMap((key) =>
+        sourceEnv[key] === undefined ? [] : [[key, sourceEnv[key]]],
+      ),
+    );
+    const hooks = new NativeHooks(
+      cwd,
+      sessionId,
+      { ...hookEnv, HOME: home },
+      options.trustProjectHooks === true,
+    );
     return { hooks, dispose: () => rmSync(home, { recursive: true, force: true }) };
   } catch (error) {
     rmSync(home, { recursive: true, force: true });

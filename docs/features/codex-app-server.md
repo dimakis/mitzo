@@ -11,7 +11,8 @@ never silently fall back to each other.
 A server-owned `MITZO_ACCOUNT_PROFILES_FILE` contains an array of account profiles.
 A Codex profile has `provider: "openai-codex"`, `id`, `label`, an absolute
 `credentialRef` to an existing Codex login directory, exact `email` and `planType`,
-and `models` containing explicit `id`/`label` pairs. Use an available low-cost model
+an optional `workspaceId` for team/business/enterprise accounts, and `models`
+containing explicit `id`/`label` pairs. Use an available low-cost model
 such as `gpt-5.6-luna` for smoke tests. Never put tokens in this profile file.
 
 The adapter passes an allowlisted environment to Codex, excluding API keys and
@@ -22,8 +23,9 @@ turn records its selected model from that account’s current allowlist; changin
 models between turns does not change subscriptions. Model/provider fallback is disabled. No automatic login, logout, or token copying occurs.
 
 The installed CLI's account schema exposes email and plan, not stable workspace
-identity. External changes to a shared login can still race the per-turn check.
-These checks do not provide atomic pinning of a mutable login directory.
+identity. Configure `workspaceId` for organizational accounts; Mitzo passes it as
+Codex's forced ChatGPT workspace and includes it in the durable binding revision.
+Without it, external changes to a shared login can still race the per-turn check.
 
 ## Chat, queue, and tool behavior
 
@@ -79,7 +81,7 @@ is not a general proof against future CLI tool surfaces. Revalidate the generate
 protocol schema and advertised tools when updating Codex.
 
 Restricted skill tool ceilings, images, subagents, and compaction are not supported
-by the Codex route. New conversations advertise Read, Write, Edit, Bash, and
+by the Codex route. New conversations advertise Read, Write, Edit, and
 AskUserQuestion. Mutating tools can request a real approval card with
 `require_approval: true`; configured permission policy remains authoritative.
 Native Codex requestUserInput requests also use the shared question cards.
@@ -96,10 +98,13 @@ Resolution fails closed; secrets are not stored in account profiles, tool
 environments, or session metadata. The API model is fixed for the conversation.
 Its private native history is separate from the Codex durable follow-up queue.
 
-Supported command hooks are SessionStart, PreToolUse, PostToolUse, Stop and
-SessionEnd. Unsupported hook kinds fail explicitly. Hooks execute with a temporary
-private HOME and the project directory in CLAUDE_PROJECT_DIR; they do not inherit
-personal HOME credentials. Startup context is appended to the prompt, pre-tool
+Project command hooks are disabled by default because their commands are repository-
+controlled host code. An operator may explicitly trust them with
+`MITZO_TRUST_PROJECT_HOOKS=1`. Supported events are SessionStart, PreToolUse,
+PostToolUse, Stop and SessionEnd; unsupported hook kinds fail explicitly. Trusted
+hooks execute with a temporary private HOME, a narrow environment allowlist, and the
+project directory in CLAUDE_PROJECT_DIR; they do not inherit credential variables.
+Startup context is appended to the prompt, pre-tool
 updates are revalidated, denial blocks execution, and ask requests an approval
 card. A post-tool failure reports that the tool already ran; it must not be retried
 blindly. Stop hooks gate completion. This is a bounded compatibility layer, not full

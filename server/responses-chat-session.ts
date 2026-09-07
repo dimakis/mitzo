@@ -12,6 +12,10 @@ import { createNativeToolExecutor, nativeToolDefinitions } from './native-tool-e
 import type { McpServerConfig } from './mcp-config.js';
 
 let privateStore: NativeResponsesStore | undefined;
+const runtimes = new WeakMap<ManagedSession, NativeResponsesRunner>();
+export function getResponsesRuntime(session: ManagedSession) {
+  return runtimes.get(session);
+}
 function store() {
   if (!privateStore) {
     const directory = codexPrivateDirectory();
@@ -28,7 +32,9 @@ interface Options {
   apiKey: string;
   session: ManagedSession;
   registry: SessionRegistry;
-  input: AsyncIterable<{ message: { content: unknown } }> & { close(): void };
+  input: AsyncIterable<{ message: { content: unknown }; mitzoMessageId?: string }> & {
+    close(): void;
+  };
   systemPrompt: string;
   env: Record<string, string>;
   mcpServers: Record<string, McpServerConfig>;
@@ -43,6 +49,7 @@ export async function openResponsesChat(options: Options) {
     options.session.cwd!,
     options.conversationId,
     options.env,
+    { trustProjectHooks: process.env.MITZO_TRUST_PROJECT_HOOKS === '1' },
   );
   let startup;
   try {
@@ -109,10 +116,12 @@ export async function openResponsesChat(options: Options) {
       };
     },
   });
+  runtimes.set(options.session, runner);
   let closed = false;
   function close() {
     if (closed) return;
     closed = true;
+    runtimes.delete(options.session);
     void hooks
       .run('SessionEnd', { reason: 'other' }, AbortSignal.timeout(5000))
       .catch(() => {})
@@ -132,7 +141,11 @@ export async function openResponsesChat(options: Options) {
             throw new Error('API chat currently supports text input');
           interrupted = false;
           try {
-            for await (const event of runner.run(message.message.content, signal)) {
+            for await (const event of runner.run(
+              message.message.content,
+              signal,
+              message.mitzoMessageId,
+            )) {
               if (event.type === 'result')
                 await hooks.run('Stop', { stop_hook_active: false }, signal);
               yield { ...event };
@@ -153,6 +166,7 @@ export async function openResponsesChat(options: Options) {
     interrupt: async () => {
       interrupted = true;
       runner.interrupt();
+      await runner.waitUntilIdle();
     },
     close,
     stopTask: async () => {

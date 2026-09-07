@@ -1,5 +1,5 @@
 import { credentials } from './credentials.js';
-import { openResponsesChat } from './responses-chat-session.js';
+import { getResponsesRuntime, openResponsesChat } from './responses-chat-session.js';
 import { CodexAppServerClient, codexEnvironment } from './codex-app-server-client.js';
 import { verifyCodexAccount, type CodexAccountProfile } from './codex-account.js';
 import { openCodexChat, getCodexRuntime } from './codex-chat-session.js';
@@ -725,12 +725,14 @@ function stageImages(cwd: string, images: Array<{ data: string; mediaType: strin
 function makeUserMessage(
   content: string,
   priority: 'now' | 'next' | 'later' = 'next',
-): SDKUserMessage {
+  messageId?: string,
+): SDKUserMessage & { mitzoMessageId?: string } {
   return {
     type: 'user',
     message: { role: 'user', content },
     parent_tool_use_id: null,
     priority,
+    ...(messageId ? { mitzoMessageId: messageId } : {}),
   };
 }
 
@@ -1354,6 +1356,7 @@ export function sendToChat(
     const session = registry.get(clientId);
     if (!session?.inputQueue) return false;
     const codex = getCodexRuntime(session);
+    const responses = getResponsesRuntime(session);
     if (codex && (images?.length || session.activeSkillPolicy)) {
       send(session.transport, {
         type: 'error',
@@ -1364,6 +1367,8 @@ export function sendToChat(
     }
     const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-send`;
+    if (responses && session.sessionId && eventStore.hasUserMessage(session.sessionId, messageId))
+      return true;
     if (codex) {
       try {
         // Persist before public acknowledgement; retries also repair older echo-only entries.
@@ -1375,6 +1380,18 @@ export function sendToChat(
           sessionId: session.sessionId,
           error:
             'Message could not be saved to the Codex queue. Retry after checking storage and connection.',
+        });
+        return false;
+      }
+    }
+    if (responses) {
+      try {
+        responses.prepare(messageId, fullPrompt);
+      } catch {
+        send(session.transport, {
+          type: 'error',
+          sessionId: session.sessionId,
+          error: 'Wait for the active OpenAI API turn to finish before sending another message.',
         });
         return false;
       }
@@ -1409,7 +1426,10 @@ export function sendToChat(
             'Codex queue is paused or unavailable. Inspect interrupted work before continuing.',
         }),
       );
-    } else session.inputQueue.push(makeUserMessage(fullPrompt, 'next'));
+    } else
+      session.inputQueue.push(
+        makeUserMessage(fullPrompt, 'next', responses ? messageId : undefined),
+      );
     return true;
   });
 }
@@ -1560,13 +1580,30 @@ export function cleanupSessionWorktrees(
   if (primary) session.worktreePaths.set('primary', primary);
 }
 
-/** Echo a closeout prompt to the frontend as a user bubble before injecting into the SDK. */
-function echoCloseoutPrompt(
+/** Persist, echo, and enqueue a closeout prompt through the active provider runtime. */
+function queueCloseoutPrompt(
   session: import('./session-registry.js').ManagedSession,
   clientId: string,
   prompt: string,
 ): void {
   const messageId = `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-closeout`;
+  const codex = getCodexRuntime(session);
+  const responses = getResponsesRuntime(session);
+  if (codex) {
+    try {
+      codex.enqueue({ id: messageId, prompt });
+    } catch (error) {
+      log.warn('failed to persist Codex closeout prompt', { clientId, error });
+      return;
+    }
+  } else if (responses) {
+    try {
+      responses.prepare(messageId, prompt);
+    } catch (error) {
+      log.warn('failed to persist OpenAI API closeout prompt', { clientId, error });
+      return;
+    }
+  }
   if (session.sessionId) {
     storeAndEchoIfNew(
       session.sessionId,
@@ -1579,6 +1616,11 @@ function echoCloseoutPrompt(
   } else {
     log.debug('skipping closeout echo — session not yet resolved', { clientId });
   }
+  if (codex)
+    void codex
+      .startQueued()
+      .catch((error) => log.warn('failed to start Codex closeout prompt', { clientId, error }));
+  else session.inputQueue?.push(makeUserMessage(prompt, 'now', responses ? messageId : undefined));
 }
 
 const CLOSEOUT_PROMPT = `This session is closing in 10 minutes due to inactivity.
@@ -1636,8 +1678,7 @@ function _closeoutSessionInner(clientId: string): void {
 
   log.info('injecting closeout prompt', { clientId, wtId: session.wtId });
 
-  echoCloseoutPrompt(session, clientId, CLOSEOUT_PROMPT);
-  session.inputQueue.push(makeUserMessage(CLOSEOUT_PROMPT, 'now'));
+  queueCloseoutPrompt(session, clientId, CLOSEOUT_PROMPT);
 
   // The registry's CLOSEOUT_TIMEOUT_MS timer will abort the session after
   // 10 minutes regardless. When the session is finally aborted (by the
@@ -1721,8 +1762,7 @@ export function closeSessionByUser(clientId: string): void {
 
     log.info('user-initiated closeout', { clientId, wtId: session.wtId });
 
-    echoCloseoutPrompt(session, clientId, USER_CLOSEOUT_PROMPT);
-    session.inputQueue.push(makeUserMessage(USER_CLOSEOUT_PROMPT, 'now'));
+    queueCloseoutPrompt(session, clientId, USER_CLOSEOUT_PROMPT);
 
     // Register abort listener to finalize with closed_by: 'user'
     if (session.wtId) {

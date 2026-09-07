@@ -1,8 +1,8 @@
 import { afterEach, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { NativeHooks } from '../native-hooks.js';
+import { createNativeHooks, NativeHooks } from '../native-hooks.js';
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
 function setup(hooks: unknown) {
@@ -90,4 +90,27 @@ it('holds execution at the hook boundary and forwards approval without broadenin
   );
   expect(calls).toBe(1);
   expect(result).toEqual({ content: 'written', isError: false });
+});
+
+it('disables repository-controlled hooks by default', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mitzo-hooks-default-'));
+  roots.push(root);
+  mkdirSync(join(root, '.claude'));
+  const marker = join(root, 'executed');
+  writeFileSync(
+    join(root, '.claude/settings.json'),
+    JSON.stringify({
+      hooks: { SessionStart: [{ hooks: [{ type: 'command', command: `touch ${marker}` }] }] },
+    }),
+  );
+  const created = createNativeHooks(root, 'app', {
+    PATH: '/usr/bin:/bin',
+    CODEX_HOME: '/private/credentials',
+  });
+  try {
+    await created.hooks.run('SessionStart', { source: 'startup' }, new AbortController().signal);
+    expect(existsSync(marker)).toBe(false);
+  } finally {
+    created.dispose();
+  }
 });

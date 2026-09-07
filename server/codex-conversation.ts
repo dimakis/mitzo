@@ -60,6 +60,7 @@ export class CodexConversation {
     turnId?: string;
     completion?: ObjectValue;
     completionHook?: 'pending' | 'done';
+    interruptRequested?: boolean;
     abort: AbortController;
   };
   private paused = false;
@@ -89,7 +90,10 @@ export class CodexConversation {
       .parse(
         await this.client.request('config/read', { cwd: this.opts.cwd, includeLayers: false }),
       );
-    const runtimeConfig = codexRuntimeOverrides(configResponse.config);
+    const runtimeConfig = codexRuntimeOverrides(
+      configResponse.config,
+      this.opts.profile.workspaceId,
+    );
     const method = state.threadId ? 'thread/resume' : 'thread/start';
     const result = z
       .object({
@@ -192,6 +196,7 @@ export class CodexConversation {
       abort: new AbortController(),
       turnId: undefined as string | undefined,
       completion: undefined as ObjectValue | undefined,
+      interruptRequested: false,
     };
     this.active = active;
     this.opts.onQueueChange?.();
@@ -217,12 +222,24 @@ export class CodexConversation {
         if (active.turnId && active.turnId !== result.turn.id)
           throw new Error('Codex turn identity changed');
         active.turnId = result.turn.id;
+        if (active.interruptRequested || active.abort.signal.aborted) {
+          await this.client.request('turn/interrupt', {
+            threadId: this.threadId,
+            turnId: active.turnId,
+          });
+          return;
+        }
         if (active.completion) this.notification('turn/completed', active.completion);
       }
     } catch (error: unknown) {
       this.paused = true;
       active.abort.abort();
-      this.opts.store.finish(this.opts.conversationId, this.binding!, command.id, 'failed');
+      this.opts.store.pauseForRecovery(
+        this.opts.conversationId,
+        this.binding!,
+        command.id,
+        active.interruptRequested ? 'interrupted' : 'failed',
+      );
       if (this.active === active) this.active = undefined;
       this.opts.onQueueChange?.();
       throw error;
@@ -275,15 +292,24 @@ export class CodexConversation {
             ? 'interrupted'
             : 'failed';
       this.active.abort.abort();
-      this.opts.store.finish(
-        this.opts.conversationId,
-        this.binding!,
-        this.active.command.id,
-        status,
-      );
+      if (status === 'completed')
+        this.opts.store.finish(
+          this.opts.conversationId,
+          this.binding!,
+          this.active.command.id,
+          status,
+        );
+      else
+        this.opts.store.pauseForRecovery(
+          this.opts.conversationId,
+          this.binding!,
+          this.active.command.id,
+          status,
+        );
       this.active = undefined;
       this.paused ||= status !== 'completed';
       this.mapper?.notification(method, params);
+      if (status === 'failed') this.opts.onError?.(new Error('Codex turn failed'));
       this.opts.onQueueChange?.();
       // Completion can arrive before turn/start resolves. Wait for that request to settle.
       Promise.resolve(this.pumping)
@@ -363,7 +389,10 @@ export class CodexConversation {
     if (this.closed) return;
     this.paused = true;
     const active = this.active;
+    if (this.binding)
+      this.opts.store.pauseForRecovery(this.opts.conversationId, this.binding, active?.command.id);
     if (!active) return;
+    active.interruptRequested = true;
     active.abort.abort();
     if (active.turnId) {
       try {
@@ -381,17 +410,28 @@ export class CodexConversation {
     this.closed = true;
     this.paused = true;
     this.active?.abort.abort();
-    if (this.binding && this.active)
-      this.opts.store.finish(
-        this.opts.conversationId,
-        this.binding,
-        this.active.command.id,
-        'interrupted',
+    try {
+      if (this.binding)
+        this.opts.store.pauseForRecovery(
+          this.opts.conversationId,
+          this.binding,
+          this.active?.command.id,
+        );
+    } catch (error) {
+      this.opts.onError?.(
+        error instanceof Error ? error : new Error('Codex recovery state could not be saved'),
       );
+    }
     this.active = undefined;
-    this.mapper?.flush();
-    this.client.close();
-    this.opts.onQueueChange?.();
-    this.opts.onClosed?.();
+    try {
+      this.mapper?.flush();
+    } finally {
+      try {
+        this.client.close();
+      } finally {
+        this.opts.onQueueChange?.();
+        this.opts.onClosed?.();
+      }
+    }
   }
 }

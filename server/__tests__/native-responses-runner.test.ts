@@ -156,6 +156,18 @@ describe('durable native Responses turns', () => {
     await rejection;
     expect(store.load('app-id', binding)?.status).toBe('interrupted');
   });
+  it('persists a prepared follow-up before its generator is consumed', async () => {
+    const instance = runner();
+    instance.prepare('message-1', 'durable follow-up');
+    expect(store.load('app-id', binding)).toMatchObject({
+      status: 'running',
+      history: [{ role: 'user', content: 'durable follow-up' }],
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    await collect(instance.run('durable follow-up', undefined, 'message-1'));
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(store.load('app-id', binding)?.status).toBe('idle');
+  });
   it('never replays an uncertain side effect after interruption', async () => {
     fetchMock.mockResolvedValueOnce(response(true));
     const execute = vi.fn().mockImplementation(async () => {

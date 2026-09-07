@@ -21,6 +21,7 @@ async function setup(
   const requests: { method: string; params: Record<string, unknown> }[] = [];
   const events: Record<string, unknown>[] = [];
   const onClosed = vi.fn();
+  const onError = vi.fn();
   const requestUserInput = vi.fn(async () => ({ answers: { q1: { answers: ['Work'] } } }));
   const execute = vi.fn(
     async (_name: string, _input: Record<string, unknown>, _signal: AbortSignal) => ({
@@ -75,6 +76,7 @@ async function setup(
     },
     emit: (e) => events.push(e),
     onClosed,
+    onError,
     validateModel: (model: string) => {
       if (!['test-model', 'other-model'].includes(model)) throw new Error('Model unavailable');
     },
@@ -87,7 +89,18 @@ async function setup(
     rmSync(dir, { recursive: true, force: true });
   });
   await c.initialize();
-  return { c, store, callbacks, rpc, requests, events, execute, onClosed, requestUserInput };
+  return {
+    c,
+    store,
+    callbacks,
+    rpc,
+    requests,
+    events,
+    execute,
+    onClosed,
+    onError,
+    requestUserInput,
+  };
 }
 it('runs queued turns sequentially, rechecks account and never uses SDK/provider IDs as application IDs', async () => {
   const { c, callbacks, requests, events } = await setup();
@@ -275,7 +288,6 @@ it('resumes durable queued work after replacing the runtime and acknowledging re
   await old.c.send({ id: 'first', prompt: 'first' });
   await old.c.send({ id: 'next', prompt: 'next' });
   old.c.close();
-  old.store.recoverAtStartup();
   const resumed = await setup(old.store);
   expect(resumed.requests.some((r) => r.method === 'thread/resume')).toBe(true);
   expect(resumed.requests.some((r) => r.method === 'turn/start')).toBe(false);
@@ -288,6 +300,56 @@ it('resumes durable queued work after replacing the runtime and acknowledging re
   });
   expect(resumed.c.queue().map((q) => q.status)).toEqual(['interrupted', 'completed']);
   resumed.c.close();
+});
+
+it('interrupts a turn that is created while turn/start is still in flight', async () => {
+  const { c, rpc, requests } = await setup();
+  const request = rpc.request.getMockImplementation()!;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  rpc.request.mockImplementation(async (method, params) => {
+    if (method !== 'turn/start') return request(method, params);
+    requests.push({ method, params });
+    await gate;
+    return { turn: { id: 'late-turn' } };
+  });
+  const send = c.send({ id: 'late', prompt: 'hello' });
+  await vi.waitFor(() => expect(requests.some((r) => r.method === 'turn/start')).toBe(true));
+  await c.interrupt();
+  release();
+  await send;
+  expect(requests).toContainEqual({
+    method: 'turn/interrupt',
+    params: { threadId: 'provider-thread', turnId: 'late-turn' },
+  });
+  expect(c.queue()[0].status).toBe('interrupted');
+});
+
+it('does not throw from a transport close callback when recovery persistence fails', async () => {
+  const { c, callbacks, store, onClosed, onError } = await setup();
+  await c.send({ id: 'active', prompt: 'hello' });
+  vi.spyOn(store, 'pauseForRecovery').mockImplementation(() => {
+    throw new Error('disk unavailable');
+  });
+  expect(() => callbacks.onClose(new Error('transport lost'))).not.toThrow();
+  expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'disk unavailable' }));
+  expect(onClosed).toHaveBeenCalledOnce();
+});
+
+it('marks failed provider turns as errors and pauses the queue', async () => {
+  const { c, callbacks, events, onError } = await setup();
+  await c.send({ id: 'failed', prompt: 'hello' });
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'failed' },
+  });
+  expect(events).toContainEqual(
+    expect.objectContaining({ type: 'result', session_id: 'app', is_error: true }),
+  );
+  expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'Codex turn failed' }));
+  expect(c.isPaused()).toBe(true);
 });
 
 it('uses canonical display names while executing the original wire tool', async () => {

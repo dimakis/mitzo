@@ -125,6 +125,28 @@ export class CodexConversationStore {
       )
       .run(status, id, commandId);
   }
+  pauseForRecovery(
+    id: string,
+    b: AccountBinding,
+    commandId?: string,
+    status: 'interrupted' | 'failed' = 'interrupted',
+  ) {
+    this.db.transaction(() => {
+      this.read(id, b);
+      const pending = !!this.db
+        .prepare(
+          "SELECT 1 FROM codex_commands WHERE conversation_id=? AND status IN ('queued','running') LIMIT 1",
+        )
+        .get(id);
+      if (commandId)
+        this.db
+          .prepare(
+            "UPDATE codex_commands SET status=? WHERE conversation_id=? AND id=? AND status='running'",
+          )
+          .run(status, id, commandId);
+      if (pending) this.db.prepare('UPDATE codex_conversations SET recovery=1 WHERE id=?').run(id);
+    })();
+  }
   claimTool(id: string, b: AccountBinding, commandId: string, callId: string): boolean {
     this.read(id, b);
     if (

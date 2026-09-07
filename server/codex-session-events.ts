@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
 import type { StreamEvent } from '@mitzo/harness';
 type ObjectValue = Record<string, unknown>;
 function object(value: unknown): ObjectValue {
@@ -11,6 +12,11 @@ export class CodexSessionEvents {
     { text: string; closed: boolean; messageId: string; kind: 'text' | 'thinking' }
   >();
   private finishedTurns = new Set<string>();
+  private usage?: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_input_tokens: number;
+  };
   constructor(
     private conversationId: string,
     private threadId: string,
@@ -70,6 +76,28 @@ export class CodexSessionEvents {
   }
   notification(method: string, params: ObjectValue) {
     if (params.threadId !== this.threadId) return;
+    if (method === 'thread/tokenUsage/updated') {
+      const parsed = z
+        .object({
+          tokenUsage: z.object({
+            last: z.object({
+              inputTokens: z.number().int().nonnegative(),
+              cachedInputTokens: z.number().int().nonnegative(),
+              outputTokens: z.number().int().nonnegative(),
+            }),
+          }),
+        })
+        .safeParse(params);
+      if (parsed.success) {
+        const last = parsed.data.tokenUsage.last;
+        this.usage = {
+          input_tokens: Math.max(0, last.inputTokens - last.cachedInputTokens),
+          output_tokens: last.outputTokens,
+          cache_read_input_tokens: last.cachedInputTokens,
+        };
+      }
+      return;
+    }
     if (
       method === 'item/reasoning/summaryTextDelta' &&
       typeof params.itemId === 'string' &&
@@ -148,7 +176,13 @@ export class CodexSessionEvents {
       if (typeof turn.id !== 'string' || this.finishedTurns.has(turn.id)) return;
       this.finishedTurns.add(turn.id);
       this.flush();
-      this.emit({ type: 'result', session_id: this.conversationId });
+      this.emit({
+        type: 'result',
+        session_id: this.conversationId,
+        is_error: turn.status !== 'completed',
+        ...(this.usage ? { usage: this.usage } : {}),
+      });
+      this.usage = undefined;
     }
   }
   toolStart(_providerCallId: string, name: string, input: ObjectValue): string {

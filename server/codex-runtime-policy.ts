@@ -2,7 +2,10 @@ import { z } from 'zod';
 /** Constrained app-server configuration. Mitzo supplies executable tools dynamically.
  * Native skills readers remain available; restricted skill ceilings are rejected by the controller.
  */
-export function codexRuntimeOverrides(configuration: unknown): Record<string, unknown> {
+export function codexRuntimeOverrides(
+  configuration: unknown,
+  workspaceId?: string,
+): Record<string, unknown> {
   const parsed = z
     .object({
       mcp_servers: z.record(z.string(), z.unknown()).optional(),
@@ -13,6 +16,7 @@ export function codexRuntimeOverrides(configuration: unknown): Record<string, un
   if (parsed.data.model_providers?.openai)
     throw new Error('Custom OpenAI routing is unsupported for the ChatGPT runtime');
   const config: Record<string, unknown> = { web_search: 'disabled', 'agents.enabled': false };
+  if (workspaceId) config.forced_chatgpt_workspace_id = workspaceId;
   for (const feature of [
     'shell_tool',
     'unified_exec',

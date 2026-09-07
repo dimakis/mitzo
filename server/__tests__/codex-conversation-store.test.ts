@@ -80,3 +80,29 @@ it('records tool claims before execution and never repeats an uncertain effect',
   expect(() => s.claimTool('c', binding, 'one', 'call-2')).toThrow('running');
   s.close();
 });
+it('durably pauses same-process replacement without requiring startup recovery', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'one', prompt: 'active' });
+  s.enqueue('c', binding, { id: 'two', prompt: 'queued' });
+  s.claimNext('c', binding);
+  s.pauseForRecovery('c', binding, 'one');
+  expect(s.commands('c', binding).map((command) => command.status)).toEqual([
+    'interrupted',
+    'queued',
+  ]);
+  expect(() => s.claimNext('c', binding)).toThrow('recovery');
+  s.close();
+});
+it('does not require recovery after cleanly completed work', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'one', prompt: 'done' });
+  s.claimNext('c', binding);
+  s.finish('c', binding, 'one', 'completed');
+  s.pauseForRecovery('c', binding);
+  expect(s.read('c', binding).recovery).toBe(0);
+  s.close();
+});

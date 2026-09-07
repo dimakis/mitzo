@@ -74,6 +74,7 @@ export async function openCodexChat(options: Options) {
     options.session.cwd!,
     options.conversationId,
     options.env,
+    { trustProjectHooks: process.env.MITZO_TRUST_PROJECT_HOOKS === '1' },
   );
   let startup;
   try {

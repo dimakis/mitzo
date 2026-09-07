@@ -35,3 +35,8 @@ it('allows model-required code-mode dispatch while keeping native execution disa
   expect(c['features.shell_tool']).toBe(false);
   expect(c['features.unified_exec']).toBe(false);
 });
+it('pins an explicitly configured ChatGPT workspace', () => {
+  expect(codexRuntimeOverrides({}, 'workspace-123').forced_chatgpt_workspace_id).toBe(
+    'workspace-123',
+  );
+});

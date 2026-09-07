@@ -73,6 +73,7 @@ it('runs successive user turns with a private credential and closes its input qu
 });
 
 it('does not start an API runner when a project startup hook fails', async () => {
+  vi.stubEnv('MITZO_TRUST_PROJECT_HOOKS', '1');
   const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
   const { join } = await import('node:path');
   const { tmpdir } = await import('node:os');
@@ -118,6 +119,7 @@ it('does not start an API runner when a project startup hook fails', async () =>
     ).rejects.toThrow('SessionStart hook failed');
     expect(calls.options).toHaveLength(count);
   } finally {
+    vi.unstubAllEnvs();
     registry.dispose();
     rmSync(root, { recursive: true, force: true });
   }
