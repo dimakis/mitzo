@@ -100,4 +100,18 @@ describe('SessionBanner', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByText('Boot Context (Full Markdown)')).toBeNull();
   });
+
+  it('consumes Escape while the modal is open so an underlying tray stays open', () => {
+    const underlyingEscape = vi.fn();
+    window.addEventListener('keydown', underlyingEscape);
+
+    render(<SessionBanner bootContext={bootContext} />);
+    fireEvent.click(screen.getByRole('button', { name: /5 sources/ }));
+    fireEvent.click(screen.getByTitle('View full markdown'));
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(screen.queryByText('Boot Context (Full Markdown)')).toBeNull();
+    expect(underlyingEscape).not.toHaveBeenCalled();
+    window.removeEventListener('keydown', underlyingEscape);
+  });
 });

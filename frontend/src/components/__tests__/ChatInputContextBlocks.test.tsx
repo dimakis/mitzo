@@ -58,6 +58,12 @@ describe('ChatInput with externalContextBlocks', () => {
     expect(container.querySelector('[data-testid="session-tray"]')).toBeNull();
   });
 
+  it('keeps image attachment available when context blocks are managed by a parent', () => {
+    render(<ChatInput {...baseProps} externalContextBlocks={['boot-context']} />);
+
+    expect(screen.getByTitle('Attach image')).toBeTruthy();
+  });
+
   it('shows the session tray and removes context and attachment buttons from the input strip', () => {
     const { container } = render(<ChatInput {...baseProps} />);
     expect(container.querySelector('[data-testid="session-tray"]')).toBeTruthy();

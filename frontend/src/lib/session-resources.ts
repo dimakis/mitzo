@@ -20,6 +20,21 @@ export interface SessionResources {
   outputs: SessionResource[];
 }
 
+export function mergeSessionResources(...groups: SessionResources[]): SessionResources {
+  const merge = (key: keyof SessionResources) => {
+    const seen = new Set<string>();
+    return groups.flatMap((group) =>
+      group[key].filter((resource) => {
+        if (seen.has(resource.id)) return false;
+        seen.add(resource.id);
+        return true;
+      }),
+    );
+  };
+
+  return { sources: merge('sources'), outputs: merge('outputs') };
+}
+
 const URL_PATTERN = /https?:\/\/[^\s<>"']+/g;
 
 function basename(path: string): string {
@@ -57,7 +72,7 @@ export function collectSessionResources(
     outputs.push(resource);
   };
 
-  const visitBlock = (block: FinishedBlock | StreamingBlock) => {
+  const visitBlock = (block: FinishedBlock | StreamingBlock, role: 'user' | 'assistant') => {
     if (block.toolName) {
       addSource({ id: `tool:${block.toolName}`, kind: 'tool', label: block.toolName });
     }
@@ -78,7 +93,9 @@ export function collectSessionResources(
         } catch {
           // Keep the original text when URL parsing fails.
         }
-        addOutput({ id: `url:${href}`, kind: 'link', label, href });
+        const resource = { id: `url:${href}`, kind: 'link' as const, label, href };
+        if (role === 'user') addSource(resource);
+        else addOutput(resource);
       }
 
       const path = block.rawInput?.path;
@@ -100,7 +117,7 @@ export function collectSessionResources(
       const nestedBlocks = Array.isArray(block.subagent.blocks)
         ? block.subagent.blocks
         : Array.from(block.subagent.blocks.values());
-      for (const nestedBlock of nestedBlocks) visitBlock(nestedBlock);
+      for (const nestedBlock of nestedBlocks) visitBlock(nestedBlock, 'assistant');
     }
   };
 
@@ -118,13 +135,13 @@ export function collectSessionResources(
         });
       }
     }
-    for (const block of message.blocks) visitBlock(block);
+    for (const block of message.blocks) visitBlock(block, message.role);
   }
 
   if (current) {
     for (const blockId of current.blockOrder) {
       const block = current.blocks.get(blockId);
-      if (block) visitBlock(block);
+      if (block) visitBlock(block, 'assistant');
     }
   }
 

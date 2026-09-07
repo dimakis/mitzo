@@ -56,10 +56,13 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
   useEffect(() => {
     if (!showModal) return;
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setShowModal(false);
+      if (e.key === 'Escape') {
+        e.stopImmediatePropagation();
+        setShowModal(false);
+      }
     };
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
+    window.addEventListener('keydown', handleEscape, true);
+    return () => window.removeEventListener('keydown', handleEscape, true);
   }, [showModal]);
 
   // Reset expand states when context identity changes (e.g. session switch)

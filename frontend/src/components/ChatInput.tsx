@@ -375,6 +375,16 @@ export function ChatInput({
         >
           /
         </button>
+        {useExternal && (
+          <button
+            className="chat-input-btn chat-input-btn--attach"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={images.length >= MAX_IMAGE_ATTACHMENTS}
+            title="Attach image"
+          >
+            +
+          </button>
+        )}
         <input
           ref={fileInputRef}
           type="file"

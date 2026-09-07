@@ -3,6 +3,34 @@ import type { FinishedMessage, StreamingMessage } from '../../types/chat';
 import { collectSessionResources } from '../session-resources';
 
 describe('collectSessionResources', () => {
+  it('classifies links from user messages as sources', () => {
+    const messages: FinishedMessage[] = [
+      {
+        messageId: 'user-1',
+        role: 'user',
+        blocks: [
+          {
+            blockId: 'u1',
+            blockType: 'text',
+            content: 'Please inspect https://example.com/reference',
+          },
+        ],
+      },
+    ];
+
+    expect(collectSessionResources(messages)).toEqual({
+      sources: [
+        {
+          id: 'url:https://example.com/reference',
+          kind: 'link',
+          label: 'example.com/reference',
+          href: 'https://example.com/reference',
+        },
+      ],
+      outputs: [],
+    });
+  });
+
   it('collects and deduplicates context, images, tools, links, and written files', () => {
     const messages: FinishedMessage[] = [
       {

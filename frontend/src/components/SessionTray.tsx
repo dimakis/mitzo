@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { BootContextMeta } from '@mitzo/client';
 import type { FinishedMessage, ImageAttachment, StreamingMessage } from '../types/chat';
-import { collectSessionResources, type SessionResource } from '../lib/session-resources';
+import {
+  collectSessionResources,
+  mergeSessionResources,
+  type SessionResource,
+} from '../lib/session-resources';
 import { MAX_IMAGE_ATTACHMENTS } from '../lib/constants';
 import { ContextPanel } from './ContextPanel';
 import { SessionBanner } from './SessionBanner';
@@ -75,7 +79,12 @@ export function SessionTray({
   const suppressClick = useRef(false);
   const draftImageKeys = useRef(new WeakMap<ImageAttachment, string>());
   const nextDraftImageKey = useRef(0);
-  const resources = useMemo(() => collectSessionResources(messages, current), [messages, current]);
+  const finishedResources = useMemo(() => collectSessionResources(messages), [messages]);
+  const currentResources = useMemo(() => collectSessionResources([], current), [current]);
+  const resources = useMemo(
+    () => mergeSessionResources(finishedResources, currentResources),
+    [finishedResources, currentResources],
+  );
   const resourceCount = resources.sources.length + resources.outputs.length + draftImages.length;
   const isOpen = snap !== 'peek';
 
