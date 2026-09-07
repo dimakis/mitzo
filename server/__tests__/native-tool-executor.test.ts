@@ -43,6 +43,45 @@ describe('native tool execution through session permissions', () => {
   const executor = () =>
     createNativeToolExecutor('client', registry, { env: { PATH: '/usr/bin:/bin' } });
 
+  it('honors an explicit approval request before a normally allowed write', async () => {
+    const pending = executor()(
+      call('Write', { file_path: 'approved', content: 'yes', require_approval: true }),
+      abort.signal,
+    );
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    await expect(readFile(join(root, 'worktree/approved'))).rejects.toThrow();
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'deny');
+    expect(await pending).toMatchObject({ is_error: true });
+    await expect(readFile(join(root, 'worktree/approved'))).rejects.toThrow();
+    sent.length = 0;
+    const allowed = executor()(
+      call('Write', { file_path: 'approved', content: 'yes', require_approval: true }),
+      abort.signal,
+    );
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
+    expect(await allowed).toMatchObject({ is_error: false });
+    expect(await readFile(join(root, 'worktree/approved'), 'utf8')).toBe('yes');
+  });
+  it('returns structured answers through the native question tool in ask mode', async () => {
+    registry.get('client')!.mode = 'ask';
+    const pending = executor()(
+      call('AskUserQuestion', {
+        questions: [
+          { question: 'Which account?', options: [{ label: 'Work', description: 'Work billing' }] },
+        ],
+      }),
+      abort.signal,
+    );
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    const request = sent.find((e) => e.type === 'permission_request')!;
+    expect(request.questions).toEqual([expect.objectContaining({ id: 'Which account?' })]);
+    resolvePending(request.permId as string, 'once', { 'Which account?': ['Work'] });
+    expect(await pending).toMatchObject({
+      is_error: false,
+      content: JSON.stringify({ answers: { 'Which account?': 'Work' } }),
+    });
+  });
   it('writes, edits and reads using SDK-compatible inputs and call IDs', async () => {
     const execute = executor();
     expect(

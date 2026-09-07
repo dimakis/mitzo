@@ -5,21 +5,36 @@ import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import {
   buildPermissionHandler,
+  UserQuestionsSchema,
   type SessionRegistry,
   type ToolDefinition,
   type ToolUseBlock,
   type ToolResultBlock,
 } from '@mitzo/harness';
 
+const approval = {
+  require_approval: z
+    .boolean()
+    .optional()
+    .describe('Set true to request an explicit Mitzo approval card before this exact action.'),
+};
 const schemas = {
+  AskUserQuestion: z.object({ questions: UserQuestionsSchema }).strict(),
   Read: z.object({ file_path: z.string().min(1) }).strict(),
-  Write: z.object({ file_path: z.string().min(1), content: z.string() }).strict(),
+  Write: z.object({ file_path: z.string().min(1), content: z.string(), ...approval }).strict(),
   Edit: z
-    .object({ file_path: z.string().min(1), old_string: z.string().min(1), new_string: z.string() })
+    .object({
+      file_path: z.string().min(1),
+      old_string: z.string().min(1),
+      new_string: z.string(),
+      ...approval,
+    })
     .strict(),
-  Bash: z.object({ command: z.string().min(1) }).strict(),
+  Bash: z.object({ command: z.string().min(1), ...approval }).strict(),
 };
 const descriptions = {
+  AskUserQuestion:
+    'Ask structured questions in Mitzo and wait for the user’s answers. Questions do not authorize tool execution.',
   Read: 'Read a UTF-8 file. Paths are relative to the session cwd unless absolute.',
   Write: 'Write a UTF-8 file in an existing directory.',
   Edit: 'Replace exactly one occurrence of old_string in a UTF-8 file.',
@@ -149,12 +164,25 @@ export function createNativeToolExecutor(
       signal.throwIfAborted();
       const session = registry.get(clientId);
       if (!session?.cwd) return result('Session workspace is unavailable', true);
-      if (session.mode === 'ask' && block.name !== 'Read')
+      if (session.mode === 'ask' && !['Read', 'AskUserQuestion'].includes(block.name))
         return result('Ask mode only permits read-only native tools', true);
       if (!Object.hasOwn(schemas, block.name)) return result('Native tool is unavailable', true);
       const parsed = schemas[block.name as keyof typeof schemas].safeParse(block.input);
       if (!parsed.success) return result('Invalid native tool input', true);
+      if (block.name === 'AskUserQuestion') {
+        const permission = await canUseTool(block.name, parsed.data, {
+          signal,
+          toolUseID: block.id,
+        });
+        signal.throwIfAborted();
+        return permission.behavior === 'allow'
+          ? result(JSON.stringify({ answers: permission.updatedInput?.answers }))
+          : result(permission.message, true);
+      }
       const input = { ...parsed.data };
+      if ('questions' in input) return result('Invalid tool input', true);
+      const forcePrompt = 'require_approval' in input && input.require_approval === true;
+      if ('require_approval' in input) delete input.require_approval;
       const roots: { canonical: string; original: string }[] = [];
       for (const entry of session.worktreePaths.values()) {
         try {
@@ -178,7 +206,11 @@ export function createNativeToolExecutor(
         if (root)
           input.file_path = resolve(root.original, relative(root.canonical, input.file_path));
       }
-      const permission = await canUseTool(block.name, input, { signal, toolUseID: block.id });
+      const permission = await canUseTool(block.name, input, {
+        signal,
+        toolUseID: block.id,
+        forcePrompt,
+      });
       signal.throwIfAborted();
       if (permission.behavior !== 'allow') return result(permission.message, true);
       // The shared handler returns the checked input. Never execute unchecked replacements.

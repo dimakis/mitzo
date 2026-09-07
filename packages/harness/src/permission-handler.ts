@@ -15,7 +15,7 @@ import { PERMISSION_TIMEOUT_MS, NTFY_NOTIFICATION_DELAY_MS } from './constants.j
 import type { SessionRegistry } from './session-registry.js';
 import type { SessionTransport } from './session-transport.js';
 
-const Questions = z
+export const UserQuestionsSchema = z
   .array(
     z.object({
       question: z.string().min(1).max(4000),
@@ -86,6 +86,7 @@ export function buildPermissionHandler(
       displayName?: string;
       description?: string;
       decisionReason?: string;
+      forcePrompt?: boolean;
     },
   ): Promise<PermissionResult> => {
     const session = registry.get(clientId);
@@ -100,7 +101,7 @@ export function buildPermissionHandler(
 
     let questions: UserQuestion[] | undefined;
     if (toolName === 'AskUserQuestion') {
-      const parsed = Questions.safeParse(_toolInput.questions);
+      const parsed = UserQuestionsSchema.safeParse(_toolInput.questions);
       if (!parsed.success)
         return {
           behavior: 'deny',
@@ -116,11 +117,11 @@ export function buildPermissionHandler(
       return { behavior: 'deny', message: worktreeViolation };
     }
 
-    if (!questions && shouldAutoAllow(toolName, session.mode)) {
+    if (!questions && !opts.forcePrompt && shouldAutoAllow(toolName, session.mode)) {
       return { behavior: 'allow', updatedInput: _toolInput };
     }
 
-    if (!questions && isAllowListed(session.sessionAllowList, toolName)) {
+    if (!questions && !opts.forcePrompt && isAllowListed(session.sessionAllowList, toolName)) {
       return {
         behavior: 'allow',
         decisionClassification: 'user_permanent',
