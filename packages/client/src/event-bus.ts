@@ -6,11 +6,12 @@ const ES_CLOSED = 2;
 
 export type EventBusListener = (data: unknown) => void;
 export type EventSourceFactory = (url: string) => EventSource;
+export type EventSourceUrl = string | (() => string);
 export type ConnectionChangeCallback = (connected: boolean) => void;
 
 export class EventBus {
   private source: EventSource | null = null;
-  private url: string | null = null;
+  private url: EventSourceUrl | null = null;
   private listeners = new Map<string, Set<EventBusListener>>();
   private connectionChangeListeners = new Set<ConnectionChangeCallback>();
   private createEventSource: EventSourceFactory;
@@ -20,7 +21,7 @@ export class EventBus {
       factory ?? ((url: string) => new EventSource(url, { withCredentials: true }));
   }
 
-  connect(url: string): void {
+  connect(url: EventSourceUrl): void {
     if (this.source) return;
     this.url = url;
     this.createSource();
@@ -85,7 +86,7 @@ export class EventBus {
   private createSource(): void {
     if (!this.url) return;
 
-    const source = this.createEventSource(this.url);
+    const source = this.createEventSource(typeof this.url === 'function' ? this.url() : this.url);
     this.source = source;
 
     source.onopen = () => {

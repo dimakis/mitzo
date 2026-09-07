@@ -229,6 +229,21 @@ describe('SseConnection', () => {
     expect(lastES().url).toBe('https://localhost:3100/api/chat/events');
   });
 
+  it('rebuilds the authenticated event URL for every connection attempt', () => {
+    let token = 'first';
+    const conn = new SseConnection(
+      createConfig({
+        buildEventUrl: () => `https://localhost:3100/api/chat/events?token=${token}`,
+      }),
+    );
+    conn.connect();
+    expect(lastES().url).toContain('token=first');
+
+    token = 'refreshed';
+    conn.checkAndReconnect(true);
+    expect(lastES().url).toContain('token=refreshed');
+  });
+
   it('becomes connected after welcome event', () => {
     const conn = new SseConnection(createConfig());
     const listener = vi.fn();

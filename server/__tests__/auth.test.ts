@@ -90,8 +90,12 @@ describe('verifyWsAuth', () => {
 });
 
 describe('authMiddleware — internal token', () => {
-  function mockReq(headers: Record<string, string> = {}, path = '/tasks') {
-    return { headers, path, cookies: {} } as unknown as Parameters<typeof authMiddleware>[0];
+  function mockReq(
+    headers: Record<string, string> = {},
+    path = '/tasks',
+    query: Record<string, string> = {},
+  ) {
+    return { headers, path, query, cookies: {} } as unknown as Parameters<typeof authMiddleware>[0];
   }
 
   type MockResponse = Parameters<typeof authMiddleware>[1] & { statusCode: number };
@@ -173,5 +177,33 @@ describe('authMiddleware — internal token', () => {
 
     // verifyToken is async — wait for it to resolve
     await vi.waitFor(() => expect(next).toHaveBeenCalledOnce());
+  });
+
+  it.each(['/events', '/chat/events'])(
+    'accepts a valid query token for SSE route %s',
+    async (path) => {
+      const { login } = await import('../auth.js');
+      const jwt = await login(process.env.AUTH_PASSPHRASE!);
+      const req = mockReq({}, path, { token: jwt! });
+      const res = mockRes();
+      const next = vi.fn();
+
+      authMiddleware(req, res, next);
+
+      await vi.waitFor(() => expect(next).toHaveBeenCalledOnce());
+    },
+  );
+
+  it('does not accept query tokens on ordinary API routes', async () => {
+    const { login } = await import('../auth.js');
+    const jwt = await login(process.env.AUTH_PASSPHRASE!);
+    const req = mockReq({}, '/sessions', { token: jwt! });
+    const res = mockRes();
+    const next = vi.fn();
+
+    authMiddleware(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(401);
   });
 });
