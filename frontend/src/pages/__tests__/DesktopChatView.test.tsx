@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { createStore } from 'zustand/vanilla';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
@@ -44,8 +44,15 @@ vi.mock('../../components/VoiceSettings', () => ({
 }));
 
 vi.mock('../../components/ChatInput', () => ({
-  ChatInput: ({ externalContextBlocks }: { externalContextBlocks?: string[] }) => (
+  ChatInput: ({
+    externalContextBlocks,
+    onSend,
+  }: {
+    externalContextBlocks?: string[];
+    onSend: (text: string) => boolean;
+  }) => (
     <div data-testid="chat-input">
+      <button onClick={() => onSend('hello')}>Test send</button>
       external: {externalContextBlocks ? externalContextBlocks.length : 'none'}
     </div>
   ),
@@ -163,7 +170,10 @@ beforeEach(() => {
     'fetch',
     vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ contextBlocks: {}, fileViewerRoots: [] }),
+      json: () =>
+        Promise.resolve([
+          { id: 'test', label: 'Test account', models: [{ id: 'luna', label: 'Luna' }] },
+        ]),
     }),
   );
 });
@@ -222,10 +232,10 @@ describe('DesktopChatView', () => {
     expect(screen.getByTestId('chat-input').textContent).toContain('external: none');
   });
 
-  it('renders model selector and mode pills in center header', () => {
+  it('renders model selector and mode pills in center header', async () => {
     renderWithRouter();
     const center = screen.getByTestId('center');
-    expect(center.querySelector('.chat-model-select')).toBeTruthy();
+    expect(await screen.findByLabelText('Model')).toBeTruthy();
     expect(center.querySelector('.mode-pills')).toBeTruthy();
   });
 
@@ -233,4 +243,28 @@ describe('DesktopChatView', () => {
     renderWithRouter();
     expect(screen.getByTestId('voice-settings')).toBeTruthy();
   });
+});
+
+it('uses the account catalog on desktop and sends the explicit subscription choice', async () => {
+  vi.mocked(fetch).mockResolvedValue({
+    ok: true,
+    json: async () => [
+      { id: 'personal', label: 'My subscription', models: [{ id: 'luna', label: 'Luna' }] },
+    ],
+  } as Response);
+  const store = createMockStore();
+  render(
+    <MemoryRouter>
+      <MitzoStoreProvider value={store}>
+        <DesktopChatView />
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  await screen.findByLabelText('Account');
+  expect((screen.getByLabelText('Model') as HTMLSelectElement).value).toBe('luna');
+  fireEvent.click(screen.getByText('Test send'));
+  expect(store.getState().sendMessage).toHaveBeenCalledWith(
+    'hello',
+    expect.objectContaining({ accountId: 'personal', model: 'luna' }),
+  );
 });
