@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { shouldUseSseTransport } from '../chat-transport';
+import { parseChatTransportPreference, shouldUseSseTransport } from '../chat-transport';
 
 describe('shouldUseSseTransport', () => {
   it('defaults browsers to SSE', () => {
@@ -13,5 +13,11 @@ describe('shouldUseSseTransport', () => {
   it('honours explicit diagnostic overrides', () => {
     expect(shouldUseSseTransport(true, 'sse')).toBe(true);
     expect(shouldUseSseTransport(false, 'ws')).toBe(false);
+  });
+
+  it('rejects unknown persisted transport values', () => {
+    expect(parseChatTransportPreference('unknown')).toBeNull();
+    expect(parseChatTransportPreference('sse')).toBe('sse');
+    expect(parseChatTransportPreference('ws')).toBe('ws');
   });
 });

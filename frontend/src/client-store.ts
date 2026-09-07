@@ -11,7 +11,7 @@ import { createMitzoStore } from '@mitzo/client';
 import type { SseConnectionConfig } from '@mitzo/client';
 import { apiFetch, getApiBaseUrl, getEventSourceUrl, getWsChatUrl } from './lib/api-fetch';
 import { isCapacitor, registerCapacitorLifecycle } from './lib/capacitor';
-import { shouldUseSseTransport, type ChatTransportPreference } from './lib/chat-transport';
+import { parseChatTransportPreference, shouldUseSseTransport } from './lib/chat-transport';
 import { configureKeyboard } from './lib/keyboard';
 import { initPushNotifications } from './lib/push';
 import { eventBus } from './lib/event-bus-singleton';
@@ -27,7 +27,7 @@ import { getPreferredModel } from './lib/model-preference';
  */
 const preference =
   typeof window !== 'undefined'
-    ? (localStorage.getItem('mitzo:transport') as ChatTransportPreference)
+    ? parseChatTransportPreference(localStorage.getItem('mitzo:transport'))
     : null;
 const useSSE = typeof window !== 'undefined' && shouldUseSseTransport(isCapacitor(), preference);
 
