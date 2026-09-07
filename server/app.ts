@@ -1,6 +1,6 @@
 import { AccountAliases } from './account-aliases.js';
 import { readCodexQueue, getCodexRuntime } from './codex-chat-session.js';
-import { isPrivateCodexPath } from './codex-private-path.js';
+import { createCodexPathProtection } from './codex-private-path.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import express from 'express';
 import cookieParser from 'cookie-parser';
@@ -1384,12 +1384,24 @@ app.get('/api/worktrees', (_req, res) => {
 
 // --- File viewer API ---
 
+const privatePathSnapshot = createCodexPathProtection(() =>
+  loadAccountProfiles().privateCodexRoots(),
+);
+function createAllowedPathChecker() {
+  const isPrivate = privatePathSnapshot();
+  return (filePath: string): boolean => {
+    try {
+      if (isPrivate(filePath)) return false;
+    } catch {
+      return false;
+    }
+    return isConfiguredAllowedPath(filePath);
+  };
+}
 export function isAllowedPath(filePath: string): boolean {
-  try {
-    if (isPrivateCodexPath(filePath, loadAccountProfiles().privateCodexRoots())) return false;
-  } catch {
-    return false;
-  }
+  return createAllowedPathChecker()(filePath);
+}
+function isConfiguredAllowedPath(filePath: string): boolean {
   const resolved = resolve(filePath);
   if (BASE_REPO && resolved.startsWith(resolve(BASE_REPO))) return true;
   if (BASE_REPO && resolved.startsWith(resolve(`${BASE_REPO}-sessions`))) return true;
@@ -1404,10 +1416,10 @@ export function isAllowedPath(filePath: string): boolean {
   return false;
 }
 
-function resolveRoot(queryRoot: string | undefined): string {
+function resolveRoot(queryRoot: string | undefined, allowed = isAllowedPath): string {
   if (!queryRoot) return BASE_REPO;
   const resolved = resolve(queryRoot);
-  if (!isAllowedPath(resolved)) return BASE_REPO;
+  if (!allowed(resolved)) return BASE_REPO;
   return resolved;
 }
 
@@ -1452,9 +1464,10 @@ app.get('/api/files/roots', (_req, res) => {
 });
 
 app.get('/api/files/list', (req, res) => {
-  const root = resolveRoot(req.query.root as string | undefined);
+  const allowed = createAllowedPathChecker();
+  const root = resolveRoot(req.query.root as string | undefined, allowed);
   const dir = (req.query.dir as string) || root;
-  if (!dir || !isAllowedPath(dir)) {
+  if (!dir || !allowed(dir)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
   }
@@ -1464,7 +1477,7 @@ app.get('/api/files/list', (req, res) => {
   }
   try {
     const entries = readdirSync(dir)
-      .filter((name) => !name.startsWith('.') && isAllowedPath(join(dir, name)))
+      .filter((name) => !name.startsWith('.') && allowed(join(dir, name)))
       .map((name) => {
         const full = join(dir, name);
         try {
@@ -1489,9 +1502,10 @@ app.get('/api/files/list', (req, res) => {
 });
 
 app.get('/api/files', (req, res) => {
-  const root = resolveRoot(req.query.root as string | undefined);
+  const allowed = createAllowedPathChecker();
+  const root = resolveRoot(req.query.root as string | undefined, allowed);
   const dir = (req.query.dir as string) || root;
-  if (!dir || !isAllowedPath(dir)) {
+  if (!dir || !allowed(dir)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
   }
@@ -1501,7 +1515,7 @@ app.get('/api/files', (req, res) => {
   }
   try {
     const entries = readdirSync(dir)
-      .filter((name) => !name.startsWith('.'))
+      .filter((name) => !name.startsWith('.') && allowed(join(dir, name)))
       .map((name) => {
         const full = join(dir, name);
         try {

@@ -10,7 +10,8 @@ function canonical(path: string): string {
   const full = resolve(path);
   try {
     return realpathSync(full);
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     const parent = dirname(full);
     return parent === full ? full : join(canonical(parent), basename(full));
   }
@@ -25,4 +26,23 @@ export function isPrivateCodexPath(path: string, extraRoots: string[] = []) {
     const rel = relative(canonical(root), target);
     return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith('../'));
   });
+}
+
+/** Snapshot once per request. Keep all previously known login roots protected even
+ * when an account is removed or its configuration becomes temporarily unreadable.
+ * Before the first valid snapshot, unknown private roots require fail-closed access.
+ */
+export function createCodexPathProtection(loadRoots: () => string[]) {
+  let knownRoots: Set<string> | undefined;
+  return () => {
+    try {
+      const roots = loadRoots().map(canonical);
+      knownRoots ??= new Set<string>();
+      roots.forEach((root) => knownRoots!.add(root));
+    } catch {
+      if (!knownRoots) return () => true;
+    }
+    const roots = [...knownRoots!];
+    return (path: string) => isPrivateCodexPath(path, roots);
+  };
 }
