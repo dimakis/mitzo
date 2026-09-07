@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CodexUserInput } from './codex-user-input.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { ToolDefinition } from '@mitzo/harness';
 import type { CodexLifecycleTransport } from './codex-app-server-client.js';
@@ -32,6 +33,7 @@ interface Options {
     input: ObjectValue,
     signal: AbortSignal,
   ): Promise<{ content: string; isError: boolean }>;
+  requestUserInput?: (params: ObjectValue, signal: AbortSignal) => Promise<ObjectValue>;
   validateModel?: (model: string) => void;
   displayToolName?: (name: string) => string;
   onQueueChange?: () => void;
@@ -272,6 +274,21 @@ export class CodexConversation {
     params: ObjectValue,
     signal: AbortSignal,
   ): Promise<ObjectValue> {
+    if (method === 'item/tool/requestUserInput') {
+      const input = CodexUserInput.parse(params);
+      const active = this.active;
+      if (
+        this.closed ||
+        !active ||
+        input.threadId !== this.threadId ||
+        input.turnId !== active.turnId
+      )
+        throw new Error('Codex question identity mismatch');
+      const questionSignal = AbortSignal.any([signal, active.abort.signal]);
+      questionSignal.throwIfAborted();
+      if (!this.opts.requestUserInput) throw new Error('Codex questions are unavailable');
+      return this.opts.requestUserInput(params, questionSignal);
+    }
     if (method !== 'item/tool/call') throw new Error('Unsupported Codex host request');
     const call = ToolCall.parse(params);
     const active = this.active;

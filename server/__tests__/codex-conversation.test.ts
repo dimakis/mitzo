@@ -20,6 +20,7 @@ async function setup(
   const requests: { method: string; params: Record<string, unknown> }[] = [];
   const events: Record<string, unknown>[] = [];
   const onClosed = vi.fn();
+  const requestUserInput = vi.fn(async () => ({ answers: { q1: { answers: ['Work'] } } }));
   const execute = vi.fn(
     async (_name: string, _input: Record<string, unknown>, _signal: AbortSignal) => ({
       content: 'ok',
@@ -76,6 +77,7 @@ async function setup(
       if (!['test-model', 'other-model'].includes(model)) throw new Error('Model unavailable');
     },
     executeTool: execute,
+    requestUserInput,
   });
   cleanup.push(() => {
     c.close();
@@ -83,7 +85,7 @@ async function setup(
     rmSync(dir, { recursive: true, force: true });
   });
   await c.initialize();
-  return { c, store, callbacks, rpc, requests, events, execute, onClosed };
+  return { c, store, callbacks, rpc, requests, events, execute, onClosed, requestUserInput };
 }
 it('runs queued turns sequentially, rechecks account and never uses SDK/provider IDs as application IDs', async () => {
   const { c, callbacks, requests, events } = await setup();
@@ -303,4 +305,41 @@ it('uses canonical display names while executing the original wire tool', async 
       }),
     }),
   );
+});
+
+it('routes native user input with active thread/turn identity and abort lifetime', async () => {
+  const { c, callbacks, requestUserInput } = await setup();
+  await c.send({ id: 'question', prompt: 'ask' });
+  const params = {
+    threadId: 'provider-thread',
+    turnId: 'turn-1',
+    itemId: 'question-1',
+    isBlocking: true,
+    autoResolutionMs: null,
+    questions: [
+      {
+        id: 'q1',
+        header: 'Account',
+        question: 'Which account?',
+        isSecret: false,
+        isOther: false,
+        options: [{ label: 'Work', description: 'Work account' }],
+      },
+    ],
+  };
+  const response = await callbacks.onRequest(
+    'item/tool/requestUserInput',
+    params,
+    new AbortController().signal,
+  );
+  expect(response).toEqual({ answers: { q1: { answers: ['Work'] } } });
+  expect(requestUserInput).toHaveBeenCalledWith(params, expect.any(AbortSignal));
+  await expect(
+    callbacks.onRequest(
+      'item/tool/requestUserInput',
+      { ...params, turnId: 'other' },
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow('identity');
+  expect(requestUserInput).toHaveBeenCalledTimes(1);
 });

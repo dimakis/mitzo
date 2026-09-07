@@ -1,3 +1,4 @@
+import { requestCodexUserInput } from './codex-user-input.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -103,6 +104,11 @@ export async function openCodexChat(options: Options) {
       CodexAppServerClient.launch(options.profile.credentialRef, process.env, callbacks),
     emit: (event) => events.push(event),
     onClosed: finish,
+    requestUserInput: async (params, signal) => {
+      const owner = options.registry.findBySessionId(options.conversationId);
+      if (!owner) throw new Error('Codex session unavailable');
+      return requestCodexUserInput(params, signal, owner.clientId, options.registry);
+    },
     executeTool: async (name, input, signal) => {
       const owner = options.registry.findBySessionId(options.conversationId);
       if (!owner) throw new Error('Codex session unavailable');
