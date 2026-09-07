@@ -18,6 +18,7 @@ export interface AttentionItem {
   /** Within same tier, lower = higher priority. Sessions sort above Telos. */
   subPriority: number;
   title: string;
+  pinned?: boolean;
   meta: string;
   accentColor: string;
   icon: string;
@@ -60,6 +61,7 @@ function telosToAttention(items: TodoItem[]): AttentionItem[] {
         tier: 1,
         subPriority: SUB_TELOS,
         title: item.summary,
+        pinned: item.starred,
         meta: `${item.ageDays === 0 ? 'new' : `${item.ageDays}d`} · ${item.profile}`,
         accentColor: item.urgency >= 0.8 ? COLOR_RED : COLOR_AMBER,
         icon: '\u2605', // ★
@@ -75,6 +77,7 @@ function telosToAttention(items: TodoItem[]): AttentionItem[] {
         tier: 2,
         subPriority: SUB_TELOS,
         title: item.summary,
+        pinned: item.starred,
         meta: `${item.ageDays === 0 ? 'new' : `${item.ageDays}d`} · ${item.profile}`,
         accentColor: item.starred ? COLOR_AMBER : COLOR_PURPLE,
         icon: item.starred ? '\u2605' : '\u25CF', // ★ or ●
