@@ -1,3 +1,4 @@
+import { readCodexQueue, getCodexRuntime } from './codex-chat-session.js';
 import { isPrivateCodexPath } from './codex-private-path.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import express from 'express';
@@ -1250,9 +1251,37 @@ app.get('/api/sessions/:id/meta', (req, res) => {
     state: meta.state,
     totalTokens,
     ...(meta.accountBinding ? { accountBinding: meta.accountBinding } : {}),
+    ...(meta.accountBinding?.provider === 'openai-codex'
+      ? {
+          codexQueue: readCodexQueue(
+            meta.sessionId,
+            meta.accountBinding,
+            registry.findBySessionId(meta.sessionId)?.session,
+          ),
+        }
+      : {}),
     totalCostUsd: meta.totalCostUsd,
     numTurns: meta.numTurns,
   });
+});
+
+app.post('/api/sessions/:id/codex-queue/continue', async (req, res) => {
+  const session = registry.findBySessionId(req.params.id)?.session;
+  const runtime = session ? getCodexRuntime(session) : undefined;
+  if (!runtime) {
+    res
+      .status(409)
+      .json({ error: 'Send a message to reconnect this task before continuing its queue.' });
+    return;
+  }
+  try {
+    await runtime.acknowledgeRecovery();
+    res.json({ ok: true });
+  } catch {
+    res
+      .status(409)
+      .json({ error: 'Cannot continue this queue. Check account configuration and connection.' });
+  }
 });
 
 app.get('/api/sessions/:id/events', (req, res) => {

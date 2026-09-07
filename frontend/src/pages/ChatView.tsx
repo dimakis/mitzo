@@ -1,3 +1,4 @@
+import { CodexQueueStatus } from '../components/CodexQueueStatus';
 import { AccountModelPicker, type AccountSelection } from '../components/AccountModelPicker';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
@@ -302,6 +303,7 @@ export function ChatView() {
         />
       </div>
 
+      <CodexQueueStatus sessionId={activeSessionId} />
       <ChatArea
         messages={messages.messages}
         current={messages.current}

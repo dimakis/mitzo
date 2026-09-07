@@ -27,6 +27,26 @@ function store() {
 export function getCodexRuntime(session: ManagedSession) {
   return runtimes.get(session);
 }
+export function readCodexQueue(
+  conversationId: string,
+  binding: AccountBinding,
+  session?: ManagedSession,
+) {
+  if (binding.provider !== 'openai-codex') return undefined;
+  try {
+    const live = session ? getCodexRuntime(session) : undefined;
+    const commands = live?.queue() ?? store().commands(conversationId, binding);
+    return {
+      paused: live?.isPaused() ?? true,
+      connected: !!live,
+      queued: commands.filter((c) => c.status === 'queued').length,
+      interrupted: commands.filter((c) => c.status === 'interrupted' || c.status === 'failed')
+        .length,
+    };
+  } catch {
+    return { paused: true, connected: false, queued: 0, interrupted: 0 };
+  }
+}
 interface Options {
   conversationId: string;
   binding: AccountBinding;
