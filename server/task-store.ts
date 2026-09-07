@@ -5,13 +5,7 @@ import { createLogger } from './logger.js';
 const log = createLogger('task-store');
 
 export type TaskStatus =
-  | 'pending'
-  | 'active'
-  | 'done'
-  | 'pending_review'
-  | 'blocked'
-  | 'skipped'
-  | 'failed';
+  'pending' | 'active' | 'done' | 'pending_review' | 'blocked' | 'skipped' | 'failed';
 
 export type SessionPolicy = 'reuse' | 'spawn' | 'auto';
 
@@ -247,8 +241,7 @@ export class TaskStore {
     let depth = 0;
     if (input.parentId) {
       const parentRow = db.prepare('SELECT depth FROM tasks WHERE id = ?').get(input.parentId) as
-        | { depth: number }
-        | undefined;
+        { depth: number } | undefined;
       if (!parentRow) {
         throw new Error(`Parent task not found: ${input.parentId}`);
       }
@@ -283,8 +276,7 @@ export class TaskStore {
 
   get(id: string): Task | null {
     const row = this.getDb().prepare('SELECT * FROM tasks WHERE id = ?').get(id) as
-      | TaskRow
-      | undefined;
+      TaskRow | undefined;
     return row ? rowToTask(row) : null;
   }
 

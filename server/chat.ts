@@ -16,8 +16,8 @@ import {
   getSessionMessages,
   renameSession,
 } from '@anthropic-ai/claude-agent-sdk';
-import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { SessionTransport, ConnectionRegistry } from '@mitzo/harness';
+import type { Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { SessionTransport, ConnectionRegistry, ManagedSession } from '@mitzo/harness';
 import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
 import { join, resolve, dirname } from 'path';
@@ -60,6 +60,33 @@ import { loadAgentDef } from './agent-loader.js';
 let _taskStore: TaskStore | null = null;
 export function setTaskStore(store: TaskStore): void {
   _taskStore = store;
+}
+
+type QueryInstance = AsyncIterable<Record<string, unknown>> &
+  NonNullable<ManagedSession['queryInstance']>;
+
+/** Validate and adapt SDK messages at the boundary instead of asserting incompatible iterables. */
+export function adaptSdkQuery(sdkQuery: Query): QueryInstance {
+  const validatedIterator = async function* () {
+    for await (const message of sdkQuery) {
+      if (!message || typeof message !== 'object' || Array.isArray(message))
+        throw new TypeError(
+          `Invalid SDK message: expected an object, received ${
+            message === null ? 'null' : Array.isArray(message) ? 'array' : typeof message
+          }`,
+        );
+      yield message as unknown as Record<string, unknown>;
+    }
+  };
+  // Preserve the SDK Query's complete runtime API for future integrations. Bind
+  // methods to the original instance because several SDK controls use private state.
+  return new Proxy(sdkQuery, {
+    get(target, property) {
+      if (property === Symbol.asyncIterator) return validatedIterator;
+      const value: unknown = Reflect.get(target, property, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  }) as unknown as QueryInstance;
 }
 
 let _connRegistry: ConnectionRegistry | null = null;
@@ -1097,7 +1124,7 @@ async function _startChatInner(
         agentName,
       });
     }
-    let q: AsyncIterable<Record<string, unknown>> & NonNullable<typeof session.queryInstance>;
+    let q: QueryInstance;
     if (codexProfile) {
       const conversationId = options.resume ?? newSdkSessionId!;
       session.sessionId = conversationId;
@@ -1152,32 +1179,34 @@ async function _startChatInner(
         mcpServers: allMcpServers,
       });
     } else
-      q = query({
-        prompt: inputQueue as AsyncIterable<SDKUserMessage>,
-        options: {
-          cwd,
-          env: sessionEnv,
-          abortController,
-          includePartialMessages: true,
-          settingSources: ['project'],
-          systemPrompt: {
-            type: 'preset',
-            preset: 'claude_code',
-            append: systemPromptAppend,
+      q = adaptSdkQuery(
+        query({
+          prompt: inputQueue as AsyncIterable<SDKUserMessage>,
+          options: {
+            cwd,
+            env: sessionEnv,
+            abortController,
+            includePartialMessages: true,
+            settingSources: ['project'],
+            systemPrompt: {
+              type: 'preset',
+              preset: 'claude_code',
+              append: systemPromptAppend,
+            },
+            permissionMode: MODE_TO_SDK[mode] as 'plan' | 'default' | 'bypassPermissions',
+            allowedTools: [...modeAllowed, ...mcpAllowed, ...extraTools],
+            thinking: resolveThinking(options.model),
+            ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
+            ...(resolvedResume ? { resume: resolvedResume } : {}),
+            ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
+            ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
+            ...(hooks ? { hooks } : {}),
+            canUseTool: buildPermissionHandler(clientId, registry, {
+              onDemandCreate: buildOnDemandCreate(wtId),
+            }),
           },
-          permissionMode: MODE_TO_SDK[mode] as 'plan' | 'default' | 'bypassPermissions',
-          allowedTools: [...modeAllowed, ...mcpAllowed, ...extraTools],
-          thinking: resolveThinking(options.model),
-          ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
-          ...(resolvedResume ? { resume: resolvedResume } : {}),
-          ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
-          ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
-          ...(hooks ? { hooks } : {}),
-          canUseTool: buildPermissionHandler(clientId, registry, {
-            onDemandCreate: buildOnDemandCreate(wtId),
-          }),
-        },
-      }) as unknown as typeof q;
+        }),
+      );
 
     session.queryInstance = q;
 

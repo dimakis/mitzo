@@ -1,11 +1,5 @@
 export type TaskStatus =
-  | 'pending'
-  | 'active'
-  | 'done'
-  | 'pending_review'
-  | 'blocked'
-  | 'skipped'
-  | 'failed';
+  'pending' | 'active' | 'done' | 'pending_review' | 'blocked' | 'skipped' | 'failed';
 
 export type SessionPolicy = 'reuse' | 'spawn' | 'auto';
 

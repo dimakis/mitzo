@@ -163,7 +163,8 @@ export class NativeResponsesRunner {
         yield event;
       }
     } catch (err: unknown) {
-      if (abort.signal.aborted) throw new Error('Native Responses turn interrupted');
+      if (abort.signal.aborted)
+        throw new Error('Native Responses turn interrupted', { cause: err });
       throw err;
     } finally {
       abort.abort();

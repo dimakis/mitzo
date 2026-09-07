@@ -68,8 +68,9 @@ export function TodoCard({
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
+    const activeTimers = timers.current;
     return () => {
-      timers.current.forEach(clearTimeout);
+      activeTimers.forEach(clearTimeout);
     };
   }, []);
 

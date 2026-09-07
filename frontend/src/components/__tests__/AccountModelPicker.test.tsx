@@ -98,7 +98,7 @@ it('reports malformed catalogs and notifies the pending-prompt owner', async () 
     />,
   );
   await screen.findByRole('alert');
-  expect(onUnavailable).toHaveBeenCalledTimes(1);
+  await waitFor(() => expect(onUnavailable).toHaveBeenCalledTimes(1));
   expect(screen.getByRole('button', { name: 'Retry accounts' })).toBeTruthy();
 });
 

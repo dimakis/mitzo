@@ -66,11 +66,7 @@ export interface SdkUsage {
 }
 
 export type SdkWrapperEvent =
-  | SdkAssistantEvent
-  | SdkStreamEvent
-  | SdkUserEvent
-  | SdkResultEvent
-  | SdkSystemEvent;
+  SdkAssistantEvent | SdkStreamEvent | SdkUserEvent | SdkResultEvent | SdkSystemEvent;
 
 // ── Tool use block (extracted from assistant response) ──────────
 

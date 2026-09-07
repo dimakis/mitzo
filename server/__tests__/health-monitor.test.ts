@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { HealthMonitor } from '../health-monitor';
+import type { SseRegistry } from '@mitzo/harness';
+import type { ServiceHealthStatus } from '@mitzo/protocol';
 
 // Mock fetch
 const mockFetch = vi.fn();
@@ -48,7 +50,7 @@ describe('HealthMonitor', () => {
   it('broadcasts health on first check', async () => {
     mockFetch.mockResolvedValueOnce(yapperOk()).mockResolvedValueOnce(contexginOk());
 
-    const monitor = new HealthMonitor(registry as any);
+    const monitor = new HealthMonitor(registry as unknown as SseRegistry);
     monitor.start();
 
     // Flush the initial async check
@@ -75,7 +77,7 @@ describe('HealthMonitor', () => {
       .mockResolvedValueOnce(yapperOk())
       .mockResolvedValueOnce(contexginOk());
 
-    const monitor = new HealthMonitor(registry as any);
+    const monitor = new HealthMonitor(registry as unknown as SseRegistry);
     monitor.start();
 
     await vi.advanceTimersByTimeAsync(0);
@@ -93,7 +95,7 @@ describe('HealthMonitor', () => {
     // First check: both ok
     mockFetch.mockResolvedValueOnce(yapperOk()).mockResolvedValueOnce(contexginOk());
 
-    const monitor = new HealthMonitor(registry as any);
+    const monitor = new HealthMonitor(registry as unknown as SseRegistry);
     monitor.start();
     await vi.advanceTimersByTimeAsync(0);
     expect(registry.broadcast).toHaveBeenCalledTimes(1);
@@ -112,12 +114,12 @@ describe('HealthMonitor', () => {
   it('parses Yapper detail with stt/tts fields', async () => {
     mockFetch.mockResolvedValueOnce(yapperOk(true, false)).mockResolvedValueOnce(contexginOk());
 
-    const monitor = new HealthMonitor(registry as any);
+    const monitor = new HealthMonitor(registry as unknown as SseRegistry);
     monitor.start();
     await vi.advanceTimersByTimeAsync(0);
 
     const payload = registry.broadcast.mock.calls[0][1];
-    const yapper = payload.services.find((s: any) => s.name === 'yapper');
+    const yapper = payload.services.find((s: ServiceHealthStatus) => s.name === 'yapper');
     expect(yapper.detail).toEqual({ stt: true, tts: false });
 
     monitor.destroy();
@@ -131,12 +133,12 @@ describe('HealthMonitor', () => {
       })
       .mockResolvedValueOnce(contexginOk());
 
-    const monitor = new HealthMonitor(registry as any);
+    const monitor = new HealthMonitor(registry as unknown as SseRegistry);
     monitor.start();
     await vi.advanceTimersByTimeAsync(0);
 
     const payload = registry.broadcast.mock.calls[0][1];
-    const yapper = payload.services.find((s: any) => s.name === 'yapper');
+    const yapper = payload.services.find((s: ServiceHealthStatus) => s.name === 'yapper');
     expect(yapper.detail).toBeUndefined();
 
     monitor.destroy();
@@ -145,12 +147,12 @@ describe('HealthMonitor', () => {
   it('marks service as down on fetch error', async () => {
     mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED')).mockResolvedValueOnce(contexginOk());
 
-    const monitor = new HealthMonitor(registry as any);
+    const monitor = new HealthMonitor(registry as unknown as SseRegistry);
     monitor.start();
     await vi.advanceTimersByTimeAsync(0);
 
     const payload = registry.broadcast.mock.calls[0][1];
-    const yapper = payload.services.find((s: any) => s.name === 'yapper');
+    const yapper = payload.services.find((s: ServiceHealthStatus) => s.name === 'yapper');
     expect(yapper.ok).toBe(false);
 
     monitor.destroy();
@@ -159,7 +161,7 @@ describe('HealthMonitor', () => {
   it('getSnapshot returns last payload', async () => {
     mockFetch.mockResolvedValueOnce(yapperOk()).mockResolvedValueOnce(contexginOk());
 
-    const monitor = new HealthMonitor(registry as any);
+    const monitor = new HealthMonitor(registry as unknown as SseRegistry);
     // Before start — empty snapshot
     expect(monitor.getSnapshot()).toEqual({ services: [], checkedAt: 0 });
 
@@ -177,7 +179,7 @@ describe('HealthMonitor', () => {
     // First: stt=true, tts=true
     mockFetch.mockResolvedValueOnce(yapperOk(true, true)).mockResolvedValueOnce(contexginOk());
 
-    const monitor = new HealthMonitor(registry as any);
+    const monitor = new HealthMonitor(registry as unknown as SseRegistry);
     monitor.start();
     await vi.advanceTimersByTimeAsync(0);
     expect(registry.broadcast).toHaveBeenCalledTimes(1);
@@ -195,12 +197,12 @@ describe('HealthMonitor', () => {
     const timeoutErr = new DOMException('signal timed out', 'TimeoutError');
     mockFetch.mockRejectedValueOnce(timeoutErr).mockResolvedValueOnce(contexginOk());
 
-    const monitor = new HealthMonitor(registry as any);
+    const monitor = new HealthMonitor(registry as unknown as SseRegistry);
     monitor.start();
     await vi.advanceTimersByTimeAsync(0);
 
     const payload = registry.broadcast.mock.calls[0]?.[1];
-    const yapper = payload?.services.find((s: any) => s.name === 'yapper');
+    const yapper = payload?.services.find((s: ServiceHealthStatus) => s.name === 'yapper');
     expect(yapper?.ok).toBe(false);
 
     monitor.destroy();
@@ -209,7 +211,7 @@ describe('HealthMonitor', () => {
   it('start() is idempotent — calling twice does not create duplicate intervals', async () => {
     mockFetch.mockResolvedValue(yapperOk()).mockResolvedValue(contexginOk());
 
-    const monitor = new HealthMonitor(registry as any);
+    const monitor = new HealthMonitor(registry as unknown as SseRegistry);
     monitor.start();
     monitor.start(); // second call should be a no-op
 
@@ -225,7 +227,7 @@ describe('HealthMonitor', () => {
   it('destroy clears the timer', async () => {
     mockFetch.mockResolvedValueOnce(yapperOk()).mockResolvedValueOnce(contexginOk());
 
-    const monitor = new HealthMonitor(registry as any);
+    const monitor = new HealthMonitor(registry as unknown as SseRegistry);
     monitor.start();
     await vi.advanceTimersByTimeAsync(0);
     monitor.destroy();

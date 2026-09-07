@@ -123,8 +123,7 @@ export class WorkflowTemplateStore {
 
   get(id: string): WorkflowTemplate | null {
     const row = this.getDb().prepare('SELECT * FROM workflow_templates WHERE id = ?').get(id) as
-      | TemplateRow
-      | undefined;
+      TemplateRow | undefined;
     return row ? rowToTemplate(row) : null;
   }
 

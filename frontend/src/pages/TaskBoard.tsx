@@ -8,30 +8,7 @@ import { PageHeader } from '../components/PageHeader';
 import { useTaskBoard } from '../hooks/useTaskBoard';
 import type { Task, TaskStatus } from '../types/task';
 
-// ─── Attention-tier sorting ────────────────────────────────────────────────
-
-type AttendTier = 1 | 2 | 3 | 4;
-
 const T1_STATUS_SET: Set<TaskStatus> = new Set(['pending_review', 'blocked', 'failed']);
-
-/** Tier for a single task's own status */
-function ownTier(status: TaskStatus): AttendTier {
-  if (T1_STATUS_SET.has(status)) return 1;
-  if (status === 'done') return 2;
-  if (status === 'active') return 3;
-  return 4; // pending, skipped
-}
-
-/** Effective tier: worst of own status and any descendant */
-export function getTaskTier(task: Task): AttendTier {
-  let worst = ownTier(task.status);
-  for (const child of task.children) {
-    const childTier = getTaskTier(child);
-    if (childTier < worst) worst = childTier;
-    if (worst === 1) break; // can't get worse
-  }
-  return worst;
-}
 
 /** Count T1 items recursively across entire tree (roots + all descendants) */
 function countT1Recursive(tasks: Task[]): number {
@@ -41,20 +18,6 @@ function countT1Recursive(tasks: Task[]): number {
     if (t.children.length > 0) count += countT1Recursive(t.children);
   }
   return count;
-}
-
-/**
- * Sort root tasks by effective attention tier, with recency tiebreaker.
- * Only sorts root level — children retain tree order (rendered by TaskNode).
- * getTaskTier already considers descendant status, so a root with a blocked
- * child will bubble up even if the root itself is pending.
- */
-export function sortByAttention(tasks: Task[]): Task[] {
-  return [...tasks].sort((a, b) => {
-    const tierDiff = getTaskTier(a) - getTaskTier(b);
-    if (tierDiff !== 0) return tierDiff;
-    return (b.updatedAt || 0) - (a.updatedAt || 0);
-  });
 }
 
 export function TaskBoard() {

@@ -343,8 +343,7 @@ export class WorkloadStore {
 
   get(id: string): TodoItem | null {
     const row = this.getDb().prepare('SELECT * FROM todo_items WHERE id = ?').get(id) as
-      | TodoItemRow
-      | undefined;
+      TodoItemRow | undefined;
     if (!row) return null;
 
     const sourceRows = this.getDb()
