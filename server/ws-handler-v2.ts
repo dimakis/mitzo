@@ -462,6 +462,7 @@ export function handleSendV2(
           ? ctx.eventStore.getSession(msg.sessionId)?.accountBinding
           : null;
         const accountProfiles = msg.accountId || storedBinding ? loadAccountProfiles() : undefined;
+        // Validation-only gate before dispatch; startup revalidates against this same snapshot.
         resolveAccountSelection(msg, storedBinding, !!msg.sessionId, accountProfiles);
         const rawCwd = msg.cwd || BASE_REPO;
         const cwd = rawCwd && isAllowedPath(rawCwd) ? rawCwd : BASE_REPO;

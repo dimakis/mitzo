@@ -85,6 +85,7 @@ export class AccountProfiles {
     this.resume(binding);
     const profile = this.profiles.find((p) => p.id === binding.accountId)!;
     const env = { ...base };
+    // Remove inherited alternate billing/routing controls before setting the chosen profile.
     for (const key of Object.keys(env)) {
       if (
         /^(ANTHROPIC_|OPENAI_|CLAUDE_CODE_USE_|CLAUDE_CODE_SKIP_|VERTEX_REGION_)/.test(key) ||
@@ -115,13 +116,14 @@ export function loadAccountProfiles(): AccountProfiles {
         JSON.parse(readFileSync(process.env.MITZO_ACCOUNT_PROFILES_FILE, 'utf8')),
       );
     } catch {
+      // Raw parser/schema errors may contain credential material from an invalid profile.
       throw new Error(
         'Cannot load account profiles. Check MITZO_ACCOUNT_PROFILES_FILE on the Mac.',
       );
     }
   }
   // Existing Vertex project configuration supplies a visible, explicitly selected billing
-  // profile; catalog presence alone never launches a request. Set USE_VERTEX=0 to hide it.
+  // profile; catalog presence alone never launches a request. Set CLAUDE_CODE_USE_VERTEX=0 to hide it.
   const projectId = process.env.ANTHROPIC_VERTEX_PROJECT_ID;
   if (!projectId || process.env.CLAUDE_CODE_USE_VERTEX === '0') return new AccountProfiles([]);
   return new AccountProfiles([

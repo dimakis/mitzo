@@ -70,3 +70,35 @@ it.each(['before', 'after'])(
     expect(store.getState().messages.sessionContext).toBe('Task context');
   },
 );
+
+it('sends distinct launches with identical prompt text', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    json: async () => [{ id: 'work', label: 'Work', models: [{ id: 'sonnet', label: 'Sonnet' }] }],
+  } as Response);
+  const store = createTestStore();
+  const sendMessage = vi.fn();
+  store.setState({ sendMessage });
+  render(
+    <MitzoStoreProvider value={store}>
+      <MemoryRouter>
+        <ChatView />
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+  await screen.findByText('Work');
+  for (const telosTaskId of ['task-a', 'task-b']) {
+    act(() =>
+      store
+        .getState()
+        .setPendingSession({ prompt: 'Review this task', context: telosTaskId, telosTaskId }),
+    );
+    await waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith(
+        'Review this task',
+        expect.objectContaining({ telosTaskId }),
+      ),
+    );
+  }
+  expect(sendMessage).toHaveBeenCalledTimes(2);
+});

@@ -66,6 +66,8 @@ it('persists binding and boot context under the requested SDK UUID before query 
     expect(persistedBeforeQuery).toBe(true);
     expect(sdkId).toMatch(/^[0-9a-f-]{36}$/);
     expect(chat.eventStore.getSession(sdkId!)?.accountBinding?.accountId).toBe('work');
+    expect(chat.eventStore.getSession(sdkId!)?.state).toBe('ENDED');
+    expect(chat.eventStore.getSession(sdkId!)?.isActive).toBe(false);
   } finally {
     chat.eventStore.close();
     await rm(root, { recursive: true, force: true });

@@ -135,7 +135,7 @@ export function ChatView() {
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-send pending session (from "Start Session" on inbox/todo items)
-  const pendingConsumed = useRef<string | null>(null);
+  const pendingConsumed = useRef<typeof pendingSession>(null);
   const [pausedLaunch, setPausedLaunch] = useState<typeof pendingSession>(null);
   const accountUnavailable = useCallback(() => {
     if (pendingSession) {
@@ -146,7 +146,7 @@ export function ChatView() {
   useEffect(() => {
     if (!pendingSession || !accountSelection) return;
     // Guard against double-consumption of the same pending session
-    const key = pendingSession.prompt;
+    const key = pendingSession;
     if (pendingConsumed.current === key) return;
     pendingConsumed.current = key;
     // Set the context block for display

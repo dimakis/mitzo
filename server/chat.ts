@@ -1131,6 +1131,10 @@ async function _startChatInner(
       log.error('startChat failed after register, cleaning up', { clientId, error: message });
       send(transport, { type: 'error', error: message });
     }
+    if (newSdkSessionId) {
+      // Retain its binding: the SDK may have written history before startup failed.
+      eventStore.setSessionState(newSdkSessionId, 'ENDED', { clientId, reason: 'startup_failed' });
+    }
     const failedSession = registry.get(clientId);
     if (failedSession) cleanupSessionWorktrees(failedSession);
     registry.abort(clientId);
