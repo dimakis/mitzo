@@ -1,3 +1,6 @@
+import { CodexAppServerClient, codexEnvironment } from './codex-app-server-client.js';
+import { verifyCodexAccount, type CodexAccountProfile } from './codex-account.js';
+import { openCodexChat, getCodexRuntime } from './codex-chat-session.js';
 import {
   loadAccountProfiles,
   resolveAccountSelection,
@@ -739,6 +742,7 @@ export async function startChat(
     accountId?: string;
     accountProfiles?: AccountProfiles;
     extraTools?: string;
+    skillAllowedTools?: string[];
     isolation?: boolean;
     mode?: MitzoMode;
     images?: Array<{ data: string; mediaType: string }>;
@@ -771,6 +775,7 @@ async function _startChatInner(
     accountId?: string;
     accountProfiles?: AccountProfiles;
     extraTools?: string;
+    skillAllowedTools?: string[];
     isolation?: boolean;
     mode?: MitzoMode;
     images?: Array<{ data: string; mediaType: string }>;
@@ -782,6 +787,7 @@ async function _startChatInner(
   },
 ) {
   let accountBinding;
+  let codexProfile: CodexAccountProfile | undefined;
   let accountEnv: Record<string, string> | undefined;
   try {
     const storedBinding = options.resume
@@ -793,7 +799,21 @@ async function _startChatInner(
     accountBinding = resolveAccountSelection(options, storedBinding, !!options.resume, profiles);
     if (accountBinding) {
       options = { ...options, model: accountBinding.model };
-      accountEnv = profiles!.sdkEnv(accountBinding, sdkEnv());
+      if (accountBinding.provider === 'openai-codex') {
+        if (options.images?.length)
+          throw new Error('Codex image attachments are not yet supported');
+        if (options.skillAllowedTools)
+          throw new Error('Codex restricted skill tool ceilings are not yet supported');
+        codexProfile = profiles!.codexProfile(accountBinding);
+        const preflight = CodexAppServerClient.launch(codexProfile.credentialRef);
+        try {
+          await preflight.initialize();
+          await verifyCodexAccount(preflight, codexProfile, accountBinding);
+        } finally {
+          preflight.close();
+        }
+        accountEnv = codexEnvironment(codexProfile.credentialRef, process.env);
+      } else accountEnv = profiles!.sdkEnv(accountBinding, sdkEnv());
     }
   } catch (err: unknown) {
     send(transport, {
@@ -808,7 +828,7 @@ async function _startChatInner(
   const baseCwd = resolveResumeCwd(options);
 
   if (options.resume) {
-    const validation = validateResumable(baseCwd, options.resume);
+    const validation = codexProfile ? { valid: true } : validateResumable(baseCwd, options.resume);
     if (!validation.valid) {
       log.warn('session not resumable, starting fresh', {
         sessionId: options.resume,
@@ -1017,7 +1037,7 @@ async function _startChatInner(
 
   // Resolve SDK session UUID for resume — worktree IDs are not valid SDK session IDs
   let resolvedResume: string | undefined;
-  if (options.resume) {
+  if (options.resume && !codexProfile) {
     if (!BASE_REPO) {
       log.warn('REPO_PATH unset — resume will use raw worktree ID, SDK may reject it');
     }
@@ -1026,7 +1046,8 @@ async function _startChatInner(
   }
 
   // Bound sessions have durable routing before the SDK can create history or side effects.
-  const newSdkSessionId = accountBinding && !resolvedResume ? randomUUID() : undefined;
+  const newSdkSessionId =
+    accountBinding && !resolvedResume && !options.resume ? randomUUID() : undefined;
   try {
     if (newSdkSessionId) {
       eventStore.upsertSession({
@@ -1038,32 +1059,62 @@ async function _startChatInner(
         agentName,
       });
     }
-    const q = query({
-      prompt: inputQueue as AsyncIterable<SDKUserMessage>,
-      options: {
-        cwd,
+    let q: AsyncIterable<Record<string, unknown>> & NonNullable<typeof session.queryInstance>;
+    if (codexProfile) {
+      if (hooks && Object.keys(hooks).length)
+        throw new Error('Codex project hook parity is not yet supported');
+      const conversationId = options.resume ?? newSdkSessionId!;
+      session.sessionId = conversationId;
+      options.onSessionResolved?.(conversationId);
+      send(transport, { type: 'session_id', sessionId: conversationId });
+      const messageId = options.clientMsgId ?? randomUUID();
+      storeAndEchoIfNew(
+        conversationId,
+        messageId,
+        fullPrompt,
+        clientId,
+        transport,
+        session.observers,
+      );
+      q = await openCodexChat({
+        conversationId,
+        binding: accountBinding!,
+        profile: codexProfile,
+        session,
+        registry,
+        prompt: fullPrompt,
+        messageId,
+        systemPrompt: systemPromptAppend,
         env: sessionEnv,
-        abortController,
-        includePartialMessages: true,
-        settingSources: ['project'],
-        systemPrompt: {
-          type: 'preset',
-          preset: 'claude_code',
-          append: systemPromptAppend,
+        mcpServers: allMcpServers,
+      });
+    } else
+      q = query({
+        prompt: inputQueue as AsyncIterable<SDKUserMessage>,
+        options: {
+          cwd,
+          env: sessionEnv,
+          abortController,
+          includePartialMessages: true,
+          settingSources: ['project'],
+          systemPrompt: {
+            type: 'preset',
+            preset: 'claude_code',
+            append: systemPromptAppend,
+          },
+          permissionMode: MODE_TO_SDK[mode] as 'plan' | 'default' | 'bypassPermissions',
+          allowedTools: [...modeAllowed, ...mcpAllowed, ...extraTools],
+          thinking: resolveThinking(options.model),
+          ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
+          ...(resolvedResume ? { resume: resolvedResume } : {}),
+          ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
+          ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
+          ...(hooks ? { hooks } : {}),
+          canUseTool: buildPermissionHandler(clientId, registry, {
+            onDemandCreate: buildOnDemandCreate(wtId),
+          }),
         },
-        permissionMode: MODE_TO_SDK[mode] as 'plan' | 'default' | 'bypassPermissions',
-        allowedTools: [...modeAllowed, ...mcpAllowed, ...extraTools],
-        thinking: resolveThinking(options.model),
-        ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
-        ...(resolvedResume ? { resume: resolvedResume } : {}),
-        ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
-        ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
-        ...(hooks ? { hooks } : {}),
-        canUseTool: buildPermissionHandler(clientId, registry, {
-          onDemandCreate: buildOnDemandCreate(wtId),
-        }),
-      },
-    });
+      }) as unknown as typeof q;
 
     session.queryInstance = q;
 
@@ -1076,7 +1127,7 @@ async function _startChatInner(
     // For resumed sessions the prompt is sent to the SDK but was never stored
     // in the event store — making user messages invisible after WS reconnect.
     // Store and echo it here so the frontend can replay it.
-    if (options.resume) {
+    if (options.resume && !codexProfile) {
       const messageId =
         options.clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-resume`;
       storeAndEchoIfNew(
@@ -1095,7 +1146,7 @@ async function _startChatInner(
       registry,
       abortController,
       eventStore,
-      options.resume ? undefined : fullPrompt,
+      options.resume || codexProfile ? undefined : fullPrompt,
       {
         connRegistry: _connRegistry ?? undefined,
         onSessionResolved: (sessionId: string) => {
@@ -1239,6 +1290,15 @@ export function sendToChat(
   return withSpan('chat.send', { 'chat.clientId': clientId }, () => {
     const session = registry.get(clientId);
     if (!session?.inputQueue) return false;
+    const codex = getCodexRuntime(session);
+    if (codex && (images?.length || session.activeSkillPolicy)) {
+      send(session.transport, {
+        type: 'error',
+        sessionId: session.sessionId,
+        error: 'Codex images and restricted skill tool ceilings are not yet supported',
+      });
+      return false;
+    }
     const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-send`;
     if (session.sessionId) {
@@ -1262,7 +1322,16 @@ export function sendToChat(
       send(session.transport, echo);
       broadcastToObservers(session.observers, echo);
     }
-    session.inputQueue.push(makeUserMessage(fullPrompt, 'next'));
+    if (codex) {
+      void codex.send({ id: messageId, prompt: fullPrompt }).catch(() =>
+        send(session.transport, {
+          type: 'error',
+          sessionId: session.sessionId,
+          error:
+            'Codex queue is paused or unavailable. Inspect interrupted work before continuing.',
+        }),
+      );
+    } else session.inputQueue.push(makeUserMessage(fullPrompt, 'next'));
     return true;
   });
 }
@@ -1279,6 +1348,20 @@ export async function interruptChat(
   return withSpanAsync('chat.interrupt', { 'chat.clientId': clientId }, async () => {
     const session = registry.get(clientId);
     if (!session?.queryInstance || !session?.inputQueue) return false;
+    const codex = getCodexRuntime(session);
+    if (codex) {
+      if (images?.length || session.activeSkillPolicy || (model && model !== session.model)) {
+        send(session.transport, {
+          type: 'error',
+          sessionId: session.sessionId,
+          error:
+            'This Codex task cannot change model or use unsupported attachments or skill ceilings',
+        });
+        return false;
+      }
+      await codex.interrupt();
+      return sendToChat(clientId, prompt, images, contextBlocks, clientMsgId);
+    }
     if (model) session.model = model;
     const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-interrupt`;
