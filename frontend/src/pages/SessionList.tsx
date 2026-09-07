@@ -10,12 +10,9 @@ import { MitzoLogo } from '../components/MitzoLogo';
 import { useSessionList } from '../hooks/useSessionList';
 import type { QuickAction } from '../hooks/useSessionList';
 import { formatTokens } from '../lib/formatTokens';
-import { BriefingCard } from '../components/BriefingCard';
 import { SessionSearchBar } from '../components/SessionSearchBar';
 import { useSessionSearch } from '../hooks/useSessionSearch';
 import { SessionOverview } from '../components/SessionOverview';
-import { AttentionFeed } from '../components/AttentionFeed';
-import { ServiceStatus } from '../components/ServiceStatus';
 
 function SwipeableSession({
   session,
@@ -263,7 +260,7 @@ export function SessionList() {
       <header className="session-list-header">
         <div className="session-list-header-title">
           <MitzoLogo />
-          <h1>Mitzo</h1>
+          <h1>Chats</h1>
         </div>
         <div className="session-list-header-actions">
           <SessionSearchBar
@@ -309,13 +306,7 @@ export function SessionList() {
           New Chat
         </button>
 
-        <BriefingCard />
-
         <SessionOverview />
-
-        <AttentionFeed />
-
-        <ServiceStatus />
 
         {quickActions.length > 0 && (
           <div className="quick-section">

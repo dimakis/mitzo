@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
-import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import { render as testingRender, screen, cleanup, fireEvent } from '@testing-library/react';
 
 vi.mock('../DesktopNav', () => ({
   DesktopNav: () => <nav data-testid="desktop-nav">Nav</nav>,
 }));
 
 import { DesktopShell } from '../DesktopShell';
+import { MemoryRouter } from 'react-router-dom';
+const render = (ui: React.ReactNode) => testingRender(<MemoryRouter>{ui}</MemoryRouter>);
 
 beforeEach(() => {
   localStorage.clear();
