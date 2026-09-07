@@ -13,6 +13,7 @@ async function setup(
   existingStore?: CodexConversationStore,
   displayToolName?: (name: string) => string,
   beforeComplete?: (signal: AbortSignal) => Promise<void>,
+  completionHookTimeoutMs?: number,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -69,6 +70,7 @@ async function setup(
     systemPrompt: 'context',
     displayToolName,
     beforeComplete,
+    completionHookTimeoutMs,
     tools: [{ name: 'Read', description: 'Read', input_schema: { type: 'object' } }],
     createClient: (cb) => {
       callbacks = cb;
@@ -241,19 +243,27 @@ it('retains early completion until the start response confirms its turn identity
   expect(c.queue()[0].status).toBe('completed');
 });
 
-it('does not let an unconfirmed stale completion finish the new turn', async () => {
-  const { c, rpc, callbacks } = await setup();
+it('fails safely and recovers queued work after an unconfirmed stale completion', async () => {
+  const { c, rpc, callbacks, requests } = await setup();
   const request = rpc.request.getMockImplementation()!;
+  let first = true;
   rpc.request.mockImplementation(async (method, params) => {
-    if (method !== 'turn/start') return request(method, params);
+    if (method !== 'turn/start' || !first) return request(method, params);
+    first = false;
+    requests.push({ method, params });
     callbacks.onNotification('turn/completed', {
       threadId: 'provider-thread',
       turn: { id: 'stale', status: 'completed' },
     });
     return { turn: { id: 'current' } };
   });
-  await c.send({ id: 'current-command', prompt: 'hello' });
-  expect(c.queue()[0].status).toBe('running');
+  c.enqueue({ id: 'current-command', prompt: 'hello' });
+  c.enqueue({ id: 'next-command', prompt: 'recover me' });
+  await expect(c.startQueued()).rejects.toThrow('identity mismatch');
+  expect(c.queue().map((command) => command.status)).toEqual(['failed', 'queued']);
+  expect(c.isPaused()).toBe(true);
+  await c.acknowledgeRecovery();
+  expect(requests.filter((entry) => entry.method === 'turn/start')).toHaveLength(2);
 });
 
 it('continues queued work only after recovery is explicitly acknowledged', async () => {
@@ -456,4 +466,51 @@ it('waits for completion hooks before releasing queued turns', async () => {
   expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
   release();
   await vi.waitFor(() => expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(2));
+});
+
+it('closes and reports a completion hook that exceeds its deadline', async () => {
+  let hookSignal!: AbortSignal;
+  const { c, callbacks, onClosed, onError } = await setup(
+    undefined,
+    undefined,
+    (signal) => {
+      hookSignal = signal;
+      return new Promise(() => {});
+    },
+    5,
+  );
+  await c.send({ id: 'first', prompt: 'first' });
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(onClosed).toHaveBeenCalledTimes(1));
+  expect(hookSignal.aborted).toBe(true);
+  expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: expect.any(String) }));
+  expect(c.queue()[0].status).toBe('interrupted');
+});
+
+it('does not report a late turn-start failure after close owns recovery', async () => {
+  const { c, rpc, requests, onClosed, onError } = await setup();
+  const request = rpc.request.getMockImplementation()!;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  rpc.request.mockImplementation(async (method, params) => {
+    if (method !== 'turn/start') return request(method, params);
+    requests.push({ method, params });
+    await gate;
+    throw new Error('late start failure');
+  });
+  const send = c.send({ id: 'first', prompt: 'first' });
+  await vi.waitFor(() =>
+    expect(requests.some((entry) => entry.method === 'turn/start')).toBe(true),
+  );
+  c.close();
+  release();
+  await expect(send).resolves.toBeUndefined();
+  expect(onClosed).toHaveBeenCalledTimes(1);
+  expect(onError).not.toHaveBeenCalled();
+  expect(c.queue()[0].status).toBe('interrupted');
 });

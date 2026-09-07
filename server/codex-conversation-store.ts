@@ -148,17 +148,19 @@ export class CodexConversationStore {
     })();
   }
   claimTool(id: string, b: AccountBinding, commandId: string, callId: string): boolean {
-    this.read(id, b);
-    if (
-      this.db
-        .prepare('SELECT 1 FROM codex_tools WHERE conversation_id=? AND call_id=?')
-        .get(id, callId)
-    )
-      return false;
-    if (!this.commands(id, b).some((c) => c.id === commandId && c.status === 'running'))
-      throw new Error('Codex command is not running');
-    this.db.prepare('INSERT INTO codex_tools VALUES (?,?,?)').run(id, commandId, callId);
-    return true;
+    return this.db.transaction(() => {
+      this.read(id, b);
+      if (
+        this.db
+          .prepare('SELECT 1 FROM codex_tools WHERE conversation_id=? AND call_id=?')
+          .get(id, callId)
+      )
+        return false;
+      if (!this.commands(id, b).some((c) => c.id === commandId && c.status === 'running'))
+        throw new Error('Codex command is not running');
+      this.db.prepare('INSERT INTO codex_tools VALUES (?,?,?)').run(id, commandId, callId);
+      return true;
+    })();
   }
   recoverAtStartup() {
     this.db.transaction(() => {

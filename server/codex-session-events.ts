@@ -12,6 +12,7 @@ export class CodexSessionEvents {
     { text: string; closed: boolean; messageId: string; kind: 'text' | 'thinking' }
   >();
   private finishedTurns = new Set<string>();
+  private turnFinished = false;
   private usage?: {
     input_tokens: number;
     output_tokens: number;
@@ -76,6 +77,13 @@ export class CodexSessionEvents {
   }
   notification(method: string, params: ObjectValue) {
     if (params.threadId !== this.threadId) return;
+    if (method === 'turn/started') {
+      this.turnFinished = false;
+      return;
+    }
+    // Provider events may be delivered late. Never create renderer blocks after
+    // the terminal result for a turn; the next turn/started reopens the mapper.
+    if (this.turnFinished && method.startsWith('item/')) return;
     if (method === 'thread/tokenUsage/updated') {
       const parsed = z
         .object({
@@ -175,6 +183,7 @@ export class CodexSessionEvents {
       const turn = object(params.turn);
       if (typeof turn.id !== 'string' || this.finishedTurns.has(turn.id)) return;
       this.finishedTurns.add(turn.id);
+      this.turnFinished = true;
       this.flush();
       this.emit({
         type: 'result',

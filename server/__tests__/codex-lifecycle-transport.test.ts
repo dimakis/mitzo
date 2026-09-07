@@ -89,8 +89,8 @@ it('redacts rejected host requests', async () => {
   client.close();
 });
 
-it('closes a duplicate in-flight host request before repeating an effect', async () => {
-  const { child, reply } = setup();
+it('rejects a duplicate in-flight host request without repeating an effect', async () => {
+  const { child, sent, reply } = setup();
   const request = vi.fn(() => new Promise<Record<string, unknown>>(() => {}));
   const client = new CodexAppServerClient(child, {
     lifecycle: { onNotification: () => {}, onClose: () => {}, onRequest: request },
@@ -98,7 +98,11 @@ it('closes a duplicate in-flight host request before repeating an effect', async
   reply({ id: 1, method: 'item/tool/call', params: {} });
   await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
   reply({ id: 1, method: 'item/tool/call', params: {} });
-  expect(child.kill).toHaveBeenCalledOnce();
+  expect(sent).toContainEqual({
+    id: 1,
+    error: { code: -32600, message: 'Duplicate Codex request' },
+  });
+  expect(child.kill).not.toHaveBeenCalled();
   expect(request).toHaveBeenCalledOnce();
   client.close();
 });

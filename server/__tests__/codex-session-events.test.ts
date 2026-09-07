@@ -150,3 +150,30 @@ it('renders provider reasoning summaries as thinking without exposing raw reason
   ]);
   expect(JSON.stringify(events)).not.toContain('private raw reasoning');
 });
+
+it('drops late item events after a result and accepts them after the next turn starts', () => {
+  const events: Record<string, unknown>[] = [];
+  const m = new CodexSessionEvents('app', 'provider', 'model', (event) => events.push(event));
+  m.notification('turn/completed', {
+    threadId: 'provider',
+    turn: { id: 'first', status: 'completed' },
+  });
+  const afterResult = events.length;
+  m.notification('item/reasoning/summaryTextDelta', {
+    threadId: 'provider',
+    itemId: 'late',
+    summaryIndex: 0,
+    delta: 'too late',
+  });
+  expect(events).toHaveLength(afterResult);
+  m.notification('turn/started', { threadId: 'provider', turn: { id: 'second' } });
+  m.notification('item/reasoning/summaryTextDelta', {
+    threadId: 'provider',
+    itemId: 'current',
+    summaryIndex: 0,
+    delta: 'current summary',
+  });
+  expect(events.length).toBeGreaterThan(afterResult);
+  expect(JSON.stringify(events)).not.toContain('too late');
+  expect(JSON.stringify(events)).toContain('current summary');
+});

@@ -123,6 +123,32 @@ describe('Codex app-server transport', () => {
     client.close();
   });
 
+  it('rejects a duplicate host request without closing or executing it twice', async () => {
+    const { child, sent, reply } = processStub();
+    let release!: (value: Record<string, unknown>) => void;
+    const result = new Promise<Record<string, unknown>>((resolve) => {
+      release = resolve;
+    });
+    const lifecycle = {
+      onNotification: vi.fn(),
+      onRequest: vi.fn(() => result),
+      onClose: vi.fn(),
+    };
+    const client = new CodexAppServerClient(child, { lifecycle });
+    reply({ id: 'host-1', method: 'item/tool/call', params: {} });
+    reply({ id: 'host-1', method: 'item/tool/call', params: {} });
+    await vi.waitFor(() => expect(lifecycle.onRequest).toHaveBeenCalledTimes(1));
+    expect(sent).toContainEqual({
+      id: 'host-1',
+      error: { code: -32600, message: 'Duplicate Codex request' },
+    });
+    expect(child.kill).not.toHaveBeenCalled();
+    release({ ok: true });
+    await vi.waitFor(() => expect(sent).toContainEqual({ id: 'host-1', result: { ok: true } }));
+    expect(child.kill).not.toHaveBeenCalled();
+    client.close();
+  });
+
   it('ignores unsolicited notifications without replying or closing the connection', async () => {
     const { child, sent, reply } = processStub();
     const client = new CodexAppServerClient(child);

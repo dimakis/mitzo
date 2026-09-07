@@ -37,6 +37,7 @@ interface Options {
   validateModel?: (model: string) => void;
   displayToolName?: (name: string) => string;
   beforeComplete?: (signal: AbortSignal) => Promise<void>;
+  completionHookTimeoutMs?: number;
   onQueueChange?: () => void;
   onClosed?: () => void;
   onError?: (error: Error) => void;
@@ -223,6 +224,9 @@ export class CodexConversation {
           throw new Error('Codex turn identity changed');
         active.turnId = result.turn.id;
         if (active.completion) {
+          const completedTurn = z.object({ id: z.string() }).safeParse(active.completion.turn);
+          if (!completedTurn.success || completedTurn.data.id !== active.turnId)
+            throw new Error('Codex buffered completion identity mismatch');
           this.notification('turn/completed', active.completion);
           return;
         }
@@ -235,6 +239,8 @@ export class CodexConversation {
         }
       }
     } catch (error: unknown) {
+      // close() already persisted recovery and intentionally owns shutdown errors.
+      if (this.closed) return;
       this.paused = true;
       active.abort.abort();
       this.opts.store.pauseForRecovery(
@@ -274,8 +280,21 @@ export class CodexConversation {
         if (this.active.completionHook === 'pending') return;
         const active = this.active;
         active.completionHook = 'pending';
-        this.opts
-          .beforeComplete(active.abort.signal)
+        const hookAbort = new AbortController();
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timeout = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            hookAbort.abort();
+            reject(new Error('Project completion hook timed out'));
+          }, this.opts.completionHookTimeoutMs ?? 30_000);
+        });
+        Promise.race([
+          this.opts.beforeComplete(AbortSignal.any([active.abort.signal, hookAbort.signal])),
+          timeout,
+        ])
+          .finally(() => {
+            if (timer) clearTimeout(timer);
+          })
           .then(() => {
             if (this.active !== active || this.closed) return;
             active.completionHook = 'done';

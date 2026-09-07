@@ -182,7 +182,14 @@ export class CodexAppServerClient {
       return;
     }
     // Repeated in-flight requests must not execute a side effect twice.
-    if (this.hostRequests.has(id)) throw new Error('Duplicate Codex request');
+    if (this.hostRequests.has(id)) {
+      try {
+        this.write({ id, error: { code: -32600, message: 'Duplicate Codex request' } });
+      } catch {
+        this.close();
+      }
+      return;
+    }
     this.hostRequests.add(id);
     Promise.resolve()
       .then(() => {
