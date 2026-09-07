@@ -83,7 +83,8 @@ export function setSessionsChangedCallback(cb: () => void): void {
 }
 import { EventStore } from './event-store.js';
 import { capturePromptComparison } from './prompt-compare.js';
-import { shouldAutoRename, extractRecentPrompts, generateSessionName } from './auto-rename.js';
+import { accountSessionName } from './account-session-name.js';
+import { shouldAutoRename, extractRecentPrompts } from './auto-rename.js';
 import {
   registerSession,
   updateSessionTitle,
@@ -1269,7 +1270,7 @@ async function tryAutoRename(sessionId: string, clientId: string): Promise<void>
 
     const events = eventStore.getSessionEvents(sessionId);
     const prompts = extractRecentPrompts(events);
-    const newName = await generateSessionName(prompts);
+    const newName = await accountSessionName(prompts, sessionMeta.accountBinding);
     if (!newName) return;
 
     log.info('auto-renaming session', { sessionId, promptCount, newName });
@@ -1915,6 +1916,12 @@ export async function renameSessionById(
   title: string,
   manual = true,
 ): Promise<void> {
+  const provider = eventStore.getSession(sessionId)?.accountBinding?.provider;
+  if (provider === 'openai' || provider === 'openai-codex') {
+    if (manual) eventStore.markManuallyRenamed(sessionId);
+    eventStore.upsertSession({ sessionId, summary: title });
+    return;
+  }
   const errors: string[] = [];
   for (const dir of getSessionDirs()) {
     try {

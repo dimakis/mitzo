@@ -156,6 +156,8 @@ it('routes API accounts through the referenced secret store without passing keys
     expect(options.apiKey).toBe('private-work-key');
     expect(JSON.stringify(options.env)).not.toContain('key');
     expect(options.conversationId).toBe('test-api-app');
+    await expect(chat.renameSessionById('test-api-app', 'Work task')).resolves.toBeUndefined();
+    expect(chat.eventStore.getSession('test-api-app')?.summary).toBe('Work task');
     expect(query).not.toHaveBeenCalled();
   } finally {
     await rm(root, { recursive: true, force: true });
