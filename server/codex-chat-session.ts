@@ -98,6 +98,7 @@ export async function openCodexChat(options: Options) {
         throw new Error('Account configuration changed');
     },
     tools: [...nativeToolDefinitions, ...mcp.definitions],
+    displayToolName: mcp.displayName,
     createClient: (callbacks) =>
       CodexAppServerClient.launch(options.profile.credentialRef, process.env, callbacks),
     emit: (event) => events.push(event),

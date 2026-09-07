@@ -9,7 +9,10 @@ const cleanup: (() => void)[] = [];
 afterEach(() => {
   cleanup.splice(0).forEach((f) => f());
 });
-async function setup(existingStore?: CodexConversationStore) {
+async function setup(
+  existingStore?: CodexConversationStore,
+  displayToolName?: (name: string) => string,
+) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
   let callbacks!: CodexLifecycleTransport;
@@ -61,6 +64,7 @@ async function setup(existingStore?: CodexConversationStore) {
     },
     store,
     systemPrompt: 'context',
+    displayToolName,
     tools: [{ name: 'Read', description: 'Read', input_schema: { type: 'object' } }],
     createClient: (cb) => {
       callbacks = cb;
@@ -280,4 +284,23 @@ it('resumes durable queued work after replacing the runtime and acknowledging re
   });
   expect(resumed.c.queue().map((q) => q.status)).toEqual(['interrupted', 'completed']);
   resumed.c.close();
+});
+
+it('uses canonical display names while executing the original wire tool', async () => {
+  const { c, callbacks, events, execute } = await setup(undefined, () => 'mcp__work__read');
+  await c.send({ id: 'read', prompt: 'read' });
+  await callbacks.onRequest(
+    'item/tool/call',
+    { threadId: 'provider-thread', turnId: 'turn-1', callId: 'tool', tool: 'Read', arguments: {} },
+    new AbortController().signal,
+  );
+  expect(execute).toHaveBeenCalledWith('Read', {}, expect.anything());
+  expect(events).toContainEqual(
+    expect.objectContaining({
+      type: 'stream_event',
+      event: expect.objectContaining({
+        content_block: expect.objectContaining({ name: 'mcp__work__read' }),
+      }),
+    }),
+  );
 });

@@ -107,6 +107,7 @@ export async function connectCodexMcpTools(
   }
   return {
     definitions,
+    displayName: (wire: string) => mapping.get(wire)?.canonical ?? wire,
     close,
     async execute(wire: string, input: Input, permission: Permission, signal: AbortSignal) {
       const tool = mapping.get(wire);

@@ -24,6 +24,8 @@ it('discovers all configured tools and routes calls through canonical Mitzo perm
   );
   expect(tools.definitions).toHaveLength(1);
   const wire = tools.definitions[0].name;
+  expect(tools.displayName(wire)).toBe('mcp__work__search');
+  expect(tools.displayName('Read')).toBe('Read');
   expect(wire).toMatch(/^[a-zA-Z0-9_-]{1,64}$/);
   expect(
     await tools.execute(wire, { query: 'original' }, permission, new AbortController().signal),

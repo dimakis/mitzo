@@ -33,6 +33,7 @@ interface Options {
     signal: AbortSignal,
   ): Promise<{ content: string; isError: boolean }>;
   validateModel?: (model: string) => void;
+  displayToolName?: (name: string) => string;
   onQueueChange?: () => void;
   onClosed?: () => void;
   onError?: (error: Error) => void;
@@ -297,7 +298,11 @@ export class CodexConversation {
           },
         ],
       };
-    const publicId = this.mapper!.toolStart(call.callId, call.tool, call.arguments);
+    const publicId = this.mapper!.toolStart(
+      call.callId,
+      this.opts.displayToolName?.(call.tool) ?? call.tool,
+      call.arguments,
+    );
     let result: { content: string; isError: boolean };
     try {
       result = await this.opts.executeTool(call.tool, call.arguments, toolSignal);
