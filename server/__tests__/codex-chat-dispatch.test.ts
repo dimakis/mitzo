@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { AccountProfiles } from '../account-profiles.js';
+import { openResponsesChat } from '../responses-chat-session.js';
+import { credentials } from '../credentials.js';
 import { openCodexChat } from '../codex-chat-session.js';
 vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
   ...(await original<object>()),
@@ -17,6 +19,11 @@ vi.mock('../prompt-compare.js', () => ({
   capturePromptComparison: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
+vi.mock('../responses-chat-session.js', () => ({ openResponsesChat: vi.fn() }));
+vi.mock('../credentials.js', async (original) => ({
+  ...(await original<object>()),
+  credentials: { resolve: vi.fn(async () => 'private-work-key') },
+}));
 vi.mock('../codex-chat-session.js', () => ({
   openCodexChat: vi.fn(),
   getCodexRuntime: () => undefined,
@@ -111,6 +118,46 @@ it('routes a bound Codex account to its controller with context and canonical du
     expect(query).not.toHaveBeenCalled();
   } finally {
     chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('routes API accounts through the referenced secret store without passing keys to child environments', async () => {
+  vi.resetModules();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-api-dispatch-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubEnv('OPENAI_API_KEY', 'inherited-wrong-key');
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')));
+  const chat = await import('../chat.js');
+  const ref = { provider: 'keychain', service: 'mitzo', account: 'work' };
+  const profiles = new AccountProfiles([
+    {
+      id: 'work-api',
+      label: 'Work',
+      provider: 'openai',
+      credentialRef: ref,
+      models: [{ id: 'test', label: 'Test' }],
+    },
+  ]);
+  vi.mocked(openResponsesChat).mockRejectedValue(new Error('simulated API startup failure'));
+  try {
+    await chat.startChat({ send: () => {}, isOpen: () => true }, 'api-test', 'hello', {
+      cwd: root,
+      isolation: false,
+      accountId: 'work-api',
+      model: 'test',
+      accountProfiles: profiles,
+      initialSessionId: 'test-api-app',
+    });
+    expect(credentials.resolve).toHaveBeenCalledWith(ref);
+    expect(openResponsesChat).toHaveBeenCalledOnce();
+    const options = vi.mocked(openResponsesChat).mock.calls[0][0];
+    expect(options.apiKey).toBe('private-work-key');
+    expect(JSON.stringify(options.env)).not.toContain('key');
+    expect(options.conversationId).toBe('test-api-app');
+    expect(query).not.toHaveBeenCalled();
+  } finally {
     await rm(root, { recursive: true, force: true });
   }
 });

@@ -93,7 +93,8 @@ export async function openResponsesChat(options: Options) {
             throw new Error('API chat currently supports text input');
           interrupted = false;
           try {
-            yield* runner.run(message.message.content, signal);
+            for await (const event of runner.run(message.message.content, signal))
+              yield { ...event };
           } catch {
             if (!interrupted || signal.aborted)
               throw new Error(
