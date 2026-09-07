@@ -27,7 +27,7 @@ describe('decodeFilePathUrl', () => {
 });
 
 describe('remarkNeutralizeMalformedFileLinks', () => {
-  it('replaces only malformed internal link nodes with their readable children', () => {
+  it('replaces malformed direct and referenced links with their readable children', () => {
     const malformed = {
       type: 'link',
       url: `${FILE_SCHEME}%2`,
@@ -38,12 +38,28 @@ describe('remarkNeutralizeMalformedFileLinks', () => {
       url: `${FILE_SCHEME}%2Ftmp%2F100%25-done.md`,
       children: [{ type: 'text', value: 'report' }],
     };
+    const definition = {
+      type: 'definition',
+      identifier: 'bad-reference',
+      url: `${FILE_SCHEME}%2`,
+    };
+    const reference = {
+      type: 'linkReference',
+      identifier: 'bad-reference',
+      children: [{ type: 'text', value: 'referenced' }],
+    };
     const code = { type: 'code', value: '[invalid](file-path://%2)' };
-    const tree = { type: 'root', children: [malformed, valid, code] };
+    const tree = { type: 'root', children: [malformed, valid, reference, definition, code] };
 
     remarkNeutralizeMalformedFileLinks()(tree);
 
-    expect(tree.children).toEqual([malformed.children[0], valid, code]);
+    expect(tree.children).toEqual([
+      malformed.children[0],
+      valid,
+      reference.children[0],
+      definition,
+      code,
+    ]);
   });
 });
 

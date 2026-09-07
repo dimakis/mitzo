@@ -18,6 +18,7 @@ export function decodeFilePathUrl(url: string): string | null {
 interface MarkdownNode {
   type: string;
   url?: string;
+  identifier?: string;
   children?: MarkdownNode[];
 }
 
@@ -28,15 +29,32 @@ interface MarkdownNode {
  */
 export function remarkNeutralizeMalformedFileLinks() {
   return (tree: MarkdownNode) => {
+    const definitions = new Map<string, boolean>();
+
+    const collectDefinitions = (node: MarkdownNode) => {
+      if (node.type === 'definition' && node.identifier && !definitions.has(node.identifier)) {
+        definitions.set(
+          node.identifier,
+          Boolean(node.url?.startsWith(FILE_SCHEME) && decodeFilePathUrl(node.url) === null),
+        );
+      }
+      node.children?.forEach(collectDefinitions);
+    };
+
     const visit = (node: MarkdownNode) => {
       if (!node.children) return;
 
       node.children = node.children.flatMap((child) => {
-        if (
+        const malformedDirectLink =
           child.type === 'link' &&
           child.url?.startsWith(FILE_SCHEME) &&
-          decodeFilePathUrl(child.url) === null
-        ) {
+          decodeFilePathUrl(child.url) === null;
+        const malformedReference =
+          child.type === 'linkReference' &&
+          child.identifier !== undefined &&
+          definitions.get(child.identifier) === true;
+
+        if (malformedDirectLink || malformedReference) {
           return child.children ?? [];
         }
 
@@ -45,6 +63,7 @@ export function remarkNeutralizeMalformedFileLinks() {
       });
     };
 
+    collectDefinitions(tree);
     visit(tree);
   };
 }

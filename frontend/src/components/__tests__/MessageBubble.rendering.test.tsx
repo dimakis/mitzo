@@ -49,6 +49,26 @@ describe('TextBubble file link rendering', () => {
     },
   );
 
+  it.each([false, true])(
+    'neutralizes a malformed reference-style file link when streaming=%s',
+    (streaming) => {
+      const html = renderBubble('[referenced][target]\n\n[target]: file-path://%2', streaming);
+
+      expect(html).toContain('referenced');
+      expect(html).not.toContain('file-path-link');
+      expect(html).not.toContain('file-path-share');
+    },
+  );
+
+  it('honors the first definition when duplicate reference definitions exist', () => {
+    const html = renderBubble(
+      '[external][target]\n\n[target]: https://example.com\n[target]: file-path://%2',
+    );
+
+    expect(html).toContain('href="https://example.com"');
+    expect(html).not.toContain('file-path-link');
+  });
+
   it.each([
     '`[inline](file-path://%2)`',
     '````md\n[fenced](file-path://%2)\n````',
