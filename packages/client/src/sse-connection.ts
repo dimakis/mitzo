@@ -223,6 +223,7 @@ export class SseConnection implements ChatConnection {
    */
   checkAndReconnect(force = false): void {
     if (!force && this._connected) return;
+    if (force) this.outbox.start();
     this.foregroundProbe?.cancel();
     if (this.reconnectTimer) return;
     if (this.es) {
@@ -265,6 +266,7 @@ export class SseConnection implements ChatConnection {
       } catch {
         return;
       }
+
       this._connectionId = msg.connectionId as string;
 
       // Control messages wait for replay readiness. Prompt delivery uses
@@ -289,6 +291,11 @@ export class SseConnection implements ChatConnection {
       try {
         msg = JSON.parse(e.data);
       } catch {
+        return;
+      }
+
+      if (msg.type === 'auth_expired') {
+        this.handleAuthLoss();
         return;
       }
 
@@ -321,6 +328,18 @@ export class SseConnection implements ChatConnection {
 
     // EventSource fires 'open' when the connection is established,
     // but we wait for the 'welcome' event before marking as connected.
+  }
+
+  private handleAuthLoss(): void {
+    this.foregroundProbe?.cancel();
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.es?.close();
+    this.es = null;
+    this._connected = false;
+    this.pendingSends = [];
+    this.outbox.rejectAll('Authentication expired. Sign in again to retry.');
+    this.listener?.({ type: '_auth_lost' });
   }
 
   /**

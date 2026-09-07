@@ -1,6 +1,15 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { apiFetch, getApiBaseUrl, getEventSourceUrl, getWsBaseUrl } from '../api-fetch';
+import {
+  apiFetch,
+  getApiBaseUrl,
+  getEventSourceUrl,
+  getWsBaseUrl,
+  loginSucceeded,
+  logout,
+  AUTH_LOST_EVENT,
+  AUTH_RESTORED_EVENT,
+} from '../api-fetch';
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -91,5 +100,60 @@ describe('apiFetch', () => {
     const [, init] = mockFetch.mock.calls[0];
     const headers = new Headers(init.headers);
     expect(headers.get('Content-Type')).toBe('application/json');
+  });
+
+  it('clears stale bearer state and announces protected 401 responses', async () => {
+    localStorage.setItem('mitzo_auth_token', 'expired-token');
+    mockFetch.mockResolvedValueOnce(new Response('{}', { status: 401 }));
+    const listener = vi.fn();
+    window.addEventListener(AUTH_LOST_EVENT, listener);
+
+    await apiFetch('/api/sessions');
+
+    expect(localStorage.getItem('mitzo_auth_token')).toBeNull();
+    expect(listener).toHaveBeenCalledOnce();
+    window.removeEventListener(AUTH_LOST_EVENT, listener);
+  });
+
+  it('does not announce an expected failed login as auth loss', async () => {
+    mockFetch.mockResolvedValueOnce(new Response('{}', { status: 401 }));
+    const listener = vi.fn();
+    window.addEventListener(AUTH_LOST_EVENT, listener);
+
+    await apiFetch('/api/auth/login', { method: 'POST' });
+
+    expect(listener).not.toHaveBeenCalled();
+    window.removeEventListener(AUTH_LOST_EVENT, listener);
+  });
+
+  it('logs out on the server before deleting the credential', async () => {
+    localStorage.setItem('mitzo_auth_token', 'current-token');
+
+    await logout();
+
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe('/api/auth/logout');
+    expect(new Headers(init.headers).get('Authorization')).toBe('Bearer current-token');
+    expect(localStorage.getItem('mitzo_auth_token')).toBeNull();
+  });
+
+  it('still completes local logout when the server is unavailable', async () => {
+    localStorage.setItem('mitzo_auth_token', 'current-token');
+    mockFetch.mockRejectedValueOnce(new Error('offline'));
+
+    await expect(logout()).resolves.toBeUndefined();
+
+    expect(localStorage.getItem('mitzo_auth_token')).toBeNull();
+  });
+
+  it('announces successful reauthentication after storing the new token', () => {
+    const listener = vi.fn();
+    window.addEventListener(AUTH_RESTORED_EVENT, listener);
+
+    loginSucceeded('fresh-token');
+
+    expect(localStorage.getItem('mitzo_auth_token')).toBe('fresh-token');
+    expect(listener).toHaveBeenCalledOnce();
+    window.removeEventListener(AUTH_RESTORED_EVENT, listener);
   });
 });

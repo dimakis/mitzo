@@ -3,6 +3,7 @@ import { useTheme } from '../hooks/useTheme';
 import { deleteCredentials } from '../lib/biometric';
 import { clearWatchToken } from '../lib/watch-auth';
 import { ServiceStatus } from '../components/ServiceStatus';
+import { logout } from '../lib/api-fetch';
 export function MoreView() {
   const { preference, setTheme } = useTheme();
   const navigate = useNavigate();
@@ -45,7 +46,7 @@ export function MoreView() {
       <button
         className="workspace-text-link"
         onClick={async () => {
-          localStorage.removeItem('mitzo_auth_token');
+          await logout();
           await deleteCredentials();
           await clearWatchToken();
           navigate('/login');

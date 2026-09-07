@@ -11,6 +11,30 @@ const ack = (id = 'one') =>
 afterEach(() => vi.useRealTimers());
 
 describe('send outbox', () => {
+  it('discards persisted prompts when authentication identity is lost', async () => {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    };
+    const firstFetch = vi.fn().mockReturnValue(new Promise<Response>(() => {}));
+    const notify = vi.fn();
+    const first = new SendOutbox({ fetch: firstFetch, notify, url: '/send', storage });
+    first.start();
+    first.enqueue(prompt, 0);
+
+    first.rejectAll('Sign in again');
+    const secondFetch = vi.fn();
+    const afterLogin = new SendOutbox({ fetch: secondFetch, notify, url: '/send', storage });
+    afterLogin.start();
+    await Promise.resolve();
+
+    expect(secondFetch).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({ type: '_send_failed', clientMsgId: 'one' }),
+    );
+  });
+
   it('surfaces a definitive HTML rejection and lets the next prompt proceed', async () => {
     vi.useFakeTimers();
     const fetch = vi

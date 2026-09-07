@@ -229,6 +229,61 @@ describe('SseConnection', () => {
     expect(lastES().url).toBe('https://localhost:3100/api/chat/events');
   });
 
+  it('stops reconnecting and rejects queued prompts when authentication expires', async () => {
+    const fetch = vi.fn().mockReturnValue(new Promise<Response>(() => {}));
+    const listener = vi.fn();
+    const conn = new SseConnection(createConfig({ fetch }));
+    conn.onMessage(listener);
+    conn.connect();
+    conn.send({ type: 'send', sessionId: null, clientMsgId: 'first', prompt: 'sensitive' });
+
+    lastES()._emit('message', { type: 'auth_expired' });
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({ type: '_auth_lost' }));
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({ type: '_send_failed', clientMsgId: 'first' }),
+    );
+    expect(MockEventSource.instances).toHaveLength(1);
+  });
+
+  it('uses refreshed credentials for the first prompt after reauthentication', async () => {
+    const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      return {
+        ok: true,
+        status: 202,
+        json: async () => ({
+          accepted: true,
+          clientMsgId: body.clientMsgId,
+          sessionId: 'new-session',
+        }),
+      } as Response;
+    });
+    let token = 'expired';
+    const conn = new SseConnection(
+      createConfig({
+        fetch,
+        buildEventUrl: () => `https://localhost:3100/api/chat/events?token=${token}`,
+      }),
+    );
+    const listener = vi.fn();
+    conn.onMessage(listener);
+    conn.connect();
+    lastES()._emit('message', { type: 'auth_expired' });
+
+    token = 'fresh';
+    conn.checkAndReconnect(true);
+    expect(lastES().url).toContain('token=fresh');
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'fresh-id' });
+    conn.send({ type: 'send', sessionId: null, clientMsgId: 'after-login', prompt: 'safe' });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({ type: '_send_accepted', clientMsgId: 'after-login' }),
+    );
+  });
+
   it('rebuilds the authenticated event URL for every connection attempt', () => {
     let token = 'first';
     const conn = new SseConnection(

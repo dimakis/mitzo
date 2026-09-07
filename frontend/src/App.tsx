@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { apiFetch } from './lib/api-fetch';
+import { apiFetch, AUTH_LOST_EVENT } from './lib/api-fetch';
 import { hideSplash } from './lib/splash';
 import { saveTokenToWatch } from './lib/watch-auth';
 import { Login } from './pages/Login';
@@ -21,8 +21,15 @@ import { DesktopShell } from './components/DesktopShell';
 import { useIsDesktop } from './hooks/useMediaQuery';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const [auth, setAuth] = useState<'loading' | 'ok' | 'denied'>('loading');
+  const [auth, setAuth] = useState<'loading' | 'ok' | 'denied' | 'unavailable'>('loading');
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
+    const onAuthLost = () => {
+      localStorage.removeItem('mitzo_auth_token');
+      setAuth('denied');
+      hideSplash();
+    };
+    window.addEventListener(AUTH_LOST_EVENT, onAuthLost);
     apiFetch('/api/auth/check')
       .then((r) => {
         setAuth(r.ok ? 'ok' : 'denied');
@@ -31,12 +38,29 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
           if (token) saveTokenToWatch(token);
         }
       })
-      .catch(() => setAuth('denied'))
+      .catch(() => setAuth('unavailable'))
       .finally(() => hideSplash());
-  }, []);
+    return () => window.removeEventListener(AUTH_LOST_EVENT, onAuthLost);
+  }, [attempt]);
   if (auth === 'denied') return <Navigate to="/login" replace />;
   if (auth === 'loading') {
-    return <div style={{ background: 'var(--bg)', minHeight: '100dvh' }} />;
+    return <div className="auth-status">Checking authentication…</div>;
+  }
+  if (auth === 'unavailable') {
+    return (
+      <div className="auth-status" role="alert">
+        <p>Mitzo could not be reached. Check your connection and try again.</p>
+        <button
+          className="btn-primary"
+          onClick={() => {
+            setAuth('loading');
+            setAttempt((value) => value + 1);
+          }}
+        >
+          Retry
+        </button>
+      </div>
+    );
   }
   return <>{children}</>;
 }

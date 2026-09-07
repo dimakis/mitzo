@@ -9,7 +9,13 @@
 
 import { createMitzoStore } from '@mitzo/client';
 import type { SseConnectionConfig } from '@mitzo/client';
-import { apiFetch, getApiBaseUrl, getEventSourceUrl, getWsChatUrl } from './lib/api-fetch';
+import {
+  apiFetch,
+  getApiBaseUrl,
+  getEventSourceUrl,
+  getWsChatUrl,
+  AUTH_RESTORED_EVENT,
+} from './lib/api-fetch';
 import { isCapacitor, registerCapacitorLifecycle } from './lib/capacitor';
 import { parseChatTransportPreference, shouldUseSseTransport } from './lib/chat-transport';
 import { configureKeyboard } from './lib/keyboard';
@@ -53,6 +59,10 @@ export const clientStore = createMitzoStore({
   },
   ...(sseConfig ? { sseConfig } : {}),
 });
+
+if (typeof window !== 'undefined') {
+  window.addEventListener(AUTH_RESTORED_EVENT, () => clientStore.getState().forceReconnect());
+}
 
 // Sync localStorage model preference into the store so sendMessage() includes it
 if (typeof window !== 'undefined') {

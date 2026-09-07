@@ -701,6 +701,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   };
 
   function wsListener(msg: Record<string, unknown>) {
+    if (msg.type === '_auth_lost') {
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('mitzo:auth-lost'));
+      return;
+    }
     if (
       msg.type === '_send_pending' ||
       msg.type === '_send_failed' ||

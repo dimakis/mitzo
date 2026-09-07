@@ -242,9 +242,14 @@ export class MitzoConnection {
       this.listener?.(msg);
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       this.ws = null;
       this._connected = false;
+      if (event?.code === 4401) {
+        this.rejectPendingSends('Authentication expired. Sign in again to retry.');
+        this.listener?.({ type: '_auth_lost' });
+        return;
+      }
       this.listener?.({ type: '_close' });
       this.reconnectTimer = setTimeout(() => this.doConnect(), this.config.reconnectDelayMs);
     };
@@ -253,6 +258,26 @@ export class MitzoConnection {
       // Intentionally empty — error events always precede close, and
       // reconnect is handled in onclose. Nothing actionable here.
     };
+  }
+
+  private rejectPendingSends(error: string): void {
+    const pending = this.pendingSends;
+    this.pendingSends = [];
+    for (const payload of pending) {
+      try {
+        const message = JSON.parse(payload) as Record<string, unknown>;
+        if (message.type === 'send') {
+          this.listener?.({
+            type: '_send_failed',
+            clientMsgId: message.clientMsgId,
+            sessionId: message.sessionId,
+            error,
+          });
+        }
+      } catch {
+        // Invalid local payloads are discarded with the authentication context.
+      }
+    }
   }
 
   private flushPendingSends(): void {

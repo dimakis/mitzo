@@ -9,9 +9,26 @@
  */
 
 const AUTH_TOKEN_KEY = 'mitzo_auth_token';
+export const AUTH_LOST_EVENT = 'mitzo:auth-lost';
+export const AUTH_RESTORED_EVENT = 'mitzo:auth-restored';
+
+function dispatchAuthEvent(name: string): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(name));
+}
+
+export function markAuthLost(): void {
+  if (typeof localStorage !== 'undefined') localStorage.removeItem(AUTH_TOKEN_KEY);
+  dispatchAuthEvent(AUTH_LOST_EVENT);
+}
+
+export function loginSucceeded(token?: string): void {
+  if (token && typeof localStorage !== 'undefined') localStorage.setItem(AUTH_TOKEN_KEY, token);
+  dispatchAuthEvent(AUTH_RESTORED_EVENT);
+}
 
 export function getApiBaseUrl(): string {
-  return import.meta.env.VITE_API_BASE_URL || '';
+  const configured = import.meta.env.VITE_API_BASE_URL;
+  return configured && configured !== 'undefined' ? configured : '';
 }
 
 export function getWsBaseUrl(): string {
@@ -37,10 +54,22 @@ export function getEventSourceUrl(path: string): string {
   return `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
 }
 
-export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const url = path.startsWith('http') ? path : `${getApiBaseUrl()}${path}`;
   const headers = new Headers(init?.headers);
   const token = typeof localStorage !== 'undefined' ? localStorage.getItem(AUTH_TOKEN_KEY) : null;
   if (token) headers.set('Authorization', `Bearer ${token}`);
-  return fetch(url, { ...init, headers, credentials: 'include' });
+  const response = await fetch(url, { ...init, headers, credentials: 'include' });
+  if (response.status === 401 && !path.endsWith('/api/auth/login')) markAuthLost();
+  return response;
+}
+
+export async function logout(): Promise<void> {
+  try {
+    await apiFetch('/api/auth/logout', { method: 'POST' });
+  } catch {
+    // Local credential removal must remain available while the server is down.
+  } finally {
+    markAuthLost();
+  }
 }

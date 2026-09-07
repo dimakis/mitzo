@@ -1,10 +1,9 @@
 import { Capacitor } from '@capacitor/core';
 import { NativeBiometric, BiometryType } from '@capgo/capacitor-native-biometric';
 import { saveTokenToWatch } from './watch-auth';
+import { loginSucceeded, markAuthLost } from './api-fetch';
 
 const SERVER = 'com.mitzo.app';
-const AUTH_TOKEN_KEY = 'mitzo_auth_token';
-
 export async function isBiometricAvailable(): Promise<boolean> {
   if (!Capacitor.isNativePlatform()) return false;
   try {
@@ -98,11 +97,11 @@ export async function biometricLogin(apiBaseUrl = ''): Promise<string | null> {
     if (!res.ok) {
       // Token expired or invalid — clear stale credentials
       await deleteCredentials();
-      localStorage.removeItem(AUTH_TOKEN_KEY);
+      markAuthLost();
       return null;
     }
 
-    localStorage.setItem(AUTH_TOKEN_KEY, token);
+    loginSucceeded(token);
     // Also save to native shared Keychain for Apple Watch
     await saveTokenToWatch(token);
     return token;
