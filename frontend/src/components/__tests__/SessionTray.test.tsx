@@ -82,6 +82,43 @@ describe('SessionTray', () => {
     expect(onAdd).toHaveBeenCalledOnce();
   });
 
+  it('renders collected session sources and outputs', () => {
+    render(
+      <SessionTray
+        {...props}
+        messages={[
+          {
+            messageId: 'user-1',
+            role: 'user',
+            contextBlocks: ['project-spec'],
+            blocks: [{ blockId: 'u1', blockType: 'text', content: 'Use this' }],
+          },
+          {
+            messageId: 'assistant-1',
+            role: 'assistant',
+            blocks: [
+              {
+                blockId: 'a1',
+                blockType: 'tool_use',
+                content: 'Preview: http://localhost:3196',
+                toolName: 'Write',
+                rawInput: { type: 'write', path: '/tmp/report.md' },
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open session tray' }));
+
+    expect(screen.getByText('project-spec')).toBeTruthy();
+    expect(screen.getByText('Write')).toBeTruthy();
+    expect(screen.getByRole('link', { name: /localhost:3196/ }).getAttribute('href')).toBe(
+      'http://localhost:3196',
+    );
+    expect(screen.getByText('report.md')).toBeTruthy();
+  });
+
   it('closes on Escape', () => {
     render(<SessionTray {...props} />);
     fireEvent.click(screen.getByRole('button', { name: 'Open session tray' }));

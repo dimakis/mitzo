@@ -43,6 +43,8 @@ interface Props {
   sessionContext?: string | null;
 }
 
+const EMPTY_MESSAGES: FinishedMessage[] = [];
+
 export function ChatInput({
   onSend,
   onStop,
@@ -58,7 +60,7 @@ export function ChatInput({
   sessionId,
   externalContextBlocks,
   tokenState,
-  messages = [],
+  messages = EMPTY_MESSAGES,
   current,
   bootContext,
   sessionContext,

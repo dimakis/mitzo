@@ -84,4 +84,36 @@ describe('collectSessionResources', () => {
       ],
     });
   });
+
+  it('keeps balanced URL parentheses while removing trailing prose punctuation', () => {
+    const messages: FinishedMessage[] = [
+      {
+        messageId: 'assistant-1',
+        role: 'assistant',
+        blocks: [
+          {
+            blockId: 'a1',
+            blockType: 'text',
+            content:
+              'See http://en.wikipedia.org/wiki/Thing_(section). Then http://host/path?q=1.,!?',
+          },
+        ],
+      },
+    ];
+
+    expect(collectSessionResources(messages).outputs).toEqual([
+      {
+        id: 'url:http://en.wikipedia.org/wiki/Thing_(section)',
+        kind: 'link',
+        label: 'en.wikipedia.org/wiki/Thing_(section)',
+        href: 'http://en.wikipedia.org/wiki/Thing_(section)',
+      },
+      {
+        id: 'url:http://host/path?q=1',
+        kind: 'link',
+        label: 'host/path',
+        href: 'http://host/path?q=1',
+      },
+    ]);
+  });
 });

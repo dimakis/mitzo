@@ -3,14 +3,23 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, act } from '@testing-library/react';
 import { ChatInput } from '../ChatInput';
 
+const { trayMessageRefs } = vi.hoisted(() => ({ trayMessageRefs: [] as unknown[] }));
+
 // Mock child components that fetch data
 vi.mock('../SlashPicker', () => ({
   SlashPicker: () => null,
 }));
 vi.mock('../SessionTray', () => ({
-  SessionTray: ({ selectedContextBlocks }: { selectedContextBlocks: string[] }) => (
-    <div data-testid="session-tray">{selectedContextBlocks.join(',')}</div>
-  ),
+  SessionTray: ({
+    selectedContextBlocks,
+    messages,
+  }: {
+    selectedContextBlocks: string[];
+    messages: unknown[];
+  }) => {
+    trayMessageRefs.push(messages);
+    return <div data-testid="session-tray">{selectedContextBlocks.join(',')}</div>;
+  },
 }));
 vi.mock('../MicButton', () => ({
   MicButton: () => null,
@@ -54,6 +63,14 @@ describe('ChatInput with externalContextBlocks', () => {
     expect(container.querySelector('[data-testid="session-tray"]')).toBeTruthy();
     expect(container.querySelector('.chat-input-btn--context')).toBeNull();
     expect(container.querySelector('.chat-input-btn--attach')).toBeNull();
+  });
+
+  it('keeps the default empty messages reference stable across renders', () => {
+    trayMessageRefs.length = 0;
+    const { rerender } = render(<ChatInput {...baseProps} />);
+    rerender(<ChatInput {...baseProps} />);
+
+    expect(new Set(trayMessageRefs).size).toBe(1);
   });
 
   it('does not show inline context pills when external blocks provided', () => {
