@@ -90,7 +90,13 @@ export class SendOutbox {
           .then(async (response) => {
             if (response.status === 429 || response.status >= 500)
               throw new Error('Server temporarily unavailable');
-            return { response, receipt: await response.json() };
+            // A definitive HTTP rejection remains definitive even when an
+            // intermediary supplies HTML. A malformed success is ambiguous:
+            // retain its command ID and retry for the authoritative receipt.
+            const receipt = response.ok
+              ? await response.json()
+              : await response.json().catch(() => null);
+            return { response, receipt };
           }),
         new Promise<never>((_, reject) => {
           abort.signal.addEventListener('abort', () => reject(new Error('Delivery interrupted')), {
@@ -106,7 +112,7 @@ export class SendOutbox {
           type: '_send_failed',
           clientMsgId: entry.body.clientMsgId,
           sessionId: entry.body.sessionId,
-          error: receipt.error ?? 'Message was not accepted.',
+          error: receipt?.error ?? `Message was not accepted (HTTP ${response.status}).`,
         });
       } else {
         if (

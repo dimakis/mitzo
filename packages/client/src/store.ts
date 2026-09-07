@@ -253,6 +253,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       set((s) => ({
         sessions: { ...s.sessions, active: id },
         messages: INITIAL_MESSAGES_STATE,
+        sendError: null,
         permissions: INITIAL_PERMISSIONS_STATE,
         tokens: INITIAL_TOKENS_STATE,
         progress: INITIAL_PROGRESS_STATE,
@@ -283,6 +284,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       set({
         sessions: { ...get().sessions, active: null },
         messages: INITIAL_MESSAGES_STATE,
+        sendError: null,
         permissions: INITIAL_PERMISSIONS_STATE,
         progress: INITIAL_PROGRESS_STATE,
       });

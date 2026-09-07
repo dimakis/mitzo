@@ -771,7 +771,12 @@ export function handleInterruptV2(
         clientMsgId: msg.clientMsgId,
         agentName: found.session?.agentName,
         telosTaskId: found.session?.telosTaskId,
-      });
+      }).catch((err: unknown) =>
+        transport.send({
+          type: 'error',
+          error: err instanceof Error ? err.message : 'Session startup failed',
+        }),
+      );
       log.info('interrupt_resume', { connectionId, sessionId: msg.sessionId });
     },
   );

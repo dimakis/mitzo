@@ -86,6 +86,50 @@ describe('SseConnection', () => {
     vi.useRealTimers();
   });
 
+  it('serializes replay requests and includes sessions accepted during an in-flight replay', async () => {
+    const replays: Array<{
+      body: { sessions: Array<{ sessionId: string }> };
+      resolve: (r: Response) => void;
+    }> = [];
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+      if (url.endsWith('/reconnect'))
+        return new Promise<Response>((resolve) =>
+          replays.push({ body: JSON.parse(String(init?.body)), resolve }),
+        );
+      const body = JSON.parse(String(init?.body));
+      return Promise.resolve({
+        ok: true,
+        status: 202,
+        json: async () => ({
+          accepted: true,
+          clientMsgId: body.clientMsgId,
+          sessionId: body.clientMsgId,
+        }),
+      } as Response);
+    });
+    const conn = new SseConnection(createConfig({ fetch }));
+    const listener = vi.fn();
+    conn.onMessage(listener);
+    conn.connect();
+    lastES()._emit('welcome', { connectionId: 'c1' });
+    listener.mockClear();
+    conn.send({ type: 'send', clientMsgId: 'one', sessionId: null, prompt: 'one' });
+    await vi.advanceTimersByTimeAsync(0);
+    conn.clearPendingSends();
+    conn.send({ type: 'send', clientMsgId: 'two', sessionId: null, prompt: 'two' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(replays).toHaveLength(1);
+    replays[0].resolve({ ok: true } as Response);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(replays).toHaveLength(2);
+    expect(replays[1].body.sessions.map((s) => s.sessionId)).toEqual(['one', 'two']);
+    expect(listener.mock.calls.filter(([e]) => e.type === '_open')).toHaveLength(0);
+    replays[1].resolve({ ok: true } as Response);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(listener.mock.calls.filter(([e]) => e.type === '_open')).toHaveLength(1);
+    conn.disconnect();
+  });
+
   it('rebuilds a seemingly connected stream when the page returns to foreground', () => {
     const doc = new EventTarget();
     Object.assign(doc, { visibilityState: 'visible' });

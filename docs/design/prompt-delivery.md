@@ -25,3 +25,37 @@ PR #440 correctly identifies reconnect ownership churn as redundant. This fix re
 `reconnect-delivery.integration.test.ts` connects the actual HTTP router, durable EventStore, SseConnection/outbox, SessionRegistry, and query loop to a deterministic SDK stream. It creates a session, suspends it, reconnects, submits one prompt, loses its HTTP acknowledgement, and verifies automatic retry produces exactly one additional SDK input and a response on the new stream, with no runtime-key change.
 
 Additional tests cover receipt deduplication, changed-payload rejection, native commands, restart interruption, SDK pre-registration, rapid follow-ups, offline acceptance, reload recovery, response-body stalls, reconnect timeouts, and stale callbacks.
+
+## Review follow-up
+
+The first Centaur review identified two client correctness bugs and an unhandled
+interrupt startup rejection. Replay requests are now serialized per EventSource
+and connection ID. A receipt adding a session during replay schedules one later
+replay with the updated session set; readiness is emitted after that replay.
+Receipts for sessions already tracked do not trigger redundant replays. Navigation
+clears the previous conversation's delivery banner. Interrupt resume reports
+startup rejection through the transport, like normal send startup.
+
+The response parsing concern also exposed a real distinction: a non-retryable
+HTTP rejection with an HTML body must fail visibly and release the next queued
+command. A malformed successful response remains ambiguous and is retried with
+the same command ID, because the server may already have executed it.
+
+Other review suggestions were intentionally not adopted:
+
+- Navigation preserves submitted prompts. Clearing them would silently lose
+  acknowledged user intent. Draft scopes prevent cross-conversation reassignment.
+- Receipts require an explicit session ID or null. Missing session identity is
+  not equivalent to a successful native command and must not discard the outbox
+  entry. Persistent malformed responses keep delivery pending, visibly, rather
+  than claiming success or inviting a duplicate command.
+- Stopping during delivery leaves the unacknowledged command for a deduplicated
+  retry on restart. The retry emits the acceptance notification; a regression
+  test verifies this lifecycle.
+- Foreground recovery rebuilds the stream on desktop as well as mobile. Local
+  EventSource readiness does not prove the connection survived suspension.
+  Restricting recovery to a platform would reintroduce that assumption.
+- The post-dispatch receipt read remains: legacy handlers report some synchronous
+  failures through transport events rather than throwing. The durable failure
+  check prevents those paths from returning a successful receipt. Replacing the
+  handler result contract is separate work, not a cosmetic simplification.

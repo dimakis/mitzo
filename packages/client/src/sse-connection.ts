@@ -37,6 +37,11 @@ export class SseConnection implements ChatConnection {
   private _connectionId: string | null = null;
   private _connected = false;
   private sendScope = Date.now();
+  private replayRequest: {
+    es: EventSource | null;
+    connectionId: string;
+    dirty: boolean;
+  } | null = null;
   private outbox: SendOutbox;
   private listener: ConnectionListener | null = null;
   private seqBySession = new Map<string, number>();
@@ -65,9 +70,18 @@ export class SseConnection implements ChatConnection {
         this.listener?.(event);
         if (event.type === '_send_accepted' && typeof event.sessionId === 'string') {
           const sessionId = event.sessionId as string;
-          if (!this.seqBySession.has(sessionId)) this.seqBySession.set(sessionId, 0);
-          if (this._connected && this._connectionId)
-            void this.doReconnectPost(this._connectionId, this.es);
+          if (!this.seqBySession.has(sessionId)) {
+            this.seqBySession.set(sessionId, 0);
+            // Include acknowledgements arriving during the welcome replay too.
+            if (
+              this.es &&
+              this._connectionId &&
+              (this._connected ||
+                (this.replayRequest?.es === this.es &&
+                  this.replayRequest.connectionId === this._connectionId))
+            )
+              void this.doReconnectPost(this._connectionId, this.es);
+          }
         }
       },
     });
@@ -153,6 +167,8 @@ export class SseConnection implements ChatConnection {
     this.seqBySession.delete(sessionId);
   }
 
+  // Navigation discards stale controls, not submitted prompts. Scope prevents
+  // pending prompts in a different draft from inheriting an earlier receipt.
   clearPendingSends(): void {
     this.sendScope++;
     this.pendingSends = [];
@@ -302,6 +318,15 @@ export class SseConnection implements ChatConnection {
     welcomeConnectionId: string,
     welcomeEs: EventSource | null,
   ): Promise<void> {
+    if (
+      this.replayRequest?.es === welcomeEs &&
+      this.replayRequest.connectionId === welcomeConnectionId
+    ) {
+      this.replayRequest.dirty = true;
+      return;
+    }
+    const request = { es: welcomeEs, connectionId: welcomeConnectionId, dirty: false };
+    this.replayRequest = request;
     const abort = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -334,6 +359,7 @@ export class SseConnection implements ChatConnection {
       if (!this.es || this.es !== welcomeEs || this._connectionId !== welcomeConnectionId) return;
 
       if (res.ok) {
+        if (request.dirty) return;
         this._connected = true;
         this.flushPendingSends();
         this.listener?.({ type: '_open' });
@@ -347,6 +373,16 @@ export class SseConnection implements ChatConnection {
       this.scheduleReconnect();
     } finally {
       if (timeout) clearTimeout(timeout);
+      if (this.replayRequest === request) {
+        this.replayRequest = null;
+        if (
+          request.dirty &&
+          this.es &&
+          this.es === welcomeEs &&
+          this._connectionId === welcomeConnectionId
+        )
+          void this.doReconnectPost(welcomeConnectionId, welcomeEs);
+      }
     }
   }
 

@@ -957,6 +957,25 @@ describe('handleSendV2 skill policy', () => {
 // ─── handleInterruptV2 ──────────────────────────────────────────────────────
 
 describe('handleInterruptV2', () => {
+  it('reports an interrupt resume startup rejection to the client', async () => {
+    vi.mocked(startChat).mockRejectedValueOnce(new Error('Resume failed'));
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    handleInterruptV2(
+      'c1',
+      transport,
+      { type: 'interrupt', sessionId: 'sess-1', prompt: 'change', clientMsgId: 'i1' },
+      ctx,
+    );
+    await Promise.resolve();
+    expect(transport.sent).toContainEqual({ type: 'error', error: 'Resume failed' });
+  });
+
   it('watches, activates, and resumes via startChat when session is idle', () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
     const sessionReg = mockSessionRegistry();
