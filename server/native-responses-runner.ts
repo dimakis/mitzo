@@ -8,6 +8,8 @@ import {
   type ToolResultBlock,
 } from '@mitzo/harness';
 import { NativeResponsesStore, type NativeResponsesState } from './native-responses-store.js';
+import { createLogger } from './logger.js';
+const log = createLogger('native-responses');
 export { NativeResponsesStore } from './native-responses-store.js';
 
 interface NativeResponsesOptions extends Omit<ModelSessionConfig, 'model' | 'signal' | 'thinking'> {
@@ -131,7 +133,15 @@ export class NativeResponsesRunner {
       this.active = undefined;
       if (!completed) {
         state.status = 'interrupted';
-        save();
+        try {
+          save();
+        } catch {
+          // A failed durable write cannot be repaired in memory. Leave startup recovery
+          // to mark the persisted running row interrupted, preserving the original error.
+          log.warn('could not persist interruption; startup recovery required', {
+            conversationId: opts.conversationId,
+          });
+        }
       }
     }
   }

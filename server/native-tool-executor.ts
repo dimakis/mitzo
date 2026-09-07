@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { readFile, realpath, writeFile } from 'node:fs/promises';
-import { basename, dirname, resolve } from 'node:path';
+import { basename, dirname, relative, resolve } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import {
   buildPermissionHandler,
@@ -135,14 +136,34 @@ export function createNativeToolExecutor(
       const parsed = schemas[block.name as keyof typeof schemas].safeParse(block.input);
       if (!parsed.success) return result('Invalid native tool input', true);
       const input = { ...parsed.data };
-      for (const entry of session.worktreePaths.values()) entry.path = await realpath(entry.path);
-      if ('file_path' in input)
+      const roots: { canonical: string; original: string }[] = [];
+      for (const entry of session.worktreePaths.values()) {
+        try {
+          roots.push({ canonical: await realpath(entry.path), original: entry.path });
+        } catch {
+          return result(
+            'Session worktree is unavailable; restore the workspace before retrying',
+            true,
+          );
+        }
+      }
+      if ('file_path' in input) {
         input.file_path = await canonicalPath(resolve(session.cwd, input.file_path));
+        // Present the checked path under the registry's original root alias. This keeps
+        // the shared guard and lazy creation working without mutating registry entries.
+        const root = roots.find(
+          (entry) =>
+            input.file_path === entry.canonical ||
+            input.file_path.startsWith(entry.canonical + '/'),
+        );
+        if (root)
+          input.file_path = resolve(root.original, relative(root.canonical, input.file_path));
+      }
       const permission = await canUseTool(block.name, input, { signal, toolUseID: block.id });
       signal.throwIfAborted();
       if (permission.behavior !== 'allow') return result(permission.message, true);
       // The shared handler returns the checked input. Never execute unchecked replacements.
-      if (JSON.stringify(permission.updatedInput) !== JSON.stringify(input))
+      if (!isDeepStrictEqual(permission.updatedInput, input))
         return result('Tool input changed during approval; retry the tool', true);
       if ('command' in input)
         return result(await shell(input.command, session.cwd, signal, options));

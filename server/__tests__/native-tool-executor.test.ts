@@ -57,6 +57,23 @@ describe('native tool execution through session permissions', () => {
       is_error: false,
     });
   });
+  it('resolves worktree aliases without mutating registry-owned paths', async () => {
+    const alias = join(root, 'alias');
+    await symlink(join(root, 'worktree'), alias);
+    const entry = { path: alias, wtId: 'wt' };
+    registry.get('client')!.worktreePaths.set('repo', entry);
+    expect(
+      await executor()(call('Write', { file_path: 'note', content: 'ok' }), abort.signal),
+    ).toMatchObject({ is_error: false });
+    expect(entry.path).toBe(alias);
+  });
+  it('reports a missing worktree explicitly', async () => {
+    await rm(join(root, 'worktree'), { recursive: true });
+    expect(await executor()(call('Read', { file_path: 'note' }), abort.signal)).toMatchObject({
+      is_error: true,
+      content: expect.stringContaining('Session worktree is unavailable'),
+    });
+  });
   it('enforces the active skill ceiling even for read-only tools', async () => {
     registry.get('client')!.activeSkillPolicy = new Set(['Write']);
     const result = await executor()(call('Read', { file_path: 'missing' }), abort.signal);

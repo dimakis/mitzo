@@ -273,5 +273,20 @@ describe('durable native Responses turns', () => {
     const execute = vi.fn();
     await expect(collect(runner(execute).run('write'))).rejects.toThrow('disk full');
     expect(execute).not.toHaveBeenCalled();
+    expect(store.load('app-id', binding)?.status).toBe('running');
+    store.recoverAtStartup();
+    expect(store.load('app-id', binding)?.status).toBe('interrupted');
+  });
+  it('preserves the original provider failure when interruption persistence also fails', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('provider unavailable'));
+    const save = store.save.bind(store);
+    vi.spyOn(store, 'save').mockImplementation((id, account, state) => {
+      if (state.status === 'interrupted') throw new Error('database locked');
+      save(id, account, state);
+    });
+    await expect(collect(runner().run('hello'))).rejects.toThrow('provider unavailable');
+    expect(store.load('app-id', binding)?.status).toBe('running');
+    store.recoverAtStartup();
+    expect(store.load('app-id', binding)?.status).toBe('interrupted');
   });
 });
