@@ -60,7 +60,9 @@ it('rejects binding changes before contacting the process', async () => {
 });
 it('rejects invalid profiles and malformed account responses without echoing secrets', async () => {
   const client = { request: vi.fn().mockResolvedValue({ secret: 'private-secret' }) };
-  await expect(verifyCodexAccount(client, profile)).rejects.toThrow('Codex account does not match');
+  const rejected = verifyCodexAccount(client, profile);
+  await expect(rejected).rejects.toThrow('Codex account does not match');
+  await expect(rejected).rejects.not.toThrow('private-secret');
   await expect(
     verifyCodexAccount(client, { ...profile, credentialRef: 'relative' }),
   ).rejects.toThrow('Invalid Codex account profile');

@@ -66,6 +66,7 @@ describe('Codex app-server transport', () => {
     const request = client.request('account/read', {});
     reply({ id: sent[2].id, error: { message: 'private-secret' } });
     await expect(request).rejects.toThrow('Codex request failed');
+    await expect(request).rejects.not.toThrow('private-secret');
     const pending = client.request('model/list', {});
     child.emit('exit', 1);
     await expect(pending).rejects.toThrow('Codex connection closed');
@@ -99,6 +100,26 @@ describe('Codex app-server transport', () => {
     reply({ id: 'approval-1', method: 'item/commandExecution/requestApproval', params: {} });
     expect(sent[0]).toMatchObject({ id: 'approval-1', error: { code: -32601 } });
     client.close();
+  });
+
+  it('ignores unsolicited notifications without replying or closing the connection', async () => {
+    const { child, sent, reply } = processStub();
+    const client = new CodexAppServerClient(child);
+    const ready = client.initialize();
+    reply({ id: sent[0].id, result: {} });
+    await ready;
+    const before = sent.length;
+    reply({ method: 'some/event', params: {} });
+    expect(sent).toHaveLength(before);
+    expect(child.kill).not.toHaveBeenCalled();
+    const pending = client.request('account/read', {});
+    reply({ id: sent.at(-1)!.id, result: { account: null } });
+    await expect(pending).resolves.toEqual({ account: null });
+    client.close();
+  });
+
+  it('rejects a relative login directory at the environment boundary', () => {
+    expect(() => codexEnvironment('relative/path', {})).toThrow('absolute');
   });
 
   it('requires initialization and isolates explicit ChatGPT credentials from inherited API routes', async () => {
