@@ -514,3 +514,37 @@ it('does not report a late turn-start failure after close owns recovery', async 
   expect(onError).not.toHaveBeenCalled();
   expect(c.queue()[0].status).toBe('interrupted');
 });
+
+it('persists the selected reasoning effort and sends it to Codex', async () => {
+  const { c, requests } = await setup();
+  await c.send({ id: 'effort', prompt: 'Think carefully', reasoningEffort: 'high' });
+  expect(c.queue()[0].reasoningEffort).toBe('high');
+  expect(requests.find((r) => r.method === 'turn/start')?.params.effort).toBe('high');
+});
+it('sends attached images as native image input and retains them for recovery', async () => {
+  const { c, requests } = await setup();
+  const images = [{ data: 'aGVsbG8=', mediaType: 'image/png' }];
+  await c.send({ id: 'image', prompt: 'Describe this', images });
+  expect(c.queue()[0].images).toEqual(images);
+  expect(requests.find((r) => r.method === 'turn/start')?.params.input).toEqual([
+    { type: 'text', text: 'Describe this' },
+    { type: 'image', url: 'data:image/png;base64,aGVsbG8=' },
+  ]);
+});
+it('does not force low thinking when the client leaves it at the model default', async () => {
+  const { c, requests } = await setup();
+  await c.send({ id: 'default-effort', prompt: 'Hello' });
+  expect(requests.find((r) => r.method === 'turn/start')?.params).not.toHaveProperty('effort');
+});
+it('rejects unsupported image types before persisting or starting work', async () => {
+  const { c, requests } = await setup();
+  expect(() =>
+    c.enqueue({
+      id: 'invalid-image',
+      prompt: 'Describe',
+      images: [{ data: 'aGVsbG8=', mediaType: 'image/svg+xml' }],
+    }),
+  ).toThrow();
+  expect(c.queue()).toEqual([]);
+  expect(requests.some((r) => r.method === 'turn/start')).toBe(false);
+});

@@ -1,3 +1,4 @@
+import { loadAccountProfiles } from './account-profiles.js';
 import type { SkillRegistry } from './skills.js';
 import type { SessionTransport } from '@mitzo/harness';
 import {
@@ -36,6 +37,7 @@ export class NativeCommandRegistry {
 
   constructor() {
     this.commands.set('skills', skillsCommand);
+    this.commands.set('models', modelsCommand);
     this.commands.set('close', closeCommand);
     this.commands.set('deliberate', deliberateCommand);
     this.commands.set('fuse', fuseCommand);
@@ -290,4 +292,25 @@ function buildEventEmitter(
       });
     }
   };
+}
+
+async function modelsCommand(args: string): Promise<NativeCommandResult> {
+  if (args.trim() && args.trim() !== 'refresh')
+    return { command: 'models', content: 'Usage: `/models` or `/models refresh`.' };
+  try {
+    const profiles = loadAccountProfiles();
+    await profiles.refresh(args.trim() === 'refresh');
+    const lines = profiles.catalog().map((account) => {
+      const status = account.modelDiscovery.stale
+        ? ' (refresh failed; showing the last available list)'
+        : '';
+      return `**${account.label}**${status}\n${account.models.map((model) => `- ${model.label} (${model.id})`).join('\n')}`;
+    });
+    return { command: 'models', content: lines.join('\n\n') || 'No account profiles configured.' };
+  } catch {
+    return {
+      command: 'models',
+      content: 'Model discovery unavailable. Check the account configuration and retry.',
+    };
+  }
 }

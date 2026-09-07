@@ -55,6 +55,7 @@ export interface SendMessageOptions {
   contextBlocks?: string[];
   images?: ImageAttachment[];
   model?: string;
+  reasoningEffort?: string;
   mode?: MitzoMode;
   cwd?: string;
   extraTools?: string;
@@ -317,6 +318,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         const model = opts?.model ?? get().config.modelId;
         const mode = opts?.mode ?? get().config.mode;
         if (model) msg.model = model;
+        if (opts?.reasoningEffort) msg.reasoningEffort = opts.reasoningEffort;
         if (opts?.accountId) msg.accountId = opts.accountId;
         if (mode) msg.mode = mode;
         if (opts?.contextBlocks?.length) msg.contextBlocks = opts.contextBlocks;
@@ -362,6 +364,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       };
       const model = opts?.model ?? get().config.modelId;
       if (model) msg.model = model;
+      if (opts?.reasoningEffort) msg.reasoningEffort = opts.reasoningEffort;
       if (opts?.images?.length) {
         msg.images = opts.images.map((img) => ({ data: img.data, mediaType: img.mediaType }));
       }

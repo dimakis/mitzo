@@ -773,6 +773,7 @@ export async function startChat(
     cwd?: string;
     model?: string;
     accountId?: string;
+    reasoningEffort?: string;
     accountProfiles?: AccountProfiles;
     extraTools?: string;
     skillAllowedTools?: string[];
@@ -807,6 +808,7 @@ async function _startChatInner(
     cwd?: string;
     model?: string;
     accountId?: string;
+    reasoningEffort?: string;
     accountProfiles?: AccountProfiles;
     extraTools?: string;
     skillAllowedTools?: string[];
@@ -841,8 +843,6 @@ async function _startChatInner(
             : accountBinding.model,
       };
       if (accountBinding.provider === 'openai-codex') {
-        if (options.images?.length)
-          throw new Error('Codex image attachments are not yet supported');
         if (options.skillAllowedTools)
           throw new Error('Codex restricted skill tool ceilings are not yet supported');
         codexProfile = profiles!.codexProfile(accountBinding);
@@ -923,7 +923,12 @@ async function _startChatInner(
     }
   }
 
-  const fullPrompt = assemblePrompt(prompt, cwd, options.images, options.contextBlocks);
+  const fullPrompt = assemblePrompt(
+    prompt,
+    cwd,
+    codexProfile ? undefined : options.images,
+    options.contextBlocks,
+  );
 
   // Apply tier overrides from current .mitzo.json (re-read each session start).
   // Always call applyTierOverrides so removed overrides reset to defaults.
@@ -1148,6 +1153,8 @@ async function _startChatInner(
         registry,
         prompt: fullPrompt,
         model: options.model,
+        reasoningEffort: options.reasoningEffort,
+        images: options.images,
         messageId,
         systemPrompt: systemPromptAppend,
         env: sessionEnv,
@@ -1380,28 +1387,40 @@ export function sendToChat(
   contextBlocks?: string[],
   clientMsgId?: string,
   model?: string,
+  reasoningEffort?: string,
 ): boolean {
   return withSpan('chat.send', { 'chat.clientId': clientId }, () => {
     const session = registry.get(clientId);
     if (!session?.inputQueue) return false;
     const codex = getCodexRuntime(session);
     const responses = getResponsesRuntime(session);
-    if (codex && (images?.length || session.activeSkillPolicy)) {
+    if (codex && session.activeSkillPolicy) {
       send(session.transport, {
         type: 'error',
         sessionId: session.sessionId,
-        error: 'Codex images and restricted skill tool ceilings are not yet supported',
+        error: 'Codex restricted skill tool ceilings are not yet supported',
       });
       return false;
     }
-    const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
+    const fullPrompt = assemblePrompt(
+      prompt,
+      session.cwd ?? '.',
+      codex ? undefined : images,
+      contextBlocks,
+    );
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-send`;
     if (responses && session.sessionId && eventStore.hasUserMessage(session.sessionId, messageId))
       return true;
     if (codex) {
       try {
         // Persist before public acknowledgement; retries also repair older echo-only entries.
-        codex.enqueue({ id: messageId, prompt: fullPrompt, ...(model ? { model } : {}) });
+        codex.enqueue({
+          id: messageId,
+          prompt: fullPrompt,
+          images,
+          reasoningEffort,
+          ...(model ? { model } : {}),
+        });
         if (model) session.model = model;
       } catch {
         send(session.transport, {
@@ -1471,24 +1490,32 @@ export async function interruptChat(
   contextBlocks?: string[],
   clientMsgId?: string,
   model?: string,
+  reasoningEffort?: string,
 ): Promise<boolean> {
   return withSpanAsync('chat.interrupt', { 'chat.clientId': clientId }, async () => {
     const session = registry.get(clientId);
     if (!session?.queryInstance || !session?.inputQueue) return false;
     const codex = getCodexRuntime(session);
     if (codex) {
-      if (images?.length || session.activeSkillPolicy) {
+      if (session.activeSkillPolicy) {
         send(session.transport, {
           type: 'error',
           sessionId: session.sessionId,
-          error:
-            'This Codex task cannot change model or use unsupported attachments or skill ceilings',
+          error: 'Codex restricted skill tool ceilings are not yet supported',
         });
         return false;
       }
-      if (model) codex.validateModel(model);
+      if (model) codex.validateModel(model, reasoningEffort);
       await codex.interrupt();
-      return sendToChat(clientId, prompt, images, contextBlocks, clientMsgId, model);
+      return sendToChat(
+        clientId,
+        prompt,
+        images,
+        contextBlocks,
+        clientMsgId,
+        model,
+        reasoningEffort,
+      );
     }
     if (model) session.model = model;
     const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);

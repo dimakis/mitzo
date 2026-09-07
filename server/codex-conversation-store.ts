@@ -8,6 +8,27 @@ const CommandInput = z
     id: z.string().min(1).max(200),
     prompt: z.string().min(1).max(1_000_000),
     model: z.string().min(1).optional(),
+    reasoningEffort: z.string().min(1).max(32).optional(),
+    images: z
+      .array(
+        z
+          .object({
+            data: z
+              .string()
+              .min(1)
+              .max(14_000_000)
+              .regex(/^[A-Za-z0-9+/]*={0,2}$/),
+            mediaType: z
+              .string()
+              .refine(
+                (value) => ['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(value),
+                'Unsupported image type',
+              ),
+          })
+          .strict(),
+      )
+      .max(10)
+      .optional(),
     allowedTools: z.array(z.string()).optional(),
   })
   .strict();

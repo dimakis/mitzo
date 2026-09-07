@@ -95,6 +95,8 @@ it('routes a bound Codex account to its controller with context and canonical du
       contextBlocks: ['attached'],
       initialSessionId: '5f68a371-73d1-4994-a512-b71d4bc44c65',
       clientMsgId: 'durable-first-prompt',
+      images: [{ data: 'aGVsbG8=', mediaType: 'image/png' }],
+      reasoningEffort: 'high',
     });
     expect(openCodexChat).toHaveBeenCalledOnce();
     expect(persisted).toEqual(profiles.resolve('personal', 'luna'));
@@ -103,6 +105,9 @@ it('routes a bound Codex account to its controller with context and canonical du
     expect(query).not.toHaveBeenCalled();
     expect(id).toBe('5f68a371-73d1-4994-a512-b71d4bc44c65');
     expect(opened?.messageId).toBe('durable-first-prompt');
+    expect(opened?.images).toEqual([{ data: 'aGVsbG8=', mediaType: 'image/png' }]);
+    expect(opened?.reasoningEffort).toBe('high');
+    expect(opened?.prompt).not.toContain('Read them using the Read tool');
     expect(chat.eventStore.getSession(id)?.state).toBe('ENDED');
     await chat.startChat({ send: () => {}, isOpen: () => true }, 'codex-resume', 'next', {
       cwd: root,

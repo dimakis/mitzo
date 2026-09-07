@@ -600,6 +600,7 @@ export function handleSendV2(
                 msg.contextBlocks,
                 msg.clientMsgId,
                 msg.accountId && storedBinding?.provider === 'openai-codex' ? msg.model : undefined,
+                msg.reasoningEffort,
               )
             )
               throw new Error('Session is not accepting input. Please retry.');
@@ -627,6 +628,7 @@ export function handleSendV2(
             resume: sessionId,
             cwd: msg.cwd,
             model: msg.model,
+            reasoningEffort: msg.reasoningEffort,
             accountId: msg.accountId,
             accountProfiles,
             extraTools: msg.extraTools,
@@ -656,6 +658,7 @@ export function handleSendV2(
             initialSessionId: delivery?.initialSessionId,
             cwd: msg.cwd,
             model: msg.model,
+            reasoningEffort: msg.reasoningEffort,
             accountId: msg.accountId,
             accountProfiles,
             extraTools: msg.extraTools,
@@ -773,6 +776,7 @@ export function handleInterruptV2(
           msg.contextBlocks,
           msg.clientMsgId,
           msg.model,
+          msg.reasoningEffort,
         );
         log.info('interrupt', { connectionId, sessionId: msg.sessionId });
         return;
@@ -795,6 +799,7 @@ export function handleInterruptV2(
       startChat(transport, sessionClientId, msg.prompt, {
         resume: msg.sessionId,
         model: msg.model ?? found.session?.model,
+        reasoningEffort: msg.reasoningEffort,
         images: msg.images,
         contextBlocks: msg.contextBlocks,
         clientMsgId: msg.clientMsgId,

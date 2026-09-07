@@ -6310,7 +6310,7 @@ textarea:focus {
 }
 
 .chat-account-bar .chat-model-select {
-  flex: 1 1 0;
+  flex: 1 1 10rem;
   min-width: 0;
   max-width: none;
 }

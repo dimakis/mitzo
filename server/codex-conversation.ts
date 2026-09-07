@@ -34,7 +34,7 @@ interface Options {
     signal: AbortSignal,
   ): Promise<{ content: string; isError: boolean }>;
   requestUserInput?: (params: ObjectValue, signal: AbortSignal) => Promise<ObjectValue>;
-  validateModel?: (model: string) => void;
+  validateModel?: (model: string, reasoningEffort?: string) => void;
   displayToolName?: (name: string) => string;
   beforeComplete?: (signal: AbortSignal) => Promise<void>;
   completionHookTimeoutMs?: number;
@@ -147,8 +147,8 @@ export class CodexConversation {
     if (!this.binding) return [];
     return this.opts.store.commands(this.opts.conversationId, this.binding);
   }
-  validateModel(model: string) {
-    if (this.opts.validateModel) this.opts.validateModel(model);
+  validateModel(model: string, reasoningEffort?: string) {
+    if (this.opts.validateModel) this.opts.validateModel(model, reasoningEffort);
     else if (model !== this.opts.profile.model) throw new Error('Model unavailable');
   }
   enqueue(input: CodexCommandInput) {
@@ -162,7 +162,7 @@ export class CodexConversation {
       commands.find((c) => c.id === input.id)?.model ??
       commands.at(-1)?.model ??
       this.binding!.model;
-    this.validateModel(model);
+    this.validateModel(model, input.reasoningEffort);
     this.opts.store.enqueue(this.opts.conversationId, this.binding!, { ...input, model });
     this.opts.onQueueChange?.();
   }
@@ -203,7 +203,7 @@ export class CodexConversation {
     this.opts.onQueueChange?.();
     try {
       const model = command.model ?? this.binding!.model;
-      this.validateModel(model);
+      this.validateModel(model, command.reasoningEffort);
       this.mapper?.setModel(model);
       await verifyCodexAccount(this.client, this.opts.profile, this.binding);
       active.abort.signal.throwIfAborted();
@@ -212,11 +212,17 @@ export class CodexConversation {
           threadId: this.threadId,
           clientUserMessageId: command.id,
           model,
-          input: [{ type: 'text', text: command.prompt }],
+          input: [
+            { type: 'text', text: command.prompt },
+            ...(command.images ?? []).map((image) => ({
+              type: 'image',
+              url: `data:${image.mediaType};base64,${image.data}`,
+            })),
+          ],
           environments: [],
           approvalPolicy: 'never',
           sandboxPolicy: { type: 'readOnly' },
-          effort: 'low',
+          ...(command.reasoningEffort ? { effort: command.reasoningEffort } : {}),
         }),
       );
       if (this.active === active) {
