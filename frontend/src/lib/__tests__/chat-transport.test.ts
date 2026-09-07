@@ -16,6 +16,7 @@ describe('shouldUseSseTransport', () => {
   });
 
   it('rejects unknown persisted transport values', () => {
+    expect(parseChatTransportPreference(null)).toBeNull();
     expect(parseChatTransportPreference('unknown')).toBeNull();
     expect(parseChatTransportPreference('sse')).toBe('sse');
     expect(parseChatTransportPreference('ws')).toBe('ws');
