@@ -63,7 +63,7 @@ it('shows structured questions even after a prior session allow, then returns ac
     },
   });
 });
-it('does not consume a question on empty answers or an always-allow response', async () => {
+it('does not consume a question on empty or invalid answers', async () => {
   const { handler, sent, abort } = setup();
   const result = handler(
     'AskUserQuestion',
@@ -73,7 +73,6 @@ it('does not consume a question on empty answers or an always-allow response', a
   await vi.waitFor(() => expect(sent[0]?.questions).toBeDefined());
   const id = sent[0].permId as string;
   expect(resolvePending(id, 'once')).toBe(false);
-  expect(resolvePending(id, 'always', { 'Which account?': ['Personal'] })).toBe(false);
   expect(resolvePending(id, 'once', { 'Which account?': ['Personal', 'Work'] })).toBe(false);
   expect(resolvePending(id, 'deny')).toBe(true);
   await expect(result).resolves.toMatchObject({ behavior: 'deny' });
@@ -189,7 +188,23 @@ it('accepts every offered multi-select option plus a written answer through both
   expect(resolvePending(response.permId, 'once', answers)).toBe(true);
   await expect(result).resolves.toMatchObject({
     behavior: 'allow',
-    updatedInput: { answers: { Features: answers.Features.join(', ') } },
+    updatedInput: { answers: { Features: JSON.stringify(answers.Features) } },
+  });
+});
+
+it('treats an always decision on a question as one-shot and preserves commas', async () => {
+  const { handler, sent, abort } = setup();
+  const result = handler(
+    'AskUserQuestion',
+    { questions: [{ question: 'Values', options: [], multiSelect: true }] },
+    { signal: abort.signal, toolUseID: 'q-always' },
+  );
+  await vi.waitFor(() => expect(sent[0]?.questions).toBeDefined());
+  expect(resolvePending(sent[0].permId as string, 'always', { Values: ['a, b', 'c'] })).toBe(true);
+  await expect(result).resolves.toMatchObject({
+    behavior: 'allow',
+    decisionClassification: 'user_temporary',
+    updatedInput: { answers: { Values: JSON.stringify(['a, b', 'c']) } },
   });
 });
 

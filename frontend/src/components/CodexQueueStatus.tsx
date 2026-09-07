@@ -28,7 +28,9 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
       reading = true;
       lastRead = Date.now();
       try {
-        const response = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/meta`);
+        const response = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/meta`, {
+          signal: AbortSignal.timeout(15000),
+        });
         if (!response.ok) throw new Error();
         const data = await response.json();
         const parsed = Queue.safeParse(data.codexQueue);

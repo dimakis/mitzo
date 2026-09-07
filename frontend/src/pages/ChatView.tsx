@@ -104,6 +104,9 @@ export function ChatView() {
     if (sessionId && sessionId !== activeSessionId) {
       storeSwitchSession(sessionId);
     } else if (!sessionId && activeSessionId) {
+      // Keep the guard false for this render: the URL-sync effect below still
+      // sees the stale active ID and must not navigate back to it. The render
+      // after newSession clears the store arms the guard for the replacement ID.
       storeNewSession();
     }
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -191,6 +194,8 @@ export function ChatView() {
       return false;
     }
     voice.stopSpeaking();
+    // Codex supports per-turn model changes. The server ignores these fields for
+    // sessions bound to other providers and rejects cross-account rebinding.
     storeSendMessage(text, {
       images,
       contextBlocks: ctxBlocks,
@@ -206,6 +211,7 @@ export function ChatView() {
 
   function handleInterrupt(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): void {
     voice.stopSpeaking();
+    // Preserve the same per-turn Codex selection when interrupting an active turn.
     storeInterruptMessage(text, { images, contextBlocks: ctxBlocks, ...(accountSelection ?? {}) });
     forceScrollToBottom();
   }

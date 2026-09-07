@@ -37,13 +37,11 @@ export function resolvePending(
   if (!entry || (sessionId && entry.sessionId && entry.sessionId !== sessionId)) return false;
 
   let toolInput = entry.toolInput;
-  if (entry.request?.questions && decision !== 'deny') {
-    if (
-      decision !== 'once' ||
-      !answers ||
-      Object.keys(answers).length !== entry.request.questions.length
-    )
-      return false;
+  // Questions never grant session-wide tool permission. Treat a legacy/malformed
+  // "always" response as a one-shot answer instead of leaving it pending forever.
+  const effectiveDecision = entry.request?.questions && decision === 'always' ? 'once' : decision;
+  if (entry.request?.questions && effectiveDecision !== 'deny') {
+    if (!answers || Object.keys(answers).length !== entry.request.questions.length) return false;
     for (const question of entry.request.questions) {
       const answer = answers[question.id];
       if (
@@ -62,7 +60,9 @@ export function resolvePending(
       answers: Object.fromEntries(
         entry.request.questions.map((question) => [
           question.question,
-          answers[question.id].join(', '),
+          answers[question.id].length === 1
+            ? answers[question.id][0]
+            : JSON.stringify(answers[question.id]),
         ]),
       ),
     };
@@ -70,13 +70,13 @@ export function resolvePending(
   pending.delete(permId);
   const { resolver } = entry;
 
-  if (decision === 'always') {
+  if (effectiveDecision === 'always') {
     resolver({
       behavior: 'allow',
       decisionClassification: 'user_permanent',
       updatedInput: toolInput,
     });
-  } else if (decision === 'once') {
+  } else if (effectiveDecision === 'once') {
     resolver({
       behavior: 'allow',
       decisionClassification: 'user_temporary',

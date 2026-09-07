@@ -222,6 +222,10 @@ export class CodexConversation {
         if (active.turnId && active.turnId !== result.turn.id)
           throw new Error('Codex turn identity changed');
         active.turnId = result.turn.id;
+        if (active.completion) {
+          this.notification('turn/completed', active.completion);
+          return;
+        }
         if (active.interruptRequested || active.abort.signal.aborted) {
           await this.client.request('turn/interrupt', {
             threadId: this.threadId,
@@ -229,7 +233,6 @@ export class CodexConversation {
           });
           return;
         }
-        if (active.completion) this.notification('turn/completed', active.completion);
       }
     } catch (error: unknown) {
       this.paused = true;

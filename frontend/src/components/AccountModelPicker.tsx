@@ -62,7 +62,7 @@ export function AccountModelPicker({
     async function fetchMetadata() {
       for (let retry = 0; ; retry++) {
         const response = await apiFetch(url, { signal: controller.signal });
-        if (!sessionId || response.status !== 404 || retry >= 60 || disposed) return response;
+        if (!sessionId || response.status !== 404 || retry >= 8 || disposed) return response;
         // Accepted sessions can arrive before provider startup persists their metadata.
         await new Promise<void>((resolve) => {
           const finish = () => {
@@ -70,7 +70,7 @@ export function AccountModelPicker({
             controller.signal.removeEventListener('abort', finish);
             resolve();
           };
-          const timer = setTimeout(finish, 500);
+          const timer = setTimeout(finish, Math.min(500 * 2 ** retry, 5000));
           controller.signal.addEventListener('abort', finish, { once: true });
         });
         if (disposed) return response;

@@ -327,6 +327,38 @@ it('interrupts a turn that is created while turn/start is still in flight', asyn
   expect(c.queue()[0].status).toBe('interrupted');
 });
 
+it('drains an early completion when interrupt races with the turn/start response', async () => {
+  const { c, rpc, callbacks, requests } = await setup();
+  const request = rpc.request.getMockImplementation()!;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let first = true;
+  rpc.request.mockImplementation(async (method, params) => {
+    if (method !== 'turn/start' || !first) return request(method, params);
+    first = false;
+    requests.push({ method, params });
+    callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'early-interrupted', status: 'completed' },
+    });
+    await gate;
+    return { turn: { id: 'early-interrupted' } };
+  });
+  const send = c.send({ id: 'first', prompt: 'hello' });
+  await vi.waitFor(() =>
+    expect(requests.some((entry) => entry.method === 'turn/start')).toBe(true),
+  );
+  c.enqueue({ id: 'second', prompt: 'continue later' });
+  await c.interrupt();
+  release();
+  await send;
+  await c.acknowledgeRecovery();
+  expect(requests.filter((entry) => entry.method === 'turn/start')).toHaveLength(2);
+  expect(c.queue().map((command) => command.status)).toEqual(['interrupted', 'running']);
+});
+
 it('does not throw from a transport close callback when recovery persistence fails', async () => {
   const { c, callbacks, store, onClosed, onError } = await setup();
   await c.send({ id: 'active', prompt: 'hello' });
