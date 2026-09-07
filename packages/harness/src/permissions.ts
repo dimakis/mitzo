@@ -1,4 +1,5 @@
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
+import type { PermissionRequest, QuestionAnswers } from '@mitzo/protocol';
 import type { ToolTier } from './tool-tiers.js';
 
 type PermissionResolver = (result: PermissionResult) => void;
@@ -9,6 +10,7 @@ interface PendingEntry {
   toolInput: Record<string, unknown>;
   tier?: ToolTier;
   sessionId?: string;
+  request?: PermissionRequest;
 }
 
 const pending = new Map<string, PendingEntry>();
@@ -20,16 +22,50 @@ export function registerPending(
   toolInput: Record<string, unknown>,
   tier?: ToolTier,
   sessionId?: string,
+  request?: PermissionRequest,
 ) {
-  pending.set(permId, { resolver, toolName, toolInput, tier, sessionId });
+  pending.set(permId, { resolver, toolName, toolInput, tier, sessionId, request });
 }
 
-export function resolvePending(permId: string, decision: 'once' | 'always' | 'deny'): boolean {
+export function resolvePending(
+  permId: string,
+  decision: 'once' | 'always' | 'deny',
+  answers?: QuestionAnswers,
+): boolean {
   const entry = pending.get(permId);
   if (!entry) return false;
 
+  let toolInput = entry.toolInput;
+  if (entry.request?.questions && decision !== 'deny') {
+    if (
+      decision !== 'once' ||
+      !answers ||
+      Object.keys(answers).length !== entry.request.questions.length
+    )
+      return false;
+    for (const question of entry.request.questions) {
+      const answer = answers[question.id];
+      if (
+        !Array.isArray(answer) ||
+        !answer.length ||
+        answer.length > 8 ||
+        (!question.multiSelect && answer.length !== 1) ||
+        answer.some((value) => typeof value !== 'string' || !value.trim() || value.length > 4000)
+      )
+        return false;
+    }
+    toolInput = {
+      ...toolInput,
+      answers: Object.fromEntries(
+        entry.request.questions.map((question) => [
+          question.question,
+          answers[question.id].join(', '),
+        ]),
+      ),
+    };
+  }
   pending.delete(permId);
-  const { resolver, toolInput } = entry;
+  const { resolver } = entry;
 
   if (decision === 'always') {
     resolver({
@@ -90,4 +126,11 @@ export function denyPendingBySession(sessionId: string): number {
     }
   }
   return denied;
+}
+
+/** Live interaction replay; never replay resolved requests or side effects. */
+export function getPendingRequestsBySession(sessionId: string): PermissionRequest[] {
+  return [...pending.values()]
+    .filter((entry) => entry.sessionId === sessionId && entry.request)
+    .map((entry) => structuredClone(entry.request!));
 }

@@ -1,5 +1,7 @@
+import { z } from 'zod';
+import type { PermissionRequest, UserQuestion } from '@mitzo/protocol';
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
-import { registerPending, removePending, hasPending } from './permissions.js';
+import { registerPending, resolvePending, hasPending } from './permissions.js';
 import { sendPermissionNotification, isConfigured as ntfyConfigured } from './notify.js';
 import {
   sendPermissionNotification as pushoverSendPermission,
@@ -12,6 +14,27 @@ import { checkWorktreePolicy, type OnDemandCreateFn } from './worktree-guard.js'
 import { PERMISSION_TIMEOUT_MS, NTFY_NOTIFICATION_DELAY_MS } from './constants.js';
 import type { SessionRegistry } from './session-registry.js';
 import type { SessionTransport } from './session-transport.js';
+
+const Questions = z
+  .array(
+    z.object({
+      question: z.string().min(1).max(4000),
+      header: z.string().max(80).default('Question'),
+      options: z
+        .array(
+          z.object({
+            label: z.string().min(1).max(4000),
+            description: z.string().max(4000).default(''),
+          }),
+        )
+        .max(8)
+        .default([]),
+      multiSelect: z.boolean().default(false),
+    }),
+  )
+  .min(1)
+  .max(4)
+  .refine((questions) => new Set(questions.map((q) => q.question)).size === questions.length);
 
 function transportSend(transport: SessionTransport, data: Record<string, unknown>): void {
   if (transport.isOpen()) {
@@ -72,6 +95,17 @@ export function buildPermissionHandler(
       return { behavior: 'deny', message: 'Tool not allowed by active skill policy' };
     }
 
+    let questions: UserQuestion[] | undefined;
+    if (toolName === 'AskUserQuestion') {
+      const parsed = Questions.safeParse(_toolInput.questions);
+      if (!parsed.success)
+        return {
+          behavior: 'deny',
+          message: 'Invalid user questions. Ask up to four distinct questions.',
+        };
+      questions = parsed.data.map((question) => ({ id: question.question, ...question }));
+    }
+
     const worktreeViolation = await checkWorktreePolicy(session, toolName, _toolInput, {
       onDemandCreate: handlerOpts?.onDemandCreate,
     });
@@ -79,11 +113,11 @@ export function buildPermissionHandler(
       return { behavior: 'deny', message: worktreeViolation };
     }
 
-    if (shouldAutoAllow(toolName, session.mode)) {
+    if (!questions && shouldAutoAllow(toolName, session.mode)) {
       return { behavior: 'allow', updatedInput: _toolInput };
     }
 
-    if (isAllowListed(session.sessionAllowList, toolName)) {
+    if (!questions && isAllowListed(session.sessionAllowList, toolName)) {
       return {
         behavior: 'allow',
         decisionClassification: 'user_permanent',
@@ -102,7 +136,11 @@ export function buildPermissionHandler(
 
       const permId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+      let notificationTimer: ReturnType<typeof setTimeout> | undefined;
       const wrappedResolve = (result: PermissionResult) => {
+        clearTimeout(timeout);
+        clearTimeout(notificationTimer);
+        opts.signal.removeEventListener('abort', onAbort);
         if (result.behavior === 'allow' && result.decisionClassification === 'user_permanent') {
           addToAllowList(session.sessionAllowList, toolName);
         }
@@ -111,29 +149,40 @@ export function buildPermissionHandler(
 
       const onAbort = () => {
         if (hasPending(permId)) {
-          removePending(permId);
-          resolve({ behavior: 'deny', message: 'Aborted' });
-          transportSend(session.transport, { type: 'permission_timeout', permId });
+          resolvePending(permId, 'deny');
+          transportSend(session.transport, {
+            type: 'permission_timeout',
+            permId,
+            sessionId: session.sessionId,
+          });
         }
       };
       opts.signal.addEventListener('abort', onAbort, { once: true });
 
-      registerPending(permId, toolName, wrappedResolve, _toolInput, tier, session.sessionId);
-
-      transportSend(session.transport, {
-        type: 'permission_request',
+      const request: PermissionRequest = {
         permId,
         toolName,
         toolInput: inputSummary,
         title: opts.title,
         description: opts.description,
         displayName: opts.displayName,
-        decisionReason: opts.decisionReason,
         tier,
-      });
+        sessionId: session.sessionId,
+        expiresAt: Date.now() + PERMISSION_TIMEOUT_MS,
+        ...(questions ? { questions } : {}),
+      };
+      registerPending(
+        permId,
+        toolName,
+        wrappedResolve,
+        _toolInput,
+        tier,
+        session.sessionId,
+        request,
+      );
 
       if (ntfyConfigured() || pushoverConfigured()) {
-        setTimeout(() => {
+        notificationTimer = setTimeout(() => {
           if (hasPending(permId)) {
             if (ntfyConfigured())
               sendPermissionNotification(toolName, inputSummary, permId, session.sessionId);
@@ -143,14 +192,17 @@ export function buildPermissionHandler(
         }, NTFY_NOTIFICATION_DELAY_MS);
       }
 
-      setTimeout(() => {
+      const timeout = setTimeout(() => {
         if (hasPending(permId)) {
-          removePending(permId);
-          opts.signal.removeEventListener('abort', onAbort);
-          resolve({ behavior: 'deny', message: 'Permission request timed out' });
-          transportSend(session.transport, { type: 'permission_timeout', permId });
+          resolvePending(permId, 'deny');
+          transportSend(session.transport, {
+            type: 'permission_timeout',
+            permId,
+            sessionId: session.sessionId,
+          });
         }
       }, PERMISSION_TIMEOUT_MS);
+      transportSend(session.transport, { type: 'permission_request', ...request });
     });
   };
 }

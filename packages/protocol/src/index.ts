@@ -13,6 +13,8 @@ export type {
   FinishedBlock,
   FinishedMessage,
   PermissionRequest,
+  UserQuestion,
+  QuestionAnswers,
   ImageAttachment,
   RawToolResultImage,
   ToolResultImage,

@@ -27,6 +27,7 @@ export {
   hasPending,
   denyPendingBySession,
   getPendingCountBySession,
+  getPendingRequestsBySession,
 } from './permissions.js';
 
 // Tool tiers
