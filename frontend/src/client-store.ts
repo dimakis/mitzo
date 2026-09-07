@@ -10,7 +10,8 @@
 import { createMitzoStore } from '@mitzo/client';
 import type { SseConnectionConfig } from '@mitzo/client';
 import { apiFetch, getApiBaseUrl, getEventSourceUrl, getWsChatUrl } from './lib/api-fetch';
-import { registerCapacitorLifecycle } from './lib/capacitor';
+import { isCapacitor, registerCapacitorLifecycle } from './lib/capacitor';
+import { parseChatTransportPreference, shouldUseSseTransport } from './lib/chat-transport';
 import { configureKeyboard } from './lib/keyboard';
 import { initPushNotifications } from './lib/push';
 import { eventBus } from './lib/event-bus-singleton';
@@ -21,10 +22,14 @@ import { getPreferredModel } from './lib/model-preference';
  * This is an intentional flip from WS-default per the transport-ssot design doc.
  * Set localStorage 'mitzo:transport' to 'ws' to fall back to WebSocket.
  *
- * Force WS:   localStorage.setItem('mitzo:transport', 'ws'); location.reload();
- * Revert SSE: localStorage.removeItem('mitzo:transport'); location.reload();
+ * Browser defaults to SSE; native WKWebView defaults to the hardened WS path.
+ * Override: localStorage.setItem('mitzo:transport', 'sse' | 'ws'); location.reload();
  */
-const useSSE = typeof window !== 'undefined' && localStorage.getItem('mitzo:transport') !== 'ws';
+const preference =
+  typeof window !== 'undefined'
+    ? parseChatTransportPreference(localStorage.getItem('mitzo:transport'))
+    : null;
+const useSSE = typeof window !== 'undefined' && shouldUseSseTransport(isCapacitor(), preference);
 
 const sseConfig: SseConnectionConfig | undefined = useSSE
   ? {
