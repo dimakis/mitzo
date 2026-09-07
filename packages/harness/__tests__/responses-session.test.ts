@@ -283,11 +283,57 @@ describe('ResponsesSession', () => {
     expect(fetcher.mock.calls[0][1].signal).toBe(controller.signal);
   });
 
+  it('abandons an incomplete checkpoint when aborted between streamed events', async () => {
+    const controller = new AbortController();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(textEvents())));
+    const session = new ResponsesSession(
+      { ...config, signal: controller.signal },
+      { accountId: 'personal', apiKey: 'test' },
+    );
+    const iterator = session.turn(prompt)[Symbol.asyncIterator]();
+    expect((await iterator.next()).done).toBe(false);
+    controller.abort();
+    await expect(iterator.next()).rejects.toMatchObject({ name: 'AbortError' });
+    expect(session.checkpoint().history).toEqual([]);
+  });
+  it('marks error tool results explicitly in Responses function outputs', async () => {
+    const history: ConversationMessage[] = [
+      ...prompt,
+      { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Read', input: {} }] },
+    ];
+    const fetcher = vi.fn().mockResolvedValue(response(textEvents()));
+    vi.stubGlobal('fetch', fetcher);
+    const session = new ResponsesSession(config, {
+      accountId: 'personal',
+      apiKey: 'test',
+      checkpoint: {
+        accountId: 'personal',
+        model: config.model,
+        history,
+        input: [{ type: 'function_call', call_id: 't1', name: 'Read', arguments: '{}' }],
+      },
+    });
+    await collect(session, [
+      ...history,
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 't1', content: 'diagnostic', is_error: true },
+        ],
+      },
+    ]);
+    expect(JSON.parse(fetcher.mock.calls[0][1].body).input.at(-1).output).toBe(
+      '[error] diagnostic',
+    );
+  });
+
   it('surfaces streamed refusal text', async () => {
     const events = textEvents('Cannot help with that.').map((event) =>
       event.type === 'response.output_text.delta'
         ? { ...event, type: 'response.refusal.delta' }
-        : event,
+        : event.type === 'response.content_part.added'
+          ? { ...event, part: { type: 'refusal' } }
+          : event,
     );
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(events)));
     const session = new ResponsesSession(config, { accountId: 'personal', apiKey: 'test' });

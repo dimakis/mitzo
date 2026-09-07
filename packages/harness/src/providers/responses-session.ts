@@ -90,9 +90,13 @@ function inputMessages(messages: ConversationMessage[]): Record<string, unknown>
     if (typeof message.content === 'string') return [{ role: 'user', content: message.content }];
     return message.content.map((block): Record<string, unknown> => {
       if (block.type === 'text') return { role: 'user', content: block.text };
-      // Responses has no is_error field: tool failures are conveyed in the output text.
+      // Responses has no is_error field: tool failures are explicitly marked in output text.
       if (block.type === 'tool_result')
-        return { type: 'function_call_output', call_id: block.tool_use_id, output: block.content };
+        return {
+          type: 'function_call_output',
+          call_id: block.tool_use_id,
+          output: block.is_error ? `[error] ${block.content}` : block.content,
+        };
       throw new Error('Unsupported OpenAI input content block');
     });
   });
