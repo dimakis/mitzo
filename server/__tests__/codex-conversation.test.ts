@@ -9,9 +9,9 @@ const cleanup: (() => void)[] = [];
 afterEach(() => {
   cleanup.splice(0).forEach((f) => f());
 });
-async function setup() {
+async function setup(existingStore?: CodexConversationStore) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
-  const store = new CodexConversationStore(join(dir, 'private.db'));
+  const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
   let callbacks!: CodexLifecycleTransport;
   let turn = 0;
   const requests: { method: string; params: Record<string, unknown> }[] = [];
@@ -75,7 +75,7 @@ async function setup() {
   });
   cleanup.push(() => {
     c.close();
-    store.close();
+    if (!existingStore) store.close();
     rmSync(dir, { recursive: true, force: true });
   });
   await c.initialize();
@@ -260,4 +260,24 @@ it('tolerates the transport closing while interrupt is in flight', async () => {
     throw new Error('connection closed');
   });
   await expect(c.interrupt()).resolves.toBeUndefined();
+});
+
+it('resumes durable queued work after replacing the runtime and acknowledging recovery', async () => {
+  const old = await setup();
+  await old.c.send({ id: 'first', prompt: 'first' });
+  await old.c.send({ id: 'next', prompt: 'next' });
+  old.c.close();
+  old.store.recoverAtStartup();
+  const resumed = await setup(old.store);
+  expect(resumed.requests.some((r) => r.method === 'thread/resume')).toBe(true);
+  expect(resumed.requests.some((r) => r.method === 'turn/start')).toBe(false);
+  expect(resumed.c.isPaused()).toBe(true);
+  await resumed.c.acknowledgeRecovery();
+  expect(resumed.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+  resumed.callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  expect(resumed.c.queue().map((q) => q.status)).toEqual(['interrupted', 'completed']);
+  resumed.c.close();
 });
