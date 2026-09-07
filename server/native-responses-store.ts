@@ -15,7 +15,8 @@ export interface NativeResponsesState {
 export class NativeResponsesStore {
   private db: Database.Database;
   constructor(path: string) {
-    // Create privately before SQLite opens it (including its rollback journal).
+    // New files are created with 0600 atomically; chmod also tightens existing files.
+    // The enclosing directory must be private, as required by the integration contract.
     closeSync(openSync(path, 'a', 0o600));
     chmodSync(path, 0o600);
     this.db = new Database(path);

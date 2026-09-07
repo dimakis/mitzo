@@ -148,6 +148,23 @@ describe('native tool execution through session permissions', () => {
     }
     expect(await readFile(join(root, 'worktree/large'), 'utf8')).toBe('a' + 'x'.repeat(32));
   });
+  it.each([8, 9])(
+    'enforces the exact byte boundary for a %i-byte file with an 8-byte limit',
+    async (size) => {
+      await writeFile(join(root, 'worktree/boundary'), 'x'.repeat(size));
+      const execute = createNativeToolExecutor('client', registry, { env: {}, maxOutputBytes: 8 });
+      const result = await execute(call('Read', { file_path: 'boundary' }), abort.signal);
+      expect(result.is_error).toBe(size > 8);
+      if (size === 8) expect(result.content).toBe('xxxxxxxx');
+    },
+  );
+  it('uses existing permission policy for explicitly unisolated sessions', async () => {
+    registry.get('client')!.worktreePaths.clear();
+    expect(
+      await executor()(call('Write', { file_path: 'note', content: 'allowed' }), abort.signal),
+    ).toMatchObject({ is_error: false });
+    expect(await readFile(join(root, 'worktree/note'), 'utf8')).toBe('allowed');
+  });
   it('requires a unique Edit match and enforces shell timeout', async () => {
     await writeFile(join(root, 'worktree/note'), 'same same');
     for (const old_string of ['absent', 'same']) {

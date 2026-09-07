@@ -20,7 +20,7 @@ interface NativeResponsesOptions extends Omit<ModelSessionConfig, 'model' | 'sig
   executeTool: (block: ToolUseBlock, signal: AbortSignal) => Promise<ToolResultBlock>;
 }
 
-/** Fill unresolved calls with explicit uncertainty; never replay tools following a crash. */
+/** Mutates state.history to fill unresolved calls with uncertainty; never replays tools. */
 function recoverToolResults(state: NativeResponsesState) {
   const lastAssistant = state.history.map((message) => message.role).lastIndexOf('assistant');
   if (lastAssistant < 0) return;
@@ -99,6 +99,7 @@ export class NativeResponsesRunner {
           try {
             return await opts.executeTool(block, abort.signal);
           } catch {
+            // Redact native failures here; the generic loop catch remains for other callers.
             return {
               type: 'tool_result',
               tool_use_id: block.id,
