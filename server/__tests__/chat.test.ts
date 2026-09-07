@@ -517,7 +517,7 @@ describe('startChat stores user message for resumed sessions', () => {
     // Region between the resume guard and runQueryLoop — bounds the block
     // without fragile brace-matching or magic byte offsets.
     const start = chatSource.indexOf(
-      'if (options.resume && !codexProfile) {',
+      '// For resumed sessions the prompt is sent to the SDK',
       chatSource.indexOf('session.queryInstance = q'),
     );
     const end = chatSource.indexOf('await runQueryLoop(', start);
@@ -537,7 +537,7 @@ describe('startChat stores user message for resumed sessions', () => {
 
   it('uses clientMsgId with resume fallback for messageId', () => {
     const start = chatSource.indexOf(
-      'if (options.resume && !codexProfile) {',
+      '// For resumed sessions the prompt is sent to the SDK',
       chatSource.indexOf('session.queryInstance = q'),
     );
     const end = chatSource.indexOf('await runQueryLoop(', start);
