@@ -12,6 +12,7 @@ afterEach(() => {
 async function setup(
   existingStore?: CodexConversationStore,
   displayToolName?: (name: string) => string,
+  beforeComplete?: (signal: AbortSignal) => Promise<void>,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -66,6 +67,7 @@ async function setup(
     store,
     systemPrompt: 'context',
     displayToolName,
+    beforeComplete,
     tools: [{ name: 'Read', description: 'Read', input_schema: { type: 'object' } }],
     createClient: (cb) => {
       callbacks = cb;
@@ -342,4 +344,22 @@ it('routes native user input with active thread/turn identity and abort lifetime
     ),
   ).rejects.toThrow('identity');
   expect(requestUserInput).toHaveBeenCalledTimes(1);
+});
+
+it('waits for completion hooks before releasing queued turns', async () => {
+  let release!: () => void;
+  const hook = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { c, callbacks, requests } = await setup(undefined, undefined, () => hook);
+  await c.send({ id: 'first', prompt: 'first' });
+  await c.send({ id: 'second', prompt: 'second' });
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+  release();
+  await vi.waitFor(() => expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(2));
 });

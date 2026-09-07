@@ -36,6 +36,7 @@ interface Options {
   requestUserInput?: (params: ObjectValue, signal: AbortSignal) => Promise<ObjectValue>;
   validateModel?: (model: string) => void;
   displayToolName?: (name: string) => string;
+  beforeComplete?: (signal: AbortSignal) => Promise<void>;
   onQueueChange?: () => void;
   onClosed?: () => void;
   onError?: (error: Error) => void;
@@ -58,6 +59,7 @@ export class CodexConversation {
     command: CodexCommand;
     turnId?: string;
     completion?: ObjectValue;
+    completionHook?: 'pending' | 'done';
     abort: AbortController;
   };
   private paused = false;
@@ -244,6 +246,28 @@ export class CodexConversation {
         return;
       }
       if (this.active.turnId !== turn.data.id) return;
+      if (
+        this.opts.beforeComplete &&
+        turn.data.status === 'completed' &&
+        this.active.completionHook !== 'done'
+      ) {
+        if (this.active.completionHook === 'pending') return;
+        const active = this.active;
+        active.completionHook = 'pending';
+        this.opts
+          .beforeComplete(active.abort.signal)
+          .then(() => {
+            if (this.active !== active || this.closed) return;
+            active.completionHook = 'done';
+            this.notification(method, params);
+          })
+          .catch(() => {
+            if (this.active !== active || this.closed) return;
+            this.opts.onError?.(new Error('Project completion hook failed or blocked the turn.'));
+            this.close();
+          });
+        return;
+      }
       const status =
         turn.data.status === 'completed'
           ? 'completed'
