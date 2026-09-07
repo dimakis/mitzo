@@ -1301,6 +1301,20 @@ export function sendToChat(
     }
     const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-send`;
+    if (codex) {
+      try {
+        // Persist before public acknowledgement; retries also repair older echo-only entries.
+        codex.enqueue({ id: messageId, prompt: fullPrompt });
+      } catch {
+        send(session.transport, {
+          type: 'error',
+          sessionId: session.sessionId,
+          error:
+            'Message could not be saved to the Codex queue. Retry after checking storage and connection.',
+        });
+        return false;
+      }
+    }
     if (session.sessionId) {
       const isDup = storeAndEchoIfNew(
         session.sessionId,
@@ -1310,7 +1324,7 @@ export function sendToChat(
         session.transport,
         session.observers,
       );
-      if (isDup) return true;
+      if (isDup && !codex) return true;
       tryAutoRename(session.sessionId, clientId).catch(() => {
         /* errors logged internally */
       });
