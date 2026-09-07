@@ -163,8 +163,21 @@ export interface FinishedMessage {
 
 // --- Permission ---
 
+export interface UserQuestion {
+  id: string;
+  question: string;
+  header: string;
+  options: Array<{ label: string; description: string }>;
+  multiSelect: boolean;
+}
+
+export type QuestionAnswers = Record<string, string[]>;
+
 export interface PermissionRequest {
   permId: string;
+  sessionId?: string;
+  expiresAt?: number;
+  questions?: UserQuestion[];
   toolName: string;
   toolInput: string;
   title?: string;

@@ -4,4 +4,5 @@ export {
   removePending,
   hasPending,
   denyPendingBySession,
+  getPendingRequestsBySession,
 } from '@mitzo/harness';

@@ -1300,3 +1300,31 @@ describe('delivery status', () => {
     expect(store.getState().sendError).toBe('Rejected');
   });
 });
+it('sends question answers without losing the request identity', async () => {
+  const store = createReadyStore();
+  await store.getState().switchSession('test-session');
+  const answers = { q1: ['Personal'] };
+  store.getState().respondToPermission('question-1', 'once', answers);
+  expect(lastWs.parsedSent()).toContainEqual({
+    type: 'permission_response',
+    sessionId: 'test-session',
+    permId: 'question-1',
+    decision: 'once',
+    answers,
+  });
+});
+
+it('keeps a second prompt visible after responding to the first', async () => {
+  const store = createReadyStore();
+  await store.getState().switchSession('test-session');
+  for (const permId of ['p1', 'p2'])
+    lastWs.simulateMessage({
+      type: 'permission_request',
+      sessionId: 'test-session',
+      permId,
+      toolName: 'Bash',
+      toolInput: 'pwd',
+    });
+  store.getState().respondToPermission('p1', 'deny');
+  expect(store.getState().messages.permission?.permId).toBe('p2');
+});
