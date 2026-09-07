@@ -87,7 +87,22 @@ interface SessionRow {
   updated_at: number;
 }
 
+export interface SendCommandReceipt {
+  clientMsgId: string;
+  sessionId: string | null;
+  payload: Record<string, unknown>;
+  error: string | null;
+}
+
 const SCHEMA = `
+  CREATE TABLE IF NOT EXISTS send_commands (
+    client_msg_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    error TEXT,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch('now', 'subsec') * 1000)
+  );
+
   CREATE TABLE IF NOT EXISTS events (
     seq         INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id  TEXT NOT NULL,
@@ -143,6 +158,74 @@ export class EventStore {
     setSessionState: Database.Statement;
     getSessionState: Database.Statement;
   };
+
+  getSendCommand(clientMsgId: string): SendCommandReceipt | undefined {
+    const row = this.db!.prepare('SELECT * FROM send_commands WHERE client_msg_id = ?').get(
+      clientMsgId,
+    ) as
+      | { client_msg_id: string; session_id: string; payload: string; error: string | null }
+      | undefined;
+    return (
+      row && {
+        clientMsgId: row.client_msg_id,
+        sessionId: row.session_id || null,
+        payload: JSON.parse(row.payload),
+        error: row.error,
+      }
+    );
+  }
+
+  /** Synchronous insert before dispatch: retries can never allocate another session. */
+  insertSendCommand(
+    clientMsgId: string,
+    sessionId: string,
+    payload: Record<string, unknown>,
+  ): void {
+    this.db!.prepare(
+      'INSERT INTO send_commands (client_msg_id, session_id, payload) VALUES (?, ?, ?)',
+    ).run(clientMsgId, sessionId, JSON.stringify(payload));
+  }
+
+  completeNativeSendCommand(clientMsgId: string): void {
+    this.db!.prepare("UPDATE send_commands SET session_id = '' WHERE client_msg_id = ?").run(
+      clientMsgId,
+    );
+  }
+
+  /** A crash may happen between acceptance and dispatch. Never silently discard
+   * that receipt or re-execute a possibly side-effecting command after restart. */
+  recoverPendingSendCommands(): void {
+    const rows = this.db!.prepare(
+      `SELECT client_msg_id, session_id, payload FROM send_commands c
+      WHERE error IS NULL AND session_id != '' AND NOT EXISTS (
+        SELECT 1 FROM events e WHERE e.session_id = c.session_id AND e.type = 'user_message'
+        AND json_extract(e.payload, '$.messageId') = c.client_msg_id
+      )`,
+    ).all() as Array<{ client_msg_id: string; session_id: string; payload: string }>;
+    for (const row of rows) {
+      const error =
+        'Server restarted before message execution was confirmed. Please check the conversation and retry.';
+      this.failSendCommand(row.client_msg_id, error);
+      if (!this.getSession(row.session_id)) {
+        const payload = JSON.parse(row.payload);
+        this.upsertSession({ sessionId: row.session_id, initialPrompt: payload.prompt });
+      }
+      this.append(row.session_id, 'error', {
+        type: 'error',
+        v: 2,
+        sessionId: row.session_id,
+        error,
+      });
+      this.setSessionState(row.session_id, 'ENDED', { force: true, reason: 'server_restart' });
+    }
+  }
+
+  failSendCommand(clientMsgId: string, error: string): void {
+    this.db!.prepare('UPDATE send_commands SET error = ? WHERE client_msg_id = ?').run(
+      error,
+      clientMsgId,
+    );
+  }
 
   constructor(dbPath: string, logger?: EventStoreLogger) {
     this.log = logger ?? noopLogger;

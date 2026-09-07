@@ -176,6 +176,7 @@ function v2(type: string, rest: Record<string, unknown> = {}): Record<string, un
 }
 
 export interface QueryLoopOptions {
+  initialClientMsgId?: string;
   connRegistry?: ConnectionRegistry;
   onSessionResolved?: (sessionId: string) => void;
   /** Called after the initial prompt is registered, enabling auto-rename on prompt 1. */
@@ -265,6 +266,7 @@ async function _runQueryLoopInner(
   let openBlockCount = 0;
   let pendingMessageEnd: Record<string, unknown> | null = null;
   let resolvedSessionId: string | undefined;
+  let initialPromptPending = !!initialPrompt;
   let resolvedGoalId: string | undefined;
   let goalCreationPromise: Promise<string | null> | undefined;
   let goalTitle: string | undefined;
@@ -473,7 +475,8 @@ async function _runQueryLoopInner(
             tryFlushMessageEnd(currentSession);
           }
           // Capture session ID on first assistant event.
-          if (!currentSession.sessionId && msg.session_id) {
+          if ((!currentSession.sessionId || initialPromptPending) && msg.session_id) {
+            initialPromptPending = false;
             resolvedSessionId = msg.session_id as string;
             flushPreSessionBuffer();
             span.setAttribute('session.id', resolvedSessionId);
@@ -512,7 +515,7 @@ async function _runQueryLoopInner(
                   v: 2,
                   type: 'user_message',
                   ts: now,
-                  messageId: `umsg-${now}-init`,
+                  messageId: options?.initialClientMsgId ?? `umsg-${now}-init`,
                   text: initialPrompt,
                 });
                 store.updateLastSpeaker(resolvedSessionId, 'user');

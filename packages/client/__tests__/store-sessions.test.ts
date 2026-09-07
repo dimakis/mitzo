@@ -138,3 +138,13 @@ describe('refreshSessions', () => {
     expect(store.getState().sessions.list[0].name).toBe('Existing');
   });
 });
+
+describe('delivery status on navigation', () => {
+  it.each(['switch', 'new'])('clears the previous conversation error on %s', async (action) => {
+    const store = createMitzoStore(makeOptions());
+    store.setState({ sendError: 'Reconnecting — your message will retry automatically.' });
+    if (action === 'switch') await store.getState().switchSession('other');
+    else store.getState().newSession();
+    expect(store.getState().sendError).toBeNull();
+  });
+});

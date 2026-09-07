@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import express from 'express';
+import { EventStore } from '../event-store.js';
 import request from 'supertest';
 import { SessionSseRegistry } from '../session-sse-registry.js';
 import { SseTransport } from '../sse-transport.js';
@@ -55,7 +56,7 @@ function buildApp(sseRegistry: SessionSseRegistry, connRegistry: ConnectionRegis
   const ctx: V2HandlerContext = {
     connRegistry,
     sessionRegistry: {} as V2HandlerContext['sessionRegistry'],
-    eventStore: {} as V2HandlerContext['eventStore'],
+    eventStore: new EventStore(':memory:'),
     nativeCommands: {} as V2HandlerContext['nativeCommands'],
   };
 
@@ -71,6 +72,7 @@ describe('chat-rest-handler', () => {
   let sseRegistry: SessionSseRegistry;
   let connRegistry: ConnectionRegistry;
   let testApp: express.Express;
+  let eventStore: EventStore;
   const CONNECTION_ID = 'conn-test-123';
 
   beforeEach(() => {
@@ -84,33 +86,69 @@ describe('chat-rest-handler', () => {
     const transport = new SseTransport(CONNECTION_ID, sseRegistry);
     connRegistry.register(CONNECTION_ID, transport);
 
-    const { app } = buildApp(sseRegistry, connRegistry);
+    const { app, ctx } = buildApp(sseRegistry, connRegistry);
     testApp = app;
+    eventStore = ctx.eventStore;
   });
 
   afterEach(() => {
+    eventStore.close();
     sseRegistry.destroy();
     connRegistry.dispose();
   });
 
   // ─── Header validation ──────────────────────────────────────────────────
 
-  it('rejects requests without X-Connection-ID', async () => {
-    const res = await request(testApp)
-      .post('/api/chat/send')
-      .send({ prompt: 'hello', clientMsgId: 'msg-1' });
-
-    expect(res.status).toBe(400);
-    expect(res.body.error).toContain('X-Connection-ID');
+  it('returns a liveness nonce through the existing SSE connection', async () => {
+    const transport = connRegistry.get(CONNECTION_ID)!.transport;
+    const send = vi.spyOn(transport, 'send');
+    const response = await request(testApp)
+      .post('/api/chat/probe')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send({ nonce: 'probe-1' });
+    expect(response.status).toBe(202);
+    expect(send).toHaveBeenCalledWith({ type: '_probe', nonce: 'probe-1' });
   });
 
-  it('rejects requests with unknown connection (getTransport path)', async () => {
-    const res = await request(testApp)
-      .post('/api/chat/send')
-      .set('X-Connection-ID', 'conn-nonexistent')
-      .send({ prompt: 'hello', clientMsgId: 'msg-1' });
+  it('persists startup events before a stream exists without duplicating sequenced events', async () => {
+    vi.mocked(handleSendV2).mockImplementationOnce((_id, transport, _msg, _ctx, delivery) => {
+      if (transport.isOpen()) transport.send({ type: 'session_info', branch: 'main' });
+      const sid = delivery!.initialSessionId!;
+      const seq = eventStore.append(sid, 'message_start', {
+        v: 2,
+        type: 'message_start',
+        messageId: 'm',
+      });
+      transport.send({ v: 2, type: 'message_start', messageId: 'm', seq });
+    });
+    const response = await request(testApp).post('/api/chat/send').send({
+      type: 'send',
+      sessionId: null,
+      prompt: 'hello',
+      clientMsgId: 'early',
+    });
+    expect(response.status).toBe(202);
+    const events = eventStore.getEventsAfter(response.body.sessionId, 0);
+    expect(events.map((e) => e.type)).toEqual(['session_info', 'message_start']);
+  });
 
-    expect(res.status).toBe(404);
+  it('accepts the first prompt with no SSE stream and deduplicates a retry', async () => {
+    const message = { type: 'send', sessionId: null, prompt: 'hello', clientMsgId: 'msg-1' };
+    const first = await request(testApp).post('/api/chat/send').send(message);
+    const second = await request(testApp)
+      .post('/api/chat/send')
+      .set('X-Connection-ID', 'expired')
+      .send(message);
+    expect(first.status).toBe(202);
+    expect(second.body).toEqual(first.body);
+    expect(first.body).toEqual(
+      expect.objectContaining({
+        accepted: true,
+        clientMsgId: 'msg-1',
+        sessionId: expect.any(String),
+      }),
+    );
+    expect(handleSendV2).toHaveBeenCalledTimes(1);
   });
 
   it('rejects requests with unknown connection (requireConnection path)', async () => {
@@ -140,9 +178,10 @@ describe('chat-rest-handler', () => {
     expect(handleSendV2).toHaveBeenCalledOnce();
     expect(handleSendV2).toHaveBeenCalledWith(
       CONNECTION_ID,
-      expect.any(SseTransport),
+      expect.objectContaining({ send: expect.any(Function), isOpen: expect.any(Function) }),
       expect.objectContaining({ prompt: 'hello world' }),
       expect.any(Object),
+      expect.objectContaining({ initialSessionId: res.body.sessionId }),
     );
   });
 

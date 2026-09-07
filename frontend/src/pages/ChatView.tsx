@@ -36,6 +36,8 @@ export function ChatView() {
   const messages = useMessages();
   const connection = useConnection();
   const tokens = useTokens();
+  const sendError = useMitzoStore((s) => s.sendError);
+  const sendStatus = useMitzoStore((s) => s.sendStatus);
   const activeSessionId = useMitzoStore((s) => s.sessions.active);
 
   // Select individual action functions — stable references
@@ -280,6 +282,16 @@ export function ChatView() {
           </>
         )}
       </header>
+      {(sendError || sendStatus) && (
+        <div
+          role={sendError ? 'alert' : 'status'}
+          className={
+            sendError ? 'chat-delivery-status chat-delivery-error' : 'chat-delivery-status'
+          }
+        >
+          {sendError || sendStatus}
+        </div>
+      )}
       <div className="chat-account-bar">
         <AccountModelPicker
           disabled={messages.running}

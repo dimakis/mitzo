@@ -4,8 +4,8 @@ import { ConnectionRegistry } from '@mitzo/harness';
 import { V2SendMessage } from '@mitzo/protocol';
 
 vi.mock('../chat.js', () => ({
-  startChat: vi.fn(),
-  sendToChat: vi.fn(),
+  startChat: vi.fn().mockResolvedValue(undefined),
+  sendToChat: vi.fn().mockReturnValue(true),
   interruptChat: vi.fn(),
   stopChat: vi.fn(),
   isActive: vi.fn().mockReturnValue(false),
@@ -957,6 +957,25 @@ describe('handleSendV2 skill policy', () => {
 // ─── handleInterruptV2 ──────────────────────────────────────────────────────
 
 describe('handleInterruptV2', () => {
+  it('reports an interrupt resume startup rejection to the client', async () => {
+    vi.mocked(startChat).mockRejectedValueOnce(new Error('Resume failed'));
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    handleInterruptV2(
+      'c1',
+      transport,
+      { type: 'interrupt', sessionId: 'sess-1', prompt: 'change', clientMsgId: 'i1' },
+      ctx,
+    );
+    await Promise.resolve();
+    expect(transport.sent).toContainEqual({ type: 'error', error: 'Resume failed' });
+  });
+
   it('watches, activates, and resumes via startChat when session is idle', () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
     const sessionReg = mockSessionRegistry();
@@ -1750,7 +1769,7 @@ describe('handleSendV2 connection ownership', () => {
     expect(denyPendingBySession).toHaveBeenCalledWith('sess-1');
     // Session rekeyed and send proceeds
     expect(reattachChat).toHaveBeenCalledWith('other-conn:sess-1', transport);
-    expect(rekeyChat).toHaveBeenCalledWith('other-conn:sess-1', 'c1:sess-1');
+    expect(rekeyChat).not.toHaveBeenCalled();
     expect(sendToChat).toHaveBeenCalled();
     // No active_elsewhere error
     expect(transport.sent).not.toContainEqual(
@@ -2529,7 +2548,7 @@ describe('handleInterruptV2 connection ownership', () => {
     expect(denyPendingBySession).toHaveBeenCalledWith('sess-1');
     // Session rekeyed and interrupt proceeds
     expect(reattachChat).toHaveBeenCalledWith('other-conn:sess-1', transport);
-    expect(rekeyChat).toHaveBeenCalledWith('other-conn:sess-1', 'c1:sess-1');
+    expect(rekeyChat).not.toHaveBeenCalled();
     expect(interruptChat).toHaveBeenCalled();
     // No active_elsewhere error
     expect(transport.sent).not.toContainEqual(
@@ -2633,7 +2652,7 @@ describe('handleInterruptV2 connection ownership', () => {
 // ─── rekey after reattach — ownership transfer ────────────────────────────────
 
 describe('handleReconnect rekey after reattach', () => {
-  it('rekeys session to new connection after reattach so subsequent sends pass ownership', () => {
+  it('preserves the query-loop runtime key after reconnect', () => {
     (reattachChat as ReturnType<typeof vi.fn>).mockClear();
     (rekeyChat as ReturnType<typeof vi.fn>).mockClear();
 
@@ -2656,7 +2675,7 @@ describe('handleReconnect rekey after reattach', () => {
     );
 
     expect(reattachChat).toHaveBeenCalledWith('old-conn:sess-1', transport);
-    expect(rekeyChat).toHaveBeenCalledWith('old-conn:sess-1', 'new-conn:sess-1');
+    expect(rekeyChat).not.toHaveBeenCalled();
   });
 
   it('skips rekey when connectionId already matches (same connection reconnects)', () => {
@@ -2686,7 +2705,7 @@ describe('handleReconnect rekey after reattach', () => {
 });
 
 describe('handleSendV2 rekey after detached reattach', () => {
-  it('rekeys and uses new clientId for sendToChat when taking over detached session', () => {
+  it('uses the original runtime key for the first send after reconnect', () => {
     (sendToChat as ReturnType<typeof vi.fn>).mockClear();
     (reattachChat as ReturnType<typeof vi.fn>).mockClear();
     (rekeyChat as ReturnType<typeof vi.fn>).mockClear();
@@ -2711,10 +2730,10 @@ describe('handleSendV2 rekey after detached reattach', () => {
     );
 
     expect(reattachChat).toHaveBeenCalledWith('dead-conn:sess-1', transport);
-    expect(rekeyChat).toHaveBeenCalledWith('dead-conn:sess-1', 'new-conn:sess-1');
-    // sendToChat must use the NEW clientId, not the old one
+    expect(rekeyChat).not.toHaveBeenCalled();
+    // The query loop retains the original runtime key.
     expect(sendToChat).toHaveBeenCalledWith(
-      'new-conn:sess-1',
+      'dead-conn:sess-1',
       'hello',
       undefined,
       undefined,
@@ -2729,7 +2748,7 @@ describe('handleSendV2 rekey after detached reattach', () => {
 });
 
 describe('handleInterruptV2 rekey after detached reattach', () => {
-  it('rekeys and uses new clientId for interruptChat when taking over detached session', () => {
+  it('uses the original runtime key for interrupt after reconnect', () => {
     (interruptChat as ReturnType<typeof vi.fn>).mockClear();
     (reattachChat as ReturnType<typeof vi.fn>).mockClear();
     (rekeyChat as ReturnType<typeof vi.fn>).mockClear();
@@ -2753,10 +2772,10 @@ describe('handleInterruptV2 rekey after detached reattach', () => {
     );
 
     expect(reattachChat).toHaveBeenCalledWith('dead-conn:sess-1', transport);
-    expect(rekeyChat).toHaveBeenCalledWith('dead-conn:sess-1', 'new-conn:sess-1');
-    // interruptChat must use the NEW clientId
+    expect(rekeyChat).not.toHaveBeenCalled();
+    // The query loop retains the original runtime key.
     expect(interruptChat).toHaveBeenCalledWith(
-      'new-conn:sess-1',
+      'dead-conn:sess-1',
       'redirect',
       undefined,
       undefined,

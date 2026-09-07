@@ -26,6 +26,8 @@ import type {
 } from '@mitzo/protocol';
 
 export interface ManagedSession {
+  /** Current event connection; the registry key remains stable for the query lifetime. */
+  ownerConnectionId?: string;
   transport: SessionTransport;
   abortController: AbortController;
   sessionId?: string;

@@ -568,7 +568,9 @@ app.post('/api/sessions/suspend', (req, res) => {
 
       // Verify the connectionId owns this session (same check as WS handler)
       const colonIdx = found.clientId.indexOf(':');
-      const ownerConnection = colonIdx === -1 ? found.clientId : found.clientId.slice(0, colonIdx);
+      const ownerConnection =
+        found.session?.ownerConnectionId ??
+        (colonIdx === -1 ? found.clientId : found.clientId.slice(0, colonIdx));
       if (ownerConnection !== connectionId) continue;
 
       registry.suspend(found.clientId, lastSeq);

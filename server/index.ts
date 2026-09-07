@@ -83,6 +83,7 @@ import { setSkillPolicy, clearSkillPolicy } from './skill-policy.js';
 import { ConnectionRegistry } from '@mitzo/harness';
 import {
   isHelloHandshake,
+  getOwnerConnection,
   handleHello,
   dispatchV2Message,
   type V2HandlerContext,
@@ -454,7 +455,11 @@ app.get('/api/chat/events', (req, res) => {
         }
 
         const session = registry.get(found.clientId);
-        if (session && session.transport === transport && registry.isAttached(found.clientId)) {
+        if (
+          session &&
+          (session.ownerConnectionId ?? getOwnerConnection(found.clientId)) === connectionId &&
+          registry.isAttached(found.clientId)
+        ) {
           detachChat(found.clientId);
           overviewEmitter.touch(found.clientId);
           overviewEmitter.scheduleBroadcast();
@@ -525,7 +530,11 @@ function handleChatWsV2(ws: WebSocket, connectionId: string) {
       }
 
       const session = registry.get(found.clientId);
-      if (session && session.transport === transport && registry.isAttached(found.clientId)) {
+      if (
+        session &&
+        (session.ownerConnectionId ?? getOwnerConnection(found.clientId)) === connectionId &&
+        registry.isAttached(found.clientId)
+      ) {
         withSpan(
           'session.detach',
           { 'session.sessionId': sessionId, 'ws.connectionId': connectionId },
@@ -1032,6 +1041,7 @@ checkPort(PORT).then((inUse) => {
     // Must run before reconcileSessionsBackground() so reconciliation sees ENDED states.
     // recoverStaleSessions() logs internally — no need to log here.
     eventStore.recoverStaleSessions();
+    eventStore.recoverPendingSendCommands();
 
     // Eagerly reconcile sessions so the first /api/sessions request is fast and accurate.
     reconcileSessionsBackground();

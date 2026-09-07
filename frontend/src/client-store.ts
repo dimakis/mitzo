@@ -29,6 +29,7 @@ const useSSE = typeof window !== 'undefined' && localStorage.getItem('mitzo:tran
 const sseConfig: SseConnectionConfig | undefined = useSSE
   ? {
       baseUrl: getApiBaseUrl(),
+      outboxStorage: sessionStorage,
       fetch: (url, init) => apiFetch(url, init),
       suspendUrl: `${getApiBaseUrl()}/api/sessions/suspend`,
     }
