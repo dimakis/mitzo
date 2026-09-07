@@ -165,3 +165,30 @@ it('keeps an unresolved question replayable when a transport closes during send'
   ).not.toThrow();
   await checked;
 });
+
+it('accepts every offered multi-select option plus a written answer through both protocols', async () => {
+  const { V2PermissionResponseMessage, PermissionResponseMessage } =
+    await import('@mitzo/protocol');
+  const { handler, sent, abort } = setup();
+  const options = Array.from({ length: 8 }, (_, i) => ({ label: `Option ${i}`, description: '' }));
+  const result = handler(
+    'AskUserQuestion',
+    { questions: [{ question: 'Features', options, multiSelect: true }] },
+    { signal: abort.signal, toolUseID: 'q1' },
+  );
+  await vi.waitFor(() => expect(sent[0]?.questions).toBeDefined());
+  const answers = { Features: [...options.map((o) => o.label), 'Also voice'] };
+  const response = {
+    type: 'permission_response',
+    permId: sent[0].permId as string,
+    decision: 'once',
+    answers,
+  };
+  expect(V2PermissionResponseMessage.safeParse(response).success).toBe(true);
+  expect(PermissionResponseMessage.safeParse(response).success).toBe(true);
+  expect(resolvePending(response.permId, 'once', answers)).toBe(true);
+  await expect(result).resolves.toMatchObject({
+    behavior: 'allow',
+    updatedInput: { answers: { Features: answers.Features.join(', ') } },
+  });
+});

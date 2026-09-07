@@ -49,7 +49,7 @@ export function resolvePending(
       if (
         !Array.isArray(answer) ||
         !answer.length ||
-        answer.length > 8 ||
+        answer.length > 9 ||
         (!question.multiSelect && answer.length !== 1) ||
         answer.some((value) => typeof value !== 'string' || !value.trim() || value.length > 4000)
       )

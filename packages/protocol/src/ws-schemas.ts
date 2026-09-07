@@ -53,7 +53,7 @@ export const PermissionResponseMessage = z.object({
   permId: z.string(),
   decision: z.enum(['once', 'always', 'deny']).optional(),
   answers: z
-    .record(z.string().min(1).max(4000), z.array(z.string().min(1).max(4000)).min(1).max(8))
+    .record(z.string().min(1).max(4000), z.array(z.string().min(1).max(4000)).min(1).max(9))
     .optional(),
   traceparent,
 });
