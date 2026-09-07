@@ -3340,3 +3340,27 @@ describe('detectStateMismatch', () => {
     expect(result.mismatch).toBe(false);
   });
 });
+
+describe('account profile transport', () => {
+  it('rejects an unknown account before starting a chat', () => {
+    vi.mocked(startChat).mockClear();
+    const transport = mockTransport();
+    handleSendV2(
+      'c',
+      transport,
+      {
+        type: 'send',
+        sessionId: null,
+        prompt: 'hello',
+        clientMsgId: 'account-test',
+        accountId: 'unconfigured',
+        model: 'sonnet',
+      },
+      createContext(),
+    );
+    expect(startChat).not.toHaveBeenCalled();
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({ type: 'error', error: expect.stringMatching(/account/i) }),
+    );
+  });
+});

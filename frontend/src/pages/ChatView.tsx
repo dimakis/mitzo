@@ -1,3 +1,4 @@
+import { AccountModelPicker, type AccountSelection } from '../components/AccountModelPicker';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { ChatArea } from '../components/ChatArea';
@@ -50,6 +51,7 @@ export function ChatView() {
   const storeDispatchMessages = useMitzoStore((s) => s.dispatchMessages);
   const storeFetchSessionMeta = useMitzoStore((s) => s.fetchSessionMeta);
   const pendingSession = useMitzoStore((s) => s.pendingSession);
+  const setPendingSession = useMitzoStore((s) => s.setPendingSession);
   const clearPendingSession = useMitzoStore((s) => s.clearPendingSession);
   const sessionContext = useMitzoStore((s) => s.messages.sessionContext);
   const bootContext = useMitzoStore((s) => s.messages.bootContext);
@@ -59,6 +61,7 @@ export function ChatView() {
 
   // Local model state — persisted to localStorage, sent in payload
   const [modelState, setModelState] = useState(getPreferredModel);
+  const [accountSelection, setAccountSelection] = useState<AccountSelection | null>(null);
   const setModel = useCallback(
     (id: string) => {
       setModelState(id);
@@ -66,6 +69,14 @@ export function ChatView() {
       storeSetModel(id);
     },
     [storeSetModel],
+  );
+
+  const selectAccount = useCallback(
+    (selection: AccountSelection | null) => {
+      setAccountSelection(selection);
+      if (selection) setModel(selection.model);
+    },
+    [setModel],
   );
 
   const [mode, setMode] = useState<'ask' | 'agent' | 'auto'>(
@@ -124,25 +135,32 @@ export function ChatView() {
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-send pending session (from "Start Session" on inbox/todo items)
-  const pendingConsumed = useRef<string | null>(null);
+  const pendingConsumed = useRef<typeof pendingSession>(null);
+  const [pausedLaunch, setPausedLaunch] = useState<typeof pendingSession>(null);
+  const accountUnavailable = useCallback(() => {
+    if (pendingSession) {
+      setPausedLaunch(pendingSession);
+      clearPendingSession();
+    }
+  }, [pendingSession, clearPendingSession]);
   useEffect(() => {
-    if (!pendingSession) return;
+    if (!pendingSession || !accountSelection) return;
     // Guard against double-consumption of the same pending session
-    const key = pendingSession.prompt;
+    const key = pendingSession;
     if (pendingConsumed.current === key) return;
     pendingConsumed.current = key;
     // Set the context block for display
     storeDispatchMessages({ type: 'SET_SESSION_CONTEXT', context: pendingSession.context });
     // Auto-send the prompt
     storeSendMessage(pendingSession.prompt, {
-      model: modelState,
+      ...(!activeSessionId && accountSelection ? accountSelection : {}),
       mode,
       ...(pendingSession.telosTaskId ? { telosTaskId: pendingSession.telosTaskId } : {}),
       ...(pendingSession.agentName ? { agentName: pendingSession.agentName } : {}),
     });
     clearPendingSession();
     forceScrollToBottom();
-  }, [pendingSession]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pendingSession, accountSelection]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useAutoSpeak({
     messages: messages.messages,
@@ -155,6 +173,7 @@ export function ChatView() {
   // ── Actions ──────────────────────────────────────────────────────────────
 
   function handleSend(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): boolean {
+    if (!activeSessionId && !accountSelection) return false;
     // For new sessions (no activeSessionId) the store bootstraps a WS on
     // demand inside sendMessage(), so we must not block on connection status.
     // Only gate on connection for existing sessions where a WS should already
@@ -167,7 +186,7 @@ export function ChatView() {
     storeSendMessage(text, {
       images,
       contextBlocks: ctxBlocks,
-      model: modelState,
+      ...(!activeSessionId && accountSelection ? accountSelection : {}),
       mode,
       cwd: searchParams.get('cwd') ?? undefined,
       extraTools: searchParams.get('extraTools') ?? undefined,
@@ -179,7 +198,7 @@ export function ChatView() {
 
   function handleInterrupt(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): void {
     voice.stopSpeaking();
-    storeInterruptMessage(text, { images, contextBlocks: ctxBlocks, model: modelState });
+    storeInterruptMessage(text, { images, contextBlocks: ctxBlocks });
     forceScrollToBottom();
   }
 
@@ -217,20 +236,7 @@ export function ChatView() {
             !
           </span>
         )}
-        <select
-          className="chat-model-select"
-          value={modelState}
-          onChange={(e) => setModel(e.target.value)}
-          disabled={messages.running}
-        >
-          <option value="claude-opus-4-8">Opus 4.8</option>
-          <option value="claude-opus-4-8:max">Opus 4.8 Max</option>
-          <option value="claude-opus-4-6">Opus 4.6</option>
-          <option value="claude-sonnet-5">Sonnet 5</option>
-          <option value="claude-sonnet-4-6">Sonnet 4.6</option>
-          <option value="claude-sonnet-4-5">Sonnet 4.5</option>
-          <option value="claude-haiku-4-5">Haiku 4.5</option>
-        </select>
+
         {!keyboardOpen && (
           <>
             <div className="mode-pills">
@@ -274,6 +280,15 @@ export function ChatView() {
           </>
         )}
       </header>
+      <div className="chat-account-bar">
+        <AccountModelPicker
+          disabled={messages.running}
+          sessionId={activeSessionId}
+          preferredModel={modelState}
+          onChange={selectAccount}
+          onUnavailable={accountUnavailable}
+        />
+      </div>
 
       <ChatArea
         messages={messages.messages}
@@ -288,12 +303,31 @@ export function ChatView() {
         sessionContext={sessionContext}
       />
 
+      {pausedLaunch && (
+        <div role="status" className="chat-account-bar">
+          <p>Launch paused. Select an account before sending.</p>
+          <p>{pausedLaunch.prompt}</p>
+          <button
+            disabled={!accountSelection || messages.running}
+            onClick={() => {
+              setPendingSession(pausedLaunch);
+              setPausedLaunch(null);
+            }}
+          >
+            Send launch prompt
+          </button>
+          <button onClick={() => setPausedLaunch(null)}>Dismiss launch</button>
+        </div>
+      )}
       <ChatInput
         onSend={handleSend}
         onStop={handleStop}
         onInterrupt={handleInterrupt}
         running={messages.running}
         initialText={initialPrompt}
+        sendDisabledReason={
+          !activeSessionId && !accountSelection ? 'Select an account before sending.' : undefined
+        }
         voice={voice}
         branch={messages.branch || undefined}
         isWorktree={messages.isWorktree}

@@ -80,6 +80,7 @@ export const V2SendMessage = z.object({
   sessionId: z.string().min(1).nullable(),
   prompt: z.string().min(1),
   clientMsgId: z.string().min(1),
+  accountId: z.string().min(1).optional(),
   model: z.string().optional(),
   mode: z.enum(['ask', 'agent', 'auto']).optional(),
   cwd: z.string().optional(),

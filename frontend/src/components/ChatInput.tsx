@@ -26,6 +26,7 @@ interface Props {
   onInterrupt?: (text: string, images?: ImageAttachment[], contextBlocks?: string[]) => void;
   running: boolean;
   initialText?: string;
+  sendDisabledReason?: string;
   cwd?: string;
   voice?: UseVoiceReturn;
   branch?: string;
@@ -43,6 +44,7 @@ export function ChatInput({
   onInterrupt,
   running,
   initialText,
+  sendDisabledReason,
   cwd,
   voice,
   branch,
@@ -130,7 +132,7 @@ export function ChatInput({
   }
 
   function handleSend() {
-    if (sendGuard.current) return;
+    if (sendGuard.current || sendDisabledReason) return;
     const trimmed = text.trim();
     if (!trimmed && images.length === 0) return;
     sendGuard.current = true;
@@ -270,7 +272,7 @@ export function ChatInput({
   }
 
   function handleInterrupt() {
-    if (sendGuard.current) return;
+    if (sendGuard.current || sendDisabledReason) return;
     if (!onInterrupt) return;
     const trimmed = text.trim();
     if (!trimmed && images.length === 0) return;
@@ -425,6 +427,7 @@ export function ChatInput({
         )}
         {tokenState && <TokenBar tokenState={tokenState} />}
       </div>
+      {sendDisabledReason && <span role="status">{sendDisabledReason}</span>}
       <div className="chat-input-row">
         <textarea
           ref={textareaRef}
@@ -464,7 +467,8 @@ export function ChatInput({
           <button
             className="chat-input-btn chat-input-btn--send"
             onClick={handleSend}
-            disabled={!canSend}
+            aria-label="Send message"
+            disabled={!canSend || !!sendDisabledReason}
           >
             ↑
           </button>

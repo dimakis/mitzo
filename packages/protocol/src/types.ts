@@ -298,7 +298,16 @@ export interface SessionSearchResult {
   updatedAt: number;
 }
 
+export interface AccountBinding {
+  accountId: string;
+  accountLabel: string;
+  provider: string;
+  model: string;
+  profileRevision: string;
+}
+
 export interface SessionMeta {
+  accountBinding?: AccountBinding | null;
   sessionId: string;
   summary: string | null;
   branch: string | null;

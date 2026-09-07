@@ -1,4 +1,10 @@
 import {
+  loadAccountProfiles,
+  resolveAccountSelection,
+  LEGACY_MODELS,
+  type AccountProfiles,
+} from './account-profiles.js';
+import {
   query,
   listSessions,
   getSessionInfo,
@@ -365,15 +371,7 @@ export function getRepoConfig() {
   return _cachedConfig;
 }
 
-export const AVAILABLE_MODELS = [
-  { id: 'claude-opus-4-8', label: 'Opus 4.8', desc: 'Latest Opus' },
-  { id: 'claude-opus-4-8:max', label: 'Opus 4.8 Max', desc: 'Max thinking (128k)' },
-  { id: 'claude-opus-4-6', label: 'Opus 4.6', desc: 'Previous Opus' },
-  { id: 'claude-sonnet-5', label: 'Sonnet 5', desc: 'Latest Sonnet' },
-  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', desc: 'Balanced' },
-  { id: 'claude-sonnet-4-5', label: 'Sonnet 4.5', desc: 'Previous Sonnet' },
-  { id: 'claude-haiku-4-5', label: 'Haiku 4.5', desc: 'Fastest' },
-];
+export const AVAILABLE_MODELS = LEGACY_MODELS;
 
 /** Split "claude-opus-4-8:max" → { model: "claude-opus-4-8", effort: "max" } */
 export function parseModelSpec(spec?: string): { model: string; effort: string | undefined } {
@@ -738,6 +736,8 @@ export async function startChat(
     resume?: string;
     cwd?: string;
     model?: string;
+    accountId?: string;
+    accountProfiles?: AccountProfiles;
     extraTools?: string;
     isolation?: boolean;
     mode?: MitzoMode;
@@ -768,6 +768,8 @@ async function _startChatInner(
     resume?: string;
     cwd?: string;
     model?: string;
+    accountId?: string;
+    accountProfiles?: AccountProfiles;
     extraTools?: string;
     isolation?: boolean;
     mode?: MitzoMode;
@@ -779,6 +781,27 @@ async function _startChatInner(
     agentName?: string;
   },
 ) {
+  let accountBinding;
+  let accountEnv: Record<string, string> | undefined;
+  try {
+    const storedBinding = options.resume
+      ? eventStore.getSession(options.resume)?.accountBinding
+      : null;
+    const profiles =
+      options.accountProfiles ??
+      (options.accountId || storedBinding ? loadAccountProfiles() : undefined);
+    accountBinding = resolveAccountSelection(options, storedBinding, !!options.resume, profiles);
+    if (accountBinding) {
+      options = { ...options, model: accountBinding.model };
+      accountEnv = profiles!.sdkEnv(accountBinding, sdkEnv());
+    }
+  } catch (err: unknown) {
+    send(transport, {
+      type: 'error',
+      error: err instanceof Error ? err.message : 'Account selection failed',
+    });
+    return;
+  }
   const abortController = new AbortController();
   const mode = options.mode || 'agent';
 
@@ -909,7 +932,7 @@ async function _startChatInner(
   }
 
   // Build session env with worktree paths for the agent (all repos including primary)
-  const sessionEnv = sdkEnv();
+  const sessionEnv = accountEnv ?? sdkEnv();
   sessionEnv.MITZO_SESSION_ID = wtId;
   sessionEnv.MITZO_AGENT_NAME = agentName;
   for (const [name, { path }] of repoWorktrees) {
@@ -1002,7 +1025,19 @@ async function _startChatInner(
       (BASE_REPO ? getSessionSdkId(BASE_REPO, options.resume) : undefined) ?? options.resume;
   }
 
+  // Bound sessions have durable routing before the SDK can create history or side effects.
+  const newSdkSessionId = accountBinding && !resolvedResume ? randomUUID() : undefined;
   try {
+    if (newSdkSessionId) {
+      eventStore.upsertSession({
+        sessionId: newSdkSessionId,
+        accountBinding,
+        bootContext: JSON.stringify(bootContextMsg),
+        cwd,
+        mode,
+        agentName,
+      });
+    }
     const q = query({
       prompt: inputQueue as AsyncIterable<SDKUserMessage>,
       options: {
@@ -1021,6 +1056,7 @@ async function _startChatInner(
         thinking: resolveThinking(options.model),
         ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
         ...(resolvedResume ? { resume: resolvedResume } : {}),
+        ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
         ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
         ...(hooks ? { hooks } : {}),
         canUseTool: buildPermissionHandler(clientId, registry, {
@@ -1067,6 +1103,7 @@ async function _startChatInner(
           if (!options.resume) {
             eventStore.upsertSession({
               sessionId,
+              ...(accountBinding ? { accountBinding } : {}),
               bootContext: JSON.stringify(bootContextMsg),
             });
           }
@@ -1093,6 +1130,10 @@ async function _startChatInner(
     } else {
       log.error('startChat failed after register, cleaning up', { clientId, error: message });
       send(transport, { type: 'error', error: message });
+    }
+    if (newSdkSessionId) {
+      // Retain its binding: the SDK may have written history before startup failed.
+      eventStore.setSessionState(newSdkSessionId, 'ENDED', { clientId, reason: 'startup_failed' });
     }
     const failedSession = registry.get(clientId);
     if (failedSession) cleanupSessionWorktrees(failedSession);

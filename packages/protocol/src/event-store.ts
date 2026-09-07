@@ -7,6 +7,7 @@ import type {
   SessionState,
   ClientSessionState,
   EventStoreLogger,
+  AccountBinding,
 } from './types.js';
 
 // Re-export types for consumer convenience
@@ -81,6 +82,7 @@ interface SessionRow {
   last_state_change: number | null;
   agent_name: string | null;
   boot_context: string | null;
+  account_binding: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -331,6 +333,10 @@ export class EventStore {
       db.exec('ALTER TABLE sessions ADD COLUMN agent_name TEXT');
       this.log.info('migrated sessions table: added agent_name');
     }
+    if (!columnNames.has('account_binding')) {
+      db.exec('ALTER TABLE sessions ADD COLUMN account_binding TEXT');
+      this.log.info('migrated sessions table: added account_binding');
+    }
     if (!columnNames.has('boot_context')) {
       db.exec('ALTER TABLE sessions ADD COLUMN boot_context TEXT');
       this.log.info('migrated sessions table: added boot_context');
@@ -423,6 +429,10 @@ export class EventStore {
         fields.push('agent_name = ?');
         values.push(meta.agentName);
       }
+      if (meta.accountBinding !== undefined) {
+        fields.push('account_binding = ?');
+        values.push(meta.accountBinding ? JSON.stringify(meta.accountBinding) : null);
+      }
       if (meta.bootContext !== undefined) {
         fields.push('boot_context = ?');
         values.push(meta.bootContext);
@@ -452,6 +462,7 @@ export class EventStore {
         'closed_by',
         'agent_name',
         'boot_context',
+        'account_binding',
       ];
       const vals: unknown[] = [
         meta.sessionId,
@@ -467,6 +478,7 @@ export class EventStore {
         meta.closedBy ?? null,
         meta.agentName ?? null,
         meta.bootContext ?? null,
+        meta.accountBinding ? JSON.stringify(meta.accountBinding) : null,
       ];
       if (meta.updatedAt !== undefined) {
         cols.push('updated_at');
@@ -781,7 +793,31 @@ function rowToSession(row: SessionRow): SessionMeta {
     lastStateChange: row.last_state_change ?? null,
     agentName: row.agent_name ?? null,
     bootContext: row.boot_context ?? null,
+    accountBinding: parseAccountBinding(row.account_binding),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function parseAccountBinding(raw: string | null): AccountBinding | null {
+  if (raw === null || raw === undefined) return null;
+  try {
+    const binding = JSON.parse(raw);
+    if (
+      binding &&
+      ['accountId', 'accountLabel', 'provider', 'model', 'profileRevision'].every(
+        (key) => typeof binding[key] === 'string' && binding[key].length > 0,
+      )
+    )
+      return binding;
+  } catch {
+    /* Preserve a failed binding, never silently downgrade to the legacy route. */
+  }
+  return {
+    accountId: 'unavailable',
+    accountLabel: 'Unavailable account binding',
+    provider: 'unavailable',
+    model: 'unavailable',
+    profileRevision: 'invalid',
   };
 }

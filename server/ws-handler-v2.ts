@@ -1,3 +1,4 @@
+import { resolveAccountSelection, loadAccountProfiles } from './account-profiles.js';
 /**
  * v2 WebSocket message handlers — Phase 1c of single-WS migration.
  *
@@ -457,6 +458,12 @@ export function handleSendV2(
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId ?? 'new' },
     (span) => {
       try {
+        const storedBinding = msg.sessionId
+          ? ctx.eventStore.getSession(msg.sessionId)?.accountBinding
+          : null;
+        const accountProfiles = msg.accountId || storedBinding ? loadAccountProfiles() : undefined;
+        // Validation-only gate before dispatch; startup revalidates against this same snapshot.
+        resolveAccountSelection(msg, storedBinding, !!msg.sessionId, accountProfiles);
         const rawCwd = msg.cwd || BASE_REPO;
         const cwd = rawCwd && isAllowedPath(rawCwd) ? rawCwd : BASE_REPO;
         const skillRegistry = buildSkillRegistry(cwd);
@@ -602,6 +609,8 @@ export function handleSendV2(
             resume: sessionId,
             cwd: msg.cwd,
             model: msg.model,
+            accountId: msg.accountId,
+            accountProfiles,
             extraTools: msg.extraTools,
             isolation: msg.isolation,
             mode: msg.mode,
@@ -622,6 +631,8 @@ export function handleSendV2(
           startChat(transport, sessionClientId, prompt, {
             cwd: msg.cwd,
             model: msg.model,
+            accountId: msg.accountId,
+            accountProfiles,
             extraTools: msg.extraTools,
             isolation: msg.isolation,
             mode: msg.mode,
