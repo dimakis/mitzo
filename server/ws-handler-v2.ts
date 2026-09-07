@@ -574,8 +574,10 @@ export function handleSendV2(
             applySkillPolicy(activeClientId);
             ctx.connRegistry.watch(connectionId, sessionId);
             ctx.connRegistry.setActive(connectionId, sessionId);
-            if (!sendToChat(activeClientId, prompt, msg.images, msg.contextBlocks, msg.clientMsgId))
-              throw new Error('Session is not accepting input. Please retry.');
+            if (!sendToChat(
+              activeClientId, prompt, msg.images, msg.contextBlocks, msg.clientMsgId,
+              msg.accountId && storedBinding?.provider === 'openai-codex' ? msg.model : undefined,
+            )) throw new Error('Session is not accepting input. Please retry.');
             span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');
             return;
           }

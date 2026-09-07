@@ -7,6 +7,7 @@ const CommandInput = z
   .object({
     id: z.string().min(1).max(200),
     prompt: z.string().min(1).max(1_000_000),
+    model: z.string().min(1).optional(),
     allowedTools: z.array(z.string()).optional(),
   })
   .strict();

@@ -14,6 +14,9 @@ export class CodexSessionEvents {
     private model: string,
     private emit: (event: ObjectValue) => void,
   ) {}
+  setModel(model: string) {
+    this.model = model;
+  }
   private stream(event: StreamEvent) {
     this.emit({ type: 'stream_event', event, parent_tool_use_id: null });
   }

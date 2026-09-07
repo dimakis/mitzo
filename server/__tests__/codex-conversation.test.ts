@@ -68,6 +68,9 @@ async function setup() {
     },
     emit: (e) => events.push(e),
     onClosed,
+    validateModel: (model: string) => {
+      if (!['test-model', 'other-model'].includes(model)) throw new Error('Model unavailable');
+    },
     executeTool: execute,
   });
   cleanup.push(() => {
@@ -170,4 +173,24 @@ it('closes the public stream on process loss and retains new messages in a pause
   expect(c.queue().map((q) => q.status)).toEqual(['interrupted', 'queued']);
   callbacks.onClose(new Error('process lost'));
   expect(onClosed).toHaveBeenCalledOnce();
+});
+
+it('pins an allowed model to each queued command while retaining the subscription binding', async () => {
+  const { c, callbacks, requests } = await setup();
+  await c.send({ id: 'first', prompt: 'one', model: 'test-model' });
+  await c.send({ id: 'second', prompt: 'two', model: 'other-model' });
+  expect(c.queue().map((q) => q.model)).toEqual(['test-model', 'other-model']);
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(2));
+  expect(requests.filter((r) => r.method === 'turn/start').map((r) => r.params.model)).toEqual([
+    'test-model',
+    'other-model',
+  ]);
+  await expect(c.send({ id: 'bad', prompt: 'no', model: 'unavailable' })).rejects.toThrow(
+    'unavailable',
+  );
+  expect(c.queue()).toHaveLength(2);
 });

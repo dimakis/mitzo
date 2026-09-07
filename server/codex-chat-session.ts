@@ -1,3 +1,4 @@
+import { loadAccountProfiles } from './account-profiles.js';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -37,6 +38,7 @@ export function readCodexQueue(
     const live = session ? getCodexRuntime(session) : undefined;
     const commands = live?.queue() ?? store().commands(conversationId, binding);
     return {
+      model: commands.at(-1)?.model ?? binding.model,
       paused: live?.isPaused() ?? true,
       connected: !!live,
       queued: commands.filter((c) => c.status === 'queued').length,
@@ -54,6 +56,7 @@ interface Options {
   session: ManagedSession;
   registry: SessionRegistry;
   prompt: string;
+  model?: string;
   messageId: string;
   systemPrompt: string;
   env: Record<string, string>;
@@ -77,6 +80,14 @@ export async function openCodexChat(options: Options) {
     storedBinding: options.binding,
     store: privateStorage,
     systemPrompt: options.systemPrompt,
+    validateModel: (model) => {
+      const current = loadAccountProfiles().resolve(options.binding.accountId, model);
+      if (
+        current.provider !== options.binding.provider ||
+        current.profileRevision !== options.binding.profileRevision
+      )
+        throw new Error('Account configuration changed');
+    },
     tools: [...nativeToolDefinitions, ...mcp.definitions],
     createClient: (callbacks) =>
       CodexAppServerClient.launch(options.profile.credentialRef, process.env, callbacks),
@@ -136,7 +147,7 @@ export async function openCodexChat(options: Options) {
     await runtime.initialize();
     signal.throwIfAborted();
     runtimes.set(options.session, runtime);
-    await runtime.send({ id: options.messageId, prompt: options.prompt });
+    await runtime.send({ id: options.messageId, prompt: options.prompt, model: options.model });
   } catch (error) {
     close();
     throw error;

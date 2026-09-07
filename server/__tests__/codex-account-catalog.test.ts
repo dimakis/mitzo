@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { AccountProfiles } from '../account-profiles.js';
+import { AccountProfiles, resolveAccountSelection } from '../account-profiles.js';
 const profile = {
   id: 'personal',
   label: 'Personal ChatGPT · subscription',
@@ -38,4 +38,21 @@ it('binds the explicit subscription account without exposing credential referenc
     codexEnabled: true,
   });
   expect(() => changed.resume(binding)).toThrow('configuration changed');
+});
+
+it('permits explicit Codex model changes in the same configured subscription only', () => {
+  const profiles = new AccountProfiles(
+    [{ ...profile, models: [...profile.models, { id: 'terra', label: 'Terra' }] }],
+    { codexEnabled: true },
+  );
+  const binding = profiles.resolve('personal', 'luna');
+  expect(
+    resolveAccountSelection({ accountId: 'personal', model: 'terra' }, binding, true, profiles),
+  ).toEqual(binding);
+  expect(() =>
+    resolveAccountSelection({ accountId: 'personal', model: 'missing' }, binding, true, profiles),
+  ).toThrow(/unavailable/i);
+  expect(() =>
+    resolveAccountSelection({ accountId: 'other', model: 'terra' }, binding, true, profiles),
+  ).toThrow(/original account/i);
 });
