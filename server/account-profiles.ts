@@ -146,8 +146,10 @@ export class AccountProfiles {
   sdkEnv(binding: AccountBinding, base: Record<string, string>): Record<string, string> {
     this.resume(binding);
     const profile = this.profiles.find((p) => p.id === binding.accountId)!;
-    if (profile.provider !== 'anthropic-vertex')
-      throw new Error('OpenAI accounts require their native runtime');
+    if (profile.provider === 'openai-codex')
+      throw new Error('Codex accounts require the subscription runtime');
+    if (profile.provider === 'openai')
+      throw new Error('OpenAI API accounts require their native runtime');
     const env = { ...base };
     // Remove inherited alternate billing/routing controls before setting the chosen profile.
     for (const key of Object.keys(env)) {
