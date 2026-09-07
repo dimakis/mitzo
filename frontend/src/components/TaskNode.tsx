@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import type { Task, TaskStatus, StageType } from '../types/task';
 import type { TaskDisplayMeta } from '../hooks/useTaskBoard';
 
@@ -135,6 +135,14 @@ export function TaskNode({
   onApprove,
   onReject,
 }: TaskNodeProps) {
+  const { hash } = useLocation();
+  const nodeRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (hash === `#task-${task.id}`) {
+      nodeRef.current?.focus({ preventScroll: true });
+      nodeRef.current?.scrollIntoView({ block: 'center' });
+    }
+  }, [hash, task.id]);
   const [expanded, setExpanded] = useState(true);
   const hasChildren = task.children.length > 0;
   const meta = displayMeta?.get(task.id);
@@ -152,7 +160,13 @@ export function TaskNode({
       : undefined;
 
   return (
-    <div className={classes.join(' ')} style={fadeStyle}>
+    <div
+      ref={nodeRef}
+      id={`task-${task.id}`}
+      tabIndex={-1}
+      className={classes.join(' ')}
+      style={fadeStyle}
+    >
       <div className="task-node-row">
         {hasChildren && (
           <button

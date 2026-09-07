@@ -125,7 +125,7 @@ function atbToAttention(tasks: Task[]): AttentionItem[] {
           : t.status === 'blocked'
             ? '\u2298' // ⊘
             : '\u2717', // ✗
-      navigateTo: '/tasks',
+      navigateTo: `/tasks#task-${t.id}`,
       updatedAt: t.updatedAt || 0,
     }));
 }

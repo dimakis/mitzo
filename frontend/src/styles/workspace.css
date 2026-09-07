@@ -314,3 +314,22 @@
     scroll-behavior: auto;
   }
 }
+
+.workspace-rail .workspace-nav-link {
+  color: var(--workspace-muted);
+}
+.workspace-rail .workspace-nav-link--active {
+  color: var(--workspace-accent);
+}
+.task-node:target {
+  outline: 2px solid var(--workspace-accent);
+  outline-offset: -2px;
+}
+@media (min-width: 768px) {
+  .today-top .workspace-brand {
+    display: none;
+  }
+  .today-top {
+    justify-content: flex-end;
+  }
+}

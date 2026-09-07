@@ -186,3 +186,21 @@ describe('TaskNode', () => {
     expect(container.querySelector('.task-node-summary')).toBeNull();
   });
 });
+
+it('focuses the task addressed by an attention deep link', () => {
+  const scroll = vi.fn();
+  Element.prototype.scrollIntoView = scroll;
+  render(
+    <MemoryRouter initialEntries={['/tasks#task-task-1']}>
+      <TaskNode
+        task={makeTask()}
+        depth={0}
+        onStatusChange={vi.fn()}
+        onDelete={vi.fn()}
+        onAddChild={vi.fn()}
+      />
+    </MemoryRouter>,
+  );
+  expect(document.activeElement?.id).toBe('task-task-1');
+  expect(scroll).toHaveBeenCalled();
+});
