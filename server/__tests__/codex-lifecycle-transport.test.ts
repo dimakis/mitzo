@@ -102,3 +102,17 @@ it('closes a duplicate in-flight host request before repeating an effect', async
   expect(request).toHaveBeenCalledOnce();
   client.close();
 });
+
+it('allows configuration inspection on the lifecycle connection before creating a thread', async () => {
+  const { child, sent, reply } = setup();
+  const client = new CodexAppServerClient(child, {
+    lifecycle: { onNotification: () => {}, onClose: () => {}, onRequest: async () => ({}) },
+  });
+  const init = client.initialize();
+  reply({ id: sent[0].id, result: {} });
+  await init;
+  const config = client.request('config/read', { includeLayers: false });
+  reply({ id: sent.at(-1)!.id, result: { config: {} } });
+  await expect(config).resolves.toEqual({ config: {} });
+  client.close();
+});
