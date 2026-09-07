@@ -39,6 +39,7 @@ export function AccountModelPicker({
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
   const [legacy, setLegacy] = useState(false);
+  const [fixedSession, setFixedSession] = useState(false);
   const [empty, setEmpty] = useState(false);
   const callbacks = useRef({ onChange, onUnavailable });
   callbacks.current = { onChange, onUnavailable };
@@ -50,6 +51,7 @@ export function AccountModelPicker({
     setError('');
     setEditingAlias(false);
     setBindingLabel('');
+    setFixedSession(false);
     setSelection(null);
     setEmpty(false);
     callbacks.current.onChange(null);
@@ -60,9 +62,11 @@ export function AccountModelPicker({
         : '/api/accounts';
     const controller = new AbortController();
     async function fetchMetadata() {
+      const retryDelays = [100, 200, 400];
       for (let retry = 0; ; retry++) {
         const response = await apiFetch(url, { signal: controller.signal });
-        if (!sessionId || response.status !== 404 || retry >= 8 || disposed) return response;
+        if (!sessionId || response.status !== 404 || retry >= retryDelays.length || disposed)
+          return response;
         // Accepted sessions can arrive before provider startup persists their metadata.
         await new Promise<void>((resolve) => {
           const finish = () => {
@@ -70,7 +74,7 @@ export function AccountModelPicker({
             controller.signal.removeEventListener('abort', finish);
             resolve();
           };
-          const timer = setTimeout(finish, Math.min(500 * 2 ** retry, 5000));
+          const timer = setTimeout(finish, retryDelays[retry]);
           controller.signal.addEventListener('abort', finish, { once: true });
         });
         if (disposed) return response;
@@ -78,6 +82,14 @@ export function AccountModelPicker({
     }
     void fetchMetadata()
       .then(async (response) => {
+        if (sessionId && response.status === 404) {
+          if (!disposed) {
+            setBindingLabel('Existing task · legacy account');
+            setFixedSession(true);
+            callbacks.current.onChange({ model: preferredModel });
+          }
+          return;
+        }
         if (!response.ok) throw new Error('Account information unavailable. Retry to continue.');
         const data = await response.json();
         if (disposed) return;
@@ -94,6 +106,12 @@ export function AccountModelPicker({
             setAccounts([account]);
             const next = { accountId: account.id, model: modelSelection.data.model };
             setSelection(next);
+            callbacks.current.onChange(next);
+          } else {
+            const next = data.accountBinding
+              ? { accountId: data.accountBinding.accountId, model: data.accountBinding.model }
+              : { model: preferredModel };
+            setFixedSession(true);
             callbacks.current.onChange(next);
           }
           setBindingLabel(
@@ -154,6 +172,8 @@ export function AccountModelPicker({
         )}
       </>
     );
+  if (sessionId && fixedSession)
+    return <span className="chat-account-binding">{bindingLabel}</span>;
   if (sessionId && !selection)
     return <span className="chat-account-binding">{bindingLabel || 'Loading account…'}</span>;
   if (empty)

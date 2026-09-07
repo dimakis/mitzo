@@ -42,9 +42,22 @@ it('shows the durable binding for an existing conversation without selectable ac
       accountBinding: { accountId: 'work', accountLabel: 'Work Vertex', model: 'sonnet' },
     }),
   } as Response);
-  render(<AccountModelPicker sessionId="saved" preferredModel="wrong" onChange={vi.fn()} />);
+  const onChange = vi.fn();
+  render(<AccountModelPicker sessionId="saved" preferredModel="wrong" onChange={onChange} />);
   await screen.findByText('Work Vertex · sonnet');
+  expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' });
   expect(screen.queryByLabelText('Account')).toBeNull();
+});
+it('immediately enables legacy conversations whose metadata has no account binding', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({ sessionId: 'legacy' }),
+  } as Response);
+  const onChange = vi.fn();
+  render(<AccountModelPicker sessionId="legacy" preferredModel="sonnet" onChange={onChange} />);
+  await screen.findByText('Existing task · legacy account');
+  expect(onChange).toHaveBeenLastCalledWith({ model: 'sonnet' });
 });
 it('fails closed when the account catalog cannot load', async () => {
   vi.mocked(apiFetch).mockResolvedValue({ ok: false } as Response);
@@ -176,4 +189,13 @@ it('waits for accepted session metadata to become available', async () => {
   render(<AccountModelPicker sessionId="starting" preferredModel="nano" onChange={vi.fn()} />);
   await screen.findByText('Work API · nano');
   expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('falls back quickly when a legacy session has no event-store metadata', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ ok: false, status: 404 } as Response);
+  const onChange = vi.fn();
+  render(<AccountModelPicker sessionId="legacy" preferredModel="sonnet" onChange={onChange} />);
+  await screen.findByText('Existing task · legacy account', {}, { timeout: 1500 });
+  expect(onChange).toHaveBeenLastCalledWith({ model: 'sonnet' });
+  expect(apiFetch).toHaveBeenCalledTimes(4);
 });

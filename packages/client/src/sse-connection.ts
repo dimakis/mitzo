@@ -24,6 +24,8 @@ export interface SseConnectionConfig {
   fetch: (url: string, init?: RequestInit) => Promise<Response>;
   /** Factory for EventSource — allows injection for testing. */
   createEventSource?: (url: string) => EventSource;
+  /** Builds the EventSource URL for each attempt so refreshed credentials are used. */
+  buildEventUrl?: () => string;
   reconnectDelayMs?: number;
   /** URL for the sendBeacon suspend fallback. */
   suspendUrl?: string;
@@ -58,6 +60,7 @@ export class SseConnection implements ChatConnection {
   constructor(config: SseConnectionConfig) {
     this.config = {
       createEventSource: (url: string) => new EventSource(url),
+      buildEventUrl: () => `${config.baseUrl}/api/chat/events`,
       reconnectDelayMs: 500,
       suspendUrl: '',
       ...config,
@@ -248,7 +251,7 @@ export class SseConnection implements ChatConnection {
     // welcome handler. This avoids the bug where EventSource auto-reconnect
     // reuses the original URL (missing ?sessions=), and eliminates double
     // handleReconnect when doConnect() AND welcome both trigger it.
-    const url = `${this.config.baseUrl}/api/chat/events`;
+    const url = this.config.buildEventUrl();
 
     const es = this.config.createEventSource(url);
     this.es = es;

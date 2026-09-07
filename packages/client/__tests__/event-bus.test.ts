@@ -53,10 +53,13 @@ class MockEventSource {
 // ─── Setup ──────────────────────────────────────────────────────────────────
 
 let lastSource: MockEventSource | null = null;
+let lastUrl: string | null = null;
 
 function createBus(): EventBus {
   lastSource = null;
-  return new EventBus((_url: string) => {
+  lastUrl = null;
+  return new EventBus((url: string) => {
+    lastUrl = url;
     const source = new MockEventSource();
     lastSource = source;
     return source as unknown as EventSource;
@@ -199,6 +202,17 @@ describe('EventBus', () => {
 
     bus.ensureConnected();
     expect(lastSource).not.toBe(firstSource); // new instance created
+  });
+
+  it('rebuilds a dynamic URL when reconnecting', () => {
+    let token = 'first';
+    bus.connect(() => `/api/events?token=${token}`);
+    expect(lastUrl).toBe('/api/events?token=first');
+
+    token = 'refreshed';
+    lastSource!.readyState = MockEventSource.CLOSED;
+    bus.ensureConnected();
+    expect(lastUrl).toBe('/api/events?token=refreshed');
   });
 
   it('ensureConnected no-ops when still connected', () => {

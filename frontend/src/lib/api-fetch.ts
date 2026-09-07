@@ -29,6 +29,14 @@ export function getWsChatUrl(): string {
   return token ? `${url}?token=${encodeURIComponent(token)}` : url;
 }
 
+/** Build an SSE URL with query authentication for EventSource, which cannot set headers. */
+export function getEventSourceUrl(path: string): string {
+  const url = path.startsWith('http') ? path : `${getApiBaseUrl()}${path}`;
+  const token = typeof localStorage !== 'undefined' ? localStorage.getItem(AUTH_TOKEN_KEY) : null;
+  if (!token) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+}
+
 export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const url = path.startsWith('http') ? path : `${getApiBaseUrl()}${path}`;
   const headers = new Headers(init?.headers);

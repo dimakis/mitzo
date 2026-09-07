@@ -9,7 +9,7 @@
 
 import { createMitzoStore } from '@mitzo/client';
 import type { SseConnectionConfig } from '@mitzo/client';
-import { apiFetch, getApiBaseUrl, getWsChatUrl } from './lib/api-fetch';
+import { apiFetch, getApiBaseUrl, getEventSourceUrl, getWsChatUrl } from './lib/api-fetch';
 import { registerCapacitorLifecycle } from './lib/capacitor';
 import { configureKeyboard } from './lib/keyboard';
 import { initPushNotifications } from './lib/push';
@@ -31,6 +31,7 @@ const sseConfig: SseConnectionConfig | undefined = useSSE
       baseUrl: getApiBaseUrl(),
       outboxStorage: sessionStorage,
       fetch: (url, init) => apiFetch(url, init),
+      buildEventUrl: () => getEventSourceUrl('/api/chat/events'),
       suspendUrl: `${getApiBaseUrl()}/api/sessions/suspend`,
     }
   : undefined;

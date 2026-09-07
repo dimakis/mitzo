@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { apiFetch, getApiBaseUrl, getWsBaseUrl } from '../api-fetch';
+import { apiFetch, getApiBaseUrl, getEventSourceUrl, getWsBaseUrl } from '../api-fetch';
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -22,6 +22,17 @@ describe('getWsBaseUrl', () => {
     const url = getWsBaseUrl();
     // jsdom defaults to http://localhost
     expect(url).toMatch(/^wss?:\/\//);
+  });
+});
+
+describe('getEventSourceUrl', () => {
+  it('adds the stored bearer token for native EventSource authentication', () => {
+    localStorage.setItem('mitzo_auth_token', 'token with spaces');
+    expect(getEventSourceUrl('/api/events')).toBe('/api/events?token=token%20with%20spaces');
+  });
+
+  it('does not add a query parameter when no token is stored', () => {
+    expect(getEventSourceUrl('/api/events')).toBe('/api/events');
   });
 });
 

@@ -58,6 +58,11 @@ function extractBearerToken(req: Request): string | undefined {
   return undefined;
 }
 
+function extractSseQueryToken(req: Request): string | undefined {
+  if (req.path !== '/events' && req.path !== '/chat/events') return undefined;
+  return typeof req.query.token === 'string' ? req.query.token : undefined;
+}
+
 export function authMiddleware(req: Request, res: Response, next: NextFunction) {
   if (req.path === '/auth/login') return next();
 
@@ -68,7 +73,9 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
     return next();
   }
 
-  const token = req.cookies?.[COOKIE_NAME] || extractBearerToken(req);
+  // EventSource cannot attach Authorization headers. Query authentication is
+  // deliberately limited to the two read-only SSE endpoints.
+  const token = req.cookies?.[COOKIE_NAME] || extractBearerToken(req) || extractSseQueryToken(req);
   if (!token) {
     res.status(401).json({ error: 'Not authenticated' });
     return;
