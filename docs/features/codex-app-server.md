@@ -114,6 +114,12 @@ The local CLI-generated schema should be rechecked on version changes.
 
 Account email matching deliberately requires the exact provider-reported value. Configure that value verbatim; preflight does not assume that differently cased login identifiers are interchangeable. The profile revision also retains the exact configured identity.
 
+The combined lifecycle and durable prompt-delivery branch passes 3,388 tests across
+230 files, including accepted Codex session/message identity on start and resume,
+preflight reply failure sanitization, and lost-acknowledgement reconnect delivery.
+Server/frontend builds, lint, and formatting also pass. These automated checks do
+not replace the live acceptance gaps below.
+
 ## Follow-up wiring acceptance
 
 The live Read tests verify tool execution, not approval cards. The Codex route has
