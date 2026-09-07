@@ -6261,6 +6261,7 @@ textarea:focus {
 /* Account identity needs its own row on a phone, alongside the model selector. */
 .chat-account-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   padding: 0.35rem 0.75rem;
@@ -6279,4 +6280,16 @@ textarea:focus {
 .chat-account-binding {
   overflow-wrap: anywhere;
   line-height: 1.5;
+}
+
+.chat-account-alias-form {
+  display: flex;
+  flex-wrap: wrap;
+  flex-basis: 100%;
+  gap: var(--space-2);
+  align-items: center;
+}
+.chat-account-alias-form input {
+  flex: 1 1 10rem;
+  min-width: 0;
 }

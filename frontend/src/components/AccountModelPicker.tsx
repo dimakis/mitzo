@@ -186,6 +186,7 @@ export function AccountModelPicker({
       )}
       {editingAlias && (
         <form
+          className="chat-account-alias-form"
           onSubmit={async (e) => {
             e.preventDefault();
             setSavingAlias(true);
