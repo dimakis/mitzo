@@ -4,8 +4,9 @@ import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import type { AccountBinding } from '@mitzo/protocol';
+import type { CodexAccountProfile } from './codex-account.js';
 
-const Profile = z
+const VertexProfile = z
   .object({
     id: z.string().regex(/^[a-zA-Z0-9_-]+$/),
     label: z.string().min(1),
@@ -19,11 +20,27 @@ const Profile = z
   })
   .strict();
 
+const CodexProfile = z
+  .object({
+    id: z.string().regex(/^[a-zA-Z0-9_-]+$/),
+    label: z.string().min(1),
+    provider: z.literal('openai-codex'),
+    credentialRef: z.string().refine(isAbsolute),
+    email: z.string().min(1),
+    planType: z.string().min(1),
+    models: z.array(z.object({ id: z.string().min(1), label: z.string().min(1) }).strict()).min(1),
+  })
+  .strict();
+const Profile = z.discriminatedUnion('provider', [VertexProfile, CodexProfile]);
+
 /** Account configuration is server-owned; invocation adapters remain harness-owned. */
 export class AccountProfiles {
   private profiles: z.infer<typeof Profile>[];
 
-  constructor(config: unknown) {
+  constructor(
+    config: unknown,
+    private options: { codexEnabled?: boolean } = {},
+  ) {
     const parsed = z.array(Profile).safeParse(config);
     if (!parsed.success)
       throw new Error('Invalid account profiles configuration. Check the server profile file.');
@@ -34,32 +51,35 @@ export class AccountProfiles {
   }
 
   catalog() {
-    return this.profiles.map(({ id, label, provider, models }) => ({
-      id,
-      label,
-      provider,
-      billing: 'google-cloud' as const,
-      models,
-      capabilities: { streaming: true, tools: true, images: true },
-    }));
+    return this.profiles
+      .filter((p) => p.provider !== 'openai-codex' || this.options.codexEnabled)
+      .map(({ id, label, provider, models }) => ({
+        id,
+        label,
+        provider,
+        billing: provider === 'openai-codex' ? 'chatgpt-subscription' : 'google-cloud',
+        models,
+        capabilities: { streaming: true, tools: true, images: provider !== 'openai-codex' },
+      }));
   }
 
   resolve(accountId: string, model?: string): AccountBinding {
     const profile = this.profiles.find((p) => p.id === accountId);
     if (!profile)
       throw new Error('Account is unavailable. Select a configured account for a new task.');
+    if (profile.provider === 'openai-codex' && !this.options.codexEnabled)
+      throw new Error('Codex execution is not enabled; development acceptance is required');
     if (!model || !profile.models.some((m) => m.id === model)) {
       throw new Error('Model is unavailable for this account. Select a model from its catalog.');
     }
     // Bind routing identity, not presentation or the mutable model allowlist.
     const profileRevision = createHash('sha256')
       .update(
-        JSON.stringify([
-          profile.provider,
-          profile.projectId,
-          profile.region,
-          profile.credentialRef,
-        ]),
+        JSON.stringify(
+          profile.provider === 'openai-codex'
+            ? [profile.provider, profile.credentialRef, profile.email, profile.planType]
+            : [profile.provider, profile.projectId, profile.region, profile.credentialRef],
+        ),
       )
       .digest('hex');
     return {
@@ -81,9 +101,25 @@ export class AccountProfiles {
     return binding;
   }
 
+  codexProfile(binding: AccountBinding): CodexAccountProfile {
+    this.resume(binding);
+    const profile = this.profiles.find((p) => p.id === binding.accountId);
+    if (!profile || profile.provider !== 'openai-codex') throw new Error('Not a Codex account');
+    return {
+      accountId: profile.id,
+      accountLabel: profile.label,
+      credentialRef: profile.credentialRef,
+      email: profile.email,
+      planType: profile.planType,
+      model: binding.model,
+    };
+  }
+
   sdkEnv(binding: AccountBinding, base: Record<string, string>): Record<string, string> {
     this.resume(binding);
     const profile = this.profiles.find((p) => p.id === binding.accountId)!;
+    if (profile.provider === 'openai-codex')
+      throw new Error('Codex accounts require the subscription runtime');
     const env = { ...base };
     // Remove inherited alternate billing/routing controls before setting the chosen profile.
     for (const key of Object.keys(env)) {
@@ -114,6 +150,10 @@ export function loadAccountProfiles(): AccountProfiles {
     try {
       return new AccountProfiles(
         JSON.parse(readFileSync(process.env.MITZO_ACCOUNT_PROFILES_FILE, 'utf8')),
+        {
+          codexEnabled:
+            process.env.MITZO_CODEX_DEV_ENABLED === '1' && process.env.NODE_ENV !== 'production',
+        },
       );
     } catch {
       // Raw parser/schema errors may contain credential material from an invalid profile.
