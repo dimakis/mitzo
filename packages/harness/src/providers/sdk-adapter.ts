@@ -95,6 +95,8 @@ export interface AgenticLoopOptions {
   maxTurns: number;
   signal?: AbortSignal;
   executeTool: (block: ToolUseBlock) => Promise<ToolResultBlock>;
+  /** Persist completed model output and each tool outcome before executing further side effects. */
+  onHistory?: (messages: ConversationMessage[]) => void | Promise<void>;
 }
 
 // ── sdkWrapperEmitter ───────────────────────────────────────────
@@ -242,6 +244,7 @@ export async function* runAgenticLoop(
         }
         // Append assistant message to conversation history
         messages.push({ role: 'assistant', content: event.message.content });
+        await opts.onHistory?.(structuredClone(messages));
       }
     }
 
@@ -269,14 +272,19 @@ export async function* runAgenticLoop(
         };
       }
 
+      toolResults.push(result);
+      // Each side effect needs a durable boundary. Cloning isolates callback mutation;
+      // callers should bound history until differential persistence is implemented.
+      await opts.onHistory?.(
+        structuredClone([...messages, { role: 'user' as const, content: toolResults }]),
+      );
+
       // Yield user wrapper so query-loop can track tool results
       yield {
         type: 'user',
         message: { content: [result] },
         parent_tool_use_id: null,
       };
-
-      toolResults.push(result);
     }
 
     // Append tool results as user message for next turn

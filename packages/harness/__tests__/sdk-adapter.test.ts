@@ -248,6 +248,53 @@ describe('sdkWrapperEmitter', () => {
 // ── runAgenticLoop ──────────────────────────────────────────────
 
 describe('runAgenticLoop', () => {
+  it('persists isolated snapshots before side effects and before yielding tool results', async () => {
+    const snapshots: ConversationMessage[][] = [];
+    const executeTool = vi.fn(async () => {
+      expect(snapshots.at(-1)?.at(-1)?.role).toBe('assistant');
+      return { type: 'tool_result' as const, tool_use_id: 't1', content: 'ok' };
+    });
+    const loop = runAgenticLoop(
+      mockSession([toolUseTurnEvents('Read', 't1', {}), textTurnEvents('done')]),
+      [{ role: 'user', content: 'go' }],
+      {
+        sessionId: 'history-contract',
+        maxTurns: 2,
+        executeTool,
+        onHistory: (history) => {
+          snapshots.push(structuredClone(history));
+          history.length = 0;
+        },
+      },
+    );
+    for await (const event of loop) {
+      if (event.type === 'user')
+        expect(snapshots.at(-1)?.at(-1)?.content).toEqual(event.message.content);
+    }
+    expect(snapshots).toHaveLength(3);
+    expect(snapshots.map((history) => history.length)).toEqual([2, 3, 4]);
+    expect(snapshots[0].at(-1)?.role).toBe('assistant');
+  });
+  it('propagates history persistence failure before executing tools', async () => {
+    const executeTool = vi.fn();
+    await expect(
+      collect(
+        runAgenticLoop(
+          mockSession([toolUseTurnEvents('Write', 't1', {})]),
+          [{ role: 'user', content: 'go' }],
+          {
+            sessionId: 'failed-persistence',
+            maxTurns: 2,
+            executeTool,
+            onHistory: () => {
+              throw new Error('persistence unavailable');
+            },
+          },
+        ),
+      ),
+    ).rejects.toThrow('persistence unavailable');
+    expect(executeTool).not.toHaveBeenCalled();
+  });
   it('completes immediately when model produces no tool_use', async () => {
     const session = mockSession([textTurnEvents('done')]);
     const opts: AgenticLoopOptions = {
