@@ -75,6 +75,15 @@ it('renders host tool calls and results without putting provider continuation ID
   const id = m.toolStart('provider-call', 'Read', { file_path: 'note' });
   m.toolResult(id, 'hello', false);
   expect(id).not.toBe('provider-call');
+  expect(events).toContainEqual(
+    expect.objectContaining({
+      type: 'stream_event',
+      event: expect.objectContaining({
+        type: 'content_block_start',
+        content_block: { type: 'tool_use', id, name: 'Read', input: {} },
+      }),
+    }),
+  );
   expect(events).toContainEqual({
     type: 'user',
     message: {

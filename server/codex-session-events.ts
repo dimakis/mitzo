@@ -100,6 +100,26 @@ export class CodexSessionEvents {
   toolStart(_providerCallId: string, name: string, input: ObjectValue): string {
     this.flush();
     const id = randomUUID();
+    this.stream({
+      type: 'message_start',
+      message: {
+        id: randomUUID(),
+        model: this.model,
+        role: 'assistant',
+        usage: { input_tokens: 0, output_tokens: 0 },
+      },
+    });
+    this.stream({
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'tool_use', id, name, input: {} },
+    });
+    this.stream({
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'input_json_delta', partial_json: JSON.stringify(input) },
+    });
+    this.stream({ type: 'content_block_stop', index: 0 });
     this.emit({
       type: 'assistant',
       session_id: this.conversationId,
