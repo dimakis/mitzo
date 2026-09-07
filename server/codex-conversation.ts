@@ -131,13 +131,16 @@ export class CodexConversation {
     if (!this.binding) return [];
     return this.opts.store.commands(this.opts.conversationId, this.binding);
   }
-  async send(input: CodexCommandInput) {
+  enqueue(input: CodexCommandInput) {
     if (!this.ready || this.closed) throw new Error('Codex conversation unavailable');
     // Built-in Codex skill readers cannot yet be mediated; do not silently weaken a ceiling.
     if (input.allowedTools)
       throw new Error('Codex execution does not yet support restricted skill tool ceilings');
     this.opts.store.enqueue(this.opts.conversationId, this.binding!, input);
     this.opts.onQueueChange?.();
+  }
+  async send(input: CodexCommandInput) {
+    this.enqueue(input);
     if (this.paused) return;
     await this.pump();
   }
