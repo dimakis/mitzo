@@ -1,3 +1,4 @@
+import { createNativeHooks } from './native-hooks.js';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -21,6 +22,7 @@ function store() {
   return privateStore;
 }
 interface Options {
+  resume?: boolean;
   conversationId: string;
   binding: AccountBinding;
   apiKey: string;
@@ -36,48 +38,85 @@ interface Options {
 export async function openResponsesChat(options: Options) {
   const signal = options.session.abortController.signal;
   signal.throwIfAborted();
+  const privateStorage = options.store ?? store();
+  const { hooks, dispose } = createNativeHooks(
+    options.session.cwd!,
+    options.conversationId,
+    options.env,
+  );
+  let startup;
+  try {
+    startup = await hooks.run(
+      'SessionStart',
+      { source: options.resume ? 'resume' : 'startup' },
+      signal,
+    );
+  } catch (error) {
+    dispose();
+    throw error;
+  }
   const mcp = await connectCodexMcpTools(options.mcpServers, {
     cwd: options.session.cwd!,
     env: options.env,
     signal,
+  }).catch((error) => {
+    dispose();
+    throw error;
   });
   let interrupted = false;
   const runner = new NativeResponsesRunner({
     conversationId: options.conversationId,
     binding: options.binding,
     apiKey: options.apiKey,
-    store: options.store ?? store(),
-    systemPrompt: options.systemPrompt,
+    store: privateStorage,
+    systemPrompt: options.systemPrompt + (startup.context ? `\n\n${startup.context}` : ''),
     maxTokens: 8192,
     tools: [...nativeToolDefinitions, ...mcp.definitions],
     executeTool: async (block, signal) => {
-      const owner = options.registry.findBySessionId(options.conversationId);
-      if (!owner) throw new Error('Session unavailable');
-      if (mcp.definitions.some((t) => t.name === block.name)) {
-        const result = await mcp.execute(
-          block.name,
-          block.input,
-          (name, input, signal) =>
-            buildPermissionHandler(owner.clientId, options.registry)(name, input, {
-              signal,
-              toolUseID: randomUUID(),
-            }),
-          signal,
-        );
-        return {
-          type: 'tool_result',
-          tool_use_id: block.id,
-          content: result.content,
-          is_error: result.isError,
-        };
-      }
-      return createNativeToolExecutor(owner.clientId, options.registry, { env: options.env })(
-        block,
+      const result = await hooks.executeTool(
+        block.name,
+        block.input,
         signal,
+        async (input, forcePrompt) => {
+          const owner = options.registry.findBySessionId(options.conversationId);
+          if (!owner) throw new Error('Session unavailable');
+          if (mcp.definitions.some((t) => t.name === block.name)) {
+            const result = await mcp.execute(
+              block.name,
+              input,
+              (name, input, signal) =>
+                buildPermissionHandler(owner.clientId, options.registry)(name, input, {
+                  signal,
+                  toolUseID: randomUUID(),
+                  forcePrompt,
+                }),
+              signal,
+            );
+            return result;
+          }
+          const result = await createNativeToolExecutor(owner.clientId, options.registry, {
+            env: options.env,
+            forcePrompt,
+          })({ ...block, input }, signal);
+          return { content: result.content, isError: !!result.is_error };
+        },
       );
+      return {
+        type: 'tool_result',
+        tool_use_id: block.id,
+        content: result.content,
+        is_error: result.isError,
+      };
     },
   });
+  let closed = false;
   function close() {
+    if (closed) return;
+    closed = true;
+    void hooks
+      .run('SessionEnd', { reason: 'other' }, AbortSignal.timeout(5000))
+      .catch(() => {})
+      .finally(dispose);
     runner.interrupt();
     options.input.close();
     void mcp.close();
@@ -93,8 +132,11 @@ export async function openResponsesChat(options: Options) {
             throw new Error('API chat currently supports text input');
           interrupted = false;
           try {
-            for await (const event of runner.run(message.message.content, signal))
+            for await (const event of runner.run(message.message.content, signal)) {
+              if (event.type === 'result')
+                await hooks.run('Stop', { stop_hook_active: false }, signal);
               yield { ...event };
+            }
           } catch {
             if (!interrupted || signal.aborted)
               throw new Error(

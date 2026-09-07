@@ -71,3 +71,54 @@ it('runs successive user turns with a private credential and closes its input qu
   );
   registry.dispose();
 });
+
+it('does not start an API runner when a project startup hook fails', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const root = mkdtempSync(join(tmpdir(), 'mitzo-startup-hook-'));
+  mkdirSync(join(root, '.claude'));
+  writeFileSync(
+    join(root, '.claude/settings.json'),
+    JSON.stringify({
+      hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'exit 2' }] }] },
+    }),
+  );
+  const registry = new SessionRegistry();
+  const abort = new AbortController();
+  registry.register('client', {
+    transport: { send: () => {}, isOpen: () => true },
+    abortController: abort,
+    mode: 'agent',
+    sessionId: 'app',
+    cwd: root,
+    sessionAllowList: new Set(),
+  });
+  const count = calls.options.length;
+  try {
+    await expect(
+      openResponsesChat({
+        conversationId: 'app',
+        binding: {
+          accountId: 'work',
+          accountLabel: 'Work',
+          provider: 'openai',
+          model: 'test',
+          profileRevision: 'revision',
+        },
+        apiKey: 'private-test-key',
+        session: registry.get('client')!,
+        registry,
+        input: new AsyncQueue(),
+        systemPrompt: 'context',
+        env: { PATH: '/usr/bin:/bin' },
+        mcpServers: {},
+        store: {} as never,
+      }),
+    ).rejects.toThrow('SessionStart hook failed');
+    expect(calls.options).toHaveLength(count);
+  } finally {
+    registry.dispose();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

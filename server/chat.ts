@@ -1096,8 +1096,6 @@ async function _startChatInner(
     }
     let q: AsyncIterable<Record<string, unknown>> & NonNullable<typeof session.queryInstance>;
     if (codexProfile) {
-      if (hooks && Object.keys(hooks).length)
-        throw new Error('Codex project hook parity is not yet supported');
       const conversationId = options.resume ?? newSdkSessionId!;
       session.sessionId = conversationId;
       options.onSessionResolved?.(conversationId);
@@ -1112,6 +1110,7 @@ async function _startChatInner(
         session.observers,
       );
       q = await openCodexChat({
+        resume: !!options.resume,
         conversationId,
         binding: accountBinding!,
         profile: codexProfile,
@@ -1125,8 +1124,6 @@ async function _startChatInner(
         mcpServers: allMcpServers,
       });
     } else if (apiKey) {
-      if (hooks && Object.keys(hooks).length)
-        throw new Error('OpenAI API project hook parity is not yet supported');
       const conversationId = options.resume ?? newSdkSessionId!;
       session.sessionId = conversationId;
       options.onSessionResolved?.(conversationId);
@@ -1140,6 +1137,7 @@ async function _startChatInner(
         session.observers,
       );
       q = await openResponsesChat({
+        resume: !!options.resume,
         conversationId,
         binding: accountBinding!,
         apiKey,

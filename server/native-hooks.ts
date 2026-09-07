@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
+import { tmpdir } from 'node:os';
 
 const Events = ['SessionStart', 'PreToolUse', 'PostToolUse', 'Stop', 'SessionEnd'] as const;
 type Event = (typeof Events)[number];
@@ -174,5 +175,17 @@ export class NativeHooks {
       }
     }
     return result;
+  }
+}
+
+/** Hooks get the session metadata but no personal home credential store or internal API token. */
+export function createNativeHooks(cwd: string, sessionId: string, env: Record<string, string>) {
+  const home = mkdtempSync(join(tmpdir(), 'mitzo-hook-home-'));
+  try {
+    const hooks = new NativeHooks(cwd, sessionId, { ...env, HOME: home });
+    return { hooks, dispose: () => rmSync(home, { recursive: true, force: true }) };
+  } catch (error) {
+    rmSync(home, { recursive: true, force: true });
+    throw error;
   }
 }

@@ -1,3 +1,4 @@
+import { createNativeHooks } from './native-hooks.js';
 import { requestCodexUserInput } from './codex-user-input.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import { mkdirSync } from 'node:fs';
@@ -51,6 +52,7 @@ export function readCodexQueue(
   }
 }
 interface Options {
+  resume?: boolean;
   conversationId: string;
   binding: AccountBinding;
   profile: CodexAccountProfile;
@@ -68,16 +70,39 @@ export async function openCodexChat(options: Options) {
   const signal = options.session.abortController.signal;
   signal.throwIfAborted();
   const privateStorage = store();
+  const { hooks, dispose } = createNativeHooks(
+    options.session.cwd!,
+    options.conversationId,
+    options.env,
+  );
+  let startup;
+  try {
+    startup = await hooks.run(
+      'SessionStart',
+      { source: options.resume ? 'resume' : 'startup' },
+      signal,
+    );
+  } catch (error) {
+    dispose();
+    throw error;
+  }
   const mcp = await connectCodexMcpTools(options.mcpServers, {
     cwd: options.session.cwd!,
     env: options.env,
     signal: options.session.abortController.signal,
+  }).catch((error) => {
+    dispose();
+    throw error;
   });
   const events = new AsyncQueue<Record<string, unknown>>();
   let closed = false;
   function finish() {
     if (closed) return;
     closed = true;
+    void hooks
+      .run('SessionEnd', { reason: 'other' }, AbortSignal.timeout(5000))
+      .catch(() => {})
+      .finally(dispose);
     signal.removeEventListener('abort', close);
     events.close();
     void mcp.close();
@@ -89,7 +114,10 @@ export async function openCodexChat(options: Options) {
     profile: options.profile,
     storedBinding: options.binding,
     store: privateStorage,
-    systemPrompt: options.systemPrompt,
+    systemPrompt: options.systemPrompt + (startup.context ? `\n\n${startup.context}` : ''),
+    beforeComplete: async (signal) => {
+      await hooks.run('Stop', { stop_hook_active: false }, signal);
+    },
     validateModel: (model) => {
       const current = loadAccountProfiles().resolve(options.binding.accountId, model);
       if (
@@ -109,26 +137,29 @@ export async function openCodexChat(options: Options) {
       if (!owner) throw new Error('Codex session unavailable');
       return requestCodexUserInput(params, signal, owner.clientId, options.registry);
     },
-    executeTool: async (name, input, signal) => {
-      const owner = options.registry.findBySessionId(options.conversationId);
-      if (!owner) throw new Error('Codex session unavailable');
-      if (mcp.definitions.some((t) => t.name === name))
-        return mcp.execute(
-          name,
-          input,
-          async (canonical, args, s) =>
-            buildPermissionHandler(owner.clientId, options.registry)(canonical, args, {
-              signal: s,
-              toolUseID: randomUUID(),
-            }),
-          signal,
-        );
-      const execute = createNativeToolExecutor(owner.clientId, options.registry, {
-        env: options.env,
-      });
-      const result = await execute({ type: 'tool_use', id: randomUUID(), name, input }, signal);
-      return { content: result.content, isError: !!result.is_error };
-    },
+    executeTool: async (name, input, signal) =>
+      hooks.executeTool(mcp.displayName(name), input, signal, async (input, forcePrompt) => {
+        const owner = options.registry.findBySessionId(options.conversationId);
+        if (!owner) throw new Error('Codex session unavailable');
+        if (mcp.definitions.some((t) => t.name === name))
+          return mcp.execute(
+            name,
+            input,
+            async (canonical, args, s) =>
+              buildPermissionHandler(owner.clientId, options.registry)(canonical, args, {
+                signal: s,
+                toolUseID: randomUUID(),
+                forcePrompt,
+              }),
+            signal,
+          );
+        const execute = createNativeToolExecutor(owner.clientId, options.registry, {
+          env: options.env,
+          forcePrompt,
+        });
+        const result = await execute({ type: 'tool_use', id: randomUUID(), name, input }, signal);
+        return { content: result.content, isError: !!result.is_error };
+      }),
     onQueueChange: () => {
       const message = {
         type: 'codex_queue',
