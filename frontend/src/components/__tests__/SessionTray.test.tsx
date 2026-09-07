@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { SessionTray } from '../SessionTray';
+import { MAX_IMAGE_ATTACHMENTS } from '../../lib/constants';
 
 vi.mock('../ContextPanel', () => ({
   ContextPanel: ({
@@ -80,6 +81,44 @@ describe('SessionTray', () => {
     expect(onToggle).toHaveBeenCalledWith('constitution');
     fireEvent.click(screen.getByRole('button', { name: 'Add source' }));
     expect(onAdd).toHaveBeenCalledOnce();
+  });
+
+  it('disables adding sources when the attachment limit is reached', () => {
+    const onAdd = vi.fn();
+    render(
+      <SessionTray
+        {...props}
+        draftImages={Array.from({ length: MAX_IMAGE_ATTACHMENTS }, (_, index) => ({
+          data: `image-${index}`,
+          mediaType: 'image/png',
+          preview: `data:image/png;base64,image-${index}`,
+        }))}
+        onAddImages={onAdd}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open session tray' }));
+
+    const addSource = screen.getByRole('button', { name: 'Add source' }) as HTMLButtonElement;
+    expect(addSource.disabled).toBe(true);
+    fireEvent.click(addSource);
+    expect(onAdd).not.toHaveBeenCalled();
+  });
+
+  it('preserves thumbnail DOM identity when a middle image is removed', () => {
+    const images = ['one', 'two', 'three'].map((name) => ({
+      data: name,
+      mediaType: 'image/png',
+      preview: `data:image/png;base64,${name}`,
+    }));
+    const { rerender } = render(<SessionTray {...props} draftImages={images} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open session tray' }));
+    const thirdRow = screen.getByRole('button', { name: 'Remove pasted image 3' }).parentElement;
+
+    rerender(<SessionTray {...props} draftImages={[images[0], images[2]]} />);
+
+    expect(screen.getByRole('button', { name: 'Remove pasted image 2' }).parentElement).toBe(
+      thirdRow,
+    );
   });
 
   it('renders collected session sources and outputs', () => {

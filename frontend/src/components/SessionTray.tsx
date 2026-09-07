@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { BootContextMeta } from '@mitzo/client';
 import type { FinishedMessage, ImageAttachment, StreamingMessage } from '../types/chat';
 import { collectSessionResources, type SessionResource } from '../lib/session-resources';
+import { MAX_IMAGE_ATTACHMENTS } from '../lib/constants';
 import { ContextPanel } from './ContextPanel';
 import { SessionBanner } from './SessionBanner';
 
@@ -72,9 +73,20 @@ export function SessionTray({
   const [dragOffset, setDragOffset] = useState(0);
   const pointerStart = useRef<number | null>(null);
   const suppressClick = useRef(false);
+  const draftImageKeys = useRef(new WeakMap<ImageAttachment, string>());
+  const nextDraftImageKey = useRef(0);
   const resources = useMemo(() => collectSessionResources(messages, current), [messages, current]);
   const resourceCount = resources.sources.length + resources.outputs.length + draftImages.length;
   const isOpen = snap !== 'peek';
+
+  const keyForDraftImage = (image: ImageAttachment) => {
+    let key = draftImageKeys.current.get(image);
+    if (!key) {
+      key = `draft:${nextDraftImageKey.current++}`;
+      draftImageKeys.current.set(image, key);
+    }
+    return key;
+  };
 
   useEffect(() => {
     const close = (event: KeyboardEvent) => {
@@ -161,13 +173,18 @@ export function SessionTray({
           <section className="session-tray-section">
             <div className="session-tray-section-header">
               <h2>Sources</h2>
-              <button className="session-tray-add" aria-label="Add source" onClick={onAddImages}>
+              <button
+                className="session-tray-add"
+                aria-label="Add source"
+                disabled={draftImages.length >= MAX_IMAGE_ATTACHMENTS}
+                onClick={onAddImages}
+              >
                 +
               </button>
             </div>
             <div className="session-tray-resources">
               {draftImages.map((image, index) => (
-                <div className="session-tray-resource" key={`draft:${index}`}>
+                <div className="session-tray-resource" key={keyForDraftImage(image)}>
                   <img className="session-tray-thumb" src={image.preview} alt="" />
                   <span className="session-tray-resource-label">Pasted image {index + 1}</span>
                   <button
