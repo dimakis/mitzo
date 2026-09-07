@@ -161,3 +161,26 @@ it('shows full approval input and explains the scope of session allowance', () =
   expect(screen.getByText(input)).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Allow for session' })).toBeTruthy();
 });
+
+it('accepts provider question IDs that match object prototype names', () => {
+  const onRespond = vi.fn();
+  render(
+    <PermissionBanner
+      {...defaultProps}
+      toolName="AskUserQuestion"
+      onRespond={onRespond}
+      questions={[
+        {
+          id: 'constructor',
+          question: 'Choose',
+          header: 'Choice',
+          multiSelect: false,
+          options: [{ label: 'Yes', description: '' }],
+        },
+      ]}
+    />,
+  );
+  fireEvent.click(screen.getByLabelText('Yes'));
+  fireEvent.click(screen.getByRole('button', { name: 'Send answer' }));
+  expect(onRespond).toHaveBeenCalledWith('p1', 'once', 'AskUserQuestion', { constructor: ['Yes'] });
+});

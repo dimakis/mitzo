@@ -38,8 +38,8 @@ export function PermissionBanner({
   expiresAt,
   onRespond,
 }: Props) {
-  const [selections, setSelections] = useState<QuestionAnswers>({});
-  const [written, setWritten] = useState<Record<string, string>>({});
+  const [selections, setSelections] = useState<Map<string, string[]>>(() => new Map());
+  const [written, setWritten] = useState<Map<string, string>>(() => new Map());
   const deadline = useMemo(
     () => ({ id: permId, at: expiresAt ?? Date.now() + 120_000 }),
     [permId, expiresAt],
@@ -64,14 +64,17 @@ export function PermissionBanner({
     return () => clearInterval(timer);
   }, [deadline, permId, toolName]);
   useEffect(() => {
-    setSelections({});
-    setWritten({});
+    setSelections(new Map());
+    setWritten(new Map());
   }, [permId]);
 
   const answers = Object.fromEntries(
     (questions ?? []).map((q) => [
       q.id,
-      [...(selections[q.id] ?? []), ...(written[q.id]?.trim() ? [written[q.id].trim()] : [])],
+      [
+        ...(selections.get(q.id) ?? []),
+        ...(written.get(q.id)?.trim() ? [written.get(q.id)!.trim()] : []),
+      ],
     ]),
   );
   const complete = questions?.every((q) => answers[q.id].length > 0);
@@ -112,17 +115,19 @@ export function PermissionBanner({
                     <input
                       type={q.multiSelect ? 'checkbox' : 'radio'}
                       name={`${permId}:${q.id}`}
-                      checked={selections[q.id]?.includes(option.label) ?? false}
+                      checked={selections.get(q.id)?.includes(option.label) ?? false}
                       onChange={(event) => {
-                        setSelections((old) => ({
-                          ...old,
-                          [q.id]: q.multiSelect
-                            ? event.target.checked
-                              ? [...(old[q.id] ?? []), option.label]
-                              : (old[q.id] ?? []).filter((v) => v !== option.label)
-                            : [option.label],
-                        }));
-                        if (!q.multiSelect) setWritten((old) => ({ ...old, [q.id]: '' }));
+                        setSelections((old) =>
+                          new Map(old).set(
+                            q.id,
+                            q.multiSelect
+                              ? event.target.checked
+                                ? [...(old.get(q.id) ?? []), option.label]
+                                : (old.get(q.id) ?? []).filter((v) => v !== option.label)
+                              : [option.label],
+                          ),
+                        );
+                        if (!q.multiSelect) setWritten((old) => new Map(old).set(q.id, ''));
                       }}
                     />
                     <span>
@@ -135,13 +140,13 @@ export function PermissionBanner({
               <label className="question-written">
                 Your answer
                 <textarea
-                  value={written[q.id] ?? ''}
+                  value={written.get(q.id) ?? ''}
                   maxLength={4000}
                   rows={2}
                   placeholder="Or write your own answer…"
                   onChange={(event) => {
-                    setWritten((old) => ({ ...old, [q.id]: event.target.value }));
-                    if (!q.multiSelect) setSelections((old) => ({ ...old, [q.id]: [] }));
+                    setWritten((old) => new Map(old).set(q.id, event.target.value));
+                    if (!q.multiSelect) setSelections((old) => new Map(old).set(q.id, []));
                   }}
                 />
               </label>
