@@ -1,6 +1,22 @@
 /** Internal scheme for file path links — intercepted by the custom renderer. */
 export const FILE_SCHEME = 'file-path://';
 
+/**
+ * Decode an internal file URL without allowing malformed URI data to escape
+ * into the React render path. Markdown parsers normalize a bare `%` to `%25`,
+ * so also reject decoded payloads that still contain an incomplete escape.
+ */
+export function decodeFilePathUrl(url: string): string | null {
+  if (!url.startsWith(FILE_SCHEME)) return null;
+
+  try {
+    const filePath = decodeURIComponent(url.slice(FILE_SCHEME.length));
+    return /%(?![0-9a-f]{2})/i.test(filePath) ? null : filePath;
+  } catch {
+    return null;
+  }
+}
+
 /** Detect whether a string looks like a file path (not a URL). */
 export function isFilePath(str: string): boolean {
   // Reject URLs

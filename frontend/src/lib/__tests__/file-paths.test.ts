@@ -1,5 +1,29 @@
 import { describe, it, expect } from 'vitest';
-import { detectFilePaths, isFilePath, linkifyFilePaths, FILE_SCHEME } from '../file-paths';
+import {
+  decodeFilePathUrl,
+  detectFilePaths,
+  isFilePath,
+  linkifyFilePaths,
+  FILE_SCHEME,
+} from '../file-paths';
+
+describe('decodeFilePathUrl', () => {
+  it('decodes a valid internal file URL', () => {
+    expect(decodeFilePathUrl(`${FILE_SCHEME}%2Ftmp%2Fnotes.md`)).toBe('/tmp/notes.md');
+  });
+
+  it('rejects malformed encoded UTF-8', () => {
+    expect(decodeFilePathUrl(`${FILE_SCHEME}%E0%A4%25A`)).toBeNull();
+  });
+
+  it('rejects an incomplete escape normalized by the markdown parser', () => {
+    expect(decodeFilePathUrl(`${FILE_SCHEME}%252`)).toBeNull();
+  });
+
+  it('does not decode unrelated URL schemes', () => {
+    expect(decodeFilePathUrl('https://example.com/file.md')).toBeNull();
+  });
+});
 
 describe('isFilePath', () => {
   it('recognises absolute Unix paths', () => {
