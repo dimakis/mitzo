@@ -1039,6 +1039,25 @@ describe('SseConnection', () => {
     expect(newES.url).toBe('https://localhost:3100/api/chat/events');
   });
 
+  it('detects a 401 when an EventSource cannot establish authentication', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 401 });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    const listener = vi.fn();
+    conn.onMessage(listener);
+    conn.connect();
+
+    lastES()._triggerError();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://localhost:3100/api/auth/check',
+      expect.objectContaining({ method: 'GET' }),
+    );
+    expect(listener).toHaveBeenCalledWith({ type: '_auth_lost' });
+    expect(lastES().readyState).toBe(2);
+    conn.disconnect();
+  });
+
   it('checkAndReconnect(false) is no-op when connected', () => {
     const conn = new SseConnection(createConfig());
     conn.connect();

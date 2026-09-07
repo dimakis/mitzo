@@ -51,6 +51,7 @@ export class SseConnection implements ChatConnection {
   private seqBySession = new Map<string, number>();
   private pendingSends: Array<{ endpoint: string; body: Record<string, unknown> }> = [];
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private authProbe: Promise<void> | null = null;
   private boundOnVisibility: (() => void) | null = null;
   private boundOnPageShow: ((e: PageTransitionEvent) => void) | null = null;
   private boundOnPageHide: (() => void) | null = null;
@@ -324,10 +325,26 @@ export class SseConnection implements ChatConnection {
         this._connected = false;
         this.listener?.({ type: '_close' });
       }
+      this.probeAuthAfterStreamError(es);
     };
 
     // EventSource fires 'open' when the connection is established,
     // but we wait for the 'welcome' event before marking as connected.
+  }
+
+  private probeAuthAfterStreamError(es: EventSource): void {
+    if (this.authProbe) return;
+    this.authProbe = this.config
+      .fetch(`${this.config.baseUrl}/api/auth/check`, { method: 'GET' })
+      .then((response) => {
+        if (this.es === es && response.status === 401) this.handleAuthLoss();
+      })
+      .catch(() => {
+        // A network error is not proof of auth loss; EventSource may keep retrying.
+      })
+      .finally(() => {
+        this.authProbe = null;
+      });
   }
 
   private handleAuthLoss(): void {

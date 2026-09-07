@@ -53,6 +53,7 @@ export const clientStore = createMitzoStore({
   },
   wsConfig: {
     buildUrl: () => getWsChatUrl(),
+    checkAuth: () => apiFetch('/api/auth/check'),
     createWebSocket: (url) => new WebSocket(url) as import('@mitzo/client').WebSocketLike,
     reconnectDelayMs: 500,
     suspendUrl: `${getApiBaseUrl()}/api/sessions/suspend`,

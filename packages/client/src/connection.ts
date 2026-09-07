@@ -12,6 +12,8 @@ import { WS_READY_STATE } from './types.js';
 export interface MitzoConnectionConfig {
   buildUrl(): string;
   createWebSocket(url: string): WebSocketLike;
+  /** Authenticated HTTP preflight used to distinguish upgrade-time 401s from network failures. */
+  checkAuth?: () => Promise<{ status: number }>;
   reconnectDelayMs?: number;
   /** URL for the sendBeacon suspend fallback (POST /api/sessions/suspend). */
   suspendUrl?: string;
@@ -35,7 +37,11 @@ export class MitzoConnection {
   private boundOnVisibility: (() => void) | null = null;
   private boundOnPageShow: ((e: PageTransitionEvent) => void) | null = null;
   private boundOnPageHide: (() => void) | null = null;
-  private config: Required<MitzoConnectionConfig>;
+  private authCheckInFlight = false;
+  private authBlocked = false;
+  private authCheckGeneration = 0;
+  private config: MitzoConnectionConfig &
+    Required<Pick<MitzoConnectionConfig, 'reconnectDelayMs' | 'suspendUrl'>>;
 
   constructor(config: MitzoConnectionConfig) {
     this.config = {
@@ -46,12 +52,15 @@ export class MitzoConnection {
   }
 
   connect(): void {
+    this.authBlocked = false;
     this.doConnect();
     this.startHeartbeat();
     this.addBrowserListeners();
   }
 
   disconnect(): void {
+    this.authCheckGeneration++;
+    this.authCheckInFlight = false;
     this.stopHeartbeat();
     this.removeBrowserListeners();
     if (this.reconnectTimer) {
@@ -74,6 +83,7 @@ export class MitzoConnection {
     }
     if (
       this.ws?.readyState === WS_READY_STATE.CONNECTING ||
+      this.authCheckInFlight ||
       this.reconnectTimer ||
       (this.ws?.readyState === WS_READY_STATE.OPEN && !this._connected)
     ) {
@@ -188,6 +198,40 @@ export class MitzoConnection {
   }
 
   private doConnect(): void {
+    if (this.authBlocked) return;
+    if (!this.config.checkAuth) {
+      this.openSocket();
+      return;
+    }
+    if (this.authCheckInFlight) return;
+    if (
+      this.ws?.readyState === WS_READY_STATE.OPEN ||
+      this.ws?.readyState === WS_READY_STATE.CONNECTING
+    )
+      return;
+
+    const generation = ++this.authCheckGeneration;
+    this.authCheckInFlight = true;
+    void this.config
+      .checkAuth()
+      .then((response) => {
+        if (generation !== this.authCheckGeneration) return;
+        if (response.status === 401) {
+          this.handleAuthLoss();
+          return;
+        }
+        this.openSocket();
+      })
+      .catch(() => {
+        // A network failure is not proof of auth loss; let the socket surface it.
+        if (generation === this.authCheckGeneration) this.openSocket();
+      })
+      .finally(() => {
+        if (generation === this.authCheckGeneration) this.authCheckInFlight = false;
+      });
+  }
+
+  private openSocket(): void {
     if (
       this.ws?.readyState === WS_READY_STATE.OPEN ||
       this.ws?.readyState === WS_READY_STATE.CONNECTING
@@ -246,8 +290,7 @@ export class MitzoConnection {
       this.ws = null;
       this._connected = false;
       if (event?.code === 4401) {
-        this.rejectPendingSends('Authentication expired. Sign in again to retry.');
-        this.listener?.({ type: '_auth_lost' });
+        this.handleAuthLoss();
         return;
       }
       this.listener?.({ type: '_close' });
@@ -258,6 +301,19 @@ export class MitzoConnection {
       // Intentionally empty — error events always precede close, and
       // reconnect is handled in onclose. Nothing actionable here.
     };
+  }
+
+  private handleAuthLoss(): void {
+    this.authBlocked = true;
+    this.authCheckGeneration++;
+    this.authCheckInFlight = false;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.ws?.close();
+    this.ws = null;
+    this._connected = false;
+    this.rejectPendingSends('Authentication expired. Sign in again to retry.');
+    this.listener?.({ type: '_auth_lost' });
   }
 
   private rejectPendingSends(error: string): void {
@@ -375,6 +431,11 @@ export class MitzoConnection {
    *   and flush after the welcome handshake completes.
    */
   checkAndReconnect(force = false): void {
+    if (force) {
+      this.authBlocked = false;
+      this.authCheckGeneration++;
+      this.authCheckInFlight = false;
+    }
     if (!force && this.ws?.readyState === WS_READY_STATE.OPEN) return;
     if (this.reconnectTimer) return;
     this.defuseOldWs();

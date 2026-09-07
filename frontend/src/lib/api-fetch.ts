@@ -65,11 +65,25 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
 }
 
 export async function logout(): Promise<void> {
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const request = apiFetch('/api/auth/logout', { method: 'POST', signal: controller.signal });
+  // Local logout must not wait on a slow or unreachable server. apiFetch has
+  // already captured the current bearer token before this credential removal.
+  markAuthLost();
   try {
-    await apiFetch('/api/auth/logout', { method: 'POST' });
+    await Promise.race([
+      request,
+      new Promise<void>((resolve) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          resolve();
+        }, 2_000);
+      }),
+    ]);
   } catch {
     // Local credential removal must remain available while the server is down.
   } finally {
-    markAuthLost();
+    if (timeout) clearTimeout(timeout);
   }
 }

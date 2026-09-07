@@ -146,6 +146,18 @@ describe('apiFetch', () => {
     expect(localStorage.getItem('mitzo_auth_token')).toBeNull();
   });
 
+  it('clears local auth immediately and bounds a blackholed logout request', async () => {
+    vi.useFakeTimers();
+    localStorage.setItem('mitzo_auth_token', 'current-token');
+    mockFetch.mockImplementationOnce(() => new Promise(() => {}));
+
+    const pending = logout();
+    expect(localStorage.getItem('mitzo_auth_token')).toBeNull();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(pending).resolves.toBeUndefined();
+    vi.useRealTimers();
+  });
+
   it('announces successful reauthentication after storing the new token', () => {
     const listener = vi.fn();
     window.addEventListener(AUTH_RESTORED_EVENT, listener);
