@@ -17,16 +17,23 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
   useEffect(() => {
     let disposed = false;
     let isCodex = false;
+    let idle = false;
+    let reading = false;
+    let lastRead = 0;
     setQueue(null);
     setError('');
     if (!sessionId) return;
     const read = async () => {
+      if (disposed || reading) return;
+      reading = true;
+      lastRead = Date.now();
       try {
         const response = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/meta`);
         if (!response.ok) throw new Error();
         const data = await response.json();
         const parsed = Queue.safeParse(data.codexQueue);
         isCodex = parsed.success;
+        idle = parsed.success && !parsed.data.paused && parsed.data.queued === 0;
         if (!disposed) {
           setQueue(parsed.success ? parsed.data : null);
           setError('');
@@ -34,13 +41,20 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
       } catch {
         if (!disposed && isCodex)
           setError('Queue status unavailable. Retry to check saved messages.');
+      } finally {
+        reading = false;
       }
     };
     refresh.current = read;
     void read();
     const timer = setInterval(() => {
-      if (isCodex && document.visibilityState !== 'hidden') void read();
-    }, 2000);
+      if (
+        isCodex &&
+        document.visibilityState !== 'hidden' &&
+        (!idle || Date.now() - lastRead >= 30000)
+      )
+        void read();
+    }, 10000);
     const focus = () => {
       if (isCodex) void read();
     };
@@ -60,10 +74,21 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
         `/api/sessions/${encodeURIComponent(sessionId!)}/codex-queue/continue`,
         { method: 'POST' },
       );
-      if (!response.ok) throw new Error();
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(
+          typeof body.error === 'string'
+            ? body.error
+            : 'Could not continue. Check the connection and retry.',
+        );
+      }
       await refresh.current();
-    } catch {
-      setError('Could not continue. Check the connection and retry.');
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : 'Could not continue. Check the connection and retry.',
+      );
     } finally {
       setBusy(false);
     }
