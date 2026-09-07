@@ -5,7 +5,6 @@ import { ToolPill } from './ToolPill';
 import { ToolGroup } from './ToolGroup';
 import { PermissionBanner } from './PermissionBanner';
 import { ProgressWidget } from './ProgressWidget';
-import { SessionBanner } from './SessionBanner';
 import { groupBlocks } from '../lib/groupMessages';
 import { SCROLL_NEAR_BOTTOM_PX } from '../lib/constants';
 import type {
@@ -14,7 +13,6 @@ import type {
   StreamingMessage,
   PermissionRequest,
 } from '../types/chat';
-import type { BootContextMeta } from '@mitzo/client';
 import type { ProgressBlock } from '@mitzo/protocol';
 import type { UseVoiceReturn } from '../hooks/useVoice';
 
@@ -39,10 +37,6 @@ export interface ChatAreaProps {
   progressByToolId?: Record<string, ProgressBlock>;
   /** Voice capabilities for per-block read-aloud */
   voice?: ChatAreaVoice;
-  /** Boot context metadata for sticky banner */
-  bootContext?: BootContextMeta | null;
-  /** Session context string for sticky banner */
-  sessionContext?: string | null;
 }
 
 export function ChatArea({
@@ -54,8 +48,6 @@ export function ChatArea({
   scrollRef: externalScrollRef,
   progressByToolId,
   voice,
-  bootContext,
-  sessionContext,
 }: ChatAreaProps) {
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
@@ -151,8 +143,6 @@ export function ChatArea({
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
-        <SessionBanner bootContext={bootContext} sessionContext={sessionContext} />
-
         {messages.length === 0 && !current && !running && (
           <p className="chat-empty">Send a message to start</p>
         )}

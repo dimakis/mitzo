@@ -6,12 +6,13 @@ import {
   type KeyboardEvent,
   type ChangeEvent,
 } from 'react';
-import type { ImageAttachment } from '../types/chat';
+import type { BootContextMeta } from '@mitzo/client';
+import type { FinishedMessage, ImageAttachment, StreamingMessage } from '../types/chat';
 import { resizeImage } from '../lib/resizeImage';
 import { extractImageFiles } from '../lib/paste-images';
 import { MAX_IMAGE_ATTACHMENTS } from '../lib/constants';
 import { SlashPicker } from './SlashPicker';
-import { ContextPicker } from './ContextPicker';
+import { SessionTray } from './SessionTray';
 import { MicButton } from './MicButton';
 import { impactMedium } from '../lib/haptics';
 import { TokenBar } from './TokenBar';
@@ -36,6 +37,10 @@ interface Props {
   /** When provided, uses these context blocks instead of internal state. Hides @ picker. */
   externalContextBlocks?: string[];
   tokenState?: TokenState;
+  messages?: FinishedMessage[];
+  current?: StreamingMessage | null;
+  bootContext?: BootContextMeta | null;
+  sessionContext?: string | null;
 }
 
 export function ChatInput({
@@ -53,11 +58,14 @@ export function ChatInput({
   sessionId,
   externalContextBlocks,
   tokenState,
+  messages = [],
+  current,
+  bootContext,
+  sessionContext,
 }: Props) {
   const [text, setText, clearDraft] = useDraft(sessionId, initialText);
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [showSlashPicker, setShowSlashPicker] = useState(false);
-  const [showContextPicker, setShowContextPicker] = useState(false);
   const [contextBlocks, setContextBlocks] = useState<string[]>([]);
   const {
     queue: queuedMessages,
@@ -294,6 +302,23 @@ export function ChatInput({
 
   return (
     <div className="chat-input">
+      {!useExternal && (
+        <SessionTray
+          messages={messages}
+          current={current}
+          bootContext={bootContext}
+          sessionContext={sessionContext}
+          selectedContextBlocks={contextBlocks}
+          draftImages={images}
+          onToggleContextBlock={(name) =>
+            setContextBlocks((prev) =>
+              prev.includes(name) ? prev.filter((value) => value !== name) : [...prev, name],
+            )
+          }
+          onAddImages={() => fileInputRef.current?.click()}
+          onRemoveImage={removeImage}
+        />
+      )}
       {showSlashPicker && (
         <SlashPicker
           query={text.trimStart()}
@@ -301,44 +326,6 @@ export function ChatInput({
           onClose={() => setShowSlashPicker(false)}
           cwd={cwd}
         />
-      )}
-      {!useExternal && showContextPicker && (
-        <ContextPicker
-          selected={contextBlocks}
-          onToggle={(name) =>
-            setContextBlocks((prev) =>
-              prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
-            )
-          }
-          onClose={() => setShowContextPicker(false)}
-        />
-      )}
-      {images.length > 0 && (
-        <div className="chat-input-previews">
-          {images.map((img, i) => (
-            <div key={i} className="chat-input-preview">
-              <img src={img.preview} alt={`Attachment ${i + 1}`} />
-              <button className="chat-input-preview-remove" onClick={() => removeImage(i)}>
-                &times;
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-      {!useExternal && contextBlocks.length > 0 && (
-        <div className="chat-input-context-pills">
-          {contextBlocks.map((name) => (
-            <span key={name} className="chat-input-context-pill">
-              {name}
-              <button
-                className="chat-input-context-pill-remove"
-                onClick={() => setContextBlocks((prev) => prev.filter((n) => n !== name))}
-              >
-                &times;
-              </button>
-            </span>
-          ))}
-        </div>
       )}
       {voice?.recording && voice.partialTranscript && (
         <div className="voice-partial">{voice.partialTranscript}</div>
@@ -386,23 +373,6 @@ export function ChatInput({
         >
           /
         </button>
-        <button
-          className="chat-input-btn chat-input-btn--attach"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={images.length >= MAX_IMAGE_ATTACHMENTS}
-          title="Attach image"
-        >
-          +
-        </button>
-        {!useExternal && (
-          <button
-            className={`chat-input-btn chat-input-btn--context${contextBlocks.length > 0 ? ' chat-input-btn--active' : ''}`}
-            onClick={() => setShowContextPicker((v) => !v)}
-            title="Attach context"
-          >
-            @
-          </button>
-        )}
         <input
           ref={fileInputRef}
           type="file"

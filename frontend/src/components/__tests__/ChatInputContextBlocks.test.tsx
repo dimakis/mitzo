@@ -7,9 +7,9 @@ import { ChatInput } from '../ChatInput';
 vi.mock('../SlashPicker', () => ({
   SlashPicker: () => null,
 }));
-vi.mock('../ContextPicker', () => ({
-  ContextPicker: ({ selected }: { selected: string[] }) => (
-    <div data-testid="context-picker">{selected.join(',')}</div>
+vi.mock('../SessionTray', () => ({
+  SessionTray: ({ selectedContextBlocks }: { selectedContextBlocks: string[] }) => (
+    <div data-testid="session-tray">{selectedContextBlocks.join(',')}</div>
   ),
 }));
 vi.mock('../MicButton', () => ({
@@ -42,16 +42,18 @@ describe('ChatInput with externalContextBlocks', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
     expect(onSend).toHaveBeenCalledWith('keep this draft', undefined, undefined);
   });
-  it('hides @ button when externalContextBlocks provided', () => {
+  it('hides the session tray when externalContextBlocks are managed by a parent', () => {
     const { container } = render(
       <ChatInput {...baseProps} externalContextBlocks={['boot-context']} />,
     );
-    expect(container.querySelector('.chat-input-btn--context')).toBeNull();
+    expect(container.querySelector('[data-testid="session-tray"]')).toBeNull();
   });
 
-  it('shows @ button when externalContextBlocks not provided', () => {
+  it('shows the session tray and removes context and attachment buttons from the input strip', () => {
     const { container } = render(<ChatInput {...baseProps} />);
-    expect(container.querySelector('.chat-input-btn--context')).toBeTruthy();
+    expect(container.querySelector('[data-testid="session-tray"]')).toBeTruthy();
+    expect(container.querySelector('.chat-input-btn--context')).toBeNull();
+    expect(container.querySelector('.chat-input-btn--attach')).toBeNull();
   });
 
   it('does not show inline context pills when external blocks provided', () => {

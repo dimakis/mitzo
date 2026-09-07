@@ -259,8 +259,6 @@ export function DesktopChatView() {
             scrollRef={scrollRef}
             progressByToolId={progressByToolId}
             voice={voice}
-            bootContext={bootContext}
-            sessionContext={sessionContext}
           />
           <ScrollFab scrollRef={scrollRef} />
           <ChatInput
@@ -275,6 +273,10 @@ export function DesktopChatView() {
             wtId={messages.wtId || undefined}
             sessionId={activeSessionId ?? undefined}
             tokenState={tokens}
+            messages={messages.messages}
+            current={messages.current}
+            bootContext={bootContext}
+            sessionContext={sessionContext}
           />
         </div>
       }
