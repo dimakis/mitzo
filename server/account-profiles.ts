@@ -50,6 +50,10 @@ export class AccountProfiles {
     }
   }
 
+  privateCodexRoots(): string[] {
+    return this.profiles.filter((p) => p.provider === 'openai-codex').map((p) => p.credentialRef);
+  }
+
   catalog() {
     return this.profiles
       .filter((p) => p.provider !== 'openai-codex' || this.options.codexEnabled)
