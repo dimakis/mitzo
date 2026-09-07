@@ -3,7 +3,8 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { codexPrivateDirectory } from './codex-private-path.js';
 import type { AccountBinding } from '@mitzo/protocol';
-import type { ManagedSession, SessionRegistry } from '@mitzo/harness';
+import { buildPermissionHandler, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
+import { connectCodexMcpTools } from './codex-mcp-tools.js';
 import { AsyncQueue } from './async-queue.js';
 import { CodexAppServerClient } from './codex-app-server-client.js';
 import { CodexConversation } from './codex-conversation.js';
@@ -40,8 +41,11 @@ interface Options {
 }
 /** Shared chat adapter. Execution remains gated by the account catalog and unsupported capabilities fail explicitly. */
 export async function openCodexChat(options: Options) {
-  if (Object.keys(options.mcpServers).length)
-    throw new Error('Codex MCP execution wiring is not yet available');
+  const mcp = await connectCodexMcpTools(options.mcpServers, {
+    cwd: options.session.cwd!,
+    env: options.env,
+    signal: options.session.abortController.signal,
+  });
   const events = new AsyncQueue<Record<string, unknown>>();
   const runtime = new CodexConversation({
     conversationId: options.conversationId,
@@ -50,17 +54,29 @@ export async function openCodexChat(options: Options) {
     storedBinding: options.binding,
     store: store(),
     systemPrompt: options.systemPrompt,
-    tools: nativeToolDefinitions,
+    tools: [...nativeToolDefinitions, ...mcp.definitions],
     createClient: (callbacks) =>
       CodexAppServerClient.launch(options.profile.credentialRef, process.env, callbacks),
     emit: (event) => events.push(event),
     onClosed: () => {
       events.close();
+      void mcp.close();
       runtimes.delete(options.session);
     },
     executeTool: async (name, input, signal) => {
       const owner = options.registry.findBySessionId(options.conversationId);
       if (!owner) throw new Error('Codex session unavailable');
+      if (mcp.definitions.some((t) => t.name === name))
+        return mcp.execute(
+          name,
+          input,
+          async (canonical, args, s) =>
+            buildPermissionHandler(owner.clientId, options.registry)(canonical, args, {
+              signal: s,
+              toolUseID: randomUUID(),
+            }),
+          signal,
+        );
       const execute = createNativeToolExecutor(owner.clientId, options.registry, {
         env: options.env,
       });
