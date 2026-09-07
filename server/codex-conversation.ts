@@ -32,6 +32,7 @@ interface Options {
     input: ObjectValue,
     signal: AbortSignal,
   ): Promise<{ content: string; isError: boolean }>;
+  validateModel?: (model: string) => void;
   onQueueChange?: () => void;
   onClosed?: () => void;
   onError?: (error: Error) => void;
@@ -131,12 +132,18 @@ export class CodexConversation {
     if (!this.binding) return [];
     return this.opts.store.commands(this.opts.conversationId, this.binding);
   }
+  validateModel(model: string) {
+    if (this.opts.validateModel) this.opts.validateModel(model);
+    else if (model !== this.opts.profile.model) throw new Error('Model unavailable');
+  }
   enqueue(input: CodexCommandInput) {
     if (!this.ready || this.closed) throw new Error('Codex conversation unavailable');
     // Built-in Codex skill readers cannot yet be mediated; do not silently weaken a ceiling.
     if (input.allowedTools)
       throw new Error('Codex execution does not yet support restricted skill tool ceilings');
-    this.opts.store.enqueue(this.opts.conversationId, this.binding!, input);
+    const model = input.model ?? this.binding!.model;
+    this.validateModel(model);
+    this.opts.store.enqueue(this.opts.conversationId, this.binding!, { ...input, model });
     this.opts.onQueueChange?.();
   }
   async send(input: CodexCommandInput) {
@@ -169,13 +176,16 @@ export class CodexConversation {
     this.active = active;
     this.opts.onQueueChange?.();
     try {
+      const model = command.model ?? this.binding!.model;
+      this.validateModel(model);
+      this.mapper?.setModel(model);
       await verifyCodexAccount(this.client, this.opts.profile, this.binding);
       active.abort.signal.throwIfAborted();
       const result = z.object({ turn: z.object({ id: z.string() }) }).parse(
         await this.client.request('turn/start', {
           threadId: this.threadId,
           clientUserMessageId: command.id,
-          model: this.binding!.model,
+          model,
           input: [{ type: 'text', text: command.prompt }],
           environments: [],
           approvalPolicy: 'never',

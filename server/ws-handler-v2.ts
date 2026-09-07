@@ -584,7 +584,14 @@ export function handleSendV2(
             applySkillPolicy(activeClientId);
             ctx.connRegistry.watch(connectionId, sessionId);
             ctx.connRegistry.setActive(connectionId, sessionId);
-            sendToChat(activeClientId, prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
+            sendToChat(
+              activeClientId,
+              prompt,
+              msg.images,
+              msg.contextBlocks,
+              msg.clientMsgId,
+              msg.accountId && storedBinding?.provider === 'openai-codex' ? msg.model : undefined,
+            );
             span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');
             return;
           }

@@ -798,7 +798,13 @@ async function _startChatInner(
       (options.accountId || storedBinding ? loadAccountProfiles() : undefined);
     accountBinding = resolveAccountSelection(options, storedBinding, !!options.resume, profiles);
     if (accountBinding) {
-      options = { ...options, model: accountBinding.model };
+      options = {
+        ...options,
+        model:
+          accountBinding.provider === 'openai-codex' && options.accountId
+            ? (options.model ?? accountBinding.model)
+            : accountBinding.model,
+      };
       if (accountBinding.provider === 'openai-codex') {
         if (options.images?.length)
           throw new Error('Codex image attachments are not yet supported');
@@ -1083,6 +1089,7 @@ async function _startChatInner(
         session,
         registry,
         prompt: fullPrompt,
+        model: options.model,
         messageId,
         systemPrompt: systemPromptAppend,
         env: sessionEnv,
@@ -1286,6 +1293,7 @@ export function sendToChat(
   images?: Array<{ data: string; mediaType: string }>,
   contextBlocks?: string[],
   clientMsgId?: string,
+  model?: string,
 ): boolean {
   return withSpan('chat.send', { 'chat.clientId': clientId }, () => {
     const session = registry.get(clientId);
@@ -1304,7 +1312,8 @@ export function sendToChat(
     if (codex) {
       try {
         // Persist before public acknowledgement; retries also repair older echo-only entries.
-        codex.enqueue({ id: messageId, prompt: fullPrompt });
+        codex.enqueue({ id: messageId, prompt: fullPrompt, ...(model ? { model } : {}) });
+        if (model) session.model = model;
       } catch {
         send(session.transport, {
           type: 'error',
@@ -1337,14 +1346,16 @@ export function sendToChat(
       broadcastToObservers(session.observers, echo);
     }
     if (codex) {
-      void codex.send({ id: messageId, prompt: fullPrompt }).catch(() =>
-        send(session.transport, {
-          type: 'error',
-          sessionId: session.sessionId,
-          error:
-            'Codex queue is paused or unavailable. Inspect interrupted work before continuing.',
-        }),
-      );
+      void codex
+        .send({ id: messageId, prompt: fullPrompt, ...(model ? { model } : {}) })
+        .catch(() =>
+          send(session.transport, {
+            type: 'error',
+            sessionId: session.sessionId,
+            error:
+              'Codex queue is paused or unavailable. Inspect interrupted work before continuing.',
+          }),
+        );
     } else session.inputQueue.push(makeUserMessage(fullPrompt, 'next'));
     return true;
   });
@@ -1364,7 +1375,7 @@ export async function interruptChat(
     if (!session?.queryInstance || !session?.inputQueue) return false;
     const codex = getCodexRuntime(session);
     if (codex) {
-      if (images?.length || session.activeSkillPolicy || (model && model !== session.model)) {
+      if (images?.length || session.activeSkillPolicy) {
         send(session.transport, {
           type: 'error',
           sessionId: session.sessionId,
@@ -1373,8 +1384,9 @@ export async function interruptChat(
         });
         return false;
       }
+      if (model) codex.validateModel(model);
       await codex.interrupt();
-      return sendToChat(clientId, prompt, images, contextBlocks, clientMsgId);
+      return sendToChat(clientId, prompt, images, contextBlocks, clientMsgId, model);
     }
     if (model) session.model = model;
     const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);

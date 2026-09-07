@@ -210,11 +210,16 @@ export function resolveAccountSelection(
     if (
       selection.accountId &&
       (selection.accountId !== stored.accountId ||
-        (selection.model && selection.model !== stored.model))
+        (selection.model && selection.model !== stored.model && stored.provider !== 'openai-codex'))
     ) {
       throw new Error(
         'This task is bound to its original account and model. Start a new task to change them.',
       );
+    }
+    if (selection.accountId && selection.model && stored.provider === 'openai-codex') {
+      const next = (profiles ?? loadAccountProfiles()).resolve(stored.accountId, selection.model);
+      if (next.profileRevision !== stored.profileRevision)
+        throw new Error('Account configuration changed');
     }
     // Legacy clients attach their global model preference without an account ID.
     // Ignore that hint for bound tasks; only an explicit account selection may request a switch.
