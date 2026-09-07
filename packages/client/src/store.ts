@@ -397,20 +397,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       decision: 'once' | 'always' | 'deny',
       answers?: import('@mitzo/protocol').QuestionAnswers,
     ) {
-      const sent = connection.send({
+      connection.send({
         type: 'permission_response',
         ...(parserState.currentSessionId ? { sessionId: parserState.currentSessionId } : {}),
         permId,
         decision,
         ...(answers ? { answers } : {}),
       });
-      if (sent) {
-        set((s) => ({
-          permissions: { pending: null },
-          messages: messagesReducer(s.messages, { type: 'PERMISSION_TIMEOUT', permId }),
-        }));
-      }
-      // If not sent, leave the banner visible so user can retry
+      // Only permission_resolved/timeout from the server dismisses the card.
     },
 
     setMode(mode: MitzoMode) {
