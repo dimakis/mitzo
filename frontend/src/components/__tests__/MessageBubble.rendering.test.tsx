@@ -46,6 +46,17 @@ describe('TextBubble file link rendering', () => {
     expect(html).toContain('file-path-share');
   });
 
+  it.each([false, true])(
+    'retains a valid file link containing a literal percent when streaming=%s',
+    (streaming) => {
+      const html = renderBubble('[report](file-path://%2Ftmp%2F100%25-done.txt)', streaming);
+
+      expect(html).toContain('file-path-link');
+      expect(html).toContain('data-file-path="/tmp/100%-done.txt"');
+      expect(html).toContain('file-path-share');
+    },
+  );
+
   it('retains markdown preview promotion for a valid standalone markdown file link', () => {
     const html = renderBubble('[notes](file-path://%2Ftmp%2Fnotes.md)');
 

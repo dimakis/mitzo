@@ -3,18 +3,51 @@ export const FILE_SCHEME = 'file-path://';
 
 /**
  * Decode an internal file URL without allowing malformed URI data to escape
- * into the React render path. Markdown parsers normalize a bare `%` to `%25`,
- * so also reject decoded payloads that still contain an incomplete escape.
+ * into the React render path.
  */
 export function decodeFilePathUrl(url: string): string | null {
   if (!url.startsWith(FILE_SCHEME)) return null;
 
   try {
-    const filePath = decodeURIComponent(url.slice(FILE_SCHEME.length));
-    return /%(?![0-9a-f]{2})/i.test(filePath) ? null : filePath;
+    return decodeURIComponent(url.slice(FILE_SCHEME.length));
   } catch {
     return null;
   }
+}
+
+/**
+ * Replace malformed Markdown file links with their readable label before the
+ * Markdown parser normalizes incomplete percent escapes into literal `%` data.
+ * Fenced and inline code are left unchanged.
+ */
+export function neutralizeMalformedFileLinks(content: string): string {
+  const lines = content.split('\n');
+  let inCodeBlock = false;
+
+  return lines
+    .map((line) => {
+      if (/^```/.test(line.trimStart())) {
+        inCodeBlock = !inCodeBlock;
+        return line;
+      }
+      if (inCodeBlock) return line;
+
+      const inlineCodeRanges = Array.from(line.matchAll(/`[^`]*`/g), (match) => [
+        match.index,
+        match.index + match[0].length,
+      ]);
+
+      return line.replace(
+        /\[([^\]]*)\]\((file-path:\/\/[^)\s]*)\)/g,
+        (fullLink: string, label: string, url: string, offset: number) => {
+          const inInlineCode = inlineCodeRanges.some(
+            ([start, end]) => offset >= start && offset < end,
+          );
+          return !inInlineCode && decodeFilePathUrl(url) === null ? label : fullLink;
+        },
+      );
+    })
+    .join('\n');
 }
 
 /** Detect whether a string looks like a file path (not a URL). */

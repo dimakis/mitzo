@@ -4,6 +4,7 @@ import {
   detectFilePaths,
   isFilePath,
   linkifyFilePaths,
+  neutralizeMalformedFileLinks,
   FILE_SCHEME,
 } from '../file-paths';
 
@@ -16,12 +17,31 @@ describe('decodeFilePathUrl', () => {
     expect(decodeFilePathUrl(`${FILE_SCHEME}%E0%A4%25A`)).toBeNull();
   });
 
-  it('rejects an incomplete escape normalized by the markdown parser', () => {
-    expect(decodeFilePathUrl(`${FILE_SCHEME}%252`)).toBeNull();
+  it('preserves a valid encoded literal percent in a file path', () => {
+    expect(decodeFilePathUrl(`${FILE_SCHEME}%2Ftmp%2F100%25-done.md`)).toBe('/tmp/100%-done.md');
   });
 
   it('does not decode unrelated URL schemes', () => {
     expect(decodeFilePathUrl('https://example.com/file.md')).toBeNull();
+  });
+});
+
+describe('neutralizeMalformedFileLinks', () => {
+  it('replaces a malformed link with its readable label', () => {
+    expect(neutralizeMalformedFileLinks('[invalid](file-path://%E0%A4%A)')).toBe('invalid');
+    expect(neutralizeMalformedFileLinks('[incomplete](file-path://%2)')).toBe('incomplete');
+  });
+
+  it('preserves valid file links, including literal percent filenames', () => {
+    const link = '[report](file-path://%2Ftmp%2F100%25-done.md)';
+    expect(neutralizeMalformedFileLinks(link)).toBe(link);
+  });
+
+  it('does not alter link-shaped text inside code', () => {
+    const inline = '`[invalid](file-path://%2)`';
+    const fenced = '```md\n[invalid](file-path://%2)\n```';
+    expect(neutralizeMalformedFileLinks(inline)).toBe(inline);
+    expect(neutralizeMalformedFileLinks(fenced)).toBe(fenced);
   });
 });
 

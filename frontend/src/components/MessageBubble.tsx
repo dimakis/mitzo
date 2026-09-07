@@ -4,7 +4,12 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { FinishedMessage } from '../types/chat';
-import { decodeFilePathUrl, linkifyFilePaths, FILE_SCHEME } from '../lib/file-paths';
+import {
+  decodeFilePathUrl,
+  linkifyFilePaths,
+  neutralizeMalformedFileLinks,
+  FILE_SCHEME,
+} from '../lib/file-paths';
 import { formatTime } from '../lib/formatTime';
 import { CopyButton } from './CopyButton';
 import { ShareButton } from './ShareButton';
@@ -87,7 +92,7 @@ interface TextBubbleProps {
 export function TextBubble({ content, streaming = false, timestamp, readAloud }: TextBubbleProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const processed = streaming ? content : linkifyFilePaths(content);
+  const processed = neutralizeMalformedFileLinks(streaming ? content : linkifyFilePaths(content));
   const currentPath = location.pathname + location.search;
   const [collapsed, setCollapsed] = useState(true);
   const [isLong, setIsLong] = useState(false);
