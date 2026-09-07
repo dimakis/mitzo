@@ -86,14 +86,29 @@ it('routes a bound Codex account to its controller with context and canonical du
       model: 'luna',
       accountProfiles: profiles,
       contextBlocks: ['attached'],
+      initialSessionId: '5f68a371-73d1-4994-a512-b71d4bc44c65',
+      clientMsgId: 'durable-first-prompt',
     });
     expect(openCodexChat).toHaveBeenCalledOnce();
     expect(persisted).toEqual(profiles.resolve('personal', 'luna'));
     expect(opened?.systemPrompt).toContain('boot evidence');
     expect(opened?.prompt).toContain('attached context');
     expect(query).not.toHaveBeenCalled();
-    expect(id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(id).toBe('5f68a371-73d1-4994-a512-b71d4bc44c65');
+    expect(opened?.messageId).toBe('durable-first-prompt');
     expect(chat.eventStore.getSession(id)?.state).toBe('ENDED');
+    await chat.startChat({ send: () => {}, isOpen: () => true }, 'codex-resume', 'next', {
+      cwd: root,
+      isolation: false,
+      accountId: 'personal',
+      model: 'luna',
+      accountProfiles: profiles,
+      resume: id,
+      clientMsgId: 'durable-next-prompt',
+    });
+    expect(id).toBe('5f68a371-73d1-4994-a512-b71d4bc44c65');
+    expect(opened?.messageId).toBe('durable-next-prompt');
+    expect(query).not.toHaveBeenCalled();
   } finally {
     chat.eventStore.close();
     await rm(root, { recursive: true, force: true });

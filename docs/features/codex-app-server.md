@@ -113,3 +113,22 @@ Protocol reference: [Codex app-server](https://learn.chatgpt.com/docs/app-server
 The local CLI-generated schema should be rechecked on version changes.
 
 Account email matching deliberately requires the exact provider-reported value. Configure that value verbatim; preflight does not assume that differently cased login identifiers are interchangeable. The profile revision also retains the exact configured identity.
+
+## Follow-up wiring acceptance
+
+The live Read tests verify tool execution, not approval cards. The Codex route has
+no explicit Mitzo approval-request tool and does not yet map native structured
+question requests. The shared prompt currently asks for confirmation before every
+mutation, while Agent mode permits local edits through its tool policy. A textual
+“approve” exchange is not evidence of the structured approval flow. Reconcile
+these behaviors with the shared question/approval work in a separate integration
+session; verify allow, deny, cancellation, and reconnect without repeating effects.
+
+Also audit reasoning-summary events, capability-aware attachments, hooks and skill
+ceilings, subagents/compaction, and provider-specific history/rename paths. The dev
+Codex chat still attempts Anthropic-based auto-rename and SDK session rename, which
+fall back or fail without those credentials. Keep subscription routing explicit.
+Merged prompt-delivery recovery needs Codex-specific live acceptance in addition
+to the shared transport tests, including desktop delivery state and authentication
+loss. Full physical-phone, MCP approval, and long-history/tool-catalog recovery
+acceptance remain open.

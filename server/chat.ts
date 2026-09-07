@@ -1066,9 +1066,10 @@ async function _startChatInner(
   }
 
   // Bound sessions have durable routing before the SDK can create history or side effects.
-  const newSdkSessionId = !resolvedResume && !options.resume
-    ? (options.initialSessionId ?? (accountBinding ? randomUUID() : undefined))
-    : undefined;
+  const newSdkSessionId =
+    !resolvedResume && !options.resume
+      ? (options.initialSessionId ?? (accountBinding ? randomUUID() : undefined))
+      : undefined;
   try {
     if (newSdkSessionId) {
       eventStore.upsertSession({

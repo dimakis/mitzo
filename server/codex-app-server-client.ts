@@ -174,7 +174,11 @@ export class CodexAppServerClient {
 
   private handleHostRequest(id: string | number, method: string, params: JsonObject) {
     if (!this.lifecycle) {
-      this.write({ id, error: { code: -32601, message: 'Unsupported Codex request' } });
+      try {
+        this.write({ id, error: { code: -32601, message: 'Unsupported Codex request' } });
+      } catch {
+        this.close();
+      }
       return;
     }
     // Repeated in-flight requests must not execute a side effect twice.
