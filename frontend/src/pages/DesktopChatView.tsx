@@ -81,8 +81,11 @@ export function DesktopChatView() {
     });
   }, []);
 
+  const awaitingNewSession = useRef(false);
+
   // Sync route param → store session
   useEffect(() => {
+    awaitingNewSession.current = !sessionId && !activeSessionId;
     if (sessionId && sessionId !== activeSessionId) {
       storeSwitchSession(sessionId);
     } else if (!sessionId && activeSessionId) {
@@ -110,10 +113,12 @@ export function DesktopChatView() {
 
   // When store assigns a session (new conversation), update URL
   useEffect(() => {
-    if (activeSessionId && !sessionId && window.location.pathname === '/chat') {
-      window.history.replaceState(null, '', `/chat/${activeSessionId}`);
+    if (!sessionId && !activeSessionId) awaitingNewSession.current = true;
+    if (activeSessionId && !sessionId && awaitingNewSession.current) {
+      awaitingNewSession.current = false;
+      navigate(`/chat/${activeSessionId}`, { replace: true });
     }
-  }, [activeSessionId, sessionId]);
+  }, [activeSessionId, sessionId, navigate]);
 
   // Hydrate branch/worktree/token state from persisted metadata
   useEffect(() => {

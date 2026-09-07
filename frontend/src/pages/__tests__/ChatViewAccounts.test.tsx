@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { createTestStore } from '../../test-utils/createTestStore';
 import { apiFetch } from '../../lib/api-fetch';
@@ -101,4 +101,28 @@ it('sends distinct launches with identical prompt text', async () => {
     );
   }
   expect(sendMessage).toHaveBeenCalledTimes(2);
+});
+
+it('keeps a new chat route clear of the previous session and adopts the new ID', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => [] } as Response);
+  const store = createTestStore();
+  store.setState({ sessions: { ...store.getState().sessions, active: 'old-session' } });
+  function Location() {
+    return <div data-testid="location">{useLocation().pathname}</div>;
+  }
+  render(
+    <MitzoStoreProvider value={store}>
+      <MemoryRouter initialEntries={['/chat']}>
+        <Location />
+        <Routes>
+          <Route path="/chat/:sessionId?" element={<ChatView />} />
+        </Routes>
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+  await waitFor(() => expect(store.getState().sessions.active).toBeNull());
+  expect(screen.getByTestId('location').textContent).toBe('/chat');
+  act(() => store.setState({ sessions: { ...store.getState().sessions, active: 'new-session' } }));
+  await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/chat/new-session'));
+  expect(store.getState().sessions.active).toBe('new-session');
 });

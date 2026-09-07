@@ -58,7 +58,25 @@ export function AccountModelPicker({
       : legacy
         ? '/api/models'
         : '/api/accounts';
-    void apiFetch(url)
+    const controller = new AbortController();
+    async function fetchMetadata() {
+      for (let retry = 0; ; retry++) {
+        const response = await apiFetch(url, { signal: controller.signal });
+        if (!sessionId || response.status !== 404 || retry >= 60 || disposed) return response;
+        // Accepted sessions can arrive before provider startup persists their metadata.
+        await new Promise<void>((resolve) => {
+          const finish = () => {
+            clearTimeout(timer);
+            controller.signal.removeEventListener('abort', finish);
+            resolve();
+          };
+          const timer = setTimeout(finish, 500);
+          controller.signal.addEventListener('abort', finish, { once: true });
+        });
+        if (disposed) return response;
+      }
+    }
+    void fetchMetadata()
       .then(async (response) => {
         if (!response.ok) throw new Error('Account information unavailable. Retry to continue.');
         const data = await response.json();
@@ -117,6 +135,7 @@ export function AccountModelPicker({
       });
     return () => {
       disposed = true;
+      controller.abort();
     };
     // Preferred model is read only when a new task opens; changing it must not reload the catalog.
     // eslint-disable-next-line react-hooks/exhaustive-deps

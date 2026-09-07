@@ -163,3 +163,17 @@ it('offers an explicit legacy choice after a catalog failure without silently sw
   fireEvent.click(fallback);
   await waitFor(() => expect(onChange).toHaveBeenCalledWith({ model: 'legacy-model' }));
 });
+
+it('waits for accepted session metadata to become available', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce({ ok: false, status: 404 } as Response)
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        accountBinding: { accountId: 'work', accountLabel: 'Work API', model: 'nano' },
+      }),
+    } as Response);
+  render(<AccountModelPicker sessionId="starting" preferredModel="nano" onChange={vi.fn()} />);
+  await screen.findByText('Work API · nano');
+  expect(screen.queryByRole('alert')).toBeNull();
+});
