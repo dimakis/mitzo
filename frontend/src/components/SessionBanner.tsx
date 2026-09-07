@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import type { BootContextMeta, SectionMeta } from '@mitzo/client';
 
 interface Props {
@@ -215,29 +216,32 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
         )}
       </div>
 
-      {showModal && bootContext?.fullMarkdown && (
-        <div
-          className="boot-context-modal-overlay"
-          onClick={() => setShowModal(false)}
-          onTouchStart={(e) => e.stopPropagation()}
-        >
+      {showModal &&
+        bootContext?.fullMarkdown &&
+        createPortal(
           <div
-            className="boot-context-modal"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Boot context full markdown"
+            className="boot-context-modal-overlay"
+            onClick={() => setShowModal(false)}
+            onTouchStart={(e) => e.stopPropagation()}
           >
-            <div className="boot-context-modal-header">
-              <h3>Boot Context (Full Markdown)</h3>
-              <button onClick={() => setShowModal(false)} className="boot-context-modal-close">
-                ✕
-              </button>
+            <div
+              className="boot-context-modal"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Boot context full markdown"
+            >
+              <div className="boot-context-modal-header">
+                <h3>Boot Context (Full Markdown)</h3>
+                <button onClick={() => setShowModal(false)} className="boot-context-modal-close">
+                  ✕
+                </button>
+              </div>
+              <pre className="boot-context-modal-content">{bootContext.fullMarkdown}</pre>
             </div>
-            <pre className="boot-context-modal-content">{bootContext.fullMarkdown}</pre>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
     </>
   );
 }

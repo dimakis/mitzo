@@ -142,6 +142,7 @@ describe('SessionTray', () => {
                 content: 'Preview: http://localhost:3196',
                 toolName: 'Write',
                 rawInput: { type: 'write', path: '/tmp/report.md' },
+                toolResult: 'Saved',
               },
             ],
           },

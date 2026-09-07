@@ -73,6 +73,15 @@ describe('SessionBanner', () => {
     expect(screen.getByText('# Full boot context markdown')).toBeTruthy();
   });
 
+  it('portals the full markdown modal outside transformed ancestors', () => {
+    render(<SessionBanner bootContext={bootContext} />);
+    fireEvent.click(screen.getByRole('button', { name: /5 sources/ }));
+    fireEvent.click(screen.getByTitle('View full markdown'));
+
+    const dialog = screen.getByRole('dialog', { name: 'Boot context full markdown' });
+    expect(dialog.parentElement?.parentElement).toBe(document.body);
+  });
+
   it('closes modal on close button click', () => {
     render(<SessionBanner bootContext={bootContext} />);
     fireEvent.click(screen.getByRole('button', { name: /5 sources/ }));

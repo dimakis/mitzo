@@ -62,31 +62,45 @@ export function collectSessionResources(
       addSource({ id: `tool:${block.toolName}`, kind: 'tool', label: block.toolName });
     }
 
-    const text = `${block.content ?? ''}\n${block.toolResult ?? ''}`;
-    for (const match of text.matchAll(URL_PATTERN)) {
-      const href = cleanUrl(match[0]);
-      let label = href;
-      try {
-        const url = new URL(href);
-        label = `${url.host}${url.pathname === '/' ? '' : url.pathname}`;
-      } catch {
-        // Keep the original text when URL parsing fails.
+    const hasSuccessfulOutput =
+      !block.toolName ||
+      (block.toolError !== true &&
+        (block.toolResult !== undefined || (block.toolResultImages?.length ?? 0) > 0));
+
+    if (hasSuccessfulOutput) {
+      const text = `${block.content ?? ''}\n${block.toolResult ?? ''}`;
+      for (const match of text.matchAll(URL_PATTERN)) {
+        const href = cleanUrl(match[0]);
+        let label = href;
+        try {
+          const url = new URL(href);
+          label = `${url.host}${url.pathname === '/' ? '' : url.pathname}`;
+        } catch {
+          // Keep the original text when URL parsing fails.
+        }
+        addOutput({ id: `url:${href}`, kind: 'link', label, href });
       }
-      addOutput({ id: `url:${href}`, kind: 'link', label, href });
+
+      const path = block.rawInput?.path;
+      if (path && (block.rawInput?.type === 'write' || block.rawInput?.type === 'diff')) {
+        addOutput({ id: `file:${path}`, kind: 'file', label: basename(path), path });
+      }
+
+      for (const image of block.toolResultImages ?? []) {
+        addOutput({
+          id: `result-image:${image.id}`,
+          kind: 'image',
+          label: 'Generated image',
+          imageId: image.id,
+        });
+      }
     }
 
-    const path = block.rawInput?.path;
-    if (path && (block.rawInput?.type === 'write' || block.rawInput?.type === 'diff')) {
-      addOutput({ id: `file:${path}`, kind: 'file', label: basename(path), path });
-    }
-
-    for (const image of block.toolResultImages ?? []) {
-      addOutput({
-        id: `result-image:${image.id}`,
-        kind: 'image',
-        label: 'Generated image',
-        imageId: image.id,
-      });
+    if (block.subagent) {
+      const nestedBlocks = Array.isArray(block.subagent.blocks)
+        ? block.subagent.blocks
+        : Array.from(block.subagent.blocks.values());
+      for (const nestedBlock of nestedBlocks) visitBlock(nestedBlock);
     }
   };
 
