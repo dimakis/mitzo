@@ -192,3 +192,24 @@ it('accepts every offered multi-select option plus a written answer through both
     updatedInput: { answers: { Features: answers.Features.join(', ') } },
   });
 });
+
+it.each(['abort', 'timeout'])('broadcasts exactly one terminal event on %s', async (cause) => {
+  vi.useFakeTimers();
+  try {
+    const { handler, sent, abort } = setup();
+    const result = handler(
+      'AskUserQuestion',
+      { questions },
+      { signal: abort.signal, toolUseID: 'q1' },
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    if (cause === 'abort') abort.abort();
+    else await vi.advanceTimersByTimeAsync(120_000);
+    await expect(result).resolves.toMatchObject({ behavior: 'deny' });
+    expect(
+      sent.filter((m) => m.type === 'permission_resolved' || m.type === 'permission_timeout'),
+    ).toEqual([{ type: 'permission_timeout', permId: sent[0].permId, sessionId: 'conversation' }]);
+  } finally {
+    vi.useRealTimers();
+  }
+});

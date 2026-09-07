@@ -139,6 +139,7 @@ export function buildPermissionHandler(
 
       const permId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+      let resolutionEvent = 'permission_resolved';
       let notificationTimer: ReturnType<typeof setTimeout> | undefined;
       const wrappedResolve = (result: PermissionResult) => {
         clearTimeout(timeout);
@@ -147,7 +148,7 @@ export function buildPermissionHandler(
         if (result.behavior === 'allow' && result.decisionClassification === 'user_permanent') {
           addToAllowList(session.sessionAllowList, toolName);
         }
-        const resolved = { type: 'permission_resolved', permId, sessionId: session.sessionId };
+        const resolved = { type: resolutionEvent, permId, sessionId: session.sessionId };
         transportSend(session.transport, resolved);
         for (const observer of session.observers) transportSend(observer, resolved);
         resolve(result);
@@ -155,12 +156,8 @@ export function buildPermissionHandler(
 
       const onAbort = () => {
         if (hasPending(permId)) {
+          resolutionEvent = 'permission_timeout';
           resolvePending(permId, 'deny');
-          transportSend(session.transport, {
-            type: 'permission_timeout',
-            permId,
-            sessionId: session.sessionId,
-          });
         }
       };
       opts.signal.addEventListener('abort', onAbort, { once: true });
@@ -204,12 +201,8 @@ export function buildPermissionHandler(
 
       const timeout = setTimeout(() => {
         if (hasPending(permId)) {
+          resolutionEvent = 'permission_timeout';
           resolvePending(permId, 'deny');
-          transportSend(session.transport, {
-            type: 'permission_timeout',
-            permId,
-            sessionId: session.sessionId,
-          });
         }
       }, PERMISSION_TIMEOUT_MS);
       transportSend(session.transport, { type: 'permission_request', ...request });
