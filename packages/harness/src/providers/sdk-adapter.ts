@@ -273,6 +273,8 @@ export async function* runAgenticLoop(
       }
 
       toolResults.push(result);
+      // Each side effect needs a durable boundary. Cloning isolates callback mutation;
+      // callers should bound history until differential persistence is implemented.
       await opts.onHistory?.(
         structuredClone([...messages, { role: 'user' as const, content: toolResults }]),
       );

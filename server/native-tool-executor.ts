@@ -66,7 +66,8 @@ function shell(
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    const chunks: Buffer[] = [];
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
     let size = 0;
     let failure: string | undefined;
     const kill = (reason: string) => {
@@ -83,13 +84,13 @@ function shell(
     signal.addEventListener('abort', onAbort, { once: true });
     if (signal.aborted) onAbort();
     const timer = setTimeout(() => kill('Shell command timed out'), options.timeoutMs ?? 60_000);
-    const collect = (chunk: Buffer) => {
+    const collect = (chunks: Buffer[]) => (chunk: Buffer) => {
       size += chunk.length;
       if (size > (options.maxOutputBytes ?? 64 * 1024)) kill('Shell output limit exceeded');
       else chunks.push(chunk);
     };
-    child.stdout.on('data', collect);
-    child.stderr.on('data', collect);
+    child.stdout.on('data', collect(stdout));
+    child.stderr.on('data', collect(stderr));
     const cleanup = () => {
       clearTimeout(timer);
       signal.removeEventListener('abort', onAbort);
@@ -100,12 +101,12 @@ function shell(
     });
     child.on('close', (code) => {
       cleanup();
+      const output =
+        Buffer.concat(stdout).toString('utf8') +
+        (stderr.length ? `\n--- stderr ---\n${Buffer.concat(stderr).toString('utf8')}` : '');
       if (failure) reject(new Error(failure));
-      else if (code !== 0)
-        reject(
-          new Error(`Shell exited with code ${code}: ${Buffer.concat(chunks).toString('utf8')}`),
-        );
-      else resolveResult(Buffer.concat(chunks).toString('utf8'));
+      else if (code !== 0) reject(new Error(`Shell exited with code ${code}: ${output}`));
+      else resolveResult(output);
     });
   });
 }

@@ -52,23 +52,25 @@ export class NativeResponsesStore {
     })();
   }
   save(conversationId: string, binding: AccountBinding, state: NativeResponsesState) {
-    this.load(conversationId, binding); // Never overwrite a different account binding.
     // Explicit fields only: credentials and runner configuration are never serialized.
-    const checkpoint = state.checkpoint && {
-      accountId: state.checkpoint.accountId,
-      model: state.checkpoint.model,
-      history: state.checkpoint.history,
-      input: state.checkpoint.input,
-    };
-    this.db
+    const checkpoint =
+      state.checkpoint &&
+      ({
+        accountId: state.checkpoint.accountId,
+        model: state.checkpoint.model,
+        history: state.checkpoint.history,
+        input: state.checkpoint.input,
+      } satisfies Record<keyof ResponsesCheckpoint, unknown>);
+    const result = this.db
       .prepare(
-        'INSERT INTO native_responses VALUES (?, ?, ?) ON CONFLICT(conversation_id) DO UPDATE SET state = excluded.state',
+        'INSERT INTO native_responses VALUES (?, ?, ?) ON CONFLICT(conversation_id) DO UPDATE SET state = excluded.state WHERE native_responses.binding = excluded.binding',
       )
       .run(
         conversationId,
         this.bindingKey(binding),
         JSON.stringify({ status: state.status, history: state.history, checkpoint }),
       );
+    if (result.changes !== 1) throw new Error('Native Responses account/model binding changed');
   }
   recoverAtStartup() {
     this.db.exec(

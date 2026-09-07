@@ -14,29 +14,27 @@ const binding: AccountBinding = {
   model: 'test-model',
   profileRevision: 'ref-digest',
 };
-function response(tool = false) {
+function response(tool: boolean | number = false) {
   const output: Record<string, unknown>[] = tool
-    ? [
-        {
-          type: 'function_call',
-          call_id: 'call-1',
-          name: 'Write',
-          arguments: '{"file_path":"note","content":"hello"}',
-        },
-      ]
+    ? Array.from({ length: Number(tool) }, (_, i) => ({
+        type: 'function_call',
+        call_id: `call-${i + 1}`,
+        name: 'Write',
+        arguments: '{"file_path":"note","content":"hello"}',
+      }))
     : [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'done' }] }];
   const events = [
     { type: 'response.created', response: { id: 'resp-provider-only', model: 'test-model' } },
     ...(tool
-      ? [
-          { type: 'response.output_item.added', output_index: 0, item: output[0] },
+      ? output.flatMap((item, output_index) => [
+          { type: 'response.output_item.added', output_index, item },
           {
             type: 'response.function_call_arguments.delta',
-            output_index: 0,
-            delta: output[0].arguments,
+            output_index,
+            delta: item.arguments,
           },
-          { type: 'response.output_item.done', output_index: 0, item: output[0] },
-        ]
+          { type: 'response.output_item.done', output_index, item },
+        ])
       : [
           {
             type: 'response.content_part.added',
@@ -134,6 +132,10 @@ describe('durable native Responses turns', () => {
       { provider: 'other' },
     ]) {
       expect(() => store.load('app-id', { ...binding, ...change })).toThrow(/binding/i);
+      expect(() =>
+        store.save('app-id', { ...binding, ...change }, { status: 'idle', history: [] }),
+      ).toThrow(/binding/i);
+      expect(store.load('app-id', binding)?.history.length).toBeGreaterThan(0);
     }
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -259,6 +261,40 @@ describe('durable native Responses turns', () => {
       expect.objectContaining({
         type: 'function_call_output',
         call_id: 'call-1',
+        output: expect.stringContaining('Outcome unknown'),
+      }),
+    );
+  });
+  it('recovers a partial multi-tool batch without replaying the completed tool', async () => {
+    fetchMock.mockResolvedValueOnce(response(2));
+    const controller = new AbortController();
+    const execute = vi.fn(async () => {
+      controller.abort();
+      return { type: 'tool_result', tool_use_id: 'call-1', content: 'A persisted' };
+    });
+    await collect(runner(execute).run('two writes', controller.signal)).catch(() => {});
+    expect(execute).toHaveBeenCalledTimes(1);
+    const partial = store.load('app-id', binding)!;
+    expect(partial.history.at(-1)?.content).toContainEqual(
+      expect.objectContaining({ tool_use_id: 'call-1', content: 'A persisted' }),
+    );
+    // Recreate process loss at this durable boundary, before B has any recorded outcome.
+    store.save('app-id', binding, { ...partial, status: 'running' });
+    store.close();
+    store = new NativeResponsesStore(join(root, 'continuation.db'));
+    store.recoverAtStartup();
+    const resumedExecute = vi.fn();
+    await collect(runner(resumedExecute).run('inspect pending work'));
+    expect(resumedExecute).not.toHaveBeenCalled();
+    const input = JSON.parse(fetchMock.mock.calls[1][1].body).input;
+    expect(input).toContainEqual({
+      type: 'function_call_output',
+      call_id: 'call-1',
+      output: 'A persisted',
+    });
+    expect(input).toContainEqual(
+      expect.objectContaining({
+        call_id: 'call-2',
         output: expect.stringContaining('Outcome unknown'),
       }),
     );

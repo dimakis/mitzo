@@ -123,6 +123,17 @@ describe('native tool execution through session permissions', () => {
       vi.unstubAllEnvs();
     }
   });
+  it('labels stderr separately from command output', async () => {
+    registry.get('client')!.mode = 'auto';
+    const result = await executor()(
+      call('Bash', { command: 'printf output; printf diagnostic >&2' }),
+      abort.signal,
+    );
+    expect(result).toMatchObject({
+      is_error: false,
+      content: 'output\n--- stderr ---\ndiagnostic',
+    });
+  });
   it('terminates a running shell on cancellation', async () => {
     registry.get('client')!.mode = 'auto';
     const pending = executor()(
