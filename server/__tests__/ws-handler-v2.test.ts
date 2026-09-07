@@ -913,6 +913,7 @@ describe('handleSendV2 skill policy', () => {
       undefined,
       undefined,
       'cmsg-sp',
+      undefined,
     );
   });
 
@@ -1199,7 +1200,14 @@ describe('handleSendV2 routing', () => {
       ctx,
     );
 
-    expect(sendToChat).toHaveBeenCalledWith('c1:sess-1', 'hello', undefined, undefined, 'cmsg-1');
+    expect(sendToChat).toHaveBeenCalledWith(
+      'c1:sess-1',
+      'hello',
+      undefined,
+      undefined,
+      'cmsg-1',
+      undefined,
+    );
     expect(ctx.connRegistry.get('c1')!.watchedSessions.has('sess-1')).toBe(true);
     expect(ctx.connRegistry.get('c1')!.activeSession).toBe('sess-1');
   });
@@ -1867,7 +1875,14 @@ describe('handleSendV2 connection ownership', () => {
       ctx,
     );
 
-    expect(sendToChat).toHaveBeenCalledWith('c1:sess-1', 'hi', undefined, undefined, 'cmsg-1');
+    expect(sendToChat).toHaveBeenCalledWith(
+      'c1:sess-1',
+      'hi',
+      undefined,
+      undefined,
+      'cmsg-1',
+      undefined,
+    );
 
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
@@ -1985,6 +2000,7 @@ describe('handleSendV2 state-based routing', () => {
       undefined,
       undefined,
       'rapid-2',
+      undefined,
     );
 
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
@@ -2738,6 +2754,7 @@ describe('handleSendV2 rekey after detached reattach', () => {
       undefined,
       undefined,
       'cmsg-rk',
+      undefined,
     );
     expect(transport.sent).not.toContainEqual(
       expect.objectContaining({ code: 'active_elsewhere' }),
