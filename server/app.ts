@@ -1,3 +1,4 @@
+import { isPrivateCodexPath } from './codex-private-path.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import express from 'express';
 import cookieParser from 'cookie-parser';
@@ -1301,6 +1302,11 @@ app.get('/api/worktrees', (_req, res) => {
 // --- File viewer API ---
 
 export function isAllowedPath(filePath: string): boolean {
+  try {
+    if (isPrivateCodexPath(filePath, loadAccountProfiles().privateCodexRoots())) return false;
+  } catch {
+    return false;
+  }
   const resolved = resolve(filePath);
   if (BASE_REPO && resolved.startsWith(resolve(BASE_REPO))) return true;
   if (BASE_REPO && resolved.startsWith(resolve(`${BASE_REPO}-sessions`))) return true;
@@ -1375,7 +1381,7 @@ app.get('/api/files/list', (req, res) => {
   }
   try {
     const entries = readdirSync(dir)
-      .filter((name) => !name.startsWith('.'))
+      .filter((name) => !name.startsWith('.') && isAllowedPath(join(dir, name)))
       .map((name) => {
         const full = join(dir, name);
         try {

@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { codexPrivateDirectory } from './codex-private-path.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { ManagedSession, SessionRegistry } from '@mitzo/harness';
 import { AsyncQueue } from './async-queue.js';
@@ -14,9 +14,6 @@ import type { McpServerConfig } from './mcp-config.js';
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
 let privateStore: CodexConversationStore | undefined;
-export function codexPrivateDirectory() {
-  return process.env.MITZO_CODEX_PRIVATE_DIR || join(homedir(), '.mitzo', 'private', 'codex');
-}
 function store() {
   if (!privateStore) {
     const dir = codexPrivateDirectory();
