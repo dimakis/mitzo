@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { z } from 'zod';
 const Alias = z.string().trim().max(80);
@@ -6,8 +6,12 @@ const Alias = z.string().trim().max(80);
 export class AccountAliases {
   constructor(private file: string) {}
   private read(): Record<string, string> {
-    if (!existsSync(this.file)) return {};
-    return z.record(z.string(), Alias).parse(JSON.parse(readFileSync(this.file, 'utf8')));
+    try {
+      return z.record(z.string(), Alias).parse(JSON.parse(readFileSync(this.file, 'utf8')));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
+      throw error;
+    }
   }
   label(id: string, fallback: string) {
     return this.read()[id] || fallback;
