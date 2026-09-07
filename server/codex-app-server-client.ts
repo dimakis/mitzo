@@ -114,7 +114,14 @@ export class CodexAppServerClient {
     if (!this.ready) return Promise.reject(new Error('Codex connection not initialized'));
     const allowed = ['account/read', 'model/list'];
     if (this.lifecycle)
-      allowed.push('thread/start', 'thread/resume', 'thread/read', 'turn/start', 'turn/interrupt');
+      allowed.push(
+        'config/read',
+        'thread/start',
+        'thread/resume',
+        'thread/read',
+        'turn/start',
+        'turn/interrupt',
+      );
     if (!allowed.includes(method))
       return Promise.reject(
         new Error(
