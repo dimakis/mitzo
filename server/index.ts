@@ -890,7 +890,7 @@ function handleChatWs(
             'ws.decision': msg.decision || 'deny',
           },
           () => {
-            resolvePending(msg.permId, msg.decision || 'deny');
+            resolvePending(msg.permId, msg.decision || 'deny', msg.answers);
           },
           contextFromTraceparent(traceparent),
         );

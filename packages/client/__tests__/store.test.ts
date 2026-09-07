@@ -1343,3 +1343,17 @@ describe('account selection', () => {
     });
   });
 });
+
+it('sends question answers without losing the request identity', async () => {
+  const store = createReadyStore();
+  await store.getState().switchSession('test-session');
+  const answers = { q1: ['Personal'] };
+  store.getState().respondToPermission('question-1', 'once', answers);
+  expect(lastWs.parsedSent()).toContainEqual({
+    type: 'permission_response',
+    sessionId: 'test-session',
+    permId: 'question-1',
+    decision: 'once',
+    answers,
+  });
+});

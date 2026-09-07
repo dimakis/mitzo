@@ -110,6 +110,8 @@ interface SessionEndMsg {
 }
 
 interface PermissionRequestMsg {
+  questions?: import('@mitzo/protocol').UserQuestion[];
+  expiresAt?: number;
   type: 'permission_request';
   permId: string;
   toolName: string;

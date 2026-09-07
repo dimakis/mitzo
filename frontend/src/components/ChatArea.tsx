@@ -32,6 +32,7 @@ export interface ChatAreaProps {
     permId: string,
     decision: 'once' | 'always' | 'deny',
     toolName: string,
+    answers?: import('@mitzo/protocol').QuestionAnswers,
   ) => void;
   /** External ref for scroll container — caller can use for forceScrollToBottom */
   scrollRef?: React.RefObject<HTMLDivElement | null>;
@@ -244,7 +245,10 @@ export function ChatArea({
 
       {permission && (
         <PermissionBanner
+          key={permission.permId}
           permId={permission.permId}
+          questions={permission.questions}
+          expiresAt={permission.expiresAt}
           toolName={permission.toolName}
           toolInput={permission.toolInput}
           title={permission.title}

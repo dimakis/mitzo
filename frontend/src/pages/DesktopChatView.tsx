@@ -157,8 +157,9 @@ export function DesktopChatView() {
     permId: string,
     decision: 'once' | 'always' | 'deny',
     _toolName: string,
+    answers?: import('@mitzo/protocol').QuestionAnswers,
   ) {
-    storeRespondToPermission(permId, decision);
+    storeRespondToPermission(permId, decision, answers);
   }
 
   function handleModeChange(newMode: 'ask' | 'agent' | 'auto') {

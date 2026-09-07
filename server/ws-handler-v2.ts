@@ -790,7 +790,7 @@ export function handlePermissionResponseV2(
       'ws.permId': msg.permId,
     },
     () => {
-      resolvePending(msg.permId, msg.decision ?? 'deny');
+      resolvePending(msg.permId, msg.decision ?? 'deny', msg.answers);
       log.info('permission_response', {
         connectionId,
         sessionId: msg.sessionId,

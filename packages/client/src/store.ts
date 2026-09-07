@@ -99,7 +99,11 @@ export interface MitzoStoreState {
   interruptMessage(text: string, opts?: SendMessageOptions): void;
   stopGeneration(): void;
   closeSession(): void;
-  respondToPermission(permId: string, decision: 'once' | 'always' | 'deny'): void;
+  respondToPermission(
+    permId: string,
+    decision: 'once' | 'always' | 'deny',
+    answers?: import('@mitzo/protocol').QuestionAnswers,
+  ): void;
   setMode(mode: MitzoMode): void;
   setModel(modelId: string): void;
   loadSessions(): Promise<void>;
@@ -430,12 +434,17 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       });
     },
 
-    respondToPermission(permId: string, decision: 'once' | 'always' | 'deny') {
+    respondToPermission(
+      permId: string,
+      decision: 'once' | 'always' | 'deny',
+      answers?: import('@mitzo/protocol').QuestionAnswers,
+    ) {
       const sent = connection.send({
         type: 'permission_response',
         ...(parserState.currentSessionId ? { sessionId: parserState.currentSessionId } : {}),
         permId,
         decision,
+        ...(answers ? { answers } : {}),
       });
       if (sent) {
         set((s) => ({

@@ -3223,133 +3223,190 @@ textarea:focus {
 
 .perm-banner {
   position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  left: 50%;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(600px, calc(100% - 24px));
+  box-sizing: border-box;
   background: var(--surface);
-  border-top: 1px solid var(--border);
-  padding: var(--space-4);
-  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 18px;
   z-index: 200;
-  transform: translateY(100%);
-  animation: perm-slide-up 0.25s ease-out forwards;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.3);
   display: flex;
   flex-direction: column;
-  max-height: 60vh;
+  max-height: 72vh;
+  max-height: 72dvh;
   overflow: hidden;
 }
-
-@keyframes perm-slide-up {
-  from {
-    transform: translateY(100%);
-  }
-  to {
-    transform: translateY(0);
-  }
-}
-
-.perm-banner-dismiss {
-  animation: perm-slide-down 0.2s ease-in forwards;
-}
-
-@keyframes perm-slide-down {
-  from {
-    transform: translateY(0);
-  }
-  to {
-    transform: translateY(100%);
-  }
-}
-
-.perm-banner-title {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--text);
-  margin-bottom: var(--space-1);
-}
-
-.perm-banner-desc {
-  font-size: var(--text-s);
-  color: var(--text-dim);
-  line-height: 1.4;
-  margin-bottom: var(--space-3);
-}
-
-.perm-banner-info {
-  flex: 1;
-  overflow-y: auto;
+.perm-banner-heading {
   display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  margin-bottom: var(--space-3);
-  min-height: 0;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
 }
-
-.perm-banner-tool {
-  font-family: var(--code-font);
+.perm-banner-eyebrow {
+  font-size: var(--text-xs);
+  font-weight: 600;
   color: var(--accent);
 }
-
-.perm-banner-input {
-  font-family: var(--code-font);
-  font-size: 0.78rem;
-  color: var(--text-dim);
-  background: var(--surface-raised, rgba(0, 0, 0, 0.15));
-  border-radius: 6px;
-  padding: 0.5rem 0.6rem;
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-all;
-  overflow-wrap: break-word;
-  overflow-y: auto;
-  max-height: 30vh;
-}
-
 .perm-banner-timer {
   font-size: var(--text-xs);
   color: var(--text-dim);
-  text-align: center;
+  white-space: nowrap;
 }
-
+.perm-banner-info {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+  padding-bottom: 14px;
+}
+.perm-banner-tool {
+  margin: 0 0 10px;
+  font-size: 1.1rem;
+  line-height: 1.4;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.perm-banner-desc,
+.perm-banner-scope,
+.question-hint {
+  color: var(--text-dim);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  margin: 8px 0;
+}
+.perm-banner-scope {
+  font-size: var(--text-xs);
+  margin-bottom: 0;
+}
+.perm-banner-input {
+  font-family: var(--code-font);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 10px 0;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+}
 .perm-banner-actions {
   display: flex;
-  gap: var(--space-2);
+  gap: 8px;
   flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
 }
-
 .perm-banner-btn {
   flex: 1;
-  padding: 0.7rem 0.5rem;
+  min-height: 44px;
+  padding: 10px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
   font-size: var(--text-sm);
   font-weight: 600;
-  border-radius: 10px;
-  border: none;
   touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
 }
-
 .perm-banner-btn--once {
-  background: #2e7d32;
+  background: var(--accent);
   color: #fff;
+  border-color: var(--accent);
 }
-
 .perm-banner-btn--always {
-  background: #1b5e20;
-  color: #fff;
-  border: 2px solid #4caf50;
+  background: var(--bg);
+  color: var(--text);
 }
-
 .perm-banner-btn--deny {
-  background: var(--danger);
-  color: #fff;
+  background: transparent;
+  color: var(--danger);
 }
-
-.perm-banner--elevated {
-  border-top-color: var(--warning);
+.perm-banner-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
-
-.perm-banner--unknown {
-  border-top-color: var(--text-dim);
+.perm-banner :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.question-fieldset {
+  border: 0;
+  margin: 0 0 20px;
+  padding: 0;
+  min-width: 0;
+}
+.question-fieldset:last-child {
+  margin-bottom: 0;
+}
+.question-fieldset legend {
+  font-weight: 600;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  margin-bottom: 10px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.question-options {
+  display: grid;
+  gap: 8px;
+}
+.question-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  min-height: 44px;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+.question-option:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+.question-option input {
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+.question-option strong {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text);
+}
+.question-option small {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+.question-written {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  color: var(--text-dim);
+  font-size: var(--text-xs);
+}
+.question-written textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 64px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
 }
 
 .perm-banner-tier {
@@ -4559,25 +4616,6 @@ textarea:focus {
 
   .session-item:hover {
     background: rgba(108, 99, 255, 0.05);
-  }
-
-  .perm-banner {
-    left: 50%;
-    right: auto;
-    transform: translateX(-50%) translateY(100%);
-    max-width: 480px;
-    border-radius: 12px 12px 0 0;
-    border: 1px solid var(--border);
-    border-bottom: none;
-  }
-
-  @keyframes perm-slide-up {
-    from {
-      transform: translateX(-50%) translateY(100%);
-    }
-    to {
-      transform: translateX(-50%) translateY(0);
-    }
   }
 }
 
