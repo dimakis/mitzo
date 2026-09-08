@@ -25,6 +25,10 @@ def execute(request):
             next_directory = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
             os.close(directory)
             directory = next_directory
+        parent = os.fstat(directory)
+        expected_parent = request['parentIdentity']
+        if str(parent.st_dev) != expected_parent['dev'] or str(parent.st_ino) != expected_parent['ino']:
+            raise RuntimeError('Approved parent directory changed; retry the tool')
         operation = request['operation']
         flags = os.O_NOFOLLOW | os.O_NONBLOCK
         if operation == 'Read':
@@ -93,6 +97,7 @@ export function executeNativeFileOperation(
   request: {
     operation: string;
     identity: { dev: string; ino: string } | null;
+    parentIdentity: { dev: string; ino: string };
     file_path: string;
     limit: number;
     content?: string;

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { lstat, link, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { renameSync, symlinkSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { SessionRegistry } from '@mitzo/harness';
 
 const race = vi.hoisted(() => ({ run: undefined as undefined | (() => void), afterOpen: '' }));
@@ -48,12 +48,26 @@ vi.mock('node:child_process', async (importOriginal) => {
     },
   };
 });
-import { executeNativeFileOperation } from '../native-file-operation.js';
+import { executeNativeFileOperation as runFileOperation } from '../native-file-operation.js';
 import { createNativeToolExecutor } from '../native-tool-executor.js';
 
 async function identity(path: string) {
   const info = await lstat(path, { bigint: true });
   return { dev: String(info.dev), ino: String(info.ino) };
+}
+async function executeNativeFileOperation(
+  request: Omit<Parameters<typeof runFileOperation>[0], 'parentIdentity'> & {
+    parentIdentity?: { dev: string; ino: string };
+  },
+  signal: AbortSignal,
+) {
+  return runFileOperation(
+    {
+      ...request,
+      parentIdentity: request.parentIdentity ?? (await identity(dirname(request.file_path))),
+    },
+    signal,
+  );
 }
 const dirs: string[] = [];
 afterEach(async () => {
@@ -227,4 +241,31 @@ describe('native filesystem races after authorization', () => {
       expect(await readFile(file_path, 'utf8')).toBe('unapproved');
     },
   );
+  it('does not create a missing file in a substituted real parent directory', async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-parent-')));
+    dirs.push(root);
+    const parent = join(root, 'approved');
+    const outside = join(root, 'outside');
+    await mkdir(parent);
+    await mkdir(outside);
+    const parentIdentity = await identity(parent);
+    race.run = () => {
+      renameSync(parent, join(root, 'old'));
+      renameSync(outside, parent);
+    };
+    const result = await executeNativeFileOperation(
+      {
+        operation: 'Write',
+        identity: null,
+        parentIdentity,
+        file_path: join(parent, 'new'),
+        limit: 1024,
+        content: 'escaped',
+      },
+      new AbortController().signal,
+    );
+    expect(result.is_error).toBe(true);
+    await expect(readFile(join(parent, 'new'))).rejects.toThrow();
+    await expect(readFile(join(root, 'old/new'))).rejects.toThrow();
+  });
 });
