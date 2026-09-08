@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useLocation, useSearchParams } from 'react-router-dom';
+import { AgentTaskWorkspace } from '../components/AgentTaskWorkspace';
 import { TaskNode } from '../components/TaskNode';
 import { TaskCreateForm } from '../components/TaskCreateForm';
 import { WorkflowCreateForm } from '../components/WorkflowCreateForm';
@@ -20,7 +22,12 @@ function countT1Recursive(tasks: Task[]): number {
   return count;
 }
 
-export function TaskBoard() {
+export function TaskBoard({ desktop = false }: { desktop?: boolean } = {}) {
+  const [boardView, setBoardView] = useState(desktop);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { hash } = useLocation();
+  const selectedId =
+    searchParams.get('highlight') ?? (hash.startsWith('#task-') ? hash.slice(6) : null);
   const {
     loading,
     tasks,
@@ -70,9 +77,40 @@ export function TaskBoard() {
   const t1Count = countT1Recursive(tasks);
   const { spawnEnabled } = loopStatus;
 
+  function renderTask(task: Task, inspect = false) {
+    return (
+      <TaskNode
+        key={task.id}
+        task={task}
+        depth={0}
+        activeTaskId={loopStatus.activeTaskId}
+        displayMeta={
+          inspect
+            ? new Map([...displayMeta].map(([id, meta]) => [id, { ...meta, fadeOpacity: 1 }]))
+            : displayMeta
+        }
+        onStatusChange={handleStatusChange}
+        onDelete={handleDelete}
+        onAddChild={handleAddChild}
+        onApprove={approveTask}
+        onReject={rejectTask}
+      />
+    );
+  }
+
   return (
-    <div className="task-board-page">
-      <PageHeader title="Tasks" badge={t1Count > 0 ? t1Count : tasks.length || undefined}>
+    <div className={`task-board-page${desktop ? ' task-board-desktop' : ''}`}>
+      {desktop && (
+        <div className="agent-page-heading">
+          <p className="workspace-muted">AGENTS</p>
+          <h1>Work in motion</h1>
+          <p className="workspace-muted">Execution state, review decisions and recorded usage.</p>
+        </div>
+      )}
+      <PageHeader
+        title={desktop ? 'Executions' : 'Tasks'}
+        badge={t1Count > 0 ? t1Count : tasks.length || undefined}
+      >
         <button
           className={`task-board-add-btn ${spawnEnabled ? 'cc-spawn-enabled' : 'cc-spawn-disabled'}`}
           onClick={() => setSpawnEnabled(!spawnEnabled)}
@@ -113,6 +151,17 @@ export function TaskBoard() {
         </button>
       </PageHeader>
 
+      {desktop && (
+        <div className="agent-view-switch" role="group" aria-label="Task view">
+          <button aria-pressed={boardView} onClick={() => setBoardView(true)}>
+            Board
+          </button>
+          <button aria-pressed={!boardView} onClick={() => setBoardView(false)}>
+            Tree and attention
+          </button>
+        </div>
+      )}
+
       <LoopControls
         loopStatus={loopStatus}
         goals={goals}
@@ -150,22 +199,22 @@ export function TaskBoard() {
           <EmptyState icon={'\u2610'} title="No tasks yet" subtitle="Add a task to get started" />
         )}
 
-        <div className="task-board-list">
-          {sortedTasks.map((task) => (
-            <TaskNode
-              key={task.id}
-              task={task}
-              depth={0}
-              activeTaskId={loopStatus.activeTaskId}
-              displayMeta={displayMeta}
-              onStatusChange={handleStatusChange}
-              onDelete={handleDelete}
-              onAddChild={handleAddChild}
-              onApprove={approveTask}
-              onReject={rejectTask}
-            />
-          ))}
-        </div>
+        {desktop && boardView ? (
+          <AgentTaskWorkspace
+            tasks={tasks}
+            selectedId={selectedId}
+            onSelect={(id) =>
+              setSearchParams((prev) => {
+                const next = new URLSearchParams(prev);
+                next.set('highlight', id);
+                return next;
+              })
+            }
+            renderTask={(task) => renderTask(task, true)}
+          />
+        ) : (
+          <div className="task-board-list">{sortedTasks.map((task) => renderTask(task))}</div>
+        )}
       </div>
     </div>
   );

@@ -1,0 +1,194 @@
+.task-board-desktop {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  max-width: 1440px;
+  padding: 24px;
+  background: var(--workspace-bg);
+  color: var(--workspace-text);
+}
+.agent-page-heading h1 {
+  font-size: 30px;
+  font-weight: 500;
+  margin: 8px 0;
+  letter-spacing: -0.035em;
+}
+.agent-page-heading p {
+  margin: 0;
+  line-height: 1.5;
+}
+.task-board-desktop .page-header {
+  flex-wrap: wrap;
+  height: auto;
+  padding: 16px 0;
+}
+.task-board-desktop .task-board-scroll {
+  padding-bottom: 24px;
+  min-height: 0;
+}
+.agent-view-switch {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.agent-view-switch button {
+  padding: 8px 14px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 8px;
+  background: var(--workspace-bg);
+  color: var(--workspace-text);
+  cursor: pointer;
+}
+.agent-view-switch button[aria-pressed='true'] {
+  background: var(--workspace-panel);
+  border-color: var(--workspace-accent);
+  color: var(--workspace-accent);
+}
+.agent-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+}
+.agent-lanes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.agent-lane {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 12px;
+}
+.agent-lane h2 {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 14px;
+  margin: 0 0 12px;
+}
+.agent-lane h2 span {
+  color: var(--workspace-muted);
+  font-weight: 400;
+}
+.agent-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  margin-top: 10px;
+  padding: 14px;
+  background: var(--workspace-bg);
+  border: 1px solid var(--workspace-line);
+  border-radius: 10px;
+  color: var(--workspace-text);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.agent-card strong {
+  font-size: 14px;
+  line-height: 1.5;
+}
+.agent-card span,
+.agent-card small {
+  color: var(--workspace-muted);
+  font-size: 12px;
+}
+.agent-card p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.agent-card[aria-current='true'] {
+  background: var(--workspace-panel);
+  outline: 2px solid var(--workspace-accent);
+  outline-offset: -2px;
+}
+.agent-card--pending_review,
+.agent-card--blocked,
+.agent-card--failed {
+  border-left: 3px solid var(--workspace-accent);
+}
+.agent-card--active {
+  border-left: 3px solid var(--workspace-muted);
+}
+.agent-inspector {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 12px;
+  overflow-wrap: anywhere;
+}
+.agent-inspector h2 {
+  font-size: 21px;
+  font-weight: 500;
+  margin: 8px 0 12px;
+}
+.agent-inspector h3 {
+  font-size: 14px;
+  margin: 20px 0 12px;
+}
+.agent-inspector p,
+.agent-inspector li {
+  line-height: 1.6;
+  font-size: 13px;
+}
+.agent-description {
+  white-space: pre-wrap;
+}
+.agent-facts {
+  display: grid;
+  gap: 14px;
+  margin: 20px 0;
+}
+.agent-facts dt {
+  color: var(--workspace-muted);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.agent-facts dd {
+  margin: 0;
+  font-size: 16px;
+}
+.agent-session-link {
+  color: var(--workspace-accent);
+  font-size: 14px;
+}
+.agent-card:focus-visible,
+.agent-view-switch button:focus-visible {
+  outline: 2px solid var(--workspace-accent);
+  outline-offset: 3px;
+}
+@media (min-width: 1300px) {
+  .agent-workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 330px);
+    align-items: start;
+  }
+}
+
+.agent-inspector .task-node-row {
+  flex-wrap: wrap;
+}
+.agent-inspector .task-node-body {
+  flex-basis: 70%;
+}
+.agent-inspector .task-node-title {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.agent-inspector .task-node-actions {
+  opacity: 1;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+.agent-inspector .task-node-action {
+  padding: 6px 10px;
+  border: 1px solid var(--workspace-line);
+  color: var(--workspace-text);
+}
+.task-board-desktop .task-node-row:focus-within .task-node-actions {
+  opacity: 1;
+}
