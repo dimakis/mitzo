@@ -1134,7 +1134,6 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
   }
   const token = await login(body.data.passphrase);
   if (!token) {
-    res.clearCookie(COOKIE_NAME, { httpOnly: true, sameSite: 'strict' });
     res.status(401).json({ error: 'Invalid passphrase' });
     return;
   }

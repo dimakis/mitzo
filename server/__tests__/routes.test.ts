@@ -198,6 +198,16 @@ describe('auth routes', () => {
     expect(res.body.error).toBe('Invalid passphrase');
   });
 
+  it('POST /api/auth/login — failed attempt does not clear an existing session cookie', async () => {
+    const res = await request(app)
+      .post('/api/auth/login')
+      .set('Cookie', authCookie)
+      .send({ passphrase: 'wrong' });
+
+    expect(res.status).toBe(401);
+    expect(res.headers['set-cookie']).toBeUndefined();
+  });
+
   it('POST /api/auth/logout — clears cookie', async () => {
     const res = await request(app).post('/api/auth/logout').set('Cookie', authCookie);
     expect(res.status).toBe(200);
