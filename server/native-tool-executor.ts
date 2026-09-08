@@ -148,6 +148,8 @@ export function createNativeToolExecutor(
         if (root)
           input.file_path = resolve(root.original, relative(root.canonical, input.file_path));
       }
+      const approvedParent = await lstat(dirname(approvedPath), { bigint: true });
+      const parentIdentity = { dev: String(approvedParent.dev), ino: String(approvedParent.ino) };
       const approvedFile = await lstat(approvedPath, { bigint: true }).catch(
         (error: NodeJS.ErrnoException) => {
           if (error.code !== 'ENOENT') throw error;
@@ -177,6 +179,7 @@ export function createNativeToolExecutor(
           ...input,
           operation: block.name,
           identity,
+          parentIdentity,
           file_path: approvedPath,
           limit: options.maxOutputBytes ?? 64 * 1024,
         },
