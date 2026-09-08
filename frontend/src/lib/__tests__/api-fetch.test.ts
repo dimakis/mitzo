@@ -210,6 +210,20 @@ describe('apiFetch', () => {
     window.removeEventListener(AUTH_RESTORED_EVENT, listener);
   });
 
+  it('shares one successful result across concurrent cookie restoration checks', async () => {
+    mockFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }));
+    const listener = vi.fn();
+    window.addEventListener(AUTH_RESTORED_EVENT, listener);
+
+    const first = restoreCookieAuthentication();
+    const second = restoreCookieAuthentication();
+
+    await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
+    expect(mockFetch).toHaveBeenCalledOnce();
+    expect(listener).toHaveBeenCalledOnce();
+    window.removeEventListener(AUTH_RESTORED_EVENT, listener);
+  });
+
   it('does not restore a stale cookie check after logout begins in another tab', async () => {
     let resolveResponse!: (response: Response) => void;
     mockFetch.mockReturnValueOnce(

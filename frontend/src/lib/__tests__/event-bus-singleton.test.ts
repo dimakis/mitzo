@@ -8,12 +8,17 @@ class MockEventSource {
   static CONNECTING = 0;
   static OPEN = 1;
   static CLOSED = 2;
+  static instances = 0;
   readyState = MockEventSource.CONNECTING;
   onopen: ((ev: unknown) => void) | null = null;
   onerror: ((ev: unknown) => void) | null = null;
   close = vi.fn();
   addEventListener = vi.fn();
   removeEventListener = vi.fn();
+
+  constructor() {
+    MockEventSource.instances++;
+  }
 }
 
 // Must be set before module loads — static imports are hoisted above beforeAll
@@ -23,6 +28,10 @@ global.EventSource = MockEventSource as unknown as typeof EventSource;
 const { eventBus, ensureEventBusConnected } = await import('../event-bus-singleton');
 
 describe('event-bus-singleton visibilitychange recovery', () => {
+  it('starts blocked until authentication is explicitly restored', () => {
+    expect(MockEventSource.instances).toBe(0);
+  });
+
   it('disconnects stale EventSource credentials on auth loss', () => {
     const disconnectSpy = vi.spyOn(eventBus, 'disconnect');
 

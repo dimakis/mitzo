@@ -7,23 +7,15 @@
  */
 
 import { EventBus } from '@mitzo/client';
-import {
-  getEventSourceUrl,
-  isLogoutPending,
-  markAuthLost,
-  AUTH_LOST_EVENT,
-  AUTH_RESTORED_EVENT,
-} from './api-fetch';
+import { getEventSourceUrl, markAuthLost, AUTH_LOST_EVENT, AUTH_RESTORED_EVENT } from './api-fetch';
 
 export const eventBus = new EventBus();
-let authBlocked = isLogoutPending();
+let authBlocked = true;
 
 export function ensureEventBusConnected(): void {
   if (!authBlocked) eventBus.ensureConnected();
 }
 
-// Connect immediately — EventSource auto-reconnects natively
-if (!authBlocked) eventBus.connect(() => getEventSourceUrl('/api/events'));
 eventBus.on('auth_expired', () => {
   eventBus.disconnect();
   markAuthLost();
