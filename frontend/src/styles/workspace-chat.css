@@ -520,3 +520,190 @@
   max-height: 50dvh;
   overflow-y: auto;
 }
+
+/* Conversation library: one list, with secondary actions kept out of the way. */
+.conversation-library .session-list-header {
+  padding-top: max(16px, env(safe-area-inset-top));
+  gap: 12px;
+}
+.conversation-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.conversation-library .hero-chat-btn {
+  width: auto;
+  min-height: 40px;
+  margin: 0;
+  padding: 8px 14px;
+  font-size: var(--text-sm);
+  border-radius: 12px;
+  background: var(--accent);
+  color: #fff;
+}
+.conversation-options {
+  position: relative;
+}
+.conversation-options > summary,
+.conversation-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  list-style: none;
+  cursor: pointer;
+  width: 40px;
+  min-height: 40px;
+  border-radius: 10px;
+  color: var(--text-dim);
+}
+.conversation-options summary::-webkit-details-marker,
+.conversation-details summary::-webkit-details-marker {
+  display: none;
+}
+.conversation-options-menu {
+  position: absolute;
+  right: 0;
+  top: 46px;
+  width: min(270px, 85vw);
+  z-index: 65;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 6px;
+  box-shadow: 0 8px 30px #0004;
+}
+.conversation-options-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 12px;
+  background: transparent;
+}
+.conversation-search {
+  display: flex;
+  gap: 8px;
+  padding: 8px 0 12px;
+}
+.conversation-search input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  padding: 12px 14px;
+  border-radius: 12px;
+  color: var(--text);
+  font-size: var(--text-sm);
+}
+.conversation-search button {
+  background: transparent;
+  font-size: var(--text-xs);
+}
+.conversation-filters {
+  display: flex;
+  gap: 6px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.conversation-filters button {
+  flex: 1;
+  min-height: 40px;
+  padding: 8px 4px;
+  border-radius: 9px;
+  font-size: var(--text-xs);
+  background: transparent;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.conversation-filters button[aria-pressed='true'] {
+  color: var(--text);
+  background: var(--surface);
+}
+.conversation-filters span {
+  margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+.conversation-library .session-list-scroll {
+  min-height: 0;
+}
+.conversation-list-caption {
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+  margin: 18px 0 4px;
+}
+.conversation-library .session-item {
+  padding: 16px 42px 16px 0;
+  gap: 8px;
+  min-height: 82px;
+  border-radius: 0;
+}
+.conversation-library .session-item-meta {
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+.conversation-library .session-item-chevron {
+  display: none;
+}
+.conversation-state,
+.conversation-repo {
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+}
+.conversation-state--waiting {
+  color: var(--accent);
+}
+.conversation-state--working {
+  color: var(--success);
+}
+.conversation-repo {
+  overflow-wrap: anywhere;
+}
+.conversation-details > summary {
+  position: absolute;
+  right: 0;
+  top: 15px;
+}
+.conversation-details-body {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+  cursor: default;
+}
+.conversation-details-body button {
+  margin: 12px 8px 0 0;
+  padding: 8px;
+  min-height: 40px;
+}
+.conversation-library .session-item-hash {
+  font-size: inherit;
+}
+.conversation-result {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 16px 0;
+  background: transparent;
+  border-bottom: 1px solid var(--border);
+}
+.conversation-result-snippet {
+  color: var(--text-dim);
+  font-size: var(--text-sm);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+@media (pointer: coarse) {
+  .conversation-library button,
+  .conversation-library summary {
+    min-height: 44px;
+  }
+}
