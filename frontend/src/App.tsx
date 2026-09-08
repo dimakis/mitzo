@@ -54,6 +54,11 @@ function ChatRoute() {
   return isDesktop ? <DesktopChatView /> : <ChatView />;
 }
 
+function TaskBoardRoute() {
+  const isDesktop = useIsDesktop();
+  return <TaskBoard key={isDesktop ? 'desktop' : 'mobile'} desktop={isDesktop} />;
+}
+
 function PageRoute({ children }: { children: React.ReactNode }) {
   const isDesktop = useIsDesktop();
   if (!isDesktop) return <>{children}</>;
@@ -179,7 +184,7 @@ export function App() {
                 element={
                   <ProtectedRoute>
                     <PageRoute>
-                      <TaskBoard />
+                      <TaskBoardRoute />
                     </PageRoute>
                   </ProtectedRoute>
                 }
