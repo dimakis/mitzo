@@ -1,8 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SessionRegistry, resolvePending } from '@mitzo/harness';
+import { loadAccountProfiles } from '../account-profiles.js';
+import { executeSandboxedCommand } from '../sandboxed-command.js';
+vi.mock('../sandboxed-command.js', () => ({
+  executeSandboxedCommand: vi.fn().mockResolvedValue({ content: 'done', isError: false }),
+}));
 import { createNativeToolExecutor } from '../native-tool-executor.js';
 
 describe('native tool execution through session permissions', () => {
@@ -30,6 +35,7 @@ describe('native tool execution through session permissions', () => {
     });
   });
   afterEach(async () => {
+    vi.unstubAllEnvs();
     registry.dispose();
     await rm(root, { recursive: true, force: true });
   });
@@ -128,12 +134,158 @@ describe('native tool execution through session permissions', () => {
     }
     expect(await readFile(join(root, 'outside'), 'utf8')).toBe('original');
   });
-  it('does not advertise or execute a native shell tool', async () => {
-    expect(
-      await executor()(call('Bash', { command: 'touch escaped' }), abort.signal),
-    ).toMatchObject({ is_error: true, content: 'Native tool is unavailable' });
+  it('denies native reads of private credential storage, including through symlinks', async () => {
+    const privateRoot = join(root, 'private');
+    vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', privateRoot);
+    await mkdir(privateRoot);
+    await writeFile(join(privateRoot, 'auth.json'), 'synthetic-credential');
+    await symlink(privateRoot, join(root, 'worktree/private-link'));
+    for (const file_path of [join(privateRoot, 'auth.json'), 'private-link/auth.json']) {
+      const result = await executor()(call('Read', { file_path }), abort.signal);
+      expect(result.is_error).toBe(true);
+      expect(result.content).not.toContain('synthetic-credential');
+    }
+  });
+  it('protects configured login roots after their profile is removed or becomes unreadable', async () => {
+    const privateRoot = join(root, 'login');
+    const profiles = join(root, 'profiles.json');
+    await mkdir(privateRoot);
+    await writeFile(join(privateRoot, 'auth.json'), 'synthetic-credential');
+    await writeFile(
+      profiles,
+      JSON.stringify([
+        {
+          id: 'personal',
+          label: 'Personal',
+          provider: 'openai-codex',
+          credentialRef: privateRoot,
+          email: 'test@example.invalid',
+          planType: 'test',
+          models: [{ id: 'test-model', label: 'Test' }],
+        },
+      ]),
+    );
+    vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', profiles);
+    // Other server paths load the profile before any native tool observes it.
+    loadAccountProfiles();
+    for (const next of ['[]', '{invalid']) {
+      if (next !== null) await writeFile(profiles, next);
+      const result = await executor()(
+        call('Read', { file_path: join(privateRoot, 'auth.json') }),
+        abort.signal,
+      );
+      expect(result.is_error).toBe(true);
+      expect(result.content).not.toContain('synthetic-credential');
+    }
+  });
+  it('rechecks credential ownership after an approval wait', async () => {
+    const privateRoot = join(root, 'worktree/promoted');
+    await mkdir(privateRoot);
+    await writeFile(join(privateRoot, 'note'), 'original');
+    const pending = executor()(
+      call('Write', { file_path: 'promoted/note', content: 'changed', require_approval: true }),
+      abort.signal,
+    );
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', privateRoot);
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
+    expect((await pending).is_error).toBe(true);
+    expect(await readFile(join(privateRoot, 'note'), 'utf8')).toBe('original');
+  });
+  it('rejects a write target replaced by an outside symlink while approval is pending', async () => {
+    const target = join(root, 'worktree/approved');
+    const outside = join(root, 'outside');
+    await writeFile(target, 'reviewed');
+    await writeFile(outside, 'original');
+    const pending = executor()(
+      call('Write', { file_path: 'approved', content: 'changed', require_approval: true }),
+      abort.signal,
+    );
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    await rm(target);
+    await symlink(outside, target);
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
+    const result = await pending;
+    expect(await readFile(outside, 'utf8')).toBe('original');
+    expect(result.is_error).toBe(true);
+  });
+  it('denies a dangling symlink installed while creation approval is pending', async () => {
+    const outside = join(root, 'not-created');
+    const pending = executor()(
+      call('Write', { file_path: 'approved', content: 'escaped', require_approval: true }),
+      abort.signal,
+    );
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    await symlink(outside, join(root, 'worktree/approved'));
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
+    const result = await pending;
+    expect(result.is_error).toBe(true);
+    await expect(readFile(outside)).rejects.toThrow();
+  });
+
+  it('asks before executing a command in Agent and passes isolated roots', async () => {
+    vi.mocked(executeSandboxedCommand).mockClear();
+    const pending = executor()(call('Bash', { command: 'npm test' }), abort.signal);
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    expect(executeSandboxedCommand).not.toHaveBeenCalled();
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
+    expect(await pending).toMatchObject({ is_error: false, content: 'done' });
+    expect(executeSandboxedCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'npm test',
+        cwd: await realpath(join(root, 'worktree')),
+        writableRoots: [await realpath(join(root, 'worktree'))],
+        deniedRoots: expect.any(Array),
+        signal: abort.signal,
+      }),
+    );
+  });
+  it('allows sandboxed commands in Auto but denies them after switching to Ask', async () => {
+    vi.mocked(executeSandboxedCommand).mockClear();
+    registry.setMode('client', 'auto');
+    expect(await executor()(call('Bash', { command: 'npm test' }), abort.signal)).toMatchObject({
+      is_error: false,
+    });
     expect(sent).toHaveLength(0);
-    await expect(readFile(join(root, 'worktree/escaped'))).rejects.toThrow();
+    registry.setMode('client', 'ask');
+    expect(await executor()(call('Bash', { command: 'npm test' }), abort.signal)).toMatchObject({
+      is_error: true,
+    });
+    expect(executeSandboxedCommand).toHaveBeenCalledTimes(1);
+  });
+  it.each(['ask', 'agent'] as const)(
+    'blocks a pending %s downgrade at the command execution boundary',
+    async (mode) => {
+      registry.setMode('client', 'auto');
+      vi.mocked(executeSandboxedCommand).mockImplementationOnce(async (options) => {
+        registry.get('client')!.pendingPermissionModes = new Map([[Symbol(), mode]]);
+        options.beforeSpawn!();
+        return { content: 'should never execute', isError: false };
+      });
+      expect(
+        await executor()(call('Bash', { command: 'touch forbidden' }), abort.signal),
+      ).toMatchObject({ is_error: true, content: expect.stringContaining('permissions changed') });
+    },
+  );
+  it('rechecks Ask and skill downgrades at the final sandbox spawn boundary', async () => {
+    registry.setMode('client', 'auto');
+    vi.mocked(executeSandboxedCommand).mockImplementationOnce(async (options) => {
+      registry.setMode('client', 'ask');
+      options.beforeSpawn!();
+      return { content: 'should never execute', isError: false };
+    });
+    expect(
+      await executor()(call('Bash', { command: 'touch forbidden' }), abort.signal),
+    ).toMatchObject({ is_error: true, content: expect.stringContaining('permissions changed') });
+    registry.setMode('client', 'auto');
+    vi.mocked(executeSandboxedCommand).mockImplementationOnce(async (options) => {
+      registry.get('client')!.activeSkillPolicy = new Set(['Read']);
+      options.beforeSpawn!();
+      return { content: 'should never execute', isError: false };
+    });
+    expect(
+      await executor()(call('Bash', { command: 'touch forbidden' }), abort.signal),
+    ).toMatchObject({ is_error: true, content: expect.stringContaining('permissions changed') });
   });
   it('rejects oversized reads and edits without changing the file', async () => {
     await writeFile(join(root, 'worktree/large'), 'a' + 'x'.repeat(32));

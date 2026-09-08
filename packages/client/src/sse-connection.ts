@@ -422,6 +422,8 @@ export class SseConnection implements ChatConnection {
 
   private async doPost(endpoint: string, body: Record<string, unknown>): Promise<void> {
     if (!this._connectionId) return;
+    const scope =
+      typeof body.sessionId === 'string' && body.sessionId ? { sessionId: body.sessionId } : {};
     try {
       const res = await this.config.fetch(`${this.config.baseUrl}/api/chat/${endpoint}`, {
         method: 'POST',
@@ -431,10 +433,11 @@ export class SseConnection implements ChatConnection {
       if (!res.ok)
         this.listener?.({
           type: 'error',
+          ...scope,
           error: `Could not ${endpoint} (${res.status}). Please retry.`,
         });
     } catch {
-      this.listener?.({ type: 'error', error: `Could not ${endpoint}. Please retry.` });
+      this.listener?.({ type: 'error', ...scope, error: `Could not ${endpoint}. Please retry.` });
     }
   }
 

@@ -131,6 +131,7 @@ function createMockStore() {
     progress: { blocks: {}, toolIndex: {} },
     sendError: null,
     sendStatus: null,
+    modeChangeReady: true,
     dispatchMessages: vi.fn(),
     switchSession: vi.fn().mockResolvedValue(undefined),
     newSession: vi.fn(),
@@ -286,4 +287,35 @@ it('explains why sending is disabled while desktop accounts load', () => {
   );
   expect(screen.getByText('Select an account before sending.')).toBeTruthy();
   expect((screen.getByText('Test send') as HTMLButtonElement).disabled).toBe(true);
+});
+
+it('keeps the active mode selected until the store receives server confirmation', () => {
+  const store = createMockStore();
+  store.setState((s) => ({ sessions: { ...s.sessions, active: 'active-session' } }));
+  render(
+    <MemoryRouter>
+      <MitzoStoreProvider value={store}>
+        <DesktopChatView />
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Auto' }));
+  expect(store.getState().setMode).toHaveBeenCalledWith('auto');
+  expect(screen.getByRole('button', { name: 'Agent' }).className).toContain('mode-pill--active');
+  expect(screen.getByRole('button', { name: 'Auto' }).className).not.toContain('mode-pill--active');
+});
+
+it('disables mode controls while a new chat starts', () => {
+  const store = createMockStore();
+  store.setState({ modeChangeReady: false });
+  render(
+    <MemoryRouter>
+      <MitzoStoreProvider value={store}>
+        <DesktopChatView />
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Auto' }));
+  expect(store.getState().setMode).not.toHaveBeenCalled();
+  expect((screen.getByRole('button', { name: 'Auto' }) as HTMLButtonElement).disabled).toBe(true);
 });

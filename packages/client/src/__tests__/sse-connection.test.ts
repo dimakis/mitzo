@@ -361,6 +361,33 @@ describe('SseConnection', () => {
     }
   });
 
+  it.each([
+    ['switch_session', 'selected'],
+    ['switch_session', null],
+    ['stop', 'selected'],
+    ['reconnect', undefined],
+  ] as const)('scopes %s POST errors to its requested session (%s)', async (type, sessionId) => {
+    for (const networkFailure of [false, true]) {
+      const fetch = networkFailure
+        ? vi.fn().mockRejectedValue(new Error('offline'))
+        : vi.fn().mockResolvedValue({ ok: false, status: 503 });
+      const conn = new SseConnection(createConfig({ fetch }));
+      const listener = vi.fn();
+      conn.onMessage(listener);
+      conn.connect();
+      lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+      listener.mockClear();
+      conn.send({ type, ...(sessionId !== undefined ? { sessionId } : {}) });
+      await Promise.resolve();
+      await Promise.resolve();
+      const error = listener.mock.calls.find(([msg]) => msg.type === 'error')?.[0];
+      expect(error).toMatchObject({ type: 'error' });
+      if (sessionId) expect(error.sessionId).toBe(sessionId);
+      else expect(error).not.toHaveProperty('sessionId');
+      conn.disconnect();
+    }
+  });
+
   it('returns false for unknown message types', () => {
     const conn = new SseConnection(createConfig());
     conn.connect();

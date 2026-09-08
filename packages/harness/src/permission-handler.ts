@@ -7,12 +7,12 @@ import {
   sendPermissionNotification as pushoverSendPermission,
   isConfigured as pushoverConfigured,
 } from './pushover.js';
-import { getToolTier, shouldAutoAllow } from './tool-tiers.js';
+import { getToolTier, isReadOnlyTool, shouldAutoAllow } from './tool-tiers.js';
 import { summarizeToolInput } from '@mitzo/protocol';
 import { checkSkillPolicy } from './skill-policy.js';
 import { checkWorktreePolicy, type OnDemandCreateFn } from './worktree-guard.js';
 import { PERMISSION_TIMEOUT_MS, NTFY_NOTIFICATION_DELAY_MS } from './constants.js';
-import type { SessionRegistry } from './session-registry.js';
+import { effectivePermissionMode, type SessionRegistry } from './session-registry.js';
 import type { SessionTransport } from './session-transport.js';
 
 export const UserQuestionsSchema = z
@@ -112,6 +112,19 @@ export function buildPermissionHandler(
       questions = parsed.data.map((question) => ({ id: question.question, ...question }));
     }
 
+    // Ask is a harness-enforced ceiling, including cached grants and providers
+    // without a native read-only mode. Check before any on-demand worktree write.
+    const askDenial = (): PermissionResult | undefined =>
+      !questions && effectivePermissionMode(session) === 'ask' && !isReadOnlyTool(toolName)
+        ? {
+            behavior: 'deny',
+            message:
+              'Ask mode only allows read-only tools. Switch to Agent or Auto to make changes.',
+          }
+        : undefined;
+    const deniedByMode = askDenial();
+    if (deniedByMode) return deniedByMode;
+
     const worktreeViolation = await checkWorktreePolicy(session, toolName, _toolInput, {
       onDemandCreate: handlerOpts?.onDemandCreate,
     });
@@ -119,7 +132,15 @@ export function buildPermissionHandler(
       return { behavior: 'deny', message: worktreeViolation };
     }
 
-    if (!questions && !opts.forcePrompt && shouldAutoAllow(toolName, session.mode)) {
+    // The mode may have changed while the worktree check was awaiting I/O.
+    const deniedAfterWorktree = askDenial();
+    if (deniedAfterWorktree) return deniedAfterWorktree;
+
+    if (
+      !questions &&
+      !opts.forcePrompt &&
+      shouldAutoAllow(toolName, effectivePermissionMode(session))
+    ) {
       return { behavior: 'allow', updatedInput: _toolInput };
     }
 
@@ -148,6 +169,14 @@ export function buildPermissionHandler(
         clearTimeout(timeout);
         clearTimeout(notificationTimer);
         opts.signal.removeEventListener('abort', onAbort);
+        // An approval cannot override a later mode downgrade or skill ceiling.
+        if (result.behavior === 'allow') {
+          const modeDenial = askDenial();
+          if (modeDenial) result = modeDenial;
+          else if (checkSkillPolicy(registry, clientId, toolName) === 'deny') {
+            result = { behavior: 'deny', message: 'Tool not allowed by active skill policy' };
+          }
+        }
         if (result.behavior === 'allow' && result.decisionClassification === 'user_permanent') {
           addToAllowList(session.sessionAllowList, toolName);
         }

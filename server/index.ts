@@ -87,6 +87,7 @@ import {
   getOwnerConnection,
   handleHello,
   dispatchV2Message,
+  handleLegacySetMode,
   type V2HandlerContext,
 } from './ws-handler-v2.js';
 import { withSpan, withSpanAsync } from './tracing.js';
@@ -910,18 +911,7 @@ function handleChatWs(
           contextFromTraceparent(traceparent),
         );
       } else if (msg.type === 'set_mode') {
-        withSpan(
-          'ws.set_mode',
-          { 'ws.client_id': clientId, 'ws.mode': msg.mode },
-          () => {
-            registry.setMode(clientId, msg.mode);
-            const session = registry.get(clientId);
-            if (session) {
-              transport.send({ type: 'mode_changed', mode: msg.mode });
-            }
-          },
-          contextFromTraceparent(traceparent),
-        );
+        await handleLegacySetMode(clientId, transport, msg.mode, v2Ctx);
       } else if (msg.type === 'interrupt') {
         await withSpanAsync(
           'ws.interrupt',

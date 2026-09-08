@@ -5,11 +5,11 @@ import { summarizeToolInput } from '../tool-summary.js';
 describe('task-board MCP integration', () => {
   // --- Tool tiers ---
 
-  it('classifies mcp__task-board__ tools as safe', () => {
-    expect(getToolTier('mcp__task-board__TaskSet')).toBe('safe');
-    expect(getToolTier('mcp__task-board__TaskComplete')).toBe('safe');
+  it('classifies only read-only task-board status as safe', () => {
+    expect(getToolTier('mcp__task-board__TaskSet')).toBe('unknown');
+    expect(getToolTier('mcp__task-board__TaskComplete')).toBe('unknown');
     expect(getToolTier('mcp__task-board__TaskStatus')).toBe('safe');
-    expect(getToolTier('mcp__task-board__TaskBlock')).toBe('safe');
+    expect(getToolTier('mcp__task-board__TaskBlock')).toBe('unknown');
   });
 
   it('does not affect other MCP tools', () => {

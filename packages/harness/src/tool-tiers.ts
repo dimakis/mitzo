@@ -2,14 +2,31 @@ import type { MitzoMode } from '@mitzo/protocol';
 
 export type ToolTier = 'safe' | 'standard' | 'elevated' | 'unknown';
 
+// Capability policy is independent of configurable approval risk tiers. Unknown
+// tools fail closed in Ask, even when project settings label them "safe".
+const READ_ONLY_TOOLS = new Set([
+  'Read',
+  'Glob',
+  'Grep',
+  'WebSearch',
+  'WebFetch',
+  'mcp__task-board__TaskStatus',
+]);
+
+export function isReadOnlyTool(toolName: string): boolean {
+  return READ_ONLY_TOOLS.has(toolName);
+}
+
 const DEFAULT_TOOL_TIERS: Record<string, ToolTier> = {
   Read: 'safe',
   Glob: 'safe',
   Grep: 'safe',
   WebSearch: 'safe',
   WebFetch: 'safe',
-  TodoWrite: 'safe',
-  Task: 'safe',
+  'mcp__task-board__TaskStatus': 'safe',
+
+  TodoWrite: 'standard',
+  Task: 'unknown',
 
   Write: 'standard',
   Edit: 'standard',
@@ -28,27 +45,23 @@ export function applyTierOverrides(overrides: Record<string, ToolTier>): void {
 
 export function getToolTier(toolName: string): ToolTier {
   if (activeTiers[toolName]) return activeTiers[toolName];
-  // Task board tools are always safe
-  if (toolName.startsWith('mcp__task-board__')) return 'safe';
   if (toolName.startsWith('mcp__')) return 'unknown';
   return 'unknown';
 }
 
 /**
  * Decision matrix:
- *   ask:   safe=allow, everything else denied by SDK plan mode
+ *   ask:   known read-only + safe=allow, mutating capabilities always denied
  *   agent: safe=allow, standard=allow, elevated=prompt, unknown=prompt
  *   auto:  safe=allow, standard=allow, elevated=allow,  unknown=prompt
  */
 export function shouldAutoAllow(toolName: string, mode: MitzoMode): boolean {
+  if (mode === 'ask' && !isReadOnlyTool(toolName)) return false;
   const tier = getToolTier(toolName);
 
   if (tier === 'safe') return true;
   if (tier === 'standard') return mode === 'agent' || mode === 'auto';
-  // Elevated tools (Bash, Shell) bypass canUseTool in agent + auto modes.
-  // The SDK's canUseTool stream breaks on permission requests; HITL is
-  // handled conversationally via the system prompt instead.
-  if (tier === 'elevated') return mode === 'agent' || mode === 'auto';
+  if (tier === 'elevated') return mode === 'auto';
   return false;
 }
 

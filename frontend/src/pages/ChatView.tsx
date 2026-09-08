@@ -1,3 +1,4 @@
+import { PermissionModePicker } from '../components/PermissionModePicker';
 import { CodexQueueStatus } from '../components/CodexQueueStatus';
 import { AccountModelPicker, type AccountSelection } from '../components/AccountModelPicker';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -39,6 +40,7 @@ export function ChatView() {
   const sendError = useMitzoStore((s) => s.sendError);
   const sendStatus = useMitzoStore((s) => s.sendStatus);
   const activeSessionId = useMitzoStore((s) => s.sessions.active);
+  const modeChangeReady = useMitzoStore((s) => s.modeChangeReady);
 
   // Select individual action functions — stable references
   const storeSendMessage = useMitzoStore((s) => s.sendMessage);
@@ -81,9 +83,10 @@ export function ChatView() {
     [setModel],
   );
 
-  const [mode, setMode] = useState<'ask' | 'agent' | 'auto'>(
-    searchParams.get('extraTools') ? 'auto' : 'agent',
-  );
+  const mode = useMitzoStore((s) => s.config.mode);
+  useEffect(() => {
+    if (!activeSessionId && searchParams.get('extraTools')) storeSetMode('auto');
+  }, [activeSessionId, searchParams, storeSetMode]);
   const [isolation, setIsolation] = useState(true);
 
   const voice = useVoice();
@@ -232,7 +235,6 @@ export function ChatView() {
   }
 
   function handleModeChange(newMode: 'ask' | 'agent' | 'auto') {
-    setMode(newMode);
     storeSetMode(newMode);
   }
 
@@ -266,18 +268,11 @@ export function ChatView() {
 
         {!keyboardOpen && (
           <>
-            <div className="mode-pills">
-              {(['ask', 'agent', 'auto'] as const).map((m) => (
-                <button
-                  key={m}
-                  className={`mode-pill${mode === m ? ' mode-pill--active' : ''}`}
-                  aria-pressed={mode === m}
-                  onClick={() => handleModeChange(m)}
-                >
-                  {m.charAt(0).toUpperCase() + m.slice(1)}
-                </button>
-              ))}
-            </div>
+            <PermissionModePicker
+              mode={mode}
+              onChange={handleModeChange}
+              disabled={modeChangeReady === false}
+            />
             {!activeSessionId && (
               <button
                 className={`isolation-toggle${isolation ? ' isolation-toggle--active' : ''}`}

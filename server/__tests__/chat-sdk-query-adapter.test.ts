@@ -8,6 +8,7 @@ function fakeQuery(messages: unknown[]) {
     async *[Symbol.asyncIterator]() {
       yield* messages;
     },
+    setPermissionMode: vi.fn().mockResolvedValue(undefined),
     interrupt: vi.fn(),
     close: vi.fn(),
     stopTask: vi.fn(),
@@ -28,6 +29,16 @@ describe('adaptSdkQuery', () => {
     expect(messages).toEqual([{ type: 'assistant', content: 'hello' }]);
     const runtime = adapted as unknown as { setModel: () => string };
     expect(runtime.setModel()).toBe('bound-to-source');
+  });
+
+  it.each([
+    ['ask', 'plan'],
+    ['agent', 'default'],
+    ['auto', 'default'],
+  ] as const)('translates Mitzo %s mode to SDK %s mode', async (mode, sdkMode) => {
+    const raw = fakeQuery([]);
+    await adaptSdkQuery(raw).setPermissionMode!(mode);
+    expect(raw.setPermissionMode).toHaveBeenCalledWith(sdkMode);
   });
 
   it.each([

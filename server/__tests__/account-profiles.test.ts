@@ -235,3 +235,15 @@ it('binds Gemini to its explicit Google Vertex route without using the Claude SD
     profiles.legacyModels(profile.projectId, profile.region, profile.credentialRef),
   ).toBeUndefined();
 });
+
+it.each(['anthropic-vertex', 'google-vertex'])(
+  'protects custom %s credential paths from native tools even after profile removal',
+  async (provider) => {
+    const { isPrivateCodexPath } = await import('../codex-private-path.js');
+    const credentialRef = `/server/custom-${provider}/adc.json`;
+    new AccountProfiles([{ ...profile, provider, credentialRef }]);
+    expect(isPrivateCodexPath(credentialRef)).toBe(true);
+    new AccountProfiles([]);
+    expect(isPrivateCodexPath(credentialRef)).toBe(true);
+  },
+);

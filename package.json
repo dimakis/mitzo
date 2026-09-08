@@ -35,6 +35,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.141",
+    "@anthropic-ai/sandbox-runtime": "0.0.75",
     "@anthropic-ai/sdk": "^0.124.0",
     "@anthropic-ai/vertex-sdk": "^0.19.7",
     "@modelcontextprotocol/sdk": "^1.29.0",

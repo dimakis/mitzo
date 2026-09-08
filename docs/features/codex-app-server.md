@@ -81,8 +81,9 @@ is not a general proof against future CLI tool surfaces. Revalidate the generate
 protocol schema and advertised tools when updating Codex.
 
 Restricted skill tool ceilings, images, subagents, and compaction are not supported
-by the Codex route. New conversations advertise Read, Write, Edit, and
-AskUserQuestion. Mutating tools can request a real approval card with
+by the Codex route. New conversations advertise Read, Write, Edit, Bash, and
+AskUserQuestion. Bash is a Mitzo host tool using a separate OS sandbox, not
+Codex-native execution; see [unified permissions](../design/unified-chat-permissions.md). Mutating tools can request a real approval card with
 `require_approval: true`; configured permission policy remains authoritative.
 Native Codex requestUserInput requests also use the shared question cards.
 Only provider reasoning summaries are displayed, never raw private reasoning.

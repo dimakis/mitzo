@@ -47,7 +47,7 @@ Each chat session spawns a Claude Code process via the Agent SDK with:
 
 Claude sessions have full filesystem access within their `cwd`. This is by design — the Agent SDK's permission system (`canUseTool`) controls tool-level access, and the user approves or denies from the UI.
 
-Tools are classified into risk tiers (`safe`, `standard`, `elevated`, `unknown`) in `tool-tiers.ts`. Safe tools (reads) are always auto-allowed. Standard tools (file writes) are auto-allowed in Agent and Auto modes. Elevated tools (shell) require explicit approval in Agent mode but are auto-allowed in Auto mode. Unknown tools (MCP, etc.) always require approval. The `auto` mode maps to the SDK's `acceptEdits` permission mode (not `bypassPermissions`), so even in the most permissive mode, unknown tools still prompt.
+Tools are classified into risk tiers (`safe`, `standard`, `elevated`, `unknown`) in `tool-tiers.ts`. Safe tools (reads) are always auto-allowed. Standard tools (file writes) are auto-allowed in Agent and Auto modes. Elevated tools (shell) require explicit approval in Agent mode but are auto-allowed in Auto mode. Unknown tools (MCP, etc.) always require approval. Agent and Auto both use the SDK's `default` mode. A Mitzo PreToolUse hook enforces the live policy even when project allow rules would otherwise skip `canUseTool`. Unknown tools still prompt. Codex and Responses use the same host policy; their Bash tool executes through an OS sandbox with credential protection and no network access. See [unified permissions](docs/design/unified-chat-permissions.md) for provider mappings and verified limits.
 
 ## Session Resilience
 
