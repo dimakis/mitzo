@@ -8,4 +8,12 @@ describe('Login authentication recovery', () => {
 
     expect(source).toContain('await restoreCookieAuthentication()');
   });
+
+  it('leaves the login page when another tab restores authentication', () => {
+    const source = readFileSync(join(import.meta.dirname, '..', 'Login.tsx'), 'utf8');
+
+    expect(source).toContain('AUTH_RESTORED_EVENT');
+    expect(source).toContain('window.addEventListener(AUTH_RESTORED_EVENT, onAuthRestored)');
+    expect(source).toContain("const onAuthRestored = () => navigate('/')");
+  });
 });

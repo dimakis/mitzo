@@ -17,6 +17,10 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { WsTransport } from './ws-transport.js';
 import { authenticateWs, registerAuthSession, type AuthSession } from './auth.js';
 import {
+  claimTransportConnection,
+  releaseTransportConnection,
+} from './transport-auth-ownership.js';
+import {
   startChat,
   sendToChat,
   interruptChat,
@@ -350,10 +354,14 @@ server.on('upgrade', async (req, socket, head) => {
 
   wss.handleUpgrade(req, socket, head, (ws) => {
     const connId = `conn-${crypto.randomUUID()}`;
+    claimTransportConnection(connId, authSession.id);
     const unregisterAuth = registerAuthSession(authSession, (reason) => {
       ws.close(4401, reason === 'expired' ? 'Authentication expired' : 'Logged out');
     });
-    ws.once('close', unregisterAuth);
+    ws.once('close', () => {
+      unregisterAuth();
+      releaseTransportConnection(connId, authSession.id);
+    });
     log.info('chat connected', { connectionId: connId });
     routeWsClient(ws, connId);
   });
@@ -424,6 +432,7 @@ app.get('/api/chat/events', (req, res) => {
   const authSession = res.locals.authSession as AuthSession | undefined;
 
   chatSseRegistry.add(connectionId, res, authSession?.id);
+  if (authSession) claimTransportConnection(connectionId, authSession.id);
   connRegistry.register(connectionId, transport);
   let cleaned = false;
   let unregisterAuth: () => void = () => undefined;
@@ -431,6 +440,7 @@ app.get('/api/chat/events', (req, res) => {
     if (cleaned) return;
     cleaned = true;
     unregisterAuth();
+    if (authSession) releaseTransportConnection(connectionId, authSession.id);
     chatSseRegistry.remove(connectionId);
 
     const conn = connRegistry.get(connectionId);

@@ -62,6 +62,7 @@ vi.mock('../chat.js', () => {
 
 let app: Express;
 let authCookie: string;
+let otherAuthCookie: string;
 
 beforeAll(async () => {
   mkdirSync(TEST_REPO, { recursive: true });
@@ -77,6 +78,21 @@ beforeAll(async () => {
     .send({ passphrase: process.env.AUTH_PASSPHRASE });
   const cookies = loginRes.headers['set-cookie'];
   authCookie = Array.isArray(cookies) ? cookies[0] : cookies;
+
+  const otherLoginRes = await request(app)
+    .post('/api/auth/login')
+    .send({ passphrase: process.env.AUTH_PASSPHRASE });
+  const otherCookies = otherLoginRes.headers['set-cookie'];
+  otherAuthCookie = Array.isArray(otherCookies) ? otherCookies[0] : otherCookies;
+
+  const [{ authenticateToken, COOKIE_NAME }, { claimTransportConnection }] = await Promise.all([
+    import('../auth.js'),
+    import('../transport-auth-ownership.js'),
+  ]);
+  const token = authCookie.match(new RegExp(`${COOKIE_NAME}=([^;]+)`))?.[1];
+  const authSession = token ? await authenticateToken(token) : null;
+  if (!authSession) throw new Error('test login did not produce a valid auth session');
+  claimTransportConnection('conn-owner', authSession.id);
 });
 
 afterAll(() => {
@@ -108,6 +124,21 @@ describe('POST /api/sessions/suspend', () => {
       });
 
     expect(res.status).toBe(401);
+  });
+
+  it('does not let another login suspend a connection it does not own', async () => {
+    mockSuspend.mockClear();
+
+    const res = await request(app)
+      .post('/api/sessions/suspend')
+      .set('Cookie', otherAuthCookie)
+      .send({
+        connectionId: 'conn-owner',
+        sessions: [{ sessionId: 'sess-known', lastSeq: 42 }],
+      });
+
+    expect(res.status).toBe(403);
+    expect(mockSuspend).not.toHaveBeenCalled();
   });
 
   it('rejects missing connectionId', async () => {
@@ -165,7 +196,7 @@ describe('POST /api/sessions/suspend', () => {
         sessions: [{ sessionId: 'sess-known', lastSeq: 0 }],
       });
 
-    expect(res.status).toBe(204);
+    expect(res.status).toBe(403);
     expect(mockSuspend).not.toHaveBeenCalled();
   });
 

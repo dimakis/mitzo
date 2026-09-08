@@ -1,6 +1,11 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { AUTH_LOST_EVENT, isLogoutPending, restoreCookieAuthentication } from './lib/api-fetch';
+import {
+  AUTH_LOST_EVENT,
+  AUTH_RESTORED_EVENT,
+  isLogoutPending,
+  restoreCookieAuthentication,
+} from './lib/api-fetch';
 import { hideSplash } from './lib/splash';
 import { saveTokenToWatch } from './lib/watch-auth';
 import { Login } from './pages/Login';
@@ -31,10 +36,19 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
       setAuth('denied');
       hideSplash();
     };
+    const onAuthRestored = () => {
+      ignoreCheckResult = true;
+      setAuth('loading');
+      setAttempt((value) => value + 1);
+    };
     window.addEventListener(AUTH_LOST_EVENT, onAuthLost);
+    window.addEventListener(AUTH_RESTORED_EVENT, onAuthRestored);
     if (isLogoutPending()) {
       onAuthLost();
-      return () => window.removeEventListener(AUTH_LOST_EVENT, onAuthLost);
+      return () => {
+        window.removeEventListener(AUTH_LOST_EVENT, onAuthLost);
+        window.removeEventListener(AUTH_RESTORED_EVENT, onAuthRestored);
+      };
     }
     restoreCookieAuthentication()
       .then((authenticated) => {
@@ -52,6 +66,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return () => {
       ignoreCheckResult = true;
       window.removeEventListener(AUTH_LOST_EVENT, onAuthLost);
+      window.removeEventListener(AUTH_RESTORED_EVENT, onAuthRestored);
     };
   }, [attempt]);
   if (auth === 'denied') return <Navigate to="/login" replace />;

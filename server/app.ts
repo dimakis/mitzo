@@ -17,7 +17,6 @@ import {
   login,
   authenticateToken,
   authMiddleware,
-  verifyToken,
   registerAuthSession,
   revokeAuthSession,
   COOKIE_NAME,
@@ -106,6 +105,7 @@ import { homedir } from 'os';
 import { TaskStore, type TaskCreateInput, type TaskUpdateInput } from './task-store.js';
 import { SseRegistry } from '@mitzo/harness';
 import { SessionSseRegistry } from './session-sse-registry.js';
+import { isTransportConnectionOwnedBy } from './transport-auth-ownership.js';
 import { WorkloadStore, type WorkSignal, type TodoItemUpdateInput } from './workload-store.js';
 
 const log = createLogger('server');
@@ -546,7 +546,8 @@ async function handleSessionCreate(
 // --- Suspend endpoint (sendBeacon fallback) ---
 // Above authMiddleware because sendBeacon cannot set custom headers.
 // Auth is verified via the session cookie (sent automatically by sendBeacon
-// on same-origin requests). connectionId ownership is checked per-session.
+// on same-origin requests). The transport connection is bound to the same
+// login session, and connectionId ownership is also checked per chat session.
 
 app.post('/api/sessions/suspend', (req, res) => {
   const token = req.cookies?.[COOKIE_NAME];
@@ -555,8 +556,8 @@ app.post('/api/sessions/suspend', (req, res) => {
     return;
   }
 
-  verifyToken(token).then((valid) => {
-    if (!valid) {
+  authenticateToken(token).then((authSession) => {
+    if (!authSession) {
       res.status(401).json({ error: 'Invalid or expired token' });
       return;
     }
@@ -565,6 +566,10 @@ app.post('/api/sessions/suspend', (req, res) => {
 
     if (!connectionId || typeof connectionId !== 'string') {
       res.status(400).json({ error: 'connectionId is required' });
+      return;
+    }
+    if (!isTransportConnectionOwnedBy(connectionId, authSession.id)) {
+      res.status(403).json({ error: 'Connection belongs to another login' });
       return;
     }
     if (!Array.isArray(sessions) || sessions.length === 0) {

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
 import type { Express } from 'express';
 import request from 'supertest';
 import { mkdirSync, writeFileSync } from 'fs';
@@ -133,6 +133,7 @@ import { resolvePending } from '../permissions.js';
 
 let app: Express;
 let authCookie: string;
+let authSessionId: string;
 
 async function getAuthCookie(agent: request.Agent): Promise<string> {
   const res = await agent.post('/api/auth/login').send({ passphrase: process.env.AUTH_PASSPHRASE });
@@ -172,9 +173,26 @@ beforeAll(async () => {
   authCookie = await getAuthCookie(agent);
 });
 
-beforeEach(() => {
+afterAll(async () => {
+  const { releaseTransportConnection } = await import('../transport-auth-ownership.js');
+  releaseTransportConnection('conn-abc', authSessionId);
+  releaseTransportConnection('conn-other', authSessionId);
+});
+
+beforeEach(async () => {
   vi.mocked(hideSession).mockClear();
   vi.mocked(hideAllSessions).mockClear();
+
+  const [{ authenticateToken, COOKIE_NAME }, { claimTransportConnection }] = await Promise.all([
+    import('../auth.js'),
+    import('../transport-auth-ownership.js'),
+  ]);
+  const token = authCookie.match(new RegExp(`${COOKIE_NAME}=([^;]+)`))?.[1];
+  const authSession = token ? await authenticateToken(token) : null;
+  if (!authSession) throw new Error('test login did not produce a valid auth session');
+  authSessionId = authSession.id;
+  claimTransportConnection('conn-abc', authSessionId);
+  claimTransportConnection('conn-other', authSessionId);
 });
 
 // --- Auth Routes ---

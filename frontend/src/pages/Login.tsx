@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   apiFetch,
+  AUTH_RESTORED_EVENT,
   getApiBaseUrl,
   loginSucceeded,
   markAuthLost,
@@ -24,6 +25,12 @@ export function Login() {
   const biometricAttempted = useRef(false);
   const [bioLabel, setBioLabel] = useState('Biometric');
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const onAuthRestored = () => navigate('/');
+    window.addEventListener(AUTH_RESTORED_EVENT, onAuthRestored);
+    return () => window.removeEventListener(AUTH_RESTORED_EVENT, onAuthRestored);
+  }, [navigate]);
 
   useEffect(() => {
     isBiometricAvailable().then((available) => {
