@@ -106,6 +106,39 @@ export interface CreateWorktreeOptions {
   startPoint?: string;
 }
 
+// Request absolute paths so linked base checkouts and symlinked repo paths
+// compare against the same Git storage, rather than their working directories.
+const WORKTREE_IDENTITY_ARGS = [
+  'rev-parse',
+  '--show-toplevel',
+  '--path-format=absolute',
+  '--git-common-dir',
+  '--absolute-git-dir',
+  '--symbolic-full-name',
+  'HEAD',
+];
+
+function assertWorktreeIdentity(
+  worktreePath: string,
+  branch: string,
+  identity: string,
+  baseCommonDir: string,
+): void {
+  const fields = identity.trim().split('\n');
+  const [topLevel, commonDir, gitDir, headRef] = fields;
+  if (
+    fields.length !== 4 ||
+    realpathSync(topLevel) !== realpathSync(worktreePath) ||
+    realpathSync(commonDir) !== realpathSync(baseCommonDir.trim()) ||
+    realpathSync(gitDir) === realpathSync(commonDir) ||
+    headRef !== `refs/heads/${branch}`
+  ) {
+    throw new Error(
+      `Existing path is not the expected session worktree; preserved: ${worktreePath}`,
+    );
+  }
+}
+
 export function createWorktree(
   sessionId: string,
   baseRepo: string,
@@ -122,14 +155,17 @@ export function createWorktree(
   // Validation failure is not proof that a directory is disposable. Preserve it
   // and let the caller report the failure instead of attempting destructive repair.
   if (existsSync(worktreePath)) {
-    const topLevel = execFileSync('git', ['-C', worktreePath, 'rev-parse', '--show-toplevel'], {
+    const identity = execFileSync('git', ['-C', worktreePath, ...WORKTREE_IDENTITY_ARGS], {
       encoding: 'utf8',
       stdio: 'pipe',
       timeout: WORKTREE_GIT_TIMEOUT_MS,
-    }).trim();
-    if (realpathSync(topLevel) !== realpathSync(worktreePath)) {
-      throw new Error(`Existing path is not a worktree root; preserved: ${worktreePath}`);
-    }
+    });
+    const baseCommonDir = execFileSync(
+      'git',
+      ['-C', baseRepo, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
+      { encoding: 'utf8', stdio: 'pipe', timeout: WORKTREE_GIT_TIMEOUT_MS },
+    );
+    assertWorktreeIdentity(worktreePath, branch, identity, baseCommonDir);
     log.info(`reusing existing worktree: ${worktreePath} (${branch})`);
     return worktreePath;
   }
@@ -175,16 +211,17 @@ export async function createWorktreeAsync(
   const startPoint = opts?.startPoint ?? detectDefaultBranch(baseRepo);
 
   if (existsSync(worktreePath)) {
-    const { stdout } = await execFileAsync(
+    const { stdout: identity } = await execFileAsync(
       'git',
-      ['-C', worktreePath, 'rev-parse', '--show-toplevel'],
-      {
-        timeout: WORKTREE_GIT_TIMEOUT_MS,
-      },
+      ['-C', worktreePath, ...WORKTREE_IDENTITY_ARGS],
+      { timeout: WORKTREE_GIT_TIMEOUT_MS },
     );
-    if (realpathSync(stdout.trim()) !== realpathSync(worktreePath)) {
-      throw new Error(`Existing path is not a worktree root; preserved: ${worktreePath}`);
-    }
+    const { stdout: baseCommonDir } = await execFileAsync(
+      'git',
+      ['-C', baseRepo, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
+      { timeout: WORKTREE_GIT_TIMEOUT_MS },
+    );
+    assertWorktreeIdentity(worktreePath, branch, identity, baseCommonDir);
     log.info(`reusing existing worktree: ${worktreePath} (${branch})`);
     return worktreePath;
   }

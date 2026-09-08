@@ -95,6 +95,44 @@ describe.each([
     },
   );
 
+  it('rejects a standalone nested repository without altering it', async () => {
+    const path = join(repo, '.claude', 'worktrees', 'session');
+    mkdirSync(path, { recursive: true });
+    git(path, 'init', '-b', 'session/session');
+    writeFileSync(join(path, 'unfinished.txt'), 'unrelated work');
+    await expect(Promise.resolve().then(() => create('session', repo))).rejects.toThrow();
+    expect(readFileSync(join(path, 'unfinished.txt'), 'utf8')).toBe('unrelated work');
+    expect(git(path, 'symbolic-ref', 'HEAD')).toBe('refs/heads/session/session');
+  });
+
+  it('rejects a worktree belonging to another repository', async () => {
+    const other = join(root, 'other');
+    git(root, 'clone', repo, other);
+    const path = join(repo, '.claude', 'worktrees', 'session');
+    git(other, 'worktree', 'add', '-b', 'session/session', path);
+    writeFileSync(join(path, 'unfinished.txt'), 'unrelated work');
+    await expect(Promise.resolve().then(() => create('session', repo))).rejects.toThrow();
+    expect(readFileSync(join(path, 'unfinished.txt'), 'utf8')).toBe('unrelated work');
+  });
+
+  it.each(['other-branch', 'detached'])('rejects an existing worktree on %s', async (state) => {
+    const path = await create('session', repo);
+    if (state === 'detached') git(path, 'checkout', '--detach');
+    else git(path, 'checkout', '-b', state);
+    writeFileSync(join(path, 'unfinished.txt'), 'keep this work');
+    const tip = git(path, 'rev-parse', 'HEAD');
+    await expect(Promise.resolve().then(() => create('session', repo))).rejects.toThrow();
+    expect(readFileSync(join(path, 'unfinished.txt'), 'utf8')).toBe('keep this work');
+    expect(git(path, 'rev-parse', 'HEAD')).toBe(tip);
+  });
+
+  it('reuses a worktree through a linked base checkout and custom branch', async () => {
+    const base = await create('base', repo);
+    const options = { dir: join(root, 'custom'), branch: 'custom/session' };
+    const path = await create('session', base, options);
+    expect(await create('session', base, options)).toBe(path);
+  });
+
   it('reattaches a divergent session branch without losing commits', async () => {
     git(repo, 'checkout', '-b', 'session/session');
     writeFileSync(join(repo, 'committed.txt'), 'preserved commit');
