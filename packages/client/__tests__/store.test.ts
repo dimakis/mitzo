@@ -892,6 +892,30 @@ it('does not send stale mode when sending immediately after switching sessions',
 });
 
 describe('setMode', () => {
+  it('keeps the picker unavailable until the selected session mode is hydrated', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('selected');
+    expect(store.getState().modeChangeReady).toBe(false);
+    store.getState().setMode('auto');
+    expect(lastWs.parsedSent().some((msg) => msg.type === 'set_mode')).toBe(false);
+    lastWs.simulateMessage({ type: 'session_switched', sessionId: 'old', mode: 'auto' });
+    lastWs.simulateMessage({ type: 'session_switched', sessionId: 'selected', mode: 'invalid' });
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'selected' });
+    expect(store.getState().modeChangeReady).toBe(false);
+    lastWs.simulateMessage({ type: 'session_switched', sessionId: 'selected', mode: 'ask' });
+    expect(store.getState().modeChangeReady).toBe(true);
+    expect(store.getState().config.mode).toBe('ask');
+  });
+
+  it('releases switch hydration after a matching terminal error', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('selected');
+    lastWs.simulateMessage({ type: 'error', sessionId: 'old', error: 'old failure' });
+    expect(store.getState().modeChangeReady).toBe(false);
+    lastWs.simulateMessage({ type: 'error', sessionId: 'selected', error: 'Session unavailable' });
+    expect(store.getState().modeChangeReady).toBe(true);
+  });
+
   it('keeps mode fixed until startup readiness, even after send acceptance', () => {
     const store = createReadyStore();
     store.getState().sendMessage('hello');
@@ -963,6 +987,7 @@ describe('setMode', () => {
     const store = createReadyStore();
     store.getState().setMode('agent');
     await store.getState().switchSession('test-session');
+    lastWs.simulateMessage({ type: 'session_switched', sessionId: 'test-session', mode: 'agent' });
     store.getState().setMode('auto');
     expect(store.getState().config.mode).toBe('agent');
     expect(lastWs.parsedSent()).toContainEqual({

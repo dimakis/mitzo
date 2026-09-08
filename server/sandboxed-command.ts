@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { mkdtemp, mkdir, realpath, rm, writeFile, readFile, lstat } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { lstatSync, readFileSync, realpathSync, type BigIntStats } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 
@@ -17,24 +19,24 @@ export interface SandboxedCommandOptions {
   beforeSpawn?: () => void;
 }
 
-async function canonical(path: string): Promise<string> {
+function canonical(path: string): string {
   try {
-    return await realpath(path);
+    return realpathSync(path);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     const parent = dirname(path);
     if (parent === path) throw error;
-    return join(await canonical(parent), path.slice(parent.length));
+    return join(canonical(parent), path.slice(parent.length));
   }
 }
-async function validatePath(path: string): Promise<void> {
+function validatePath(path: string): void {
   // SRT interprets globs. Policy roots must be literal, canonical absolute paths.
   if (
     !isAbsolute(path) ||
     path === '/' ||
     /[*?[\]{}]/.test(path) ||
     resolve(path) !== path ||
-    (await canonical(path)) !== path
+    canonical(path) !== path
   )
     throw new Error('Sandbox roots must be canonical absolute paths without patterns');
 }
@@ -42,33 +44,79 @@ function contains(root: string, path: string) {
   return path === root || path.startsWith(root + '/');
 }
 
+function identity(path: string): BigIntStats | undefined {
+  try {
+    return lstatSync(path, { bigint: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw error;
+  }
+}
+
+/** Bind grants to the filesystem objects authorized before asynchronous setup.
+ * Ancestors cover absent paths and directory replacement; Git authority also
+ * fingerprints content so in-place rewrites cannot change the granted branch.
+ */
+class AuthoritySnapshot {
+  private paths = new Map<string, { stat?: BigIntStats; digest?: string }>();
+  capture(path: string, contents = false): void {
+    if (!this.paths.has(path)) {
+      const stat = identity(path);
+      const digest =
+        contents && stat?.isFile()
+          ? createHash('sha256').update(readFileSync(path)).digest('hex')
+          : undefined;
+      this.paths.set(path, { stat, digest });
+    }
+    const parent = dirname(path);
+    if (parent !== path) this.capture(parent);
+  }
+  verify(): void {
+    for (const [path, expected] of this.paths) {
+      const actual = identity(path);
+      if (
+        canonical(path) !== path ||
+        actual?.dev !== expected.stat?.dev ||
+        actual?.ino !== expected.stat?.ino ||
+        actual?.mode !== expected.stat?.mode ||
+        (expected.digest !== undefined &&
+          createHash('sha256').update(readFileSync(path)).digest('hex') !== expected.digest)
+      ) {
+        throw new Error(`Sandbox authority changed before execution: ${path}`);
+      }
+    }
+  }
+}
+
 /** Verify both halves of Git's linked-worktree registration before granting its
  * metadata. A forged .git file alone must never grant an arbitrary host directory.
  * Standard repositories already hold their metadata inside the authorized root.
  */
-async function gitMetadataRoots(
+function gitMetadataRoots(
   root: string,
-): Promise<{ writable: string[]; protected: string[] }> {
+  authority: AuthoritySnapshot,
+): { writable: string[]; protected: string[] } {
   const marker = join(root, '.git');
-  const entry = await lstat(marker).catch((error: NodeJS.ErrnoException) => {
-    if (error.code === 'ENOENT') return null;
-    throw error;
-  });
+  authority.capture(marker, true);
+  const entry = identity(marker);
   if (!entry || entry.isDirectory()) return { writable: [], protected: [] };
   if (!entry.isFile()) throw new Error('Git worktree marker must be a regular file');
-  const match = /^gitdir: ([^\r\n]+)\r?\n?$/.exec(await readFile(marker, 'utf8'));
+  const match = /^gitdir: ([^\r\n]+)\r?\n?$/.exec(readFileSync(marker, 'utf8'));
   if (!match) throw new Error('Invalid Git worktree marker');
   const admin = resolve(root, match[1]);
-  await validatePath(admin);
-  const common = resolve(admin, (await readFile(join(admin, 'commondir'), 'utf8')).trim());
-  await validatePath(common);
+  validatePath(admin);
+  authority.capture(admin);
+  for (const name of ['commondir', 'gitdir', 'HEAD']) authority.capture(join(admin, name), true);
+  const common = resolve(admin, readFileSync(join(admin, 'commondir'), 'utf8').trim());
+  validatePath(common);
+  authority.capture(common);
   if (basename(common) !== '.git' || dirname(admin) !== join(common, 'worktrees'))
     throw new Error('Unsupported Git worktree metadata layout');
-  const backlink = (await readFile(join(admin, 'gitdir'), 'utf8')).trim();
-  if (backlink !== marker || (await realpath(backlink)) !== marker)
+  const backlink = readFileSync(join(admin, 'gitdir'), 'utf8').trim();
+  if (backlink !== marker || realpathSync(backlink) !== marker)
     throw new Error('Git worktree registration does not match authorized workspace');
   // Only the current branch's ref and reflog are writable outside the worktree.
-  const head = (await readFile(join(admin, 'HEAD'), 'utf8')).trim();
+  const head = readFileSync(join(admin, 'HEAD'), 'utf8').trim();
   const branch = /^ref: (refs\/heads\/[^\s]+)$/.exec(head)?.[1];
   if (!branch) throw new Error('Sandboxed Git worktree commands require a symbolic branch HEAD');
   const paths = [admin];
@@ -78,7 +126,7 @@ async function gitMetadataRoots(
     const log = join(common, 'logs', branch);
     paths.push(ref, ref + '.lock', log, log + '.lock');
   }
-  await Promise.all([...paths, join(common, 'objects')].map(validatePath));
+  [...paths, join(common, 'objects')].forEach(validatePath);
   return {
     writable: paths,
     // These files define the scope granted on the NEXT command. Never let this
@@ -108,9 +156,23 @@ export async function executeSandboxedCommand(
   options.signal.throwIfAborted();
   if (!['darwin', 'linux'].includes(process.platform))
     throw new Error('OS sandbox is unavailable on this platform');
-  await Promise.all(
-    [options.cwd, ...options.writableRoots, ...options.deniedRoots].map(validatePath),
-  );
+  // Copy caller-owned collections: later mutations cannot silently change grants.
+  options = {
+    ...options,
+    writableRoots: [...options.writableRoots],
+    deniedRoots: [...options.deniedRoots],
+    env: { ...options.env },
+    allowedDomains: options.allowedDomains ? [...options.allowedDomains] : undefined,
+  };
+  const authority = new AuthoritySnapshot();
+  for (const path of [options.cwd, ...options.writableRoots, ...options.deniedRoots]) {
+    validatePath(path);
+    authority.capture(path);
+  }
+  const metadata = options.writableRoots.map((root) => gitMetadataRoots(root, authority));
+  const metadataRoots = metadata.flatMap((entry) => entry.writable);
+  const protectedMetadata = metadata.flatMap((entry) => entry.protected);
+  for (const path of [...metadataRoots, ...protectedMetadata]) authority.capture(path);
   if (!options.writableRoots.some((root) => contains(root, options.cwd)))
     throw new Error('Command cwd is outside authorized workspaces');
   if (options.deniedRoots.some((root) => contains(root, options.cwd)))
@@ -126,9 +188,6 @@ export async function executeSandboxedCommand(
   const dependencies = SandboxManager.checkDependencies();
   if (dependencies.errors.length || dependencies.warnings.length)
     throw new Error('Complete OS sandbox dependencies are unavailable');
-  const metadata = await Promise.all(options.writableRoots.map(gitMetadataRoots));
-  const metadataRoots = metadata.flatMap((entry) => entry.writable);
-  const protectedMetadata = metadata.flatMap((entry) => entry.protected);
   const require = createRequire(import.meta.url);
   const cli = join(dirname(require.resolve('@anthropic-ai/sandbox-runtime')), 'cli.js');
   const temporary = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-shell-')));
@@ -174,6 +233,8 @@ export async function executeSandboxedCommand(
     return await new Promise((resolveResult) => {
       options.signal.throwIfAborted();
       options.beforeSpawn?.();
+      // No await between revalidating authority and handing policy to the child.
+      authority.verify();
       const child = spawn(process.execPath, [cli, '--settings', settings, '-c', options.command], {
         cwd: options.cwd,
         env,

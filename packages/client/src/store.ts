@@ -193,6 +193,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
   let recoveryInFlight = false;
   let awaitingSessionId = false;
+  let awaitingModeHydration: string | undefined;
 
   function fetchAndRestoreMessages(sessionId: string) {
     if (recoveryInFlight) return;
@@ -250,7 +251,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     async switchSession(id: string) {
       awaitingSessionId = false;
-      set({ modeChangeReady: true });
+      awaitingModeHydration = id;
+      set({ modeChangeReady: false });
       const oldId = parserState.currentSessionId;
       if (oldId) {
         // clearSession stops seq tracking. No suspend needed — session_suspend
@@ -289,6 +291,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     newSession() {
       awaitingSessionId = false;
+      awaitingModeHydration = undefined;
       set({ modeChangeReady: true });
       for (const sid of connection.getTrackedSessions()) {
         connection.clearSession(sid);
@@ -426,7 +429,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     setMode(mode: MitzoMode) {
-      if (awaitingSessionId) return;
+      if (!get().modeChangeReady) return;
       if (parserState.currentSessionId) {
         connection.send({
           type: 'set_mode',
@@ -771,11 +774,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
     }
 
+    if (msg.type === 'error') awaitingModeHydration = undefined;
     if (
-      msg.type === 'session_id' ||
-      msg.type === 'error' ||
-      msg.type === 'session_end' ||
-      msg.type === 'native_command_result'
+      !awaitingModeHydration &&
+      (msg.type === 'session_id' ||
+        msg.type === 'error' ||
+        msg.type === 'session_end' ||
+        msg.type === 'native_command_result')
     ) {
       awaitingSessionId = false;
       store.setState({ modeChangeReady: true });
@@ -783,7 +788,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     const result = parseServerMessage(msg as WsMsg, parserState, callbacks, 'v2');
 
     if (result.modeUpdate) {
-      store.setState((s) => ({ config: { ...s.config, mode: result.modeUpdate! } }));
+      awaitingModeHydration = undefined;
+      store.setState((s) => ({
+        config: { ...s.config, mode: result.modeUpdate! },
+        modeChangeReady: !awaitingSessionId,
+      }));
     }
 
     for (const action of result.messagesActions) {

@@ -1,3 +1,4 @@
+import { renameSync, mkdirSync, writeFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile, symlink, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -231,3 +232,72 @@ describe.runIf(process.env.MITZO_SANDBOX_INTEGRATION === '1')(
     }, 30000);
   },
 );
+
+describe('sandbox authority snapshots', () => {
+  beforeEach(() => {
+    vi.spyOn(SandboxManager, 'checkDependencies').mockReturnValue({ errors: [], warnings: [] });
+  });
+
+  it('rejects a writable root replaced during asynchronous setup', async () => {
+    vi.mocked(SandboxManager.checkDependencies).mockImplementationOnce(() => {
+      renameSync(cwd, cwd + '-old');
+      mkdirSync(cwd);
+      return { errors: [], warnings: [] };
+    });
+    await expect(run('true')).rejects.toThrow(/Sandbox authority changed/);
+  });
+
+  it.each(['cwd', 'denied'] as const)(
+    'rejects a replaced %s immediately before spawn',
+    async (target) => {
+      const nested = join(cwd, 'nested');
+      await mkdir(nested);
+      const path = target === 'cwd' ? nested : secret;
+      await expect(
+        run('true', {
+          cwd: nested,
+          beforeSpawn: () => {
+            renameSync(path, path + '-old');
+            mkdirSync(path);
+          },
+        }),
+      ).rejects.toThrow(/Sandbox authority changed/);
+    },
+  );
+
+  it('rejects a Git marker introduced after workspace authorization', async () => {
+    await expect(
+      run('true', {
+        beforeSpawn: () => writeFileSync(join(cwd, '.git'), 'gitdir: /unrelated/gitdir'),
+      }),
+    ).rejects.toThrow(/Sandbox authority changed/);
+  });
+
+  it.each(['admin', 'marker', 'HEAD', 'commondir', 'gitdir'] as const)(
+    'rejects changed Git %s authority before spawn',
+    async (target) => {
+      const common = join(root, 'base', '.git');
+      const admin = join(common, 'worktrees', 'session');
+      await mkdir(admin, { recursive: true });
+      await mkdir(join(common, 'objects'));
+      await writeFile(join(cwd, '.git'), `gitdir: ${admin}\n`);
+      await writeFile(join(admin, 'commondir'), '../..\n');
+      await writeFile(join(admin, 'gitdir'), join(cwd, '.git') + '\n');
+      await writeFile(join(admin, 'HEAD'), 'ref: refs/heads/session\n');
+      await expect(
+        run('true', {
+          beforeSpawn: () => {
+            if (target === 'admin') {
+              renameSync(admin, admin + '-old');
+              mkdirSync(admin);
+            } else
+              writeFileSync(
+                target === 'marker' ? join(cwd, '.git') : join(admin, target),
+                'changed authority',
+              );
+          },
+        }),
+      ).rejects.toThrow(/Sandbox authority changed/);
+    },
+  );
+});
