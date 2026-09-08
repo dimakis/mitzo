@@ -8,6 +8,7 @@ import {
   isLogoutPending,
   loginSucceeded,
   logout,
+  restoreCookieAuthentication,
   AUTH_LOST_EVENT,
   AUTH_RESTORED_EVENT,
 } from '../api-fetch';
@@ -180,6 +181,17 @@ describe('apiFetch', () => {
 
     expect(listener).not.toHaveBeenCalled();
     window.removeEventListener(AUTH_LOST_EVENT, listener);
+  });
+
+  it('restores the auth latch when an existing cookie session is still valid', async () => {
+    mockFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }));
+    const listener = vi.fn();
+    window.addEventListener(AUTH_RESTORED_EVENT, listener);
+
+    expect(await restoreCookieAuthentication()).toBe(true);
+
+    expect(listener).toHaveBeenCalledOnce();
+    window.removeEventListener(AUTH_RESTORED_EVENT, listener);
   });
 
   it('logs out on the server before deleting the credential', async () => {

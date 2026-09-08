@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiFetch, getApiBaseUrl, loginSucceeded, markAuthLost } from '../lib/api-fetch';
+import {
+  apiFetch,
+  getApiBaseUrl,
+  loginSucceeded,
+  markAuthLost,
+  restoreCookieAuthentication,
+} from '../lib/api-fetch';
 import {
   isBiometricAvailable,
   getBiometricLabel,
@@ -67,6 +73,7 @@ export function Login() {
         } else loginSucceeded();
         navigate('/');
       } else {
+        await restoreCookieAuthentication().catch(() => false);
         setError('Invalid passphrase');
       }
     } catch {
