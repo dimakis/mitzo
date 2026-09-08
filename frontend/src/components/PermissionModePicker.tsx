@@ -9,8 +9,10 @@ const MODE_DESCRIPTIONS: Record<MitzoMode, string> = {
 export function PermissionModePicker({
   mode,
   onChange,
+  disabled = false,
 }: {
   mode: MitzoMode;
+  disabled?: boolean;
   onChange: (mode: MitzoMode) => void;
 }) {
   return (
@@ -24,7 +26,8 @@ export function PermissionModePicker({
           key={value}
           className={`mode-pill${mode === value ? ' mode-pill--active' : ''}`}
           aria-pressed={mode === value}
-          title={MODE_DESCRIPTIONS[value]}
+          disabled={disabled}
+          title={disabled ? 'Available when the chat finishes starting.' : MODE_DESCRIPTIONS[value]}
           aria-description={MODE_DESCRIPTIONS[value]}
           onClick={() => onChange(value)}
         >

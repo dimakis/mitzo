@@ -131,6 +131,7 @@ function createMockStore() {
     progress: { blocks: {}, toolIndex: {} },
     sendError: null,
     sendStatus: null,
+    modeChangeReady: true,
     dispatchMessages: vi.fn(),
     switchSession: vi.fn().mockResolvedValue(undefined),
     newSession: vi.fn(),
@@ -302,4 +303,19 @@ it('keeps the active mode selected until the store receives server confirmation'
   expect(store.getState().setMode).toHaveBeenCalledWith('auto');
   expect(screen.getByRole('button', { name: 'Agent' }).className).toContain('mode-pill--active');
   expect(screen.getByRole('button', { name: 'Auto' }).className).not.toContain('mode-pill--active');
+});
+
+it('disables mode controls while a new chat starts', () => {
+  const store = createMockStore();
+  store.setState({ modeChangeReady: false });
+  render(
+    <MemoryRouter>
+      <MitzoStoreProvider value={store}>
+        <DesktopChatView />
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Auto' }));
+  expect(store.getState().setMode).not.toHaveBeenCalled();
+  expect((screen.getByRole('button', { name: 'Auto' }) as HTMLButtonElement).disabled).toBe(true);
 });

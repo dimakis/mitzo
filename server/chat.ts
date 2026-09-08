@@ -1,3 +1,4 @@
+import { permissionRevision, type ResumePermission } from './session-permission-revision.js';
 import { GoogleAuth } from 'google-auth-library';
 import type { GeminiOptions } from './gemini-session.js';
 import {
@@ -40,6 +41,7 @@ import {
   discoverSessionWorktrees,
 } from './worktree.js';
 import type { OnDemandCreateFn } from '@mitzo/harness';
+import { effectivePermissionMode } from '@mitzo/harness';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
 import { parseContentBlocks } from './content-blocks.js';
 import { loadMcpServers, type McpServerConfig } from './mcp-config.js';
@@ -788,6 +790,7 @@ export async function startChat(
     skillAllowedTools?: string[];
     isolation?: boolean;
     mode?: MitzoMode;
+    resumePermission?: ResumePermission;
     images?: Array<{ data: string; mediaType: string }>;
     contextBlocks?: string[];
     clientMsgId?: string;
@@ -823,6 +826,7 @@ async function _startChatInner(
     skillAllowedTools?: string[];
     isolation?: boolean;
     mode?: MitzoMode;
+    resumePermission?: ResumePermission;
     images?: Array<{ data: string; mediaType: string }>;
     contextBlocks?: string[];
     clientMsgId?: string;
@@ -907,7 +911,20 @@ async function _startChatInner(
     return;
   }
   const abortController = new AbortController();
-  const mode = options.mode || 'agent';
+  const resumedSession = options.resume
+    ? registry.findBySessionId(options.resume)?.session
+    : undefined;
+  // Read durable policy after account verification. A stopped runtime's captured
+  // ceiling is valid only until another mode change has been acknowledged.
+  const capturedPermission = options.resumePermission;
+  const mode = options.resume
+    ? ((resumedSession && effectivePermissionMode(resumedSession)) ??
+      (capturedPermission &&
+      capturedPermission.revision === permissionRevision(eventStore, options.resume)
+        ? capturedPermission.mode
+        : eventStore.getSession(options.resume)?.mode) ??
+      'agent')
+    : (options.mode ?? 'agent');
 
   const baseCwd = resolveResumeCwd(options);
 

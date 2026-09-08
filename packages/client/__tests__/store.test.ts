@@ -880,7 +880,85 @@ describe('session isolation via sessionId filtering', () => {
   });
 });
 
+it('does not send stale mode when sending immediately after switching sessions', async () => {
+  const store = createReadyStore();
+  store.getState().setMode('auto');
+  const switching = store.getState().switchSession('cold-ask-session');
+  store.getState().sendMessage('continue', { mode: 'auto' });
+  const sent = lastWs.parsedSent().find((message) => message.type === 'send');
+  expect(sent).toMatchObject({ sessionId: 'cold-ask-session' });
+  expect(sent).not.toHaveProperty('mode');
+  await switching;
+});
+
 describe('setMode', () => {
+  it('keeps mode fixed until startup readiness, even after send acceptance', () => {
+    const store = createReadyStore();
+    store.getState().sendMessage('hello');
+    const sent = lastWs.parsedSent().find((msg) => msg.type === 'send')!;
+    expect(store.getState().modeChangeReady).toBe(false);
+    store.getState().setMode('ask');
+    lastWs.simulateMessage({
+      type: '_send_accepted',
+      sessionId: 'new-chat',
+      clientMsgId: sent.clientMsgId,
+    });
+    store.getState().setMode('ask');
+    expect(store.getState().config.mode).toBe('agent');
+    expect(lastWs.parsedSent().some((msg) => msg.type === 'set_mode')).toBe(false);
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'new-chat' });
+    expect(store.getState().modeChangeReady).toBe(true);
+    store.getState().setMode('ask');
+    expect(lastWs.parsedSent()).toContainEqual({
+      type: 'set_mode',
+      sessionId: 'new-chat',
+      mode: 'ask',
+    });
+  });
+
+  it('releases startup controls after a legacy WebSocket native command', () => {
+    const store = createReadyStore();
+    store.getState().sendMessage('/skills');
+    lastWs.simulateMessage({
+      type: 'native_command_result',
+      command: 'skills',
+      content: 'Available skills',
+    });
+    expect(store.getState().modeChangeReady).toBe(true);
+  });
+
+  it('releases the mode control after a native command creates no session', () => {
+    const store = createReadyStore();
+    store.getState().sendMessage('/skills');
+    const sent = lastWs.parsedSent().find((msg) => msg.type === 'send')!;
+    lastWs.simulateMessage({
+      type: '_send_accepted',
+      sessionId: null,
+      clientMsgId: sent.clientMsgId,
+    });
+    expect(store.getState().modeChangeReady).toBe(true);
+    store.getState().setMode('ask');
+    expect(store.getState().config.mode).toBe('ask');
+  });
+
+  it('releases the startup mode control after a startup failure', () => {
+    const store = createReadyStore();
+    store.getState().sendMessage('hello');
+    lastWs.simulateMessage({ type: 'error', error: 'Account verification failed' });
+    expect(store.getState().modeChangeReady).toBe(true);
+    store.getState().setMode('ask');
+    expect(store.getState().config.mode).toBe('ask');
+  });
+
+  it('restores the new-chat mode picker when abandoning startup', () => {
+    const store = createReadyStore();
+    store.getState().sendMessage('hello');
+    store.getState().newSession();
+    expect(store.getState().modeChangeReady).toBe(true);
+    store.getState().setMode('ask');
+    expect(store.getState().config.mode).toBe('ask');
+  });
+
   it('waits for the active session acknowledgement before changing mode', async () => {
     const store = createReadyStore();
     store.getState().setMode('agent');

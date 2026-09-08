@@ -6,6 +6,13 @@ import { PermissionModePicker } from '../PermissionModePicker';
 afterEach(cleanup);
 
 describe('PermissionModePicker', () => {
+  it('prevents changes while the chat is starting', () => {
+    const onChange = vi.fn();
+    render(<PermissionModePicker mode="agent" onChange={onChange} disabled />);
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Ask' }).hasAttribute('disabled')).toBe(true);
+  });
   it('explains permission presets and displays only the confirmed mode', () => {
     const onChange = vi.fn();
     const { rerender } = render(<PermissionModePicker mode="agent" onChange={onChange} />);

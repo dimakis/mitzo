@@ -29,6 +29,7 @@ export function DesktopChatView() {
   const connection = useConnection();
   const tokens = useTokens();
   const activeSessionId = useMitzoStore((s) => s.sessions.active);
+  const modeChangeReady = useMitzoStore((s) => s.modeChangeReady);
 
   // Select individual action functions — stable references, no new-object trap
   const storeSendMessage = useMitzoStore((s) => s.sendMessage);
@@ -231,7 +232,11 @@ export function DesktopChatView() {
               onChange={selectAccount}
               disabled={messages.running}
             />
-            <PermissionModePicker mode={mode} onChange={handleModeChange} />
+            <PermissionModePicker
+              mode={mode}
+              onChange={handleModeChange}
+              disabled={modeChangeReady === false}
+            />
             {!activeSessionId && (
               <button
                 className={`isolation-toggle${isolation ? ' isolation-toggle--active' : ''}`}

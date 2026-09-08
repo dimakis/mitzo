@@ -40,6 +40,7 @@ export function ChatView() {
   const sendError = useMitzoStore((s) => s.sendError);
   const sendStatus = useMitzoStore((s) => s.sendStatus);
   const activeSessionId = useMitzoStore((s) => s.sessions.active);
+  const modeChangeReady = useMitzoStore((s) => s.modeChangeReady);
 
   // Select individual action functions — stable references
   const storeSendMessage = useMitzoStore((s) => s.sendMessage);
@@ -267,7 +268,11 @@ export function ChatView() {
 
         {!keyboardOpen && (
           <>
-            <PermissionModePicker mode={mode} onChange={handleModeChange} />
+            <PermissionModePicker
+              mode={mode}
+              onChange={handleModeChange}
+              disabled={modeChangeReady === false}
+            />
             {!activeSessionId && (
               <button
                 className={`isolation-toggle${isolation ? ' isolation-toggle--active' : ''}`}

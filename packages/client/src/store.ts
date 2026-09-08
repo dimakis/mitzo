@@ -106,6 +106,7 @@ export interface MitzoStoreState {
     decision: 'once' | 'always' | 'deny',
     answers?: import('@mitzo/protocol').QuestionAnswers,
   ): void;
+  modeChangeReady: boolean;
   setMode(mode: MitzoMode): void;
   setModel(modelId: string): void;
   loadSessions(): Promise<void>;
@@ -191,6 +192,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   const parserState: ProtocolParserState = { currentSessionId: undefined };
 
   let recoveryInFlight = false;
+  let awaitingSessionId = false;
 
   function fetchAndRestoreMessages(sessionId: string) {
     if (recoveryInFlight) return;
@@ -237,6 +239,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     progress: INITIAL_PROGRESS_STATE,
     sendError: null,
     sendStatus: null,
+    modeChangeReady: true,
     pendingSession: null,
 
     // ── Actions ──────────────────────────────────────────────────────────
@@ -246,6 +249,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     async switchSession(id: string) {
+      awaitingSessionId = false;
+      set({ modeChangeReady: true });
       const oldId = parserState.currentSessionId;
       if (oldId) {
         // clearSession stops seq tracking. No suspend needed — session_suspend
@@ -283,6 +288,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     newSession() {
+      awaitingSessionId = false;
+      set({ modeChangeReady: true });
       for (const sid of connection.getTrackedSessions()) {
         connection.clearSession(sid);
       }
@@ -320,7 +327,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         if (model) msg.model = model;
         if (opts?.reasoningEffort) msg.reasoningEffort = opts.reasoningEffort;
         if (opts?.accountId) msg.accountId = opts.accountId;
-        if (mode) msg.mode = mode;
+        if (mode && !parserState.currentSessionId) msg.mode = mode;
         if (opts?.contextBlocks?.length) msg.contextBlocks = opts.contextBlocks;
         if (opts?.images?.length) {
           msg.images = opts.images.map((img) => ({ data: img.data, mediaType: img.mediaType }));
@@ -347,7 +354,15 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
       const msg = buildPayload();
 
+      if (!parserState.currentSessionId) {
+        awaitingSessionId = true;
+        set({ modeChangeReady: false });
+      }
       const sent = connection.send(msg);
+      if (!sent) {
+        awaitingSessionId = false;
+        set({ modeChangeReady: true });
+      }
       if (!sent) set({ sendError: 'Message could not be queued. Please retry.' });
     },
 
@@ -411,6 +426,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     setMode(mode: MitzoMode) {
+      if (awaitingSessionId) return;
       if (parserState.currentSessionId) {
         connection.send({
           type: 'set_mode',
@@ -688,6 +704,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         .getState()
         .messages.messages.some((m) => m.messageId === msg.clientMsgId);
       if (visible) {
+        if (
+          awaitingSessionId &&
+          (msg.type === '_send_failed' || (msg.type === '_send_accepted' && msg.sessionId === null))
+        ) {
+          awaitingSessionId = false;
+          store.setState({ modeChangeReady: true });
+        }
         store.setState({
           sendError: msg.type === '_send_failed' ? String(msg.error) : null,
           sendStatus:
@@ -748,6 +771,15 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
     }
 
+    if (
+      msg.type === 'session_id' ||
+      msg.type === 'error' ||
+      msg.type === 'session_end' ||
+      msg.type === 'native_command_result'
+    ) {
+      awaitingSessionId = false;
+      store.setState({ modeChangeReady: true });
+    }
     const result = parseServerMessage(msg as WsMsg, parserState, callbacks, 'v2');
 
     if (result.modeUpdate) {

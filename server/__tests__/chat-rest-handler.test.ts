@@ -5,7 +5,7 @@ import request from 'supertest';
 import { SessionSseRegistry } from '../session-sse-registry.js';
 import { SseTransport } from '../sse-transport.js';
 import { createChatRestRouter } from '../chat-rest-handler.js';
-import { ConnectionRegistry } from '@mitzo/harness';
+import { ConnectionRegistry, SessionRegistry } from '@mitzo/harness';
 import type { V2HandlerContext } from '../ws-handler-v2.js';
 
 // ─── Mock the handler functions ──────────────────────────────────────────────
@@ -18,7 +18,9 @@ vi.mock('../ws-handler-v2.js', async (importOriginal) => {
     handleStopV2: vi.fn(),
     handleInterruptV2: vi.fn(),
     handlePermissionResponseV2: vi.fn(),
-    handleSetModeV2: vi.fn(),
+    handleSetModeV2: vi
+      .fn()
+      .mockResolvedValue({ ok: true, applied: true, persisted: true, mode: 'agent' }),
     handleWatch: vi.fn(),
     handleUnwatch: vi.fn(),
     handleSwitchSession: vi.fn().mockResolvedValue(undefined),
@@ -73,6 +75,7 @@ describe('chat-rest-handler', () => {
   let connRegistry: ConnectionRegistry;
   let testApp: express.Express;
   let eventStore: EventStore;
+  let handlerContext: V2HandlerContext;
   const CONNECTION_ID = 'conn-test-123';
 
   beforeEach(() => {
@@ -88,6 +91,7 @@ describe('chat-rest-handler', () => {
 
     const { app, ctx } = buildApp(sseRegistry, connRegistry);
     testApp = app;
+    handlerContext = ctx;
     eventStore = ctx.eventStore;
   });
 
@@ -254,8 +258,8 @@ describe('chat-rest-handler', () => {
     let finish!: () => void;
     vi.mocked(handleSetModeV2).mockImplementationOnce(
       () =>
-        new Promise<void>((resolve) => {
-          finish = resolve;
+        new Promise<import('../ws-handler-v2.js').ModeChangeResult>((resolve) => {
+          finish = () => resolve({ ok: true, applied: true, persisted: true, mode: 'agent' });
         }),
     );
     let responded = false;
@@ -287,6 +291,63 @@ describe('chat-rest-handler', () => {
     expect(response.status).toBe(500);
     expect(response.body.ok).toBe(false);
   });
+
+  it.each([
+    ['provider', 409, false, 'ask'],
+    ['persistence', 500, true, 'agent'],
+    ['missing', 404, false, undefined],
+    ['success', 200, true, 'agent'],
+  ] as const)(
+    'POST /mode reports actual handler %s outcome',
+    async (failure, status, applied, mode) => {
+      const actual =
+        await vi.importActual<typeof import('../ws-handler-v2.js')>('../ws-handler-v2.js');
+      vi.mocked(handleSetModeV2).mockImplementationOnce(actual.handleSetModeV2);
+      const registry = new SessionRegistry();
+      handlerContext.sessionRegistry = registry;
+      if (failure !== 'missing') {
+        eventStore.upsertSession({ sessionId: 'sess-1', mode: 'ask' });
+        registry.register('owner', {
+          transport: connRegistry.get(CONNECTION_ID)!.transport,
+          abortController: new AbortController(),
+          mode: 'ask',
+          sessionId: 'sess-1',
+          sessionAllowList: new Set(),
+        });
+        registry.get('owner')!.queryInstance = {
+          interrupt: vi.fn(),
+          close: vi.fn(),
+          stopTask: vi.fn(),
+          setPermissionMode:
+            failure === 'provider'
+              ? vi.fn().mockRejectedValue(new Error('SDK rejected'))
+              : vi.fn().mockResolvedValue(undefined),
+        };
+      }
+      if (failure === 'persistence')
+        vi.spyOn(eventStore, 'upsertSession').mockImplementationOnce(() => {
+          throw new Error('Disk full');
+        });
+      try {
+        const response = await request(testApp)
+          .post('/api/chat/mode')
+          .set('X-Connection-ID', CONNECTION_ID)
+          .send({ type: 'set_mode', sessionId: 'sess-1', mode: 'agent' });
+        expect(response.status).toBe(status);
+        expect(response.body).toMatchObject({
+          ok: failure === 'success',
+          applied,
+          persisted: failure === 'success',
+          ...(mode ? { mode } : {}),
+        });
+        if (failure !== 'success') expect(response.body.error).toBeTruthy();
+        if (failure === 'provider') expect(eventStore.getSession('sess-1')?.mode).toBe('ask');
+        if (failure === 'persistence') expect(registry.get('owner')?.mode).toBe('agent');
+      } finally {
+        registry.dispose();
+      }
+    },
+  );
 
   // ─── POST /api/chat/watch + unwatch ─────────────────────────────────────
 

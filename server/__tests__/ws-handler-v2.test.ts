@@ -1,3 +1,4 @@
+import { permissionRevision } from '../session-permission-revision.js';
 import { describe, it, expect, vi } from 'vitest';
 import type { SessionTransport } from '@mitzo/harness';
 import { effectivePermissionMode } from '@mitzo/harness';
@@ -789,6 +790,7 @@ describe('handleSetModeV2', () => {
         mode: 'ask',
       } as never);
       await handleSetModeV2('c1', { type: 'set_mode', sessionId: 'sess-1', mode: 'agent' }, ctx);
+      expect(permissionRevision(ctx.eventStore, 'sess-1')).toEqual(expect.any(Symbol));
       expect(ctx.eventStore.upsertSession).toHaveBeenCalledWith({
         sessionId: 'sess-1',
         mode: 'agent',
@@ -798,6 +800,29 @@ describe('handleSetModeV2', () => {
       ]);
     },
   );
+
+  it('reports persisted cold mode success even when its direct acknowledgement cannot be delivered', async () => {
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    vi.mocked(ctx.eventStore.getSession).mockReturnValue({
+      sessionId: 'sess-1',
+      mode: 'ask',
+    } as never);
+    vi.spyOn(transport, 'send').mockImplementation(() => {
+      throw new Error('Disconnected');
+    });
+    const result = await handleSetModeV2(
+      'c1',
+      { type: 'set_mode', sessionId: 'sess-1', mode: 'agent' },
+      ctx,
+    );
+    expect(ctx.eventStore.upsertSession).toHaveBeenCalledWith({
+      sessionId: 'sess-1',
+      mode: 'agent',
+    });
+    expect(result).toEqual({ ok: true, applied: true, persisted: true, mode: 'agent' });
+  });
 
   it('does not acknowledge a cold mode change if saving fails', async () => {
     const ctx = createContext();
@@ -810,6 +835,7 @@ describe('handleSetModeV2', () => {
     });
     await handleSetModeV2('c1', { type: 'set_mode', sessionId: 'sess-1', mode: 'agent' }, ctx);
     expect(stored.mode).toBe('ask');
+    expect(permissionRevision(ctx.eventStore, 'sess-1')).toBeUndefined();
     expect(transport.sent).toEqual([
       expect.objectContaining({
         type: 'error',
@@ -921,6 +947,7 @@ describe('live provider mode changes', () => {
     resolve();
     await Promise.all([first, second]);
     expect(setPermissionMode.mock.calls).toEqual([['agent'], ['auto']]);
+    expect(permissionRevision(ctx.eventStore, 'sess-1')).toEqual(expect.any(Symbol));
     expect(ctx.eventStore.upsertSession).toHaveBeenLastCalledWith({
       sessionId: 'sess-1',
       mode: 'auto',
@@ -995,7 +1022,10 @@ describe('live provider mode changes', () => {
       { type: 'set_mode', sessionId: 'sess-1', mode: 'auto' },
       ctx,
     );
-    await expect(Promise.all([first, second])).resolves.toEqual([undefined, undefined]);
+    await expect(Promise.all([first, second])).resolves.toMatchObject([
+      { ok: false, applied: false },
+      { ok: true, applied: true },
+    ]);
     expect(sessionReg.setMode).toHaveBeenCalledWith('driver-1', 'auto');
   });
 
@@ -3709,6 +3739,81 @@ describe('account profile transport', () => {
     expect(startChat).not.toHaveBeenCalled();
     expect(transport.sent).toContainEqual(
       expect.objectContaining({ type: 'error', error: expect.stringMatching(/account/i) }),
+    );
+  });
+});
+
+describe('resumed session permission authority', () => {
+  it.each([false, true])('ignores stale send mode before switch hydration (live=%s)', (live) => {
+    vi.mocked(startChat).mockClear();
+    vi.mocked(isActive).mockReturnValue(false);
+    vi.mocked(resolveSlashCommand).mockReturnValue({ type: 'plain' });
+    const registry = mockSessionRegistry();
+    if (live)
+      registry.findBySessionId.mockReturnValue({
+        clientId: 'old-client',
+        session: {
+          mode: 'auto',
+          pendingPermissionModes: new Map([[Symbol('pending-ask'), 'ask']]),
+        },
+      });
+    const eventStore = mockEventStore();
+    eventStore.getSessionState.mockReturnValue('ENDED');
+    eventStore.getSession.mockReturnValue({ mode: live ? 'auto' : 'ask' });
+    const ctx = createContext({
+      sessionRegistry: registry as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    // A fast send can carry the previous chat's Auto mode before metadata arrives.
+    handleSendV2(
+      'c1',
+      transport,
+      {
+        type: 'send',
+        sessionId: 'sess-1',
+        prompt: 'continue',
+        mode: 'auto',
+        clientMsgId: 'fast-send',
+      },
+      ctx,
+    );
+    expect(startChat).toHaveBeenCalledWith(
+      transport,
+      'c1:sess-1',
+      'continue',
+      expect.objectContaining({
+        resumePermission: live ? { mode: 'ask', revision: undefined } : undefined,
+      }),
+    );
+    expect(vi.mocked(startChat).mock.calls.at(-1)?.[3]).not.toHaveProperty('mode');
+  });
+
+  it('preserves the effective restrictive mode when interrupt resumes an idle runtime', () => {
+    vi.mocked(startChat).mockClear();
+    vi.mocked(isActive).mockReturnValue(false);
+    const registry = mockSessionRegistry();
+    registry.findBySessionId.mockReturnValue({
+      clientId: 'old-client',
+      session: { mode: 'auto', pendingPermissionModes: new Map([[Symbol('pending-ask'), 'ask']]) },
+    });
+    const ctx = createContext({
+      sessionRegistry: registry as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    handleInterruptV2(
+      'c1',
+      transport,
+      { type: 'interrupt', sessionId: 'sess-1', prompt: 'continue', clientMsgId: 'interrupt' },
+      ctx,
+    );
+    expect(startChat).toHaveBeenCalledWith(
+      transport,
+      'c1:sess-1',
+      'continue',
+      expect.objectContaining({ resumePermission: { mode: 'ask', revision: undefined } }),
     );
   });
 });

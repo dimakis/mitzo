@@ -214,8 +214,15 @@ export function createChatRestRouter(
     const msg = validateBody(V2SetModeMessage, req.body, res);
     if (!msg) return;
     try {
-      await handleSetModeV2(connectionId, msg, ctx);
-      res.json({ ok: true });
+      const result = await handleSetModeV2(connectionId, msg, ctx);
+      const status = result.ok
+        ? 200
+        : result.code === 'not_found'
+          ? 404
+          : result.code === 'persistence'
+            ? 500
+            : 409;
+      res.status(status).json(result);
     } catch (err) {
       log.error('POST /chat/mode failed', { connectionId, error: String(err) });
       res.status(500).json({ ok: false, error: 'Internal server error' });

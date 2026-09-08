@@ -1,3 +1,4 @@
+import { permissionRevision, recordPermissionChange } from './session-permission-revision.js';
 import { resolveAccountSelection, loadAccountProfiles } from './account-profiles.js';
 /**
  * v2 WebSocket message handlers — Phase 1c of single-WS migration.
@@ -10,6 +11,7 @@ import { resolveAccountSelection, loadAccountProfiles } from './account-profiles
  */
 
 import type { SessionTransport, ConnectionRegistry } from '@mitzo/harness';
+import { effectivePermissionMode } from '@mitzo/harness';
 import type { SessionRegistry } from './session-registry.js';
 import type { EventStore } from './event-store.js';
 import { toClientState } from './event-store.js';
@@ -617,6 +619,15 @@ export function handleSendV2(
             return;
           }
 
+          // A send payload may still contain the previous chat's mode before
+          // switch hydration. Only set_mode changes an existing session's policy.
+          const resumePermission = found?.session?.mode
+            ? {
+                mode: effectivePermissionMode(found.session),
+                revision: permissionRevision(ctx.eventStore, sessionId),
+              }
+            : undefined;
+
           // Zombie — abort before resume.
           if (found && isActive(found.clientId)) {
             log.info('aborting zombie session before resume', {
@@ -643,7 +654,7 @@ export function handleSendV2(
             extraTools: msg.extraTools,
             skillAllowedTools,
             isolation: msg.isolation,
-            mode: msg.mode,
+            resumePermission,
             images: msg.images,
             contextBlocks: msg.contextBlocks,
             clientMsgId: msg.clientMsgId,
@@ -807,6 +818,12 @@ export function handleInterruptV2(
       ctx.connRegistry.setActive(connectionId, msg.sessionId);
       startChat(transport, sessionClientId, msg.prompt, {
         resume: msg.sessionId,
+        resumePermission: found.session?.mode
+          ? {
+              mode: effectivePermissionMode(found.session),
+              revision: permissionRevision(ctx.eventStore, msg.sessionId),
+            }
+          : undefined,
         model: msg.model ?? found.session?.model,
         reasoningEffort: msg.reasoningEffort,
         images: msg.images,
@@ -849,27 +866,49 @@ export function handlePermissionResponseV2(
 }
 
 // Serialize mode changes per live session, including requests from different watchers.
-const pendingModeChanges = new WeakMap<object, Promise<void>>();
+export interface ModeChangeResult {
+  ok: boolean;
+  applied: boolean;
+  persisted: boolean;
+  mode?: SetModeMsg['mode'];
+  code?: 'not_found' | 'provider' | 'persistence' | 'session_changed';
+  error?: string;
+}
+const pendingModeChanges = new WeakMap<object, Promise<unknown>>();
 
 export function handleSetModeV2(
   connectionId: string,
   msg: SetModeMsg,
   ctx: V2HandlerContext,
-): Promise<void> {
+): Promise<ModeChangeResult> {
   const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
   if (!found) {
     // Historical sessions have no runtime to update. Commit their next-launch
     // policy before acknowledging it, so resuming uses the selected mode.
+    let previousMode: SetModeMsg['mode'] | undefined;
     try {
-      if (!ctx.eventStore.getSession(msg.sessionId)) {
+      const stored = ctx.eventStore.getSession(msg.sessionId);
+      if (!stored) {
         throw new Error(`Session not found: ${msg.sessionId}`);
       }
+      previousMode = stored.mode;
       ctx.eventStore.upsertSession({ sessionId: msg.sessionId, mode: msg.mode });
+      recordPermissionChange(ctx.eventStore, msg.sessionId);
       const acknowledgement = { type: 'mode_changed', sessionId: msg.sessionId, mode: msg.mode };
-      ctx.connRegistry.broadcast(msg.sessionId, acknowledgement);
-      const connection = ctx.connRegistry.get(connectionId);
-      if (!connection?.watchedSessions.has(msg.sessionId))
-        connection?.transport.send(acknowledgement);
+      try {
+        ctx.connRegistry.broadcast(msg.sessionId, acknowledgement);
+        const connection = ctx.connRegistry.get(connectionId);
+        if (!connection?.watchedSessions.has(msg.sessionId))
+          connection?.transport.send(acknowledgement);
+      } catch (err) {
+        // Delivery failure cannot undo an already persisted permission update.
+        log.warn('set_mode acknowledgement delivery failed', {
+          connectionId,
+          sessionId: msg.sessionId,
+          err,
+        });
+      }
+      return Promise.resolve({ ok: true, applied: true, persisted: true, mode: msg.mode });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       log.warn('set_mode for historical session failed', {
@@ -890,8 +929,15 @@ export function handleSetModeV2(
           err: sendError,
         });
       }
+      return Promise.resolve({
+        ok: false,
+        applied: false,
+        persisted: false,
+        mode: previousMode,
+        code: previousMode === undefined ? 'not_found' : 'persistence',
+        error: reason,
+      });
     }
-    return Promise.resolve();
   }
   const transition = Symbol('permission mode change');
   found.session.pendingPermissionModes ??= new Map();
@@ -901,20 +947,35 @@ export function handleSetModeV2(
     withSpanAsync(
       'ws.set_mode',
       { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId, 'ws.mode': msg.mode },
-      async () => {
+      async (): Promise<ModeChangeResult> => {
         // A queued request must never mutate a replacement session.
-        if (ctx.sessionRegistry.findBySessionId(msg.sessionId)?.session !== found.session) return;
+        if (ctx.sessionRegistry.findBySessionId(msg.sessionId)?.session !== found.session)
+          return {
+            ok: false,
+            applied: false,
+            persisted: false,
+            code: 'session_changed',
+            error: 'Session changed during permission update',
+          };
         try {
           const query = found.session.queryInstance;
           // A startup session has no provider runtime yet. Commit synchronously;
           // startup reads its current mode when constructing the SDK query.
           if (query?.setPermissionMode) await query.setPermissionMode(msg.mode);
           const current = ctx.sessionRegistry.findBySessionId(msg.sessionId);
-          if (!current || current.session !== found.session) return;
+          if (!current || current.session !== found.session)
+            return {
+              ok: false,
+              applied: false,
+              persisted: false,
+              code: 'session_changed',
+              error: 'Session changed during permission update',
+            };
           ctx.sessionRegistry.setMode(current.clientId, msg.mode);
           let persistenceError: string | undefined;
           try {
             ctx.eventStore.upsertSession({ sessionId: msg.sessionId, mode: msg.mode });
+            recordPermissionChange(ctx.eventStore, msg.sessionId);
           } catch (err) {
             persistenceError = err instanceof Error ? err.message : String(err);
             log.warn('set_mode persistence failed', {
@@ -943,6 +1004,15 @@ export function handleSetModeV2(
               });
             }
           }
+          return persistenceError === undefined
+            ? { ok: true, applied: true, persisted: true }
+            : {
+                ok: false,
+                applied: true,
+                persisted: false,
+                code: 'persistence',
+                error: `Permission mode applied, but could not save it for future sessions: ${persistenceError}`,
+              };
         } catch (err) {
           const reason = err instanceof Error ? err.message : String(err);
           log.warn('set_mode failed', { connectionId, sessionId: msg.sessionId, error: reason });
@@ -959,14 +1029,17 @@ export function handleSetModeV2(
               err: sendError,
             });
           }
+          return { ok: false, applied: false, persisted: false, code: 'provider', error: reason };
         }
       },
     ),
   );
   pendingModeChanges.set(found.session, update);
-  return update.finally(() => {
+  return update.then((result) => {
     found.session.pendingPermissionModes?.delete(transition);
     if (pendingModeChanges.get(found.session) === update) pendingModeChanges.delete(found.session);
+    const current = ctx.sessionRegistry.findBySessionId(msg.sessionId)?.session;
+    return { ...result, ...(current ? { mode: effectivePermissionMode(current) } : {}) };
   });
 }
 
