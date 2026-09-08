@@ -1,10 +1,12 @@
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
-import { lstatSync, readFileSync, realpathSync, type BigIntStats } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { readFileSync, realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { AuthoritySnapshot, identity, validatePath } from './sandbox-authority.js';
+import type { SandboxWorkerPayload } from './sandboxed-command-worker.js';
 import { tmpdir } from 'node:os';
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 
 export interface SandboxedCommandOptions {
   command: string;
@@ -19,73 +21,8 @@ export interface SandboxedCommandOptions {
   beforeSpawn?: () => void;
 }
 
-function canonical(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    const parent = dirname(path);
-    if (parent === path) throw error;
-    return join(canonical(parent), path.slice(parent.length));
-  }
-}
-function validatePath(path: string): void {
-  // SRT interprets globs. Policy roots must be literal, canonical absolute paths.
-  if (
-    !isAbsolute(path) ||
-    path === '/' ||
-    /[*?[\]{}]/.test(path) ||
-    resolve(path) !== path ||
-    canonical(path) !== path
-  )
-    throw new Error('Sandbox roots must be canonical absolute paths without patterns');
-}
 function contains(root: string, path: string) {
   return path === root || path.startsWith(root + '/');
-}
-
-function identity(path: string): BigIntStats | undefined {
-  try {
-    return lstatSync(path, { bigint: true });
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-    throw error;
-  }
-}
-
-/** Bind grants to the filesystem objects authorized before asynchronous setup.
- * Ancestors cover absent paths and directory replacement; Git authority also
- * fingerprints content so in-place rewrites cannot change the granted branch.
- */
-class AuthoritySnapshot {
-  private paths = new Map<string, { stat?: BigIntStats; digest?: string }>();
-  capture(path: string, contents = false): void {
-    if (!this.paths.has(path)) {
-      const stat = identity(path);
-      const digest =
-        contents && stat?.isFile()
-          ? createHash('sha256').update(readFileSync(path)).digest('hex')
-          : undefined;
-      this.paths.set(path, { stat, digest });
-    }
-    const parent = dirname(path);
-    if (parent !== path) this.capture(parent);
-  }
-  verify(): void {
-    for (const [path, expected] of this.paths) {
-      const actual = identity(path);
-      if (
-        canonical(path) !== path ||
-        actual?.dev !== expected.stat?.dev ||
-        actual?.ino !== expected.stat?.ino ||
-        actual?.mode !== expected.stat?.mode ||
-        (expected.digest !== undefined &&
-          createHash('sha256').update(readFileSync(path)).digest('hex') !== expected.digest)
-      ) {
-        throw new Error(`Sandbox authority changed before execution: ${path}`);
-      }
-    }
-  }
 }
 
 /** Verify both halves of Git's linked-worktree registration before granting its
@@ -189,16 +126,25 @@ export async function executeSandboxedCommand(
   if (dependencies.errors.length || dependencies.warnings.length)
     throw new Error('Complete OS sandbox dependencies are unavailable');
   const require = createRequire(import.meta.url);
-  const cli = join(dirname(require.resolve('@anthropic-ai/sandbox-runtime')), 'cli.js');
+  const sourceRuntime = import.meta.url.endsWith('.ts');
+  const worker = fileURLToPath(
+    new URL(
+      sourceRuntime ? './sandboxed-command-worker.ts' : './sandboxed-command-worker.js',
+      import.meta.url,
+    ),
+  );
+  const workerArgs = sourceRuntime ? ['--import', require.resolve('tsx/esm'), worker] : [worker];
   const temporary = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-shell-')));
   try {
     const home = join(temporary, 'home');
     const scratch = join(temporary, 'tmp');
     await Promise.all([mkdir(home), mkdir(scratch)]);
     const settings = join(temporary, 'policy.json');
-    await writeFile(
-      settings,
-      JSON.stringify({
+    const payload: SandboxWorkerPayload = {
+      cwd: options.cwd,
+      command: options.command,
+      authority: authority.serialize(),
+      config: {
         filesystem: {
           denyRead: options.deniedRoots,
           allowRead: [],
@@ -220,9 +166,9 @@ export async function executeSandboxedCommand(
         enableWeakerNestedSandbox: false,
         enableWeakerNetworkIsolation: false,
         allowAppleEvents: false,
-      }),
-      { mode: 0o600 },
-    );
+      },
+    };
+    await writeFile(settings, JSON.stringify(payload), { mode: 0o600 });
     const env: Record<string, string> = { PATH: '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin' };
     for (const [name, value] of Object.entries(options.env)) {
       if (['PATH', 'LANG', 'LC_ALL'].includes(name) || /^MITZO_REPO_[A-Z0-9_]+$/.test(name))
@@ -235,7 +181,7 @@ export async function executeSandboxedCommand(
       options.beforeSpawn?.();
       // No await between revalidating authority and handing policy to the child.
       authority.verify();
-      const child = spawn(process.execPath, [cli, '--settings', settings, '-c', options.command], {
+      const child = spawn(process.execPath, [...workerArgs, settings], {
         cwd: options.cwd,
         env,
         detached: true,
