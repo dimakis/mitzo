@@ -23,7 +23,7 @@ export function EventCard({
 }) {
   const [expanded, setExpanded] = useState(false);
   const navigate = useNavigate();
-  const isExpanded = detail || expanded;
+  const isExpanded = detail || (!onSelect && expanded);
   const toggle = () => {
     if (onSelect) onSelect();
     else if (!detail) setExpanded(!expanded);

@@ -112,6 +112,26 @@ describe('desktop collections', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByText('Full first proposal')).toBeTruthy();
   });
+  it('moves expanded mobile events into the desktop inspector after a layout change', () => {
+    const { rerender } = render(
+      <MemoryRouter>
+        <CalendarView />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByText('Design review'));
+    expect(screen.getByText('Studio')).toBeTruthy();
+    rerender(
+      <MemoryRouter>
+        <CalendarView desktop />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByText('Studio')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Design review' }));
+    expect(screen.getAllByText('Studio')).toHaveLength(1);
+    expect(
+      within(screen.getByRole('region', { name: 'Event details' })).getByText('Studio'),
+    ).toBeTruthy();
+  });
   it('keeps calendar controls and meeting actions beside the agenda', () => {
     render(
       <MemoryRouter>
