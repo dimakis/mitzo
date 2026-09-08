@@ -131,8 +131,11 @@ function selectRequestToken(req: Request): string | undefined {
   // Explicit credentials are authoritative. Never let a stale ambient cookie
   // override them or rescue an invalid credential supplied by the caller.
   if (req.headers.authorization !== undefined) return extractBearerToken(req);
-  const queryToken = extractSseQueryToken(req);
-  return queryToken ?? req.cookies?.[COOKIE_NAME];
+  const isSseRoute = req.path === '/events' || req.path === '/chat/events';
+  if (isSseRoute && Object.prototype.hasOwnProperty.call(req.query, 'token')) {
+    return extractSseQueryToken(req);
+  }
+  return req.cookies?.[COOKIE_NAME];
 }
 
 export async function authMiddleware(req: Request, res: Response, next: NextFunction) {

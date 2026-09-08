@@ -143,7 +143,7 @@ describe('authMiddleware — internal token', () => {
   function mockReq(
     headers: Record<string, string> = {},
     path = '/tasks',
-    query: Record<string, string> = {},
+    query: Record<string, unknown> = {},
   ) {
     return { headers, path, query, cookies: {} } as unknown as Parameters<typeof authMiddleware>[0];
   }
@@ -283,6 +283,23 @@ describe('authMiddleware — internal token', () => {
 
     await vi.waitFor(() => expect(next).toHaveBeenCalledOnce());
   });
+
+  it.each(['/events', '/chat/events'])(
+    'does not fall back to a cookie for a malformed explicit SSE token on %s',
+    async (path) => {
+      const { login } = await import('../auth.js');
+      const jwt = await login(process.env.AUTH_PASSPHRASE!);
+      const req = mockReq({}, path, { token: ['first', 'second'] });
+      req.cookies = { cc_auth: jwt! };
+      const res = mockRes();
+      const next = vi.fn();
+
+      authMiddleware(req, res, next);
+
+      await vi.waitFor(() => expect(res.statusCode).toBe(401));
+      expect(next).not.toHaveBeenCalled();
+    },
+  );
 
   it('does not accept query tokens on ordinary API routes', async () => {
     const { login } = await import('../auth.js');
