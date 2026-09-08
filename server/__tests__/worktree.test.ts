@@ -249,7 +249,7 @@ describe('createWorktreeAsync', () => {
     expect(wtCommit).toBe(featureCommit);
   });
 
-  it('resets existing branch to startPoint on fallback', async () => {
+  it('preserves existing branch instead of resetting to startPoint', async () => {
     // Create a branch pointing to HEAD (main)
     const mainCommit = execFileSync('git', ['-C', baseRepo, 'rev-parse', 'main'], {
       encoding: 'utf8',
@@ -271,11 +271,12 @@ describe('createWorktreeAsync', () => {
     // Create worktree with startPoint=main (which is now at secondCommit)
     const path = await createWorktreeAsync(sessionId, baseRepo);
 
-    // Branch should have been reset to current main (secondCommit), not old position
+    // Reattaching must preserve the existing branch tip, even when main advances.
     const wtCommit = execFileSync('git', ['-C', path, 'rev-parse', 'HEAD'], {
       encoding: 'utf8',
     }).trim();
-    expect(wtCommit).toBe(secondCommit);
+    expect(wtCommit).toBe(mainCommit);
+    expect(wtCommit).not.toBe(secondCommit);
   });
 });
 
@@ -469,7 +470,7 @@ describe('createWorktree (sync)', () => {
     expect(wtCommit).toBe(featureCommit);
   });
 
-  it('resets existing branch to startPoint on fallback', () => {
+  it('preserves existing branch instead of resetting to startPoint', () => {
     const mainCommit = execFileSync('git', ['-C', baseRepo, 'rev-parse', 'main'], {
       encoding: 'utf8',
     }).trim();
@@ -490,11 +491,12 @@ describe('createWorktree (sync)', () => {
     // Create worktree with startPoint=main (which is now at secondCommit)
     const path = createWorktree(sessionId, baseRepo);
 
-    // Branch should have been reset to current main (secondCommit), not old position
+    // Reattaching must preserve the existing branch tip, even when main advances.
     const wtCommit = execFileSync('git', ['-C', path, 'rev-parse', 'HEAD'], {
       encoding: 'utf8',
     }).trim();
-    expect(wtCommit).toBe(secondCommit);
+    expect(wtCommit).toBe(mainCommit);
+    expect(wtCommit).not.toBe(secondCommit);
   });
 });
 

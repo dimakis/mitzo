@@ -3,6 +3,7 @@ import { execFile as execFileCb, execFileSync } from 'child_process';
 import { promisify } from 'util';
 import {
   existsSync,
+  realpathSync,
   mkdirSync,
   readdirSync,
   statSync,
@@ -118,29 +119,19 @@ export function createWorktree(
   const branch = opts?.branch ?? `${WORKTREE_BRANCH_PREFIX}${sessionId}`;
   const startPoint = opts?.startPoint ?? detectDefaultBranch(baseRepo);
 
-  // If the worktree path already exists (stale from a previous session),
-  // check whether it's a valid worktree we can reuse or a stale directory
-  // that needs to be cleaned up before we can create a fresh one.
+  // Validation failure is not proof that a directory is disposable. Preserve it
+  // and let the caller report the failure instead of attempting destructive repair.
   if (existsSync(worktreePath)) {
-    try {
-      execFileSync('git', ['-C', worktreePath, 'rev-parse', '--git-dir'], {
-        stdio: 'pipe',
-        timeout: WORKTREE_GIT_TIMEOUT_MS,
-      });
-      // Valid worktree — reuse it.
-      log.info(`reusing existing worktree: ${worktreePath} (${branch})`);
-      return worktreePath;
-    } catch {
-      // Stale directory — remove it and prune git's worktree list.
-      log.info(`removing stale worktree path: ${worktreePath}`);
-      rmSync(worktreePath, { recursive: true, force: true });
-      try {
-        execFileSync('git', ['-C', baseRepo, 'worktree', 'prune'], {
-          stdio: 'pipe',
-          timeout: WORKTREE_PRUNE_TIMEOUT_MS,
-        });
-      } catch {}
+    const topLevel = execFileSync('git', ['-C', worktreePath, 'rev-parse', '--show-toplevel'], {
+      encoding: 'utf8',
+      stdio: 'pipe',
+      timeout: WORKTREE_GIT_TIMEOUT_MS,
+    }).trim();
+    if (realpathSync(topLevel) !== realpathSync(worktreePath)) {
+      throw new Error(`Existing path is not a worktree root; preserved: ${worktreePath}`);
     }
+    log.info(`reusing existing worktree: ${worktreePath} (${branch})`);
+    return worktreePath;
   }
 
   try {
@@ -152,11 +143,7 @@ export function createWorktree(
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     if (message.includes('already exists')) {
-      // Branch exists but no worktree — reset it to startPoint before attaching
-      execFileSync('git', ['-C', baseRepo, 'branch', '-f', branch, startPoint], {
-        stdio: 'pipe',
-        timeout: WORKTREE_GIT_TIMEOUT_MS,
-      });
+      // Reattach at its existing tip: it may contain unfinished session commits.
       execFileSync('git', ['-C', baseRepo, 'worktree', 'add', worktreePath, branch], {
         stdio: 'pipe',
         timeout: WORKTREE_GIT_TIMEOUT_MS,
@@ -188,21 +175,18 @@ export async function createWorktreeAsync(
   const startPoint = opts?.startPoint ?? detectDefaultBranch(baseRepo);
 
   if (existsSync(worktreePath)) {
-    try {
-      await execFileAsync('git', ['-C', worktreePath, 'rev-parse', '--git-dir'], {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['-C', worktreePath, 'rev-parse', '--show-toplevel'],
+      {
         timeout: WORKTREE_GIT_TIMEOUT_MS,
-      });
-      log.info(`reusing existing worktree: ${worktreePath} (${branch})`);
-      return worktreePath;
-    } catch {
-      log.info(`removing stale worktree path: ${worktreePath}`);
-      rmSync(worktreePath, { recursive: true, force: true });
-      try {
-        await execFileAsync('git', ['-C', baseRepo, 'worktree', 'prune'], {
-          timeout: WORKTREE_PRUNE_TIMEOUT_MS,
-        });
-      } catch {}
+      },
+    );
+    if (realpathSync(stdout.trim()) !== realpathSync(worktreePath)) {
+      throw new Error(`Existing path is not a worktree root; preserved: ${worktreePath}`);
     }
+    log.info(`reusing existing worktree: ${worktreePath} (${branch})`);
+    return worktreePath;
   }
 
   try {
@@ -214,10 +198,7 @@ export async function createWorktreeAsync(
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     if (message.includes('already exists')) {
-      // Branch exists but no worktree — reset it to startPoint before attaching
-      await execFileAsync('git', ['-C', baseRepo, 'branch', '-f', branch, startPoint], {
-        timeout: WORKTREE_GIT_TIMEOUT_MS,
-      });
+      // Reattach at its existing tip: it may contain unfinished session commits.
       await execFileAsync('git', ['-C', baseRepo, 'worktree', 'add', worktreePath, branch], {
         timeout: WORKTREE_GIT_TIMEOUT_MS,
       });
