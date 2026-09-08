@@ -1,11 +1,10 @@
 import { CodexQueueStatus } from '../components/CodexQueueStatus';
 import { AccountModelPicker, type AccountSelection } from '../components/AccountModelPicker';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { ChatArea } from '../components/ChatArea';
 import { ChatInput } from '../components/ChatInput';
 import { VoiceSettings } from '../components/VoiceSettings';
-import { MitzoLogo } from '../components/MitzoLogo';
 import { useMessages, useConnection, useTokens, useMitzoStore } from '@mitzo/client/hooks';
 import { LAST_SESSION_KEY } from '../lib/constants';
 import { getPreferredModel, setPreferredModel } from '../lib/model-preference';
@@ -240,9 +239,22 @@ export function ChatView() {
   const initialPrompt = searchParams.get('prompt') || undefined;
 
   return (
-    <div className={`chat-page${keyboardOpen ? ' keyboard-open' : ''}`}>
+    <div className={`chat-page workspace-chat${keyboardOpen ? ' keyboard-open' : ''}`}>
+      <div className="conversation-heading">
+        <Link to="/sessions" aria-label="Back to chats">
+          ← Chats
+        </Link>
+        <h1>{activeSessionId ? 'Conversation' : 'New chat'}</h1>
+        <button
+          onClick={() => {
+            storeNewSession();
+            navigate('/chat');
+          }}
+        >
+          New chat
+        </button>
+      </div>
       <header className="chat-header">
-        <MitzoLogo />
         {!connected && (
           <span
             className="chat-header-offline"
@@ -259,6 +271,7 @@ export function ChatView() {
                 <button
                   key={m}
                   className={`mode-pill${mode === m ? ' mode-pill--active' : ''}`}
+                  aria-pressed={mode === m}
                   onClick={() => handleModeChange(m)}
                 >
                   {m.charAt(0).toUpperCase() + m.slice(1)}

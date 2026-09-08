@@ -1,6 +1,9 @@
 import { useState, useCallback } from 'react';
 import { useSessionList } from '../hooks/useSessionList';
 import { useSessionOverview } from '../hooks/useSessionOverview';
+import { useSessionSearch } from '../hooks/useSessionSearch';
+import { SessionSearchBar } from './SessionSearchBar';
+import { formatTokens } from '../lib/formatTokens';
 import { ActiveSessionsList } from './ActiveSessionsList';
 import { formatRelativeTime } from '../lib/formatTime';
 
@@ -24,6 +27,7 @@ function readViewMode(): ViewMode {
 
 export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: SessionPanelProps) {
   const { sessions, loading, loadingMore, hasMore, loadMore, dismissSession } = useSessionList();
+  const search = useSessionSearch();
   const { attendCount } = useSessionOverview();
   const [viewMode, setViewMode] = useState<ViewMode>(readViewMode);
 
@@ -38,6 +42,10 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
 
   return (
     <div className="session-panel">
+      <div className="session-panel-heading">
+        <h1>Conversations</h1>
+        <SessionSearchBar {...search} onSelectSession={onSelectSession} />
+      </div>
       <button className="session-panel-new" onClick={onNewChat}>
         New Chat
       </button>
@@ -45,12 +53,17 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
       <div className="session-view-toggle">
         <button
           className={viewMode === 'active' ? 'active' : ''}
+          aria-pressed={viewMode === 'active'}
           onClick={() => switchView('active')}
         >
           Active
           {attendCount > 0 && <span className="session-view-badge">{attendCount}</span>}
         </button>
-        <button className={viewMode === 'all' ? 'active' : ''} onClick={() => switchView('all')}>
+        <button
+          aria-pressed={viewMode === 'all'}
+          className={viewMode === 'all' ? 'active' : ''}
+          onClick={() => switchView('all')}
+        >
           All
         </button>
       </div>
@@ -69,41 +82,51 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
                 <div
                   key={s.id}
                   className={`session-panel-item${s.id === activeSessionId ? ' session-panel-item--active' : ''}`}
-                  onClick={() => onSelectSession(s.id)}
                 >
-                  {s.isActive ? (
-                    <span
-                      className={`session-panel-dot${s.isAttached ? ' session-panel-dot--attached' : ' session-panel-dot--detached'}`}
-                    />
-                  ) : s.closedBy ? (
-                    <span
-                      className={`session-panel-status session-panel-status--${s.closedBy}`}
-                      title={
-                        s.closedBy === 'user'
-                          ? 'Closed by you'
+                  <button
+                    className="session-panel-select"
+                    onClick={() => onSelectSession(s.id)}
+                    aria-current={s.id === activeSessionId ? true : undefined}
+                  >
+                    {s.isActive ? (
+                      <span
+                        className={`session-panel-dot${s.isAttached ? ' session-panel-dot--attached' : ' session-panel-dot--detached'}`}
+                      />
+                    ) : s.closedBy ? (
+                      <span
+                        className={`session-panel-status session-panel-status--${s.closedBy}`}
+                        title={
+                          s.closedBy === 'user'
+                            ? 'Closed by you'
+                            : s.closedBy === 'auto'
+                              ? 'Auto-closed'
+                              : 'Abandoned'
+                        }
+                      >
+                        {s.closedBy === 'user'
+                          ? '\u2713'
                           : s.closedBy === 'auto'
-                            ? 'Auto-closed'
-                            : 'Abandoned'
-                      }
-                    >
-                      {s.closedBy === 'user'
-                        ? '\u2713'
-                        : s.closedBy === 'auto'
-                          ? '\u23F9'
-                          : '\u2205'}
-                    </span>
-                  ) : null}
-                  <div className="session-panel-item-text">
-                    <div className="session-panel-item-summary">
-                      {s.summary || 'Untitled session'}
-                    </div>
-                    <div className="session-panel-item-meta">
-                      <span className="session-panel-item-time">
-                        {formatRelativeTime(s.lastModified)}
+                            ? '\u23F9'
+                            : '\u2205'}
                       </span>
-                      {s.branch && <span className="session-panel-item-branch">{s.branch}</span>}
+                    ) : null}
+                    <div className="session-panel-item-text">
+                      <div className="session-panel-item-summary">
+                        {s.summary || 'Untitled session'}
+                      </div>
+                      <div className="session-panel-item-meta">
+                        <span className="session-panel-item-time">
+                          {formatRelativeTime(s.lastModified)}
+                        </span>
+                        {s.totalTokens != null && (
+                          <span className="workspace-tokens">
+                            {formatTokens(s.totalTokens)} session tokens
+                          </span>
+                        )}
+                        {s.branch && <span className="session-panel-item-branch">{s.branch}</span>}
+                      </div>
                     </div>
-                  </div>
+                  </button>
                   <button
                     className="session-panel-delete"
                     onClick={(e) => {

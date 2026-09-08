@@ -192,6 +192,7 @@ export function DesktopChatView() {
 
   return (
     <DesktopShell
+      rightDefaultCollapsed
       left={
         <SessionPanel
           activeSessionId={activeSessionId ?? undefined}
@@ -200,7 +201,20 @@ export function DesktopChatView() {
         />
       }
       center={
-        <div className="desktop-chat-center">
+        <div className="desktop-chat-center workspace-chat">
+          <div className="conversation-heading">
+            <div>
+              <span className="workspace-eyebrow">YOUR WORKSPACE</span>
+              <h1>{activeSessionId ? 'Conversation' : 'New chat'}</h1>
+            </div>
+            <span className="conversation-state">
+              {messages.running
+                ? 'Working'
+                : activeSessionId
+                  ? 'Ready'
+                  : 'Start with a question or a task'}
+            </span>
+          </div>
           <header className="desktop-chat-header">
             {!connected && (
               <span
@@ -221,6 +235,7 @@ export function DesktopChatView() {
                 <button
                   key={m}
                   className={`mode-pill${mode === m ? ' mode-pill--active' : ''}`}
+                  aria-pressed={mode === m}
                   onClick={() => handleModeChange(m)}
                 >
                   {m.charAt(0).toUpperCase() + m.slice(1)}

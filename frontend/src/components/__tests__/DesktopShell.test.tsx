@@ -104,3 +104,25 @@ describe('DesktopShell', () => {
     expect(container.querySelector('.desktop-status-row')).toBeNull();
   });
 });
+
+it('can default the supporting panel closed while respecting an explicit saved preference', () => {
+  render(
+    <DesktopShell
+      center={<div>Conversation</div>}
+      right={<div>Context</div>}
+      rightDefaultCollapsed
+    />,
+  );
+  expect(screen.queryByText('Context')).toBeNull();
+  fireEvent.click(screen.getByTitle('Show context'));
+  expect(screen.getByText('Context')).toBeTruthy();
+  cleanup();
+  render(
+    <DesktopShell
+      center={<div>Conversation</div>}
+      right={<div>Context</div>}
+      rightDefaultCollapsed
+    />,
+  );
+  expect(screen.getByText('Context')).toBeTruthy();
+});

@@ -217,3 +217,30 @@ describe('SessionPanel', () => {
     });
   });
 });
+
+it('exposes a named conversation selector and keeps deletion separate', () => {
+  const select = vi.fn();
+  const dismiss = vi.fn();
+  mockUseSessionList.mockReturnValue(
+    makeDefaultReturn({
+      sessions: [{ id: 's1', summary: 'Review PR', lastModified: Date.now(), totalTokens: 24000 }],
+      dismissSession: dismiss,
+    }),
+  );
+  render(<SessionPanel activeSessionId="s1" onSelectSession={select} onNewChat={vi.fn()} />);
+  const row = screen.getByRole('button', { name: /Review PR/ });
+  expect(row.getAttribute('aria-current')).toBe('true');
+  fireEvent.click(row);
+  expect(select).toHaveBeenCalledWith('s1');
+  expect(screen.getByText(/24k session tokens/)).toBeTruthy();
+  fireEvent.click(screen.getByTitle('Delete session'));
+  expect(dismiss).toHaveBeenCalledWith('s1');
+  expect(select).toHaveBeenCalledTimes(1);
+});
+it('provides the existing transcript search from the conversation list', () => {
+  render(
+    <SessionPanel activeSessionId={undefined} onSelectSession={vi.fn()} onNewChat={vi.fn()} />,
+  );
+  fireEvent.click(screen.getByTitle('Search sessions'));
+  expect(screen.getByPlaceholderText('Search sessions...')).toBeTruthy();
+});
