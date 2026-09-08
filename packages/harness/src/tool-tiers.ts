@@ -2,6 +2,21 @@ import type { MitzoMode } from '@mitzo/protocol';
 
 export type ToolTier = 'safe' | 'standard' | 'elevated' | 'unknown';
 
+// Capability policy is independent of configurable approval risk tiers. Unknown
+// tools fail closed in Ask, even when project settings label them "safe".
+const READ_ONLY_TOOLS = new Set([
+  'Read',
+  'Glob',
+  'Grep',
+  'WebSearch',
+  'WebFetch',
+  'mcp__task-board__TaskStatus',
+]);
+
+export function isReadOnlyTool(toolName: string): boolean {
+  return READ_ONLY_TOOLS.has(toolName);
+}
+
 const DEFAULT_TOOL_TIERS: Record<string, ToolTier> = {
   Read: 'safe',
   Glob: 'safe',
@@ -36,11 +51,12 @@ export function getToolTier(toolName: string): ToolTier {
 
 /**
  * Decision matrix:
- *   ask:   safe=allow, everything else denied by the permission handler
+ *   ask:   known read-only + safe=allow, mutating capabilities always denied
  *   agent: safe=allow, standard=allow, elevated=prompt, unknown=prompt
  *   auto:  safe=allow, standard=allow, elevated=allow,  unknown=prompt
  */
 export function shouldAutoAllow(toolName: string, mode: MitzoMode): boolean {
+  if (mode === 'ask' && !isReadOnlyTool(toolName)) return false;
   const tier = getToolTier(toolName);
 
   if (tier === 'safe') return true;

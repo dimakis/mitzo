@@ -97,6 +97,17 @@ describe('tool-tiers', () => {
       applyTierOverrides({});
     });
 
+    it.each(['Write', 'Bash', 'CustomTool', 'Task', 'mcp__custom__mutate'])(
+      'cannot grant %s to Ask by marking it safe',
+      (tool) => {
+        applyTierOverrides({ [tool]: 'safe' });
+        expect(getToolTier(tool)).toBe('safe');
+        expect(shouldAutoAllow(tool, 'ask')).toBe(false);
+        expect(getAllowedToolsForMode('ask')).not.toContain(tool);
+        expect(shouldAutoAllow(tool, 'agent')).toBe(true);
+      },
+    );
+
     it('overrides default tiers', () => {
       applyTierOverrides({ CustomTool: 'safe' });
       expect(getToolTier('CustomTool')).toBe('safe');

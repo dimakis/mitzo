@@ -25,7 +25,7 @@ Permissions belong to the running Mitzo session, independent of the selected mod
 | Unclassified integrations and delegation | Deny      | Approval  | Approval  |
 | Structured user questions                | Available | Available | Available |
 
-Internal TodoWrite is an edit; TaskStatus is read-only. Task-board mutations and delegated Task execution are not silently classified as reads. Explicit session grants remain subordinate to Ask, skill restrictions and workspace checks. Approval requests are rechecked when the answer arrives, so a pending approval cannot defeat a mode downgrade.
+Internal TodoWrite is an edit; TaskStatus is read-only. Task-board mutations and delegated Task execution are not silently classified as reads. Explicit session grants remain subordinate to Ask, skill restrictions and workspace checks. Ask uses a fixed read-only capability list; configurable risk-tier overrides cannot authorize edits, commands, or unknown integrations in Ask. Approval requests are rechecked when the answer arrives, so a pending approval cannot defeat a mode downgrade.
 
 The control displays the acknowledged effective mode, not an optimistic selection. Successful changes are saved and restored on switch/reconnect. If saving fails after the runtime accepts a change, clients still receive the effective mode and a separate persistence error. Requests to a running session serialize. Changing a mode does not undo an action already executing.
 

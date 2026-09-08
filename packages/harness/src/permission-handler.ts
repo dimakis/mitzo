@@ -7,7 +7,7 @@ import {
   sendPermissionNotification as pushoverSendPermission,
   isConfigured as pushoverConfigured,
 } from './pushover.js';
-import { getToolTier, shouldAutoAllow } from './tool-tiers.js';
+import { getToolTier, isReadOnlyTool, shouldAutoAllow } from './tool-tiers.js';
 import { summarizeToolInput } from '@mitzo/protocol';
 import { checkSkillPolicy } from './skill-policy.js';
 import { checkWorktreePolicy, type OnDemandCreateFn } from './worktree-guard.js';
@@ -115,7 +115,7 @@ export function buildPermissionHandler(
     // Ask is a harness-enforced ceiling, including cached grants and providers
     // without a native read-only mode. Check before any on-demand worktree write.
     const askDenial = (): PermissionResult | undefined =>
-      !questions && effectivePermissionMode(session) === 'ask' && getToolTier(toolName) !== 'safe'
+      !questions && effectivePermissionMode(session) === 'ask' && !isReadOnlyTool(toolName)
         ? {
             behavior: 'deny',
             message:
