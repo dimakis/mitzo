@@ -205,6 +205,20 @@ describe('native tool execution through session permissions', () => {
     expect(await readFile(outside, 'utf8')).toBe('original');
     expect(result.is_error).toBe(true);
   });
+  it('denies a dangling symlink installed while creation approval is pending', async () => {
+    const outside = join(root, 'not-created');
+    const pending = executor()(
+      call('Write', { file_path: 'approved', content: 'escaped', require_approval: true }),
+      abort.signal,
+    );
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    await symlink(outside, join(root, 'worktree/approved'));
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
+    const result = await pending;
+    expect(result.is_error).toBe(true);
+    await expect(readFile(outside)).rejects.toThrow();
+  });
+
   it('does not advertise or execute a native shell tool', async () => {
     expect(
       await executor()(call('Bash', { command: 'touch escaped' }), abort.signal),
