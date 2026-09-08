@@ -11,6 +11,7 @@ import './styles/calendar.css';
 import './styles/desktop.css';
 import './styles/workspace.css';
 import './styles/workspace-chat.css';
+import './styles/workspace-work.css';
 
 initTheme();
 

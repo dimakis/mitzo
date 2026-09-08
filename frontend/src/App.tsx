@@ -13,8 +13,7 @@ import { DesktopChatView } from './pages/DesktopChatView';
 import { FileViewer } from './pages/FileViewer';
 import { InboxView } from './pages/InboxView';
 import { CalendarView } from './pages/CalendarView';
-import { TodoView } from './pages/TodoView';
-import { TodoDetailView } from './pages/TodoDetailView';
+import { TodoWorkspace } from './pages/TodoWorkspace';
 import { TaskBoard } from './pages/TaskBoard';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { MobileShell } from './components/MobileShell';
@@ -166,21 +165,11 @@ export function App() {
                 }
               />
               <Route
-                path="/todos"
+                path="/todos/:id?"
                 element={
                   <ProtectedRoute>
                     <PageRoute>
-                      <TodoView />
-                    </PageRoute>
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/todos/:id"
-                element={
-                  <ProtectedRoute>
-                    <PageRoute>
-                      <TodoDetailView />
+                      <TodoWorkspace />
                     </PageRoute>
                   </ProtectedRoute>
                 }
