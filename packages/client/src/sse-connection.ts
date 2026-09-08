@@ -367,6 +367,7 @@ export class SseConnection implements ChatConnection {
     this.reconnectTimer = null;
     this.es?.close();
     this.es = null;
+    this._connectionId = null;
     this._connected = false;
     this.pendingSends = [];
     this.outbox.rejectAll('Authentication expired. Sign in again to retry.');

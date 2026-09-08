@@ -277,14 +277,18 @@ describe('SseConnection', () => {
     const listener = vi.fn();
     conn.onMessage(listener);
     conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'expired-id' });
     lastES()._emit('message', { type: 'auth_expired' });
 
     token = 'fresh';
     conn.restoreAuthentication();
     expect(lastES().url).toContain('token=fresh');
-    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'fresh-id' });
     conn.send({ type: 'send', sessionId: null, clientMsgId: 'after-login', prompt: 'safe' });
     await vi.advanceTimersByTimeAsync(0);
+
+    const sendCall = fetch.mock.calls.find(([url]) => String(url).endsWith('/api/chat/send'));
+    expect(new Headers(sendCall?.[1]?.headers).get('X-Connection-ID')).toBeNull();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'fresh-id' });
 
     expect(listener).toHaveBeenCalledWith(
       expect.objectContaining({ type: '_send_accepted', clientMsgId: 'after-login' }),
