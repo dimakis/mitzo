@@ -20,7 +20,7 @@ class MockEventSource {
 global.EventSource = MockEventSource as unknown as typeof EventSource;
 
 // Dynamic import so the module-level side effects run after EventSource is defined
-const { eventBus } = await import('../event-bus-singleton');
+const { eventBus, ensureEventBusConnected } = await import('../event-bus-singleton');
 
 describe('event-bus-singleton visibilitychange recovery', () => {
   it('disconnects stale EventSource credentials on auth loss', () => {
@@ -29,6 +29,10 @@ describe('event-bus-singleton visibilitychange recovery', () => {
     window.dispatchEvent(new Event('mitzo:auth-lost'));
 
     expect(disconnectSpy).toHaveBeenCalled();
+    const ensureConnectedSpy = vi.spyOn(eventBus, 'ensureConnected');
+    ensureEventBusConnected();
+    expect(ensureConnectedSpy).not.toHaveBeenCalled();
+    ensureConnectedSpy.mockRestore();
     disconnectSpy.mockRestore();
   });
 

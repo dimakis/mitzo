@@ -22,7 +22,7 @@ import { isCapacitor, registerCapacitorLifecycle } from './lib/capacitor';
 import { parseChatTransportPreference, shouldUseSseTransport } from './lib/chat-transport';
 import { configureKeyboard } from './lib/keyboard';
 import { initPushNotifications } from './lib/push';
-import { eventBus } from './lib/event-bus-singleton';
+import { ensureEventBusConnected } from './lib/event-bus-singleton';
 import { getPreferredModel } from './lib/model-preference';
 
 /**
@@ -67,7 +67,9 @@ if (isLogoutPending()) clientStore.getState().invalidateAuthentication();
 
 if (typeof window !== 'undefined') {
   window.addEventListener(AUTH_LOST_EVENT, () => clientStore.getState().invalidateAuthentication());
-  window.addEventListener(AUTH_RESTORED_EVENT, () => clientStore.getState().forceReconnect());
+  window.addEventListener(AUTH_RESTORED_EVENT, () =>
+    clientStore.getState().restoreAuthentication(),
+  );
 }
 
 // Sync localStorage model preference into the store so sendMessage() includes it
@@ -79,7 +81,7 @@ if (typeof window !== 'undefined') {
 registerCapacitorLifecycle(
   () => {
     clientStore.getState().forceReconnect();
-    eventBus.ensureConnected();
+    ensureEventBusConnected();
   },
   () => clientStore.getState().sendSuspend(),
 );

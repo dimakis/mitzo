@@ -245,6 +245,13 @@ describe('SseConnection', () => {
       expect.objectContaining({ type: '_send_failed', clientMsgId: 'first' }),
     );
     expect(MockEventSource.instances).toHaveLength(1);
+    expect(conn.send({ type: 'send', clientMsgId: 'blocked', prompt: 'blocked' })).toBe(false);
+
+    conn.checkAndReconnect(true);
+    expect(MockEventSource.instances).toHaveLength(1);
+
+    conn.restoreAuthentication();
+    expect(MockEventSource.instances).toHaveLength(2);
   });
 
   it('uses refreshed credentials for the first prompt after reauthentication', async () => {
@@ -273,7 +280,7 @@ describe('SseConnection', () => {
     lastES()._emit('message', { type: 'auth_expired' });
 
     token = 'fresh';
-    conn.checkAndReconnect(true);
+    conn.restoreAuthentication();
     expect(lastES().url).toContain('token=fresh');
     lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'fresh-id' });
     conn.send({ type: 'send', sessionId: null, clientMsgId: 'after-login', prompt: 'safe' });

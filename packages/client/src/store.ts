@@ -142,6 +142,7 @@ export interface MitzoStoreState {
 
   // Actions — lifecycle
   invalidateAuthentication(): void;
+  restoreAuthentication(): void;
   forceReconnect(): void;
   sendSuspend(): void;
 }
@@ -636,6 +637,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     invalidateAuthentication() {
       connection.invalidateAuthentication();
+    },
+
+    restoreAuthentication() {
+      connection.restoreAuthentication();
     },
 
     forceReconnect() {

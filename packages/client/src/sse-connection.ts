@@ -52,6 +52,7 @@ export class SseConnection implements ChatConnection {
   private pendingSends: Array<{ endpoint: string; body: Record<string, unknown> }> = [];
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private authProbe: Promise<void> | null = null;
+  private authBlocked = false;
   private boundOnVisibility: (() => void) | null = null;
   private boundOnPageShow: ((e: PageTransitionEvent) => void) | null = null;
   private boundOnPageHide: (() => void) | null = null;
@@ -119,6 +120,11 @@ export class SseConnection implements ChatConnection {
     this.handleAuthLoss(false);
   }
 
+  restoreAuthentication(): void {
+    this.authBlocked = false;
+    this.checkAndReconnect(true);
+  }
+
   /**
    * Send a message to the server via HTTP POST.
    *
@@ -133,6 +139,7 @@ export class SseConnection implements ChatConnection {
    * could not be queued; true is local acceptance, not server delivery.
    */
   send(msg: Record<string, unknown>): boolean {
+    if (this.authBlocked) return false;
     if (msg.type === 'send') return this.outbox.enqueue(msg, this.sendScope);
     const endpoint = this.messageTypeToEndpoint(msg.type as string);
     if (!endpoint) return false;
@@ -227,6 +234,7 @@ export class SseConnection implements ChatConnection {
    * tears down and rebuilds for iOS Capacitor lifecycle hooks.
    */
   checkAndReconnect(force = false): void {
+    if (this.authBlocked) return;
     if (!force && this._connected) return;
     if (force) this.outbox.start();
     this.foregroundProbe?.cancel();
@@ -246,6 +254,7 @@ export class SseConnection implements ChatConnection {
   // ─── Internal ──────────────────────────────────────────────────────────────
 
   private doConnect(): void {
+    if (this.authBlocked) return;
     if (this.es) return;
 
     if (this.reconnectTimer) {
@@ -352,6 +361,7 @@ export class SseConnection implements ChatConnection {
   }
 
   private handleAuthLoss(notify = true): void {
+    this.authBlocked = true;
     this.foregroundProbe?.cancel();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;

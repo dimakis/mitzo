@@ -18,6 +18,10 @@ import {
 export const eventBus = new EventBus();
 let authBlocked = isLogoutPending();
 
+export function ensureEventBusConnected(): void {
+  if (!authBlocked) eventBus.ensureConnected();
+}
+
 // Connect immediately — EventSource auto-reconnects natively
 if (!authBlocked) eventBus.connect(() => getEventSourceUrl('/api/events'));
 eventBus.on('auth_expired', () => {
@@ -39,7 +43,7 @@ if (typeof document !== 'undefined') {
   });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && !authBlocked) {
-      eventBus.ensureConnected();
+      ensureEventBusConnected();
     }
   });
 }

@@ -73,6 +73,12 @@ describe('MitzoConnection authentication loss', () => {
       expect.objectContaining({ type: '_send_failed', clientMsgId: 'first' }),
     );
     expect(sockets).toHaveLength(1);
+
+    connection.checkAndReconnect(true);
+    expect(sockets).toHaveLength(1);
+
+    connection.restoreAuthentication();
+    expect(sockets).toHaveLength(2);
     connection.disconnect();
   });
 });

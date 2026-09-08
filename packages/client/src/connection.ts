@@ -79,6 +79,13 @@ export class MitzoConnection {
     this.handleAuthLoss(false);
   }
 
+  restoreAuthentication(): void {
+    this.authBlocked = false;
+    this.authCheckGeneration++;
+    this.authCheckInFlight = false;
+    this.checkAndReconnect(true);
+  }
+
   send(msg: Record<string, unknown>): boolean {
     const payload = JSON.stringify(msg);
     if (this._connected && this.ws?.readyState === WS_READY_STATE.OPEN) {
@@ -434,11 +441,7 @@ export class MitzoConnection {
    *   and flush after the welcome handshake completes.
    */
   checkAndReconnect(force = false): void {
-    if (force) {
-      this.authBlocked = false;
-      this.authCheckGeneration++;
-      this.authCheckInFlight = false;
-    }
+    if (this.authBlocked) return;
     if (!force && this.ws?.readyState === WS_READY_STATE.OPEN) return;
     if (this.reconnectTimer) return;
     this.defuseOldWs();
