@@ -1,4 +1,5 @@
-import { lstat, open, realpath, writeFile } from 'node:fs/promises';
+import { executeNativeFileOperation } from './native-file-operation.js';
+import { lstat, realpath } from 'node:fs/promises';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
@@ -79,24 +80,6 @@ export interface NativeToolOptions {
   onDemandCreate?: NonNullable<Parameters<typeof buildPermissionHandler>[2]>['onDemandCreate'];
 }
 
-async function readBounded(path: string, limit: number, signal: AbortSignal): Promise<string> {
-  const file = await open(path, 'r');
-  try {
-    const buffer = Buffer.alloc(limit + 1);
-    let offset = 0;
-    while (offset < buffer.length) {
-      signal.throwIfAborted();
-      const { bytesRead } = await file.read(buffer, offset, buffer.length - offset, null);
-      if (!bytesRead) break;
-      offset += bytesRead;
-    }
-    if (offset > limit) throw new Error('File exceeds native read/edit size limit');
-    return buffer.subarray(0, offset).toString('utf8');
-  } finally {
-    await file.close();
-  }
-}
-
 /** Native side effects use the same skill → worktree → mode/approval policy as SDK tools. */
 export function createNativeToolExecutor(
   clientId: string,
@@ -150,8 +133,9 @@ export function createNativeToolExecutor(
           );
         }
       }
+      const approvedPath = await canonicalPath(resolve(session.cwd, input.file_path));
       if ('file_path' in input) {
-        input.file_path = await canonicalPath(resolve(session.cwd, input.file_path));
+        input.file_path = approvedPath;
         if (isPrivate(input.file_path))
           return result('Private provider storage is unavailable', true);
         // Present the checked path under the registry's original root alias. This keeps
@@ -164,7 +148,15 @@ export function createNativeToolExecutor(
         if (root)
           input.file_path = resolve(root.original, relative(root.canonical, input.file_path));
       }
-      const approvedPath = await canonicalPath(input.file_path);
+      const approvedFile = await lstat(approvedPath, { bigint: true }).catch(
+        (error: NodeJS.ErrnoException) => {
+          if (error.code !== 'ENOENT') throw error;
+          return null;
+        },
+      );
+      const identity = approvedFile
+        ? { dev: String(approvedFile.dev), ino: String(approvedFile.ino) }
+        : null;
       const permission = await canUseTool(block.name, input, {
         signal,
         toolUseID: block.id,
@@ -180,31 +172,18 @@ export function createNativeToolExecutor(
         privatePathSnapshot()(input.file_path)
       )
         return result('Tool path changed or became private during approval; retry the tool', true);
-      if (block.name === 'Write') {
-        const write = schemas.Write.parse(input);
-        await writeFile(write.file_path, write.content, { encoding: 'utf8', signal });
-        return result('File written');
-      }
-      const content = await readBounded(
-        input.file_path,
-        options.maxOutputBytes ?? 64 * 1024,
+      const operation = await executeNativeFileOperation(
+        {
+          ...input,
+          operation: block.name,
+          identity,
+          file_path: approvedPath,
+          limit: options.maxOutputBytes ?? 64 * 1024,
+        },
         signal,
+        options.timeoutMs,
       );
-      if (block.name === 'Edit') {
-        const edit = schemas.Edit.parse(input);
-        if (
-          !content.includes(edit.old_string) ||
-          content.indexOf(edit.old_string) !== content.lastIndexOf(edit.old_string)
-        )
-          return result('Edit requires exactly one matching occurrence', true);
-        await writeFile(
-          input.file_path,
-          content.replace(edit.old_string, () => edit.new_string),
-          { encoding: 'utf8', signal },
-        );
-        return result('File edited');
-      }
-      return result(content);
+      return result(operation.content, operation.is_error);
     } catch (err: unknown) {
       return result(
         signal.aborted
