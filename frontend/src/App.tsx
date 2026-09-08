@@ -24,7 +24,9 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const [auth, setAuth] = useState<'loading' | 'ok' | 'denied' | 'unavailable'>('loading');
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
+    let ignoreCheckResult = false;
     const onAuthLost = () => {
+      ignoreCheckResult = true;
       localStorage.removeItem('mitzo_auth_token');
       setAuth('denied');
       hideSplash();
@@ -36,15 +38,21 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     }
     apiFetch('/api/auth/check')
       .then((r) => {
+        if (ignoreCheckResult) return;
         setAuth(r.ok ? 'ok' : 'denied');
         if (r.ok) {
           const token = localStorage.getItem('mitzo_auth_token');
           if (token) saveTokenToWatch(token);
         }
       })
-      .catch(() => setAuth('unavailable'))
+      .catch(() => {
+        if (!ignoreCheckResult) setAuth('unavailable');
+      })
       .finally(() => hideSplash());
-    return () => window.removeEventListener(AUTH_LOST_EVENT, onAuthLost);
+    return () => {
+      ignoreCheckResult = true;
+      window.removeEventListener(AUTH_LOST_EVENT, onAuthLost);
+    };
   }, [attempt]);
   if (auth === 'denied') return <Navigate to="/login" replace />;
   if (auth === 'loading') {

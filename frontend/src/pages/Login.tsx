@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiFetch, getApiBaseUrl, loginSucceeded } from '../lib/api-fetch';
+import { apiFetch, getApiBaseUrl, loginSucceeded, markAuthLost } from '../lib/api-fetch';
 import {
   isBiometricAvailable,
   getBiometricLabel,
@@ -50,7 +50,7 @@ export function Login() {
     setError('');
     setSubmitting(true);
 
-    localStorage.removeItem('mitzo_auth_token');
+    markAuthLost();
     try {
       const res = await apiFetch('/api/auth/login', {
         method: 'POST',
