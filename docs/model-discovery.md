@@ -1,6 +1,6 @@
 # Models, thinking, and image input
 
-Mitzo discovers ChatGPT subscription models through the account's Codex `model/list` endpoint (all pages, including hidden entries) and Vertex models through the account-configured Agent SDK `supportedModels()` call. The account profile's configured list is the fallback when discovery has never succeeded. OpenAI API profiles continue to use their configured model list: the API's model listing does not provide the capability metadata needed to identify compatible chat models and thinking levels.
+Mitzo discovers ChatGPT subscription models through the account's Codex `model/list` endpoint (all pages, including hidden entries). Vertex uses the configured project model allowlist: SDK model names do not establish access for a particular Google Cloud project. The account profile's configured list is the fallback when discovery has never succeeded. OpenAI API profiles continue to use their configured model list: the API's model listing does not provide the capability metadata needed to identify compatible chat models and thinking levels.
 
 Discovery runs at server startup and hourly. Use **Refresh models** beside the model picker or `/models refresh` in chat to force discovery. `/models` shows the current catalog. Discovery does not submit a model turn. Concurrent refreshes for an account share one request; catalogs are isolated by the complete account configuration. A failed refresh keeps the last successful catalog and displays a failure notice. Account login and billing identity are still checked before execution.
 

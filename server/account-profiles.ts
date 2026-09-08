@@ -82,26 +82,32 @@ export class AccountProfiles {
               : provider === 'openai'
                 ? 'openai-api'
                 : 'google-cloud',
-          models: discovered?.models ?? profile.models,
+          models:
+            provider === 'anthropic-vertex'
+              ? profile.models
+              : (discovered?.models ?? profile.models),
           modelDiscovery: { updatedAt: discovered?.updatedAt, stale: !!discovered?.error },
           capabilities: { streaming: true, tools: true, images: provider !== 'openai' },
         };
       });
   }
 
+  /** Legacy requests use the server's Vertex route, not any other account's models. */
+  legacyModels(projectId: string | undefined, region: string) {
+    const profile = this.profiles.find(
+      (p) => p.provider === 'anthropic-vertex' && p.projectId === projectId && p.region === region,
+    );
+    return profile?.models ?? [];
+  }
+
   async refresh(force = false) {
     await Promise.all(
       this.profiles
-        .filter(
-          (p) =>
-            p.provider === 'anthropic-vertex' ||
-            (p.provider === 'openai-codex' && this.options.codexEnabled),
-        )
+        .filter((p) => p.provider === 'openai-codex' && this.options.codexEnabled)
         .map((profile) =>
           refreshModels(
             JSON.stringify(profile),
             async () => {
-              const binding = this.resolve(profile.id, profile.models[0].id, true);
               if (profile.provider === 'openai-codex') {
                 const { CodexAppServerClient } = await import('./codex-app-server-client.js');
                 const { verifyCodexAccount } = await import('./codex-account.js');
@@ -122,40 +128,7 @@ export class AccountProfiles {
                   client.close();
                 }
               }
-              const { query } = await import('@anthropic-ai/claude-agent-sdk');
-              const { AsyncQueue } = await import('./async-queue.js');
-              const queue = new AsyncQueue<
-                import('@anthropic-ai/claude-agent-sdk').SDKUserMessage
-              >();
-              const controller = new AbortController();
-              const timeout = setTimeout(() => controller.abort(), 30_000);
-              const q = query({
-                prompt: queue,
-                options: {
-                  env: this.sdkEnv(
-                    binding,
-                    Object.fromEntries(
-                      Object.entries(process.env).filter(
-                        (entry): entry is [string, string] => typeof entry[1] === 'string',
-                      ),
-                    ),
-                  ),
-                  abortController: controller,
-                  persistSession: false,
-                  settingSources: [],
-                  mcpServers: {},
-                },
-              });
-              try {
-                return (await q.supportedModels()).map((m) => ({
-                  id: m.value,
-                  label: m.displayName,
-                }));
-              } finally {
-                clearTimeout(timeout);
-                queue.close();
-                q.close();
-              }
+              return profile.models;
             },
             force,
           ),
@@ -172,7 +145,7 @@ export class AccountProfiles {
     if (
       !model ||
       !(
-        configured
+        configured || profile.provider === 'anthropic-vertex'
           ? profile.models
           : (cachedModels(JSON.stringify(profile))?.models ?? profile.models)
       ).some((m) => m.id === model)
@@ -314,10 +287,7 @@ export function loadAccountProfiles(): AccountProfiles {
 }
 
 export const LEGACY_MODELS = [
-  { id: 'claude-opus-4-8', label: 'Opus 4.8', desc: 'Latest Opus' },
-  { id: 'claude-opus-4-8:max', label: 'Opus 4.8 Max', desc: 'Max thinking (128k)' },
-  { id: 'claude-opus-4-6', label: 'Opus 4.6', desc: 'Previous Opus' },
-  { id: 'claude-sonnet-5', label: 'Sonnet 5', desc: 'Latest Sonnet' },
+  { id: 'claude-opus-4-6', label: 'Opus 4.6', desc: 'Most capable' },
   { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', desc: 'Balanced' },
   { id: 'claude-sonnet-4-5', label: 'Sonnet 4.5', desc: 'Previous Sonnet' },
   { id: 'claude-haiku-4-5', label: 'Haiku 4.5', desc: 'Fastest' },

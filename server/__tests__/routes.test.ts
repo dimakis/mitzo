@@ -897,6 +897,34 @@ describe('account catalog routes', () => {
       vi.unstubAllEnvs();
     }
   });
+  it('uses the configured Vertex allowlist for the legacy selector too', async () => {
+    const file = join(TEST_REPO, 'model-profiles.json');
+    const models = [{ id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' }];
+    writeFileSync(
+      file,
+      JSON.stringify([
+        {
+          id: 'work',
+          label: 'Work',
+          provider: 'anthropic-vertex',
+          projectId: 'test-project',
+          region: 'global',
+          credentialRef: '/credentials/adc.json',
+          models,
+        },
+      ]),
+    );
+    vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', file);
+    vi.stubEnv('ANTHROPIC_VERTEX_PROJECT_ID', 'test-project');
+    vi.stubEnv('CLOUD_ML_REGION', 'global');
+    try {
+      const res = await request(app).get('/api/models').set('Cookie', authCookie);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(models);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
   it('returns a persisted binding with session metadata', async () => {
     const binding = {
       accountId: 'work',
