@@ -10,9 +10,38 @@ function formatTime(isoStr: string): string {
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
-export function EventCard({ event }: { event: CalendarEvent }) {
+export function EventCard({
+  event,
+  detail = false,
+  selected = false,
+  onSelect,
+}: {
+  event: CalendarEvent;
+  detail?: boolean;
+  selected?: boolean;
+  onSelect?: () => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const navigate = useNavigate();
+  const isExpanded = detail || expanded;
+  const toggle = () => {
+    if (onSelect) onSelect();
+    else if (!detail) setExpanded(!expanded);
+  };
+  const title = onSelect ? (
+    <button
+      className="cal-event-title cal-event-select"
+      aria-current={selected ? 'true' : undefined}
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect();
+      }}
+    >
+      {event.title}
+    </button>
+  ) : (
+    <span className="cal-event-title">{event.title}</span>
+  );
   const setPendingSession = useMitzoStore((s) => s.setPendingSession);
 
   function handlePrepClick(e: React.MouseEvent) {
@@ -27,12 +56,12 @@ export function EventCard({ event }: { event: CalendarEvent }) {
 
   if (event.type === 'milestone') {
     return (
-      <div className="cal-event cal-event-milestone" onClick={() => setExpanded(!expanded)}>
+      <div className="cal-event cal-event-milestone" onClick={toggle}>
         <div className="cal-event-row">
           <span className="cal-event-badge cal-badge-milestone">Release</span>
-          <span className="cal-event-title">{event.title}</span>
+          {title}
         </div>
-        {expanded && (
+        {isExpanded && (
           <div className="cal-event-detail">
             {event.ourFeatures != null && (
               <div className="cal-detail-line">
@@ -60,15 +89,15 @@ export function EventCard({ event }: { event: CalendarEvent }) {
   const timeStr = time && endTime ? `${time}\u2013${endTime}` : time;
 
   return (
-    <div className="cal-event cal-event-meeting" onClick={() => setExpanded(!expanded)}>
+    <div className="cal-event cal-event-meeting" onClick={toggle}>
       <div className="cal-event-row">
         {timeStr && <span className="cal-event-time">{timeStr}</span>}
-        <span className="cal-event-title">{event.title}</span>
+        {title}
         {event.attendeeCount && event.attendeeCount > 1 && (
           <span className="cal-event-attendees">{event.attendeeCount}</span>
         )}
       </div>
-      {expanded && (
+      {isExpanded && (
         <div className="cal-event-detail">
           {event.location && <div className="cal-detail-line">{event.location}</div>}
           {event.attendees && event.attendees.length > 0 && (

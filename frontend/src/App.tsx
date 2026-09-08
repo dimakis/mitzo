@@ -54,6 +54,15 @@ function ChatRoute() {
   return isDesktop ? <DesktopChatView /> : <ChatView />;
 }
 
+function CollectionRoute({ page }: { page: 'proposals' | 'calendar' }) {
+  const isDesktop = useIsDesktop();
+  return page === 'proposals' ? (
+    <InboxView desktop={isDesktop} />
+  ) : (
+    <CalendarView desktop={isDesktop} />
+  );
+}
+
 function TaskBoardRoute() {
   const isDesktop = useIsDesktop();
   return <TaskBoard key={isDesktop ? 'desktop' : 'mobile'} desktop={isDesktop} />;
@@ -154,7 +163,7 @@ export function App() {
                 element={
                   <ProtectedRoute>
                     <PageRoute>
-                      <InboxView />
+                      <CollectionRoute page="proposals" />
                     </PageRoute>
                   </ProtectedRoute>
                 }
@@ -164,7 +173,7 @@ export function App() {
                 element={
                   <ProtectedRoute>
                     <PageRoute>
-                      <CalendarView />
+                      <CollectionRoute page="calendar" />
                     </PageRoute>
                   </ProtectedRoute>
                 }

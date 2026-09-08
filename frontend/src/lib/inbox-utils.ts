@@ -1,4 +1,4 @@
-interface InboxItem {
+export interface InboxItem {
   filename: string;
   agent: string;
   title: string;
