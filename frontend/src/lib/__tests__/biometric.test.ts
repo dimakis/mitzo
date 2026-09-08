@@ -124,6 +124,53 @@ describe('biometricLogin', () => {
     expect(localStorage.getItem('mitzo_auth_token')).toBe('stored-jwt');
   });
 
+  it('does not overwrite a newer login when biometric validation succeeds late', async () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    vi.mocked(NativeBiometric.verifyIdentity).mockResolvedValue(undefined as never);
+    vi.mocked(NativeBiometric.getCredentials).mockResolvedValue({
+      username: 'mitzo-user',
+      password: 'stored-jwt',
+    });
+    let resolveValidation!: (response: Response) => void;
+    vi.spyOn(global, 'fetch').mockReturnValue(
+      new Promise<Response>((resolve) => {
+        resolveValidation = resolve;
+      }),
+    );
+
+    const pending = biometricLogin();
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+    localStorage.setItem('mitzo_auth_token', 'fresh-login');
+    resolveValidation({ ok: true } as Response);
+
+    expect(await pending).toBeNull();
+    expect(localStorage.getItem('mitzo_auth_token')).toBe('fresh-login');
+  });
+
+  it('does not clear newer credentials when biometric validation fails late', async () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    vi.mocked(NativeBiometric.verifyIdentity).mockResolvedValue(undefined as never);
+    vi.mocked(NativeBiometric.getCredentials).mockResolvedValue({
+      username: 'mitzo-user',
+      password: 'stored-jwt',
+    });
+    let resolveValidation!: (response: Response) => void;
+    vi.spyOn(global, 'fetch').mockReturnValue(
+      new Promise<Response>((resolve) => {
+        resolveValidation = resolve;
+      }),
+    );
+
+    const pending = biometricLogin();
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+    localStorage.setItem('mitzo_auth_token', 'fresh-login');
+    resolveValidation({ ok: false } as Response);
+
+    expect(await pending).toBeNull();
+    expect(localStorage.getItem('mitzo_auth_token')).toBe('fresh-login');
+    expect(NativeBiometric.deleteCredentials).not.toHaveBeenCalled();
+  });
+
   it('returns null when verification fails', async () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
     vi.mocked(NativeBiometric.verifyIdentity).mockRejectedValue(new Error('cancelled'));

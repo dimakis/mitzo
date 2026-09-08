@@ -43,6 +43,10 @@ export function isLogoutPending(): boolean {
   return typeof localStorage !== 'undefined' && localStorage.getItem(LOGOUT_PENDING_KEY) === '1';
 }
 
+export function getStoredAuthToken(): string | null {
+  return typeof localStorage !== 'undefined' ? localStorage.getItem(AUTH_TOKEN_KEY) : null;
+}
+
 export function getApiBaseUrl(): string {
   const configured = import.meta.env.VITE_API_BASE_URL;
   return configured && configured !== 'undefined' ? configured : '';
@@ -58,7 +62,7 @@ export function getWsBaseUrl(): string {
 /** Build the full WebSocket URL with token auth query param when needed. */
 export function getWsChatUrl(): string {
   const base = getWsBaseUrl();
-  const token = typeof localStorage !== 'undefined' ? localStorage.getItem(AUTH_TOKEN_KEY) : null;
+  const token = getStoredAuthToken();
   const url = `${base}/ws/chat`;
   return token ? `${url}?token=${encodeURIComponent(token)}` : url;
 }
@@ -66,7 +70,7 @@ export function getWsChatUrl(): string {
 /** Build an SSE URL with query authentication for EventSource, which cannot set headers. */
 export function getEventSourceUrl(path: string): string {
   const url = path.startsWith('http') ? path : `${getApiBaseUrl()}${path}`;
-  const token = typeof localStorage !== 'undefined' ? localStorage.getItem(AUTH_TOKEN_KEY) : null;
+  const token = getStoredAuthToken();
   if (!token) return url;
   return `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
 }
@@ -74,11 +78,10 @@ export function getEventSourceUrl(path: string): string {
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const url = path.startsWith('http') ? path : `${getApiBaseUrl()}${path}`;
   const headers = new Headers(init?.headers);
-  const token = typeof localStorage !== 'undefined' ? localStorage.getItem(AUTH_TOKEN_KEY) : null;
+  const token = getStoredAuthToken();
   if (token) headers.set('Authorization', `Bearer ${token}`);
   const response = await fetch(url, { ...init, headers, credentials: 'include' });
-  const currentToken =
-    typeof localStorage !== 'undefined' ? localStorage.getItem(AUTH_TOKEN_KEY) : null;
+  const currentToken = getStoredAuthToken();
   if (response.status === 401 && !path.endsWith('/api/auth/login') && currentToken === token) {
     markAuthLost();
   }

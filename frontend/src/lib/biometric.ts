@@ -1,7 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import { NativeBiometric, BiometryType } from '@capgo/capacitor-native-biometric';
 import { saveTokenToWatch } from './watch-auth';
-import { isLogoutPending, loginSucceeded, markAuthLost } from './api-fetch';
+import { getStoredAuthToken, isLogoutPending, loginSucceeded, markAuthLost } from './api-fetch';
 
 const SERVER = 'com.mitzo.app';
 export async function isBiometricAvailable(): Promise<boolean> {
@@ -77,6 +77,9 @@ export async function biometricLogin(apiBaseUrl = ''): Promise<string | null> {
     await deleteCredentials();
     return null;
   }
+  const authTokenAtStart = getStoredAuthToken();
+  const authContextIsCurrent = () =>
+    !isLogoutPending() && getStoredAuthToken() === authTokenAtStart;
 
   try {
     await NativeBiometric.verifyIdentity({
@@ -92,22 +95,25 @@ export async function biometricLogin(apiBaseUrl = ''): Promise<string | null> {
     const token = credentials.password;
 
     if (!token) return null;
+    if (!authContextIsCurrent()) return null;
 
     // Validate the token with the server before accepting it
     const res = await fetch(`${apiBaseUrl}/api/sessions`, {
       headers: { Authorization: `Bearer ${token}` },
       credentials: 'include',
     });
+    if (!authContextIsCurrent()) return null;
     if (!res.ok) {
-      // Token expired or invalid — clear stale credentials
-      await deleteCredentials();
+      // Avoid deleting Keychain credentials here: a passphrase login can be saving
+      // a replacement concurrently and the native API has no compare-and-delete.
       markAuthLost();
       return null;
     }
 
-    loginSucceeded(token);
     // Also save to native shared Keychain for Apple Watch
     await saveTokenToWatch(token);
+    if (!authContextIsCurrent()) return null;
+    loginSucceeded(token);
     return token;
   } catch {
     return null;
