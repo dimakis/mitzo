@@ -903,7 +903,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   }
 
   connection.onMessage(wsListener);
-  if (options.initiallyAuthenticated === false) connection.invalidateAuthentication();
+  if (options.initiallyAuthenticated === false) connection.blockAuthentication();
   connection.connect();
 
   return store;

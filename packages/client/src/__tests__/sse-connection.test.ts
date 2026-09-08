@@ -112,6 +112,38 @@ describe('SseConnection', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('preserves persisted prompts while startup waits for authentication', async () => {
+    const prompt = {
+      type: 'send',
+      sessionId: null,
+      clientMsgId: 'persisted-before-reload',
+      prompt: 'keep me',
+    };
+    const storage = {
+      getItem: vi.fn(() => JSON.stringify([{ body: prompt, scope: 1 }])),
+      setItem: vi.fn(),
+    };
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 202,
+      json: async () => ({ accepted: true, clientMsgId: prompt.clientMsgId }),
+    });
+    const conn = new SseConnection(createConfig({ fetch, outboxStorage: storage }));
+
+    conn.blockAuthentication();
+    conn.connect();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(storage.setItem).not.toHaveBeenCalled();
+
+    conn.restoreAuthentication();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch).toHaveBeenCalledWith(
+      'https://localhost:3100/api/chat/send',
+      expect.objectContaining({ body: JSON.stringify(prompt) }),
+    );
+  });
+
   it('serializes replay requests and includes sessions accepted during an in-flight replay', async () => {
     const replays: Array<{
       body: { sessions: Array<{ sessionId: string }> };

@@ -116,6 +116,10 @@ export class SseConnection implements ChatConnection {
     this._connected = false;
   }
 
+  blockAuthentication(): void {
+    this.authBlocked = true;
+  }
+
   invalidateAuthentication(): void {
     this.handleAuthLoss(false);
   }

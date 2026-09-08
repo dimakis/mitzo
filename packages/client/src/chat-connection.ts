@@ -7,6 +7,8 @@ export interface ChatConnection {
   connect(): void;
   /** Close the transport and clean up listeners. */
   disconnect(): void;
+  /** Start blocked without discarding persisted work while authentication is still unknown. */
+  blockAuthentication(): void;
   /** Close the transport and discard work queued under an invalid authentication context. */
   invalidateAuthentication(): void;
   /** Resume a transport only after an explicit successful login. */
