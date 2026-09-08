@@ -15,6 +15,7 @@ import { fileURLToPath } from 'url';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import {
   login,
+  authenticateToken,
   authMiddleware,
   verifyToken,
   registerAuthSession,
@@ -601,6 +602,21 @@ app.post('/api/sessions/suspend', (req, res) => {
   });
 });
 
+// Logout must always reach cookie clearing, even when an explicit stale bearer
+// would otherwise be rejected before the handler. Revoke every valid presented
+// browser/native credential; invalid credentials do not prevent cookie removal.
+app.post('/api/auth/logout', async (req, res) => {
+  const bearer = req.headers.authorization?.startsWith('Bearer ')
+    ? req.headers.authorization.slice(7).trim()
+    : undefined;
+  const cookie = req.cookies?.[COOKIE_NAME] as string | undefined;
+  const tokens = [...new Set([bearer, cookie].filter((token): token is string => Boolean(token)))];
+  const sessions = await Promise.all(tokens.map((token) => authenticateToken(token)));
+  for (const session of sessions) revokeAuthSession(session ?? undefined);
+  res.clearCookie(COOKIE_NAME, { httpOnly: true, sameSite: 'strict' });
+  res.json({ ok: true });
+});
+
 app.use('/api', authMiddleware);
 
 // --- SSE Event Bus ---
@@ -1119,12 +1135,6 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     maxAge: MAX_AGE_HOURS * 60 * 60 * 1000,
   });
   res.json({ ok: true, token });
-});
-
-app.post('/api/auth/logout', (_req, res) => {
-  revokeAuthSession(res.locals.authSession as AuthSession | undefined);
-  res.clearCookie(COOKIE_NAME, { httpOnly: true, sameSite: 'strict' });
-  res.json({ ok: true });
 });
 
 app.get('/api/auth/check', (_req, res) => res.json({ ok: true }));

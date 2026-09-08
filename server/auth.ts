@@ -58,7 +58,7 @@ export interface AuthSession {
 type AuthInvalidationReason = 'expired' | 'revoked';
 type AuthInvalidationListener = (reason: AuthInvalidationReason) => void;
 
-const revokedSessions = new Set<string>();
+const revokedSessions = new Map<string, number>();
 const activeSessions = new Map<string, Set<AuthInvalidationListener>>();
 const MAX_TIMER_DELAY_MS = 2_147_000_000;
 
@@ -73,6 +73,16 @@ export async function login(passphrase: string): Promise<string | null> {
     .sign(SECRET);
 }
 
+function isSessionRevoked(session: AuthSession): boolean {
+  const revokedUntil = revokedSessions.get(session.id);
+  if (revokedUntil === undefined) return false;
+  if (revokedUntil <= Date.now()) {
+    revokedSessions.delete(session.id);
+    return false;
+  }
+  return true;
+}
+
 export async function authenticateToken(token: string): Promise<AuthSession | null> {
   try {
     const { payload } = await jwtVerify(token, SECRET);
@@ -84,8 +94,9 @@ export async function authenticateToken(token: string): Promise<AuthSession | nu
       return null;
     }
     const id = payload.jti ?? createHash('sha256').update(token).digest('base64url');
-    if (revokedSessions.has(id)) return null;
-    return { id, expiresAt: payload.exp * 1000 };
+    const session = { id, expiresAt: payload.exp * 1000 };
+    if (isSessionRevoked(session)) return null;
+    return session;
   } catch {
     return null;
   }
@@ -202,7 +213,7 @@ export function registerAuthSession(
   session: AuthSession,
   listener: AuthInvalidationListener,
 ): () => void {
-  if (revokedSessions.has(session.id)) {
+  if (isSessionRevoked(session)) {
     listener('revoked');
     return () => undefined;
   }
@@ -224,7 +235,10 @@ export function registerAuthSession(
 
 export function revokeAuthSession(session: AuthSession | undefined): void {
   if (!session) return;
-  revokedSessions.add(session.id);
+  revokedSessions.set(session.id, session.expiresAt);
+  scheduleAt(session.expiresAt, () => {
+    if (revokedSessions.get(session.id) === session.expiresAt) revokedSessions.delete(session.id);
+  });
   const listeners = activeSessions.get(session.id);
   activeSessions.delete(session.id);
   for (const listener of listeners ?? []) listener('revoked');

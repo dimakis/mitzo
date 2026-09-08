@@ -221,6 +221,22 @@ describe('auth routes', () => {
     ).toBe(401);
   });
 
+  it('POST /api/auth/logout — clears and revokes a valid cookie despite an invalid bearer', async () => {
+    const token = authCookie.slice('cc_auth='.length);
+    const response = await request(app)
+      .post('/api/auth/logout')
+      .set('Authorization', 'Bearer expired')
+      .set('Cookie', authCookie);
+
+    expect(response.status).toBe(200);
+    expect(response.headers['set-cookie']?.[0]).toContain('cc_auth=;');
+    expect(
+      (await request(app).get('/api/auth/check').set('Authorization', `Bearer ${token}`)).status,
+    ).toBe(401);
+    const { login } = await import('../auth.js');
+    authCookie = `cc_auth=${await login(process.env.AUTH_PASSPHRASE!)}`;
+  });
+
   it('GET /api/auth/check — unauthenticated returns 401', async () => {
     const res = await request(app).get('/api/auth/check');
     expect(res.status).toBe(401);

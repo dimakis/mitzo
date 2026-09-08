@@ -17,6 +17,17 @@ function dispatchAuthEvent(name: string): void {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(name));
 }
 
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.storageArea && event.storageArea !== localStorage) return;
+    if (event.key === AUTH_TOKEN_KEY) {
+      dispatchAuthEvent(event.newValue ? AUTH_RESTORED_EVENT : AUTH_LOST_EVENT);
+    } else if (event.key === LOGOUT_PENDING_KEY && event.newValue === '1') {
+      dispatchAuthEvent(AUTH_LOST_EVENT);
+    }
+  });
+}
+
 export function markAuthLost(): void {
   if (typeof localStorage !== 'undefined') localStorage.removeItem(AUTH_TOKEN_KEY);
   dispatchAuthEvent(AUTH_LOST_EVENT);
@@ -88,7 +99,7 @@ export async function logout(): Promise<void> {
         }, 2_000);
       }),
     ]);
-    if (response && (response.ok || response.status === 401)) {
+    if (response?.ok) {
       localStorage.removeItem(LOGOUT_PENDING_KEY);
     }
   } catch {

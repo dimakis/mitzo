@@ -47,6 +47,25 @@ describe('getEventSourceUrl', () => {
 });
 
 describe('apiFetch', () => {
+  it('propagates token changes from another tab as auth lifecycle events', () => {
+    const restored = vi.fn();
+    const lost = vi.fn();
+    window.addEventListener(AUTH_RESTORED_EVENT, restored);
+    window.addEventListener(AUTH_LOST_EVENT, lost);
+
+    window.dispatchEvent(
+      new StorageEvent('storage', { key: 'mitzo_auth_token', newValue: 'fresh-token' }),
+    );
+    window.dispatchEvent(
+      new StorageEvent('storage', { key: 'mitzo_auth_token', oldValue: 'fresh-token' }),
+    );
+
+    expect(restored).toHaveBeenCalledOnce();
+    expect(lost).toHaveBeenCalledOnce();
+    window.removeEventListener(AUTH_RESTORED_EVENT, restored);
+    window.removeEventListener(AUTH_LOST_EVENT, lost);
+  });
+
   it('prepends base URL to relative paths when configured', async () => {
     const originalEnv = import.meta.env.VITE_API_BASE_URL;
     // We test the prepend logic via the default (empty) base — relative path stays relative
@@ -146,6 +165,15 @@ describe('apiFetch', () => {
     await expect(logout()).resolves.toBeUndefined();
 
     expect(localStorage.getItem('mitzo_auth_token')).toBeNull();
+    expect(isLogoutPending()).toBe(true);
+  });
+
+  it('keeps logout pending when no response proves cookie clearing ran', async () => {
+    localStorage.setItem('mitzo_auth_token', 'stale-token');
+    mockFetch.mockResolvedValueOnce(new Response('{}', { status: 401 }));
+
+    await logout();
+
     expect(isLogoutPending()).toBe(true);
   });
 
