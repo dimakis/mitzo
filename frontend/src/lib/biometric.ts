@@ -4,6 +4,14 @@ import { saveTokenToWatch } from './watch-auth';
 import { getStoredAuthToken, isLogoutPending, loginSucceeded, markAuthLost } from './api-fetch';
 
 const SERVER = 'com.mitzo.app';
+let credentialMutation = Promise.resolve();
+
+function enqueueCredentialMutation(operation: () => Promise<void>): Promise<void> {
+  const next = credentialMutation.then(operation, operation);
+  credentialMutation = next.catch(() => undefined);
+  return next;
+}
+
 export async function isBiometricAvailable(): Promise<boolean> {
   if (!Capacitor.isNativePlatform()) return false;
   try {
@@ -45,25 +53,29 @@ export function biometryLabel(type: BiometryType): string {
 /** Store JWT in Keychain after successful passphrase login. */
 export async function saveCredentials(token: string): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
-  try {
-    await NativeBiometric.setCredentials({
-      username: 'mitzo-user',
-      password: token,
-      server: SERVER,
-    });
-  } catch {
-    // Keychain write failed — fall back to localStorage only
-  }
+  await enqueueCredentialMutation(async () => {
+    try {
+      await NativeBiometric.setCredentials({
+        username: 'mitzo-user',
+        password: token,
+        server: SERVER,
+      });
+    } catch {
+      // Keychain write failed — fall back to localStorage only
+    }
+  });
 }
 
 /** Remove stored credentials (logout). */
 export async function deleteCredentials(): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
-  try {
-    await NativeBiometric.deleteCredentials({ server: SERVER });
-  } catch {
-    // No credentials to delete
-  }
+  await enqueueCredentialMutation(async () => {
+    try {
+      await NativeBiometric.deleteCredentials({ server: SERVER });
+    } catch {
+      // No credentials to delete
+    }
+  });
 }
 
 /**
@@ -104,9 +116,10 @@ export async function biometricLogin(apiBaseUrl = ''): Promise<string | null> {
     });
     if (!authContextIsCurrent()) return null;
     if (!res.ok) {
-      // Avoid deleting Keychain credentials here: a passphrase login can be saving
-      // a replacement concurrently and the native API has no compare-and-delete.
-      if (authTokenAtStart === null || authTokenAtStart === token) markAuthLost();
+      if (authTokenAtStart === null || authTokenAtStart === token) {
+        markAuthLost();
+        await deleteCredentials();
+      }
       return null;
     }
 

@@ -91,6 +91,28 @@ describe('deleteCredentials', () => {
     await deleteCredentials();
     expect(NativeBiometric.deleteCredentials).not.toHaveBeenCalled();
   });
+
+  it('serializes a newer save behind an in-flight credential deletion', async () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    let finishDelete!: () => void;
+    vi.mocked(NativeBiometric.deleteCredentials).mockReturnValue(
+      new Promise<void>((resolve) => {
+        finishDelete = resolve;
+      }) as never,
+    );
+
+    const deleting = deleteCredentials();
+    await vi.waitFor(() => expect(NativeBiometric.deleteCredentials).toHaveBeenCalled());
+    const saving = saveCredentials('new-token');
+    await Promise.resolve();
+    expect(NativeBiometric.setCredentials).not.toHaveBeenCalled();
+
+    finishDelete();
+    await Promise.all([deleting, saving]);
+    expect(NativeBiometric.setCredentials).toHaveBeenCalledWith(
+      expect.objectContaining({ password: 'new-token' }),
+    );
+  });
 });
 
 describe('biometricLogin', () => {
@@ -183,6 +205,19 @@ describe('biometricLogin', () => {
 
     expect(await biometricLogin()).toBeNull();
     expect(localStorage.getItem('mitzo_auth_token')).toBe('valid-local-token');
+  });
+
+  it('deletes a rejected Keychain token when no different local login exists', async () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    vi.mocked(NativeBiometric.verifyIdentity).mockResolvedValue(undefined as never);
+    vi.mocked(NativeBiometric.getCredentials).mockResolvedValue({
+      username: 'mitzo-user',
+      password: 'stale-keychain-token',
+    });
+    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: false } as Response);
+
+    expect(await biometricLogin()).toBeNull();
+    expect(NativeBiometric.deleteCredentials).toHaveBeenCalledOnce();
   });
 
   it('returns null when verification fails', async () => {
