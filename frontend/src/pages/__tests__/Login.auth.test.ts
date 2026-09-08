@@ -6,7 +6,9 @@ describe('Login authentication recovery', () => {
   it('checks for a preserved cookie session after a failed passphrase attempt', () => {
     const source = readFileSync(join(import.meta.dirname, '..', 'Login.tsx'), 'utf8');
 
-    expect(source).toContain('await restoreCookieAuthentication()');
+    expect(source).toContain('const restored = await restoreCookieAuthentication()');
+    expect(source).toContain('if (restored) {');
+    expect(source).toContain("navigate('/');\n          return;");
   });
 
   it('leaves the login page when another tab restores authentication', () => {

@@ -83,7 +83,11 @@ export function Login() {
         } else loginSucceeded();
         navigate('/');
       } else {
-        await restoreCookieAuthentication().catch(() => false);
+        const restored = await restoreCookieAuthentication().catch(() => false);
+        if (restored) {
+          navigate('/');
+          return;
+        }
         setError('Invalid passphrase');
       }
     } catch {
