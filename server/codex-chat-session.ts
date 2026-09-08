@@ -1,3 +1,4 @@
+import { HOST_TOOL_INSTRUCTIONS } from './session-permission-policy.js';
 import { createNativeHooks } from './native-hooks.js';
 import { requestCodexUserInput } from './codex-user-input.js';
 import { loadAccountProfiles } from './account-profiles.js';
@@ -13,7 +14,11 @@ import { CodexAppServerClient } from './codex-app-server-client.js';
 import { CodexConversation } from './codex-conversation.js';
 import { CodexConversationStore } from './codex-conversation-store.js';
 import type { CodexAccountProfile } from './codex-account.js';
-import { createNativeToolExecutor, nativeToolDefinitions } from './native-tool-executor.js';
+import {
+  createNativeToolExecutor,
+  nativeToolDefinitions,
+  type NativeToolOptions,
+} from './native-tool-executor.js';
 import type { McpServerConfig } from './mcp-config.js';
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
@@ -67,6 +72,7 @@ interface Options {
   systemPrompt: string;
   env: Record<string, string>;
   mcpServers: Record<string, McpServerConfig>;
+  onDemandCreate?: NativeToolOptions['onDemandCreate'];
 }
 /** Shared chat adapter. Execution remains gated by the account catalog and unsupported capabilities fail explicitly. */
 export async function openCodexChat(options: Options) {
@@ -118,7 +124,10 @@ export async function openCodexChat(options: Options) {
     profile: options.profile,
     storedBinding: options.binding,
     store: privateStorage,
-    systemPrompt: options.systemPrompt + (startup.context ? `\n\n${startup.context}` : ''),
+    systemPrompt:
+      options.systemPrompt +
+      HOST_TOOL_INSTRUCTIONS +
+      (startup.context ? `\n\n${startup.context}` : ''),
     beforeComplete: async (signal) => {
       await hooks.run('Stop', { stop_hook_active: false }, signal);
     },
@@ -161,7 +170,9 @@ export async function openCodexChat(options: Options) {
             name,
             input,
             async (canonical, args, s) =>
-              buildPermissionHandler(owner.clientId, options.registry)(canonical, args, {
+              buildPermissionHandler(owner.clientId, options.registry, {
+                onDemandCreate: options.onDemandCreate,
+              })(canonical, args, {
                 signal: s,
                 toolUseID: randomUUID(),
                 forcePrompt,
@@ -171,6 +182,7 @@ export async function openCodexChat(options: Options) {
         const execute = createNativeToolExecutor(owner.clientId, options.registry, {
           env: options.env,
           forcePrompt,
+          onDemandCreate: options.onDemandCreate,
         });
         const result = await execute({ type: 'tool_use', id: randomUUID(), name, input }, signal);
         return { content: result.content, isError: !!result.is_error };

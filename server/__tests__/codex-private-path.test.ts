@@ -1,6 +1,6 @@
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
 import { expect, it, vi } from 'vitest';
 import { isPrivateCodexPath, createCodexPathProtection } from '../codex-private-path.js';
 it('protects continuation directories, descendants, nonexistent writes and symlink aliases without blocking sibling names', () => {
@@ -54,4 +54,17 @@ it('does not treat a symlink resolution failure as an ordinary missing path', ()
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+it('protects Mitzo auth and other local credential stores for every native tool', () => {
+  const check = createCodexPathProtection(() => [])();
+  for (const file of [
+    '.mitzo/internal-token',
+    '.claude.json',
+    '.ssh/id_ed25519',
+    '.config/gcloud/application_default_credentials.json',
+    'Library/Keychains/login.keychain-db',
+  ])
+    expect(check(join(homedir(), file))).toBe(true);
+  expect(check(join(homedir(), 'ordinary-project', 'README.md'))).toBe(false);
 });

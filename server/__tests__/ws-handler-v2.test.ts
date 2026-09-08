@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { SessionTransport } from '@mitzo/harness';
-import { ConnectionRegistry } from '@mitzo/harness';
+import { ConnectionRegistry, SessionRegistry } from '@mitzo/harness';
 import { V2SendMessage } from '@mitzo/protocol';
 
 vi.mock('../chat.js', () => ({
@@ -87,6 +87,7 @@ function mockEventStore() {
   return {
     getEventsAfter: vi.fn().mockReturnValue([]),
     getSession: vi.fn().mockReturnValue(null),
+    upsertSession: vi.fn(),
     getSessionState: vi.fn().mockReturnValue('ACTIVE'),
     setSessionState: vi.fn(),
   };
@@ -223,6 +224,26 @@ describe('handleReconnect', () => {
     const conn = ctx.connRegistry.get('c1')!;
     expect(conn.watchedSessions.has('sess-1')).toBe(true);
     expect(conn.watchedSessions.has('sess-2')).toBe(true);
+  });
+
+  it('resends the persisted permission mode on reconnect', () => {
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ mode: 'ask' });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    handleReconnect(
+      'c1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
+      ctx,
+    );
+    expect(transport.sent).toContainEqual({
+      type: 'mode_changed',
+      sessionId: 'sess-1',
+      mode: 'ask',
+    });
   });
 
   it('sends reconnected summary after replay', () => {
@@ -739,19 +760,108 @@ describe('handleSwitchSession', () => {
 // ─── handleSetModeV2 ─────────────────────────────────────────────────────────
 
 describe('handleSetModeV2', () => {
-  it('is a no-op when session is not found', () => {
+  it('reports an error when session is not found', async () => {
     const ctx = createContext();
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
     ctx.connRegistry.watch('c1', 'sess-1');
 
-    handleSetModeV2('c1', { type: 'set_mode', sessionId: 'sess-1', mode: 'auto' }, ctx);
-
-    // No broadcast should happen when session doesn't exist
-    expect(transport.sent).toHaveLength(0);
+    await handleSetModeV2('c1', { type: 'set_mode', sessionId: 'sess-1', mode: 'auto' }, ctx);
+    expect(transport.sent).toEqual([
+      expect.objectContaining({
+        type: 'error',
+        sessionId: 'sess-1',
+        error: expect.stringContaining('Session not found'),
+      }),
+    ]);
   });
 
-  it('delegates to sessionRegistry.setMode and broadcasts mode_changed', () => {
+  it.each([true, false])(
+    'persists and acknowledges a cold session mode (watching=%s)',
+    async (watching) => {
+      const ctx = createContext();
+      const transport = mockTransport();
+      ctx.connRegistry.register('c1', transport);
+      if (watching) ctx.connRegistry.watch('c1', 'sess-1');
+      vi.mocked(ctx.eventStore.getSession).mockReturnValue({
+        sessionId: 'sess-1',
+        mode: 'ask',
+      } as never);
+      await handleSetModeV2('c1', { type: 'set_mode', sessionId: 'sess-1', mode: 'agent' }, ctx);
+      expect(ctx.eventStore.upsertSession).toHaveBeenCalledWith({
+        sessionId: 'sess-1',
+        mode: 'agent',
+      });
+      expect(transport.sent).toEqual([
+        { type: 'mode_changed', sessionId: 'sess-1', mode: 'agent' },
+      ]);
+    },
+  );
+
+  it('does not acknowledge a cold mode change if saving fails', async () => {
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    const stored = { sessionId: 'sess-1', mode: 'ask' };
+    vi.mocked(ctx.eventStore.getSession).mockReturnValue(stored as never);
+    vi.mocked(ctx.eventStore.upsertSession).mockImplementationOnce(() => {
+      throw new Error('Disk full');
+    });
+    await handleSetModeV2('c1', { type: 'set_mode', sessionId: 'sess-1', mode: 'agent' }, ctx);
+    expect(stored.mode).toBe('ask');
+    expect(transport.sent).toEqual([
+      expect.objectContaining({
+        type: 'error',
+        sessionId: 'sess-1',
+        error: expect.stringContaining('Disk full'),
+      }),
+    ]);
+  });
+
+  it('updates the current registry key if the session rekeys during SDK acknowledgement', async () => {
+    const sessionRegistry = new SessionRegistry();
+    const transport = mockTransport();
+    let finish!: () => void;
+    const setPermissionMode = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    sessionRegistry.register('old-client', {
+      transport,
+      abortController: new AbortController(),
+      mode: 'ask',
+      sessionAllowList: new Set(),
+    });
+    const session = sessionRegistry.get('old-client')!;
+    session.sessionId = 'sess-1';
+    session.queryInstance = { setPermissionMode } as never;
+    const ctx = createContext({ sessionRegistry });
+    ctx.connRegistry.register('c1', transport);
+    ctx.connRegistry.watch('c1', 'sess-1');
+    try {
+      const update = handleSetModeV2(
+        'c1',
+        { type: 'set_mode', sessionId: 'sess-1', mode: 'agent' },
+        ctx,
+      );
+      await vi.waitFor(() => expect(setPermissionMode).toHaveBeenCalled());
+      sessionRegistry.rekey('old-client', 'new-client');
+      finish();
+      await update;
+      expect(sessionRegistry.get('new-client')!.mode).toBe('agent');
+      expect(transport.sent).toContainEqual({
+        type: 'mode_changed',
+        sessionId: 'sess-1',
+        mode: 'agent',
+      });
+    } finally {
+      sessionRegistry.dispose();
+    }
+  });
+
+  it('delegates to sessionRegistry.setMode and broadcasts mode_changed', async () => {
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
 
@@ -762,13 +872,134 @@ describe('handleSetModeV2', () => {
     ctx.connRegistry.register('c1', transport);
     ctx.connRegistry.watch('c1', 'sess-1');
 
-    handleSetModeV2('c1', { type: 'set_mode', sessionId: 'sess-1', mode: 'auto' }, ctx);
+    await handleSetModeV2('c1', { type: 'set_mode', sessionId: 'sess-1', mode: 'auto' }, ctx);
 
     expect(sessionReg.setMode).toHaveBeenCalledWith('driver-1', 'auto');
     const modeMsg = transport.sent.find((m) => m.type === 'mode_changed');
     expect(modeMsg).toEqual(
       expect.objectContaining({ type: 'mode_changed', sessionId: 'sess-1', mode: 'auto' }),
     );
+  });
+});
+
+describe('live provider mode changes', () => {
+  function setup(setPermissionMode: ReturnType<typeof vi.fn>) {
+    const sessionReg = mockSessionRegistry();
+    const session = { mode: 'ask', queryInstance: { setPermissionMode } };
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session });
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    ctx.connRegistry.watch('c1', 'sess-1');
+    return { ctx, sessionReg, transport };
+  }
+
+  it('awaits provider acknowledgement before publishing and serializes racing updates', async () => {
+    let resolve!: () => void;
+    const pending = new Promise<void>((done) => {
+      resolve = done;
+    });
+    const setPermissionMode = vi.fn().mockReturnValueOnce(pending).mockResolvedValue(undefined);
+    const { ctx, sessionReg, transport } = setup(setPermissionMode);
+    const first = handleSetModeV2(
+      'c1',
+      { type: 'set_mode', sessionId: 'sess-1', mode: 'agent' },
+      ctx,
+    );
+    const second = handleSetModeV2(
+      'c1',
+      { type: 'set_mode', sessionId: 'sess-1', mode: 'auto' },
+      ctx,
+    );
+    await vi.waitFor(() => expect(setPermissionMode).toHaveBeenCalledTimes(1));
+    expect(sessionReg.setMode).not.toHaveBeenCalled();
+    expect(ctx.eventStore.upsertSession).not.toHaveBeenCalled();
+    expect(transport.sent).toEqual([]);
+    resolve();
+    await Promise.all([first, second]);
+    expect(setPermissionMode.mock.calls).toEqual([['agent'], ['auto']]);
+    expect(ctx.eventStore.upsertSession).toHaveBeenLastCalledWith({
+      sessionId: 'sess-1',
+      mode: 'auto',
+    });
+    expect(transport.sent.map((m) => m.mode)).toEqual(['agent', 'auto']);
+  });
+
+  it('publishes the effective mode even when durable persistence fails', async () => {
+    const setPermissionMode = vi.fn().mockResolvedValue(undefined);
+    const { ctx, sessionReg, transport } = setup(setPermissionMode);
+    vi.mocked(ctx.eventStore.upsertSession).mockImplementationOnce(() => {
+      throw new Error('Disk full');
+    });
+    await handleSetModeV2('c1', { type: 'set_mode', sessionId: 'sess-1', mode: 'agent' }, ctx);
+    expect(setPermissionMode).toHaveBeenCalledWith('agent');
+    expect(sessionReg.setMode).toHaveBeenCalledWith('driver-1', 'agent');
+    expect(transport.sent).toEqual([
+      { type: 'mode_changed', sessionId: 'sess-1', mode: 'agent' },
+      expect.objectContaining({
+        type: 'error',
+        error: expect.stringContaining('Permission mode applied, but could not save'),
+      }),
+    ]);
+  });
+
+  it('keeps queued updates runnable when sending an error fails', async () => {
+    const setPermissionMode = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Provider refused'))
+      .mockResolvedValue(undefined);
+    const { ctx, sessionReg, transport } = setup(setPermissionMode);
+    vi.spyOn(transport, 'send').mockImplementationOnce(() => {
+      throw new Error('Disconnected');
+    });
+    const first = handleSetModeV2(
+      'c1',
+      { type: 'set_mode', sessionId: 'sess-1', mode: 'agent' },
+      ctx,
+    );
+    const second = handleSetModeV2(
+      'c1',
+      { type: 'set_mode', sessionId: 'sess-1', mode: 'auto' },
+      ctx,
+    );
+    await expect(Promise.all([first, second])).resolves.toEqual([undefined, undefined]);
+    expect(sessionReg.setMode).toHaveBeenCalledWith('driver-1', 'auto');
+  });
+
+  it('switching a running session reports its live permission mode', async () => {
+    const { ctx, transport } = setup(vi.fn());
+    vi.mocked(ctx.eventStore.getSession).mockReturnValue({
+      sessionId: 'sess-1',
+      mode: 'auto',
+    } as never);
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 'sess-1' }, ctx);
+    expect(transport.sent.find((m) => m.type === 'session_switched')?.mode).toBe('ask');
+  });
+
+  it('reports rejected provider updates without committing the mode and allows a retry', async () => {
+    const setPermissionMode = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Provider refused'))
+      .mockResolvedValue(undefined);
+    const { ctx, sessionReg, transport } = setup(setPermissionMode);
+    await dispatchV2Message(
+      'c1',
+      transport,
+      JSON.stringify({ type: 'set_mode', sessionId: 'sess-1', mode: 'agent' }),
+      ctx,
+    );
+    expect(sessionReg.setMode).not.toHaveBeenCalled();
+    expect(transport.sent).toEqual([
+      expect.objectContaining({
+        type: 'error',
+        sessionId: 'sess-1',
+        error: expect.stringContaining('Provider refused'),
+      }),
+    ]);
+    await handleSetModeV2('c1', { type: 'set_mode', sessionId: 'sess-1', mode: 'auto' }, ctx);
+    expect(sessionReg.setMode).toHaveBeenCalledWith('driver-1', 'auto');
   });
 });
 
@@ -1457,7 +1688,7 @@ describe('handleSwitchSession token fields', () => {
 // ─── handleSetModeV2 — broadcast to multiple watchers ──────────────────────
 
 describe('handleSetModeV2 broadcast', () => {
-  it('broadcasts mode_changed to multiple watchers', () => {
+  it('broadcasts mode_changed to multiple watchers', async () => {
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
 
@@ -1471,7 +1702,7 @@ describe('handleSetModeV2 broadcast', () => {
     ctx.connRegistry.watch('c1', 'sess-1');
     ctx.connRegistry.watch('c2', 'sess-1');
 
-    handleSetModeV2('c1', { type: 'set_mode', sessionId: 'sess-1', mode: 'ask' }, ctx);
+    await handleSetModeV2('c1', { type: 'set_mode', sessionId: 'sess-1', mode: 'ask' }, ctx);
 
     expect(transport1.sent.some((m) => m.type === 'mode_changed' && m.mode === 'ask')).toBe(true);
     expect(transport2.sent.some((m) => m.type === 'mode_changed' && m.mode === 'ask')).toBe(true);

@@ -250,6 +250,44 @@ describe('chat-rest-handler', () => {
     expect(handleSetModeV2).toHaveBeenCalledOnce();
   });
 
+  it('POST /mode waits for asynchronous provider acknowledgement', async () => {
+    let finish!: () => void;
+    vi.mocked(handleSetModeV2).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    let responded = false;
+    const response = request(testApp)
+      .post('/api/chat/mode')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send({ type: 'set_mode', sessionId: 'sess-1', mode: 'agent' })
+      .then((result) => {
+        responded = true;
+        return result;
+      });
+    await vi.waitFor(() => expect(handleSetModeV2).toHaveBeenCalled());
+    // Let an incorrectly immediate response reach the client before checking.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    try {
+      expect(responded).toBe(false);
+    } finally {
+      finish();
+    }
+    expect((await response).status).toBe(200);
+  });
+
+  it('POST /mode catches rejected asynchronous handlers', async () => {
+    vi.mocked(handleSetModeV2).mockRejectedValueOnce(new Error('provider unavailable'));
+    const response = await request(testApp)
+      .post('/api/chat/mode')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send({ type: 'set_mode', sessionId: 'sess-1', mode: 'agent' });
+    expect(response.status).toBe(500);
+    expect(response.body.ok).toBe(false);
+  });
+
   // ─── POST /api/chat/watch + unwatch ─────────────────────────────────────
 
   it('POST /watch calls handleWatch', async () => {

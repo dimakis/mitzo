@@ -24,14 +24,32 @@ export function protectCodexProfileRoots(roots: string[]) {
   resolved.forEach((root) => observedProfileRoots.add(root));
 }
 
-export function isPrivateCodexPath(path: string, extraRoots: string[] = []) {
-  const target = canonical(path);
+export function privateCodexRoots(extraRoots: string[] = []): string[] {
   return [
     codexPrivateDirectory(),
     process.env.CODEX_HOME || join(homedir(), '.codex'),
     ...observedProfileRoots,
     ...extraRoots,
-  ].some((root) => {
+    ...[
+      '.mitzo',
+      '.claude',
+      '.claude.json',
+      '.aws',
+      '.ssh',
+      '.config/gcloud',
+      '.config/gws',
+      '.config/gh',
+      '.cursor/mcp.json',
+      'Library/Keychains',
+    ].map((p) => join(homedir(), p)),
+    join(process.cwd(), '.env'),
+    ...(process.env.MITZO_ACCOUNT_PROFILES_FILE ? [process.env.MITZO_ACCOUNT_PROFILES_FILE] : []),
+  ].map(canonical);
+}
+
+export function isPrivateCodexPath(path: string, extraRoots: string[] = []) {
+  const target = canonical(path);
+  return privateCodexRoots(extraRoots).some((root) => {
     const rel = relative(canonical(root), target);
     return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith('../'));
   });

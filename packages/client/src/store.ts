@@ -417,6 +417,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           sessionId: parserState.currentSessionId,
           mode,
         });
+        return;
       }
       set((s) => ({
         config: { ...s.config, mode },
@@ -748,6 +749,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     const result = parseServerMessage(msg as WsMsg, parserState, callbacks, 'v2');
+
+    if (result.modeUpdate) {
+      store.setState((s) => ({ config: { ...s.config, mode: result.modeUpdate! } }));
+    }
 
     for (const action of result.messagesActions) {
       store.setState((s) => ({

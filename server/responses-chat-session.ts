@@ -1,4 +1,5 @@
 import type { GeminiOptions } from './gemini-session.js';
+import { HOST_TOOL_INSTRUCTIONS } from './session-permission-policy.js';
 import { createNativeHooks } from './native-hooks.js';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -9,7 +10,11 @@ import { NativeResponsesRunner } from './native-responses-runner.js';
 import { NativeResponsesStore } from './native-responses-store.js';
 import { codexPrivateDirectory } from './codex-private-path.js';
 import { connectCodexMcpTools } from './codex-mcp-tools.js';
-import { createNativeToolExecutor, nativeToolDefinitions } from './native-tool-executor.js';
+import {
+  createNativeToolExecutor,
+  nativeToolDefinitions,
+  type NativeToolOptions,
+} from './native-tool-executor.js';
 import type { McpServerConfig } from './mcp-config.js';
 
 let privateStore: NativeResponsesStore | undefined;
@@ -40,6 +45,7 @@ interface Options {
   systemPrompt: string;
   env: Record<string, string>;
   mcpServers: Record<string, McpServerConfig>;
+  onDemandCreate?: NativeToolOptions['onDemandCreate'];
   store?: NativeResponsesStore;
 }
 /** API execution uses the shared interaction policy and a private continuation store. */
@@ -79,7 +85,10 @@ export async function openResponsesChat(options: Options) {
     apiKey: options.apiKey,
     gemini: options.gemini,
     store: privateStorage,
-    systemPrompt: options.systemPrompt + (startup.context ? `\n\n${startup.context}` : ''),
+    systemPrompt:
+      options.systemPrompt +
+      HOST_TOOL_INSTRUCTIONS +
+      (startup.context ? `\n\n${startup.context}` : ''),
     maxTokens: 8192,
     tools: [...nativeToolDefinitions, ...mcp.definitions],
     executeTool: async (block, signal) => {
@@ -95,7 +104,9 @@ export async function openResponsesChat(options: Options) {
               block.name,
               input,
               (name, input, signal) =>
-                buildPermissionHandler(owner.clientId, options.registry)(name, input, {
+                buildPermissionHandler(owner.clientId, options.registry, {
+                  onDemandCreate: options.onDemandCreate,
+                })(name, input, {
                   signal,
                   toolUseID: randomUUID(),
                   forcePrompt,
@@ -107,6 +118,7 @@ export async function openResponsesChat(options: Options) {
           const result = await createNativeToolExecutor(owner.clientId, options.registry, {
             env: options.env,
             forcePrompt,
+            onDemandCreate: options.onDemandCreate,
           })({ ...block, input }, signal);
           return { content: result.content, isError: !!result.is_error };
         },

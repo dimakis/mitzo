@@ -881,18 +881,36 @@ describe('session isolation via sessionId filtering', () => {
 });
 
 describe('setMode', () => {
-  it('updates config mode and sends v2 set_mode', async () => {
+  it('waits for the active session acknowledgement before changing mode', async () => {
     const store = createReadyStore();
+    store.getState().setMode('agent');
     await store.getState().switchSession('test-session');
-
     store.getState().setMode('auto');
-
-    expect(store.getState().config.mode).toBe('auto');
+    expect(store.getState().config.mode).toBe('agent');
     expect(lastWs.parsedSent()).toContainEqual({
       type: 'set_mode',
       sessionId: 'test-session',
       mode: 'auto',
     });
+    lastWs.simulateMessage({ type: 'mode_changed', sessionId: 'test-session', mode: 'auto' });
+    expect(store.getState().config.mode).toBe('auto');
+  });
+
+  it('updates the new chat default immediately without a server request', () => {
+    const store = createReadyStore();
+    store.getState().setMode('ask');
+    expect(store.getState().config.mode).toBe('ask');
+    expect(lastWs.parsedSent().some((msg) => msg.type === 'set_mode')).toBe(false);
+  });
+
+  it('hydrates mode on session switch and ignores foreign or invalid acknowledgements', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('test-session');
+    lastWs.simulateMessage({ type: 'session_switched', sessionId: 'test-session', mode: 'ask' });
+    expect(store.getState().config.mode).toBe('ask');
+    lastWs.simulateMessage({ type: 'mode_changed', sessionId: 'other-session', mode: 'auto' });
+    lastWs.simulateMessage({ type: 'mode_changed', sessionId: 'test-session', mode: 'invalid' });
+    expect(store.getState().config.mode).toBe('ask');
   });
 });
 

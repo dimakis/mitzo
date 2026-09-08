@@ -328,6 +328,15 @@ export function handleReconnect(
           });
         }
 
+        const mode = found?.session?.mode ?? ctx.eventStore.getSession(entry.sessionId)?.mode;
+        if (mode) {
+          ctx.connRegistry.get(connectionId)?.transport.send({
+            type: 'mode_changed',
+            sessionId: entry.sessionId,
+            mode,
+          });
+        }
+
         summaries.push({
           sessionId: entry.sessionId,
           replayed: events.length + suspendReplayed,
@@ -421,7 +430,7 @@ export async function handleSwitchSession(
       ctx.connRegistry.get(connectionId)?.transport.send({
         type: 'session_switched',
         sessionId: msg.sessionId,
-        mode: sessionMeta.mode,
+        mode: ctx.sessionRegistry.findBySessionId(msg.sessionId)?.session.mode ?? sessionMeta.mode,
         cwd: sessionMeta.cwd,
         branch: sessionMeta.branch,
         wtId: sessionMeta.wtId,
@@ -839,32 +848,119 @@ export function handlePermissionResponseV2(
   );
 }
 
+// Serialize mode changes per live session, including requests from different watchers.
+const pendingModeChanges = new WeakMap<object, Promise<void>>();
+
 export function handleSetModeV2(
   connectionId: string,
   msg: SetModeMsg,
   ctx: V2HandlerContext,
-): void {
-  withSpan(
-    'ws.set_mode',
-    { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId, 'ws.mode': msg.mode },
-    () => {
-      const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
-      if (!found) {
-        log.warn('set_mode: session not found', { connectionId, sessionId: msg.sessionId });
-        return;
+): Promise<void> {
+  const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
+  if (!found) {
+    // Historical sessions have no runtime to update. Commit their next-launch
+    // policy before acknowledging it, so resuming uses the selected mode.
+    try {
+      if (!ctx.eventStore.getSession(msg.sessionId)) {
+        throw new Error(`Session not found: ${msg.sessionId}`);
       }
-
-      ctx.sessionRegistry.setMode(found.clientId, msg.mode);
-
-      ctx.connRegistry.broadcast(msg.sessionId, {
-        type: 'mode_changed',
+      ctx.eventStore.upsertSession({ sessionId: msg.sessionId, mode: msg.mode });
+      const acknowledgement = { type: 'mode_changed', sessionId: msg.sessionId, mode: msg.mode };
+      ctx.connRegistry.broadcast(msg.sessionId, acknowledgement);
+      const connection = ctx.connRegistry.get(connectionId);
+      if (!connection?.watchedSessions.has(msg.sessionId))
+        connection?.transport.send(acknowledgement);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      log.warn('set_mode for historical session failed', {
+        connectionId,
         sessionId: msg.sessionId,
-        mode: msg.mode,
+        error: reason,
       });
-
-      log.info('set_mode', { connectionId, sessionId: msg.sessionId, mode: msg.mode });
-    },
+      try {
+        ctx.connRegistry.get(connectionId)?.transport.send({
+          type: 'error',
+          sessionId: msg.sessionId,
+          error: `Could not change permission mode: ${reason}`,
+        });
+      } catch (sendError) {
+        log.warn('set_mode error delivery failed', {
+          connectionId,
+          sessionId: msg.sessionId,
+          err: sendError,
+        });
+      }
+    }
+    return Promise.resolve();
+  }
+  const previous = pendingModeChanges.get(found.session) ?? Promise.resolve();
+  const update = previous.then(() =>
+    withSpanAsync(
+      'ws.set_mode',
+      { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId, 'ws.mode': msg.mode },
+      async () => {
+        // A queued request must never mutate a replacement session.
+        if (ctx.sessionRegistry.findBySessionId(msg.sessionId)?.session !== found.session) return;
+        try {
+          await found.session.queryInstance?.setPermissionMode?.(msg.mode);
+          const current = ctx.sessionRegistry.findBySessionId(msg.sessionId);
+          if (!current || current.session !== found.session) return;
+          ctx.sessionRegistry.setMode(current.clientId, msg.mode);
+          let persistenceError: string | undefined;
+          try {
+            ctx.eventStore.upsertSession({ sessionId: msg.sessionId, mode: msg.mode });
+          } catch (err) {
+            persistenceError = err instanceof Error ? err.message : String(err);
+            log.warn('set_mode persistence failed', {
+              sessionId: msg.sessionId,
+              error: persistenceError,
+            });
+          }
+          ctx.connRegistry.broadcast(msg.sessionId, {
+            type: 'mode_changed',
+            sessionId: msg.sessionId,
+            mode: msg.mode,
+          });
+          log.info('set_mode', { connectionId, sessionId: msg.sessionId, mode: msg.mode });
+          if (persistenceError !== undefined) {
+            try {
+              ctx.connRegistry.get(connectionId)?.transport.send({
+                type: 'error',
+                sessionId: msg.sessionId,
+                error: `Permission mode applied, but could not save it for future sessions: ${persistenceError}`,
+              });
+            } catch (err) {
+              log.warn('set_mode persistence error delivery failed', {
+                connectionId,
+                sessionId: msg.sessionId,
+                err,
+              });
+            }
+          }
+        } catch (err) {
+          const reason = err instanceof Error ? err.message : String(err);
+          log.warn('set_mode failed', { connectionId, sessionId: msg.sessionId, error: reason });
+          try {
+            ctx.connRegistry.get(connectionId)?.transport.send({
+              type: 'error',
+              sessionId: msg.sessionId,
+              error: `Could not change permission mode: ${reason}`,
+            });
+          } catch (sendError) {
+            log.warn('set_mode error delivery failed', {
+              connectionId,
+              sessionId: msg.sessionId,
+              err: sendError,
+            });
+          }
+        }
+      },
+    ),
   );
+  pendingModeChanges.set(found.session, update);
+  return update.finally(() => {
+    if (pendingModeChanges.get(found.session) === update) pendingModeChanges.delete(found.session);
+  });
 }
 
 export function handleSessionSuspend(
@@ -1032,7 +1128,7 @@ export async function dispatchV2Message(
       handlePermissionResponseV2(connectionId, msg, ctx);
       break;
     case 'set_mode':
-      handleSetModeV2(connectionId, msg, ctx);
+      await handleSetModeV2(connectionId, msg, ctx);
       break;
   }
 }

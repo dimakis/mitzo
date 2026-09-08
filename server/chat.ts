@@ -1,5 +1,9 @@
 import { GoogleAuth } from 'google-auth-library';
 import type { GeminiOptions } from './gemini-session.js';
+import {
+  buildSessionPermissionHooks,
+  SESSION_PERMISSION_INSTRUCTIONS,
+} from './session-permission-policy.js';
 import { credentials } from './credentials.js';
 import { getResponsesRuntime, openResponsesChat } from './responses-chat-session.js';
 import { CodexAppServerClient, codexEnvironment } from './codex-app-server-client.js';
@@ -39,7 +43,7 @@ import type { OnDemandCreateFn } from '@mitzo/harness';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
 import { parseContentBlocks } from './content-blocks.js';
 import { loadMcpServers, type McpServerConfig } from './mcp-config.js';
-import { getAllowedToolsForMode, applyTierOverrides } from './tool-tiers.js';
+import { applyTierOverrides } from './tool-tiers.js';
 import { loadRepoConfig } from './repo-config.js';
 import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
@@ -85,6 +89,9 @@ export function adaptSdkQuery(sdkQuery: Query): QueryInstance {
   return new Proxy(sdkQuery, {
     get(target, property) {
       if (property === Symbol.asyncIterator) return validatedIterator;
+      if (property === 'setPermissionMode') {
+        return (mode: MitzoMode) => target.setPermissionMode(mode === 'ask' ? 'plan' : 'default');
+      }
       const value: unknown = Reflect.get(target, property, target);
       return typeof value === 'function' ? value.bind(target) : value;
     },
@@ -388,7 +395,7 @@ export function generateWtId(): string {
 const MODE_TO_SDK: Record<MitzoMode, string> = {
   ask: 'plan',
   agent: 'default',
-  auto: 'acceptEdits',
+  auto: 'default',
 };
 
 export const registry = new SessionRegistry();
@@ -964,7 +971,6 @@ async function _startChatInner(
   const currentConfig = getRepoConfig();
   applyTierOverrides(currentConfig.toolTierOverrides);
 
-  const modeAllowed = getAllowedToolsForMode(mode);
   const mcpAllowed = buildMcpAllowedTools(clientId);
   const extraTools = options.extraTools ? options.extraTools.split(',').map((t) => t.trim()) : [];
 
@@ -1096,7 +1102,7 @@ async function _startChatInner(
   // Build the system prompt append string (used by both query and comparison)
   const systemPromptAppend =
     'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
-    '- Never take mutating actions (writes, comments, transitions, commits) without explicit user approval. Present analysis first, wait for confirmation.\n' +
+    SESSION_PERMISSION_INSTRUCTIONS +
     '- Read operations are fine without asking.\n' +
     '- Keep responses concise — small screen.\n' +
     '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.' +
@@ -1190,6 +1196,7 @@ async function _startChatInner(
         systemPrompt: systemPromptAppend,
         env: sessionEnv,
         mcpServers: allMcpServers,
+        onDemandCreate: buildOnDemandCreate(wtId),
       });
     } else if (apiKey || gemini) {
       const conversationId = options.resume ?? newSdkSessionId!;
@@ -1218,6 +1225,7 @@ async function _startChatInner(
         systemPrompt: systemPromptAppend,
         env: sessionEnv,
         mcpServers: allMcpServers,
+        onDemandCreate: buildOnDemandCreate(wtId),
       });
     } else
       q = adaptSdkQuery(
@@ -1234,14 +1242,19 @@ async function _startChatInner(
               preset: 'claude_code',
               append: systemPromptAppend,
             },
-            permissionMode: MODE_TO_SDK[mode] as 'plan' | 'default' | 'bypassPermissions',
-            allowedTools: [...modeAllowed, ...mcpAllowed, ...extraTools],
+            permissionMode: MODE_TO_SDK[mode] as 'plan' | 'default',
+            allowedTools: [...mcpAllowed, ...extraTools],
             thinking: resolveThinking(options.model),
             ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
             ...(resolvedResume ? { resume: resolvedResume } : {}),
             ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
             ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
-            ...(hooks ? { hooks } : {}),
+            hooks: buildSessionPermissionHooks(
+              buildPermissionHandler(clientId, registry, {
+                onDemandCreate: buildOnDemandCreate(wtId),
+              }),
+              hooks,
+            ),
             canUseTool: buildPermissionHandler(clientId, registry, {
               onDemandCreate: buildOnDemandCreate(wtId),
             }),

@@ -171,4 +171,123 @@ describe('buildPermissionHandler', () => {
     expect(result.behavior).toBe('deny');
     expect(result.message).toBe('Aborted');
   });
+  it.each([
+    'Write',
+    'Bash',
+    'mcp__custom__tool',
+    'TodoWrite',
+    'Task',
+    'mcp__task-board__TaskSet',
+    'mcp__task-board__TaskComplete',
+    'mcp__task-board__TaskBlock',
+  ])('hard denies %s in Ask even if allowlisted', async (toolName) => {
+    const transport = fakeTransport();
+    registry.register('client-1', {
+      transport,
+      abortController: new AbortController(),
+      mode: 'ask',
+      sessionAllowList: new Set([toolName]),
+    });
+    const onDemandCreate = vi.fn().mockResolvedValue(null);
+    registry.get('client-1')!.worktreePaths.set('repo', { path: '/isolated', wtId: 'wt' });
+    const result = await buildPermissionHandler('client-1', registry, { onDemandCreate })(
+      toolName,
+      { file_path: '/outside/file', command: 'echo hi' },
+      { signal: new AbortController().signal, toolUseID: 'tool-1' },
+    );
+    expect(result).toMatchObject({
+      behavior: 'deny',
+      message: expect.stringContaining('Ask mode'),
+    });
+    expect(onDemandCreate).not.toHaveBeenCalled();
+    expect(transport.sent).toEqual([]);
+  });
+
+  it('prompts for shell in Agent and auto-allows it in Auto', async () => {
+    const transport = fakeTransport();
+    registry.register('client-1', {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+    const handler = buildPermissionHandler('client-1', registry);
+    const promise = handler(
+      'Bash',
+      { command: 'echo hi' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-1',
+      },
+    );
+    await Promise.resolve();
+    expect(transport.sent[0]).toMatchObject({ type: 'permission_request', tier: 'elevated' });
+    resolvePending(transport.sent[0].permId as string, 'once');
+    expect((await promise).behavior).toBe('allow');
+    registry.setMode('client-1', 'auto');
+    expect(
+      (
+        await handler(
+          'Bash',
+          { command: 'echo hi' },
+          {
+            signal: new AbortController().signal,
+            toolUseID: 'tool-2',
+          },
+        )
+      ).behavior,
+    ).toBe('allow');
+    expect(transport.sent.filter((event) => event.type === 'permission_request')).toHaveLength(1);
+  });
+
+  it('rejects pending approvals after a downgrade to Ask without saving permission', async () => {
+    const transport = fakeTransport();
+    const allowList = new Set<string>();
+    registry.register('client-1', {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: allowList,
+    });
+    const promise = buildPermissionHandler('client-1', registry)(
+      'mcp__custom__tool',
+      {},
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-1',
+      },
+    );
+    await Promise.resolve();
+    registry.setMode('client-1', 'ask');
+    resolvePending(transport.sent[0].permId as string, 'always');
+    expect(await promise).toMatchObject({
+      behavior: 'deny',
+      message: expect.stringContaining('Ask mode'),
+    });
+    expect(allowList.size).toBe(0);
+  });
+
+  it('still allows user questions in Ask', async () => {
+    const transport = fakeTransport();
+    registry.register('client-1', {
+      transport,
+      abortController: new AbortController(),
+      mode: 'ask',
+      sessionAllowList: new Set(),
+    });
+    const promise = buildPermissionHandler('client-1', registry)(
+      'AskUserQuestion',
+      {
+        questions: [{ question: 'Which file?' }],
+      },
+      { signal: new AbortController().signal, toolUseID: 'tool-1' },
+    );
+    await Promise.resolve();
+    expect(transport.sent[0]).toMatchObject({
+      type: 'permission_request',
+      questions: expect.any(Array),
+    });
+    resolvePending(transport.sent[0].permId as string, 'once', { 'Which file?': ['README.md'] });
+    expect((await promise).behavior).toBe('allow');
+  });
 });

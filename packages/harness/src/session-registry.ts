@@ -44,6 +44,8 @@ export interface ManagedSession {
   /** All worktrees created for this session, keyed by repo name. */
   worktreePaths: Map<string, { path: string; wtId: string }>;
   queryInstance?: {
+    /** Apply the shared Mitzo mode to provider runtime controls, when required. */
+    setPermissionMode?: (mode: MitzoMode) => Promise<void>;
     interrupt: () => Promise<void>;
     close: () => void;
     stopTask: (taskId: string) => Promise<void>;

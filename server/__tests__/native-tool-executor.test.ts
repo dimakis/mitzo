@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SessionRegistry, resolvePending } from '@mitzo/harness';
 import { loadAccountProfiles } from '../account-profiles.js';
+import { executeSandboxedCommand } from '../sandboxed-command.js';
+vi.mock('../sandboxed-command.js', () => ({
+  executeSandboxedCommand: vi.fn().mockResolvedValue({ content: 'done', isError: false }),
+}));
 import { createNativeToolExecutor } from '../native-tool-executor.js';
 
 describe('native tool execution through session permissions', () => {
@@ -219,12 +223,55 @@ describe('native tool execution through session permissions', () => {
     await expect(readFile(outside)).rejects.toThrow();
   });
 
-  it('does not advertise or execute a native shell tool', async () => {
-    expect(
-      await executor()(call('Bash', { command: 'touch escaped' }), abort.signal),
-    ).toMatchObject({ is_error: true, content: 'Native tool is unavailable' });
+  it('asks before executing a command in Agent and passes isolated roots', async () => {
+    vi.mocked(executeSandboxedCommand).mockClear();
+    const pending = executor()(call('Bash', { command: 'npm test' }), abort.signal);
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    expect(executeSandboxedCommand).not.toHaveBeenCalled();
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
+    expect(await pending).toMatchObject({ is_error: false, content: 'done' });
+    expect(executeSandboxedCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'npm test',
+        cwd: await realpath(join(root, 'worktree')),
+        writableRoots: [await realpath(join(root, 'worktree'))],
+        deniedRoots: expect.any(Array),
+        signal: abort.signal,
+      }),
+    );
+  });
+  it('allows sandboxed commands in Auto but denies them after switching to Ask', async () => {
+    vi.mocked(executeSandboxedCommand).mockClear();
+    registry.setMode('client', 'auto');
+    expect(await executor()(call('Bash', { command: 'npm test' }), abort.signal)).toMatchObject({
+      is_error: false,
+    });
     expect(sent).toHaveLength(0);
-    await expect(readFile(join(root, 'worktree/escaped'))).rejects.toThrow();
+    registry.setMode('client', 'ask');
+    expect(await executor()(call('Bash', { command: 'npm test' }), abort.signal)).toMatchObject({
+      is_error: true,
+    });
+    expect(executeSandboxedCommand).toHaveBeenCalledTimes(1);
+  });
+  it('rechecks Ask and skill downgrades at the final sandbox spawn boundary', async () => {
+    registry.setMode('client', 'auto');
+    vi.mocked(executeSandboxedCommand).mockImplementationOnce(async (options) => {
+      registry.setMode('client', 'ask');
+      options.beforeSpawn!();
+      return { content: 'should never execute', isError: false };
+    });
+    expect(
+      await executor()(call('Bash', { command: 'touch forbidden' }), abort.signal),
+    ).toMatchObject({ is_error: true, content: expect.stringContaining('permissions changed') });
+    registry.setMode('client', 'auto');
+    vi.mocked(executeSandboxedCommand).mockImplementationOnce(async (options) => {
+      registry.get('client')!.activeSkillPolicy = new Set(['Read']);
+      options.beforeSpawn!();
+      return { content: 'should never execute', isError: false };
+    });
+    expect(
+      await executor()(call('Bash', { command: 'touch forbidden' }), abort.signal),
+    ).toMatchObject({ is_error: true, content: expect.stringContaining('permissions changed') });
   });
   it('rejects oversized reads and edits without changing the file', async () => {
     await writeFile(join(root, 'worktree/large'), 'a' + 'x'.repeat(32));

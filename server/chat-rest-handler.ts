@@ -207,14 +207,14 @@ export function createChatRestRouter(
     }
   });
 
-  router.post('/mode', (req, res) => {
+  router.post('/mode', async (req, res) => {
     const connectionId = getConnectionId(req, res);
     if (!connectionId) return;
     if (!requireConnection(connectionId, ctx.connRegistry, res)) return;
     const msg = validateBody(V2SetModeMessage, req.body, res);
     if (!msg) return;
     try {
-      handleSetModeV2(connectionId, msg, ctx);
+      await handleSetModeV2(connectionId, msg, ctx);
       res.json({ ok: true });
     } catch (err) {
       log.error('POST /chat/mode failed', { connectionId, error: String(err) });

@@ -112,12 +112,29 @@ export function buildPermissionHandler(
       questions = parsed.data.map((question) => ({ id: question.question, ...question }));
     }
 
+    // Ask is a harness-enforced ceiling, including cached grants and providers
+    // without a native read-only mode. Check before any on-demand worktree write.
+    const askDenial = (): PermissionResult | undefined =>
+      !questions && session.mode === 'ask' && getToolTier(toolName) !== 'safe'
+        ? {
+            behavior: 'deny',
+            message:
+              'Ask mode only allows read-only tools. Switch to Agent or Auto to make changes.',
+          }
+        : undefined;
+    const deniedByMode = askDenial();
+    if (deniedByMode) return deniedByMode;
+
     const worktreeViolation = await checkWorktreePolicy(session, toolName, _toolInput, {
       onDemandCreate: handlerOpts?.onDemandCreate,
     });
     if (worktreeViolation) {
       return { behavior: 'deny', message: worktreeViolation };
     }
+
+    // The mode may have changed while the worktree check was awaiting I/O.
+    const deniedAfterWorktree = askDenial();
+    if (deniedAfterWorktree) return deniedAfterWorktree;
 
     if (!questions && !opts.forcePrompt && shouldAutoAllow(toolName, session.mode)) {
       return { behavior: 'allow', updatedInput: _toolInput };
@@ -148,6 +165,14 @@ export function buildPermissionHandler(
         clearTimeout(timeout);
         clearTimeout(notificationTimer);
         opts.signal.removeEventListener('abort', onAbort);
+        // An approval cannot override a later mode downgrade or skill ceiling.
+        if (result.behavior === 'allow') {
+          const modeDenial = askDenial();
+          if (modeDenial) result = modeDenial;
+          else if (checkSkillPolicy(registry, clientId, toolName) === 'deny') {
+            result = { behavior: 'deny', message: 'Tool not allowed by active skill policy' };
+          }
+        }
         if (result.behavior === 'allow' && result.decisionClassification === 'user_permanent') {
           addToAllowList(session.sessionAllowList, toolName);
         }

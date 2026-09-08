@@ -1,12 +1,14 @@
+import { executeSandboxedCommand } from './sandboxed-command.js';
 import { executeNativeFileOperation } from './native-file-operation.js';
 import { lstat, realpath } from 'node:fs/promises';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { loadAccountProfiles } from './account-profiles.js';
-import { createCodexPathProtection } from './codex-private-path.js';
+import { createCodexPathProtection, privateCodexRoots } from './codex-private-path.js';
 import {
   buildPermissionHandler,
+  checkSkillPolicy,
   UserQuestionsSchema,
   type SessionRegistry,
   type ToolDefinition,
@@ -25,6 +27,7 @@ const privatePathSnapshot = createCodexPathProtection(() =>
 );
 const schemas = {
   AskUserQuestion: z.object({ questions: UserQuestionsSchema }).strict(),
+  Bash: z.object({ command: z.string().min(1).max(32000), ...approval }).strict(),
   Read: z.object({ file_path: z.string().min(1) }).strict(),
   Write: z.object({ file_path: z.string().min(1), content: z.string(), ...approval }).strict(),
   Edit: z
@@ -39,6 +42,7 @@ const schemas = {
 const descriptions = {
   AskUserQuestion:
     'Ask structured questions in Mitzo and wait for the user’s answers. Questions do not authorize tool execution.',
+  Bash: 'Run a command in the session workspace using an OS sandbox. Use for tests, Git and directory creation. Writes outside session roots and network access are blocked; unavailable sandboxes fail explicitly.',
   Read: 'Read a UTF-8 file. Paths are relative to the session cwd unless absolute.',
   Write: 'Write a UTF-8 file in an existing directory.',
   Edit: 'Replace exactly one occurrence of old_string in a UTF-8 file.',
@@ -115,8 +119,51 @@ export function createNativeToolExecutor(
           ? result(JSON.stringify({ answers: permission.updatedInput?.answers }))
           : result(permission.message, true);
       }
+      if (block.name === 'Bash' && 'command' in parsed.data) {
+        const input = { command: parsed.data.command };
+        const permission = await canUseTool('Bash', input, {
+          signal,
+          toolUseID: block.id,
+          forcePrompt: options.forcePrompt || parsed.data.require_approval === true,
+        });
+        signal.throwIfAborted();
+        if (permission.behavior !== 'allow') return result(permission.message, true);
+        if (!isDeepStrictEqual(permission.updatedInput, input))
+          return result('Tool input changed during approval; retry the tool', true);
+        if (registry.get(clientId) !== session || session.mode === 'ask')
+          return result('Session permissions changed; retry the tool', true);
+        // Resolve login roots anew; an unreadable account configuration fails closed.
+        const deniedRoots = privateCodexRoots(loadAccountProfiles().privateCodexRoots());
+        const roots = session.worktreePaths.size
+          ? [...session.worktreePaths.values()].map((entry) => entry.path)
+          : [session.cwd];
+        const writableRoots = await Promise.all(roots.map((p) => realpath(p)));
+        if (writableRoots.some((p) => privatePathSnapshot()(p)))
+          return result('Private provider storage is unavailable', true);
+        const output = await executeSandboxedCommand({
+          command: input.command,
+          cwd: await realpath(session.cwd),
+          writableRoots,
+          deniedRoots: await Promise.all(deniedRoots.map(canonicalPath)),
+          env: options.env,
+          signal,
+          timeoutMs: options.timeoutMs,
+          maxOutputBytes: options.maxOutputBytes,
+          beforeSpawn: () => {
+            if (
+              registry.get(clientId) !== session ||
+              session.mode === 'ask' ||
+              checkSkillPolicy(registry, clientId, 'Bash') === 'deny'
+            )
+              throw new Error(
+                'Session permissions changed before command execution; retry the tool',
+              );
+          },
+        });
+        return result(output.content, output.isError);
+      }
       const input = { ...parsed.data };
-      if ('questions' in input) return result('Invalid tool input', true);
+      if ('questions' in input || 'command' in input) return result('Invalid tool input', true);
       const isPrivate = privatePathSnapshot();
       const forcePrompt =
         options.forcePrompt === true ||

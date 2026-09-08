@@ -3,13 +3,20 @@ import { getToolTier, shouldAutoAllow, getAllowedToolsForMode } from '../tool-ti
 
 describe('getToolTier', () => {
   it('classifies read-only tools as safe', () => {
-    for (const tool of ['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'TodoWrite', 'Task']) {
+    for (const tool of [
+      'Read',
+      'Glob',
+      'Grep',
+      'WebSearch',
+      'WebFetch',
+      'mcp__task-board__TaskStatus',
+    ]) {
       expect(getToolTier(tool)).toBe('safe');
     }
   });
 
   it('classifies file-write tools as standard', () => {
-    for (const tool of ['Write', 'Edit', 'StrReplace', 'EditNotebook']) {
+    for (const tool of ['Write', 'Edit', 'StrReplace', 'EditNotebook', 'TodoWrite']) {
       expect(getToolTier(tool)).toBe('standard');
     }
   });
@@ -58,9 +65,9 @@ describe('shouldAutoAllow', () => {
       expect(shouldAutoAllow('StrReplace', 'agent')).toBe(true);
     });
 
-    it('auto-allows elevated tools (HITL via system prompt)', () => {
-      expect(shouldAutoAllow('Bash', 'agent')).toBe(true);
-      expect(shouldAutoAllow('Shell', 'agent')).toBe(true);
+    it('prompts for elevated tools', () => {
+      expect(shouldAutoAllow('Bash', 'agent')).toBe(false);
+      expect(shouldAutoAllow('Shell', 'agent')).toBe(false);
     });
 
     it('does not auto-allow unknown tools', () => {
@@ -97,13 +104,13 @@ describe('getAllowedToolsForMode', () => {
     expect(allowed).not.toContain('Bash');
   });
 
-  it('agent mode includes safe + standard + elevated tools', () => {
+  it('agent mode includes safe + standard tools', () => {
     const allowed = getAllowedToolsForMode('agent');
     expect(allowed).toContain('Read');
     expect(allowed).toContain('Write');
     expect(allowed).toContain('Edit');
-    expect(allowed).toContain('Bash');
-    expect(allowed).toContain('Shell');
+    expect(allowed).not.toContain('Bash');
+    expect(allowed).not.toContain('Shell');
   });
 
   it('auto mode includes safe + standard + elevated tools', () => {

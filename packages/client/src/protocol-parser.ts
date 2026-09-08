@@ -10,6 +10,7 @@
  */
 
 import type {
+  MitzoMode,
   FinishedMessage,
   FinishedBlock,
   BlockType,
@@ -64,6 +65,8 @@ export interface ProtocolParserState {
 // ─── Parser result ───────────────────────────────────────────────────────────
 
 export interface ParseResult {
+  /** Server-confirmed permission mode for the current session. */
+  modeUpdate?: MitzoMode;
   /** Messages actions to dispatch to the messages slice. */
   messagesActions: MessagesAction[];
 
@@ -106,6 +109,14 @@ export function parseServerMessage(
   poolKey: string,
 ): ParseResult {
   const result: ParseResult = { messagesActions: [] };
+
+  if (
+    ['mode_changed', 'session_switched', 'reconnected', 'session_id'].includes(msg.type) &&
+    'mode' in msg &&
+    (msg.mode === 'ask' || msg.mode === 'agent' || msg.mode === 'auto')
+  ) {
+    result.modeUpdate = msg.mode;
+  }
 
   switch (msg.type) {
     case '_open':
