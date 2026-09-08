@@ -112,7 +112,11 @@ bash scripts/generate-cert.sh <your-hostname>.tailnet.ts.net
 
 This creates `certs/key.pem` and `certs/cert.pem`. The server picks them up automatically on start.
 
-> **Tip:** On iOS, you'll need to trust the certificate. Open `https://<your-hostname>:3100` in Safari, tap through the warning, then go to Settings > General > About > Certificate Trust Settings and enable it.
+The native client uses platform certificate validation for every host, including Tailscale names and localhost. Use a certificate valid for the configured hostname and trusted by the device. An expired, untrusted, or mismatched certificate will prevent login and API/WebSocket connections.
+
+For a self-signed development deployment, install the public certificate profile on the device through a trusted channel, verify its identity, then enable SSL trust under **Settings > General > About > Certificate Trust Settings**. Keep the private key on the server. Accepting a Safari warning does not establish native app trust. Managed devices can use Configurator or MDM certificate deployment. See [Apple's certificate trust instructions](https://support.apple.com/en-us/102390).
+
+Existing installations that depended on the old hostname-based bypass must establish device trust before upgrading the native app. There is no hostname exception or in-app “accept any certificate” mode.
 
 ## Step 4: Build and deploy
 
