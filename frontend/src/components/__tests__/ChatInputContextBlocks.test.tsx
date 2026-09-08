@@ -3,17 +3,33 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, act } from '@testing-library/react';
 import { ChatInput } from '../ChatInput';
 
+const { trayMessageRefs } = vi.hoisted(() => ({ trayMessageRefs: [] as unknown[] }));
+
 // Mock child components that fetch data
 vi.mock('../SlashPicker', () => ({
   SlashPicker: () => null,
 }));
-vi.mock('../ContextPicker', () => ({
-  ContextPicker: ({ selected }: { selected: string[] }) => (
-    <div data-testid="context-picker">{selected.join(',')}</div>
-  ),
+vi.mock('../SessionTray', () => ({
+  SessionTray: ({
+    selectedContextBlocks,
+    messages,
+  }: {
+    selectedContextBlocks: string[];
+    messages: unknown[];
+  }) => {
+    trayMessageRefs.push(messages);
+    return <div data-testid="session-tray">{selectedContextBlocks.join(',')}</div>;
+  },
 }));
 vi.mock('../MicButton', () => ({
   MicButton: () => null,
+}));
+vi.mock('../../lib/resizeImage', () => ({
+  resizeImage: vi.fn(async () => ({
+    data: 'resized',
+    mediaType: 'image/png',
+    preview: 'data:image/png;base64,resized',
+  })),
 }));
 
 afterEach(() => cleanup());
@@ -42,16 +58,40 @@ describe('ChatInput with externalContextBlocks', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
     expect(onSend).toHaveBeenCalledWith('keep this draft', undefined, undefined);
   });
-  it('hides @ button when externalContextBlocks provided', () => {
+  it('hides the session tray when externalContextBlocks are managed by a parent', () => {
     const { container } = render(
       <ChatInput {...baseProps} externalContextBlocks={['boot-context']} />,
     );
-    expect(container.querySelector('.chat-input-btn--context')).toBeNull();
+    expect(container.querySelector('[data-testid="session-tray"]')).toBeNull();
   });
 
-  it('shows @ button when externalContextBlocks not provided', () => {
+  it('keeps image attachment and removal available when context blocks are managed by a parent', async () => {
+    const { container } = render(
+      <ChatInput {...baseProps} externalContextBlocks={['boot-context']} />,
+    );
+
+    expect(screen.getByTitle('Attach image')).toBeTruthy();
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(['image'], 'image.png')] } });
+
+    expect(await screen.findByAltText('Attachment 1')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove attachment 1' }));
+    expect(screen.queryByAltText('Attachment 1')).toBeNull();
+  });
+
+  it('shows the session tray and removes context and attachment buttons from the input strip', () => {
     const { container } = render(<ChatInput {...baseProps} />);
-    expect(container.querySelector('.chat-input-btn--context')).toBeTruthy();
+    expect(container.querySelector('[data-testid="session-tray"]')).toBeTruthy();
+    expect(container.querySelector('.chat-input-btn--context')).toBeNull();
+    expect(container.querySelector('.chat-input-btn--attach')).toBeNull();
+  });
+
+  it('keeps the default empty messages reference stable across renders', () => {
+    trayMessageRefs.length = 0;
+    const { rerender } = render(<ChatInput {...baseProps} />);
+    rerender(<ChatInput {...baseProps} />);
+
+    expect(new Set(trayMessageRefs).size).toBe(1);
   });
 
   it('does not show inline context pills when external blocks provided', () => {

@@ -163,7 +163,13 @@ export type MessagesAction =
   | { type: 'PERMISSION_REQUEST'; payload: PermissionRequest }
   | { type: 'PERMISSION_TIMEOUT'; permId: string }
   | { type: 'RESTORE'; messages: FinishedMessage[]; interrupted?: boolean }
-  | { type: 'USER_MESSAGE_RECEIVED'; messageId: string; text: string }
+  | {
+      type: 'USER_MESSAGE_RECEIVED';
+      messageId: string;
+      text: string;
+      images?: string[];
+      contextBlocks?: string[];
+    }
   | { type: 'WORKTREE_OPENED'; repoName: string; path: string }
   | { type: 'NATIVE_COMMAND_RESULT'; command: string; content: string }
   | { type: 'SET_SESSION_CONTEXT'; context: string }
@@ -542,6 +548,8 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
             messageId: action.messageId,
             role: 'user',
             timestamp: Date.now(),
+            images: action.images,
+            contextBlocks: action.contextBlocks,
             blocks: [
               {
                 blockId: `user-text-${action.messageId}`,

@@ -38,10 +38,12 @@ const noop = () => true;
 const noopVoid = () => {};
 
 describe('ChatInput command strip', () => {
-  it('renders slash and attach buttons', () => {
+  it('keeps skills in the strip and moves attachments into the session tray', () => {
     render(<ChatInput onSend={noop} onStop={noopVoid} running={false} />);
     expect(screen.getByTitle('Skills')).toBeTruthy();
-    expect(screen.getByTitle('Attach image')).toBeTruthy();
+    expect(screen.queryByTitle('Attach image')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Open session tray' }));
+    expect(screen.getByRole('button', { name: 'Add source' })).toBeTruthy();
   });
 
   it('renders branch pill when branch is provided', () => {

@@ -432,6 +432,31 @@ describe('user_message', () => {
       { type: 'USER_MESSAGE_RECEIVED', messageId: 'umsg-1', text: 'hello' },
     ]);
   });
+
+  it('passes persisted user sources through to the messages reducer', () => {
+    const r = parseServerMessage(
+      {
+        type: 'user_message',
+        v: 2,
+        messageId: 'umsg-1',
+        text: 'hello',
+        images: ['data:image/png;base64,cHJldmlldw=='],
+        contextBlocks: ['constitution'],
+      },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.messagesActions).toEqual([
+      {
+        type: 'USER_MESSAGE_RECEIVED',
+        messageId: 'umsg-1',
+        text: 'hello',
+        images: ['data:image/png;base64,cHJldmlldw=='],
+        contextBlocks: ['constitution'],
+      },
+    ]);
+  });
 });
 
 // ─── Task system messages ─────────────────────────────────────────────────────
