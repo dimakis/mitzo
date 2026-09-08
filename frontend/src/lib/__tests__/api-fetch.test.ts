@@ -224,6 +224,33 @@ describe('apiFetch', () => {
     window.removeEventListener(AUTH_RESTORED_EVENT, listener);
   });
 
+  it('starts a fresh cookie check after cross-tab auth changes during an older check', async () => {
+    let resolveOld!: (response: Response) => void;
+    mockFetch
+      .mockReturnValueOnce(
+        new Promise<Response>((resolve) => {
+          resolveOld = resolve;
+        }),
+      )
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+    const oldCheck = restoreCookieAuthentication();
+    localStorage.setItem('mitzo_auth_token', 'fresh-token');
+    window.dispatchEvent(
+      new StorageEvent('storage', {
+        key: 'mitzo_auth_token',
+        newValue: 'fresh-token',
+        storageArea: localStorage,
+      }),
+    );
+    const currentCheck = restoreCookieAuthentication();
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    await expect(currentCheck).resolves.toBe(true);
+    resolveOld(new Response('{}', { status: 200 }));
+    await expect(oldCheck).resolves.toBe(false);
+  });
+
   it('does not restore a stale cookie check after logout begins in another tab', async () => {
     let resolveResponse!: (response: Response) => void;
     mockFetch.mockReturnValueOnce(

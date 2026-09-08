@@ -720,6 +720,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     if (
       msg.type === '_send_pending' ||
       msg.type === '_send_failed' ||
+      msg.type === '_send_uncertain' ||
       msg.type === '_send_accepted'
     ) {
       const visible = store
@@ -734,7 +735,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           store.setState({ modeChangeReady: true });
         }
         store.setState({
-          sendError: msg.type === '_send_failed' ? String(msg.error) : null,
+          sendError:
+            msg.type === '_send_failed' || msg.type === '_send_uncertain'
+              ? String(msg.error)
+              : null,
           sendStatus:
             msg.type === '_send_pending'
               ? msg.retrying

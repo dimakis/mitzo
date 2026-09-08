@@ -22,6 +22,7 @@ describe('send outbox', () => {
     const first = new SendOutbox({ fetch: firstFetch, notify, url: '/send', storage });
     first.start();
     first.enqueue(prompt, 0);
+    first.enqueue({ ...prompt, clientMsgId: 'two' }, 0);
 
     first.rejectAll('Sign in again');
     const secondFetch = vi.fn();
@@ -31,7 +32,14 @@ describe('send outbox', () => {
 
     expect(secondFetch).not.toHaveBeenCalled();
     expect(notify).toHaveBeenCalledWith(
-      expect.objectContaining({ type: '_send_failed', clientMsgId: 'one' }),
+      expect.objectContaining({
+        type: '_send_uncertain',
+        clientMsgId: 'one',
+        error: expect.stringContaining('may have accepted'),
+      }),
+    );
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({ type: '_send_failed', clientMsgId: 'two' }),
     );
   });
 

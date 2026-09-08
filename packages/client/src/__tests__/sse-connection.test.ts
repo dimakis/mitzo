@@ -300,7 +300,7 @@ describe('SseConnection', () => {
 
     expect(listener).toHaveBeenCalledWith(expect.objectContaining({ type: '_auth_lost' }));
     expect(listener).toHaveBeenCalledWith(
-      expect.objectContaining({ type: '_send_failed', clientMsgId: 'first' }),
+      expect.objectContaining({ type: '_send_uncertain', clientMsgId: 'first' }),
     );
     expect(MockEventSource.instances).toHaveLength(1);
     expect(conn.send({ type: 'send', clientMsgId: 'blocked', prompt: 'blocked' })).toBe(false);

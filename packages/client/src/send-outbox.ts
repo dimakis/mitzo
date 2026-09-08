@@ -64,10 +64,11 @@ export class SendOutbox {
     return true;
   }
 
-  /** Definitively reject queued/in-flight prompts when the login identity is lost. */
+  /** Reject queued prompts and surface an in-flight prompt as delivery-ambiguous. */
   rejectAll(error: string): void {
     this.active = false;
     this.generation++;
+    const hadInFlight = this.busyGeneration !== null;
     this.busyGeneration = null;
     this.activeAbort?.abort();
     this.activeAbort = undefined;
@@ -75,12 +76,15 @@ export class SendOutbox {
     this.timer = undefined;
     const rejected = this.entries.splice(0);
     this.persist();
-    for (const entry of rejected) {
+    for (const [index, entry] of rejected.entries()) {
+      const deliveryUncertain = hadInFlight && index === 0;
       this.config.notify({
-        type: '_send_failed',
+        type: deliveryUncertain ? '_send_uncertain' : '_send_failed',
         clientMsgId: entry.body.clientMsgId,
         sessionId: entry.body.sessionId,
-        error,
+        error: deliveryUncertain
+          ? 'Authentication changed while this message was being delivered. The server may have accepted it; check the conversation before sending it again.'
+          : error,
       });
     }
   }

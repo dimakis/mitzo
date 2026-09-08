@@ -14,7 +14,7 @@ export const AUTH_LOST_EVENT = 'mitzo:auth-lost';
 export const AUTH_RESTORED_EVENT = 'mitzo:auth-restored';
 let authGeneration = 0;
 let authenticationRestored = false;
-let cookieRestoreInFlight: Promise<boolean> | null = null;
+let cookieRestoreInFlight: { generation: number; promise: Promise<boolean> } | null = null;
 
 function dispatchAuthEvent(name: string): void {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(name));
@@ -111,17 +111,19 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
 
 /** Restore transport authorization when a failed login left a valid cookie session intact. */
 export function restoreCookieAuthentication(): Promise<boolean> {
-  if (cookieRestoreInFlight) return cookieRestoreInFlight;
   const restoreGeneration = authGeneration;
+  if (cookieRestoreInFlight?.generation === restoreGeneration) {
+    return cookieRestoreInFlight.promise;
+  }
   const attempt = (async () => {
     const response = await apiFetch('/api/auth/check');
     if (!response.ok || authGeneration !== restoreGeneration || isLogoutPending()) return false;
     loginSucceeded();
     return true;
   })();
-  cookieRestoreInFlight = attempt;
+  cookieRestoreInFlight = { generation: restoreGeneration, promise: attempt };
   const clear = () => {
-    if (cookieRestoreInFlight === attempt) cookieRestoreInFlight = null;
+    if (cookieRestoreInFlight?.promise === attempt) cookieRestoreInFlight = null;
   };
   void attempt.then(clear, clear);
   return attempt;

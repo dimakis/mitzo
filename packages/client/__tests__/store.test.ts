@@ -1503,6 +1503,23 @@ describe('delivery status', () => {
     expect(store.getState().sendStatus).toBeNull();
     expect(store.getState().sendError).toBe('Rejected');
   });
+
+  it('surfaces delivery ambiguity without presenting it as a safe retry', () => {
+    const store = createReadyStore();
+    store.getState().sendMessage('hello');
+    const command = lastWs.parsedSent().find((message) => message.type === 'send')!;
+    const error =
+      'The server may have accepted this message; check the conversation before sending it again.';
+
+    lastWs.simulateMessage({
+      type: '_send_uncertain',
+      clientMsgId: command.clientMsgId,
+      error,
+    });
+
+    expect(store.getState().sendStatus).toBeNull();
+    expect(store.getState().sendError).toBe(error);
+  });
 });
 it('sends question answers without losing the request identity', async () => {
   const store = createReadyStore();
