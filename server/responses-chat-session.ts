@@ -1,3 +1,4 @@
+import type { GeminiOptions } from './gemini-session.js';
 import { createNativeHooks } from './native-hooks.js';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -29,7 +30,8 @@ interface Options {
   resume?: boolean;
   conversationId: string;
   binding: AccountBinding;
-  apiKey: string;
+  apiKey?: string;
+  gemini?: GeminiOptions;
   session: ManagedSession;
   registry: SessionRegistry;
   input: AsyncIterable<{ message: { content: unknown }; mitzoMessageId?: string }> & {
@@ -75,6 +77,7 @@ export async function openResponsesChat(options: Options) {
     conversationId: options.conversationId,
     binding: options.binding,
     apiKey: options.apiKey,
+    gemini: options.gemini,
     store: privateStorage,
     systemPrompt: options.systemPrompt + (startup.context ? `\n\n${startup.context}` : ''),
     maxTokens: 8192,
@@ -153,7 +156,7 @@ export async function openResponsesChat(options: Options) {
           } catch {
             if (!interrupted || signal.aborted)
               throw new Error(
-                'OpenAI API turn failed or was interrupted. Inspect the task before retrying.',
+                'API turn failed or was interrupted. Inspect the task before retrying.',
               );
             yield { type: 'result', session_id: options.conversationId, is_error: true };
           }
@@ -170,7 +173,7 @@ export async function openResponsesChat(options: Options) {
     },
     close,
     stopTask: async () => {
-      throw new Error('OpenAI API subagents are unavailable');
+      throw new Error('Native API subagents are unavailable');
     },
   };
 }

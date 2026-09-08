@@ -1,3 +1,5 @@
+import { GoogleAuth } from 'google-auth-library';
+import type { GeminiOptions } from './gemini-session.js';
 import { credentials } from './credentials.js';
 import { getResponsesRuntime, openResponsesChat } from './responses-chat-session.js';
 import { CodexAppServerClient, codexEnvironment } from './codex-app-server-client.js';
@@ -825,6 +827,7 @@ async function _startChatInner(
   let accountBinding;
   let codexProfile: CodexAccountProfile | undefined;
   let apiKey: string | undefined;
+  let gemini: GeminiOptions | undefined;
   let accountEnv: Record<string, string> | undefined;
   try {
     const storedBinding = options.resume
@@ -854,6 +857,30 @@ async function _startChatInner(
           preflight.close();
         }
         accountEnv = codexEnvironment(codexProfile.credentialRef, process.env);
+      } else if (accountBinding.provider === 'google-vertex') {
+        if (options.images?.length)
+          throw new Error('Gemini image attachments are not yet supported');
+        const profile = profiles!.googleProfile(accountBinding);
+        const auth = new GoogleAuth({
+          keyFilename: profile.credentialRef,
+          scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+        });
+        gemini = {
+          accountId: accountBinding.accountId,
+          projectId: profile.projectId,
+          region: profile.region,
+          getAccessToken: async () => {
+            const token = await auth.getAccessToken();
+            if (!token) throw new Error('Google Vertex credentials unavailable');
+            return token;
+          },
+        };
+        await gemini.getAccessToken();
+        accountEnv = Object.fromEntries(
+          ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
+            process.env[key] ? [[key, process.env[key]!]] : [],
+          ),
+        );
       } else if (accountBinding.provider === 'openai') {
         if (options.images?.length)
           throw new Error('OpenAI API image attachments are not yet supported');
@@ -879,7 +906,9 @@ async function _startChatInner(
 
   if (options.resume) {
     const validation =
-      codexProfile || apiKey ? { valid: true } : validateResumable(baseCwd, options.resume);
+      codexProfile || apiKey || gemini
+        ? { valid: true }
+        : validateResumable(baseCwd, options.resume);
     if (!validation.valid) {
       log.warn('session not resumable, starting fresh', {
         sessionId: options.resume,
@@ -1105,7 +1134,7 @@ async function _startChatInner(
 
   // Resolve SDK session UUID for resume — worktree IDs are not valid SDK session IDs
   let resolvedResume: string | undefined;
-  if (options.resume && !codexProfile && !apiKey) {
+  if (options.resume && !codexProfile && !apiKey && !gemini) {
     if (!BASE_REPO) {
       log.warn('REPO_PATH unset — resume will use raw worktree ID, SDK may reject it');
     }
@@ -1162,7 +1191,7 @@ async function _startChatInner(
         env: sessionEnv,
         mcpServers: allMcpServers,
       });
-    } else if (apiKey) {
+    } else if (apiKey || gemini) {
       const conversationId = options.resume ?? newSdkSessionId!;
       session.sessionId = conversationId;
       options.onSessionResolved?.(conversationId);
@@ -1182,6 +1211,7 @@ async function _startChatInner(
         conversationId,
         binding: accountBinding!,
         apiKey,
+        gemini,
         session,
         registry,
         input: inputQueue,
@@ -1230,7 +1260,7 @@ async function _startChatInner(
     // For resumed sessions the prompt is sent to the SDK but was never stored
     // in the event store — making user messages invisible after WS reconnect.
     // Store and echo it here so the frontend can replay it.
-    if (options.resume && !codexProfile && !apiKey) {
+    if (options.resume && !codexProfile && !apiKey && !gemini) {
       const messageId =
         options.clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-resume`;
       storeAndEchoIfNew(
@@ -1251,7 +1281,7 @@ async function _startChatInner(
       registry,
       abortController,
       eventStore,
-      options.resume || codexProfile || apiKey ? undefined : fullPrompt,
+      options.resume || codexProfile || apiKey || gemini ? undefined : fullPrompt,
       {
         connRegistry: _connRegistry ?? undefined,
         initialClientMsgId: options.clientMsgId,
@@ -2058,7 +2088,7 @@ export async function renameSessionById(
   manual = true,
 ): Promise<void> {
   const provider = eventStore.getSession(sessionId)?.accountBinding?.provider;
-  if (provider === 'openai' || provider === 'openai-codex') {
+  if (provider === 'openai' || provider === 'openai-codex' || provider === 'google-vertex') {
     if (manual) eventStore.markManuallyRenamed(sessionId);
     eventStore.upsertSession({ sessionId, summary: title });
     return;

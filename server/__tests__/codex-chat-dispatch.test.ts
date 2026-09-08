@@ -168,3 +168,67 @@ it('routes API accounts through the referenced secret store without passing keys
     await rm(root, { recursive: true, force: true });
   }
 });
+
+vi.mock('google-auth-library', () => ({
+  GoogleAuth: class {
+    async getAccessToken() {
+      return 'private-google-token';
+    }
+  },
+}));
+it('routes a Gemini account to native chat with its own token source and resumable application identity', async () => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-gemini-dispatch-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubEnv('GOOGLE_APPLICATION_CREDENTIALS', '/wrong/inherited-adc.json');
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')));
+  const chat = await import('../chat.js');
+  const profiles = new AccountProfiles([
+    {
+      id: 'google-work',
+      label: 'Work Gemini',
+      provider: 'google-vertex',
+      projectId: 'work-project',
+      region: 'global',
+      credentialRef: '/work/adc.json',
+      models: [{ id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash' }],
+    },
+  ]);
+  vi.mocked(openResponsesChat).mockRejectedValue(new Error('simulated native startup failure'));
+  try {
+    await chat.startChat({ send: () => {}, isOpen: () => true }, 'gemini-test', 'hello', {
+      cwd: root,
+      isolation: false,
+      accountId: 'google-work',
+      model: 'gemini-3.8-flash',
+      accountProfiles: profiles,
+      initialSessionId: 'gemini-app',
+    });
+    const opts = vi.mocked(openResponsesChat).mock.calls[0][0];
+    expect(opts.gemini).toMatchObject({
+      accountId: 'google-work',
+      projectId: 'work-project',
+      region: 'global',
+    });
+    expect(await opts.gemini!.getAccessToken()).toBe('private-google-token');
+    expect(opts.apiKey).toBeUndefined();
+    expect(opts.env.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined();
+    expect(query).not.toHaveBeenCalled();
+    expect(chat.eventStore.getSession('gemini-app')?.accountBinding).toEqual(
+      profiles.resolve('google-work', 'gemini-3.8-flash'),
+    );
+    await chat.startChat({ send: () => {}, isOpen: () => true }, 'gemini-resume', 'continue', {
+      cwd: root,
+      isolation: false,
+      resume: 'gemini-app',
+      accountProfiles: profiles,
+    });
+    expect(vi.mocked(openResponsesChat).mock.calls[1][0].conversationId).toBe('gemini-app');
+    await expect(chat.renameSessionById('gemini-app', 'Gemini task')).resolves.toBeUndefined();
+  } finally {
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

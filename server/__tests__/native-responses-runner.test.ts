@@ -92,6 +92,56 @@ describe('durable native Responses turns', () => {
       executeTool,
     });
   }
+  it('runs and resumes Gemini tool turns with the same durable native tool loop', async () => {
+    const googleBinding = { ...binding, provider: 'google-vertex', model: 'gemini-3.8-flash' };
+    let turn = 0;
+    fetchMock.mockImplementation(async (_url, init) => {
+      const body = JSON.parse(init.body);
+      const parts =
+        turn++ === 0
+          ? [
+              {
+                functionCall: {
+                  name: body.tools[0].functionDeclarations[0].name,
+                  args: { path: 'note' },
+                },
+                thoughtSignature: 'private-signature',
+              },
+            ]
+          : [{ text: 'done' }];
+      return Response.json({
+        candidates: [{ finishReason: 'STOP', content: { role: 'model', parts } }],
+      });
+    });
+    const executeTool = vi.fn(async (block) => ({
+      type: 'tool_result' as const,
+      tool_use_id: block.id,
+      content: 'contents',
+    }));
+    const opts = {
+      conversationId: 'gemini-app',
+      binding: googleBinding,
+      store,
+      systemPrompt: 'help',
+      maxTokens: 1024,
+      tools: [{ name: 'Read', description: 'Read', input_schema: { type: 'object' } }],
+      gemini: {
+        accountId: binding.accountId,
+        projectId: 'work-project',
+        region: 'global',
+        getAccessToken: async () => 'private-google-token',
+      },
+      executeTool,
+    };
+    const events = await collect(new NativeResponsesRunner(opts).run('read note'));
+    expect(executeTool).toHaveBeenCalledTimes(1);
+    expect(executeTool.mock.calls[0][0]).toMatchObject({ name: 'Read', input: { path: 'note' } });
+    expect(store.load('gemini-app', googleBinding)?.status).toBe('idle');
+    expect(JSON.stringify(events)).not.toContain('private-signature');
+    await collect(new NativeResponsesRunner(opts).run('continue'));
+    expect(executeTool).toHaveBeenCalledTimes(1);
+    expect(store.load('gemini-app', googleBinding)?.history.at(-1)?.role).toBe('assistant');
+  });
   it('persists tool outcomes before the next request and resumes with opaque reasoning after restart', async () => {
     fetchMock.mockResolvedValueOnce(response(true)).mockResolvedValueOnce(response());
     const execute = vi.fn().mockImplementation(async () => {

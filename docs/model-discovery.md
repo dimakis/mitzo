@@ -11,3 +11,7 @@ Codex attachments use native `image` input with data URLs, rather than tool-base
 Protocol reference: [Codex App Server](https://learn.chatgpt.com/docs/app-server).
 
 The legacy model selector uses a configured Vertex allowlist only when project, region, and explicit `GOOGLE_APPLICATION_CREDENTIALS` match exactly one profile. Inherited provider switches, per-model Vertex region overrides, or alternate endpoints also prevent a profile match. With no match (including ambient ADC), it retains the conservative server defaults. Duplicate matching routes or invalid profile configuration return an explicit error rather than selecting an arbitrary profile.
+
+Google Gemini chat uses a separate `google-vertex` account profile with the same `projectId`, `region`, `credentialRef`, and `models` fields as an Anthropic Vertex profile. This keeps the invocation adapter explicit even when both accounts use the same Google Cloud billing project. The native Gemini runtime supports text and tools, including durable continuation with private thought signatures. Responses arrive after each generation completes; token-by-token streaming and image attachments are not enabled for this adapter yet.
+
+Configured work model lists are not entitlement checks. Verify access with the chosen project's credentials before adding models; a stale list can omit models the account can already invoke. OpenAI API accounts also use their configured model list, while ChatGPT subscriptions use automatic discovery.
