@@ -632,12 +632,26 @@ app.get('/api/events', (req, res) => {
   const clientId = randomUUID();
   sseRegistry.add(clientId, res);
   const authSession = res.locals.authSession as AuthSession | undefined;
-  const unregisterAuth = authSession
+  let cleaned = false;
+  let unregisterAuth: () => void = () => undefined;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    unregisterAuth();
+    sseRegistry.remove(clientId);
+  };
+  req.on('close', cleanup);
+  unregisterAuth = authSession
     ? registerAuthSession(authSession, (reason) => {
         sseRegistry.sendTo(clientId, 'auth_expired', { reason });
         res.end();
+        cleanup();
       })
     : () => undefined;
+  if (cleaned) {
+    unregisterAuth();
+    return;
+  }
 
   // Hydrate: send server version + session overview on connect
   sseRegistry.sendTo(clientId, 'connected', {
@@ -651,11 +665,6 @@ app.get('/api/events', (req, res) => {
   if (healthMonitor) {
     sseRegistry.sendTo(clientId, 'health', healthMonitor.getSnapshot());
   }
-
-  req.on('close', () => {
-    unregisterAuth();
-    sseRegistry.remove(clientId);
-  });
 });
 
 // REST fallback for service health (iOS WebKit can't do SSE with self-signed certs)

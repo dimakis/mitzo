@@ -425,28 +425,11 @@ app.get('/api/chat/events', (req, res) => {
 
   chatSseRegistry.add(connectionId, res, authSession?.id);
   connRegistry.register(connectionId, transport);
-  const unregisterAuth = authSession
-    ? registerAuthSession(authSession, (reason) => {
-        chatSseRegistry.sendTo(connectionId, { type: 'auth_expired', reason });
-        res.end();
-      })
-    : () => undefined;
-
-  // Send welcome with connectionId — client uses this in X-Connection-ID header on POSTs
-  chatSseRegistry.sendTo(connectionId, {
-    type: 'welcome',
-    protocolVersion: 2,
-    connectionId,
-  });
-
-  // Reconnect is handled via POST /api/chat/reconnect — the client sends
-  // a reconnect POST on every welcome event. The old ?sessions= query param
-  // path was removed because EventSource auto-reconnect reuses the original
-  // URL (without the param), making it unreliable.
-
-  log.info('SSE chat stream connected', { connectionId });
-
-  req.on('close', () => {
+  let cleaned = false;
+  let unregisterAuth: () => void = () => undefined;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
     unregisterAuth();
     chatSseRegistry.remove(connectionId);
 
@@ -481,7 +464,33 @@ app.get('/api/chat/events', (req, res) => {
     });
 
     log.info('SSE chat stream disconnected', { connectionId });
+  };
+  req.on('close', cleanup);
+  unregisterAuth = authSession
+    ? registerAuthSession(authSession, (reason) => {
+        chatSseRegistry.sendTo(connectionId, { type: 'auth_expired', reason });
+        res.end();
+        cleanup();
+      })
+    : () => undefined;
+  if (cleaned) {
+    unregisterAuth();
+    return;
+  }
+
+  // Send welcome with connectionId — client uses this in X-Connection-ID header on POSTs
+  chatSseRegistry.sendTo(connectionId, {
+    type: 'welcome',
+    protocolVersion: 2,
+    connectionId,
   });
+
+  // Reconnect is handled via POST /api/chat/reconnect — the client sends
+  // a reconnect POST on every welcome event. The old ?sessions= query param
+  // path was removed because EventSource auto-reconnect reuses the original
+  // URL (without the param), making it unreliable.
+
+  log.info('SSE chat stream connected', { connectionId });
 });
 
 // Mount HTTP POST chat endpoints (authenticated)
