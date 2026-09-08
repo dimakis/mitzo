@@ -1043,6 +1043,39 @@ export function handleSetModeV2(
   });
 }
 
+/** Legacy sockets are not registered v2 connections; deliver the shared result directly. */
+export async function handleLegacySetMode(
+  clientId: string,
+  transport: SessionTransport,
+  mode: SetModeMsg['mode'],
+  ctx: V2HandlerContext,
+): Promise<ModeChangeResult> {
+  const sessionId = ctx.sessionRegistry.get(clientId)?.sessionId;
+  const result: ModeChangeResult = sessionId
+    ? await handleSetModeV2(clientId, { type: 'set_mode', sessionId, mode }, ctx)
+    : {
+        ok: false,
+        applied: false,
+        persisted: false,
+        code: 'not_found',
+        error:
+          'Session is still starting or unavailable; retry the permission change once it is ready',
+      };
+  try {
+    if (result.applied && result.mode)
+      transport.send({ type: 'mode_changed', sessionId, mode: result.mode });
+    if (!result.ok)
+      transport.send({
+        type: 'error',
+        ...(sessionId ? { sessionId } : {}),
+        error: result.error ?? 'Could not change permission mode',
+      });
+  } catch (err) {
+    log.warn('legacy set_mode result delivery failed', { clientId, sessionId, err });
+  }
+  return result;
+}
+
 export function handleSessionSuspend(
   connectionId: string,
   msg: SessionSuspendMsg,

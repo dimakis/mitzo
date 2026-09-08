@@ -61,6 +61,7 @@ import {
   handleSendV2,
   handleInterruptV2,
   handleSetModeV2,
+  handleLegacySetMode,
   handleStopV2,
   handlePermissionResponseV2,
   handleSessionSuspend,
@@ -1061,6 +1062,109 @@ describe('live provider mode changes', () => {
     ]);
     await handleSetModeV2('c1', { type: 'set_mode', sessionId: 'sess-1', mode: 'auto' }, ctx);
     expect(sessionReg.setMode).toHaveBeenCalledWith('driver-1', 'auto');
+  });
+});
+
+describe('legacy permission mode transition', () => {
+  function setup(sessionId: string | undefined = 'legacy-session') {
+    const registry = new SessionRegistry();
+    const transport = mockTransport();
+    registry.register('legacy-client', {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionId,
+      sessionAllowList: new Set(),
+    });
+    const ctx = createContext({ sessionRegistry: registry });
+    return { registry, transport, ctx, session: registry.get('legacy-client')! };
+  }
+  it.each(['success', 'provider', 'persistence'] as const)(
+    'delivers truthful %s results without a v2 connection',
+    async (failure) => {
+      const { registry, transport, ctx, session } = setup();
+      const setter =
+        failure === 'provider'
+          ? vi.fn().mockRejectedValue(new Error('SDK rejected'))
+          : vi.fn().mockResolvedValue(undefined);
+      session.queryInstance = {
+        interrupt: vi.fn(),
+        close: vi.fn(),
+        stopTask: vi.fn(),
+        setPermissionMode: setter,
+      };
+      if (failure === 'persistence')
+        vi.mocked(ctx.eventStore.upsertSession).mockImplementationOnce(() => {
+          throw new Error('Disk full');
+        });
+      try {
+        const result = await handleLegacySetMode('legacy-client', transport, 'auto', ctx);
+        expect(setter).toHaveBeenCalledWith('auto');
+        expect(result.applied).toBe(failure !== 'provider');
+        expect(session.mode).toBe(failure === 'provider' ? 'agent' : 'auto');
+        if (failure === 'provider') {
+          expect(ctx.eventStore.upsertSession).not.toHaveBeenCalled();
+          expect(transport.sent).toEqual([
+            expect.objectContaining({
+              type: 'error',
+              error: expect.stringContaining('SDK rejected'),
+            }),
+          ]);
+        } else {
+          expect(ctx.eventStore.upsertSession).toHaveBeenCalledWith({
+            sessionId: 'legacy-session',
+            mode: 'auto',
+          });
+          expect(transport.sent[0]).toMatchObject({ type: 'mode_changed', mode: 'auto' });
+          if (failure === 'persistence')
+            expect(transport.sent[1]).toMatchObject({
+              type: 'error',
+              error: expect.stringContaining('could not save'),
+            });
+        }
+      } finally {
+        registry.dispose();
+      }
+    },
+  );
+  it('applies a restrictive ceiling while awaiting the provider and acknowledges afterward', async () => {
+    const { registry, transport, ctx, session } = setup();
+    let finish!: () => void;
+    session.queryInstance = {
+      interrupt: vi.fn(),
+      close: vi.fn(),
+      stopTask: vi.fn(),
+      setPermissionMode: vi.fn().mockReturnValue(
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+      ),
+    };
+    const pending = handleLegacySetMode('legacy-client', transport, 'ask', ctx);
+    expect(effectivePermissionMode(session)).toBe('ask');
+    expect(session.mode).toBe('agent');
+    expect(transport.sent).toEqual([]);
+    finish();
+    await pending;
+    expect(transport.sent).toEqual([
+      { type: 'mode_changed', sessionId: 'legacy-session', mode: 'ask' },
+    ]);
+    registry.dispose();
+  });
+  it('rejects a startup session without an ID instead of changing its mode optimistically', async () => {
+    const { registry, transport, ctx, session } = setup();
+    session.sessionId = undefined;
+    const result = await handleLegacySetMode('legacy-client', transport, 'auto', ctx);
+    expect(result.applied).toBe(false);
+    expect(session.mode).toBe('agent');
+    expect(ctx.eventStore.upsertSession).not.toHaveBeenCalled();
+    expect(transport.sent).toEqual([
+      expect.objectContaining({
+        type: 'error',
+        error: expect.stringContaining('Session is still starting'),
+      }),
+    ]);
+    registry.dispose();
   });
 });
 
