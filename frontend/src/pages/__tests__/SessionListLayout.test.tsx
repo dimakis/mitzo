@@ -83,3 +83,11 @@ it('opens a conversation using the keyboard', () => {
   fireEvent.keyDown(screen.getByRole('link', { name: 'Open Review UI' }), { key: 'Enter' });
   expect(screen.getByText('Selected conversation')).toBeTruthy();
 });
+
+it('uses the shared workspace page and primary action styling', () => {
+  mount();
+  expect(screen.getByRole('heading', { name: 'Chats' }).closest('.workspace-page')).toBeTruthy();
+  expect(
+    screen.getByRole('button', { name: '+ New chat' }).classList.contains('workspace-primary'),
+  ).toBe(true);
+});

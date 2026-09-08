@@ -538,8 +538,8 @@
   padding: 8px 14px;
   font-size: var(--text-sm);
   border-radius: 12px;
-  background: var(--accent);
-  color: #fff;
+  background: var(--workspace-accent);
+  color: var(--workspace-bg);
 }
 .conversation-options {
   position: relative;
@@ -705,5 +705,82 @@
   .conversation-library button,
   .conversation-library summary {
     min-height: 44px;
+  }
+}
+
+/* Share the workspace theme and page rhythm with Today and the collections. */
+.workspace-page.conversation-library {
+  --bg: var(--workspace-bg);
+  --surface: var(--workspace-panel);
+  --text: var(--workspace-text);
+  --text-dim: var(--workspace-muted);
+  --border: var(--workspace-line);
+  --accent: var(--workspace-accent);
+  min-height: 0;
+  max-width: none;
+  height: 100%;
+  margin: 0;
+  padding: max(24px, env(safe-area-inset-top)) 22px 0;
+  overflow: hidden;
+}
+.conversation-library .session-list-header {
+  padding: 0 0 20px;
+}
+.conversation-library .session-list-header h1 {
+  margin: 8px 0;
+  font-size: 30px;
+  font-weight: 500;
+  letter-spacing: -0.035em;
+}
+.conversation-library .workspace-primary {
+  min-height: 44px;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 550;
+  border: 0;
+}
+.conversation-library .conversation-search input {
+  background: var(--workspace-bg);
+  border-radius: 10px;
+}
+.conversation-library .conversation-filters button[aria-pressed='true'] {
+  color: var(--workspace-accent);
+  background: var(--workspace-panel);
+}
+.conversation-library .session-item-summary {
+  font-size: 15px;
+  line-height: 1.5;
+  font-weight: 500;
+}
+.conversation-library .session-item:hover {
+  background: var(--workspace-panel);
+}
+@media (min-width: 768px) {
+  .workspace-shell .workspace-page.conversation-library {
+    padding: 32px clamp(24px, 4vw, 64px) 0;
+  }
+  .conversation-library > * {
+    width: 100%;
+    max-width: 1080px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .conversation-library .session-list-header .mitzo-logo {
+    display: none;
+  }
+  .conversation-library .session-list-scroll {
+    padding-bottom: 24px;
+  }
+}
+@media (max-width: 420px) {
+  .conversation-library .session-list-header h1 {
+    font-size: 26px;
+  }
+  .conversation-library .session-list-header-title {
+    gap: 6px;
+  }
+  .conversation-library .workspace-primary {
+    padding: 10px 12px;
   }
 }

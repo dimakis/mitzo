@@ -310,7 +310,7 @@ export function SessionList() {
   }
 
   return (
-    <div className="session-list-page conversation-library">
+    <div className="session-list-page workspace-page conversation-library">
       <header className="session-list-header">
         <div className="session-list-header-title">
           <MitzoLogo />
@@ -318,7 +318,7 @@ export function SessionList() {
         </div>
         <div className="conversation-header-actions">
           <button
-            className="hero-chat-btn"
+            className="hero-chat-btn workspace-primary"
             onClick={() => {
               selectionChanged();
               navigate('/chat');

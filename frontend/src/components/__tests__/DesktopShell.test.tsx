@@ -126,3 +126,10 @@ it('can default the supporting panel closed while respecting an explicit saved p
   );
   expect(screen.getByText('Context')).toBeTruthy();
 });
+
+it('places the navigation toggle in its own row below the brand', () => {
+  render(<DesktopShell center={<div>Conversation</div>} />);
+  const toggle = screen.getByRole('button', { name: 'Collapse navigation' });
+  expect(toggle.closest('.workspace-rail-heading')).toBeNull();
+  expect(toggle.closest('.workspace-rail-controls')).toBeTruthy();
+});

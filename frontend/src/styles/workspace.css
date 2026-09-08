@@ -341,6 +341,10 @@
     align-items: center;
     gap: 8px;
   }
+  .workspace-rail-controls {
+    display: flex;
+    margin-top: 14px;
+  }
   .workspace-rail-toggle {
     display: inline-flex;
     align-items: center;
@@ -363,7 +367,7 @@
     outline-offset: 2px;
   }
   .workspace-rail .workspace-nav {
-    margin-top: 24px;
+    margin-top: 12px;
   }
   .workspace-rail .workspace-nav-link {
     display: flex;
@@ -379,6 +383,7 @@
     flex-basis: 60px;
     padding: 20px 8px;
   }
+  .workspace-rail--collapsed .workspace-rail-controls,
   .workspace-rail--collapsed .workspace-rail-heading {
     justify-content: center;
   }

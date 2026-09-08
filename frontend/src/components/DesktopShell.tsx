@@ -71,6 +71,8 @@ export function DesktopShell({
               {railCollapsed ? 'M' : 'Mitzo'}
               <span aria-hidden="true">.</span>
             </Link>
+          </div>
+          <div className="workspace-rail-controls">
             <button
               className="workspace-rail-toggle"
               aria-label={railCollapsed ? 'Expand navigation' : 'Collapse navigation'}
