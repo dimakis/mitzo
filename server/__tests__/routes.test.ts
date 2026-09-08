@@ -980,6 +980,40 @@ describe('account catalog routes', () => {
       vi.unstubAllEnvs();
     }
   });
+  it.each([
+    ['CLAUDE_CODE_USE_VERTEX', '0'],
+    ['VERTEX_REGION_CLAUDE_4_6_OPUS', 'us-east5'],
+    ['CLAUDE_CODE_USE_BEDROCK', '1'],
+    ['CLAUDE_CODE_USE_FOUNDRY', '1'],
+  ])('does not use a Vertex profile with inherited %s=%s', async (key, value) => {
+    const file = join(TEST_REPO, 'override-profiles.json');
+    writeFileSync(
+      file,
+      JSON.stringify([
+        {
+          id: 'work',
+          label: 'Work',
+          provider: 'anthropic-vertex',
+          projectId: 'test-project',
+          region: 'global',
+          credentialRef: '/credentials/adc.json',
+          models: [{ id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' }],
+        },
+      ]),
+    );
+    vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', file);
+    vi.stubEnv('ANTHROPIC_VERTEX_PROJECT_ID', 'test-project');
+    vi.stubEnv('CLOUD_ML_REGION', 'global');
+    vi.stubEnv('GOOGLE_APPLICATION_CREDENTIALS', '/credentials/adc.json');
+    vi.stubEnv(key, value);
+    try {
+      const res = await request(app).get('/api/models').set('Cookie', authCookie);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual([{ id: 'test-model', label: 'Test', desc: 'Test model' }]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
   it('returns a persisted binding with session metadata', async () => {
     const binding = {
       accountId: 'work',
