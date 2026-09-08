@@ -255,3 +255,26 @@
     border-left: 1px solid var(--workspace-line);
   }
 }
+
+/* Preserve readable rich content in both workspace themes. */
+.workspace-chat .msg-bubble--assistant strong {
+  color: var(--workspace-text);
+}
+.workspace-chat .msg-bubble--assistant a {
+  color: var(--workspace-accent);
+}
+[data-theme='light'] .workspace-chat .token-bar--green {
+  color: #17683a;
+  border-color: #9ebdad;
+}
+[data-theme='light'] .workspace-chat .token-bar--yellow {
+  color: #805600;
+  border-color: #b6a478;
+}
+[data-theme='light'] .workspace-chat :is(.token-bar--red, .token-bar--flashing) {
+  color: #b42332;
+  border-color: #cf8a90;
+}
+[data-theme='light'] .workspace-chat :is(.hljs-name, .hljs-tag, .hljs-keyword, .hljs-selector-tag) {
+  color: #7430a3;
+}
