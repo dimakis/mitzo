@@ -35,10 +35,12 @@ export function TokenBar({ tokenState }: Props) {
         className={`token-bar token-bar--${isCompleted ? 'green' : color}`}
         onClick={() => setExpanded((v) => !v)}
         aria-label="Token usage"
+        aria-expanded={expanded}
         title="Token usage — tap for details"
       >
         {!isCompleted && (
           <span className="token-bar-agent">
+            <span className="token-bar-scope">Context</span>
             <svg
               className="token-bar-icon"
               viewBox="0 0 24 24"
@@ -53,7 +55,7 @@ export function TokenBar({ tokenState }: Props) {
         )}
         {sessionTotal > 0 && (
           <span className="token-bar-session">
-            <span className="token-bar-sigma">Σ</span>
+            <span className="token-bar-scope">Session</span>
             {formatTokens(sessionTotal)}
           </span>
         )}

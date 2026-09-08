@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { BootContextMeta } from '@mitzo/client';
 import type { FinishedMessage, ImageAttachment, StreamingMessage } from '../types/chat';
 import {
@@ -80,6 +80,7 @@ export function SessionTray({
   onAddImages,
   onRemoveImage,
 }: Props) {
+  const contentId = useId();
   const [snap, setSnap] = useState<TraySnap>('peek');
   const [dragOffset, setDragOffset] = useState(0);
   const pointerStart = useRef<number | null>(null);
@@ -145,6 +146,7 @@ export function SessionTray({
           className="session-tray-handle"
           aria-label={isOpen ? 'Close session tray' : 'Open session tray'}
           aria-expanded={isOpen}
+          aria-controls={contentId}
           onClick={() => {
             if (suppressClick.current) return;
             setSnap((value) => (value === 'peek' ? 'half' : 'peek'));
@@ -163,7 +165,7 @@ export function SessionTray({
           }}
         >
           <span className="session-tray-grabber" />
-          <span className="session-tray-handle-label">Session</span>
+          <span className="session-tray-handle-label">Session · Outputs / Sources</span>
           {resourceCount > 0 && <span className="session-tray-count">{resourceCount}</span>}
           {pendingAttachmentCount > 0 && (
             <span
@@ -176,61 +178,74 @@ export function SessionTray({
         </button>
 
         <div
+          id={contentId}
           className="session-tray-content"
           data-testid="session-tray-content"
           aria-hidden={!isOpen}
         >
-          <section className="session-tray-section">
-            <div className="session-tray-section-header">
-              <h2>Outputs</h2>
+          {isOpen && (
+            <div className="session-tray-size-controls">
+              <button
+                onClick={() => setSnap(snap === 'full' ? 'half' : 'full')}
+                aria-label={snap === 'full' ? 'Reduce session tray' : 'Expand session tray'}
+              >
+                {snap === 'full' ? 'Half height' : 'Full height'}
+              </button>
             </div>
-            {resources.outputs.length > 0 ? (
+          )}
+          <div className="session-tray-columns">
+            <section className="session-tray-section">
+              <div className="session-tray-section-header">
+                <h2>Outputs</h2>
+              </div>
+              {resources.outputs.length > 0 ? (
+                <div className="session-tray-resources">
+                  {resources.outputs.map((resource) => (
+                    <ResourceRow key={resource.id} resource={resource} />
+                  ))}
+                </div>
+              ) : (
+                <p className="session-tray-empty">Generated files and previews will appear here</p>
+              )}
+            </section>
+
+            <section className="session-tray-section">
+              <div className="session-tray-section-header">
+                <h2>Sources</h2>
+                <button
+                  className="session-tray-add"
+                  aria-label="Add source"
+                  disabled={draftImages.length >= MAX_IMAGE_ATTACHMENTS}
+                  onClick={onAddImages}
+                >
+                  +
+                </button>
+              </div>
               <div className="session-tray-resources">
-                {resources.outputs.map((resource) => (
+                {draftImages.map((image, index) => (
+                  <div className="session-tray-resource" key={keyForDraftImage(image)}>
+                    <img className="session-tray-thumb" src={image.preview} alt="" />
+                    <span className="session-tray-resource-label">Pasted image {index + 1}</span>
+                    <button
+                      className="session-tray-remove"
+                      aria-label={`Remove pasted image ${index + 1}`}
+                      onClick={() => onRemoveImage(index)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+                {resources.sources.map((resource) => (
                   <ResourceRow key={resource.id} resource={resource} />
                 ))}
               </div>
-            ) : (
-              <p className="session-tray-empty">Generated files and previews will appear here</p>
-            )}
-          </section>
 
-          <section className="session-tray-section">
-            <div className="session-tray-section-header">
-              <h2>Sources</h2>
-              <button
-                className="session-tray-add"
-                aria-label="Add source"
-                disabled={draftImages.length >= MAX_IMAGE_ATTACHMENTS}
-                onClick={onAddImages}
-              >
-                +
-              </button>
-            </div>
-            <div className="session-tray-resources">
-              {draftImages.map((image, index) => (
-                <div className="session-tray-resource" key={keyForDraftImage(image)}>
-                  <img className="session-tray-thumb" src={image.preview} alt="" />
-                  <span className="session-tray-resource-label">Pasted image {index + 1}</span>
-                  <button
-                    className="session-tray-remove"
-                    aria-label={`Remove pasted image ${index + 1}`}
-                    onClick={() => onRemoveImage(index)}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-              {resources.sources.map((resource) => (
-                <ResourceRow key={resource.id} resource={resource} />
-              ))}
-            </div>
-
-            {(bootContext || sessionContext) && (
-              <SessionBanner bootContext={bootContext} sessionContext={sessionContext} />
-            )}
-            <ContextPanel selected={selectedContextBlocks} onToggle={onToggleContextBlock} />
-          </section>
+              {(bootContext || sessionContext) && (
+                <SessionBanner bootContext={bootContext} sessionContext={sessionContext} />
+              )}
+              <ContextPanel selected={selectedContextBlocks} onToggle={onToggleContextBlock} />
+            </section>
+          </div>
         </div>
       </aside>
     </>

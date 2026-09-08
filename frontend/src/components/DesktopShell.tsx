@@ -7,22 +7,32 @@ export interface DesktopShellProps {
   center: ReactNode;
   right?: ReactNode;
   statusBar?: ReactNode;
+  rightDefaultCollapsed?: boolean;
 }
 
 const STORAGE_KEY_LEFT = 'mitzo-sidebar-left-collapsed';
 const STORAGE_KEY_RIGHT = 'mitzo-sidebar-right-collapsed';
 
-function readCollapsed(key: string): boolean {
+function readCollapsed(key: string, fallback = false): boolean {
   try {
-    return localStorage.getItem(key) === '1';
+    const saved = localStorage.getItem(key);
+    return saved === null ? fallback : saved === '1';
   } catch {
-    return false;
+    return fallback;
   }
 }
 
-export function DesktopShell({ left, center, right, statusBar }: DesktopShellProps) {
+export function DesktopShell({
+  left,
+  center,
+  right,
+  statusBar,
+  rightDefaultCollapsed = false,
+}: DesktopShellProps) {
   const [leftCollapsed, setLeftCollapsed] = useState(() => readCollapsed(STORAGE_KEY_LEFT));
-  const [rightCollapsed, setRightCollapsed] = useState(() => readCollapsed(STORAGE_KEY_RIGHT));
+  const [rightCollapsed, setRightCollapsed] = useState(() =>
+    readCollapsed(STORAGE_KEY_RIGHT, rightDefaultCollapsed),
+  );
 
   const toggleLeft = useCallback(() => {
     setLeftCollapsed((prev) => {
