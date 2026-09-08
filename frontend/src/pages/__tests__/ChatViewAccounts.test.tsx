@@ -50,6 +50,8 @@ it.each(['before', 'after'])(
         </MemoryRouter>
       </MitzoStoreProvider>,
     );
+    if (screen.getByRole('button', { name: /Workspace/ }).getAttribute('aria-expanded') === 'false')
+      fireEvent.click(screen.getByRole('button', { name: /Workspace/ }));
     await screen.findByRole('alert');
     if (timing === 'after')
       act(() =>
@@ -125,4 +127,28 @@ it('keeps a new chat route clear of the previous session and adopts the new ID',
   act(() => store.setState({ sessions: { ...store.getState().sessions, active: 'new-session' } }));
   await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/chat/new-session'));
   expect(store.getState().sessions.active).toBe('new-session');
+});
+
+it('keeps mobile account and permission controls in one collapsible workspace section', async () => {
+  localStorage.removeItem('mitzo-workspace-controls-expanded');
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    json: async () => [
+      { id: 'preview', label: 'Preview', models: [{ id: 'demo', label: 'Demo' }] },
+    ],
+  } as Response);
+  render(
+    <MitzoStoreProvider value={createTestStore()}>
+      <MemoryRouter>
+        <ChatView />
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+  expect(screen.getByRole('button', { name: /Workspace/ }).getAttribute('aria-expanded')).toBe(
+    'false',
+  );
+  expect(screen.queryByRole('combobox', { name: 'Model' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: /Workspace/ }));
+  expect(await screen.findByRole('combobox', { name: 'Model' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Agent' })).toBeTruthy();
 });

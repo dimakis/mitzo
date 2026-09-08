@@ -14,8 +14,7 @@ import { Today } from './pages/Today';
 import { MoreView } from './pages/MoreView';
 import { AttentionFeed } from './components/AttentionFeed';
 import { SessionList } from './pages/SessionList';
-import { ChatView } from './pages/ChatView';
-import { DesktopChatView } from './pages/DesktopChatView';
+import { ResponsiveChatView } from './components/ResponsiveChatView';
 import { FileViewer } from './pages/FileViewer';
 import { InboxView } from './pages/InboxView';
 import { CalendarView } from './pages/CalendarView';
@@ -103,8 +102,7 @@ function HomeRoute() {
 }
 
 function ChatRoute() {
-  const isDesktop = useIsDesktop();
-  return isDesktop ? <DesktopChatView /> : <ChatView />;
+  return <ResponsiveChatView />;
 }
 
 function CollectionRoute({ page }: { page: 'proposals' | 'calendar' }) {

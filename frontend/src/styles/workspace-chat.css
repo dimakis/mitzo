@@ -471,3 +471,24 @@
     animation: none;
   }
 }
+
+/* The mobile workspace uses the same disclosure, with controls wrapping inside it. */
+.chat-page .workspace-controls .chat-header,
+.chat-page .workspace-controls .chat-account-bar {
+  border: 0;
+}
+.chat-page .workspace-controls .chat-header {
+  padding-bottom: 12px;
+}
+
+/* Keep long conversation names useful without letting a busy list grow sideways. */
+.session-item-summary,
+.session-panel-item-summary {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
