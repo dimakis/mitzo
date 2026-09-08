@@ -954,6 +954,10 @@ describe('runQueryLoop', () => {
         abortController,
         store,
         'Hello, this is my first message',
+        {
+          initialImages: ['data:image/png;base64,cHJldmlldw=='],
+          initialContextBlocks: ['constitution'],
+        },
       );
 
       // Initial prompt is stored on session metadata
@@ -965,7 +969,11 @@ describe('runQueryLoop', () => {
       const stored = store.getSessionEvents('sess-ip');
       const userMsgEvents = stored.filter((e) => e.type === 'user_message');
       expect(userMsgEvents).toHaveLength(1);
-      expect(userMsgEvents[0].payload.text).toBe('Hello, this is my first message');
+      expect(userMsgEvents[0].payload).toMatchObject({
+        text: 'Hello, this is my first message',
+        images: ['data:image/png;base64,cHJldmlldw=='],
+        contextBlocks: ['constitution'],
+      });
     });
 
     it('calls onInitialPrompt callback when initial prompt is registered', async () => {

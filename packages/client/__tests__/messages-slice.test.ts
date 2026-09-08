@@ -762,6 +762,21 @@ describe('USER_MESSAGE_RECEIVED deduplication', () => {
     expect(result.messages[0].role).toBe('user');
   });
 
+  it('adds durable image previews and context blocks to received user messages', () => {
+    const result = messagesReducer(INITIAL, {
+      type: 'USER_MESSAGE_RECEIVED',
+      messageId: 'umsg-with-sources',
+      text: 'hello',
+      images: ['data:image/png;base64,cHJldmlldw=='],
+      contextBlocks: ['constitution'],
+    });
+
+    expect(result.messages[0]).toMatchObject({
+      images: ['data:image/png;base64,cHJldmlldw=='],
+      contextBlocks: ['constitution'],
+    });
+  });
+
   it('skips duplicate when message with same ID already exists', () => {
     const stateWithMsg: MessagesState = {
       ...INITIAL,

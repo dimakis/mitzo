@@ -1,5 +1,8 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { registry, sendToChat, interruptChat } from '../chat.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { eventStore, registry, sendToChat, interruptChat } from '../chat.js';
 import type { SessionTransport } from '@mitzo/harness';
 
 function mockTransport(open = true): SessionTransport & { _sent: Record<string, unknown>[] } {
@@ -13,9 +16,11 @@ function mockTransport(open = true): SessionTransport & { _sent: Record<string, 
 
 describe('sendToChat emits user_message via transport', () => {
   const CLIENT_ID = 'test-client-send';
+  const tempDirs: string[] = [];
 
   afterEach(() => {
     registry.abort(CLIENT_ID);
+    for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
   it('sends a user_message event after persisting to event store', () => {
@@ -73,6 +78,44 @@ describe('sendToChat emits user_message via transport', () => {
     );
     expect(userMsgEvents).toHaveLength(1);
     expect((userMsgEvents[0] as Record<string, unknown>).messageId).toBe(clientMsgId);
+  });
+
+  it('persists and echoes image previews and context block names', () => {
+    const transport = mockTransport();
+    const sessionId = `sess-sources-${Date.now()}`;
+    registry.register(CLIENT_ID, {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+    const session = registry.get(CLIENT_ID)!;
+    session.sessionId = sessionId;
+    session.cwd = mkdtempSync(join(tmpdir(), 'mitzo-send-sources-'));
+    tempDirs.push(session.cwd);
+    session.inputQueue = { push: vi.fn(), close: vi.fn() };
+
+    expect(
+      sendToChat(
+        CLIENT_ID,
+        'Inspect this',
+        [{ data: 'cHJldmlldw==', mediaType: 'image/png' }],
+        ['constitution'],
+        'user-with-sources',
+      ),
+    ).toBe(true);
+
+    const expectedSources = {
+      images: ['data:image/png;base64,cHJldmlldw=='],
+      contextBlocks: ['constitution'],
+    };
+    expect(transport._sent.find((message) => message.type === 'user_message')).toMatchObject(
+      expectedSources,
+    );
+    expect(
+      eventStore.getSessionEvents(sessionId).find((event) => event.type === 'user_message')
+        ?.payload,
+    ).toMatchObject(expectedSources);
   });
 
   it('does not crash when transport is not open', () => {

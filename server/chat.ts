@@ -1143,6 +1143,8 @@ async function _startChatInner(
         clientId,
         transport,
         session.observers,
+        imagePreviews(options.images),
+        options.contextBlocks,
       );
       q = await openCodexChat({
         resume: !!options.resume,
@@ -1172,6 +1174,8 @@ async function _startChatInner(
         clientId,
         transport,
         session.observers,
+        imagePreviews(options.images),
+        options.contextBlocks,
       );
       q = await openResponsesChat({
         resume: !!options.resume,
@@ -1236,6 +1240,8 @@ async function _startChatInner(
         clientId,
         transport,
         session.observers,
+        imagePreviews(options.images),
+        options.contextBlocks,
       );
     }
 
@@ -1249,6 +1255,8 @@ async function _startChatInner(
       {
         connRegistry: _connRegistry ?? undefined,
         initialClientMsgId: options.clientMsgId,
+        initialImages: imagePreviews(options.images),
+        initialContextBlocks: options.contextBlocks,
         onSessionResolved: (sessionId: string) => {
           // Persist boot context for new sessions (resume sessions already persisted above)
           if (!options.resume) {
@@ -1360,6 +1368,8 @@ function storeAndEchoIfNew(
   clientId: string,
   transport: SessionTransport,
   observers: Set<SessionTransport>,
+  images?: string[],
+  contextBlocks?: string[],
 ): boolean {
   if (eventStore.hasUserMessage(sessionId, messageId)) {
     return true;
@@ -1370,13 +1380,28 @@ function storeAndEchoIfNew(
     ts: Date.now(),
     messageId,
     text,
+    ...(images?.length ? { images } : {}),
+    ...(contextBlocks?.length ? { contextBlocks } : {}),
   });
   eventStore.updateLastSpeaker(sessionId, 'user');
   _onSessionChange?.(clientId, 'user_message');
-  const echo = { type: 'user_message', v: 2, messageId, text, sessionId, seq };
+  const echo = {
+    type: 'user_message',
+    v: 2,
+    messageId,
+    text,
+    sessionId,
+    seq,
+    ...(images?.length ? { images } : {}),
+    ...(contextBlocks?.length ? { contextBlocks } : {}),
+  };
   send(transport, echo);
   broadcastToObservers(observers, echo);
   return false;
+}
+
+function imagePreviews(images?: Array<{ data: string; mediaType: string }>): string[] | undefined {
+  return images?.map((image) => `data:${image.mediaType};base64,${image.data}`);
 }
 
 /** Push a follow-up message into a running session. */
@@ -1409,6 +1434,7 @@ export function sendToChat(
       contextBlocks,
     );
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-send`;
+    const previews = imagePreviews(images);
     if (responses && session.sessionId && eventStore.hasUserMessage(session.sessionId, messageId))
       return true;
     if (codex) {
@@ -1452,6 +1478,8 @@ export function sendToChat(
         clientId,
         session.transport,
         session.observers,
+        previews,
+        contextBlocks,
       );
       if (isDup && !codex) return true;
       tryAutoRename(session.sessionId, clientId).catch(() => {
@@ -1461,7 +1489,14 @@ export function sendToChat(
       // Pre-session-resolve: no eventStore to dedup against.
       // The frontend deduplicates echoes by messageId, and server-generated
       // fallback IDs include randomUUID, so duplicates are not possible in practice.
-      const echo = { type: 'user_message', v: 2, messageId, text: fullPrompt };
+      const echo = {
+        type: 'user_message',
+        v: 2,
+        messageId,
+        text: fullPrompt,
+        ...(previews?.length ? { images: previews } : {}),
+        ...(contextBlocks?.length ? { contextBlocks } : {}),
+      };
       send(session.transport, echo);
       broadcastToObservers(session.observers, echo);
     }
@@ -1520,6 +1555,7 @@ export async function interruptChat(
     if (model) session.model = model;
     const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-interrupt`;
+    const previews = imagePreviews(images);
     // Store and echo the user message. A retried interrupt must still stop
     // the agent — only the echo/store is skipped on duplicate.
     let isDup = false;
@@ -1531,10 +1567,19 @@ export async function interruptChat(
         clientId,
         session.transport,
         session.observers,
+        previews,
+        contextBlocks,
       );
     } else {
       // Pre-session-resolve: no eventStore to dedup against (see sendToChat).
-      const echo = { type: 'user_message', v: 2, messageId, text: fullPrompt };
+      const echo = {
+        type: 'user_message',
+        v: 2,
+        messageId,
+        text: fullPrompt,
+        ...(previews?.length ? { images: previews } : {}),
+        ...(contextBlocks?.length ? { contextBlocks } : {}),
+      };
       send(session.transport, echo);
       broadcastToObservers(session.observers, echo);
     }
@@ -2240,6 +2285,8 @@ export interface RestoredMessage {
   messageId: string;
   role: string;
   timestamp?: number;
+  images?: string[];
+  contextBlocks?: string[];
   blocks: Array<{
     blockId: string;
     blockType: string;
@@ -2309,6 +2356,12 @@ export function replayEventsToMessages(
       messageId,
       role: 'user',
       timestamp: firstTs,
+      images: Array.isArray(matchingEvt?.payload.images)
+        ? (matchingEvt.payload.images as string[])
+        : undefined,
+      contextBlocks: Array.isArray(matchingEvt?.payload.contextBlocks)
+        ? (matchingEvt.payload.contextBlocks as string[])
+        : undefined,
       blocks: [{ blockId: 'user-initial', blockType: 'text', content: initialPrompt }],
     });
   } else if (legacyInitialPromptEvent) {
@@ -2317,6 +2370,8 @@ export function replayEventsToMessages(
       messageId: p.messageId as string,
       role: 'user',
       timestamp: typeof p.ts === 'number' ? p.ts : legacyInitialPromptEvent.createdAt,
+      images: Array.isArray(p.images) ? (p.images as string[]) : undefined,
+      contextBlocks: Array.isArray(p.contextBlocks) ? (p.contextBlocks as string[]) : undefined,
       blocks: [
         {
           blockId: `user-${p.messageId as string}`,
@@ -2345,6 +2400,8 @@ export function replayEventsToMessages(
           messageId: p.messageId as string,
           role: 'user',
           timestamp: typeof p.ts === 'number' ? p.ts : evt.createdAt,
+          images: Array.isArray(p.images) ? (p.images as string[]) : undefined,
+          contextBlocks: Array.isArray(p.contextBlocks) ? (p.contextBlocks as string[]) : undefined,
           blocks: [
             {
               blockId: `user-${p.messageId as string}`,

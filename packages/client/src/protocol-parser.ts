@@ -426,6 +426,10 @@ export function parseServerMessage(
         type: 'USER_MESSAGE_RECEIVED',
         messageId: msg.messageId as string,
         text: msg.text as string,
+        images: Array.isArray(msg.images) ? (msg.images as string[]) : undefined,
+        contextBlocks: Array.isArray(msg.contextBlocks)
+          ? (msg.contextBlocks as string[])
+          : undefined,
       });
       break;
 

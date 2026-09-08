@@ -180,6 +180,41 @@ describe('replayEventsToMessages — user_message events', () => {
     expect(result[1]).toMatchObject({ messageId: 'msg-a1', role: 'assistant' });
   });
 
+  it('restores persisted user image previews and context block names', () => {
+    const events: StoredEvent[] = [
+      evt(1, 'user_message', {
+        messageId: 'umsg-with-sources',
+        text: 'Use these sources',
+        images: ['data:image/png;base64,cHJldmlldw=='],
+        contextBlocks: ['constitution'],
+      }),
+    ];
+
+    expect(replayEventsToMessages(events)[0]).toMatchObject({
+      messageId: 'umsg-with-sources',
+      images: ['data:image/png;base64,cHJldmlldw=='],
+      contextBlocks: ['constitution'],
+    });
+  });
+
+  it('restores sources when session metadata supplies the initial prompt', () => {
+    const events: StoredEvent[] = [
+      evt(1, 'message_start', { messageId: 'assistant-1' }),
+      evt(2, 'user_message', {
+        messageId: 'umsg-initial',
+        text: 'Initial prompt',
+        images: ['data:image/png;base64,cHJldmlldw=='],
+        contextBlocks: ['constitution'],
+      }),
+    ];
+
+    expect(replayEventsToMessages(events, 'Initial prompt')[0]).toMatchObject({
+      messageId: 'umsg-initial',
+      images: ['data:image/png;base64,cHJldmlldw=='],
+      contextBlocks: ['constitution'],
+    });
+  });
+
   it('interleaves user and assistant messages in correct order', () => {
     const events: StoredEvent[] = [
       evt(1, 'user_message', { messageId: 'umsg-1', text: 'First question' }),

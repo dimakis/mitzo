@@ -177,6 +177,8 @@ function v2(type: string, rest: Record<string, unknown> = {}): Record<string, un
 
 export interface QueryLoopOptions {
   initialClientMsgId?: string;
+  initialImages?: string[];
+  initialContextBlocks?: string[];
   connRegistry?: ConnectionRegistry;
   onSessionResolved?: (sessionId: string) => void;
   /** Called after the initial prompt is registered, enabling auto-rename on prompt 1. */
@@ -533,6 +535,10 @@ async function _runQueryLoopInner(
                   ts: now,
                   messageId: options?.initialClientMsgId ?? `umsg-${now}-init`,
                   text: initialPrompt,
+                  ...(options?.initialImages?.length ? { images: options.initialImages } : {}),
+                  ...(options?.initialContextBlocks?.length
+                    ? { contextBlocks: options.initialContextBlocks }
+                    : {}),
                 });
                 store.updateLastSpeaker(resolvedSessionId, 'user');
                 // Trigger auto-rename — tryAutoRename handles the increment
