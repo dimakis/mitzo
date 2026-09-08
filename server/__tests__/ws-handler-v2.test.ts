@@ -552,6 +552,21 @@ describe('handleUnwatch', () => {
 // ─── handleSwitchSession ─────────────────────────────────────────────────────
 
 describe('handleSwitchSession', () => {
+  it('scopes unexpected discovery errors to the requested session', async () => {
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    vi.mocked(discoverSession).mockRejectedValueOnce(new Error('Discovery unavailable'));
+    await expect(
+      handleSwitchSession('c1', { type: 'switch_session', sessionId: 'selected' }, ctx),
+    ).rejects.toThrow('Discovery unavailable');
+    expect(transport.sent).toContainEqual({
+      type: 'error',
+      sessionId: 'selected',
+      error: 'Discovery unavailable',
+    });
+  });
+
   it('sets active session and sends session metadata from event store', async () => {
     const eventStore = mockEventStore();
     eventStore.getSession.mockReturnValue({
@@ -613,6 +628,7 @@ describe('handleSwitchSession', () => {
     expect(transport.sent[0]).toEqual(
       expect.objectContaining({
         type: 'error',
+        sessionId: 'nope',
         error: expect.stringContaining('nope'),
       }),
     );

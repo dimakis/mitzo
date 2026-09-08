@@ -774,7 +774,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
     }
 
-    if (msg.type === 'error') awaitingModeHydration = undefined;
+    if (msg.type === 'error' && msg.sessionId === awaitingModeHydration)
+      awaitingModeHydration = undefined;
     if (
       !awaitingModeHydration &&
       (msg.type === 'session_id' ||

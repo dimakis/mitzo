@@ -910,6 +910,8 @@ describe('setMode', () => {
   it('releases switch hydration after a matching terminal error', async () => {
     const store = createReadyStore();
     await store.getState().switchSession('selected');
+    lastWs.simulateMessage({ type: 'error', error: 'Unrelated global failure' });
+    expect(store.getState().modeChangeReady).toBe(false);
     lastWs.simulateMessage({ type: 'error', sessionId: 'old', error: 'old failure' });
     expect(store.getState().modeChangeReady).toBe(false);
     lastWs.simulateMessage({ type: 'error', sessionId: 'selected', error: 'Session unavailable' });

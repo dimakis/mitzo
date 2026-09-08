@@ -412,6 +412,7 @@ export async function handleSwitchSession(
       if (!sessionMeta) {
         ctx.connRegistry.get(connectionId)?.transport.send({
           type: 'error',
+          sessionId: msg.sessionId,
           error: `Session not found: ${msg.sessionId}`,
         });
         return;
@@ -464,7 +465,19 @@ export async function handleSwitchSession(
 
       log.info('switch_session', { connectionId, sessionId: msg.sessionId });
     },
-  );
+  ).catch((error: unknown) => {
+    try {
+      ctx.connRegistry.get(connectionId)?.transport.send({
+        type: 'error',
+        ...(msg.sessionId ? { sessionId: msg.sessionId } : {}),
+        error: error instanceof Error ? error.message : 'Session switch failed',
+      });
+    } catch (deliveryError) {
+      log.warn('switch_session error delivery failed', { connectionId, error: deliveryError });
+    }
+    // REST and dispatch callers must still observe the failed operation.
+    throw error;
+  });
 }
 
 export function handleSendV2(
