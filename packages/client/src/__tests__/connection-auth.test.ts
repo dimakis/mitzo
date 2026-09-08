@@ -18,6 +18,25 @@ class MockWebSocket implements WebSocketLike {
 }
 
 describe('MitzoConnection authentication loss', () => {
+  it('clears the prior connection identity when authentication is invalidated', () => {
+    const socket = new MockWebSocket();
+    const connection = new MitzoConnection({
+      buildUrl: () => '/ws/chat',
+      createWebSocket: () => socket,
+    });
+    connection.connect();
+    socket.onopen?.({});
+    socket.onmessage?.({
+      data: JSON.stringify({ type: 'welcome', protocolVersion: 2, connectionId: 'old-context' }),
+    });
+    expect(connection.getConnectionId()).toBe('old-context');
+
+    connection.invalidateAuthentication();
+
+    expect(connection.getConnectionId()).toBeNull();
+    connection.disconnect();
+  });
+
   it('detects an authentication rejection before opening a socket', async () => {
     const sockets: MockWebSocket[] = [];
     const listener = vi.fn();

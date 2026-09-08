@@ -106,7 +106,7 @@ export async function biometricLogin(apiBaseUrl = ''): Promise<string | null> {
     if (!res.ok) {
       // Avoid deleting Keychain credentials here: a passphrase login can be saving
       // a replacement concurrently and the native API has no compare-and-delete.
-      markAuthLost();
+      if (authTokenAtStart === null || authTokenAtStart === token) markAuthLost();
       return null;
     }
 

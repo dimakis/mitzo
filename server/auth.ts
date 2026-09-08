@@ -9,10 +9,17 @@ const INSECURE_SECRETS = [
   'replace-with-random-secret-key-min-32-chars',
 ];
 
+export function parseCookieMaxAgeHours(value = '24'): number | null {
+  if (!/^[1-9]\d*$/.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
 export function validateConfig(
   passphrase?: string,
   secret?: string,
   maxAgeHours = '24',
+  parsedMaxAge: number | null = parseCookieMaxAgeHours(maxAgeHours),
 ): string | null {
   if (!passphrase || INSECURE_PASSPHRASES.includes(passphrase)) {
     return 'AUTH_PASSPHRASE must be set to a secure value in .env';
@@ -24,8 +31,7 @@ export function validateConfig(
   ) {
     return 'AUTH_SECRET must be set to a secure value (min 32 chars) in .env';
   }
-  const parsedMaxAge = Number(maxAgeHours);
-  if (!Number.isInteger(parsedMaxAge) || parsedMaxAge <= 0) {
+  if (parsedMaxAge === null) {
     return 'COOKIE_MAX_AGE_HOURS must be a positive whole number';
   }
   return null;
@@ -35,10 +41,13 @@ import { createLogger } from './logger.js';
 
 const log = createLogger('auth');
 
+const rawMaxAgeHours = process.env.COOKIE_MAX_AGE_HOURS ?? '24';
+const parsedMaxAgeHours = parseCookieMaxAgeHours(rawMaxAgeHours);
 const configError = validateConfig(
   process.env.AUTH_PASSPHRASE,
   process.env.AUTH_SECRET,
-  process.env.COOKIE_MAX_AGE_HOURS,
+  rawMaxAgeHours,
+  parsedMaxAgeHours,
 );
 if (configError) {
   log.error(`FATAL: ${configError}`);
@@ -47,7 +56,7 @@ if (configError) {
 
 const PASSPHRASE = process.env.AUTH_PASSPHRASE!;
 const SECRET = new TextEncoder().encode(process.env.AUTH_SECRET!);
-const MAX_AGE_HOURS = parseInt(process.env.COOKIE_MAX_AGE_HOURS ?? '24', 10);
+const MAX_AGE_HOURS = parsedMaxAgeHours!;
 const COOKIE_NAME = 'cc_auth';
 
 export interface AuthSession {

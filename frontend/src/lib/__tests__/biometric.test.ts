@@ -171,6 +171,20 @@ describe('biometricLogin', () => {
     expect(NativeBiometric.deleteCredentials).not.toHaveBeenCalled();
   });
 
+  it('preserves a valid local login when a different Keychain token is rejected', async () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    vi.mocked(NativeBiometric.verifyIdentity).mockResolvedValue(undefined as never);
+    vi.mocked(NativeBiometric.getCredentials).mockResolvedValue({
+      username: 'mitzo-user',
+      password: 'stale-keychain-token',
+    });
+    localStorage.setItem('mitzo_auth_token', 'valid-local-token');
+    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: false } as Response);
+
+    expect(await biometricLogin()).toBeNull();
+    expect(localStorage.getItem('mitzo_auth_token')).toBe('valid-local-token');
+  });
+
   it('returns null when verification fails', async () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
     vi.mocked(NativeBiometric.verifyIdentity).mockRejectedValue(new Error('cancelled'));

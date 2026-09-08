@@ -42,11 +42,14 @@ describe('validateConfig', () => {
     expect(validateConfig('good-passphrase', 'short-secret', '1')).toMatch(/32/);
   });
 
-  it.each(['0', '-1', 'NaN', '1.5', ''])('rejects invalid cookie TTL %j', (ttl) => {
-    expect(
-      validateConfig('good-passphrase', 'a-valid-secret-that-is-long-enough-32chars!!', ttl),
-    ).toMatch(/COOKIE_MAX_AGE_HOURS/);
-  });
+  it.each(['0', '-1', 'NaN', '1.5', '', '1e2', '0x10', ' 1', '1 '])(
+    'rejects invalid cookie TTL %j',
+    (ttl) => {
+      expect(
+        validateConfig('good-passphrase', 'a-valid-secret-that-is-long-enough-32chars!!', ttl),
+      ).toMatch(/COOKIE_MAX_AGE_HOURS/);
+    },
+  );
 
   it('accepts valid config', () => {
     expect(

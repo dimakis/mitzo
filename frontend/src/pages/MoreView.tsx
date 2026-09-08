@@ -46,9 +46,8 @@ export function MoreView() {
       <button
         className="workspace-text-link"
         onClick={async () => {
-          await deleteCredentials();
-          await clearWatchToken();
-          await logout();
+          const logoutRequest = logout();
+          await Promise.allSettled([logoutRequest, deleteCredentials(), clearWatchToken()]);
           navigate('/login');
         }}
       >

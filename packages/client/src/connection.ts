@@ -321,6 +321,7 @@ export class MitzoConnection {
     this.reconnectTimer = null;
     this.defuseOldWs();
     this._connected = false;
+    this._connectionId = null;
     this.rejectPendingSends('Authentication expired. Sign in again to retry.');
     if (notify) this.listener?.({ type: '_auth_lost' });
   }
