@@ -94,6 +94,15 @@ describe('deleteCredentials', () => {
 });
 
 describe('biometricLogin', () => {
+  it('refuses retained native credentials while logout is pending', async () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    localStorage.setItem('mitzo_logout_pending', '1');
+
+    expect(await biometricLogin()).toBeNull();
+    expect(NativeBiometric.verifyIdentity).not.toHaveBeenCalled();
+    expect(NativeBiometric.deleteCredentials).toHaveBeenCalled();
+  });
+
   it('returns null in browser', async () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
     expect(await biometricLogin()).toBeNull();

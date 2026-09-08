@@ -77,7 +77,11 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
   const token = typeof localStorage !== 'undefined' ? localStorage.getItem(AUTH_TOKEN_KEY) : null;
   if (token) headers.set('Authorization', `Bearer ${token}`);
   const response = await fetch(url, { ...init, headers, credentials: 'include' });
-  if (response.status === 401 && !path.endsWith('/api/auth/login')) markAuthLost();
+  const currentToken =
+    typeof localStorage !== 'undefined' ? localStorage.getItem(AUTH_TOKEN_KEY) : null;
+  if (response.status === 401 && !path.endsWith('/api/auth/login') && currentToken === token) {
+    markAuthLost();
+  }
   return response;
 }
 

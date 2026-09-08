@@ -135,6 +135,23 @@ describe('apiFetch', () => {
     window.removeEventListener(AUTH_LOST_EVENT, listener);
   });
 
+  it('does not let a delayed old-token 401 clear a newer login', async () => {
+    localStorage.setItem('mitzo_auth_token', 'old-token');
+    let resolveResponse!: (response: Response) => void;
+    mockFetch.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        resolveResponse = resolve;
+      }),
+    );
+
+    const pending = apiFetch('/api/sessions');
+    loginSucceeded('fresh-token');
+    resolveResponse(new Response('{}', { status: 401 }));
+    await pending;
+
+    expect(localStorage.getItem('mitzo_auth_token')).toBe('fresh-token');
+  });
+
   it('does not announce an expected failed login as auth loss', async () => {
     mockFetch.mockResolvedValueOnce(new Response('{}', { status: 401 }));
     const listener = vi.fn();

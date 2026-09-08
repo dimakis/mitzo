@@ -1,7 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import { NativeBiometric, BiometryType } from '@capgo/capacitor-native-biometric';
 import { saveTokenToWatch } from './watch-auth';
-import { loginSucceeded, markAuthLost } from './api-fetch';
+import { isLogoutPending, loginSucceeded, markAuthLost } from './api-fetch';
 
 const SERVER = 'com.mitzo.app';
 export async function isBiometricAvailable(): Promise<boolean> {
@@ -73,6 +73,10 @@ export async function deleteCredentials(): Promise<void> {
  */
 export async function biometricLogin(apiBaseUrl = ''): Promise<string | null> {
   if (!Capacitor.isNativePlatform()) return null;
+  if (isLogoutPending()) {
+    await deleteCredentials();
+    return null;
+  }
 
   try {
     await NativeBiometric.verifyIdentity({
