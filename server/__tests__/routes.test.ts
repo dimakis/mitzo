@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import type { Express } from 'express';
 import request from 'supertest';
 import { mkdirSync, writeFileSync } from 'fs';
@@ -880,6 +880,23 @@ describe('skills routes', () => {
 });
 
 describe('account catalog routes', () => {
+  beforeEach(() => {
+    // Each case owns its provider environment, independent of the developer's login.
+    for (const key of Object.keys(process.env)) {
+      if (
+        /^(ANTHROPIC_|OPENAI_|CLAUDE_CODE_USE_|CLAUDE_CODE_SKIP_|VERTEX_REGION_)/.test(key) ||
+        [
+          'GOOGLE_API_KEY',
+          'GOOGLE_APPLICATION_CREDENTIALS',
+          'CLAUDE_CODE_OAUTH_TOKEN',
+          'MITZO_ACCOUNT_PROFILES_FILE',
+          'CLOUD_ML_REGION',
+        ].includes(key)
+      )
+        vi.stubEnv(key, undefined);
+    }
+  });
+  afterEach(() => vi.unstubAllEnvs());
   it('requires authentication', async () => {
     expect((await request(app).get('/api/accounts')).status).toBe(401);
   });
@@ -918,6 +935,9 @@ describe('account catalog routes', () => {
     vi.stubEnv('ANTHROPIC_VERTEX_PROJECT_ID', 'test-project');
     vi.stubEnv('CLOUD_ML_REGION', 'global');
     vi.stubEnv('GOOGLE_APPLICATION_CREDENTIALS', '/credentials/adc.json');
+    // Unrelated tool credentials and default model preferences do not reroute explicit model IDs.
+    vi.stubEnv('OPENAI_API_KEY', 'test-tool-key');
+    vi.stubEnv('ANTHROPIC_DEFAULT_HAIKU_MODEL', 'claude-haiku-4-5');
     try {
       const res = await request(app).get('/api/models').set('Cookie', authCookie);
       expect(res.status).toBe(200);
@@ -976,6 +996,57 @@ describe('account catalog routes', () => {
       expect(res.status).toBe(503);
       expect(res.body.error).toMatch(/configuration unavailable/i);
       expect(JSON.stringify(res.body)).not.toContain('/credentials/');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it.each([
+    ['CLAUDE_CODE_USE_VERTEX', '0'],
+    ['VERTEX_REGION_CLAUDE_4_6_OPUS', 'us-east5'],
+    ['CLAUDE_CODE_USE_BEDROCK', '1'],
+    ['CLAUDE_CODE_USE_FOUNDRY', '1'],
+    ['CLAUDE_CODE_SKIP_VERTEX_AUTH', '1'],
+    ['ANTHROPIC_AUTH_TOKEN', 'test-token'],
+    ['GOOGLE_API_KEY', 'test-key'],
+    ['CLAUDE_CODE_OAUTH_TOKEN', 'test-token'],
+  ])('does not use a Vertex profile with inherited %s=%s', async (key, value) => {
+    const file = join(TEST_REPO, 'override-profiles.json');
+    writeFileSync(
+      file,
+      JSON.stringify([
+        {
+          id: 'work',
+          label: 'Work',
+          provider: 'anthropic-vertex',
+          projectId: 'test-project',
+          region: 'global',
+          credentialRef: '/credentials/adc.json',
+          models: [{ id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' }],
+        },
+      ]),
+    );
+    vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', file);
+    vi.stubEnv('ANTHROPIC_VERTEX_PROJECT_ID', 'test-project');
+    vi.stubEnv('CLOUD_ML_REGION', 'global');
+    vi.stubEnv('GOOGLE_APPLICATION_CREDENTIALS', '/credentials/adc.json');
+    vi.stubEnv(key, value);
+    try {
+      const res = await request(app).get('/api/models').set('Cookie', authCookie);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual([{ id: 'test-model', label: 'Test', desc: 'Test model' }]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('still rejects invalid profile configuration when legacy routing is overridden', async () => {
+    const file = join(TEST_REPO, 'invalid-override-profiles.json');
+    writeFileSync(file, '{invalid');
+    vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', file);
+    vi.stubEnv('CLAUDE_CODE_USE_VERTEX', '0');
+    try {
+      const res = await request(app).get('/api/models').set('Cookie', authCookie);
+      expect(res.status).toBe(503);
+      expect(res.body.error).toMatch(/configuration unavailable/i);
     } finally {
       vi.unstubAllEnvs();
     }

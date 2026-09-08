@@ -10,4 +10,4 @@ Codex attachments use native `image` input with data URLs, rather than tool-base
 
 Protocol reference: [Codex App Server](https://learn.chatgpt.com/docs/app-server).
 
-The legacy model selector uses a configured Vertex allowlist only when project, region, and explicit `GOOGLE_APPLICATION_CREDENTIALS` match exactly one profile. With no match (including ambient ADC), it retains the conservative server defaults. Duplicate matching routes or invalid profile configuration return an explicit error rather than selecting an arbitrary profile.
+The legacy model selector uses a configured Vertex allowlist only when project, region, and explicit `GOOGLE_APPLICATION_CREDENTIALS` match exactly one profile. Inherited provider switches, per-model Vertex region overrides, or alternate endpoints also prevent a profile match. With no match (including ambient ADC), it retains the conservative server defaults. Duplicate matching routes or invalid profile configuration return an explicit error rather than selecting an arbitrary profile.
