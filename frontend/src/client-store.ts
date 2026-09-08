@@ -14,6 +14,8 @@ import {
   getApiBaseUrl,
   getEventSourceUrl,
   getWsChatUrl,
+  isLogoutPending,
+  AUTH_LOST_EVENT,
   AUTH_RESTORED_EVENT,
 } from './lib/api-fetch';
 import { isCapacitor, registerCapacitorLifecycle } from './lib/capacitor';
@@ -61,7 +63,10 @@ export const clientStore = createMitzoStore({
   ...(sseConfig ? { sseConfig } : {}),
 });
 
+if (isLogoutPending()) clientStore.getState().invalidateAuthentication();
+
 if (typeof window !== 'undefined') {
+  window.addEventListener(AUTH_LOST_EVENT, () => clientStore.getState().invalidateAuthentication());
   window.addEventListener(AUTH_RESTORED_EVENT, () => clientStore.getState().forceReconnect());
 }
 

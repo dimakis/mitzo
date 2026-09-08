@@ -7,12 +7,19 @@
  */
 
 import { EventBus } from '@mitzo/client';
-import { getEventSourceUrl, markAuthLost, AUTH_RESTORED_EVENT } from './api-fetch';
+import {
+  getEventSourceUrl,
+  isLogoutPending,
+  markAuthLost,
+  AUTH_LOST_EVENT,
+  AUTH_RESTORED_EVENT,
+} from './api-fetch';
 
 export const eventBus = new EventBus();
+let authBlocked = isLogoutPending();
 
 // Connect immediately — EventSource auto-reconnects natively
-eventBus.connect(() => getEventSourceUrl('/api/events'));
+if (!authBlocked) eventBus.connect(() => getEventSourceUrl('/api/events'));
 eventBus.on('auth_expired', () => {
   eventBus.disconnect();
   markAuthLost();
@@ -21,9 +28,17 @@ eventBus.on('auth_expired', () => {
 // Recover from dead SSE connections when page becomes visible again
 // (e.g., iOS Safari backgrounding kills EventSource without firing error)
 if (typeof document !== 'undefined') {
-  window.addEventListener(AUTH_RESTORED_EVENT, () => eventBus.ensureConnected());
+  window.addEventListener(AUTH_LOST_EVENT, () => {
+    authBlocked = true;
+    eventBus.disconnect();
+  });
+  window.addEventListener(AUTH_RESTORED_EVENT, () => {
+    authBlocked = false;
+    eventBus.disconnect();
+    eventBus.connect(() => getEventSourceUrl('/api/events'));
+  });
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
+    if (document.visibilityState === 'visible' && !authBlocked) {
       eventBus.ensureConnected();
     }
   });

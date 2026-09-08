@@ -75,6 +75,10 @@ export class MitzoConnection {
     this._connected = false;
   }
 
+  invalidateAuthentication(): void {
+    this.handleAuthLoss(false);
+  }
+
   send(msg: Record<string, unknown>): boolean {
     const payload = JSON.stringify(msg);
     if (this._connected && this.ws?.readyState === WS_READY_STATE.OPEN) {
@@ -303,17 +307,16 @@ export class MitzoConnection {
     };
   }
 
-  private handleAuthLoss(): void {
+  private handleAuthLoss(notify = true): void {
     this.authBlocked = true;
     this.authCheckGeneration++;
     this.authCheckInFlight = false;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
-    this.ws?.close();
-    this.ws = null;
+    this.defuseOldWs();
     this._connected = false;
     this.rejectPendingSends('Authentication expired. Sign in again to retry.');
-    this.listener?.({ type: '_auth_lost' });
+    if (notify) this.listener?.({ type: '_auth_lost' });
   }
 
   private rejectPendingSends(error: string): void {

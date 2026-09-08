@@ -84,6 +84,10 @@ export class SessionSseRegistry {
     return !res.writableEnded;
   }
 
+  has(connectionId: string): boolean {
+    return this.streams.has(connectionId);
+  }
+
   isOwnedBy(connectionId: string, authSessionId: string | undefined): boolean {
     const stream = this.streams.get(connectionId);
     return Boolean(stream && stream.authSessionId === authSessionId);

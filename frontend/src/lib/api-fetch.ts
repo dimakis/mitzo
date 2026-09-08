@@ -9,6 +9,7 @@
  */
 
 const AUTH_TOKEN_KEY = 'mitzo_auth_token';
+const LOGOUT_PENDING_KEY = 'mitzo_logout_pending';
 export const AUTH_LOST_EVENT = 'mitzo:auth-lost';
 export const AUTH_RESTORED_EVENT = 'mitzo:auth-restored';
 
@@ -23,7 +24,12 @@ export function markAuthLost(): void {
 
 export function loginSucceeded(token?: string): void {
   if (token && typeof localStorage !== 'undefined') localStorage.setItem(AUTH_TOKEN_KEY, token);
+  if (typeof localStorage !== 'undefined') localStorage.removeItem(LOGOUT_PENDING_KEY);
   dispatchAuthEvent(AUTH_RESTORED_EVENT);
+}
+
+export function isLogoutPending(): boolean {
+  return typeof localStorage !== 'undefined' && localStorage.getItem(LOGOUT_PENDING_KEY) === '1';
 }
 
 export function getApiBaseUrl(): string {
@@ -65,6 +71,7 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
 }
 
 export async function logout(): Promise<void> {
+  if (typeof localStorage !== 'undefined') localStorage.setItem(LOGOUT_PENDING_KEY, '1');
   const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const request = apiFetch('/api/auth/logout', { method: 'POST', signal: controller.signal });
@@ -72,15 +79,18 @@ export async function logout(): Promise<void> {
   // already captured the current bearer token before this credential removal.
   markAuthLost();
   try {
-    await Promise.race([
+    const response = await Promise.race([
       request,
-      new Promise<void>((resolve) => {
+      new Promise<null>((resolve) => {
         timeout = setTimeout(() => {
           controller.abort();
-          resolve();
+          resolve(null);
         }, 2_000);
       }),
     ]);
+    if (response && (response.ok || response.status === 401)) {
+      localStorage.removeItem(LOGOUT_PENDING_KEY);
+    }
   } catch {
     // Local credential removal must remain available while the server is down.
   } finally {

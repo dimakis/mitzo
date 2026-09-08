@@ -77,6 +77,7 @@ Skill files are read-only markdown loaded from disk (bundled, `~/.mitzo/skills/`
 
 - **No HTTPS**: traffic is encrypted by Tailscale (WireGuard), but the HTTP layer itself is plaintext. If accessed outside Tailscale, cookies and passphrases would be transmitted in the clear.
 - **Process-local logout revocation**: restarting the service clears the in-memory JWT revocation set. Clients still remove browser/native credentials on logout, and every token remains bounded by its signed expiry.
+- **Offline cookie revocation**: an offline client cannot delete the server-issued httpOnly cookie. The UI records the logout intent, closes active transports, and refuses cookie-based session restoration until the user explicitly signs in again; server-side revocation still requires the logout request to reach the service.
 - **No CSRF protection**: `sameSite: strict` mitigates most CSRF vectors, but there's no explicit CSRF token.
 - **Single-user**: no user accounts, roles, or audit logging. The passphrase is shared across all access.
 - **MCP credentials in mcp.json**: MCP server tokens (e.g., Jira API tokens) are stored in `~/.cursor/mcp.json`. This file is not managed by Mitzo — it's the user's existing Cursor configuration. Mitzo reads it but never modifies or copies it.

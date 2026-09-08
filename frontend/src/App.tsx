@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { apiFetch, AUTH_LOST_EVENT } from './lib/api-fetch';
+import { apiFetch, AUTH_LOST_EVENT, isLogoutPending } from './lib/api-fetch';
 import { hideSplash } from './lib/splash';
 import { saveTokenToWatch } from './lib/watch-auth';
 import { Login } from './pages/Login';
@@ -30,6 +30,10 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
       hideSplash();
     };
     window.addEventListener(AUTH_LOST_EVENT, onAuthLost);
+    if (isLogoutPending()) {
+      onAuthLost();
+      return () => window.removeEventListener(AUTH_LOST_EVENT, onAuthLost);
+    }
     apiFetch('/api/auth/check')
       .then((r) => {
         setAuth(r.ok ? 'ok' : 'denied');

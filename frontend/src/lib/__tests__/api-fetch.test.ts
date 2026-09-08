@@ -5,6 +5,7 @@ import {
   getApiBaseUrl,
   getEventSourceUrl,
   getWsBaseUrl,
+  isLogoutPending,
   loginSucceeded,
   logout,
   AUTH_LOST_EVENT,
@@ -135,6 +136,7 @@ describe('apiFetch', () => {
     expect(url).toBe('/api/auth/logout');
     expect(new Headers(init.headers).get('Authorization')).toBe('Bearer current-token');
     expect(localStorage.getItem('mitzo_auth_token')).toBeNull();
+    expect(isLogoutPending()).toBe(false);
   });
 
   it('still completes local logout when the server is unavailable', async () => {
@@ -144,6 +146,7 @@ describe('apiFetch', () => {
     await expect(logout()).resolves.toBeUndefined();
 
     expect(localStorage.getItem('mitzo_auth_token')).toBeNull();
+    expect(isLogoutPending()).toBe(true);
   });
 
   it('clears local auth immediately and bounds a blackholed logout request', async () => {
@@ -155,6 +158,7 @@ describe('apiFetch', () => {
     expect(localStorage.getItem('mitzo_auth_token')).toBeNull();
     await vi.advanceTimersByTimeAsync(2_000);
     await expect(pending).resolves.toBeUndefined();
+    expect(isLogoutPending()).toBe(true);
     vi.useRealTimers();
   });
 
@@ -165,6 +169,7 @@ describe('apiFetch', () => {
     loginSucceeded('fresh-token');
 
     expect(localStorage.getItem('mitzo_auth_token')).toBe('fresh-token');
+    expect(isLogoutPending()).toBe(false);
     expect(listener).toHaveBeenCalledOnce();
     window.removeEventListener(AUTH_RESTORED_EVENT, listener);
   });

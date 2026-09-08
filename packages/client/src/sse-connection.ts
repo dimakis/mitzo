@@ -115,6 +115,10 @@ export class SseConnection implements ChatConnection {
     this._connected = false;
   }
 
+  invalidateAuthentication(): void {
+    this.handleAuthLoss(false);
+  }
+
   /**
    * Send a message to the server via HTTP POST.
    *
@@ -347,7 +351,7 @@ export class SseConnection implements ChatConnection {
       });
   }
 
-  private handleAuthLoss(): void {
+  private handleAuthLoss(notify = true): void {
     this.foregroundProbe?.cancel();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
@@ -356,7 +360,7 @@ export class SseConnection implements ChatConnection {
     this._connected = false;
     this.pendingSends = [];
     this.outbox.rejectAll('Authentication expired. Sign in again to retry.');
-    this.listener?.({ type: '_auth_lost' });
+    if (notify) this.listener?.({ type: '_auth_lost' });
   }
 
   /**

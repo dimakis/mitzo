@@ -101,14 +101,15 @@ export function createChatRestRouter(
   const router = Router();
 
   // A connection ID is not a credential. Bind every operation targeting an
-  // open SSE stream to the same login session that created that stream.
+  // registered SSE stream to the same login session that created that stream.
+  // Ownership survives the brief writableEnded→close-handler cleanup window.
   router.use((req, res, next) => {
     const connectionId = req.headers['x-connection-id'];
     const authSessionId = res.locals.authSession?.id as string | undefined;
     if (
       typeof connectionId === 'string' &&
       authSessionId &&
-      sseRegistry.isOpen(connectionId) &&
+      sseRegistry.has(connectionId) &&
       !sseRegistry.isOwnedBy(connectionId, authSessionId)
     ) {
       res.status(403).json({ ok: false, error: 'SSE connection belongs to another login' });

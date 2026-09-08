@@ -141,6 +141,7 @@ export interface MitzoStoreState {
   clearPendingSession(): void;
 
   // Actions — lifecycle
+  invalidateAuthentication(): void;
   forceReconnect(): void;
   sendSuspend(): void;
 }
@@ -631,6 +632,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     clearPendingSession() {
       set({ pendingSession: null });
+    },
+
+    invalidateAuthentication() {
+      connection.invalidateAuthentication();
     },
 
     forceReconnect() {

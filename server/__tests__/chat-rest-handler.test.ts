@@ -132,6 +132,22 @@ describe('chat-rest-handler', () => {
     expect(response.body.error).toContain('another login');
   });
 
+  it('retains login ownership while a closed SSE entry awaits cleanup', async () => {
+    const staleResponse = mockResponse();
+    Object.defineProperty(staleResponse, 'writableEnded', { value: true });
+    sseRegistry.add('stale-connection', staleResponse, 'login-one');
+    connRegistry.register('stale-connection', new SseTransport('stale-connection', sseRegistry));
+
+    const response = await request(testApp)
+      .post('/api/chat/stop')
+      .set('X-Connection-ID', 'stale-connection')
+      .set('X-Test-Auth', 'login-two')
+      .send({ type: 'stop', sessionId: 'sess-1' });
+
+    expect(response.status).toBe(403);
+    expect(handleStopV2).not.toHaveBeenCalled();
+  });
+
   it('persists startup events before a stream exists without duplicating sequenced events', async () => {
     vi.mocked(handleSendV2).mockImplementationOnce((_id, transport, _msg, _ctx, delivery) => {
       if (transport.isOpen()) transport.send({ type: 'session_info', branch: 'main' });

@@ -23,6 +23,27 @@ global.EventSource = MockEventSource as unknown as typeof EventSource;
 const { eventBus } = await import('../event-bus-singleton');
 
 describe('event-bus-singleton visibilitychange recovery', () => {
+  it('disconnects stale EventSource credentials on auth loss', () => {
+    const disconnectSpy = vi.spyOn(eventBus, 'disconnect');
+
+    window.dispatchEvent(new Event('mitzo:auth-lost'));
+
+    expect(disconnectSpy).toHaveBeenCalled();
+    disconnectSpy.mockRestore();
+  });
+
+  it('recreates EventSource with fresh credentials after auth restoration', () => {
+    const disconnectSpy = vi.spyOn(eventBus, 'disconnect');
+    const connectSpy = vi.spyOn(eventBus, 'connect');
+
+    window.dispatchEvent(new Event('mitzo:auth-restored'));
+
+    expect(disconnectSpy).toHaveBeenCalled();
+    expect(connectSpy).toHaveBeenCalled();
+    disconnectSpy.mockRestore();
+    connectSpy.mockRestore();
+  });
+
   it('calls ensureConnected when page becomes visible', () => {
     const ensureConnectedSpy = vi.spyOn(eventBus, 'ensureConnected');
 

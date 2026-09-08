@@ -38,7 +38,7 @@ const log = createLogger('auth');
 const configError = validateConfig(
   process.env.AUTH_PASSPHRASE,
   process.env.AUTH_SECRET,
-  process.env.COOKIE_MAX_AGE_HOURS || '24',
+  process.env.COOKIE_MAX_AGE_HOURS,
 );
 if (configError) {
   log.error(`FATAL: ${configError}`);
@@ -47,7 +47,7 @@ if (configError) {
 
 const PASSPHRASE = process.env.AUTH_PASSPHRASE!;
 const SECRET = new TextEncoder().encode(process.env.AUTH_SECRET!);
-const MAX_AGE_HOURS = parseInt(process.env.COOKIE_MAX_AGE_HOURS || '24', 10);
+const MAX_AGE_HOURS = parseInt(process.env.COOKIE_MAX_AGE_HOURS ?? '24', 10);
 const COOKIE_NAME = 'cc_auth';
 
 export interface AuthSession {

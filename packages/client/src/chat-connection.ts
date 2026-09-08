@@ -7,6 +7,8 @@ export interface ChatConnection {
   connect(): void;
   /** Close the transport and clean up listeners. */
   disconnect(): void;
+  /** Close the transport and discard work queued under an invalid authentication context. */
+  invalidateAuthentication(): void;
   /**
    * Send a protocol message to the server.
    * Returns true if sent or queued, false if the connection is down
