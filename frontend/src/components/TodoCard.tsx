@@ -166,7 +166,9 @@ export function TodoCard({
             <button
               className="todo-card-summary todo-card-open"
               aria-current={selectedId === item.id ? 'true' : undefined}
-              onTouchStart={(e) => e.stopPropagation()}
+              // Let the card initialize and finish swipes; suppress only the
+              // browser's synthesized click after the card handles a touch tap.
+              onTouchEnd={(e) => e.preventDefault()}
               onClick={() => onTap(item)}
             >
               {item.summary}
