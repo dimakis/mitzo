@@ -275,7 +275,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }));
 
       // v2: send switch_session for token hydration + server-side active tracking
-      connection.send({ type: 'switch_session', sessionId: id });
+      if (!connection.send({ type: 'switch_session', sessionId: id })) {
+        awaitingModeHydration = undefined;
+        set({ modeChangeReady: true, sendError: 'Could not switch session. Please retry.' });
+      }
 
       try {
         const msgs = await api.getSessionMessages(id);

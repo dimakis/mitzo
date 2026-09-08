@@ -907,6 +907,20 @@ describe('setMode', () => {
     expect(store.getState().config.mode).toBe('ask');
   });
 
+  it('releases hydration immediately when the switch request cannot be sent', async () => {
+    const store = createReadyStore();
+    lastWs.readyState = WS_READY_STATE.CLOSED;
+    await store.getState().switchSession('selected');
+    expect(store.getState().modeChangeReady).toBe(true);
+    expect(store.getState().sendError).toContain('Could not switch session');
+    lastWs.completeHandshake();
+    store.getState().setMode('ask');
+    expect(lastWs.parsedSent().find((msg) => msg.type === 'set_mode')).toMatchObject({
+      sessionId: 'selected',
+      mode: 'ask',
+    });
+  });
+
   it('releases switch hydration after a matching terminal error', async () => {
     const store = createReadyStore();
     await store.getState().switchSession('selected');
