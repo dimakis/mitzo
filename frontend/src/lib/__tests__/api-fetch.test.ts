@@ -70,6 +70,23 @@ describe('apiFetch', () => {
     window.removeEventListener(AUTH_LOST_EVENT, lost);
   });
 
+  it('propagates cookie-only restoration from another tab', () => {
+    const restored = vi.fn();
+    window.addEventListener(AUTH_RESTORED_EVENT, restored);
+
+    window.dispatchEvent(
+      new StorageEvent('storage', {
+        key: 'mitzo_auth_restored_signal',
+        newValue: 'cookie-generation-2',
+        storageArea: localStorage,
+      }),
+    );
+
+    expect(restored).toHaveBeenCalledOnce();
+    expect(restored.mock.calls[0][0]).toMatchObject({ detail: { source: 'cross-tab' } });
+    window.removeEventListener(AUTH_RESTORED_EVENT, restored);
+  });
+
   it('prepends base URL to relative paths when configured', async () => {
     const originalEnv = import.meta.env.VITE_API_BASE_URL;
     // We test the prepend logic via the default (empty) base — relative path stays relative
@@ -194,6 +211,7 @@ describe('apiFetch', () => {
     expect(await restoreCookieAuthentication()).toBe(true);
 
     expect(listener).toHaveBeenCalledOnce();
+    expect(localStorage.getItem('mitzo_auth_restored_signal')).toBeTruthy();
     expect(listener.mock.calls[0][0]).toMatchObject({ detail: { source: 'local' } });
     window.removeEventListener(AUTH_RESTORED_EVENT, listener);
   });

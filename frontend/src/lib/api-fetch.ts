@@ -10,6 +10,7 @@
 
 const AUTH_TOKEN_KEY = 'mitzo_auth_token';
 const LOGOUT_PENDING_KEY = 'mitzo_logout_pending';
+const AUTH_RESTORED_SIGNAL_KEY = 'mitzo_auth_restored_signal';
 export const AUTH_LOST_EVENT = 'mitzo:auth-lost';
 export const AUTH_RESTORED_EVENT = 'mitzo:auth-restored';
 let authGeneration = 0;
@@ -39,6 +40,14 @@ if (typeof window !== 'undefined') {
       authGeneration++;
       authenticationRestored = false;
       dispatchAuthEvent(AUTH_LOST_EVENT, 'cross-tab');
+    } else if (
+      event.key === AUTH_RESTORED_SIGNAL_KEY &&
+      event.newValue &&
+      !authenticationRestored
+    ) {
+      authGeneration++;
+      authenticationRestored = true;
+      dispatchAuthEvent(AUTH_RESTORED_EVENT, 'cross-tab');
     }
   });
 }
@@ -58,6 +67,12 @@ export function loginSucceeded(token?: string): void {
   if (shouldRestore) {
     authGeneration++;
     authenticationRestored = true;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(
+        AUTH_RESTORED_SIGNAL_KEY,
+        `${authGeneration}:${Date.now()}:${Math.random()}`,
+      );
+    }
     dispatchAuthEvent(AUTH_RESTORED_EVENT);
   }
 }
