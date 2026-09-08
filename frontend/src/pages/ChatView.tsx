@@ -325,8 +325,6 @@ export function ChatView() {
         scrollRef={scrollRef}
         progressByToolId={progressByToolId}
         voice={voice}
-        bootContext={bootContext}
-        sessionContext={sessionContext}
       />
 
       {pausedLaunch && (
@@ -360,6 +358,10 @@ export function ChatView() {
         wtId={messages.wtId || undefined}
         sessionId={activeSessionId ?? undefined}
         tokenState={tokens}
+        messages={messages.messages}
+        current={messages.current}
+        bootContext={bootContext}
+        sessionContext={sessionContext}
       />
     </div>
   );

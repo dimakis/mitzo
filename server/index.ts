@@ -1,3 +1,4 @@
+import { loadAccountProfiles } from './account-profiles.js';
 import 'dotenv/config';
 import dns from 'node:dns';
 
@@ -1116,3 +1117,16 @@ checkPort(PORT).then((inUse) => {
     }, WORKTREE_CLEANUP_INTERVAL_MS);
   });
 });
+
+// Refresh account-scoped catalogs at startup and hourly without starting model turns.
+const refreshAccountModels = () => {
+  try {
+    void loadAccountProfiles()
+      .refresh()
+      .catch(() => {});
+  } catch {
+    /* Invalid profiles remain visible as an account configuration error. */
+  }
+};
+refreshAccountModels();
+setInterval(refreshAccountModels, 60 * 60 * 1000).unref();

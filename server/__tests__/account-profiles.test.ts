@@ -171,3 +171,16 @@ it('does not advertise unavailable newer models in the fallback Vertex catalog',
   expect(LEGACY_MODELS.map((m) => m.id)).not.toContain('claude-sonnet-5');
   expect(LEGACY_MODELS.map((m) => m.id)).not.toContain('claude-opus-4-8');
 });
+
+it('never expands a Vertex project allowlist from SDK model discovery', async () => {
+  const { refreshModels } = await import('../model-catalog.js');
+  const restricted = { ...profile, id: 'restricted-discovery' };
+  await refreshModels(JSON.stringify(restricted), async () => [
+    ...profile.models,
+    { id: 'claude-sonnet-5', label: 'Sonnet 5' },
+    { id: 'claude-opus-4-8', label: 'Opus 4.8' },
+  ]);
+  const profiles = new AccountProfiles([restricted]);
+  expect(profiles.catalog()[0].models).toEqual(profile.models);
+  expect(() => profiles.resolve(restricted.id, 'claude-sonnet-5')).toThrow(/unavailable/);
+});

@@ -1,4 +1,5 @@
 import { useState, useCallback, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { DesktopNav } from './DesktopNav';
 
 export interface DesktopShellProps {
@@ -48,25 +49,28 @@ export function DesktopShell({ left, center, right, statusBar }: DesktopShellPro
   }, []);
 
   return (
-    <div className="desktop-shell">
+    <div className="desktop-shell workspace-shell">
       <div className="desktop-body">
-        <div
-          className={`desktop-sidebar-left${leftCollapsed ? ' desktop-sidebar--collapsed' : ''}`}
-        >
-          <button
-            className="desktop-collapse-btn"
-            onClick={toggleLeft}
-            title={leftCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+        <aside className="workspace-rail">
+          <Link to="/" className="workspace-brand">
+            Mitzo<span aria-hidden="true">.</span>
+          </Link>
+          <DesktopNav />
+        </aside>
+        {left && (
+          <div
+            className={`desktop-sidebar-left${leftCollapsed ? ' desktop-sidebar--collapsed' : ''}`}
           >
-            {leftCollapsed ? '\u25B6' : '\u25C0'}
-          </button>
-          {!leftCollapsed && (
-            <>
-              <DesktopNav />
-              {left}
-            </>
-          )}
-        </div>
+            <button
+              className="desktop-collapse-btn"
+              onClick={toggleLeft}
+              title={leftCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+            >
+              {leftCollapsed ? '\u25B6' : '\u25C0'}
+            </button>
+            {!leftCollapsed && <>{left}</>}
+          </div>
+        )}
         <div className="desktop-center">{center}</div>
         {right && (
           <div

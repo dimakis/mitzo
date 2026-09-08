@@ -1,3 +1,4 @@
+import { cachedModels, refreshModels, readCodexModels } from './model-catalog.js';
 import { CredentialReferenceSchema } from './credentials.js';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -68,19 +69,27 @@ export class AccountProfiles {
   catalog() {
     return this.profiles
       .filter((p) => p.provider !== 'openai-codex' || this.options.codexEnabled)
-      .map(({ id, label, provider, models }) => ({
-        id,
-        label,
-        provider,
-        billing:
-          provider === 'openai-codex'
-            ? 'chatgpt-subscription'
-            : provider === 'openai'
-              ? 'openai-api'
-              : 'google-cloud',
-        models,
-        capabilities: { streaming: true, tools: true, images: provider === 'anthropic-vertex' },
-      }));
+      .map((profile) => {
+        const { id, label, provider } = profile;
+        const discovered = cachedModels(JSON.stringify(profile));
+        return {
+          id,
+          label,
+          provider,
+          billing:
+            provider === 'openai-codex'
+              ? 'chatgpt-subscription'
+              : provider === 'openai'
+                ? 'openai-api'
+                : 'google-cloud',
+          models:
+            provider === 'anthropic-vertex'
+              ? profile.models
+              : (discovered?.models ?? profile.models),
+          modelDiscovery: { updatedAt: discovered?.updatedAt, stale: !!discovered?.error },
+          capabilities: { streaming: true, tools: true, images: provider !== 'openai' },
+        };
+      });
   }
 
   /** Legacy requests use the server's Vertex route, not any other account's models. */
@@ -91,13 +100,57 @@ export class AccountProfiles {
     return profile?.models ?? [];
   }
 
-  resolve(accountId: string, model?: string): AccountBinding {
+  async refresh(force = false) {
+    await Promise.all(
+      this.profiles
+        .filter((p) => p.provider === 'openai-codex' && this.options.codexEnabled)
+        .map((profile) =>
+          refreshModels(
+            JSON.stringify(profile),
+            async () => {
+              const binding = this.resolve(profile.id, profile.models[0].id, true);
+              if (profile.provider === 'openai-codex') {
+                const { CodexAppServerClient } = await import('./codex-app-server-client.js');
+                const { verifyCodexAccount } = await import('./codex-account.js');
+                const client = CodexAppServerClient.launch(profile.credentialRef);
+                try {
+                  await client.initialize();
+                  await verifyCodexAccount(client, {
+                    accountId: profile.id,
+                    accountLabel: profile.label,
+                    credentialRef: profile.credentialRef,
+                    email: profile.email,
+                    planType: profile.planType,
+                    workspaceId: profile.workspaceId,
+                    model: profile.models[0].id,
+                  });
+                  return await readCodexModels(client);
+                } finally {
+                  client.close();
+                }
+              }
+              return profile.models;
+            },
+            force,
+          ),
+        ),
+    );
+  }
+
+  resolve(accountId: string, model?: string, configured = false): AccountBinding {
     const profile = this.profiles.find((p) => p.id === accountId);
     if (!profile)
       throw new Error('Account is unavailable. Select a configured account for a new task.');
     if (profile.provider === 'openai-codex' && !this.options.codexEnabled)
       throw new Error('Codex execution is not enabled; development acceptance is required');
-    if (!model || !profile.models.some((m) => m.id === model)) {
+    if (
+      !model ||
+      !(
+        configured || profile.provider === 'anthropic-vertex'
+          ? profile.models
+          : (cachedModels(JSON.stringify(profile))?.models ?? profile.models)
+      ).some((m) => m.id === model)
+    ) {
       throw new Error('Model is unavailable for this account. Select a model from its catalog.');
     }
     // Bind routing identity, not presentation or the mutable model allowlist.
@@ -128,7 +181,13 @@ export class AccountProfiles {
   }
 
   resume(binding: AccountBinding): AccountBinding {
-    const current = this.resolve(binding.accountId, binding.model);
+    const current = this.resolve(
+      binding.accountId,
+      binding.model,
+      this.profiles.some(
+        (p) => p.id === binding.accountId && p.models.some((m) => m.id === binding.model),
+      ),
+    );
     if (current.profileRevision !== binding.profileRevision) {
       throw new Error(
         'Account configuration changed. Start a new task to select the account explicitly.',

@@ -955,6 +955,7 @@ describe('handleSendV2 skill policy', () => {
       undefined,
       'cmsg-sp',
       undefined,
+      undefined,
     );
   });
 
@@ -1247,6 +1248,7 @@ describe('handleSendV2 routing', () => {
       undefined,
       undefined,
       'cmsg-1',
+      undefined,
       undefined,
     );
     expect(ctx.connRegistry.get('c1')!.watchedSessions.has('sess-1')).toBe(true);
@@ -1923,6 +1925,7 @@ describe('handleSendV2 connection ownership', () => {
       undefined,
       'cmsg-1',
       undefined,
+      undefined,
     );
 
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
@@ -2041,6 +2044,7 @@ describe('handleSendV2 state-based routing', () => {
       undefined,
       undefined,
       'rapid-2',
+      undefined,
       undefined,
     );
 
@@ -2343,6 +2347,7 @@ describe('handleInterruptV2 forwarding', () => {
       contextBlocks,
       'i3',
       undefined,
+      undefined,
     );
   });
 
@@ -2380,6 +2385,7 @@ describe('handleInterruptV2 forwarding', () => {
       undefined,
       'i-model',
       'claude-opus-4-6',
+      undefined,
     );
   });
 
@@ -2675,6 +2681,7 @@ describe('handleInterruptV2 connection ownership', () => {
       undefined,
       'i6',
       undefined,
+      undefined,
     );
   });
 
@@ -2796,6 +2803,7 @@ describe('handleSendV2 rekey after detached reattach', () => {
       undefined,
       'cmsg-rk',
       undefined,
+      undefined,
     );
     expect(transport.sent).not.toContainEqual(
       expect.objectContaining({ code: 'active_elsewhere' }),
@@ -2838,6 +2846,7 @@ describe('handleInterruptV2 rekey after detached reattach', () => {
       undefined,
       undefined,
       'i-rk',
+      undefined,
       undefined,
     );
 

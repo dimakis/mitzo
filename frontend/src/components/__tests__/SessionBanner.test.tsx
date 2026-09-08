@@ -73,6 +73,15 @@ describe('SessionBanner', () => {
     expect(screen.getByText('# Full boot context markdown')).toBeTruthy();
   });
 
+  it('portals the full markdown modal outside transformed ancestors', () => {
+    render(<SessionBanner bootContext={bootContext} />);
+    fireEvent.click(screen.getByRole('button', { name: /5 sources/ }));
+    fireEvent.click(screen.getByTitle('View full markdown'));
+
+    const dialog = screen.getByRole('dialog', { name: 'Boot context full markdown' });
+    expect(dialog.parentElement?.parentElement).toBe(document.body);
+  });
+
   it('closes modal on close button click', () => {
     render(<SessionBanner bootContext={bootContext} />);
     fireEvent.click(screen.getByRole('button', { name: /5 sources/ }));
@@ -90,5 +99,19 @@ describe('SessionBanner', () => {
     expect(screen.getByText('Boot Context (Full Markdown)')).toBeTruthy();
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByText('Boot Context (Full Markdown)')).toBeNull();
+  });
+
+  it('consumes Escape while the modal is open so an underlying tray stays open', () => {
+    const underlyingEscape = vi.fn();
+    window.addEventListener('keydown', underlyingEscape);
+
+    render(<SessionBanner bootContext={bootContext} />);
+    fireEvent.click(screen.getByRole('button', { name: /5 sources/ }));
+    fireEvent.click(screen.getByTitle('View full markdown'));
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(screen.queryByText('Boot Context (Full Markdown)')).toBeNull();
+    expect(underlyingEscape).not.toHaveBeenCalled();
+    window.removeEventListener('keydown', underlyingEscape);
   });
 });

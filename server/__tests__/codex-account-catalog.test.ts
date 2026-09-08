@@ -23,7 +23,8 @@ it('binds the explicit subscription account without exposing credential referenc
       provider: 'openai-codex',
       billing: 'chatgpt-subscription',
       models: profile.models,
-      capabilities: { streaming: true, tools: true, images: false },
+      modelDiscovery: { stale: false, updatedAt: undefined },
+      capabilities: { streaming: true, tools: true, images: true },
     },
   ]);
   expect(JSON.stringify(profiles.catalog())).not.toContain('/login');
@@ -77,4 +78,33 @@ it('requires a separate explicit activation flag for production subscription exe
     vi.unstubAllEnvs();
     rmSync(root, { recursive: true, force: true });
   }
+});
+it('accepts discovered models without changing account binding identity', async () => {
+  const { refreshModels } = await import('../model-catalog.js');
+  // Use a distinct profile so this test does not pollute other catalog tests.
+  const configuration = { ...profile, id: 'discovered-account' };
+  const profiles = new AccountProfiles([configuration], { codexEnabled: true });
+  const binding = profiles.resolve(configuration.id, 'luna');
+  // Discovery keys use the parsed profile's canonical field order.
+  const key = JSON.stringify({
+    id: configuration.id,
+    label: configuration.label,
+    provider: configuration.provider,
+    credentialRef: configuration.credentialRef,
+    email: configuration.email,
+    planType: configuration.planType,
+    models: configuration.models,
+  });
+  await refreshModels(key, async () => [
+    {
+      id: 'new-model',
+      label: 'New model',
+      reasoningEfforts: ['high'],
+      defaultReasoningEffort: 'high',
+    },
+  ]);
+  expect(profiles.resolve(configuration.id, 'new-model').profileRevision).toBe(
+    binding.profileRevision,
+  );
+  expect(profiles.resume(binding)).toEqual(binding);
 });

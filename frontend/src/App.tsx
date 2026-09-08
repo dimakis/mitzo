@@ -4,6 +4,9 @@ import { apiFetch } from './lib/api-fetch';
 import { hideSplash } from './lib/splash';
 import { saveTokenToWatch } from './lib/watch-auth';
 import { Login } from './pages/Login';
+import { Today } from './pages/Today';
+import { MoreView } from './pages/MoreView';
+import { AttentionFeed } from './components/AttentionFeed';
 import { SessionList } from './pages/SessionList';
 import { ChatView } from './pages/ChatView';
 import { DesktopChatView } from './pages/DesktopChatView';
@@ -40,8 +43,11 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function HomeRoute() {
-  const isDesktop = useIsDesktop();
-  return isDesktop ? <DesktopChatView /> : <SessionList />;
+  return (
+    <PageRoute>
+      <Today />
+    </PageRoute>
+  );
 }
 
 function ChatRoute() {
@@ -83,6 +89,39 @@ export function App() {
                     <ErrorBoundary>
                       <HomeRoute />
                     </ErrorBoundary>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/sessions"
+                element={
+                  <ProtectedRoute>
+                    <PageRoute>
+                      <SessionList />
+                    </PageRoute>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/more"
+                element={
+                  <ProtectedRoute>
+                    <PageRoute>
+                      <MoreView />
+                    </PageRoute>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/focus"
+                element={
+                  <ProtectedRoute>
+                    <PageRoute>
+                      <main className="workspace-page">
+                        <h1>Attention</h1>
+                        <AttentionFeed />
+                      </main>
+                    </PageRoute>
                   </ProtectedRoute>
                 }
               />

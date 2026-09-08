@@ -1,0 +1,1954 @@
+<div id="mitzo-desktop" aria-label="Mitzo desktop design">
+  <style>
+    #mitzo-desktop {
+      box-sizing: border-box;
+      --d-bg: light-dark(#faf9f6, #131416);
+      --d-fg: light-dark(#202127, #f2f2f5);
+      --d-muted: light-dark(#62636b, #aaaab4);
+      --d-line: light-dark(#dedee3, #33343d);
+      --d-panel: light-dark(#efedf8, #242131);
+      --d-accent: light-dark(#5e42b8, #b5a1ff);
+      --d-neutral: light-dark(#f0efed, #1c1d21);
+      --d-space: 24px;
+      font:
+        14px/1.5 -apple-system,
+        BlinkMacSystemFont,
+        'Segoe UI',
+        sans-serif;
+      background: var(--d-bg);
+      color: var(--d-fg);
+      display: grid;
+      grid-template-columns: 164px minmax(0, 1fr);
+      width: 100%;
+      min-height: 650px;
+      border: 1px solid var(--d-line);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    #mitzo-desktop * {
+      box-sizing: border-box;
+      min-width: 0;
+    }
+    #mitzo-desktop button,
+    #mitzo-desktop input,
+    #mitzo-desktop textarea {
+      font: inherit;
+    }
+    #mitzo-desktop button {
+      cursor: pointer;
+      color: inherit;
+    }
+    #mitzo-desktop [hidden] {
+      display: none !important;
+    }
+    #mitzo-desktop button:focus-visible,
+    #mitzo-desktop input:focus-visible,
+    #mitzo-desktop textarea:focus-visible {
+      outline: 2px solid var(--d-accent);
+      outline-offset: 3px;
+    }
+    #mitzo-desktop .rail {
+      padding: 24px 12px;
+      border-right: 1px solid var(--d-line);
+      display: flex;
+      flex-direction: column;
+      background: var(--d-neutral);
+    }
+    #mitzo-desktop .brand {
+      font-size: 20px;
+      font-weight: 500;
+      padding: 0 12px 22px;
+      letter-spacing: -0.5px;
+    }
+    #mitzo-desktop .rail-group {
+      font-size: 11px;
+      color: var(--d-muted);
+      padding: 22px 12px 6px;
+      letter-spacing: 1px;
+    }
+    #mitzo-desktop .rail button {
+      background: transparent;
+      border: 0;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 11px 12px;
+      text-align: left;
+      width: 100%;
+      min-height: 44px;
+      font-size: 13px;
+    }
+    #mitzo-desktop .rail button[aria-current='page'] {
+      background: var(--d-panel);
+      color: var(--d-accent);
+    }
+    #mitzo-desktop .profile {
+      margin-top: auto;
+      padding-top: 34px;
+    }
+    #mitzo-desktop .avatar {
+      display: grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      flex-shrink: 0;
+      background: var(--d-panel);
+      color: var(--d-accent);
+      border-radius: 9px;
+      font-size: 12px;
+    }
+    #mitzo-desktop .workspace {
+      min-width: 0;
+    }
+    #mitzo-desktop .topbar {
+      padding: 12px var(--d-space);
+      min-height: 58px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid var(--d-line);
+    }
+    #mitzo-desktop .breadcrumb {
+      font-size: 12px;
+      color: var(--d-muted);
+    }
+    #mitzo-desktop .text-button {
+      background: transparent;
+      border: 0;
+      color: var(--d-accent);
+      padding: 10px 0;
+      min-height: 40px;
+      text-align: left;
+      font-size: 12px;
+    }
+    #mitzo-desktop main {
+      padding: var(--d-space);
+    }
+    #mitzo-desktop h1 {
+      font-size: 24px;
+      line-height: 1.3;
+      font-weight: 500;
+      letter-spacing: -0.7px;
+      margin: 6px 0 22px;
+    }
+    #mitzo-desktop h2 {
+      font-size: 14px;
+      font-weight: 500;
+      margin: 0;
+    }
+    #mitzo-desktop h3 {
+      font-size: 15px;
+      font-weight: 500;
+      margin: 7px 0;
+    }
+    #mitzo-desktop p {
+      margin: 8px 0 14px;
+    }
+    #mitzo-desktop .muted {
+      color: var(--d-muted);
+      font-size: 12px;
+    }
+    #mitzo-desktop .eyebrow {
+      color: var(--d-accent);
+      font-size: 11px;
+      letter-spacing: 0.6px;
+    }
+    #mitzo-desktop .titlebar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    #mitzo-desktop .primary {
+      background: var(--d-accent);
+      color: var(--d-bg);
+      padding: 10px 15px;
+      border: 0;
+      border-radius: 9px;
+      min-height: 42px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    #mitzo-desktop .secondary {
+      background: transparent;
+      border: 1px solid var(--d-line);
+      padding: 9px 13px;
+      border-radius: 9px;
+      min-height: 42px;
+      font-size: 13px;
+    }
+    #mitzo-desktop .brief {
+      background: var(--d-panel);
+      border-radius: 14px;
+      padding: 22px;
+      margin-bottom: 24px;
+    }
+    #mitzo-desktop .columns {
+      display: grid;
+      grid-template-columns: minmax(0, 1.65fr) minmax(210px, 1fr);
+      gap: 28px;
+    }
+    #mitzo-desktop .aside {
+      border-left: 1px solid var(--d-line);
+      padding-left: 24px;
+    }
+    #mitzo-desktop .row {
+      padding: 14px 0;
+      border-bottom: 1px solid var(--d-line);
+    }
+    #mitzo-desktop .row-link {
+      display: block;
+      width: 100%;
+      border: 0;
+      border-bottom: 1px solid var(--d-line);
+      background: transparent;
+      text-align: left;
+      padding: 14px 0;
+    }
+    #mitzo-desktop .row-link .muted {
+      display: block;
+      margin-top: 4px;
+    }
+    #mitzo-desktop .actions {
+      display: flex;
+      gap: 18px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    #mitzo-desktop .gap {
+      margin-top: 24px;
+    }
+    #mitzo-desktop .stack-gap {
+      margin-top: 16px;
+    }
+    #mitzo-desktop .numbers {
+      font-variant-numeric: tabular-nums;
+    }
+    #mitzo-desktop .composer {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border: 1px solid var(--d-line);
+      border-radius: 12px;
+      padding: 8px 10px 8px 14px;
+      margin-top: 24px;
+      background: var(--d-bg);
+    }
+    #mitzo-desktop .composer .primary {
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+    #mitzo-desktop #d-pause {
+      margin-right: 12px;
+    }
+    #mitzo-desktop .composer input {
+      width: 100%;
+      border: 0;
+      color: var(--d-fg);
+      background: transparent;
+      font-size: 16px;
+      padding: 6px 0;
+    }
+    #mitzo-desktop input::placeholder,
+    #mitzo-desktop textarea::placeholder {
+      color: var(--d-muted);
+    }
+    #mitzo-desktop .segments {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin: 8px 0 20px;
+    }
+    #mitzo-desktop .segments button {
+      border: 0;
+      background: transparent;
+      border-radius: 7px;
+      padding: 9px 12px;
+      min-height: 40px;
+      font-size: 12px;
+      color: var(--d-muted);
+    }
+    #mitzo-desktop .segments button[aria-pressed='true'] {
+      color: var(--d-accent);
+      background: var(--d-panel);
+    }
+    #mitzo-desktop .split {
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr);
+      gap: 24px;
+    }
+    #mitzo-desktop .list-pane {
+      border-right: 1px solid var(--d-line);
+      padding-right: 20px;
+    }
+    #mitzo-desktop .selected {
+      background: var(--d-panel) !important;
+      border-radius: 10px;
+      border-bottom: 0 !important;
+      padding: 14px !important;
+      margin-bottom: 6px;
+    }
+    #mitzo-desktop .search {
+      width: 100%;
+      padding: 11px 12px;
+      background: var(--d-bg);
+      border: 1px solid var(--d-line);
+      border-radius: 9px;
+      color: var(--d-fg);
+      font-size: 16px;
+      margin: 0 0 12px;
+    }
+    #mitzo-desktop .scope {
+      background: var(--d-neutral);
+      border-radius: 10px;
+      padding: 14px;
+      margin: 16px 0;
+    }
+    #mitzo-desktop .scope .actions {
+      gap: 14px;
+      font-size: 12px;
+    }
+    #mitzo-desktop .bubble {
+      background: var(--d-neutral);
+      border-radius: 12px;
+      padding: 14px;
+      margin: 20px 0;
+      max-width: 90%;
+      margin-left: auto;
+    }
+    #mitzo-desktop .message {
+      padding: 12px 0;
+    }
+    #mitzo-desktop .message p {
+      font-size: 14px;
+    }
+    #mitzo-desktop .metric {
+      font-size: 24px;
+      font-weight: 500;
+      margin: 8px 0;
+      font-variant-numeric: tabular-nums;
+    }
+    #mitzo-desktop .acceptance {
+      padding: 11px 0;
+      border-bottom: 1px solid var(--d-line);
+      font-size: 13px;
+    }
+    #mitzo-desktop .acceptance span {
+      display: block;
+      color: var(--d-muted);
+      font-size: 12px;
+      margin-top: 4px;
+    }
+    #mitzo-desktop .board {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+    #mitzo-desktop .lane > h2 {
+      color: var(--d-muted);
+      font-size: 12px;
+      margin-bottom: 12px;
+    }
+    #mitzo-desktop .run {
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: var(--d-neutral);
+      border: 1px solid transparent;
+      border-radius: 12px;
+      padding: 15px;
+      min-height: 178px;
+    }
+    #mitzo-desktop .run[aria-pressed='true'] {
+      border-color: var(--d-accent);
+    }
+    #mitzo-desktop .run .muted {
+      display: block;
+      margin-top: 7px;
+    }
+    #mitzo-desktop .run-detail {
+      border-top: 1px solid var(--d-line);
+      margin-top: 26px;
+      padding-top: 22px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(200px, 1fr);
+      gap: 28px;
+    }
+    #mitzo-desktop .fact-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 9px 0;
+      font-size: 13px;
+    }
+    #mitzo-desktop .agenda {
+      display: grid;
+      grid-template-columns: 60px minmax(0, 1fr);
+      gap: 12px;
+      padding: 16px 0;
+      border-bottom: 1px solid var(--d-line);
+    }
+    #mitzo-desktop .agenda button {
+      border: 0;
+      border-radius: 8px;
+      padding: 12px;
+      text-align: left;
+      background: var(--d-neutral);
+    }
+    #mitzo-desktop .agenda button[aria-pressed='true'] {
+      background: var(--d-panel);
+    }
+    #mitzo-desktop .account {
+      width: 100%;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      text-align: left;
+      background: transparent;
+      border: 0;
+      border-bottom: 1px solid var(--d-line);
+      padding: 15px 0;
+    }
+    #mitzo-desktop .account .muted {
+      display: block;
+      overflow-wrap: anywhere;
+    }
+    #mitzo-desktop .field {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 12px;
+      margin: 18px 0;
+    }
+    #mitzo-desktop .field textarea {
+      width: 100%;
+      font-size: 16px;
+      color: var(--d-fg);
+      background: var(--d-bg);
+      border: 1px solid var(--d-line);
+      border-radius: 9px;
+      padding: 12px;
+      resize: vertical;
+    }
+    #mitzo-desktop .footer {
+      font-size: 11px;
+      color: var(--d-muted);
+      padding: 12px var(--d-space);
+      border-top: 1px solid var(--d-line);
+    }
+    #mitzo-desktop .notice {
+      font-size: 12px;
+      color: var(--d-accent);
+      padding: 12px var(--d-space);
+      background: var(--d-panel);
+    }
+    #mitzo-desktop .rail svg {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+    }
+    #mitzo-desktop h1,
+    #mitzo-desktop h3,
+    #mitzo-desktop p {
+      overflow-wrap: anywhere;
+    }
+    @media (min-width: 1300px) {
+      #mitzo-desktop {
+        grid-template-columns: 196px minmax(0, 1fr);
+      }
+      #mitzo-desktop main {
+        max-width: 1280px;
+        margin: auto;
+      }
+      #mitzo-desktop .board-and-detail {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 270px;
+        gap: 24px;
+      }
+      #mitzo-desktop .board-and-detail .run-detail {
+        display: block;
+        border-top: 0;
+        border-left: 1px solid var(--d-line);
+        padding: 0 0 0 24px;
+        margin: 0;
+      }
+      #mitzo-desktop .board-and-detail .run-detail > div + div {
+        margin-top: 24px;
+      }
+    }
+    @media (max-width: 850px) {
+      #mitzo-desktop {
+        grid-template-columns: 132px minmax(0, 1fr);
+        --d-space: 18px;
+      }
+      #mitzo-desktop .rail {
+        padding: 20px 8px;
+      }
+      #mitzo-desktop .rail button {
+        padding: 10px 8px;
+        font-size: 12px;
+        gap: 6px;
+      }
+      #mitzo-desktop .columns {
+        grid-template-columns: 1fr;
+        gap: 24px;
+      }
+      #mitzo-desktop .aside {
+        border-left: 0;
+        border-top: 1px solid var(--d-line);
+        padding: 22px 0 0;
+      }
+      #mitzo-desktop .split {
+        grid-template-columns: 170px minmax(0, 1fr);
+        gap: 18px;
+      }
+      #mitzo-desktop .list-pane {
+        padding-right: 14px;
+      }
+      #mitzo-desktop .board {
+        gap: 10px;
+      }
+      #mitzo-desktop .run {
+        padding: 12px;
+      }
+    }
+    @media (max-width: 620px) {
+      #mitzo-desktop {
+        display: block;
+        --d-space: 16px;
+      }
+      #mitzo-desktop .rail {
+        border-right: 0;
+        border-bottom: 1px solid var(--d-line);
+        display: block;
+        padding: 12px;
+      }
+      #mitzo-desktop .brand {
+        padding: 0 8px 10px;
+      }
+      #mitzo-desktop .rail nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px;
+      }
+      #mitzo-desktop .rail button {
+        width: auto;
+        min-height: 44px;
+      }
+      #mitzo-desktop .rail-group,
+      #mitzo-desktop .profile {
+        display: none;
+      }
+      #mitzo-desktop .split,
+      #mitzo-desktop .board,
+      #mitzo-desktop .run-detail {
+        grid-template-columns: 1fr;
+      }
+      #mitzo-desktop .list-pane {
+        border-right: 0;
+        border-bottom: 1px solid var(--d-line);
+        padding: 0 0 16px;
+      }
+      #mitzo-desktop .run {
+        min-height: 0;
+      }
+      #mitzo-desktop .topbar {
+        flex-wrap: wrap;
+      }
+      #mitzo-desktop .composer {
+        flex-wrap: wrap;
+      }
+    }
+    #mitzo-desktop .d-tool-block {
+      border: 1px solid var(--d-line);
+      border-radius: 9px;
+      padding: 10px 12px;
+      margin: 10px 0;
+      font-size: 12px;
+    }
+    #mitzo-desktop .d-tool-block summary {
+      cursor: pointer;
+      min-height: 30px;
+      display: flex;
+      align-items: center;
+    }
+    #mitzo-desktop .d-tool-block code {
+      overflow-wrap: anywhere;
+    }
+    #mitzo-desktop .d-progress {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      padding: 12px 0;
+      font-size: 12px;
+      color: var(--d-muted);
+    }
+    #mitzo-desktop {
+      --x-bg: var(--d-bg);
+      --x-fg: var(--d-fg);
+      --x-muted: var(--d-muted);
+      --x-line: var(--d-line);
+      --x-panel: var(--d-panel);
+      --x-accent: var(--d-accent);
+      --x-neutral: var(--d-neutral);
+    }
+    #mitzo-desktop .session-tray-preview {
+      background: var(--x-neutral);
+      border: 1px solid var(--x-line);
+      border-radius: 12px;
+      margin: 14px 0 20px;
+      overflow: hidden;
+    }
+    #mitzo-desktop .tray-handle {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      width: 100%;
+      text-align: left;
+      border: 0;
+      background: transparent;
+      color: var(--x-fg);
+      padding: 14px;
+      min-height: 44px;
+      font-size: 13px;
+    }
+    #mitzo-desktop .tray-content {
+      padding: 0 16px 16px;
+    }
+    #mitzo-desktop .tray-sizes {
+      display: flex;
+      gap: 12px;
+      justify-content: flex-end;
+    }
+    #mitzo-desktop .tray-sizes button,
+    #mitzo-desktop .symposium-heading button,
+    #mitzo-desktop .symposium-cancel,
+    #mitzo-desktop .symposium-close,
+    #mitzo-desktop .symposium-review {
+      border: 0;
+      background: transparent;
+      color: var(--x-accent);
+      font-size: 12px;
+      padding: 10px 0;
+      min-height: 44px;
+    }
+    #mitzo-desktop .tray-sizes button[aria-pressed='true'] {
+      text-decoration: underline;
+      text-underline-offset: 4px;
+    }
+    #mitzo-desktop .tray-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    #mitzo-desktop .tray-resource {
+      width: 100%;
+      display: block;
+      border: 0;
+      border-bottom: 1px solid var(--x-line);
+      padding: 12px 0;
+      background: transparent;
+      color: var(--x-fg);
+      font-size: 13px;
+      text-align: left;
+      overflow-wrap: anywhere;
+    }
+    #mitzo-desktop .tray-resource span,
+    #mitzo-desktop .seat-turn > span:last-child {
+      display: block;
+      color: var(--x-muted);
+      font-size: 12px;
+      margin-top: 4px;
+    }
+    #mitzo-desktop .tray-context {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      min-height: 44px;
+    }
+    #mitzo-desktop .tray-extra,
+    #mitzo-desktop .tray-resource-detail,
+    #mitzo-desktop .symposium-review-detail {
+      font-size: 12px;
+      color: var(--x-muted);
+      padding-top: 14px;
+    }
+    #mitzo-desktop .symposium-preview {
+      border-bottom: 1px solid var(--x-line);
+      margin: 12px 0 20px;
+      padding: 0 0 12px;
+    }
+    #mitzo-desktop .symposium-heading {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: var(--x-muted);
+    }
+    #mitzo-desktop .symposium-setup {
+      background: var(--x-panel);
+      border-radius: 12px;
+      padding: 16px;
+      margin-top: 10px;
+      font-size: 13px;
+    }
+    #mitzo-desktop .seat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      padding: 12px 0;
+    }
+    #mitzo-desktop .seat-grid > div > span {
+      display: block;
+      font-size: 12px;
+      color: var(--x-muted);
+    }
+    #mitzo-desktop .seat-name {
+      color: var(--x-accent) !important;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    #mitzo-desktop .symposium-setup > label:not(.tray-context) {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin: 10px 0;
+      flex-wrap: wrap;
+      font-size: 12px;
+    }
+    #mitzo-desktop .symposium-setup select,
+    #mitzo-desktop .symposium-setup input[type='number'] {
+      background: var(--x-bg);
+      color: var(--x-fg);
+      border: 1px solid var(--x-line);
+      border-radius: 8px;
+      font: inherit;
+      font-size: 16px;
+      padding: 8px;
+      max-width: 100%;
+      min-height: 44px;
+    }
+    #mitzo-desktop .symposium-setup input[type='number'] {
+      width: 90px;
+    }
+    #mitzo-desktop .symposium-start {
+      background: var(--x-accent);
+      color: var(--x-bg);
+      border: 0;
+      border-radius: 9px;
+      padding: 10px 14px;
+      min-height: 44px;
+      font-size: 13px;
+      margin-right: 14px;
+    }
+    #mitzo-desktop .symposium-summary {
+      font-size: 12px;
+      color: var(--x-muted);
+      padding: 12px 0;
+    }
+    #mitzo-desktop .seat-turn {
+      padding: 14px 0;
+      border-bottom: 1px solid var(--x-line);
+    }
+    #mitzo-desktop .seat-turn p {
+      font-size: 14px;
+    }
+    @media (max-width: 620px) {
+      #mitzo-desktop .tray-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+  <aside class="rail">
+    <div class="brand">Mitzo</div>
+    <nav aria-label="Main navigation">
+      <button data-page-link="today" aria-current="page">
+        <i data-lucide="sun" aria-hidden="true"></i>Today</button
+      ><button data-page-link="chats">
+        <i data-lucide="message-circle" aria-hidden="true"></i>Chats</button
+      ><button data-page-link="inbox"><i data-lucide="inbox" aria-hidden="true"></i>Inbox</button>
+      <div class="rail-group">WORK</div>
+      <button data-page-link="telos"><i data-lucide="target" aria-hidden="true"></i>TELOS</button
+      ><button data-page-link="agents">
+        <i data-lucide="columns-3" aria-hidden="true"></i>Agent taskboard</button
+      ><button data-page-link="calendar">
+        <i data-lucide="calendar" aria-hidden="true"></i>Calendar
+      </button>
+      <div class="rail-group">WORKSPACE</div>
+      <button data-page-link="efficiency">
+        <i data-lucide="chart-no-axes-combined" aria-hidden="true"></i>Efficiency</button
+      ><button data-page-link="accounts">
+        <i data-lucide="link" aria-hidden="true"></i>Accounts
+      </button>
+    </nav>
+    <div class="profile">
+      <button data-page-link="accounts">
+        <span class="avatar">D</span
+        ><span>Dimitri<span class="muted" style="display: block">Workspace</span></span>
+      </button>
+    </div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar">
+      <span class="breadcrumb" id="d-breadcrumb">Workspace / Today</span
+      ><button class="text-button" data-page-link="chats">Search conversations →</button>
+    </header>
+    <main>
+      <section data-desktop-page="today">
+        <div class="muted">MONDAY, 7 SEPTEMBER</div>
+        <h1>A little clarity for tomorrow.</h1>
+        <div class="columns">
+          <div>
+            <div class="brief">
+              <div class="eyebrow">EVENING REVIEW</div>
+              <h3>One decision to carry forward.</h3>
+              <p>Onboarding needs an owner. PR 455 verification is still running.</p>
+              <button class="primary" data-page-link="inbox">Review the decision →</button>
+              <div class="muted stack-gap">Sample briefing · source freshness in details</div>
+            </div>
+            <div class="titlebar">
+              <h2>Your focus</h2>
+              <button class="text-button" data-page-link="telos">Open TELOS →</button>
+            </div>
+            <div class="row">
+              <h3>Secure executive onboarding</h3>
+              <div class="muted">Pinned by you · owner decision pending</div>
+              <button class="text-button" data-page-link="inbox">Review request →</button>
+            </div>
+            <div class="row">
+              <h3>Resolve PR 455 review issues</h3>
+              <div class="muted">Pinned by you · final verification in progress</div>
+              <div class="actions">
+                <button class="text-button" data-page-link="chats">Continue →</button
+                ><button class="text-button" data-page-link="agents">View agent work</button>
+              </div>
+            </div>
+            <form class="composer" data-desktop-composer>
+              <input aria-label="Ask Mitzo" placeholder="Ask Mitzo anything…" /><button
+                class="primary"
+              >
+                Ask →
+              </button>
+            </form>
+          </div>
+          <aside class="aside">
+            <h2>Pick up where you left off</h2>
+            <button class="row-link" data-page-link="chats">
+              Centaur PR 455 review<span class="muted">30 minutes ago</span
+              ><span class="muted numbers" id="d-home-tokens" hidden>18.2k session tokens</span>
+            </button>
+            <h2 class="gap">Tomorrow</h2>
+            <button class="row-link" data-page-link="calendar">
+              10:00 · Release planning<span class="muted"
+                >30 minutes · Google Calendar</span
+              ></button
+            ><button class="row-link" data-page-link="calendar">
+              13:00 · Focus time<span class="muted">1 hour reserved</span>
+            </button>
+            <div class="scope gap">
+              <div class="muted">SOURCE ATTENTION</div>
+              <p>Jira needs reconnecting.</p>
+              <button class="text-button" data-page-link="accounts">Review connection →</button>
+            </div>
+          </aside>
+        </div>
+      </section>
+      <section data-desktop-page="chats" hidden>
+        <div class="titlebar">
+          <h1>Conversations</h1>
+          <button class="secondary" id="d-new-chat">New chat +</button>
+        </div>
+        <div class="split">
+          <aside class="list-pane">
+            <input
+              class="search"
+              id="d-search"
+              aria-label="Search conversations"
+              placeholder="Search chats…"
+            />
+            <div class="muted">IN PROGRESS</div>
+            <button class="row-link selected" data-chat-select="current" aria-pressed="true">
+              Centaur PR 455 review<span class="muted">Verification running</span
+              ><span class="muted numbers">18.2k session tokens</span>
+            </button>
+            <div class="muted gap">EARLIER</div>
+            <button class="row-link" data-chat-select="history" aria-pressed="false">
+              PR 455 investigation<span class="muted">Findings mapped to code</span
+              ><span class="muted numbers">24.6k session tokens</span>
+            </button>
+          </aside>
+          <div>
+            <div class="session-tray-preview" aria-label="Session resources preview">
+              <button class="tray-handle" aria-expanded="false">
+                Session · Sources &amp; Outputs <span>⌄</span>
+              </button>
+              <div class="tray-content" hidden>
+                <div class="tray-sizes" aria-label="Tray size">
+                  <button data-tray-size="half" aria-pressed="true">Half</button
+                  ><button data-tray-size="full" aria-pressed="false">Full</button
+                  ><button data-tray-size="peek">Close</button>
+                </div>
+                <div class="tray-grid">
+                  <section>
+                    <h3>Outputs</h3>
+                    <button
+                      class="tray-resource"
+                      data-resource-preview="Review summary · generated Markdown output"
+                    >
+                      Review summary.md <span>Generated file · sample</span></button
+                    ><button
+                      class="tray-resource"
+                      data-resource-preview="Verification results · generated output linked to this goal"
+                    >
+                      Verification results <span>Result from tool execution</span>
+                    </button>
+                  </section>
+                  <section>
+                    <h3>Sources</h3>
+                    <div class="tray-resource">
+                      PR 455 review comments <span>Context referenced by the conversation</span>
+                    </div>
+                    <div class="tray-resource">
+                      Repository context <span>Session and boot context</span>
+                    </div>
+                    <label class="tray-context"
+                      ><input type="checkbox" checked />Include repository context</label
+                    >
+                    <div class="tray-extra" hidden>
+                      <h3>Session context</h3>
+                      <p>Isolated worktree · selected source context retained.</p>
+                      <p>
+                        Draft attachments and their removal controls live here, alongside the
+                        existing ContextPanel.
+                      </p>
+                    </div>
+                  </section>
+                </div>
+                <div class="tray-resource-detail" aria-live="polite" hidden></div>
+              </div>
+            </div>
+            <div class="symposium-preview">
+              <div class="symposium-heading">
+                <span>Discuss this goal from two perspectives</span
+                ><button class="symposium-open">Set up symposium →</button>
+              </div>
+              <div class="symposium-setup" hidden>
+                <h3>Symposium</h3>
+                <p>
+                  Two seats, one linked goal. This is a proposed frontend over #446’s configuration.
+                </p>
+                <div class="seat-grid">
+                  <div><span class="seat-name">Architect</span><span>Model A · sample</span></div>
+                  <div><span class="seat-name">Critic</span><span>Model B · sample</span></div>
+                </div>
+                <label
+                  >Turn order<select class="symposium-turn-mode">
+                    <option value="round-robin">Round robin</option>
+                    <option value="directed">Directed</option>
+                    <option value="budgeted">Budgeted</option>
+                  </select></label
+                ><label
+                  >Maximum turns<input
+                    class="symposium-max-turns"
+                    type="number"
+                    value="6"
+                    min="2"
+                    max="20" /></label
+                ><label class="tray-context"
+                  ><input class="symposium-manual" type="checkbox" checked />Review each response
+                  before delivery</label
+                ><button class="symposium-start">Preview symposium</button
+                ><button class="symposium-cancel">Keep chatting</button>
+              </div>
+              <div class="symposium-turns" hidden>
+                <div class="symposium-heading">
+                  <h3>Symposium · PR 455 review</h3>
+                  <button class="symposium-close">Close preview</button>
+                </div>
+                <div class="symposium-summary">Round robin · 2 of 6 turns · manual review</div>
+                <div class="seat-turn">
+                  <span class="seat-name">Architect · Model A</span>
+                  <p>
+                    Keep the implementation focused on the review findings, then verify the affected
+                    behavior.
+                  </p>
+                  <span>2.0k tokens · sample contribution</span>
+                </div>
+                <div class="seat-turn">
+                  <span class="seat-name">Critic · Model B</span>
+                  <p>
+                    Before closing the goal, attach the final check results so completion is
+                    supported by evidence.
+                  </p>
+                  <span>1.8k tokens · sample contribution</span>
+                </div>
+                <div class="symposium-summary">
+                  3.8k symposium tokens · included once in goal accounting
+                </div>
+                <button class="symposium-review">Review response before delivery →</button>
+                <div class="symposium-review-detail" hidden>
+                  Sample response held for your review. Delivery remains a distinct, explicit
+                  action; this preview sends nothing.
+                </div>
+              </div>
+            </div>
+            <div id="d-chat-content">
+              <div class="eyebrow">ACTIVE CONVERSATION</div>
+              <h3 id="d-chat-title">Centaur PR 455 review</h3>
+              <div class="scope">
+                <button class="text-button" data-page-link="telos">
+                  Goal: Resolve PR 455 review issues →
+                </button>
+                <div class="actions numbers">
+                  <span id="d-session-tokens">Session 18.2k</span><span>Goal 42.8k tokens</span
+                  ><span>Context 12.4k / 200k</span>
+                </div>
+              </div>
+              <div class="bubble">Work through the review issues and verify the fixes.</div>
+              <div class="scope" id="d-goal-definition">
+                <div class="titlebar">
+                  <span class="muted">GOAL FROM THIS SESSION</span
+                  ><button class="text-button" id="d-open-goal-definition">Define done →</button>
+                </div>
+                <div class="muted" id="d-goal-definition-status">
+                  Automatically named · outcome not yet confirmed
+                </div>
+                <form id="d-goal-definition-form" hidden>
+                  <label class="field"
+                    >Goal title<input
+                      class="search"
+                      id="d-definition-title"
+                      required
+                      value="Resolve PR 455 review issues"
+                  /></label>
+                  <label class="field"
+                    >Done when<textarea id="d-definition-criteria" required rows="3">
+Review findings are addressed and the agreed verification checks pass.</textarea>
+                  </label>
+                  <div class="muted">
+                    Keep this conversation and its existing token history. Refine the linked goal;
+                    do not create a second accounting record.
+                  </div>
+                  <div class="actions stack-gap">
+                    <button class="primary">Save goal definition</button
+                    ><button type="button" class="text-button" id="d-cancel-goal-definition">
+                      Keep chatting
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              <details class="d-tool-block">
+                <summary>Tools · 3 completed calls</summary>
+                <div class="row">
+                  <div class="muted">Read · affected source</div>
+                  <code>frontend/src/components/ChatArea.tsx</code>
+                </div>
+                <div class="row">
+                  <div class="muted">Edit · change prepared</div>
+                  <code>Focused change with diff available</code>
+                </div>
+                <div class="row">
+                  <div class="muted">Check · result attached</div>
+                  <code>Sample verification output</code>
+                </div>
+              </details>
+              <div class="d-progress">
+                <span>Review findings addressed</span><span>Focused checks passed</span
+                ><span>Final verification running</span>
+              </div>
+              <details class="d-tool-block">
+                <summary>Verification agent · running</summary>
+                <p class="muted">Nested agent activity stays inspectable in the conversation.</p>
+                <button class="text-button" data-page-link="agents">Open taskboard →</button>
+              </details>
+              <div class="message">
+                <div class="muted">MITZO · SAMPLE RESPONSE</div>
+                <p id="d-chat-response">
+                  The fixes are ready and focused checks pass. Final verification is running; the
+                  goal remains active until those results are attached.
+                </p>
+                <button class="text-button" data-page-link="agents">Inspect verification →</button>
+              </div>
+            </div>
+            <div id="d-drafts"></div>
+            <form class="composer" data-desktop-composer>
+              <input aria-label="Message Mitzo" placeholder="Message Mitzo…" /><button
+                class="primary"
+              >
+                Send →
+              </button>
+            </form>
+            <details class="d-tool-block">
+              <summary>Session controls · / Skills · Voice · Tokens</summary>
+              <p class="muted">
+                Retain skills, voice, account/model, Ask/Agent/Auto, stop/interrupt/queue and
+                TokenBar controls. Source attachments and context live in SessionTray per #462. This
+                mock shows their placement; use the actual components in implementation.
+              </p>
+            </details>
+            <p class="muted">
+              Illustrative turn using existing renderer categories. Preview messages stay local.
+            </p>
+          </div>
+        </div>
+      </section>
+      <section data-desktop-page="inbox" hidden>
+        <h1>Only what needs you.</h1>
+        <div class="segments" aria-label="Inbox view">
+          <button data-inbox-tab="requests" aria-pressed="true">Needs you</button
+          ><button data-inbox-tab="updates" aria-pressed="false">Updates</button>
+        </div>
+        <div class="split">
+          <aside class="list-pane">
+            <div data-inbox-list="requests">
+              <button class="row-link selected" data-request="owner">
+                Confirm the onboarding owner<span class="muted"
+                  >Decision requested · Jira</span
+                ></button
+              ><button class="row-link" data-request="connection">
+                Restore Jira updates<span class="muted">Connection needs attention</span>
+              </button>
+            </div>
+            <div data-inbox-list="updates" hidden>
+              <button class="row-link" data-page-link="agents">
+                PR 455 checks progressed<span class="muted"
+                  >Verification still running</span
+                ></button
+              ><button class="row-link" data-page-link="telos">
+                Release notes reconciled<span class="muted">Goal achieved yesterday</span>
+              </button>
+            </div>
+          </aside>
+          <div id="d-request-detail">
+            <div class="eyebrow">DECISION REQUESTED</div>
+            <h3>Who owns executive onboarding?</h3>
+            <p>The access checklist needs a named owner before work can continue.</p>
+            <div class="scope">
+              <div class="muted">RELATED WORK</div>
+              <button class="text-button" data-page-link="telos">
+                Secure executive onboarding →
+              </button>
+            </div>
+            <label class="field"
+              >Your response<textarea rows="4" id="d-response">
+I’ll coordinate the owner assignment. Please keep the access checklist attached to this task.</textarea></label
+            ><button class="primary" id="d-save-draft">Save response draft</button>
+            <p class="muted">Source: sample Jira request · last synced yesterday</p>
+          </div>
+          <div id="d-update-detail" hidden>
+            <h3>Progress without the interruption.</h3>
+            <p>
+              Routine updates stay here. Open a result to inspect its evidence and goal context.
+            </p>
+            <button class="text-button" data-page-link="agents">Open agent taskboard →</button>
+          </div>
+        </div>
+      </section>
+      <section data-desktop-page="telos" hidden>
+        <div class="eyebrow">TELOS</div>
+        <h1>Purpose into progress.</h1>
+        <div class="columns">
+          <div>
+            <div class="brief">
+              <div class="muted">CURRENT PRIORITY</div>
+              <h3>Keep delivery moving</h3>
+              <p>Resolve review issues and make release readiness visible.</p>
+            </div>
+            <div class="segments" aria-label="TELOS view">
+              <button data-telos-tab="now" aria-pressed="true">Now</button
+              ><button data-telos-tab="next" aria-pressed="false">Next</button
+              ><button data-telos-tab="achieved" aria-pressed="false">Achieved</button>
+            </div>
+            <div data-telos-list="now">
+              <button class="row-link selected" data-goal="review">
+                <span class="eyebrow">ACTIVE GOAL</span>
+                <h3>Resolve PR 455 review issues</h3>
+                <span class="muted">Next: finish verification and attach results</span
+                ><span class="muted numbers">42.8k tokens spent · 2 / 3 criteria met</span></button
+              ><button class="row-link" data-goal="onboarding">
+                <span class="eyebrow">NEEDS A DECISION</span>
+                <h3>Secure executive onboarding</h3>
+                <span class="muted">Next: agree the owner for the access checklist</span>
+              </button>
+            </div>
+            <div data-telos-list="next" hidden>
+              <button class="row-link" data-goal="markdown">
+                <h3>Add Markdown rendering to AGENTS.md</h3>
+                <span class="muted">Define expected rendering behavior</span
+                ><span class="muted">ContexGin · backlog task</span>
+              </button>
+            </div>
+            <div data-telos-list="achieved" hidden>
+              <button class="row-link" data-goal="release">
+                <h3>Reconcile mobile release notes</h3>
+                <span class="muted numbers">26.1k tokens to goal · verified yesterday</span>
+              </button>
+            </div>
+          </div>
+          <aside class="aside" aria-label="Selected goal details">
+            <div class="eyebrow" id="d-goal-status">ACTIVE GOAL</div>
+            <h3 id="d-goal-title">Resolve PR 455 review issues</h3>
+            <div class="scope">
+              <div class="muted" id="d-goal-metric-label">Tokens spent</div>
+              <div class="metric" id="d-goal-metric">42.8k</div>
+              <div class="muted" id="d-goal-budget">60k budget · all attributed calls</div>
+            </div>
+            <h2 id="d-criteria-heading">Acceptance criteria</h2>
+            <div id="d-criteria">
+              <div class="acceptance">Review findings addressed<span>Changes linked</span></div>
+              <div class="acceptance">Focused checks pass<span>Results attached</span></div>
+              <div class="acceptance">Final verification<span>In progress</span></div>
+            </div>
+            <button class="text-button" id="d-goal-action" data-page-link="agents">
+              View agent work →
+            </button>
+          </aside>
+        </div>
+      </section>
+      <section data-desktop-page="agents" hidden>
+        <div class="titlebar">
+          <div>
+            <div class="eyebrow">AGENT TASKBOARD</div>
+            <h1>See the work happening.</h1>
+          </div>
+          <button class="text-button" data-page-link="telos">View goal →</button>
+        </div>
+        <div class="actions muted" style="margin-bottom: 22px">
+          <span>PR 455 review issues</span><span class="numbers">42.8k goal tokens</span
+          ><span id="d-board-count">1 running · 1 waiting · 1 complete</span>
+        </div>
+        <div class="board-and-detail">
+          <div class="board">
+            <div class="lane">
+              <h2 id="d-running-heading">RUNNING · 1</h2>
+              <button class="run" data-run="verification" aria-pressed="true">
+                <span class="eyebrow" id="d-verification-status">Final checks</span>
+                <h3>Verify PR 455 fixes</h3>
+                <span class="muted">Verification agent</span
+                ><span class="muted numbers">8.3k tokens spent</span
+                ><span class="muted">Updated 2 minutes ago</span>
+              </button>
+            </div>
+            <div class="lane">
+              <h2>WAITING · 1</h2>
+              <button class="run" data-run="coordinator" aria-pressed="false">
+                <span class="eyebrow">Dependency wait</span>
+                <h3>Close out the review</h3>
+                <span class="muted">Coordinator</span
+                ><span class="muted numbers">20.4k tokens spent</span
+                ><span class="muted">Waiting on verification</span>
+              </button>
+            </div>
+            <div class="lane">
+              <h2>COMPLETE · 1</h2>
+              <button class="run" data-run="implementation" aria-pressed="false">
+                <span class="eyebrow">Changes ready</span>
+                <h3>Apply the review fixes</h3>
+                <span class="muted">Implementation agent</span
+                ><span class="muted numbers">14.1k tokens spent</span
+                ><span class="muted">Result available</span>
+              </button>
+            </div>
+          </div>
+          <aside class="run-detail" aria-label="Selected agent execution">
+            <div>
+              <div class="muted" id="d-run-state">RUNNING · VERIFICATION</div>
+              <h3 id="d-run-title">Verify PR 455 fixes</h3>
+              <p id="d-run-step">Run the final checks and attach the results to the goal.</p>
+              <button class="secondary" id="d-pause">Pause workflow</button
+              ><button class="text-button" data-page-link="chats">Open conversation →</button>
+            </div>
+            <div>
+              <h2>Usage for this execution role</h2>
+              <div class="fact-row numbers">
+                <span>Input</span><span id="d-run-input">6,900</span>
+              </div>
+              <div class="fact-row numbers">
+                <span>Output</span><span id="d-run-output">1,400</span>
+              </div>
+              <div class="fact-row numbers">
+                <span>Total</span><span id="d-run-total">8,300</span>
+              </div>
+              <div class="muted">Included once in the 42.8k goal total.</div>
+            </div>
+          </aside>
+        </div>
+      </section>
+      <section data-desktop-page="calendar" hidden>
+        <div class="titlebar">
+          <div>
+            <div class="eyebrow">CALENDAR · EUROPE/DUBLIN</div>
+            <h1>Room for what matters.</h1>
+          </div>
+          <button class="text-button" data-page-link="accounts">Google Workspace →</button>
+        </div>
+        <div class="columns">
+          <div>
+            <div class="segments" aria-label="Agenda day">
+              <button data-day="today" aria-pressed="true">Mon 7 · Today</button
+              ><button data-day="tomorrow" aria-pressed="false">Tue 8</button>
+            </div>
+            <div data-day-panel="today">
+              <div class="agenda">
+                <span class="muted numbers">09:30<br />30 min</span
+                ><button data-event="checkin" aria-pressed="false">
+                  Engineering check-in
+                  <div class="muted">Ended · release and review progress</div>
+                </button>
+              </div>
+              <div class="agenda">
+                <span class="muted numbers">14:00<br />45 min</span
+                ><button data-event="onboarding" aria-pressed="true">
+                  Executive onboarding
+                  <div class="muted">Ended · access and ownership</div>
+                </button>
+              </div>
+              <div class="scope gap">
+                <h2>Today’s meetings are complete.</h2>
+                <button class="text-button" data-page-link="today">
+                  Return to your evening review →
+                </button>
+              </div>
+            </div>
+            <div data-day-panel="tomorrow" hidden>
+              <div class="agenda">
+                <span class="muted numbers">10:00<br />30 min</span
+                ><button data-event="planning" aria-pressed="false">
+                  Release planning
+                  <div class="muted">Roadmap and open decisions</div>
+                </button>
+              </div>
+              <div class="agenda">
+                <span class="muted numbers">13:00<br />60 min</span
+                ><button data-event="focus" aria-pressed="false">
+                  Focus time
+                  <div class="muted">Reserved on your calendar</div>
+                </button>
+              </div>
+            </div>
+          </div>
+          <aside class="aside">
+            <div class="muted">EVENT DETAILS</div>
+            <h3 id="d-event-title">Executive onboarding</h3>
+            <p class="muted" id="d-event-time">Monday 7 September · 14:00–14:45</p>
+            <h2 class="gap">Context</h2>
+            <p id="d-event-context">Access requirements, ownership and next steps.</p>
+            <div class="scope">
+              <h2>Saved notes</h2>
+              <p id="d-event-notes">
+                Confirm the owner and keep the access checklist attached to the task.
+              </p>
+              <div class="muted">Sample saved notes</div>
+            </div>
+            <button class="text-button" data-page-link="telos">Open related work →</button>
+          </aside>
+        </div>
+      </section>
+      <section data-desktop-page="accounts" hidden>
+        <div class="eyebrow">WORKSPACE SETTINGS</div>
+        <h1>Connected accounts</h1>
+        <div class="split">
+          <aside class="list-pane">
+            <button class="account selected" data-account="google" aria-pressed="true">
+              <span class="avatar">G</span
+              ><span>Google Workspace<span class="muted">Connected</span></span></button
+            ><button class="account" data-account="jira" aria-pressed="false">
+              <span class="avatar">J</span
+              ><span>Jira<span class="muted">Needs reconnecting</span></span></button
+            ><button class="account" data-account="github" aria-pressed="false">
+              <span class="avatar">GH</span
+              ><span>GitHub<span class="muted">Not connected</span></span>
+            </button>
+          </aside>
+          <div>
+            <div class="eyebrow" id="d-account-status">CONNECTED</div>
+            <h3 id="d-account-name">Google Workspace</h3>
+            <p class="muted" id="d-account-identity">work@example.com · example account</p>
+            <h2 class="gap">What Mitzo can access</h2>
+            <div id="d-permissions">
+              <div class="row">Read selected calendar events</div>
+              <div class="row">Read email selected for your briefing</div>
+            </div>
+            <div class="scope gap">
+              <div class="muted">SYNC STATUS</div>
+              <p id="d-sync">Up to date · sample connection</p>
+            </div>
+            <button class="primary" id="d-connect">Review access</button>
+            <div class="scope" id="d-auth-preview" hidden>
+              <h2 id="d-auth-title">Continue with Google Workspace</h2>
+              <p>The connected app opens the provider’s account and access review here.</p>
+              <button class="secondary" id="d-auth-back">Back to account details</button>
+            </div>
+            <p class="muted gap">
+              Account management is separate from signing into Mitzo. No credentials are collected
+              by this preview.
+            </p>
+          </div>
+        </div>
+      </section>
+      <section data-desktop-page="efficiency" hidden>
+        <div class="eyebrow">STACK EFFICIENCY</div>
+        <h1>Fewer tokens to done.</h1>
+        <div class="muted" style="margin-bottom: 20px">
+          Code review fixes · August creation cohort · observed through 7 September
+        </div>
+        <div class="columns">
+          <div>
+            <div class="brief">
+              <div class="muted">MEDIAN TOKENS TO GOAL</div>
+              <div class="metric">38.4k <span class="muted">tokens</span></div>
+              <p>18% lower than the previous matched period</p>
+              <div class="muted">24 achieved goals · same acceptance standard</div>
+            </div>
+            <h2>Keep the outcome in view</h2>
+            <div class="fact-row">
+              <span>Achieved / created</span><span class="numbers">24 / 28</span>
+            </div>
+            <div class="fact-row">
+              <span>Still active / cancelled</span><span class="numbers">2 / 2</span>
+            </div>
+            <div class="fact-row"><span>Median time to goal</span><span>18 min</span></div>
+            <div class="fact-row">
+              <span>Reopened within 7 days</span><span class="numbers">1 / 24</span>
+            </div>
+            <div class="fact-row"><span>Usage reporting coverage</span><span>100%</span></div>
+          </div>
+          <aside class="aside">
+            <h2>Consumption by scope</h2>
+            <div class="fact-row">
+              <span>Selected goals</span><span class="numbers">1.24M</span>
+            </div>
+            <div class="fact-row"><span>Stack overhead</span><span class="numbers">86k</span></div>
+            <div class="fact-row">
+              <span>Unattributed chats</span><span class="numbers">112k</span>
+            </div>
+            <p class="muted">
+              Includes retries and incomplete work. Overhead and unattributed usage cover the whole
+              stack in the selected period.
+            </p>
+            <div class="scope gap">
+              <h2>Comparable outcomes first.</h2>
+              <p class="muted">
+                Illustrative comparison. Actual reductions need a valid baseline, sufficient
+                coverage and a disclosed model mix.
+              </p>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </main>
+    <div class="notice" id="d-notice" aria-live="polite" hidden></div>
+    <footer class="footer">
+      Desktop design · sample work, accounts and token counts · no live actions
+    </footer>
+  </div>
+  <script>
+    (() => {
+      const root = document.getElementById('mitzo-desktop');
+      const state = { page: 'today', density: 'Comfortable', homeTokens: false };
+      const titles = {
+        today: 'Today',
+        chats: 'Chats',
+        inbox: 'Inbox',
+        telos: 'TELOS',
+        agents: 'Agent taskboard',
+        calendar: 'Calendar',
+        accounts: 'Connected accounts',
+        efficiency: 'Stack efficiency',
+      };
+      function show(page) {
+        state.page = page;
+        root
+          .querySelectorAll('[data-desktop-page]')
+          .forEach((s) => (s.hidden = s.dataset.desktopPage !== page));
+        root.querySelectorAll('.rail [data-page-link]').forEach((b) => {
+          if (b.dataset.pageLink === page) b.setAttribute('aria-current', 'page');
+          else b.removeAttribute('aria-current');
+        });
+        root.querySelector('#d-breadcrumb').textContent = 'Workspace / ' + titles[page];
+        root.querySelector('#d-notice').hidden = true;
+      }
+      function notify(text) {
+        const n = root.querySelector('#d-notice');
+        n.hidden = false;
+        n.textContent = text;
+      }
+      root
+        .querySelectorAll('[data-page-link]')
+        .forEach((b) => (b.onclick = () => show(b.dataset.pageLink)));
+      root.querySelector('#d-save-draft').onclick = () =>
+        notify('Draft saved locally in the preview. Nothing sent to Jira.');
+      root.querySelectorAll('[data-inbox-tab]').forEach(
+        (b) =>
+          (b.onclick = () => {
+            const requests = b.dataset.inboxTab === 'requests';
+            root
+              .querySelectorAll('[data-inbox-tab]')
+              .forEach((x) => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
+            root
+              .querySelectorAll('[data-inbox-list]')
+              .forEach((x) => (x.hidden = x.dataset.inboxList !== b.dataset.inboxTab));
+            root.querySelector('#d-request-detail').hidden = !requests;
+            root.querySelector('#d-update-detail').hidden = requests;
+          }),
+      );
+      root.querySelector('[data-request="connection"]').onclick = () => {
+        show('accounts');
+        selectAccount('jira');
+      };
+      root.querySelector('[data-request="owner"]').onclick = () => {
+        root.querySelector('#d-request-detail').hidden = false;
+        root.querySelector('#d-update-detail').hidden = true;
+      };
+      function newChat() {
+        root.querySelector('#d-chat-content').hidden = true;
+        root.querySelector('#d-drafts').replaceChildren();
+        root.querySelectorAll('[data-chat-select]').forEach((b) => {
+          b.classList.remove('selected');
+          b.setAttribute('aria-pressed', 'false');
+        });
+        show('chats');
+        root.querySelector('[data-desktop-page="chats"] input[aria-label="Message Mitzo"]').focus();
+      }
+      root.querySelector('#d-new-chat').onclick = newChat;
+      root.querySelectorAll('[data-desktop-composer]').forEach(
+        (form) =>
+          (form.onsubmit = (e) => {
+            e.preventDefault();
+            const input = form.querySelector('input');
+            const text = input.value.trim();
+            if (!text) return;
+            if (state.page === 'today') newChat();
+            const m = document.createElement('div');
+            m.className = 'bubble';
+            m.textContent = text;
+            root.querySelector('#d-drafts').append(m);
+            input.value = '';
+            notify('Local preview message only. No model call or token consumption.');
+          }),
+      );
+      root.querySelectorAll('[data-chat-select]').forEach(
+        (b) =>
+          (b.onclick = () => {
+            const current = b.dataset.chatSelect === 'current';
+            root.querySelector('#d-chat-content').hidden = false;
+            root.querySelector('#d-drafts').replaceChildren();
+            root.querySelectorAll('[data-chat-select]').forEach((x) => {
+              x.classList.toggle('selected', x === b);
+              x.setAttribute('aria-pressed', x === b ? 'true' : 'false');
+            });
+            root.querySelector('#d-chat-title').textContent = current
+              ? 'Centaur PR 455 review'
+              : 'PR 455 investigation';
+            root.querySelector('#d-session-tokens').textContent = current
+              ? 'Session 18.2k'
+              : 'Session 24.6k';
+            root.querySelector('#d-chat-response').textContent = current
+              ? 'The fixes are ready and focused checks pass. Final verification is running; the goal remains active until those results are attached.'
+              : 'The review findings are mapped to the affected code. Implementation continues in the current PR 455 review conversation.';
+          }),
+      );
+      root.querySelector('#d-search').oninput = (e) =>
+        root
+          .querySelectorAll('[data-chat-select]')
+          .forEach(
+            (b) =>
+              (b.hidden = !b.textContent
+                .toLowerCase()
+                .includes(e.target.value.trim().toLowerCase())),
+          );
+      const goals = {
+        review: {
+          status: 'ACTIVE GOAL',
+          title: 'Resolve PR 455 review issues',
+          label: 'Tokens spent',
+          metric: '42.8k',
+          budget: '60k budget · all attributed calls',
+          criteria: [
+            'Review findings addressed',
+            'Focused checks pass',
+            'Final verification in progress',
+          ],
+          action: 'View agent work →',
+          page: 'agents',
+        },
+        onboarding: {
+          status: 'NEEDS YOUR DECISION',
+          title: 'Secure executive onboarding',
+          label: 'Goal attribution',
+          metric: 'Not linked',
+          budget: 'No goal total available',
+          criteria: ['Name the onboarding owner', 'Keep the access checklist with the task'],
+          action: 'Review decision →',
+          page: 'inbox',
+        },
+        markdown: {
+          status: 'BACKLOG TASK',
+          title: 'Add Markdown rendering to AGENTS.md',
+          label: 'Goal attribution',
+          metric: 'Not linked',
+          budget: 'No goal total available',
+          criteria: [
+            'Agree the supported Markdown elements',
+            'Define the rendering acceptance checks',
+          ],
+          action: 'Open a conversation →',
+          page: 'chats',
+        },
+        release: {
+          status: 'ACHIEVED',
+          title: 'Reconcile mobile release notes',
+          label: 'Tokens to goal',
+          metric: '26.1k',
+          budget: 'Complete reporting · verified yesterday',
+          criteria: ['Release entries reconciled', 'Source links verified'],
+          action: 'View stack efficiency →',
+          page: 'efficiency',
+        },
+      };
+      function selectGoal(key) {
+        const g = goals[key];
+        ['status', 'title', 'metric-label', 'metric', 'budget'].forEach(
+          (id, i) =>
+            (root.querySelector('#d-goal-' + id).textContent = [
+              g.status,
+              g.title,
+              g.label,
+              g.metric,
+              g.budget,
+            ][i]),
+        );
+        root.querySelector('#d-criteria-heading').textContent = ['onboarding', 'markdown'].includes(
+          key,
+        )
+          ? 'Next steps'
+          : 'Acceptance criteria';
+        root.querySelector('#d-criteria').replaceChildren(
+          ...g.criteria.map((t) => {
+            const d = document.createElement('div');
+            d.className = 'acceptance';
+            d.textContent = t;
+            return d;
+          }),
+        );
+        const a = root.querySelector('#d-goal-action');
+        a.textContent = g.action;
+        a.onclick = () => show(g.page);
+        root
+          .querySelectorAll('[data-goal]')
+          .forEach((b) => b.classList.toggle('selected', b.dataset.goal === key));
+      }
+      root
+        .querySelectorAll('[data-goal]')
+        .forEach((b) => (b.onclick = () => selectGoal(b.dataset.goal)));
+      root.querySelectorAll('[data-telos-tab]').forEach(
+        (b) =>
+          (b.onclick = () => {
+            root
+              .querySelectorAll('[data-telos-tab]')
+              .forEach((x) => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
+            root
+              .querySelectorAll('[data-telos-list]')
+              .forEach((x) => (x.hidden = x.dataset.telosList !== b.dataset.telosTab));
+            selectGoal(
+              b.dataset.telosTab === 'now'
+                ? 'review'
+                : b.dataset.telosTab === 'next'
+                  ? 'markdown'
+                  : 'release',
+            );
+          }),
+      );
+      let paused = false;
+      let selectedRun = 'verification';
+      const runs = {
+        verification: [
+          'RUNNING · VERIFICATION',
+          'Verify PR 455 fixes',
+          'Run the final checks and attach the results to the goal.',
+          '6,900',
+          '1,400',
+          '8,300',
+        ],
+        coordinator: [
+          'WAITING · COORDINATOR',
+          'Close out the review',
+          'Waiting for verification results. No call is in flight.',
+          '17,200',
+          '3,200',
+          '20,400',
+        ],
+        implementation: [
+          'COMPLETE · IMPLEMENTATION',
+          'Apply the review fixes',
+          'Changes are ready. The goal remains active while final verification runs.',
+          '11,500',
+          '2,600',
+          '14,100',
+        ],
+      };
+      function selectRun(key) {
+        selectedRun = key;
+        const r = runs[key];
+        ['state', 'title', 'step', 'input', 'output', 'total'].forEach(
+          (id, i) => (root.querySelector('#d-run-' + id).textContent = r[i]),
+        );
+        root
+          .querySelectorAll('[data-run]')
+          .forEach((b) => b.setAttribute('aria-pressed', b.dataset.run === key ? 'true' : 'false'));
+        root.querySelector('#d-pause').hidden = key !== 'verification';
+        if (key === 'verification' && paused) {
+          root.querySelector('#d-run-state').textContent = 'PAUSED · VERIFICATION';
+          root.querySelector('#d-run-step').textContent =
+            'Paused at a safe boundary. Resume to continue final verification.';
+        }
+      }
+      root
+        .querySelectorAll('[data-run]')
+        .forEach((b) => (b.onclick = () => selectRun(b.dataset.run)));
+      root.querySelector('#d-pause').onclick = () => {
+        paused = !paused;
+        root.querySelector('#d-pause').textContent = paused ? 'Resume workflow' : 'Pause workflow';
+        root.querySelector('#d-running-heading').textContent = paused
+          ? 'PAUSED · 1'
+          : 'RUNNING · 1';
+        root.querySelector('#d-board-count').textContent = paused
+          ? '1 paused · 1 waiting · 1 complete'
+          : '1 running · 1 waiting · 1 complete';
+        root.querySelector('#d-verification-status').textContent = paused
+          ? 'Paused by you'
+          : 'Final checks';
+        selectRun(selectedRun);
+        notify(
+          'Local ' + (paused ? 'pause' : 'resume') + ' simulation. No real execution changed.',
+        );
+      };
+      const accounts = {
+        google: [
+          'CONNECTED',
+          'Google Workspace',
+          'work@example.com · example account',
+          ['Read selected calendar events', 'Read email selected for your briefing'],
+          'Up to date · sample connection',
+          'Review access',
+        ],
+        jira: [
+          'NEEDS RECONNECTING',
+          'Jira',
+          'Work workspace · example identity',
+          ['Read selected project issues', 'Read comments and status'],
+          'Sync paused · last synced yesterday',
+          'Reconnect Jira',
+        ],
+        github: [
+          'NOT CONNECTED',
+          'GitHub',
+          'Choose repositories when connecting',
+          ['Read selected pull requests', 'Read check results'],
+          'No sync until connected',
+          'Connect GitHub',
+        ],
+      };
+      function selectAccount(key) {
+        const a = accounts[key];
+        ['status', 'name', 'identity'].forEach(
+          (id, i) => (root.querySelector('#d-account-' + id).textContent = a[i]),
+        );
+        root.querySelector('#d-permissions').replaceChildren(
+          ...a[3].map((t) => {
+            const row = document.createElement('div');
+            row.className = 'row';
+            row.textContent = t;
+            return row;
+          }),
+        );
+        root.querySelector('#d-sync').textContent = a[4];
+        root.querySelector('#d-connect').textContent = a[5];
+        root.querySelector('#d-auth-title').textContent = 'Continue with ' + a[1];
+        root.querySelector('#d-auth-preview').hidden = true;
+        root.querySelectorAll('[data-account]').forEach((b) => {
+          b.classList.toggle('selected', b.dataset.account === key);
+          b.setAttribute('aria-pressed', b.dataset.account === key ? 'true' : 'false');
+        });
+      }
+      root
+        .querySelectorAll('[data-account]')
+        .forEach((b) => (b.onclick = () => selectAccount(b.dataset.account)));
+      root.querySelector('#d-connect').onclick = () => {
+        root.querySelector('#d-auth-preview').hidden = false;
+        notify('Authorization handoff preview. No provider was contacted.');
+      };
+      root.querySelector('#d-auth-back').onclick = () =>
+        (root.querySelector('#d-auth-preview').hidden = true);
+      const events = {
+        checkin: [
+          'Engineering check-in',
+          'Monday 7 September · 09:30–10:00',
+          'Release and review progress.',
+          'PR 455 final verification is in progress.',
+        ],
+        onboarding: [
+          'Executive onboarding',
+          'Monday 7 September · 14:00–14:45',
+          'Access requirements, ownership and next steps.',
+          'Confirm the owner and keep the access checklist attached to the task.',
+        ],
+        planning: [
+          'Release planning',
+          'Tuesday 8 September · 10:00–10:30',
+          'Roadmap and open decisions.',
+          'Carry forward unresolved dependencies.',
+        ],
+        focus: [
+          'Focus time',
+          'Tuesday 8 September · 13:00–14:00',
+          'Reserved for focused work.',
+          'Choose the next TELOS goal before starting.',
+        ],
+      };
+      function selectEvent(key) {
+        ['title', 'time', 'context', 'notes'].forEach(
+          (id, i) => (root.querySelector('#d-event-' + id).textContent = events[key][i]),
+        );
+        root
+          .querySelectorAll('[data-event]')
+          .forEach((b) =>
+            b.setAttribute('aria-pressed', b.dataset.event === key ? 'true' : 'false'),
+          );
+      }
+      root
+        .querySelectorAll('[data-event]')
+        .forEach((b) => (b.onclick = () => selectEvent(b.dataset.event)));
+      root.querySelectorAll('[data-day]').forEach(
+        (b) =>
+          (b.onclick = () => {
+            root
+              .querySelectorAll('[data-day]')
+              .forEach((x) => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
+            root
+              .querySelectorAll('[data-day-panel]')
+              .forEach((x) => (x.hidden = x.dataset.dayPanel !== b.dataset.day));
+            selectEvent(b.dataset.day === 'today' ? 'onboarding' : 'planning');
+          }),
+      );
+      root.querySelector('#d-open-goal-definition').onclick = () => {
+        root.querySelector('#d-goal-definition-form').hidden = false;
+      };
+      root.querySelector('#d-cancel-goal-definition').onclick = () =>
+        (root.querySelector('#d-goal-definition-form').hidden = true);
+      root.querySelector('#d-goal-definition-form').onsubmit = (e) => {
+        e.preventDefault();
+        root.querySelector('#d-goal-definition-status').textContent =
+          root.querySelector('#d-definition-title').value +
+          ' · done when: ' +
+          root.querySelector('#d-definition-criteria').value;
+        root.querySelector('#d-open-goal-definition').textContent = 'Edit goal definition →';
+        root.querySelector('#d-goal-definition-form').hidden = true;
+        notify(
+          'Definition saved locally. Same conversation, same goal identity, same usage history. Execution controls are unchanged.',
+        );
+      };
+      const tray = root.querySelector('.session-tray-preview');
+      let traySnap = 'peek';
+      function setTraySnap(snap) {
+        traySnap = snap;
+        tray.dataset.snap = snap;
+        tray.querySelector('.tray-content').hidden = snap === 'peek';
+        tray
+          .querySelector('.tray-handle')
+          .setAttribute('aria-expanded', snap === 'peek' ? 'false' : 'true');
+        tray.querySelector('.tray-extra').hidden = snap !== 'full';
+        tray
+          .querySelectorAll('[data-tray-size]')
+          .forEach((b) =>
+            b.setAttribute('aria-pressed', b.dataset.traySize === snap ? 'true' : 'false'),
+          );
+      }
+      tray.querySelector('.tray-handle').onclick = () =>
+        setTraySnap(traySnap === 'peek' ? 'half' : 'peek');
+      tray
+        .querySelectorAll('[data-tray-size]')
+        .forEach((b) => (b.onclick = () => setTraySnap(b.dataset.traySize)));
+      tray.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          setTraySnap('peek');
+          tray.querySelector('.tray-handle').focus();
+        }
+      });
+      tray.querySelectorAll('[data-resource-preview]').forEach(
+        (b) =>
+          (b.onclick = () => {
+            const d = tray.querySelector('.tray-resource-detail');
+            d.hidden = false;
+            d.textContent = b.dataset.resourcePreview + ' · illustrative preview; no file opened.';
+          }),
+      );
+      const symposium = root.querySelector('.symposium-preview');
+      const ordinaryBlocks = [
+        ...root.querySelectorAll(
+          '#d-chat-content, [data-page="chat"] > .scope, [data-page="chat"] > .message, #m-local-messages',
+        ),
+      ];
+      let previousBlockVisibility = [];
+      symposium.querySelector('.symposium-open').onclick = () =>
+        (symposium.querySelector('.symposium-setup').hidden = false);
+      symposium.querySelector('.symposium-cancel').onclick = () =>
+        (symposium.querySelector('.symposium-setup').hidden = true);
+      symposium.querySelector('.symposium-start').onclick = () => {
+        const input = symposium.querySelector('.symposium-max-turns');
+        if (!input.reportValidity()) return;
+        if (symposium.querySelector('.symposium-turns').hidden) {
+          previousBlockVisibility = ordinaryBlocks.map((b) => b.hidden);
+          ordinaryBlocks.forEach((b) => (b.hidden = true));
+        }
+        const order =
+          symposium.querySelector('.symposium-turn-mode').selectedOptions[0].textContent;
+        const manual = symposium.querySelector('.symposium-manual').checked;
+        symposium.querySelector('.symposium-setup').hidden = true;
+        symposium.querySelector('.symposium-turns').hidden = false;
+        symposium.querySelector('.symposium-summary').textContent =
+          order +
+          ' · 2 of ' +
+          input.value +
+          ' turns · ' +
+          (manual ? 'manual review' : 'automatic delivery');
+        symposium.querySelector('.symposium-review').hidden = !manual;
+        symposium.querySelector('.symposium-review-detail').hidden = true;
+      };
+      symposium.querySelector('.symposium-close').onclick = () => {
+        symposium.querySelector('.symposium-turns').hidden = true;
+        ordinaryBlocks.forEach((b, i) => (b.hidden = previousBlockVisibility[i] ?? false));
+      };
+      symposium.querySelector('.symposium-review').onclick = () =>
+        (symposium.querySelector('.symposium-review-detail').hidden = false);
+      setTraySnap('peek');
+
+      function render() {
+        root.style.setProperty('--d-space', state.density === 'Compact' ? '18px' : '24px');
+        root.querySelector('#d-home-tokens').hidden = !state.homeTokens;
+        show(state.page);
+      }
+      render();
+      if (globalThis.Tweak) {
+        const tweak = new Tweak({ container: root, onChange: render });
+        tweak.addSelect(state, 'page', {
+          label: 'Desktop screen',
+          options: Object.entries(titles).map(([value, label]) => ({ value, label })),
+        });
+        tweak.addSelect(state, 'density', {
+          label: 'Spacing',
+          options: ['Comfortable', 'Compact'],
+        });
+        tweak.addToggle(state, 'homeTokens', { label: 'Show tokens on Today' });
+      }
+    })();
+  </script>
+</div>

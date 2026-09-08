@@ -55,3 +55,17 @@ it('does not acknowledge or echo a message when durable enqueue fails', () => {
   expect(echo).not.toHaveBeenCalled();
   expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
 });
+
+it('queues image and thinking input on an existing conversation', () => {
+  const images = [{ data: 'aGVsbG8=', mediaType: 'image/png' }];
+  expect(chat.sendToChat('c', 'describe', images, undefined, 'image-followup', 'gpt', 'high')).toBe(
+    true,
+  );
+  expect(runtime.enqueue).toHaveBeenLastCalledWith({
+    id: 'image-followup',
+    prompt: 'describe',
+    model: 'gpt',
+    reasoningEffort: 'high',
+    images,
+  });
+});

@@ -107,7 +107,7 @@ export const BUNDLED_SKILLS_DIR = join(__dirname, '..', 'skills');
 export const USER_SKILLS_DIR = join(homedir(), '.mitzo', 'skills');
 
 /** Reserved native command names — skills with these names are ignored. */
-export const NATIVE_COMMAND_NAMES = new Set(['skills', 'deliberate', 'fuse']);
+export const NATIVE_COMMAND_NAMES = new Set(['skills', 'models', 'deliberate', 'fuse']);
 
 /** Cached registries keyed by cwd — avoids re-scanning the filesystem on every request. */
 const registryCache = new Map<string, SkillRegistry>();
@@ -1128,13 +1128,11 @@ app.put('/api/accounts/:id/alias', (req, res) => {
   }
 });
 
-app.get('/api/accounts', (_req, res) => {
+app.get('/api/accounts', async (req, res) => {
   try {
-    res.json(
-      loadAccountProfiles()
-        .catalog()
-        .map((a) => ({ ...a, label: accountAliases.label(a.id, a.label) })),
-    );
+    const profiles = loadAccountProfiles();
+    await profiles.refresh(req.query.refresh === '1');
+    res.json(profiles.catalog().map((a) => ({ ...a, label: accountAliases.label(a.id, a.label) })));
   } catch {
     res
       .status(503)
@@ -1272,7 +1270,7 @@ app.delete('/api/sessions/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/sessions/:id/meta', (req, res) => {
+app.get('/api/sessions/:id/meta', async (req, res) => {
   const meta = eventStore.getSession(req.params.id);
   if (!meta) {
     res.status(404).json({ error: 'Session not found' });
@@ -1288,10 +1286,14 @@ app.get('/api/sessions/:id/meta', (req, res) => {
           registry.findBySessionId(meta.sessionId)?.session,
         )
       : undefined;
-  let modelSelection: { model: string; models: Array<{ id: string; label: string }> } | undefined;
+  let modelSelection:
+    | { model: string; reasoningEffort?: string; models: Array<{ id: string; label: string }> }
+    | undefined;
   if (meta.accountBinding?.provider === 'openai-codex') {
     try {
-      const profile = loadAccountProfiles()
+      const profiles = loadAccountProfiles();
+      await profiles.refresh(req.query.refresh === '1');
+      const profile = profiles
         .catalog()
         .find((account) => account.id === meta.accountBinding!.accountId);
       const defaultModel = profile?.models[0];
@@ -1299,6 +1301,7 @@ app.get('/api/sessions/:id/meta', (req, res) => {
         modelSelection = {
           model: codexQueue?.model ?? meta.accountBinding.model ?? defaultModel.id,
           models: profile.models,
+          reasoningEffort: codexQueue?.reasoningEffort,
         };
     } catch {
       // Keep metadata available when the optional account catalog is temporarily unreadable.

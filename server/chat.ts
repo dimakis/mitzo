@@ -773,6 +773,7 @@ export async function startChat(
     cwd?: string;
     model?: string;
     accountId?: string;
+    reasoningEffort?: string;
     accountProfiles?: AccountProfiles;
     extraTools?: string;
     skillAllowedTools?: string[];
@@ -807,6 +808,7 @@ async function _startChatInner(
     cwd?: string;
     model?: string;
     accountId?: string;
+    reasoningEffort?: string;
     accountProfiles?: AccountProfiles;
     extraTools?: string;
     skillAllowedTools?: string[];
@@ -841,8 +843,6 @@ async function _startChatInner(
             : accountBinding.model,
       };
       if (accountBinding.provider === 'openai-codex') {
-        if (options.images?.length)
-          throw new Error('Codex image attachments are not yet supported');
         if (options.skillAllowedTools)
           throw new Error('Codex restricted skill tool ceilings are not yet supported');
         codexProfile = profiles!.codexProfile(accountBinding);
@@ -923,7 +923,12 @@ async function _startChatInner(
     }
   }
 
-  const fullPrompt = assemblePrompt(prompt, cwd, options.images, options.contextBlocks);
+  const fullPrompt = assemblePrompt(
+    prompt,
+    cwd,
+    codexProfile ? undefined : options.images,
+    options.contextBlocks,
+  );
 
   // Apply tier overrides from current .mitzo.json (re-read each session start).
   // Always call applyTierOverrides so removed overrides reset to defaults.
@@ -1138,6 +1143,8 @@ async function _startChatInner(
         clientId,
         transport,
         session.observers,
+        imagePreviews(options.images),
+        options.contextBlocks,
       );
       q = await openCodexChat({
         resume: !!options.resume,
@@ -1148,6 +1155,8 @@ async function _startChatInner(
         registry,
         prompt: fullPrompt,
         model: options.model,
+        reasoningEffort: options.reasoningEffort,
+        images: options.images,
         messageId,
         systemPrompt: systemPromptAppend,
         env: sessionEnv,
@@ -1165,6 +1174,8 @@ async function _startChatInner(
         clientId,
         transport,
         session.observers,
+        imagePreviews(options.images),
+        options.contextBlocks,
       );
       q = await openResponsesChat({
         resume: !!options.resume,
@@ -1229,6 +1240,8 @@ async function _startChatInner(
         clientId,
         transport,
         session.observers,
+        imagePreviews(options.images),
+        options.contextBlocks,
       );
     }
 
@@ -1242,6 +1255,8 @@ async function _startChatInner(
       {
         connRegistry: _connRegistry ?? undefined,
         initialClientMsgId: options.clientMsgId,
+        initialImages: imagePreviews(options.images),
+        initialContextBlocks: options.contextBlocks,
         onSessionResolved: (sessionId: string) => {
           // Persist boot context for new sessions (resume sessions already persisted above)
           if (!options.resume) {
@@ -1353,6 +1368,8 @@ function storeAndEchoIfNew(
   clientId: string,
   transport: SessionTransport,
   observers: Set<SessionTransport>,
+  images?: string[],
+  contextBlocks?: string[],
 ): boolean {
   if (eventStore.hasUserMessage(sessionId, messageId)) {
     return true;
@@ -1363,13 +1380,28 @@ function storeAndEchoIfNew(
     ts: Date.now(),
     messageId,
     text,
+    ...(images?.length ? { images } : {}),
+    ...(contextBlocks?.length ? { contextBlocks } : {}),
   });
   eventStore.updateLastSpeaker(sessionId, 'user');
   _onSessionChange?.(clientId, 'user_message');
-  const echo = { type: 'user_message', v: 2, messageId, text, sessionId, seq };
+  const echo = {
+    type: 'user_message',
+    v: 2,
+    messageId,
+    text,
+    sessionId,
+    seq,
+    ...(images?.length ? { images } : {}),
+    ...(contextBlocks?.length ? { contextBlocks } : {}),
+  };
   send(transport, echo);
   broadcastToObservers(observers, echo);
   return false;
+}
+
+function imagePreviews(images?: Array<{ data: string; mediaType: string }>): string[] | undefined {
+  return images?.map((image) => `data:${image.mediaType};base64,${image.data}`);
 }
 
 /** Push a follow-up message into a running session. */
@@ -1380,28 +1412,41 @@ export function sendToChat(
   contextBlocks?: string[],
   clientMsgId?: string,
   model?: string,
+  reasoningEffort?: string,
 ): boolean {
   return withSpan('chat.send', { 'chat.clientId': clientId }, () => {
     const session = registry.get(clientId);
     if (!session?.inputQueue) return false;
     const codex = getCodexRuntime(session);
     const responses = getResponsesRuntime(session);
-    if (codex && (images?.length || session.activeSkillPolicy)) {
+    if (codex && session.activeSkillPolicy) {
       send(session.transport, {
         type: 'error',
         sessionId: session.sessionId,
-        error: 'Codex images and restricted skill tool ceilings are not yet supported',
+        error: 'Codex restricted skill tool ceilings are not yet supported',
       });
       return false;
     }
-    const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
+    const fullPrompt = assemblePrompt(
+      prompt,
+      session.cwd ?? '.',
+      codex ? undefined : images,
+      contextBlocks,
+    );
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-send`;
+    const previews = imagePreviews(images);
     if (responses && session.sessionId && eventStore.hasUserMessage(session.sessionId, messageId))
       return true;
     if (codex) {
       try {
         // Persist before public acknowledgement; retries also repair older echo-only entries.
-        codex.enqueue({ id: messageId, prompt: fullPrompt, ...(model ? { model } : {}) });
+        codex.enqueue({
+          id: messageId,
+          prompt: fullPrompt,
+          images,
+          reasoningEffort,
+          ...(model ? { model } : {}),
+        });
         if (model) session.model = model;
       } catch {
         send(session.transport, {
@@ -1433,6 +1478,8 @@ export function sendToChat(
         clientId,
         session.transport,
         session.observers,
+        previews,
+        contextBlocks,
       );
       if (isDup && !codex) return true;
       tryAutoRename(session.sessionId, clientId).catch(() => {
@@ -1442,7 +1489,14 @@ export function sendToChat(
       // Pre-session-resolve: no eventStore to dedup against.
       // The frontend deduplicates echoes by messageId, and server-generated
       // fallback IDs include randomUUID, so duplicates are not possible in practice.
-      const echo = { type: 'user_message', v: 2, messageId, text: fullPrompt };
+      const echo = {
+        type: 'user_message',
+        v: 2,
+        messageId,
+        text: fullPrompt,
+        ...(previews?.length ? { images: previews } : {}),
+        ...(contextBlocks?.length ? { contextBlocks } : {}),
+      };
       send(session.transport, echo);
       broadcastToObservers(session.observers, echo);
     }
@@ -1471,28 +1525,37 @@ export async function interruptChat(
   contextBlocks?: string[],
   clientMsgId?: string,
   model?: string,
+  reasoningEffort?: string,
 ): Promise<boolean> {
   return withSpanAsync('chat.interrupt', { 'chat.clientId': clientId }, async () => {
     const session = registry.get(clientId);
     if (!session?.queryInstance || !session?.inputQueue) return false;
     const codex = getCodexRuntime(session);
     if (codex) {
-      if (images?.length || session.activeSkillPolicy) {
+      if (session.activeSkillPolicy) {
         send(session.transport, {
           type: 'error',
           sessionId: session.sessionId,
-          error:
-            'This Codex task cannot change model or use unsupported attachments or skill ceilings',
+          error: 'Codex restricted skill tool ceilings are not yet supported',
         });
         return false;
       }
-      if (model) codex.validateModel(model);
+      if (model) codex.validateModel(model, reasoningEffort);
       await codex.interrupt();
-      return sendToChat(clientId, prompt, images, contextBlocks, clientMsgId, model);
+      return sendToChat(
+        clientId,
+        prompt,
+        images,
+        contextBlocks,
+        clientMsgId,
+        model,
+        reasoningEffort,
+      );
     }
     if (model) session.model = model;
     const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-interrupt`;
+    const previews = imagePreviews(images);
     // Store and echo the user message. A retried interrupt must still stop
     // the agent — only the echo/store is skipped on duplicate.
     let isDup = false;
@@ -1504,10 +1567,19 @@ export async function interruptChat(
         clientId,
         session.transport,
         session.observers,
+        previews,
+        contextBlocks,
       );
     } else {
       // Pre-session-resolve: no eventStore to dedup against (see sendToChat).
-      const echo = { type: 'user_message', v: 2, messageId, text: fullPrompt };
+      const echo = {
+        type: 'user_message',
+        v: 2,
+        messageId,
+        text: fullPrompt,
+        ...(previews?.length ? { images: previews } : {}),
+        ...(contextBlocks?.length ? { contextBlocks } : {}),
+      };
       send(session.transport, echo);
       broadcastToObservers(session.observers, echo);
     }
@@ -2213,6 +2285,8 @@ export interface RestoredMessage {
   messageId: string;
   role: string;
   timestamp?: number;
+  images?: string[];
+  contextBlocks?: string[];
   blocks: Array<{
     blockId: string;
     blockType: string;
@@ -2282,6 +2356,12 @@ export function replayEventsToMessages(
       messageId,
       role: 'user',
       timestamp: firstTs,
+      images: Array.isArray(matchingEvt?.payload.images)
+        ? (matchingEvt.payload.images as string[])
+        : undefined,
+      contextBlocks: Array.isArray(matchingEvt?.payload.contextBlocks)
+        ? (matchingEvt.payload.contextBlocks as string[])
+        : undefined,
       blocks: [{ blockId: 'user-initial', blockType: 'text', content: initialPrompt }],
     });
   } else if (legacyInitialPromptEvent) {
@@ -2290,6 +2370,8 @@ export function replayEventsToMessages(
       messageId: p.messageId as string,
       role: 'user',
       timestamp: typeof p.ts === 'number' ? p.ts : legacyInitialPromptEvent.createdAt,
+      images: Array.isArray(p.images) ? (p.images as string[]) : undefined,
+      contextBlocks: Array.isArray(p.contextBlocks) ? (p.contextBlocks as string[]) : undefined,
       blocks: [
         {
           blockId: `user-${p.messageId as string}`,
@@ -2318,6 +2400,8 @@ export function replayEventsToMessages(
           messageId: p.messageId as string,
           role: 'user',
           timestamp: typeof p.ts === 'number' ? p.ts : evt.createdAt,
+          images: Array.isArray(p.images) ? (p.images as string[]) : undefined,
+          contextBlocks: Array.isArray(p.contextBlocks) ? (p.contextBlocks as string[]) : undefined,
           blocks: [
             {
               blockId: `user-${p.messageId as string}`,
