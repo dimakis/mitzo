@@ -9,3 +9,5 @@ For ChatGPT models, **Thinking** shows the reasoning levels reported by that par
 Codex attachments use native `image` input with data URLs, rather than tool-based file reading. Images are validated and persisted in the private conversation queue with the prompt, so queued/recovered work retains its attachments. PNG, JPEG, WebP, and GIF are accepted, up to ten images and 14 MB of base64 data per image. Restricted skill tool ceilings remain unsupported and are still rejected explicitly.
 
 Protocol reference: [Codex App Server](https://learn.chatgpt.com/docs/app-server).
+
+The legacy model selector uses a configured Vertex allowlist only when project, region, and explicit `GOOGLE_APPLICATION_CREDENTIALS` match exactly one profile. With no match (including ambient ADC), it retains the conservative server defaults. Duplicate matching routes or invalid profile configuration return an explicit error rather than selecting an arbitrary profile.

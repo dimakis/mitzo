@@ -93,11 +93,18 @@ export class AccountProfiles {
   }
 
   /** Legacy requests use the server's Vertex route, not any other account's models. */
-  legacyModels(projectId: string | undefined, region: string) {
-    const profile = this.profiles.find(
-      (p) => p.provider === 'anthropic-vertex' && p.projectId === projectId && p.region === region,
+  legacyModels(projectId: string | undefined, region: string, credentialRef: string | undefined) {
+    // Ambient ADC can resolve through several sources; do not guess a profile identity.
+    if (!projectId || !credentialRef) return undefined;
+    const profiles = this.profiles.filter(
+      (p) =>
+        p.provider === 'anthropic-vertex' &&
+        p.projectId === projectId &&
+        p.region === region &&
+        p.credentialRef === credentialRef,
     );
-    return profile?.models ?? [];
+    if (profiles.length > 1) throw new Error('Ambiguous legacy Vertex account profiles');
+    return profiles[0]?.models;
   }
 
   async refresh(force = false) {
