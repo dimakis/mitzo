@@ -38,6 +38,7 @@ const preference =
     ? parseChatTransportPreference(localStorage.getItem('mitzo:transport'))
     : null;
 const useSSE = typeof window !== 'undefined' && shouldUseSseTransport(isCapacitor(), preference);
+const initiallyAuthenticated = !isLogoutPending();
 
 const sseConfig: SseConnectionConfig | undefined = useSSE
   ? {
@@ -61,9 +62,8 @@ export const clientStore = createMitzoStore({
     suspendUrl: `${getApiBaseUrl()}/api/sessions/suspend`,
   },
   ...(sseConfig ? { sseConfig } : {}),
+  initiallyAuthenticated,
 });
-
-if (isLogoutPending()) clientStore.getState().invalidateAuthentication();
 
 if (typeof window !== 'undefined') {
   window.addEventListener(AUTH_LOST_EVENT, () => clientStore.getState().invalidateAuthentication());

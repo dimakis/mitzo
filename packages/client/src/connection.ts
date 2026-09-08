@@ -52,7 +52,6 @@ export class MitzoConnection {
   }
 
   connect(): void {
-    this.authBlocked = false;
     this.doConnect();
     this.startHeartbeat();
     this.addBrowserListeners();

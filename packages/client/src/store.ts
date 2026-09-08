@@ -154,6 +154,8 @@ export interface MitzoStoreOptions {
   wsConfig: MitzoConnectionConfig;
   /** When provided, the store uses SSE + HTTP POST instead of WebSocket. */
   sseConfig?: SseConnectionConfig;
+  /** Start with transports latched off until restoreAuthentication() after an explicit login. */
+  initiallyAuthenticated?: boolean;
 }
 
 // ─── Tree helpers ───────────────────────────────────────────────────────────
@@ -901,6 +903,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   }
 
   connection.onMessage(wsListener);
+  if (options.initiallyAuthenticated === false) connection.invalidateAuthentication();
   connection.connect();
 
   return store;

@@ -124,6 +124,17 @@ describe('createMitzoStore', () => {
     expect(ws.parsedSent()).toContainEqual({ type: 'hello', protocolVersion: 2 });
   });
 
+  it('does not open the initial transport while authentication starts invalidated', () => {
+    const options = makeOptions();
+    const createWebSocket = vi.spyOn(options.wsConfig, 'createWebSocket');
+    const store = createMitzoStore({ ...options, initiallyAuthenticated: false });
+
+    expect(createWebSocket).not.toHaveBeenCalled();
+
+    store.getState().restoreAuthentication();
+    expect(createWebSocket).toHaveBeenCalledOnce();
+  });
+
   it('sets connection status to connected after welcome', () => {
     const store = createReadyStore();
     expect(store.getState().connection.status).toBe('connected');

@@ -95,7 +95,7 @@ export class SseConnection implements ChatConnection {
   }
 
   connect(): void {
-    this.outbox.start();
+    if (!this.authBlocked) this.outbox.start();
     this.doConnect();
     this.addBrowserListeners();
   }

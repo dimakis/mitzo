@@ -86,6 +86,32 @@ describe('SseConnection', () => {
     vi.useRealTimers();
   });
 
+  it('does not start a persisted outbox when invalidated before connect', async () => {
+    const fetch = vi.fn();
+    const key = 'mitzo-send-outbox:https://localhost:3100/api/chat/send';
+    const storage = {
+      getItem: vi.fn((requested: string) =>
+        requested === key
+          ? JSON.stringify([
+              {
+                scope: 1,
+                body: { type: 'send', clientMsgId: 'queued-1', prompt: 'do not replay' },
+              },
+            ])
+          : null,
+      ),
+      setItem: vi.fn(),
+    };
+    const conn = new SseConnection(createConfig({ fetch, outboxStorage: storage }));
+
+    conn.invalidateAuthentication();
+    conn.connect();
+    await Promise.resolve();
+
+    expect(MockEventSource.instances).toHaveLength(0);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it('serializes replay requests and includes sessions accepted during an in-flight replay', async () => {
     const replays: Array<{
       body: { sessions: Array<{ sessionId: string }> };
