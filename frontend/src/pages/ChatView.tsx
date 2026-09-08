@@ -1,4 +1,5 @@
 import { PermissionModePicker } from '../components/PermissionModePicker';
+import { StatusBar } from '../components/StatusBar';
 import { WorkspaceControls } from '../components/WorkspaceControls';
 import { CodexQueueStatus } from '../components/CodexQueueStatus';
 import { AccountModelPicker, type AccountSelection } from '../components/AccountModelPicker';
@@ -317,6 +318,17 @@ export function ChatView() {
           )}
         </header>
       </WorkspaceControls>
+      {activeSessionId && (
+        <div className="mobile-session-context">
+          <StatusBar
+            connected={connected}
+            sessionId={activeSessionId}
+            branch={messages.branch || undefined}
+            isWorktree={messages.isWorktree}
+            wtId={messages.wtId || undefined}
+          />
+        </div>
+      )}
       {(sendError || sendStatus) && (
         <div
           role={sendError ? 'alert' : 'status'}

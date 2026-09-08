@@ -492,3 +492,31 @@
   overflow-wrap: anywhere;
   line-height: 1.4;
 }
+
+.mobile-session-context {
+  flex-shrink: 0;
+  padding: 0 12px 4px;
+  color: var(--text-dim);
+  font-size: var(--text-xs);
+}
+.mobile-session-context .desktop-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+}
+.mobile-session-context .status-dot,
+.mobile-session-context .status-label {
+  display: none;
+}
+.mobile-session-context .status-details summary {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+}
+.mobile-session-context .status-details dl {
+  top: calc(100% + 4px);
+  bottom: auto;
+  max-height: 50dvh;
+  overflow-y: auto;
+}

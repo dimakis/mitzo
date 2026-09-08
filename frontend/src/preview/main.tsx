@@ -9,7 +9,7 @@ import { createMitzoStore } from '@mitzo/client';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { ResponsiveChatView } from '../components/ResponsiveChatView';
 import { SessionList } from '../pages/SessionList';
-import { messagesFor, metadata } from './fixtures';
+import { previewSessionState } from './session-state';
 import '../styles/global.css';
 import '../styles/desktop.css';
 import '../styles/workspace.css';
@@ -41,10 +41,7 @@ function selectSession(id: string | null) {
     sessions: { ...s.sessions, active: id },
     messages: {
       ...s.messages,
-      messages: id ? messagesFor(id) : [],
-      current: null,
-      running: false,
-      ...metadata,
+      ...previewSessionState(id),
     },
   }));
 }

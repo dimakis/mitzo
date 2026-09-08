@@ -14,7 +14,6 @@ vi.mock('../../lib/keyboard', () => ({ onKeyboardToggle: () => () => {} }));
 vi.mock('../../hooks/useVoice', () => ({ useVoice: () => ({ stopSpeaking: vi.fn() }) }));
 vi.mock('../../components/VoiceSettings', () => ({ VoiceSettings: () => null }));
 vi.mock('../../components/ChatArea', () => ({ ChatArea: () => null }));
-vi.mock('../../components/StatusBar', () => ({ StatusBar: () => null }));
 vi.mock('../../components/ChatInput', () => ({
   ChatInput: ({ initialText }: { initialText?: string }) => (
     <div data-testid="draft">{initialText}</div>
@@ -151,4 +150,34 @@ it('keeps mobile account and permission controls in one collapsible workspace se
   fireEvent.click(screen.getByRole('button', { name: /Workspace/ }));
   expect(await screen.findByRole('combobox', { name: 'Model' })).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Agent' })).toBeTruthy();
+});
+
+it('shows mobile session details without expanding workspace settings', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => [] } as Response);
+  const store = createTestStore();
+  store.setState({
+    sessions: { ...store.getState().sessions, active: 'mobile-session' },
+    messages: {
+      ...store.getState().messages,
+      branch: 'session/mobile',
+      isWorktree: true,
+      wtId: 'mobile-worktree',
+    },
+    fetchSessionMeta: async () => {},
+  });
+  render(
+    <MitzoStoreProvider value={store}>
+      <MemoryRouter initialEntries={['/chat/mobile-session']}>
+        <Routes>
+          <Route path="/chat/:sessionId" element={<ChatView />} />
+        </Routes>
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+  expect(screen.getByText('Isolated workspace')).toBeTruthy();
+  const summary = screen.getByText('Session details');
+  fireEvent.click(summary);
+  expect(summary.closest('details')?.textContent).toContain('session/mobile');
+  expect(summary.closest('details')?.textContent).toContain('mobile-worktree');
+  expect(summary.closest('details')?.textContent).toContain('mobile-session');
 });
