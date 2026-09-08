@@ -985,6 +985,10 @@ describe('account catalog routes', () => {
     ['VERTEX_REGION_CLAUDE_4_6_OPUS', 'us-east5'],
     ['CLAUDE_CODE_USE_BEDROCK', '1'],
     ['CLAUDE_CODE_USE_FOUNDRY', '1'],
+    ['CLAUDE_CODE_SKIP_VERTEX_AUTH', '1'],
+    ['ANTHROPIC_AUTH_TOKEN', 'test-token'],
+    ['GOOGLE_API_KEY', 'test-key'],
+    ['CLAUDE_CODE_OAUTH_TOKEN', 'test-token'],
   ])('does not use a Vertex profile with inherited %s=%s', async (key, value) => {
     const file = join(TEST_REPO, 'override-profiles.json');
     writeFileSync(
@@ -1010,6 +1014,19 @@ describe('account catalog routes', () => {
       const res = await request(app).get('/api/models').set('Cookie', authCookie);
       expect(res.status).toBe(200);
       expect(res.body).toEqual([{ id: 'test-model', label: 'Test', desc: 'Test model' }]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('still rejects invalid profile configuration when legacy routing is overridden', async () => {
+    const file = join(TEST_REPO, 'invalid-override-profiles.json');
+    writeFileSync(file, '{invalid');
+    vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', file);
+    vi.stubEnv('CLAUDE_CODE_USE_VERTEX', '0');
+    try {
+      const res = await request(app).get('/api/models').set('Cookie', authCookie);
+      expect(res.status).toBe(503);
+      expect(res.body.error).toMatch(/configuration unavailable/i);
     } finally {
       vi.unstubAllEnvs();
     }

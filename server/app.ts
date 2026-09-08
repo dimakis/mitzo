@@ -1142,6 +1142,7 @@ app.get('/api/accounts', async (req, res) => {
 
 app.get('/api/models', (_req, res) => {
   try {
+    const profiles = process.env.MITZO_ACCOUNT_PROFILES_FILE ? loadAccountProfiles() : undefined;
     // Legacy sessions inherit routing overrides that explicit account sessions strip.
     // Only apply a profile allowlist when the process route is unambiguous.
     const matchesDefaultVertexRoute =
@@ -1150,15 +1151,18 @@ app.get('/api/models', (_req, res) => {
         ([key, value]) =>
           value &&
           (key.startsWith('VERTEX_REGION_') ||
-            ((key === 'CLAUDE_CODE_USE_BEDROCK' || key === 'CLAUDE_CODE_USE_FOUNDRY') &&
+            ((key.startsWith('CLAUDE_CODE_SKIP_') ||
+              (key.startsWith('CLAUDE_CODE_USE_') && key !== 'CLAUDE_CODE_USE_VERTEX')) &&
               value !== '0' &&
               value !== 'false') ||
-            key === 'ANTHROPIC_BASE_URL' ||
-            key === 'ANTHROPIC_VERTEX_BASE_URL'),
+            (key.startsWith('ANTHROPIC_') && key !== 'ANTHROPIC_VERTEX_PROJECT_ID') ||
+            key.startsWith('OPENAI_') ||
+            key === 'GOOGLE_API_KEY' ||
+            key === 'CLAUDE_CODE_OAUTH_TOKEN'),
       );
     const models =
-      process.env.MITZO_ACCOUNT_PROFILES_FILE && matchesDefaultVertexRoute
-        ? (loadAccountProfiles().legacyModels(
+      profiles && matchesDefaultVertexRoute
+        ? (profiles.legacyModels(
             process.env.ANTHROPIC_VERTEX_PROJECT_ID,
             process.env.CLOUD_ML_REGION || 'us-east5',
             process.env.GOOGLE_APPLICATION_CREDENTIALS,
