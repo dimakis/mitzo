@@ -63,6 +63,7 @@ vi.mock('../chat.js', () => {
 let app: Express;
 let authCookie: string;
 let otherAuthCookie: string;
+let authSessionId: string;
 
 beforeAll(async () => {
   mkdirSync(TEST_REPO, { recursive: true });
@@ -92,6 +93,7 @@ beforeAll(async () => {
   const token = authCookie.match(new RegExp(`${COOKIE_NAME}=([^;]+)`))?.[1];
   const authSession = token ? await authenticateToken(token) : null;
   if (!authSession) throw new Error('test login did not produce a valid auth session');
+  authSessionId = authSession.id;
   claimTransportConnection('conn-owner', authSession.id);
 });
 
@@ -113,6 +115,23 @@ describe('POST /api/sessions/suspend', () => {
 
     expect(res.status).toBe(204);
     expect(mockSuspend).toHaveBeenCalledWith('conn-owner:sess-known', 42);
+  });
+
+  it('allows the owning login to suspend during transport teardown', async () => {
+    const { releaseTransportConnection } = await import('../transport-auth-ownership.js');
+    releaseTransportConnection('conn-owner', authSessionId);
+    mockSuspend.mockClear();
+
+    const res = await request(app)
+      .post('/api/sessions/suspend')
+      .set('Cookie', authCookie)
+      .send({
+        connectionId: 'conn-owner',
+        sessions: [{ sessionId: 'sess-known', lastSeq: 43 }],
+      });
+
+    expect(res.status).toBe(204);
+    expect(mockSuspend).toHaveBeenCalledWith('conn-owner:sess-known', 43);
   });
 
   it('requires authentication (cookie sent automatically by sendBeacon)', async () => {
