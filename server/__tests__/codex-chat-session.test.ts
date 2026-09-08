@@ -26,7 +26,10 @@ vi.mock('../codex-conversation.js', () => ({
   },
 }));
 vi.mock('../codex-mcp-tools.js', () => ({ connectCodexMcpTools: mocks.connect }));
-vi.mock('../codex-private-path.js', () => ({ codexPrivateDirectory: () => '/tmp' }));
+vi.mock('../codex-private-path.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../codex-private-path.js')>()),
+  codexPrivateDirectory: () => '/tmp',
+}));
 import { openCodexChat } from '../codex-chat-session.js';
 function options(abortController: AbortController) {
   return { session: { cwd: '/tmp', abortController }, mcpServers: {} } as Parameters<

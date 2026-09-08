@@ -2,6 +2,8 @@ import { open, realpath, writeFile } from 'node:fs/promises';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
+import { loadAccountProfiles } from './account-profiles.js';
+import { createCodexPathProtection } from './codex-private-path.js';
 import {
   buildPermissionHandler,
   UserQuestionsSchema,
@@ -17,6 +19,9 @@ const approval = {
     .optional()
     .describe('Set true to request an explicit Mitzo approval card before this exact action.'),
 };
+const privatePathSnapshot = createCodexPathProtection(() =>
+  loadAccountProfiles().privateCodexRoots(),
+);
 const schemas = {
   AskUserQuestion: z.object({ questions: UserQuestionsSchema }).strict(),
   Read: z.object({ file_path: z.string().min(1) }).strict(),
@@ -121,6 +126,7 @@ export function createNativeToolExecutor(
       }
       const input = { ...parsed.data };
       if ('questions' in input) return result('Invalid tool input', true);
+      const isPrivate = privatePathSnapshot();
       const forcePrompt =
         options.forcePrompt === true ||
         ('require_approval' in input && input.require_approval === true);
@@ -138,6 +144,8 @@ export function createNativeToolExecutor(
       }
       if ('file_path' in input) {
         input.file_path = await canonicalPath(resolve(session.cwd, input.file_path));
+        if (isPrivate(input.file_path))
+          return result('Private provider storage is unavailable', true);
         // Present the checked path under the registry's original root alias. This keeps
         // the shared guard and lazy creation working without mutating registry entries.
         const root = roots.find(
@@ -148,6 +156,7 @@ export function createNativeToolExecutor(
         if (root)
           input.file_path = resolve(root.original, relative(root.canonical, input.file_path));
       }
+      const approvedPath = await canonicalPath(input.file_path);
       const permission = await canUseTool(block.name, input, {
         signal,
         toolUseID: block.id,
@@ -158,6 +167,11 @@ export function createNativeToolExecutor(
       // The shared handler returns the checked input. Never execute unchecked replacements.
       if (!isDeepStrictEqual(permission.updatedInput, input))
         return result('Tool input changed during approval; retry the tool', true);
+      if (
+        (await canonicalPath(input.file_path)) !== approvedPath ||
+        privatePathSnapshot()(input.file_path)
+      )
+        return result('Tool path changed or became private during approval; retry the tool', true);
       if (block.name === 'Write') {
         const write = schemas.Write.parse(input);
         await writeFile(write.file_path, write.content, { encoding: 'utf8', signal });
