@@ -83,6 +83,14 @@ export class AccountProfiles {
       }));
   }
 
+  /** Legacy requests use the server's Vertex route, not any other account's models. */
+  legacyModels(projectId: string | undefined, region: string) {
+    const profile = this.profiles.find(
+      (p) => p.provider === 'anthropic-vertex' && p.projectId === projectId && p.region === region,
+    );
+    return profile?.models ?? [];
+  }
+
   resolve(accountId: string, model?: string): AccountBinding {
     const profile = this.profiles.find((p) => p.id === accountId);
     if (!profile)
@@ -221,10 +229,7 @@ export function loadAccountProfiles(): AccountProfiles {
 }
 
 export const LEGACY_MODELS = [
-  { id: 'claude-opus-4-8', label: 'Opus 4.8', desc: 'Latest Opus' },
-  { id: 'claude-opus-4-8:max', label: 'Opus 4.8 Max', desc: 'Max thinking (128k)' },
-  { id: 'claude-opus-4-6', label: 'Opus 4.6', desc: 'Previous Opus' },
-  { id: 'claude-sonnet-5', label: 'Sonnet 5', desc: 'Latest Sonnet' },
+  { id: 'claude-opus-4-6', label: 'Opus 4.6', desc: 'Most capable' },
   { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', desc: 'Balanced' },
   { id: 'claude-sonnet-4-5', label: 'Sonnet 4.5', desc: 'Previous Sonnet' },
   { id: 'claude-haiku-4-5', label: 'Haiku 4.5', desc: 'Fastest' },

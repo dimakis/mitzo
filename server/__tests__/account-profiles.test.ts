@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { AccountProfiles, resolveAccountSelection } from '../account-profiles.js';
+import { AccountProfiles, LEGACY_MODELS, resolveAccountSelection } from '../account-profiles.js';
 import { V2SendMessage } from '@mitzo/protocol';
 
 const profile = {
@@ -148,4 +148,26 @@ describe('work OpenAI API profile', () => {
       ]).resume(binding),
     ).toThrow('changed');
   });
+});
+
+describe('legacy model catalog', () => {
+  it('uses only the allowlist matching the legacy Vertex route', () => {
+    const profiles = new AccountProfiles([
+      profile,
+      {
+        ...profile,
+        id: 'other',
+        projectId: 'other-project',
+        models: [{ id: 'claude-sonnet-5', label: 'Sonnet 5' }],
+      },
+    ]);
+    expect(profiles.legacyModels('work-project', 'us-east5')).toEqual(profile.models);
+    expect(profiles.legacyModels('work-project', 'global')).toEqual([]);
+    expect(profiles.legacyModels(undefined, 'us-east5')).toEqual([]);
+  });
+});
+
+it('does not advertise unavailable newer models in the fallback Vertex catalog', () => {
+  expect(LEGACY_MODELS.map((m) => m.id)).not.toContain('claude-sonnet-5');
+  expect(LEGACY_MODELS.map((m) => m.id)).not.toContain('claude-opus-4-8');
 });

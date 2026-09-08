@@ -1142,7 +1142,21 @@ app.get('/api/accounts', (_req, res) => {
   }
 });
 
-app.get('/api/models', (_req, res) => res.json(AVAILABLE_MODELS));
+app.get('/api/models', (_req, res) => {
+  try {
+    const models = process.env.MITZO_ACCOUNT_PROFILES_FILE
+      ? loadAccountProfiles().legacyModels(
+          process.env.ANTHROPIC_VERTEX_PROJECT_ID,
+          process.env.CLOUD_ML_REGION || 'us-east5',
+        )
+      : AVAILABLE_MODELS;
+    res.json(models);
+  } catch {
+    res
+      .status(503)
+      .json({ error: 'Model configuration unavailable. Check the profile file on the Mac.' });
+  }
+});
 
 app.get('/api/config', (_req, res) => {
   const config = getRepoConfig();
