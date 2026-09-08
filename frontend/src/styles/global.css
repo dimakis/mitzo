@@ -6474,11 +6474,11 @@ textarea:focus {
   line-height: 1.2;
 }
 
-.session-tray-draft-count {
+.session-tray-pending-count {
   display: none;
 }
 
-.session-tray[data-snap='peek'] .session-tray-draft-count {
+.session-tray[data-snap='peek'] .session-tray-pending-count {
   position: absolute;
   top: 0.18rem;
   right: 0.24rem;

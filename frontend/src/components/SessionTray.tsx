@@ -32,6 +32,13 @@ function moveSnap(snap: TraySnap, direction: 1 | -1): TraySnap {
   return SNAP_ORDER[Math.max(0, Math.min(SNAP_ORDER.length - 1, index + direction))];
 }
 
+function pendingAttachmentLabel(imageCount: number, contextCount: number): string {
+  const parts = [];
+  if (imageCount > 0) parts.push(`${imageCount} draft image${imageCount === 1 ? '' : 's'}`);
+  if (contextCount > 0) parts.push(`${contextCount} context block${contextCount === 1 ? '' : 's'}`);
+  return `${parts.join(' and ')} attached`;
+}
+
 function ResourceIcon({ kind }: { kind: SessionResource['kind'] }) {
   const icon = { context: '◇', image: '▧', tool: '⌘', link: '◎', file: '□' }[kind];
   return <span className="session-tray-resource-icon">{icon}</span>;
@@ -86,6 +93,7 @@ export function SessionTray({
     [finishedResources, currentResources],
   );
   const resourceCount = resources.sources.length + resources.outputs.length + draftImages.length;
+  const pendingAttachmentCount = draftImages.length + selectedContextBlocks.length;
   const isOpen = snap !== 'peek';
 
   const keyForDraftImage = (image: ImageAttachment) => {
@@ -157,12 +165,12 @@ export function SessionTray({
           <span className="session-tray-grabber" />
           <span className="session-tray-handle-label">Session</span>
           {resourceCount > 0 && <span className="session-tray-count">{resourceCount}</span>}
-          {draftImages.length > 0 && (
+          {pendingAttachmentCount > 0 && (
             <span
-              className="session-tray-draft-count"
-              aria-label={`${draftImages.length} draft image${draftImages.length === 1 ? '' : 's'} attached`}
+              className="session-tray-pending-count"
+              aria-label={pendingAttachmentLabel(draftImages.length, selectedContextBlocks.length)}
             >
-              {draftImages.length}
+              {pendingAttachmentCount}
             </span>
           )}
         </button>

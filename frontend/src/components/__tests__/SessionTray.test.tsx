@@ -125,6 +125,7 @@ describe('SessionTray', () => {
     render(
       <SessionTray
         {...props}
+        selectedContextBlocks={[]}
         draftImages={[
           {
             data: 'one',
@@ -136,6 +137,13 @@ describe('SessionTray', () => {
     );
 
     expect(screen.getByLabelText('1 draft image attached')).toBeTruthy();
+    expect(screen.getByTestId('session-tray').dataset.snap).toBe('peek');
+  });
+
+  it('shows selected context blocks in the collapsed pending indicator', () => {
+    render(<SessionTray {...props} selectedContextBlocks={['constitution', 'project-spec']} />);
+
+    expect(screen.getByLabelText('2 context blocks attached')).toBeTruthy();
     expect(screen.getByTestId('session-tray').dataset.snap).toBe('peek');
   });
 
