@@ -6,6 +6,7 @@ import { notifySuccess, impactLight } from '../lib/haptics';
 interface TodoCardProps {
   item: TodoItem;
   depth?: number;
+  selectedId?: string;
   onAck: (id: string) => void;
   onDone: (id: string) => void;
   onTap: (item: TodoItem) => void;
@@ -51,6 +52,7 @@ function getStatusColor(item: TodoItem): string {
 export function TodoCard({
   item,
   depth = 0,
+  selectedId,
   onAck,
   onDone,
   onTap,
@@ -146,7 +148,7 @@ export function TodoCard({
         </div>
         <div
           ref={ref}
-          className="todo-card"
+          className={`todo-card${selectedId === item.id ? ' todo-card--selected' : ''}`}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
@@ -161,7 +163,14 @@ export function TodoCard({
             <span className="todo-card-icon" style={{ color }}>
               {icon}
             </span>
-            <span className="todo-card-summary">{item.summary}</span>
+            <button
+              className="todo-card-summary todo-card-open"
+              aria-current={selectedId === item.id ? 'true' : undefined}
+              onTouchStart={(e) => e.stopPropagation()}
+              onClick={() => onTap(item)}
+            >
+              {item.summary}
+            </button>
             {hasChildren && (
               <button
                 className="todo-card-expand"
@@ -241,6 +250,7 @@ export function TodoCard({
               key={child.id}
               item={child}
               depth={depth + 1}
+              selectedId={selectedId}
               onAck={onAck}
               onDone={onDone}
               onTap={onTap}
