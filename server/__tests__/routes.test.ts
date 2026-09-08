@@ -917,10 +917,65 @@ describe('account catalog routes', () => {
     vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', file);
     vi.stubEnv('ANTHROPIC_VERTEX_PROJECT_ID', 'test-project');
     vi.stubEnv('CLOUD_ML_REGION', 'global');
+    vi.stubEnv('GOOGLE_APPLICATION_CREDENTIALS', '/credentials/adc.json');
     try {
       const res = await request(app).get('/api/models').set('Cookie', authCookie);
       expect(res.status).toBe(200);
       expect(res.body).toEqual(models);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('keeps the conservative legacy fallback when the profile file has only OpenAI accounts', async () => {
+    const file = join(TEST_REPO, 'openai-only-profiles.json');
+    writeFileSync(
+      file,
+      JSON.stringify([
+        {
+          id: 'api',
+          label: 'API',
+          provider: 'openai',
+          credentialRef: { provider: 'keychain', service: 'test', account: 'test' },
+          models: [{ id: 'gpt-test', label: 'GPT' }],
+        },
+      ]),
+    );
+    vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', file);
+    vi.stubEnv('ANTHROPIC_VERTEX_PROJECT_ID', 'legacy-project');
+    try {
+      const res = await request(app).get('/api/models').set('Cookie', authCookie);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual([{ id: 'test-model', label: 'Test', desc: 'Test model' }]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('returns an explicit error for ambiguous legacy profiles instead of a broader fallback', async () => {
+    const file = join(TEST_REPO, 'ambiguous-profiles.json');
+    const profile = {
+      label: 'Work',
+      provider: 'anthropic-vertex',
+      projectId: 'test-project',
+      region: 'global',
+      credentialRef: '/credentials/adc.json',
+      models: [{ id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' }],
+    };
+    writeFileSync(
+      file,
+      JSON.stringify([
+        { ...profile, id: 'one' },
+        { ...profile, id: 'two' },
+      ]),
+    );
+    vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', file);
+    vi.stubEnv('ANTHROPIC_VERTEX_PROJECT_ID', 'test-project');
+    vi.stubEnv('CLOUD_ML_REGION', 'global');
+    vi.stubEnv('GOOGLE_APPLICATION_CREDENTIALS', '/credentials/adc.json');
+    try {
+      const res = await request(app).get('/api/models').set('Cookie', authCookie);
+      expect(res.status).toBe(503);
+      expect(res.body.error).toMatch(/configuration unavailable/i);
+      expect(JSON.stringify(res.body)).not.toContain('/credentials/');
     } finally {
       vi.unstubAllEnvs();
     }

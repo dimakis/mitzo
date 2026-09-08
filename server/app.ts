@@ -1143,10 +1143,11 @@ app.get('/api/accounts', async (req, res) => {
 app.get('/api/models', (_req, res) => {
   try {
     const models = process.env.MITZO_ACCOUNT_PROFILES_FILE
-      ? loadAccountProfiles().legacyModels(
+      ? (loadAccountProfiles().legacyModels(
           process.env.ANTHROPIC_VERTEX_PROJECT_ID,
           process.env.CLOUD_ML_REGION || 'us-east5',
-        )
+          process.env.GOOGLE_APPLICATION_CREDENTIALS,
+        ) ?? AVAILABLE_MODELS)
       : AVAILABLE_MODELS;
     res.json(models);
   } catch {

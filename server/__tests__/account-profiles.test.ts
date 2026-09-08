@@ -161,9 +161,11 @@ describe('legacy model catalog', () => {
         models: [{ id: 'claude-sonnet-5', label: 'Sonnet 5' }],
       },
     ]);
-    expect(profiles.legacyModels('work-project', 'us-east5')).toEqual(profile.models);
-    expect(profiles.legacyModels('work-project', 'global')).toEqual([]);
-    expect(profiles.legacyModels(undefined, 'us-east5')).toEqual([]);
+    expect(profiles.legacyModels('work-project', 'us-east5', profile.credentialRef)).toEqual(
+      profile.models,
+    );
+    expect(profiles.legacyModels('work-project', 'global', profile.credentialRef)).toBeUndefined();
+    expect(profiles.legacyModels(undefined, 'us-east5', profile.credentialRef)).toBeUndefined();
   });
 });
 
@@ -183,4 +185,28 @@ it('never expands a Vertex project allowlist from SDK model discovery', async ()
   const profiles = new AccountProfiles([restricted]);
   expect(profiles.catalog()[0].models).toEqual(profile.models);
   expect(() => profiles.resolve(restricted.id, 'claude-sonnet-5')).toThrow(/unavailable/);
+});
+
+it('matches legacy credentials and rejects ambiguous route profiles', () => {
+  const other = {
+    ...profile,
+    id: 'other-credentials',
+    credentialRef: '/other/adc.json',
+    models: [{ id: 'other-model', label: 'Other' }],
+  };
+  const profiles = new AccountProfiles([other, profile]);
+  expect(profiles.legacyModels(profile.projectId, profile.region, profile.credentialRef)).toEqual(
+    profile.models,
+  );
+  expect(
+    profiles.legacyModels(profile.projectId, profile.region, '/missing/adc.json'),
+  ).toBeUndefined();
+  expect(profiles.legacyModels(profile.projectId, profile.region, undefined)).toBeUndefined();
+  const ambiguous = new AccountProfiles([
+    profile,
+    { ...profile, id: 'duplicate-route', models: other.models },
+  ]);
+  expect(() =>
+    ambiguous.legacyModels(profile.projectId, profile.region, profile.credentialRef),
+  ).toThrow(/ambiguous/i);
 });
