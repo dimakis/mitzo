@@ -42,13 +42,14 @@ function getToday(): string {
 
 const DEFAULT_VIEW_DAYS = 7;
 
-export function CalendarView() {
+export function CalendarView({ desktop = false }: { desktop?: boolean } = {}) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [baseDate, setBaseDate] = useState(getToday);
   const [viewDays, setViewDays] = useState(DEFAULT_VIEW_DAYS);
   const [filterMode, setFilterMode] = useState<'all' | 'releases'>('all');
   const [savedViewDays, setSavedViewDays] = useState(DEFAULT_VIEW_DAYS);
 
-  const { loading, events, sprints } = useCalendarData(baseDate, viewDays);
+  const { loading, events, sprints, error } = useCalendarData(baseDate, viewDays);
 
   // Filter events based on filter mode
   const filteredEvents = useMemo(() => {
@@ -82,23 +83,28 @@ export function CalendarView() {
   const navStep = filterMode === 'releases' ? 30 : viewDays;
 
   function handlePrev() {
+    setSelectedId(null);
     setBaseDate(addDays(baseDate, -navStep));
   }
 
   function handleNext() {
+    setSelectedId(null);
     setBaseDate(addDays(baseDate, navStep));
   }
 
   function handleToday() {
+    setSelectedId(null);
     setBaseDate(getToday());
   }
 
   function handleFilterAll() {
+    setSelectedId(null);
     setFilterMode('all');
     setViewDays(savedViewDays);
   }
 
   function handleFilterReleases() {
+    setSelectedId(null);
     if (filterMode !== 'releases') {
       setSavedViewDays(viewDays);
     }
@@ -115,8 +121,16 @@ export function CalendarView() {
     day: 'numeric',
   });
 
+  const selected = !loading ? filteredEvents.find((event) => event.id === selectedId) : undefined;
   return (
-    <div className="cal-page">
+    <div className={`cal-page${desktop ? ' collection-page calendar-desktop' : ''}`}>
+      {desktop && (
+        <div className="collection-heading">
+          <p className="workspace-muted">CALENDAR</p>
+          <h1>Make room for what matters</h1>
+          <p className="workspace-muted">Your agenda, release milestones and meeting context.</p>
+        </div>
+      )}
       <PageHeader
         title="Calendar"
         center={
@@ -137,14 +151,20 @@ export function CalendarView() {
           <button
             className={`cal-view-btn${viewDays === 1 ? ' cal-view-btn--active' : ''}`}
             disabled={filterMode === 'releases'}
-            onClick={() => setViewDays(1)}
+            onClick={() => {
+              setSelectedId(null);
+              setViewDays(1);
+            }}
           >
             Day
           </button>
           <button
             className={`cal-view-btn${viewDays === 7 ? ' cal-view-btn--active' : ''}`}
             disabled={filterMode === 'releases'}
-            onClick={() => setViewDays(7)}
+            onClick={() => {
+              setSelectedId(null);
+              setViewDays(7);
+            }}
           >
             Week
           </button>
@@ -173,6 +193,7 @@ export function CalendarView() {
         </div>
       )}
 
+      {error && <p role="alert">{error}</p>}
       {loading && (
         <div className="cal-loading">
           <div className="cal-loading-spinner" />
@@ -180,19 +201,42 @@ export function CalendarView() {
       )}
 
       {!loading && (
-        <div className="cal-body">
-          {dates.map((dateStr) => {
-            const dayEvents = eventsByDate.get(dateStr) ?? [];
-            return (
-              <div key={dateStr} className="cal-day">
-                <div className="cal-day-header">{formatDateHeader(dateStr)}</div>
-                {dayEvents.length === 0 && <div className="cal-day-empty">No events</div>}
-                {dayEvents.map((evt) => (
-                  <EventCard key={evt.id} event={evt} />
-                ))}
-              </div>
-            );
-          })}
+        <div className={desktop ? 'collection-panels' : 'collection-mobile-body'}>
+          <div className="cal-body">
+            {dates.map((dateStr) => {
+              const dayEvents = eventsByDate.get(dateStr) ?? [];
+              return (
+                <div key={dateStr} className="cal-day">
+                  <div className="cal-day-header">{formatDateHeader(dateStr)}</div>
+                  {dayEvents.length === 0 && <div className="cal-day-empty">No events</div>}
+                  {dayEvents.map((evt) => (
+                    <EventCard
+                      key={evt.id}
+                      event={evt}
+                      selected={selectedId === evt.id}
+                      onSelect={desktop ? () => setSelectedId(evt.id) : undefined}
+                    />
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+          {desktop && (
+            <section className="collection-inspector" aria-label="Event details">
+              {selected ? (
+                <>
+                  <p className="workspace-muted">{toLocalDate(selected.start)}</p>
+                  <h2>{selected.title}</h2>
+                  <EventCard key={selected.id} event={selected} detail />
+                </>
+              ) : (
+                <div className="collection-placeholder">
+                  <h2>Select an event</h2>
+                  <p>Review its context, prepare for a meeting or join the call.</p>
+                </div>
+              )}
+            </section>
+          )}
         </div>
       )}
     </div>
