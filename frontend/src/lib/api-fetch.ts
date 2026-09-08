@@ -16,8 +16,16 @@ let authGeneration = 0;
 let authenticationRestored = false;
 let cookieRestoreInFlight: { generation: number; promise: Promise<boolean> } | null = null;
 
-function dispatchAuthEvent(name: string): void {
-  if (typeof window !== 'undefined') window.dispatchEvent(new Event(name));
+type AuthEventSource = 'local' | 'cross-tab';
+
+function dispatchAuthEvent(name: string, source: AuthEventSource = 'local'): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(name, { detail: { source } }));
+  }
+}
+
+export function isCrossTabAuthEvent(event: Event): boolean {
+  return (event as CustomEvent<{ source?: unknown }>).detail?.source === 'cross-tab';
 }
 
 if (typeof window !== 'undefined') {
@@ -26,11 +34,11 @@ if (typeof window !== 'undefined') {
     if (event.key === AUTH_TOKEN_KEY) {
       authGeneration++;
       authenticationRestored = Boolean(event.newValue);
-      dispatchAuthEvent(event.newValue ? AUTH_RESTORED_EVENT : AUTH_LOST_EVENT);
+      dispatchAuthEvent(event.newValue ? AUTH_RESTORED_EVENT : AUTH_LOST_EVENT, 'cross-tab');
     } else if (event.key === LOGOUT_PENDING_KEY && event.newValue === '1') {
       authGeneration++;
       authenticationRestored = false;
-      dispatchAuthEvent(AUTH_LOST_EVENT);
+      dispatchAuthEvent(AUTH_LOST_EVENT, 'cross-tab');
     }
   });
 }

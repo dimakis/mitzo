@@ -4,6 +4,7 @@ import {
   apiFetch,
   AUTH_RESTORED_EVENT,
   getApiBaseUrl,
+  isCrossTabAuthEvent,
   loginSucceeded,
   markAuthLost,
   restoreCookieAuthentication,
@@ -27,7 +28,9 @@ export function Login() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const onAuthRestored = () => navigate('/');
+    const onAuthRestored = (event: Event) => {
+      if (isCrossTabAuthEvent(event)) navigate('/');
+    };
     window.addEventListener(AUTH_RESTORED_EVENT, onAuthRestored);
     return () => window.removeEventListener(AUTH_RESTORED_EVENT, onAuthRestored);
   }, [navigate]);

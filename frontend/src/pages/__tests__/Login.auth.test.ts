@@ -14,6 +14,6 @@ describe('Login authentication recovery', () => {
 
     expect(source).toContain('AUTH_RESTORED_EVENT');
     expect(source).toContain('window.addEventListener(AUTH_RESTORED_EVENT, onAuthRestored)');
-    expect(source).toContain("const onAuthRestored = () => navigate('/')");
+    expect(source).toContain('if (isCrossTabAuthEvent(event)) navigate');
   });
 });

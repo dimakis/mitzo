@@ -64,6 +64,7 @@ describe('apiFetch', () => {
     );
 
     expect(restored).toHaveBeenCalledOnce();
+    expect(restored.mock.calls[0][0]).toMatchObject({ detail: { source: 'cross-tab' } });
     expect(lost).toHaveBeenCalledOnce();
     window.removeEventListener(AUTH_RESTORED_EVENT, restored);
     window.removeEventListener(AUTH_LOST_EVENT, lost);
@@ -193,6 +194,7 @@ describe('apiFetch', () => {
     expect(await restoreCookieAuthentication()).toBe(true);
 
     expect(listener).toHaveBeenCalledOnce();
+    expect(listener.mock.calls[0][0]).toMatchObject({ detail: { source: 'local' } });
     window.removeEventListener(AUTH_RESTORED_EVENT, listener);
   });
 

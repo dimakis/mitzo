@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import {
   AUTH_LOST_EVENT,
   AUTH_RESTORED_EVENT,
+  isCrossTabAuthEvent,
   isLogoutPending,
   restoreCookieAuthentication,
 } from './lib/api-fetch';
@@ -36,7 +37,8 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
       setAuth('denied');
       hideSplash();
     };
-    const onAuthRestored = () => {
+    const onAuthRestored = (event: Event) => {
+      if (!isCrossTabAuthEvent(event)) return;
       ignoreCheckResult = true;
       setAuth('loading');
       setAttempt((value) => value + 1);
