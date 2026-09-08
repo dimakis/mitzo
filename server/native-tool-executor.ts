@@ -1,4 +1,4 @@
-import { open, realpath, writeFile } from 'node:fs/promises';
+import { lstat, open, realpath, writeFile } from 'node:fs/promises';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
@@ -56,6 +56,14 @@ async function canonicalPath(path: string): Promise<string> {
     return await realpath(path);
   } catch (err: unknown) {
     if (!(err instanceof Error) || !('code' in err) || err.code !== 'ENOENT') throw err;
+    // ENOENT can mean a dangling symlink, not a missing directory entry.
+    // Never reconstruct that symlink's lexical path as a safe creation target.
+    const entry = await lstat(path).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error;
+      return undefined;
+    });
+    if (entry?.isSymbolicLink())
+      throw new Error('Dangling symlink paths are unavailable', { cause: err });
     const parent = dirname(path);
     if (parent === path) throw err;
     return resolve(await canonicalPath(parent), basename(path));
