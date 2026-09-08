@@ -24,7 +24,7 @@ vi.mock('../app.js', () => ({
 }));
 
 vi.mock('../slash-commands.js', () => ({
-  resolveSlashCommand: vi.fn().mockReturnValue({ type: 'plain' }),
+  resolveSlashCommand: vi.fn().mockReturnValue({ type: 'passthrough' }),
 }));
 
 vi.mock('../skill-policy.js', () => ({
@@ -1633,7 +1633,7 @@ describe('handleSendV2 routing', () => {
     expect(startChat).toHaveBeenCalledTimes(1);
 
     // Restore default
-    (resolveSlashCommand as ReturnType<typeof vi.fn>).mockReturnValue({ type: 'plain' });
+    (resolveSlashCommand as ReturnType<typeof vi.fn>).mockReturnValue({ type: 'passthrough' });
   });
 
   it('sends error message on exception', () => {
@@ -1658,7 +1658,7 @@ describe('handleSendV2 routing', () => {
     );
 
     // Restore default
-    (resolveSlashCommand as ReturnType<typeof vi.fn>).mockReturnValue({ type: 'plain' });
+    (resolveSlashCommand as ReturnType<typeof vi.fn>).mockReturnValue({ type: 'passthrough' });
   });
 
   it('validates cwd via isAllowedPath', () => {
@@ -3747,7 +3747,7 @@ describe('resumed session permission authority', () => {
   it.each([false, true])('ignores stale send mode before switch hydration (live=%s)', (live) => {
     vi.mocked(startChat).mockClear();
     vi.mocked(isActive).mockReturnValue(false);
-    vi.mocked(resolveSlashCommand).mockReturnValue({ type: 'plain' });
+    vi.mocked(resolveSlashCommand).mockReturnValue({ type: 'passthrough' });
     const registry = mockSessionRegistry();
     if (live)
       registry.findBySessionId.mockReturnValue({
