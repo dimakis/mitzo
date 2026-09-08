@@ -13,6 +13,7 @@ const LOGOUT_PENDING_KEY = 'mitzo_logout_pending';
 export const AUTH_LOST_EVENT = 'mitzo:auth-lost';
 export const AUTH_RESTORED_EVENT = 'mitzo:auth-restored';
 let authGeneration = 0;
+let authenticationRestored = false;
 
 function dispatchAuthEvent(name: string): void {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(name));
@@ -23,9 +24,11 @@ if (typeof window !== 'undefined') {
     if (event.storageArea && event.storageArea !== localStorage) return;
     if (event.key === AUTH_TOKEN_KEY) {
       authGeneration++;
+      authenticationRestored = Boolean(event.newValue);
       dispatchAuthEvent(event.newValue ? AUTH_RESTORED_EVENT : AUTH_LOST_EVENT);
     } else if (event.key === LOGOUT_PENDING_KEY && event.newValue === '1') {
       authGeneration++;
+      authenticationRestored = false;
       dispatchAuthEvent(AUTH_LOST_EVENT);
     }
   });
@@ -33,15 +36,21 @@ if (typeof window !== 'undefined') {
 
 export function markAuthLost(): void {
   authGeneration++;
+  authenticationRestored = false;
   if (typeof localStorage !== 'undefined') localStorage.removeItem(AUTH_TOKEN_KEY);
   dispatchAuthEvent(AUTH_LOST_EVENT);
 }
 
 export function loginSucceeded(token?: string): void {
-  authGeneration++;
+  const previousToken = getStoredAuthToken();
+  const shouldRestore = !authenticationRestored || Boolean(token && token !== previousToken);
   if (token && typeof localStorage !== 'undefined') localStorage.setItem(AUTH_TOKEN_KEY, token);
   if (typeof localStorage !== 'undefined') localStorage.removeItem(LOGOUT_PENDING_KEY);
-  dispatchAuthEvent(AUTH_RESTORED_EVENT);
+  if (shouldRestore) {
+    authGeneration++;
+    authenticationRestored = true;
+    dispatchAuthEvent(AUTH_RESTORED_EVENT);
+  }
 }
 
 export function isLogoutPending(): boolean {

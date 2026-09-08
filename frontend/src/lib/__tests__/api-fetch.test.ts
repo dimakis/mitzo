@@ -7,6 +7,7 @@ import {
   getWsBaseUrl,
   isLogoutPending,
   loginSucceeded,
+  markAuthLost,
   logout,
   restoreCookieAuthentication,
   AUTH_LOST_EVENT,
@@ -20,6 +21,7 @@ beforeEach(() => {
   mockFetch.mockReset();
   mockFetch.mockResolvedValue(new Response('ok'));
   localStorage.clear();
+  markAuthLost();
 });
 
 describe('getApiBaseUrl', () => {
@@ -188,6 +190,20 @@ describe('apiFetch', () => {
     const listener = vi.fn();
     window.addEventListener(AUTH_RESTORED_EVENT, listener);
 
+    expect(await restoreCookieAuthentication()).toBe(true);
+
+    expect(listener).toHaveBeenCalledOnce();
+    window.removeEventListener(AUTH_RESTORED_EVENT, listener);
+  });
+
+  it('does not emit another restoration event for repeated protected-route checks', async () => {
+    mockFetch
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+    const listener = vi.fn();
+    window.addEventListener(AUTH_RESTORED_EVENT, listener);
+
+    expect(await restoreCookieAuthentication()).toBe(true);
     expect(await restoreCookieAuthentication()).toBe(true);
 
     expect(listener).toHaveBeenCalledOnce();

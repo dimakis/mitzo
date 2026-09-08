@@ -14,7 +14,6 @@ import {
   getApiBaseUrl,
   getEventSourceUrl,
   getWsChatUrl,
-  isLogoutPending,
   AUTH_LOST_EVENT,
   AUTH_RESTORED_EVENT,
 } from './lib/api-fetch';
@@ -38,7 +37,6 @@ const preference =
     ? parseChatTransportPreference(localStorage.getItem('mitzo:transport'))
     : null;
 const useSSE = typeof window !== 'undefined' && shouldUseSseTransport(isCapacitor(), preference);
-const initiallyAuthenticated = !isLogoutPending();
 
 const sseConfig: SseConnectionConfig | undefined = useSSE
   ? {
@@ -62,7 +60,7 @@ export const clientStore = createMitzoStore({
     suspendUrl: `${getApiBaseUrl()}/api/sessions/suspend`,
   },
   ...(sseConfig ? { sseConfig } : {}),
-  initiallyAuthenticated,
+  initiallyAuthenticated: false,
 });
 
 if (typeof window !== 'undefined') {
