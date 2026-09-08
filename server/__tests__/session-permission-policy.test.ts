@@ -12,6 +12,7 @@ describe('provider-independent permission authority', () => {
     transcript_path: '',
     cwd: '/repo',
     tool_name: 'Write',
+    tool_use_id: 'tool-1',
     tool_input: { file_path: '/repo/a', content: 'a' },
   };
   it('gates even SDK auto-approved tools before execution', async () => {
@@ -203,6 +204,7 @@ it('fails closed on policy errors and allows time for the approval card', async 
       transcript_path: '',
       cwd: '/repo',
       tool_name: 'Bash',
+      tool_use_id: 'tool-2',
       tool_input: { command: 'touch x' },
     },
     'tool-2',

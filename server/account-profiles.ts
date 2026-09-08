@@ -67,7 +67,11 @@ export class AccountProfiles {
     if (new Set(this.profiles.map((p) => p.id)).size !== this.profiles.length) {
       throw new Error('Account profile IDs must be unique');
     }
-    protectCodexProfileRoots(this.privateCodexRoots());
+    protectCodexProfileRoots(
+      this.profiles.flatMap((profile) =>
+        typeof profile.credentialRef === 'string' ? [profile.credentialRef] : [],
+      ),
+    );
   }
 
   privateCodexRoots(): string[] {

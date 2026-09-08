@@ -33,12 +33,13 @@ A preset is authorization policy, not a promise that a provider supports every t
 
 ## Provider mapping
 
-| Runtime                                                     | Ask                                  | Agent            | Auto             | Enforcement                                                                                                                                        |
-| ----------------------------------------------------------- | ------------------------------------ | ---------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Claude Agent SDK, including configured Vertex chat accounts | `plan`                               | `default`        | `default`        | Mitzo PreToolUse gate and shared handler; `setPermissionMode()` for live changes                                                                   |
-| Codex app-server / ChatGPT account                          | Provider remains read-only/never     | Same containment | Same containment | Mitzo dynamic host tools enforce the current registry policy                                                                                       |
-| OpenAI Responses API                                        | No native filesystem permission mode | Same             | Same             | Mitzo host executor gates function calls                                                                                                           |
-| Google Vertex and other direct model APIs                   | No universal SDK permission enum     | Same             | Same             | A future interactive adapter must implement the same host contract; current Google adapter is a reasoning provider, not a full chat execution path |
+| Runtime                                                     | Ask                                  | Agent            | Auto             | Enforcement                                                                      |
+| ----------------------------------------------------------- | ------------------------------------ | ---------------- | ---------------- | -------------------------------------------------------------------------------- |
+| Claude Agent SDK, including configured Vertex chat accounts | `plan`                               | `default`        | `default`        | Mitzo PreToolUse gate and shared handler; `setPermissionMode()` for live changes |
+| Codex app-server / ChatGPT account                          | Provider remains read-only/never     | Same containment | Same containment | Mitzo dynamic host tools enforce the current registry policy                     |
+| OpenAI Responses API                                        | No native filesystem permission mode | Same             | Same             | Mitzo host executor gates function calls                                         |
+| Gemini on Google Vertex                                     | No native filesystem permission mode | Same             | Same             | Shares the native host executor and session policy with Responses                |
+| Other future model APIs                                     | No universal SDK permission enum     | Same             | Same             | Must implement the host policy contract before advertising interactive execution |
 
 Claude's native `acceptEdits`, `bypassPermissions`, `dontAsk`, and classifier-based `auto` do not mean the same thing as Mitzo presets. In particular, Mitzo Auto is not unrestricted access and does not select Claude's native classifier mode. `allowedTools` grants approval rather than restricting the tool catalog. A PreToolUse hook is needed to enforce a live policy even when provider or project settings would auto-approve a tool. See [Claude SDK permissions](https://code.claude.com/docs/en/agent-sdk/permissions).
 
@@ -60,4 +61,4 @@ Regression coverage includes policy tiers, Ask downgrade and pending approvals, 
 
 Run real OS tests with `MITZO_SANDBOX_INTEGRATION=1`; ordinary CI avoids assuming the runner permits nested sandboxing. Linux sandbox execution requires its documented dependencies and still needs a platform acceptance run. No live authenticated Claude/Codex/Gemini model turn or production deployment is implied by adapter/unit tests.
 
-Existing running Claude sessions must be recreated after deployment to acquire the new PreToolUse gate and host-tool surface. Mode changes within those newly created sessions then apply in chat without a restart. An existing Codex conversation resumes with the host tool catalog supplied by the updated server.
+Existing running Claude sessions must be recreated after deployment to acquire the new PreToolUse gate and host-tool surface. Mode changes within those newly created sessions then apply in chat without a restart. Codex retains the dynamic tool catalog from thread creation: start a new Codex chat after deployment to obtain Bash. Resuming an older conversation still permits its existing host file tools.
