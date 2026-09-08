@@ -108,7 +108,6 @@ export class AccountProfiles {
           refreshModels(
             JSON.stringify(profile),
             async () => {
-              const binding = this.resolve(profile.id, profile.models[0].id, true);
               if (profile.provider === 'openai-codex') {
                 const { CodexAppServerClient } = await import('./codex-app-server-client.js');
                 const { verifyCodexAccount } = await import('./codex-account.js');
