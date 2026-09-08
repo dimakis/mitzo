@@ -108,6 +108,14 @@ export function createChatRestRouter(
     const authSessionId = res.locals.authSession?.id as string | undefined;
     if (
       typeof connectionId === 'string' &&
+      ctx.connRegistry.get(connectionId) &&
+      !sseRegistry.has(connectionId)
+    ) {
+      res.status(403).json({ ok: false, error: 'REST operations require an SSE connection' });
+      return;
+    }
+    if (
+      typeof connectionId === 'string' &&
       authSessionId &&
       sseRegistry.has(connectionId) &&
       !sseRegistry.isOwnedBy(connectionId, authSessionId)

@@ -148,6 +148,19 @@ describe('chat-rest-handler', () => {
     expect(handleStopV2).not.toHaveBeenCalled();
   });
 
+  it('rejects REST control requests that present a WebSocket connection ID', async () => {
+    connRegistry.register('ws-connection', new SseTransport('ws-connection', sseRegistry));
+
+    const response = await request(testApp)
+      .post('/api/chat/stop')
+      .set('X-Connection-ID', 'ws-connection')
+      .set('X-Test-Auth', 'different-login')
+      .send({ type: 'stop', sessionId: 'sess-1' });
+
+    expect(response.status).toBe(403);
+    expect(handleStopV2).not.toHaveBeenCalled();
+  });
+
   it('persists startup events before a stream exists without duplicating sequenced events', async () => {
     vi.mocked(handleSendV2).mockImplementationOnce((_id, transport, _msg, _ctx, delivery) => {
       if (transport.isOpen()) transport.send({ type: 'session_info', branch: 'main' });
