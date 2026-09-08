@@ -8,6 +8,7 @@ import { loadAccountProfiles } from './account-profiles.js';
 import { createCodexPathProtection, privateCodexRoots } from './codex-private-path.js';
 import {
   buildPermissionHandler,
+  effectivePermissionMode,
   checkSkillPolicy,
   UserQuestionsSchema,
   type SessionRegistry,
@@ -104,7 +105,10 @@ export function createNativeToolExecutor(
       signal.throwIfAborted();
       const session = registry.get(clientId);
       if (!session?.cwd) return result('Session workspace is unavailable', true);
-      if (session.mode === 'ask' && !['Read', 'AskUserQuestion'].includes(block.name))
+      if (
+        effectivePermissionMode(session) === 'ask' &&
+        !['Read', 'AskUserQuestion'].includes(block.name)
+      )
         return result('Ask mode only permits read-only native tools', true);
       if (!Object.hasOwn(schemas, block.name)) return result('Native tool is unavailable', true);
       const parsed = schemas[block.name as keyof typeof schemas].safeParse(block.input);
@@ -121,6 +125,7 @@ export function createNativeToolExecutor(
       }
       if (block.name === 'Bash' && 'command' in parsed.data) {
         const input = { command: parsed.data.command };
+        const approvalMode = effectivePermissionMode(session);
         const permission = await canUseTool('Bash', input, {
           signal,
           toolUseID: block.id,
@@ -130,7 +135,7 @@ export function createNativeToolExecutor(
         if (permission.behavior !== 'allow') return result(permission.message, true);
         if (!isDeepStrictEqual(permission.updatedInput, input))
           return result('Tool input changed during approval; retry the tool', true);
-        if (registry.get(clientId) !== session || session.mode === 'ask')
+        if (registry.get(clientId) !== session || effectivePermissionMode(session) === 'ask')
           return result('Session permissions changed; retry the tool', true);
         // Resolve login roots anew; an unreadable account configuration fails closed.
         const deniedRoots = privateCodexRoots(loadAccountProfiles().privateCodexRoots());
@@ -152,7 +157,8 @@ export function createNativeToolExecutor(
           beforeSpawn: () => {
             if (
               registry.get(clientId) !== session ||
-              session.mode === 'ask' ||
+              effectivePermissionMode(session) === 'ask' ||
+              (approvalMode === 'auto' && effectivePermissionMode(session) !== 'auto') ||
               checkSkillPolicy(registry, clientId, 'Bash') === 'deny'
             )
               throw new Error(
@@ -221,6 +227,12 @@ export function createNativeToolExecutor(
         privatePathSnapshot()(input.file_path)
       )
         return result('Tool path changed or became private during approval; retry the tool', true);
+      if (
+        registry.get(clientId) !== session ||
+        (block.name !== 'Read' && effectivePermissionMode(session) === 'ask') ||
+        checkSkillPolicy(registry, clientId, block.name) === 'deny'
+      )
+        return result('Session permissions changed before file execution; retry the tool', true);
       const operation = await executeNativeFileOperation(
         {
           ...input,

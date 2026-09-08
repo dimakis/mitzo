@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { SessionTransport } from '@mitzo/harness';
+import { effectivePermissionMode } from '@mitzo/harness';
 import { ConnectionRegistry, SessionRegistry } from '@mitzo/harness';
 import { V2SendMessage } from '@mitzo/protocol';
 
@@ -925,6 +926,36 @@ describe('live provider mode changes', () => {
       mode: 'auto',
     });
     expect(transport.sent.map((m) => m.mode)).toEqual(['agent', 'auto']);
+  });
+
+  it('enforces pending restrictive modes immediately and removes failed requests independently', async () => {
+    let reject!: (err: Error) => void;
+    const pending = new Promise<void>((_, fail) => {
+      reject = fail;
+    });
+    const setPermissionMode = vi.fn().mockReturnValueOnce(pending).mockResolvedValue(undefined);
+    const { ctx, sessionReg } = setup(setPermissionMode);
+    const session = sessionReg.findBySessionId('sess-1').session;
+    session.mode = 'auto';
+    sessionReg.setMode.mockImplementation((_client, mode) => {
+      session.mode = mode;
+    });
+    const first = handleSetModeV2(
+      'c1',
+      { type: 'set_mode', sessionId: 'sess-1', mode: 'ask' },
+      ctx,
+    );
+    const second = handleSetModeV2(
+      'c1',
+      { type: 'set_mode', sessionId: 'sess-1', mode: 'agent' },
+      ctx,
+    );
+    expect(effectivePermissionMode(session)).toBe('ask');
+    await vi.waitFor(() => expect(setPermissionMode).toHaveBeenCalledTimes(1));
+    reject(new Error('Provider refused'));
+    await Promise.all([first, second]);
+    expect(effectivePermissionMode(session)).toBe('agent');
+    expect(session.pendingPermissionModes?.size).toBe(0);
   });
 
   it('publishes the effective mode even when durable persistence fails', async () => {

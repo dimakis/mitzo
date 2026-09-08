@@ -1160,7 +1160,7 @@ async function _startChatInner(
         accountBinding,
         bootContext: JSON.stringify(bootContextMsg),
         cwd,
-        mode,
+        mode: session.mode,
         agentName,
       });
     }
@@ -1242,7 +1242,7 @@ async function _startChatInner(
               preset: 'claude_code',
               append: systemPromptAppend,
             },
-            permissionMode: MODE_TO_SDK[mode] as 'plan' | 'default',
+            permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
             allowedTools: [...mcpAllowed, ...extraTools],
             thinking: resolveThinking(options.model),
             ...(options.model ? { model: parseModelSpec(options.model).model } : {}),

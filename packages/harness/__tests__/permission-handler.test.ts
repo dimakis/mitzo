@@ -267,6 +267,33 @@ describe('buildPermissionHandler', () => {
     expect(allowList.size).toBe(0);
   });
 
+  it('rejects pending approvals while a downgrade to Ask is awaiting the provider without saving permission', async () => {
+    const transport = fakeTransport();
+    const allowList = new Set<string>();
+    registry.register('client-1', {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: allowList,
+    });
+    const promise = buildPermissionHandler('client-1', registry)(
+      'mcp__custom__tool',
+      {},
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-1',
+      },
+    );
+    await Promise.resolve();
+    registry.get('client-1')!.pendingPermissionModes = new Map([[Symbol(), 'ask']]);
+    resolvePending(transport.sent[0].permId as string, 'always');
+    expect(await promise).toMatchObject({
+      behavior: 'deny',
+      message: expect.stringContaining('Ask mode'),
+    });
+    expect(allowList.size).toBe(0);
+  });
+
   it('still allows user questions in Ask', async () => {
     const transport = fakeTransport();
     registry.register('client-1', {

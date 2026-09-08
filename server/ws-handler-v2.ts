@@ -893,6 +893,9 @@ export function handleSetModeV2(
     }
     return Promise.resolve();
   }
+  const transition = Symbol('permission mode change');
+  found.session.pendingPermissionModes ??= new Map();
+  found.session.pendingPermissionModes.set(transition, msg.mode);
   const previous = pendingModeChanges.get(found.session) ?? Promise.resolve();
   const update = previous.then(() =>
     withSpanAsync(
@@ -902,7 +905,10 @@ export function handleSetModeV2(
         // A queued request must never mutate a replacement session.
         if (ctx.sessionRegistry.findBySessionId(msg.sessionId)?.session !== found.session) return;
         try {
-          await found.session.queryInstance?.setPermissionMode?.(msg.mode);
+          const query = found.session.queryInstance;
+          // A startup session has no provider runtime yet. Commit synchronously;
+          // startup reads its current mode when constructing the SDK query.
+          if (query?.setPermissionMode) await query.setPermissionMode(msg.mode);
           const current = ctx.sessionRegistry.findBySessionId(msg.sessionId);
           if (!current || current.session !== found.session) return;
           ctx.sessionRegistry.setMode(current.clientId, msg.mode);
@@ -959,6 +965,7 @@ export function handleSetModeV2(
   );
   pendingModeChanges.set(found.session, update);
   return update.finally(() => {
+    found.session.pendingPermissionModes?.delete(transition);
     if (pendingModeChanges.get(found.session) === update) pendingModeChanges.delete(found.session);
   });
 }

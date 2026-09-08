@@ -108,7 +108,7 @@ describe.runIf(process.env.MITZO_SANDBOX_INTEGRATION === '1')('OS sandbox', () =
 });
 
 describe.runIf(process.env.MITZO_SANDBOX_INTEGRATION === '1')('git worktree', () => {
-  it('commits in an authorized worktree without permitting writes to the base checkout', async () => {
+  it('allows worktree edits and Git inspection while blocking shared-object writes', async () => {
     const { execFileSync } = await import('node:child_process');
     const base = join(root, 'base');
     const worktree = join(root, 'git-worktree');
@@ -130,8 +130,16 @@ describe.runIf(process.env.MITZO_SANDBOX_INTEGRATION === '1')('git worktree', ()
         writableRoots: [worktree],
       },
     );
-    expect(result.isError, result.content).toBe(false);
-    expect(git('log', '--format=%s', '-1', 'session/test').toString().trim()).toBe('change');
+    expect(result.isError, result.content).toBe(true);
+    expect(result.content).toContain('Shared Git objects are read-only');
+    expect(await readFile(join(worktree, 'file'), 'utf8')).toBe('change');
+    expect(git('log', '--format=%s', '-1', 'session/test').toString().trim()).toBe('initial');
+    const inspect = await run('git status --short; git log -1 --format=%s', {
+      cwd: worktree,
+      writableRoots: [worktree],
+    });
+    expect(inspect.isError, inspect.content).toBe(false);
+    expect(inspect.content).toContain('initial');
     const denied = await run(`printf bad > '${base}/file'`, {
       cwd: worktree,
       writableRoots: [worktree],
@@ -178,3 +186,48 @@ it('rechecks host authority immediately before spawn and cleans up on rejection'
   expect(beforeSpawn).toHaveBeenCalledOnce();
   await expect(readFile(join(cwd, 'forbidden'))).rejects.toThrow();
 });
+
+describe.runIf(process.env.MITZO_SANDBOX_INTEGRATION === '1')(
+  'shared Git object protection',
+  () => {
+    it('denies shared-object deletion, corruption, and Git object creation', async () => {
+      const { execFileSync } = await import('node:child_process');
+      const base = join(root, 'base');
+      const worktree = join(root, 'linked');
+      await mkdir(base);
+      const git = (...args: string[]) =>
+        execFileSync('git', args, {
+          cwd: base,
+          env: { PATH: process.env.PATH, HOME: root, GIT_CONFIG_NOSYSTEM: '1' },
+        });
+      git('init', '-b', 'main');
+      await writeFile(join(base, 'file'), 'original');
+      git('add', 'file');
+      git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'initial');
+      git('worktree', 'add', '-b', 'session/test', worktree);
+      const oid = git('rev-parse', 'HEAD:file').toString().trim();
+      const object = join(base, '.git', 'objects', oid.slice(0, 2), oid.slice(2));
+      const original = await readFile(object);
+      const opts = { cwd: worktree, writableRoots: [worktree] };
+      expect(
+        (await run(`chmod u+w '${object}' && printf corruption > '${object}'`, opts)).isError,
+      ).toBe(true);
+      expect((await run(`rm '${object}'`, opts)).isError).toBe(true);
+      expect(await readFile(object)).toEqual(original);
+      const result = await run(
+        'printf changed > file; git add file && git -c user.name=Test -c user.email=test@example.com commit -m change',
+        opts,
+      );
+      expect(result.isError, result.content).toBe(true);
+      expect(result.content).toContain('Shared Git objects are read-only');
+      expect(git('show', 'session/test:file').toString()).toBe('original');
+      const commit = await run(
+        'git -c user.name=Test -c user.email=test@example.com commit --allow-empty -m denied',
+        opts,
+      );
+      expect(commit.isError, commit.content).toBe(true);
+      expect(commit.content).toContain('Shared Git objects are read-only');
+      git('fsck', '--full');
+    }, 30000);
+  },
+);

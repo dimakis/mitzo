@@ -12,7 +12,7 @@ import { summarizeToolInput } from '@mitzo/protocol';
 import { checkSkillPolicy } from './skill-policy.js';
 import { checkWorktreePolicy, type OnDemandCreateFn } from './worktree-guard.js';
 import { PERMISSION_TIMEOUT_MS, NTFY_NOTIFICATION_DELAY_MS } from './constants.js';
-import type { SessionRegistry } from './session-registry.js';
+import { effectivePermissionMode, type SessionRegistry } from './session-registry.js';
 import type { SessionTransport } from './session-transport.js';
 
 export const UserQuestionsSchema = z
@@ -115,7 +115,7 @@ export function buildPermissionHandler(
     // Ask is a harness-enforced ceiling, including cached grants and providers
     // without a native read-only mode. Check before any on-demand worktree write.
     const askDenial = (): PermissionResult | undefined =>
-      !questions && session.mode === 'ask' && getToolTier(toolName) !== 'safe'
+      !questions && effectivePermissionMode(session) === 'ask' && getToolTier(toolName) !== 'safe'
         ? {
             behavior: 'deny',
             message:
@@ -136,7 +136,11 @@ export function buildPermissionHandler(
     const deniedAfterWorktree = askDenial();
     if (deniedAfterWorktree) return deniedAfterWorktree;
 
-    if (!questions && !opts.forcePrompt && shouldAutoAllow(toolName, session.mode)) {
+    if (
+      !questions &&
+      !opts.forcePrompt &&
+      shouldAutoAllow(toolName, effectivePermissionMode(session))
+    ) {
       return { behavior: 'allow', updatedInput: _toolInput };
     }
 

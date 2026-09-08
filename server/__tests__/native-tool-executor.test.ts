@@ -253,6 +253,20 @@ describe('native tool execution through session permissions', () => {
     });
     expect(executeSandboxedCommand).toHaveBeenCalledTimes(1);
   });
+  it.each(['ask', 'agent'] as const)(
+    'blocks a pending %s downgrade at the command execution boundary',
+    async (mode) => {
+      registry.setMode('client', 'auto');
+      vi.mocked(executeSandboxedCommand).mockImplementationOnce(async (options) => {
+        registry.get('client')!.pendingPermissionModes = new Map([[Symbol(), mode]]);
+        options.beforeSpawn!();
+        return { content: 'should never execute', isError: false };
+      });
+      expect(
+        await executor()(call('Bash', { command: 'touch forbidden' }), abort.signal),
+      ).toMatchObject({ is_error: true, content: expect.stringContaining('permissions changed') });
+    },
+  );
   it('rechecks Ask and skill downgrades at the final sandbox spawn boundary', async () => {
     registry.setMode('client', 'auto');
     vi.mocked(executeSandboxedCommand).mockImplementationOnce(async (options) => {

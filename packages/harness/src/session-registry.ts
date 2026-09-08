@@ -43,6 +43,8 @@ export interface ManagedSession {
   worktreePath?: string;
   /** All worktrees created for this session, keyed by repo name. */
   worktreePaths: Map<string, { path: string; wtId: string }>;
+  /** Requested transitions constrain tools immediately until runtime acknowledgment. */
+  pendingPermissionModes?: Map<symbol, MitzoMode>;
   queryInstance?: {
     /** Apply the shared Mitzo mode to provider runtime controls, when required. */
     setPermissionMode?: (mode: MitzoMode) => Promise<void>;
@@ -69,6 +71,18 @@ export interface ManagedSession {
   agentDefinition?: AgentDefinition | null;
   /** Source of the agent definition: 'contexgin' | 'local' | 'fallback'. */
   agentDefinitionSource?: AgentDefinitionSource;
+}
+
+/** Never expand permissions until a transition succeeds; apply downgrades immediately. */
+export function effectivePermissionMode(
+  session: Pick<ManagedSession, 'mode' | 'pendingPermissionModes'>,
+): MitzoMode {
+  const rank: Record<MitzoMode, number> = { ask: 0, agent: 1, auto: 2 };
+  let mode = session.mode;
+  for (const pending of session.pendingPermissionModes?.values() ?? []) {
+    if (rank[pending] < rank[mode]) mode = pending;
+  }
+  return mode;
 }
 
 export interface ActiveSessionInfo {

@@ -71,19 +71,23 @@ async function gitMetadataRoots(
   const head = (await readFile(join(admin, 'HEAD'), 'utf8')).trim();
   const branch = /^ref: (refs\/heads\/[^\s]+)$/.exec(head)?.[1];
   if (!branch) throw new Error('Sandboxed Git worktree commands require a symbolic branch HEAD');
-  const paths = [join(common, 'objects'), admin];
+  const paths = [admin];
   if (branch) {
     const ref = resolve(common, branch);
     if (!contains(join(common, 'refs', 'heads'), ref)) throw new Error('Invalid Git branch path');
     const log = join(common, 'logs', branch);
     paths.push(ref, ref + '.lock', log, log + '.lock');
   }
-  await Promise.all(paths.map(validatePath));
+  await Promise.all([...paths, join(common, 'objects')].map(validatePath));
   return {
     writable: paths,
     // These files define the scope granted on the NEXT command. Never let this
     // command rewrite its own authority (including by atomic lock-and-rename).
     protected: [
+      // The object store belongs to every linked worktree. Writable access would
+      // allow arbitrary shell commands to delete or corrupt other branches.
+      // Git add/commit need a separate trusted append-only object service.
+      join(common, 'objects'),
       marker,
       join(admin, 'HEAD'),
       ...['commondir', 'gitdir'].flatMap((name) => [
@@ -210,10 +214,21 @@ export async function executeSandboxedCommand(
         options.signal.removeEventListener('abort', onAbort);
         // Also terminate background children that outlived a successful foreground command.
         kill();
-        const output = Buffer.concat(chunks).toString('utf8');
+        let output = Buffer.concat(chunks).toString('utf8');
+        const isError = !!failure || code !== 0 || signal !== null;
+        if (
+          isError &&
+          metadataRoots.length > 0 &&
+          /unable to create temporary file|insufficient permission for adding an object|failed to insert into database|failed to write commit object|unable to write.*object/i.test(
+            output,
+          )
+        ) {
+          output +=
+            '\nShared Git objects are read-only in this sandbox. Git add/commit that create objects require a trusted Git operation outside this command sandbox. File edits and tests remain available.\n';
+        }
         resolveResult({
           content: failure ? `${failure}\n${output}` : output,
-          isError: !!failure || code !== 0 || signal !== null,
+          isError,
         });
       });
     });
