@@ -43,7 +43,13 @@ const ApiProfile = z
     models: z.array(z.object({ id: z.string().min(1), label: z.string().min(1) }).strict()).min(1),
   })
   .strict();
-const Profile = z.discriminatedUnion('provider', [VertexProfile, CodexProfile, ApiProfile]);
+const GoogleProfile = VertexProfile.extend({ provider: z.literal('google-vertex') });
+const Profile = z.discriminatedUnion('provider', [
+  VertexProfile,
+  GoogleProfile,
+  CodexProfile,
+  ApiProfile,
+]);
 
 /** Account configuration is server-owned; invocation adapters remain harness-owned. */
 export class AccountProfiles {
@@ -87,7 +93,11 @@ export class AccountProfiles {
               ? profile.models
               : (discovered?.models ?? profile.models),
           modelDiscovery: { updatedAt: discovered?.updatedAt, stale: !!discovered?.error },
-          capabilities: { streaming: true, tools: true, images: provider !== 'openai' },
+          capabilities: {
+            streaming: provider !== 'google-vertex',
+            tools: true,
+            images: provider === 'anthropic-vertex' || provider === 'openai-codex',
+          },
         };
       });
   }
@@ -217,6 +227,18 @@ export class AccountProfiles {
     };
   }
 
+  googleProfile(binding: AccountBinding) {
+    this.resume(binding);
+    const profile = this.profiles.find((p) => p.id === binding.accountId);
+    if (!profile || profile.provider !== 'google-vertex')
+      throw new Error('Not a Google Vertex account');
+    return {
+      projectId: profile.projectId,
+      region: profile.region,
+      credentialRef: profile.credentialRef,
+    };
+  }
+
   apiCredential(binding: AccountBinding) {
     this.resume(binding);
     const profile = this.profiles.find((p) => p.id === binding.accountId);
@@ -231,6 +253,8 @@ export class AccountProfiles {
       throw new Error('Codex accounts require the subscription runtime');
     if (profile.provider === 'openai')
       throw new Error('OpenAI API accounts require their native runtime');
+    if (profile.provider === 'google-vertex')
+      throw new Error('Google Vertex accounts require their native runtime');
     const env = { ...base };
     // Remove inherited alternate billing/routing controls before setting the chosen profile.
     for (const key of Object.keys(env)) {

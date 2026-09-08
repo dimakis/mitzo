@@ -1,3 +1,4 @@
+import { GeminiSession, type GeminiOptions } from './gemini-session.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import {
   ResponsesSession,
@@ -14,7 +15,8 @@ const log = createLogger('native-responses');
 interface NativeResponsesOptions extends Omit<ModelSessionConfig, 'model' | 'signal' | 'thinking'> {
   conversationId: string;
   binding: AccountBinding;
-  apiKey: string;
+  apiKey?: string;
+  gemini?: GeminiOptions;
   store: NativeResponsesStore;
   maxTurns?: number;
   executeTool: (block: ToolUseBlock, signal: AbortSignal) => Promise<ToolResultBlock>;
@@ -53,9 +55,16 @@ export class NativeResponsesRunner {
   private prepared = new Map<string, { prompt: string; state: NativeResponsesState }>();
   private idleWaiters: (() => void)[] = [];
   constructor(private options: NativeResponsesOptions) {
-    if (options.binding.provider !== 'openai')
-      throw new Error('Native Responses requires an explicit OpenAI API account');
-    if (!options.apiKey.trim()) throw new Error('OpenAI API key is required');
+    if (options.binding.provider === 'openai') {
+      if (!options.apiKey?.trim() || options.gemini) throw new Error('OpenAI API key is required');
+    } else if (options.binding.provider === 'google-vertex') {
+      if (
+        !options.gemini ||
+        options.apiKey ||
+        options.gemini.accountId !== options.binding.accountId
+      )
+        throw new Error('Explicit Google Vertex account is required');
+    } else throw new Error('Native runtime requires an explicit API account');
     if (!options.conversationId) throw new Error('Application conversation ID is required');
     if (
       options.maxTurns !== undefined &&
@@ -117,16 +126,20 @@ export class NativeResponsesRunner {
         state.history.push({ role: 'user', content: prompt });
         save();
       }
-      const session = new ResponsesSession(
-        {
-          model: opts.binding.model,
-          systemPrompt: opts.systemPrompt,
-          maxTokens: opts.maxTokens,
-          tools: opts.tools,
-          signal: abort.signal,
-        },
-        { accountId: opts.binding.accountId, apiKey: opts.apiKey, checkpoint: state.checkpoint },
-      );
+      const config = {
+        model: opts.binding.model,
+        systemPrompt: opts.systemPrompt,
+        maxTokens: opts.maxTokens,
+        tools: opts.tools,
+        signal: abort.signal,
+      };
+      const session = opts.gemini
+        ? new GeminiSession(config, { ...opts.gemini, checkpoint: state.checkpoint })
+        : new ResponsesSession(config, {
+            accountId: opts.binding.accountId,
+            apiKey: opts.apiKey!,
+            checkpoint: state.checkpoint,
+          });
       for await (const event of runAgenticLoop(session, state.history, {
         sessionId: opts.conversationId,
         maxTurns: opts.maxTurns ?? 50,

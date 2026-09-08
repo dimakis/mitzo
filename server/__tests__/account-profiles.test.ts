@@ -210,3 +210,28 @@ it('matches legacy credentials and rejects ambiguous route profiles', () => {
     ambiguous.legacyModels(profile.projectId, profile.region, profile.credentialRef),
   ).toThrow(/ambiguous/i);
 });
+
+it('binds Gemini to its explicit Google Vertex route without using the Claude SDK', () => {
+  const google = {
+    ...profile,
+    id: 'google-work',
+    provider: 'google-vertex',
+    models: [{ id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash' }],
+  };
+  const profiles = new AccountProfiles([google]);
+  const binding = profiles.resolve('google-work', 'gemini-3.8-flash');
+  expect(profiles.googleProfile(binding)).toEqual({
+    projectId: profile.projectId,
+    region: profile.region,
+    credentialRef: profile.credentialRef,
+  });
+  expect(profiles.catalog()[0]).toMatchObject({
+    provider: 'google-vertex',
+    billing: 'google-cloud',
+    capabilities: { images: false, streaming: false },
+  });
+  expect(() => profiles.sdkEnv(binding, {})).toThrow(/native/);
+  expect(
+    profiles.legacyModels(profile.projectId, profile.region, profile.credentialRef),
+  ).toBeUndefined();
+});
