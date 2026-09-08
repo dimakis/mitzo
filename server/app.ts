@@ -1155,8 +1155,12 @@ app.get('/api/models', (_req, res) => {
               (key.startsWith('CLAUDE_CODE_USE_') && key !== 'CLAUDE_CODE_USE_VERTEX')) &&
               value !== '0' &&
               value !== 'false') ||
-            (key.startsWith('ANTHROPIC_') && key !== 'ANTHROPIC_VERTEX_PROJECT_ID') ||
-            key.startsWith('OPENAI_') ||
+            [
+              'ANTHROPIC_BASE_URL',
+              'ANTHROPIC_VERTEX_BASE_URL',
+              'ANTHROPIC_AUTH_TOKEN',
+              'ANTHROPIC_API_KEY',
+            ].includes(key) ||
             key === 'GOOGLE_API_KEY' ||
             key === 'CLAUDE_CODE_OAUTH_TOKEN'),
       );

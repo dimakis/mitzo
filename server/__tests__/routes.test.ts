@@ -935,6 +935,9 @@ describe('account catalog routes', () => {
     vi.stubEnv('ANTHROPIC_VERTEX_PROJECT_ID', 'test-project');
     vi.stubEnv('CLOUD_ML_REGION', 'global');
     vi.stubEnv('GOOGLE_APPLICATION_CREDENTIALS', '/credentials/adc.json');
+    // Unrelated tool credentials and default model preferences do not reroute explicit model IDs.
+    vi.stubEnv('OPENAI_API_KEY', 'test-tool-key');
+    vi.stubEnv('ANTHROPIC_DEFAULT_HAIKU_MODEL', 'claude-haiku-4-5');
     try {
       const res = await request(app).get('/api/models').set('Cookie', authCookie);
       expect(res.status).toBe(200);
