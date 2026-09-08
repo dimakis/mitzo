@@ -278,3 +278,196 @@
 [data-theme='light'] .workspace-chat :is(.hljs-name, .hljs-tag, .hljs-keyword, .hljs-selector-tag) {
   color: #7430a3;
 }
+
+/* Compact workspace disclosure and composer. */
+.workspace-controls {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--workspace-line);
+}
+.workspace-controls-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 20px;
+  background: transparent;
+  color: var(--workspace-text);
+  text-align: left;
+  font-size: 13px;
+}
+.workspace-controls-toggle > svg {
+  flex-shrink: 0;
+}
+.workspace-controls-hint {
+  color: var(--workspace-muted);
+  font-size: 12px;
+}
+.workspace-controls-toggle .conversation-state {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.workspace-controls .desktop-chat-header {
+  border: 0;
+  padding: 8px 20px 16px;
+}
+.workspace-controls-toggle:hover {
+  background: var(--workspace-panel);
+}
+.workspace-controls [hidden] {
+  display: none;
+}
+.chat-input--compact .chat-input-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 10px;
+  border-radius: 16px;
+}
+.chat-input--compact .chat-input-row:focus-within {
+  border-color: var(--accent);
+}
+.chat-input--compact .chat-input-field {
+  width: 100%;
+  flex: none;
+  padding: 6px;
+}
+.composer-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.chat-input--compact .chat-input-command-strip {
+  padding: 0;
+  min-width: 0;
+  flex: 1;
+  gap: 8px;
+}
+.composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.chat-input--compact :is(.chat-input-btn, .mic-btn) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1;
+}
+.chat-input--compact .chat-input-btn--skills {
+  width: auto;
+  padding: 0 10px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border);
+}
+.chat-input--compact .chat-input-btn--skills > span {
+  font-size: 18px;
+  color: var(--accent);
+}
+.chat-input--compact .mic-btn {
+  border: 1px solid var(--border);
+}
+.chat-input--compact .mic-btn--recording {
+  border-color: var(--danger);
+}
+.chat-input--compact .mic-btn--transcribing {
+  animation: none;
+}
+.chat-input--compact .mic-btn--transcribing svg {
+  animation: mic-spin 1s linear infinite;
+}
+.chat-input--compact .chat-input-btn--stop {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+.chat-input--compact .chat-input-btn--stop:hover {
+  background: color-mix(in srgb, var(--danger) 24%, var(--surface));
+}
+.chat-input--compact .chat-input-btn--queue {
+  background: var(--accent);
+  color: white;
+}
+.chat-input--compact .chat-input-btn--interrupt {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.chat-input--compact :is(button, summary):focus-visible,
+.workspace-controls-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.status-workspace {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status-details {
+  position: relative;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.status-details summary {
+  cursor: pointer;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+.status-details summary:hover {
+  background: var(--surface);
+}
+.status-details dl {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  width: min(420px, 85vw);
+  padding: 16px;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 0 8px 32px #0004;
+  z-index: 60;
+  white-space: normal;
+}
+.status-details dt {
+  color: var(--text-dim);
+  margin-top: 10px;
+}
+.status-details dt:first-child {
+  margin-top: 0;
+}
+.status-details dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+@media (max-width: 1000px) {
+  .workspace-controls-hint {
+    display: none;
+  }
+}
+@media (pointer: coarse) {
+  .chat-input--compact :is(.chat-input-btn, .mic-btn) {
+    min-width: 44px;
+    height: 44px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-input--compact .mic-btn,
+  .chat-input--compact .mic-btn svg {
+    animation: none;
+  }
+}

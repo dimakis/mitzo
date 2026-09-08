@@ -13,6 +13,7 @@ import { extractImageFiles } from '../lib/paste-images';
 import { MAX_IMAGE_ATTACHMENTS } from '../lib/constants';
 import { SlashPicker } from './SlashPicker';
 import { SessionTray } from './SessionTray';
+import { UiIcon } from './UiIcon';
 import { MicButton } from './MicButton';
 import { impactMedium } from '../lib/haptics';
 import { TokenBar } from './TokenBar';
@@ -54,9 +55,6 @@ export function ChatInput({
   sendDisabledReason,
   cwd,
   voice,
-  branch,
-  isWorktree,
-  wtId,
   sessionId,
   externalContextBlocks,
   tokenState,
@@ -136,7 +134,7 @@ export function ChatInput({
   }, [text]);
 
   function handleSlashSelect(name: string) {
-    setText(`/${name} `);
+    setText((draft) => `/${name} ${draft.trimStart().startsWith('/') ? '' : draft}`);
     setShowSlashPicker(false);
     textareaRef.current?.focus();
   }
@@ -303,7 +301,7 @@ export function ChatInput({
   }
 
   return (
-    <div className="chat-input">
+    <div className="chat-input chat-input--compact">
       {!useExternal && (
         <SessionTray
           messages={messages}
@@ -372,64 +370,12 @@ export function ChatInput({
           </button>
         </div>
       ))}
-      <div
-        className="chat-input-command-strip"
-        onPointerDown={(e) => {
-          if ((e.target as HTMLElement).closest('button, a, select')) {
-            e.preventDefault();
-          }
-        }}
-      >
-        <button
-          className="chat-input-btn chat-input-btn--skills"
-          onClick={() => {
-            if (!text.startsWith('/')) setText('/');
-            setShowSlashPicker(true);
-            textareaRef.current?.focus();
-          }}
-          title="Skills"
-        >
-          /
-        </button>
-        {useExternal && (
-          <button
-            className="chat-input-btn chat-input-btn--attach"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={images.length >= MAX_IMAGE_ATTACHMENTS}
-            title="Attach image"
-          >
-            +
-          </button>
-        )}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/jpeg,image/png,image/gif,image/webp"
-          multiple
-          capture="environment"
-          onChange={handleFileChange}
-          className="sr-only"
-        />
-        {sessionId && (
-          <span className="chat-input-session-hash" title={`session: ${sessionId}`}>
-            {sessionId.slice(-5)}
-          </span>
-        )}
-        {(branch || wtId) && (
-          <span
-            className={`chat-input-branch${isWorktree ? ' chat-input-branch--wt' : ''}`}
-            title={isWorktree && wtId ? `session: ${wtId}\nbranch: ${branch}` : branch || ''}
-          >
-            {isWorktree && wtId ? wtId.slice(-6) : branch}
-          </span>
-        )}
-        {tokenState && <TokenBar tokenState={tokenState} />}
-      </div>
       {sendDisabledReason && <span role="status">{sendDisabledReason}</span>}
       <div className="chat-input-row">
         <textarea
           ref={textareaRef}
           className="chat-input-field"
+          aria-label="Message Mitzo"
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -437,41 +383,92 @@ export function ChatInput({
           placeholder={running ? 'Type to queue or interrupt...' : 'Message Mitzo...'}
           rows={1}
         />
-        {running ? (
-          <>
-            {canSend && onInterrupt && (
-              <button
-                className="chat-input-btn chat-input-btn--interrupt"
-                onClick={handleInterrupt}
-                title="Interrupt — send now, mid-thinking"
-              >
-                ↯
-              </button>
-            )}
-            {canSend && (
-              <button
-                className="chat-input-btn chat-input-btn--queue"
-                onClick={handleQueue}
-                title="Queue — send after current turn"
-              >
-                ↑
-              </button>
-            )}
-            <button className="chat-input-btn chat-input-btn--stop" onClick={onStop}>
-              ■
-            </button>
-          </>
-        ) : (
-          <button
-            className="chat-input-btn chat-input-btn--send"
-            onClick={handleSend}
-            aria-label="Send message"
-            disabled={!canSend || !!sendDisabledReason}
+        <div className="composer-toolbar">
+          <div
+            className="chat-input-command-strip"
+            onPointerDown={(e) => {
+              if ((e.target as HTMLElement).closest('button, a, select')) {
+                e.preventDefault();
+              }
+            }}
           >
-            ↑
-          </button>
-        )}
-        {micProps && <MicButton {...micProps} />}
+            <button
+              className="chat-input-btn chat-input-btn--skills"
+              onClick={() => {
+                if (!text.trim()) setText('/');
+                setShowSlashPicker(true);
+                textareaRef.current?.focus();
+              }}
+              title="Skills"
+              aria-label="Commands"
+              aria-expanded={showSlashPicker}
+            >
+              <span aria-hidden="true">/</span> Commands
+            </button>
+            {useExternal && (
+              <button
+                className="chat-input-btn chat-input-btn--attach"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={images.length >= MAX_IMAGE_ATTACHMENTS}
+                title="Attach image"
+              >
+                +
+              </button>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              multiple
+              capture="environment"
+              onChange={handleFileChange}
+              className="sr-only"
+            />
+            {tokenState && <TokenBar tokenState={tokenState} />}
+          </div>
+          <div className="composer-actions">
+            {micProps && <MicButton {...micProps} />}
+            {running ? (
+              <>
+                {canSend && onInterrupt && (
+                  <button
+                    className="chat-input-btn chat-input-btn--interrupt"
+                    onClick={handleInterrupt}
+                    title="Interrupt — send now, mid-thinking"
+                  >
+                    <UiIcon name="interrupt" />
+                  </button>
+                )}
+                {canSend && (
+                  <button
+                    className="chat-input-btn chat-input-btn--queue"
+                    onClick={handleQueue}
+                    title="Queue — send after current turn"
+                  >
+                    <UiIcon name="send" />
+                  </button>
+                )}
+                <button
+                  className="chat-input-btn chat-input-btn--stop"
+                  onClick={onStop}
+                  aria-label="Stop generation"
+                  title="Stop generation"
+                >
+                  <UiIcon name="stop" />
+                </button>
+              </>
+            ) : (
+              <button
+                className="chat-input-btn chat-input-btn--send"
+                onClick={handleSend}
+                aria-label="Send message"
+                disabled={!canSend || !!sendDisabledReason}
+              >
+                <UiIcon name="send" />
+              </button>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
