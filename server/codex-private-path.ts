@@ -16,11 +16,20 @@ function canonical(path: string): string {
     return parent === full ? full : join(canonical(parent), basename(full));
   }
 }
+// Process-lifetime registry shared by profile consumers and all path guards.
+// Removing a configured account must not make its credential storage public.
+const observedProfileRoots = new Set<string>();
+export function protectCodexProfileRoots(roots: string[]) {
+  const resolved = roots.map(canonical);
+  resolved.forEach((root) => observedProfileRoots.add(root));
+}
+
 export function isPrivateCodexPath(path: string, extraRoots: string[] = []) {
   const target = canonical(path);
   return [
     codexPrivateDirectory(),
     process.env.CODEX_HOME || join(homedir(), '.codex'),
+    ...observedProfileRoots,
     ...extraRoots,
   ].some((root) => {
     const rel = relative(canonical(root), target);
