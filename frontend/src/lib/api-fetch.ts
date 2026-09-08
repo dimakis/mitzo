@@ -101,8 +101,9 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
 
 /** Restore transport authorization when a failed login left a valid cookie session intact. */
 export async function restoreCookieAuthentication(): Promise<boolean> {
+  const restoreGeneration = authGeneration;
   const response = await apiFetch('/api/auth/check');
-  if (!response.ok) return false;
+  if (!response.ok || authGeneration !== restoreGeneration || isLogoutPending()) return false;
   loginSucceeded();
   return true;
 }

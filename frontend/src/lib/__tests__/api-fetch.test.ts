@@ -194,6 +194,29 @@ describe('apiFetch', () => {
     window.removeEventListener(AUTH_RESTORED_EVENT, listener);
   });
 
+  it('does not restore a stale cookie check after logout begins in another tab', async () => {
+    let resolveResponse!: (response: Response) => void;
+    mockFetch.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        resolveResponse = resolve;
+      }),
+    );
+    const listener = vi.fn();
+    window.addEventListener(AUTH_RESTORED_EVENT, listener);
+
+    const pending = restoreCookieAuthentication();
+    localStorage.setItem('mitzo_logout_pending', '1');
+    window.dispatchEvent(
+      new StorageEvent('storage', { key: 'mitzo_logout_pending', newValue: '1' }),
+    );
+    resolveResponse(new Response('{}', { status: 200 }));
+
+    expect(await pending).toBe(false);
+    expect(listener).not.toHaveBeenCalled();
+    expect(isLogoutPending()).toBe(true);
+    window.removeEventListener(AUTH_RESTORED_EVENT, listener);
+  });
+
   it('logs out on the server before deleting the credential', async () => {
     localStorage.setItem('mitzo_auth_token', 'current-token');
 

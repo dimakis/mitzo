@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { apiFetch, AUTH_LOST_EVENT, isLogoutPending } from './lib/api-fetch';
+import { AUTH_LOST_EVENT, isLogoutPending, restoreCookieAuthentication } from './lib/api-fetch';
 import { hideSplash } from './lib/splash';
 import { saveTokenToWatch } from './lib/watch-auth';
 import { Login } from './pages/Login';
@@ -36,11 +36,11 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
       onAuthLost();
       return () => window.removeEventListener(AUTH_LOST_EVENT, onAuthLost);
     }
-    apiFetch('/api/auth/check')
-      .then((r) => {
+    restoreCookieAuthentication()
+      .then((authenticated) => {
         if (ignoreCheckResult) return;
-        setAuth(r.ok ? 'ok' : 'denied');
-        if (r.ok) {
+        setAuth(authenticated ? 'ok' : 'denied');
+        if (authenticated) {
           const token = localStorage.getItem('mitzo_auth_token');
           if (token) saveTokenToWatch(token);
         }
