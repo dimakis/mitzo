@@ -152,6 +152,25 @@ describe('apiFetch', () => {
     expect(localStorage.getItem('mitzo_auth_token')).toBe('fresh-token');
   });
 
+  it('does not announce a delayed cookie-only 401 after a newer cookie login', async () => {
+    let resolveResponse!: (response: Response) => void;
+    mockFetch.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        resolveResponse = resolve;
+      }),
+    );
+    const listener = vi.fn();
+    window.addEventListener(AUTH_LOST_EVENT, listener);
+
+    const pending = apiFetch('/api/sessions');
+    loginSucceeded();
+    resolveResponse(new Response('{}', { status: 401 }));
+    await pending;
+
+    expect(listener).not.toHaveBeenCalled();
+    window.removeEventListener(AUTH_LOST_EVENT, listener);
+  });
+
   it('does not announce an expected failed login as auth loss', async () => {
     mockFetch.mockResolvedValueOnce(new Response('{}', { status: 401 }));
     const listener = vi.fn();

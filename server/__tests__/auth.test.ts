@@ -296,6 +296,19 @@ describe('authMiddleware — internal token', () => {
     expect(next).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(401);
   });
+
+  it('ignores query tokens on ordinary API routes when a valid cookie is present', async () => {
+    const { login } = await import('../auth.js');
+    const jwt = await login(process.env.AUTH_PASSPHRASE!);
+    const req = mockReq({}, '/sessions', { token: 'unrelated-query-value' });
+    req.cookies = { cc_auth: jwt! };
+    const res = mockRes();
+    const next = vi.fn();
+
+    authMiddleware(req, res, next);
+
+    await vi.waitFor(() => expect(next).toHaveBeenCalledOnce());
+  });
 });
 
 describe('active authentication lifetime', () => {

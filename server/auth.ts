@@ -132,7 +132,6 @@ function selectRequestToken(req: Request): string | undefined {
   // override them or rescue an invalid credential supplied by the caller.
   if (req.headers.authorization !== undefined) return extractBearerToken(req);
   const queryToken = extractSseQueryToken(req);
-  if (req.query.token !== undefined && queryToken === undefined) return undefined;
   return queryToken ?? req.cookies?.[COOKIE_NAME];
 }
 

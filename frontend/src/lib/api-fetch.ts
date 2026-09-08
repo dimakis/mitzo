@@ -12,6 +12,7 @@ const AUTH_TOKEN_KEY = 'mitzo_auth_token';
 const LOGOUT_PENDING_KEY = 'mitzo_logout_pending';
 export const AUTH_LOST_EVENT = 'mitzo:auth-lost';
 export const AUTH_RESTORED_EVENT = 'mitzo:auth-restored';
+let authGeneration = 0;
 
 function dispatchAuthEvent(name: string): void {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(name));
@@ -21,19 +22,23 @@ if (typeof window !== 'undefined') {
   window.addEventListener('storage', (event) => {
     if (event.storageArea && event.storageArea !== localStorage) return;
     if (event.key === AUTH_TOKEN_KEY) {
+      authGeneration++;
       dispatchAuthEvent(event.newValue ? AUTH_RESTORED_EVENT : AUTH_LOST_EVENT);
     } else if (event.key === LOGOUT_PENDING_KEY && event.newValue === '1') {
+      authGeneration++;
       dispatchAuthEvent(AUTH_LOST_EVENT);
     }
   });
 }
 
 export function markAuthLost(): void {
+  authGeneration++;
   if (typeof localStorage !== 'undefined') localStorage.removeItem(AUTH_TOKEN_KEY);
   dispatchAuthEvent(AUTH_LOST_EVENT);
 }
 
 export function loginSucceeded(token?: string): void {
+  authGeneration++;
   if (token && typeof localStorage !== 'undefined') localStorage.setItem(AUTH_TOKEN_KEY, token);
   if (typeof localStorage !== 'undefined') localStorage.removeItem(LOGOUT_PENDING_KEY);
   dispatchAuthEvent(AUTH_RESTORED_EVENT);
@@ -79,10 +84,16 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
   const url = path.startsWith('http') ? path : `${getApiBaseUrl()}${path}`;
   const headers = new Headers(init?.headers);
   const token = getStoredAuthToken();
+  const requestAuthGeneration = authGeneration;
   if (token) headers.set('Authorization', `Bearer ${token}`);
   const response = await fetch(url, { ...init, headers, credentials: 'include' });
   const currentToken = getStoredAuthToken();
-  if (response.status === 401 && !path.endsWith('/api/auth/login') && currentToken === token) {
+  if (
+    response.status === 401 &&
+    !path.endsWith('/api/auth/login') &&
+    currentToken === token &&
+    authGeneration === requestAuthGeneration
+  ) {
     markAuthLost();
   }
   return response;
