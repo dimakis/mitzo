@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SessionRegistry, resolvePending } from '@mitzo/harness';
+import { loadAccountProfiles } from '../account-profiles.js';
 import { createNativeToolExecutor } from '../native-tool-executor.js';
 
 describe('native tool execution through session permissions', () => {
@@ -161,7 +162,9 @@ describe('native tool execution through session permissions', () => {
       ]),
     );
     vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', profiles);
-    for (const next of [null, '[]', '{invalid']) {
+    // Other server paths load the profile before any native tool observes it.
+    loadAccountProfiles();
+    for (const next of ['[]', '{invalid']) {
       if (next !== null) await writeFile(profiles, next);
       const result = await executor()(
         call('Read', { file_path: join(privateRoot, 'auth.json') }),

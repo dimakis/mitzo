@@ -1,3 +1,4 @@
+import { protectCodexProfileRoots } from './codex-private-path.js';
 import { cachedModels, refreshModels, readCodexModels } from './model-catalog.js';
 import { CredentialReferenceSchema } from './credentials.js';
 import { createHash } from 'node:crypto';
@@ -66,6 +67,7 @@ export class AccountProfiles {
     if (new Set(this.profiles.map((p) => p.id)).size !== this.profiles.length) {
       throw new Error('Account profile IDs must be unique');
     }
+    protectCodexProfileRoots(this.privateCodexRoots());
   }
 
   privateCodexRoots(): string[] {
