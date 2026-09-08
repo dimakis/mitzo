@@ -117,3 +117,13 @@ export {
 // StoredEvent, SessionMeta, and EventStoreLogger types are in './types.js' above.
 
 export type { AccountBinding } from './types.js';
+
+export { SeatConfigSchema, TurnRulesSchema, SymposiumConfigSchema } from './symposium.js';
+export type {
+  SessionType,
+  TurnMode,
+  InterceptMode,
+  SeatConfig,
+  TurnRules,
+  SymposiumConfig,
+} from './symposium.js';

@@ -46,6 +46,7 @@ export function toClientState(state: SessionState): ClientSessionState {
 const noopLogger: EventStoreLogger = { info() {} };
 
 interface EventRow {
+  seat_id: string | null;
   seq: number;
   session_id: string;
   type: string;
@@ -54,6 +55,8 @@ interface EventRow {
 }
 
 interface SessionRow {
+  session_type: string;
+  symposium_config: string | null;
   session_id: string;
   summary: string | null;
   branch: string | null;
@@ -242,12 +245,15 @@ export class EventStore {
     this.migrateAttentionTracking(db);
     this.migrateSessionState(db);
     this.migrateBootContext(db);
+    this.migrateSymposium(db);
     this.migrateUserMessageIndex(db);
 
     this.log.info('EventStore initialized', { dbPath });
 
     this.stmts = {
-      append: db.prepare('INSERT INTO events (session_id, type, payload) VALUES (?, ?, ?)'),
+      append: db.prepare(
+        'INSERT INTO events (session_id, type, payload, seat_id) VALUES (?, ?, ?, ?)',
+      ),
       hasUserMessage: db.prepare(
         `SELECT 1 FROM events
          WHERE session_id = ? AND type = 'user_message'
@@ -255,13 +261,13 @@ export class EventStore {
          LIMIT 1`,
       ),
       eventsAfter: db.prepare(
-        'SELECT seq, session_id, type, payload, created_at FROM events WHERE session_id = ? AND seq > ? ORDER BY seq',
+        'SELECT seq, session_id, type, payload, created_at, seat_id FROM events WHERE session_id = ? AND seq > ? ORDER BY seq',
       ),
       eventsAfterLimited: db.prepare(
-        'SELECT seq, session_id, type, payload, created_at FROM events WHERE session_id = ? AND seq > ? ORDER BY seq LIMIT ?',
+        'SELECT seq, session_id, type, payload, created_at, seat_id FROM events WHERE session_id = ? AND seq > ? ORDER BY seq LIMIT ?',
       ),
       sessionEvents: db.prepare(
-        'SELECT seq, session_id, type, payload, created_at FROM events WHERE session_id = ? ORDER BY seq',
+        'SELECT seq, session_id, type, payload, created_at, seat_id FROM events WHERE session_id = ? ORDER BY seq',
       ),
       getSession: db.prepare('SELECT * FROM sessions WHERE session_id = ?'),
       listSessions: db.prepare(
@@ -426,6 +432,23 @@ export class EventStore {
     }
   }
 
+  private migrateSymposium(db: Database.Database): void {
+    db.transaction(() => {
+      const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
+      const names = new Set(columns.map((column) => column.name));
+      if (!names.has('session_type')) {
+        db.exec("ALTER TABLE sessions ADD COLUMN session_type TEXT NOT NULL DEFAULT 'chat'");
+      }
+      if (!names.has('symposium_config')) {
+        db.exec('ALTER TABLE sessions ADD COLUMN symposium_config TEXT');
+      }
+      const events = db.prepare("PRAGMA table_info('events')").all() as Array<{ name: string }>;
+      if (!events.some((column) => column.name === 'seat_id')) {
+        db.exec('ALTER TABLE events ADD COLUMN seat_id TEXT');
+      }
+    })();
+  }
+
   private migrateUserMessageIndex(db: Database.Database): void {
     db.exec(
       `CREATE INDEX IF NOT EXISTS idx_events_user_msg_dedup
@@ -441,7 +464,8 @@ export class EventStore {
   }
 
   append(sessionId: string, type: string, payload: Record<string, unknown>): number {
-    const result = this.stmts.append.run(sessionId, type, JSON.stringify(payload));
+    const seatId = typeof payload.seatId === 'string' && payload.seatId ? payload.seatId : null;
+    const result = this.stmts.append.run(sessionId, type, JSON.stringify(payload), seatId);
     return Number(result.lastInsertRowid);
   }
 
@@ -516,6 +540,14 @@ export class EventStore {
         fields.push('account_binding = ?');
         values.push(meta.accountBinding ? JSON.stringify(meta.accountBinding) : null);
       }
+      if (meta.sessionType !== undefined) {
+        fields.push('session_type = ?');
+        values.push(meta.sessionType);
+      }
+      if (meta.symposiumConfig !== undefined) {
+        fields.push('symposium_config = ?');
+        values.push(meta.symposiumConfig);
+      }
       if (meta.bootContext !== undefined) {
         fields.push('boot_context = ?');
         values.push(meta.bootContext);
@@ -546,6 +578,8 @@ export class EventStore {
         'agent_name',
         'boot_context',
         'account_binding',
+        'session_type',
+        'symposium_config',
       ];
       const vals: unknown[] = [
         meta.sessionId,
@@ -562,6 +596,8 @@ export class EventStore {
         meta.agentName ?? null,
         meta.bootContext ?? null,
         meta.accountBinding ? JSON.stringify(meta.accountBinding) : null,
+        meta.sessionType ?? 'chat',
+        meta.symposiumConfig ?? null,
       ];
       if (meta.updatedAt !== undefined) {
         cols.push('updated_at');
@@ -815,6 +851,7 @@ export class EventStore {
 function rowToEvent(row: EventRow): StoredEvent {
   return {
     seq: row.seq,
+    ...(row.seat_id ? { seatId: row.seat_id } : {}),
     sessionId: row.session_id,
     type: row.type,
     payload: JSON.parse(row.payload),
@@ -877,6 +914,8 @@ function rowToSession(row: SessionRow): SessionMeta {
     agentName: row.agent_name ?? null,
     bootContext: row.boot_context ?? null,
     accountBinding: parseAccountBinding(row.account_binding),
+    sessionType: row.session_type === 'symposium' ? 'symposium' : 'chat',
+    symposiumConfig: row.symposium_config ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
