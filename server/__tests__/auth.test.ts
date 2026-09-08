@@ -42,7 +42,7 @@ describe('validateConfig', () => {
     expect(validateConfig('good-passphrase', 'short-secret', '1')).toMatch(/32/);
   });
 
-  it.each(['0', '-1', 'NaN', '1.5', '', '1e2', '0x10', ' 1', '1 '])(
+  it.each(['0', '-1', 'NaN', '1.5', '', '1e2', '0x10', ' 1', '1 ', '8761', '3000000000'])(
     'rejects invalid cookie TTL %j',
     (ttl) => {
       expect(
@@ -54,6 +54,13 @@ describe('validateConfig', () => {
   it('accepts valid config', () => {
     expect(
       validateConfig('my-secure-passphrase', 'a-valid-secret-that-is-long-enough-32chars!!'),
+    ).toBeNull();
+    expect(
+      validateConfig(
+        'my-secure-passphrase',
+        'a-valid-secret-that-is-long-enough-32chars!!',
+        '8760',
+      ),
     ).toBeNull();
   });
 });

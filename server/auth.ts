@@ -8,11 +8,12 @@ const INSECURE_SECRETS = [
   'dev-secret-replace-in-production-min32chars!',
   'replace-with-random-secret-key-min-32-chars',
 ];
+const MAX_COOKIE_AGE_HOURS = 8_760;
 
 export function parseCookieMaxAgeHours(value = '24'): number | null {
   if (!/^[1-9]\d*$/.test(value)) return null;
   const parsed = Number(value);
-  return Number.isSafeInteger(parsed) ? parsed : null;
+  return Number.isSafeInteger(parsed) && parsed <= MAX_COOKIE_AGE_HOURS ? parsed : null;
 }
 
 export function validateConfig(
@@ -32,7 +33,7 @@ export function validateConfig(
     return 'AUTH_SECRET must be set to a secure value (min 32 chars) in .env';
   }
   if (parsedMaxAge === null) {
-    return 'COOKIE_MAX_AGE_HOURS must be a positive whole number';
+    return `COOKIE_MAX_AGE_HOURS must be a positive whole number no greater than ${MAX_COOKIE_AGE_HOURS}`;
   }
   return null;
 }
