@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import type { Express } from 'express';
 import request from 'supertest';
 import { mkdirSync, writeFileSync } from 'fs';
@@ -880,6 +880,23 @@ describe('skills routes', () => {
 });
 
 describe('account catalog routes', () => {
+  beforeEach(() => {
+    // Each case owns its provider environment, independent of the developer's login.
+    for (const key of Object.keys(process.env)) {
+      if (
+        /^(ANTHROPIC_|OPENAI_|CLAUDE_CODE_USE_|CLAUDE_CODE_SKIP_|VERTEX_REGION_)/.test(key) ||
+        [
+          'GOOGLE_API_KEY',
+          'GOOGLE_APPLICATION_CREDENTIALS',
+          'CLAUDE_CODE_OAUTH_TOKEN',
+          'MITZO_ACCOUNT_PROFILES_FILE',
+          'CLOUD_ML_REGION',
+        ].includes(key)
+      )
+        vi.stubEnv(key, undefined);
+    }
+  });
+  afterEach(() => vi.unstubAllEnvs());
   it('requires authentication', async () => {
     expect((await request(app).get('/api/accounts')).status).toBe(401);
   });
