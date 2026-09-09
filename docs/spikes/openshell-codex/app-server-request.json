@@ -1,0 +1,15 @@
+{
+  "method": "thread/start",
+  "params": {
+    "model": "gpt-5.6-terra",
+    "modelProvider": "openai",
+    "cwd": "/sandbox/workspaces/primary",
+    "approvalPolicy": "never",
+    "sandboxPolicy": {
+      "type": "externalSandbox",
+      "networkAccess": "restricted"
+    },
+    "developerInstructions": "The outer OpenShell sandbox is authoritative. Use only approved tools.",
+    "dynamicTools": []
+  }
+}

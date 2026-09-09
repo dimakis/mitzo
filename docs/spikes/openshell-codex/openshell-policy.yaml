@@ -1,0 +1,13 @@
+version: 1
+
+filesystem_policy:
+  include_workdir: true
+  read_only: [/usr, /lib, /proc, /dev/urandom, /app, /etc, /var/log]
+  read_write: [/tmp, /dev/null]
+landlock:
+  compatibility: best_effort
+
+# No network policies means default-deny egress.  Add narrowly scoped read-only
+# endpoint rules for a specific smoke test; do not place provider credentials in
+# this file or use it to authorize external writes.
+network_policies: {}

@@ -1,0 +1,6 @@
+# Disposable local-spike override. OpenShell's VM driver is explicit on macOS.
+[openshell]
+version = 1
+
+[openshell.gateway]
+compute_drivers = ["vm"]
