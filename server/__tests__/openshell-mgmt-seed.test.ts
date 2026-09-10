@@ -1,5 +1,14 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, expect, it } from 'vitest';
@@ -74,6 +83,42 @@ it('builds a versioned MGMT seed without host credentials or repository administ
   const baseline = JSON.parse(readFileSync(join(output, 'baseline.json'), 'utf8'));
   expect(baseline.startingCommit).toMatch(/^[a-f0-9]{40,64}$/);
   expect(baseline.saveBack).toBe('not-implemented');
+});
+
+it('rejects a tracked symlink before an overlay can write through it', () => {
+  root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-symlink-'));
+  const source = join(root, 'source');
+  const output = join(root, 'output');
+  const outside = join(root, 'outside');
+  mkdirSync(source);
+  mkdirSync(outside);
+  execFileSync('git', ['init', '-q', source]);
+  execFileSync('git', ['-C', source, 'config', 'user.name', 'Fixture']);
+  execFileSync('git', ['-C', source, 'config', 'user.email', 'fixture@example.invalid']);
+  symlinkSync(outside, join(source, 'redirect'), 'dir');
+  execFileSync('git', ['-C', source, 'add', 'redirect']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'tracked symlink',
+  ]);
+  unlinkSync(join(source, 'redirect'));
+  mkdirSync(join(source, 'redirect'));
+  writeFileSync(join(source, 'redirect', 'escaped.txt'), 'must stay contained\n');
+
+  expect(() =>
+    execFileSync(
+      'bash',
+      [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output],
+      { cwd: resolve('.'), stdio: 'pipe' },
+    ),
+  ).toThrow();
+  expect(existsSync(join(outside, 'escaped.txt'))).toBe(false);
 });
 
 it('serializes ContexGin maps and trimmed sections into the sandbox boot-context schema', () => {

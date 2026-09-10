@@ -31,6 +31,14 @@ if test "${#tracked_paths[@]}" -gt 0; then
   git -C "$source_repo" archive HEAD -- "${tracked_paths[@]}" | tar -x -C "$workspace"
 fi
 
+# A tracked symlink could redirect a later working-tree overlay outside the seed.
+# Symlinks are not required by the reviewed MGMT runtime, so reject them before
+# any overlay copy and check again after overlays are materialized.
+test -z "$(find "$workspace" -type l -print -quit)" || {
+  echo 'unsafe symlink in tracked seed' >&2
+  exit 3
+}
+
 # Overlay modified and untracked task content, but never the credential/runtime
 # surfaces above. Deletions are reflected in the isolated copy only.
 while IFS= read -r -d '' path; do
@@ -47,6 +55,11 @@ done < <(
     git -C "$source_repo" ls-files --others --exclude-standard -z
   } | sort -zu
 )
+
+test -z "$(find "$workspace" -type l -print -quit)" || {
+  echo 'unsafe symlink in seed overlay' >&2
+  exit 3
+}
 
 # Fail closed if archive-tool option semantics or a later edit reintroduces a
 # host/runtime surface. In particular, .mitzo.json can contain absolute paths
