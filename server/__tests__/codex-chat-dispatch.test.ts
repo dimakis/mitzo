@@ -7,6 +7,7 @@ import { AccountProfiles } from '../account-profiles.js';
 import { openResponsesChat } from '../responses-chat-session.js';
 import { credentials } from '../credentials.js';
 import { openCodexChat } from '../codex-chat-session.js';
+import { capturePromptComparison } from '../prompt-compare.js';
 import { registerSession } from '../session-index.js';
 import { createWorktree } from '../worktree.js';
 const codexLaunch = vi.hoisted(() =>
@@ -230,6 +231,7 @@ it('routes API accounts through OpenShell in production without resolving host c
     expect(openCodexChat).toHaveBeenCalledOnce();
     expect(createWorktree).not.toHaveBeenCalled();
     expect(registerSession).not.toHaveBeenCalled();
+    expect(capturePromptComparison).not.toHaveBeenCalled();
     const options = vi.mocked(openCodexChat).mock.calls[0][0];
     expect(options.profile.planType).toBe('api');
     expect(options.profile.sandboxProvider).toBe('openai-work');

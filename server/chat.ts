@@ -1228,7 +1228,9 @@ async function _startChatInner(
       });
     });
 
-  capturePromptComparison(wtId, cwd, systemPromptAppend, repoWorktrees).catch(() => {});
+  if (!openShellSelected) {
+    capturePromptComparison(wtId, cwd, systemPromptAppend, repoWorktrees).catch(() => {});
+  }
 
   // Resolve SDK session UUID for resume — worktree IDs are not valid SDK session IDs
   let resolvedResume: string | undefined;
