@@ -41,4 +41,21 @@ describe('OpenShell runtime image builder', () => {
       ).toThrow(/output tag must be unique/);
     },
   );
+
+  it.each(['localhost/mitzo-mgmt-runtime', 'localhost:5000/mitzo-mgmt-runtime'])(
+    'rejects output image without an explicit tag %s',
+    (tag) => {
+      expect(() =>
+        execFileSync(
+          builder,
+          [
+            '/unused/mgmt',
+            tag,
+            'ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:04dd51f785ae52557ac53d4b12b3a0611a7347e5b8738e6278203465e6fb726e',
+          ],
+          { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+        ),
+      ).toThrow(/explicit unique tag/);
+    },
+  );
 });

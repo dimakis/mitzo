@@ -12,8 +12,17 @@ case "$base_image" in
     exit 2
     ;;
 esac
-case "$tag" in
-  *:latest|*:dev)
+tag_component="${tag##*/}"
+case "$tag_component" in
+  *:*) ;;
+  *)
+    echo 'output image must include an explicit unique tag' >&2
+    exit 2
+    ;;
+esac
+tag_value="${tag_component##*:}"
+case "$tag_value" in
+  ''|latest|dev)
     echo 'output tag must be unique; latest and dev are forbidden' >&2
     exit 2
     ;;

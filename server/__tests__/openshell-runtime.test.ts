@@ -40,6 +40,7 @@ describe('OpenShell runtime lifecycle', () => {
     const run = vi
       .fn()
       .mockRejectedValueOnce(new Error('sandbox not found'))
+      .mockRejectedValueOnce(new Error('sandbox not found'))
       .mockResolvedValueOnce('{}')
       .mockResolvedValueOnce(ready());
     const result = await new OpenShellRuntimeManager(config, run).ensure(
@@ -47,7 +48,7 @@ describe('OpenShell runtime lifecycle', () => {
       new AbortController().signal,
     );
     expect(result.workdir).toBe('/sandbox/workspaces/mgmt');
-    const create = run.mock.calls[1][0] as string[];
+    const create = run.mock.calls[2][0] as string[];
     expect(create).toContain('create');
     expect(create).toContain('/seed/mgmt:/sandbox/workspaces/mgmt');
     expect(create.filter((value) => value === '--provider')).toHaveLength(3);
@@ -70,6 +71,7 @@ describe('OpenShell runtime lifecycle', () => {
     const run = vi
       .fn()
       .mockRejectedValueOnce(new Error('sandbox not found'))
+      .mockRejectedValueOnce(new Error('sandbox not found'))
       .mockResolvedValueOnce('{}')
       .mockResolvedValueOnce(ready('Creating'))
       .mockResolvedValueOnce(ready('Starting'))
@@ -80,7 +82,7 @@ describe('OpenShell runtime lifecycle', () => {
         timeoutMs: 100,
       }).ensure('conversation', new AbortController().signal),
     ).resolves.toMatchObject({ workdir: '/sandbox/workspaces/mgmt' });
-    expect(run).toHaveBeenCalledTimes(5);
+    expect(run).toHaveBeenCalledTimes(6);
   });
 
   it('bounds and aborts readiness polling', async () => {
@@ -122,6 +124,50 @@ describe('OpenShell runtime lifecycle', () => {
     }).ensure('conversation', new AbortController().signal);
     expect(stopped.mock.calls[1][0]).toContain('start');
     expect(stopped.mock.calls.flat().flat()).not.toContain('create');
+  });
+
+  it('reuses a retained legacy sandbox with its original name and ownership label', async () => {
+    const legacyOwner = `${owner}b`;
+    const run = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('sandbox not found'))
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          name: 'legacy',
+          phase: 'Ready',
+          labels: {
+            'mitzo.conversation': legacyOwner,
+            'mitzo.account_provider': 'openai-work',
+          },
+        }),
+      );
+
+    await expect(
+      new OpenShellRuntimeManager(config, run).ensure('conversation', new AbortController().signal),
+    ).resolves.toMatchObject({ sandboxName: `mitzo-${legacyOwner.slice(0, 24)}` });
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(run.mock.calls.flat().flat()).not.toContain('create');
+  });
+
+  it('does not adopt a retained legacy sandbox with mismatched ownership', async () => {
+    const run = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('sandbox not found'))
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          name: 'legacy',
+          phase: 'Ready',
+          labels: {
+            'mitzo.conversation': 'different',
+            'mitzo.account_provider': 'openai-work',
+          },
+        }),
+      );
+
+    await expect(
+      new OpenShellRuntimeManager(config, run).ensure('conversation', new AbortController().signal),
+    ).rejects.toThrow('not owned');
+    expect(run).toHaveBeenCalledTimes(2);
   });
 
   it('fails closed on errored or incomplete runtimes', async () => {
@@ -317,6 +363,7 @@ describe('OpenShell runtime lifecycle', () => {
         }),
       )
       .mockRejectedValueOnce(new Error('sandbox not found'))
+      .mockRejectedValueOnce(new Error('sandbox not found'))
       .mockResolvedValueOnce('{}')
       .mockResolvedValueOnce(
         JSON.stringify({
@@ -334,7 +381,7 @@ describe('OpenShell runtime lifecycle', () => {
     );
     expect(run.mock.calls[0][0]).toContain('list');
     expect(run.mock.calls[1][0]).toContain('status');
-    expect(run.mock.calls[3][0]).toEqual(
+    expect(run.mock.calls[4][0]).toEqual(
       expect.arrayContaining([
         '--provider',
         'personal-chatgpt',
@@ -344,8 +391,8 @@ describe('OpenShell runtime lifecycle', () => {
         'gpt-test',
       ]),
     );
-    expect(run.mock.calls[3][0]).not.toContain('--detach');
-    expect(run.mock.calls[3][0]).toEqual(expect.arrayContaining(['--output', 'json']));
+    expect(run.mock.calls[4][0]).not.toContain('--detach');
+    expect(run.mock.calls[4][0]).toEqual(expect.arrayContaining(['--output', 'json']));
   });
 
   it.each([

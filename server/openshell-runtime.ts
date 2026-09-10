@@ -202,6 +202,10 @@ export function sandboxNameForConversation(conversationId: string, idLength = 13
   return `mitzo-${createHash('sha256').update(conversationId).digest('hex').slice(0, idLength)}`;
 }
 
+function legacySandboxNameForConversation(conversationHash: string) {
+  return `mitzo-${conversationHash.slice(0, 24)}`;
+}
+
 /** Owns lifecycle only. OpenShell owns process/filesystem/network enforcement and providers. */
 export class OpenShellRuntimeManager {
   private run: Run;
@@ -323,9 +327,21 @@ export class OpenShellRuntimeManager {
   async ensure(conversationId: string, signal: AbortSignal): Promise<OpenShellRuntime> {
     await this.verifyAccountProvider(signal);
     const accountProvider = this.config.account.provider;
-    const name = sandboxNameForConversation(conversationId, this.config.sandboxIdLength);
-    const owner = createHash('sha256').update(conversationId).digest('hex').slice(0, 63);
+    const conversationHash = createHash('sha256').update(conversationId).digest('hex');
+    const currentName = sandboxNameForConversation(conversationId, this.config.sandboxIdLength);
+    const currentOwner = conversationHash.slice(0, 63);
+    let name = currentName;
+    let owner = currentOwner;
     let sandbox = await this.get(name, signal);
+    if (!sandbox) {
+      const legacyName = legacySandboxNameForConversation(conversationHash);
+      const legacy = await this.get(legacyName, signal);
+      if (legacy) {
+        name = legacyName;
+        owner = conversationHash;
+        sandbox = legacy;
+      }
+    }
     if (sandbox && sandbox.labels?.['mitzo.conversation'] !== owner)
       throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
     if (sandbox && sandbox.labels?.['mitzo.account_provider'] !== accountProvider)
