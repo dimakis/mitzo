@@ -101,6 +101,10 @@ export interface SendCommandReceipt {
   error: string | null;
 }
 
+type SessionUpsert = Partial<
+  Omit<SessionMeta, 'sessionType' | 'symposiumConfig' | 'symposiumRevision'>
+> & { sessionId: string };
+
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS send_commands (
     client_msg_id TEXT PRIMARY KEY,
@@ -529,12 +533,21 @@ export class EventStore {
     }).immediate();
   }
 
-  deactivateSymposium(sessionId: string): void {
-    if (!this.getSession(sessionId)) throw new Error('Cannot deactivate an unknown session');
-    this.upsertSession({ sessionId, sessionType: 'chat', symposiumConfig: null });
+  deactivateSymposium(sessionId: string, expectedRevision: number): void {
+    const result = this.db!
+      .prepare(
+        `UPDATE sessions SET
+          session_type = 'chat', symposium_config = NULL,
+          updated_at = unixepoch('now', 'subsec') * 1000
+         WHERE session_id = ? AND session_type = 'symposium' AND symposium_revision = ?`,
+      )
+      .run(sessionId, expectedRevision);
+    if (result.changes !== 1) {
+      throw new Error('Symposium deactivation revision conflict');
+    }
   }
 
-  upsertSession(meta: Partial<SessionMeta> & { sessionId: string }): void {
+  upsertSession(meta: SessionUpsert): void {
     const existing = this.getSession(meta.sessionId);
     if (existing) {
       const fields: string[] = [];
@@ -587,18 +600,6 @@ export class EventStore {
         fields.push('account_binding = ?');
         values.push(meta.accountBinding ? JSON.stringify(meta.accountBinding) : null);
       }
-      if (meta.sessionType !== undefined) {
-        fields.push('session_type = ?');
-        values.push(meta.sessionType);
-      }
-      if (meta.symposiumConfig !== undefined) {
-        fields.push('symposium_config = ?');
-        values.push(meta.symposiumConfig);
-      }
-      if (meta.symposiumRevision !== undefined) {
-        fields.push('symposium_revision = ?');
-        values.push(meta.symposiumRevision);
-      }
       if (meta.bootContext !== undefined) {
         fields.push('boot_context = ?');
         values.push(meta.bootContext);
@@ -629,9 +630,6 @@ export class EventStore {
         'agent_name',
         'boot_context',
         'account_binding',
-        'session_type',
-        'symposium_config',
-        'symposium_revision',
       ];
       const vals: unknown[] = [
         meta.sessionId,
@@ -648,9 +646,6 @@ export class EventStore {
         meta.agentName ?? null,
         meta.bootContext ?? null,
         meta.accountBinding ? JSON.stringify(meta.accountBinding) : null,
-        meta.sessionType ?? 'chat',
-        meta.symposiumConfig ?? null,
-        meta.symposiumRevision ?? 0,
       ];
       if (meta.updatedAt !== undefined) {
         cols.push('updated_at');

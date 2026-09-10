@@ -223,7 +223,7 @@ describe('Symposium persistence', () => {
       symposiumRevision: 1,
     });
     expect(JSON.parse(store.getSession('chat')!.symposiumConfig!)).toEqual(config);
-    store.deactivateSymposium('chat');
+    store.deactivateSymposium('chat', 1);
     expect(store.getSession('chat')).toMatchObject({
       sessionType: 'chat',
       symposiumConfig: null,
@@ -247,7 +247,7 @@ describe('Symposium persistence', () => {
     expect(store.setSymposiumConfig('chat', { ...config, revision: 2 })).toMatchObject({
       revision: 2,
     });
-    store.deactivateSymposium('chat');
+    store.deactivateSymposium('chat', 2);
     expect(() => store.setSymposiumConfig('chat', config)).toThrow(
       'Symposium configuration revision must increase',
     );
@@ -268,6 +268,23 @@ describe('Symposium persistence', () => {
     );
     expect(second.getSession('chat')).toMatchObject({ symposiumRevision: 2 });
   });
+  it('atomically rejects stale deactivation from another store instance', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'symposium-deactivate-cas-'));
+    dirs.push(dir);
+    const path = join(dir, 'events.db');
+    const first = open(path);
+    const second = open(path);
+    first.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });
+    first.setSymposiumConfig('chat', config);
+    first.setSymposiumConfig('chat', { ...config, revision: 2 });
+    expect(() => second.deactivateSymposium('chat', 1)).toThrow(
+      'Symposium deactivation revision conflict',
+    );
+    expect(second.getSession('chat')).toMatchObject({
+      sessionType: 'symposium',
+      symposiumRevision: 2,
+    });
+  });
   it('adds and removes Symposium on the same session without losing history or account binding', () => {
     const store = open();
     store.upsertSession({
@@ -277,18 +294,14 @@ describe('Symposium persistence', () => {
     });
     const seq = store.append('chat', 'user_message', { text: 'Original objective' });
     expect(store.getSession('chat')).toMatchObject({ sessionType: 'chat', symposiumConfig: null });
-    store.upsertSession({
-      sessionId: 'chat',
-      sessionType: 'symposium',
-      symposiumConfig: JSON.stringify(config),
-    });
+    store.setSymposiumConfig('chat', config);
     store.upsertSession({ sessionId: 'chat', summary: 'Updated title' });
     expect(store.getSession('chat')).toMatchObject({
       sessionType: 'symposium',
-      symposiumConfig: JSON.stringify(config),
       accountBinding: config.seats[0].accountBinding,
     });
-    store.upsertSession({ sessionId: 'chat', sessionType: 'chat', symposiumConfig: null });
+    expect(JSON.parse(store.getSession('chat')!.symposiumConfig!)).toEqual(config);
+    store.deactivateSymposium('chat', 1);
     expect(store.getSession('chat')).toMatchObject({ sessionType: 'chat', symposiumConfig: null });
     expect(store.getSessionEvents('chat')).toMatchObject([
       { seq, payload: { text: 'Original objective' } },
@@ -299,16 +312,13 @@ describe('Symposium persistence', () => {
     dirs.push(dir);
     const path = join(dir, 'events.db');
     const store = open(path);
-    store.upsertSession({
-      sessionId: 'chat',
-      sessionType: 'symposium',
-      symposiumConfig: JSON.stringify(config),
-    });
+    store.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });
+    store.setSymposiumConfig('chat', config);
     const first = store.append('chat', 'message_start', { messageId: 'm1', seatId: 'reviewer' });
     store.append('chat', 'user_message', { text: 'Next' });
     stores.pop()!.close();
     const reopened = open(path);
-    expect(reopened.getSession('chat')).toMatchObject({ symposiumConfig: JSON.stringify(config) });
+    expect(JSON.parse(reopened.getSession('chat')!.symposiumConfig!)).toEqual(config);
     expect(reopened.getSessionEvents('chat')[0]).toMatchObject({
       seatId: 'reviewer',
       payload: { seatId: 'reviewer' },
