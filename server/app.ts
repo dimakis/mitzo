@@ -96,6 +96,7 @@ import {
   discardInboxItem,
   createInboxItem,
 } from './inbox.js';
+import { getLatestMorningBriefing } from './briefings.js';
 import { registerToken, removeToken, setTokenStorePath } from './apns.js';
 import { SkillRegistry } from './skills.js';
 import type { SkillWatcher } from './skill-watcher.js';
@@ -1740,6 +1741,15 @@ app.put('/api/files/write', (req, res) => {
 });
 
 // --- Inbox API ---
+
+app.get('/api/briefings/latest', (req, res) => {
+  const date = typeof req.query.date === 'string' ? req.query.date : '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+    return;
+  }
+  res.json(getLatestMorningBriefing(BASE_REPO, date));
+});
 
 app.get('/api/inbox', (_req, res) => {
   const inboxPath = getRepoConfig().resolvedInboxPath;

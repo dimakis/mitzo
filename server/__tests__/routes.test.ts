@@ -145,6 +145,7 @@ async function getAuthCookie(agent: request.Agent): Promise<string> {
 }
 
 const INBOX_DIR = join(TEST_REPO, 'mgmt_lib', 'inbox');
+const BRIEFINGS_DIR = join(TEST_REPO, 'command_center', 'briefings');
 const SAMPLE_INBOX_ITEM = `---
 agent: troubadour
 timestamp: 2026-04-03T15:41:49
@@ -163,7 +164,9 @@ beforeAll(async () => {
   mkdirSync(join(TEST_REPO, 'subdir'), { recursive: true });
   writeFileSync(join(TEST_REPO, 'subdir', 'nested.txt'), 'nested content');
   mkdirSync(join(INBOX_DIR, 'archive'), { recursive: true });
+  mkdirSync(BRIEFINGS_DIR, { recursive: true });
   writeFileSync(join(INBOX_DIR, '20260403_154149_01_troubadour.md'), SAMPLE_INBOX_ITEM);
+  writeFileSync(join(BRIEFINGS_DIR, 'morning_2026-09-10_0830.md'), '# Morning briefing');
 
   process.env.NTFY_AUTH_TOKEN = 'test-ntfy-token';
 
@@ -769,6 +772,31 @@ describe('file routes', () => {
 });
 
 // --- Inbox Routes ---
+
+describe('briefing routes', () => {
+  it('GET /api/briefings/latest returns today’s saved morning briefing', async () => {
+    const res = await request(app)
+      .get('/api/briefings/latest')
+      .query({ date: '2026-09-10' })
+      .set('Cookie', authCookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      filename: 'morning_2026-09-10_0830.md',
+      date: '2026-09-10',
+      path: join(BRIEFINGS_DIR, 'morning_2026-09-10_0830.md'),
+    });
+  });
+
+  it('GET /api/briefings/latest rejects an invalid date', async () => {
+    const res = await request(app)
+      .get('/api/briefings/latest')
+      .query({ date: 'today' })
+      .set('Cookie', authCookie);
+
+    expect(res.status).toBe(400);
+  });
+});
 
 describe('inbox routes', () => {
   it('GET /api/inbox — returns inbox items', async () => {
