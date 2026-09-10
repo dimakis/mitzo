@@ -124,10 +124,20 @@ export function loadRepoConfig(
   const resolvedInboxPath = inboxPath ? join(repoPath, inboxPath) : '';
 
   const repos: Record<string, string> = {};
-  const ceiling = options.pathCeiling ? realpathSync(options.pathCeiling) : undefined;
+  let ceiling: string | undefined;
+  let invalidCeiling = false;
+  if (options.pathCeiling) {
+    try {
+      ceiling = realpathSync(options.pathCeiling);
+    } catch {
+      invalidCeiling = true;
+      log.warn('Configured repository path ceiling does not exist; rejecting all repositories');
+    }
+  }
   if (obj.repos && typeof obj.repos === 'object' && !Array.isArray(obj.repos)) {
     for (const [name, path] of Object.entries(obj.repos as Record<string, unknown>)) {
       if (typeof path !== 'string') continue;
+      if (invalidCeiling) continue;
       if (!existsSync(path)) {
         log.warn(`repos.${name}: path does not exist: ${path}`);
         continue;

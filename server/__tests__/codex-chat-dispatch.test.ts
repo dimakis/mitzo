@@ -275,6 +275,35 @@ it('fails closed for unsupported account providers when OpenShell is enabled', a
   }
 });
 
+it('fails closed for unbound legacy starts when OpenShell is enabled', async () => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-openshell-unbound-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  const chat = await import('../chat.js');
+  const send = vi.fn();
+  try {
+    await chat.startChat({ send, isOpen: () => true }, 'unbound', 'hello', {
+      cwd: root,
+      isolation: false,
+    });
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'error',
+        error: expect.stringContaining('explicit account selection'),
+      }),
+    );
+    expect(query).not.toHaveBeenCalled();
+    expect(openResponsesChat).not.toHaveBeenCalled();
+    expect(openCodexChat).not.toHaveBeenCalled();
+  } finally {
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 vi.mock('google-auth-library', () => ({
   GoogleAuth: class {
     async getAccessToken() {

@@ -632,6 +632,10 @@ function buildTaskPromptForSession(clientId: string): string {
   return buildTaskSystemPrompt(_taskStore, session.taskContext.currentTaskId);
 }
 
+export function supportsHostTaskTools(openShellSelected: boolean): boolean {
+  return !openShellSelected;
+}
+
 /**
  * Build system prompt section listing all session worktrees.
  * Lists ALL repos including primary so the agent has a complete lookup table
@@ -860,6 +864,8 @@ async function _startChatInner(
       options.accountProfiles ??
       (options.accountId || storedBinding ? loadAccountProfiles() : undefined);
     accountBinding = resolveAccountSelection(options, storedBinding, !!options.resume, profiles);
+    if (!accountBinding && process.env.MITZO_OPENSHELL_ENABLED === '1')
+      throw new Error('OpenShell execution requires an explicit account selection');
     if (accountBinding) {
       if (
         process.env.MITZO_OPENSHELL_ENABLED === '1' &&
@@ -1127,7 +1133,7 @@ async function _startChatInner(
   }
 
   // Merge dynamic MCP servers (task board if active)
-  const taskMcp = buildTaskMcpServer(clientId);
+  const taskMcp = supportsHostTaskTools(openShellSelected) ? buildTaskMcpServer(clientId) : null;
   const allMcpServers = { ...mcpServers, ...taskMcp };
 
   // Load project hooks from .claude/settings.json (e.g. SessionStart boot context)
@@ -1183,7 +1189,7 @@ async function _startChatInner(
     '- Keep responses concise — small screen.\n' +
     '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.' +
     workspacePrompt +
-    buildTaskPromptForSession(clientId) +
+    (supportsHostTaskTools(openShellSelected) ? buildTaskPromptForSession(clientId) : '') +
     bootContextAppend;
 
   // Fire-and-forget: load agent definition and store in session registry.

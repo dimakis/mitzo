@@ -54,6 +54,12 @@ describe('OpenShell workspace prompt', () => {
     expect(prompt).not.toContain('/private/tmp');
     expect(prompt).toContain('Host worktree paths');
   });
+
+  it('does not advertise host-only task tools inside OpenShell', async () => {
+    const { supportsHostTaskTools } = await import('../chat.js');
+    expect(supportsHostTaskTools(true)).toBe(false);
+    expect(supportsHostTaskTools(false)).toBe(true);
+  });
 });
 
 describe('getSessions', () => {
