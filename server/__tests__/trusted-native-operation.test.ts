@@ -211,7 +211,7 @@ describe('trusted native Git operation', () => {
     await writeFile(join(worktree, 'approved.txt'), 'approved');
     await expect(
       executeTrustedGitCommit(worktree, ['approved.txt'], 'blocked', new AbortController().signal),
-    ).rejects.toThrow('ref and reflog parents must be real');
+    ).rejects.toThrow('ref and reflog paths must be real');
     await expect(readFile(join(outside, 'branch.lock'))).rejects.toThrow();
   });
 

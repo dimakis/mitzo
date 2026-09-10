@@ -140,7 +140,7 @@ async function requireRealDirectoryChain(root: string, directory: string) {
     current = join(current, component);
     const info = await lstat(current);
     if (!info.isDirectory() || (await realpath(current)) !== current)
-      throw new Error('Git ref and reflog parents must be real metadata directories');
+      throw new Error('Git ref and reflog paths must be real metadata entries');
   }
 }
 
@@ -150,7 +150,7 @@ async function requireRealFileIfPresent(path: string) {
     return null;
   });
   if (info && (!info.isFile() || (await realpath(path)) !== path))
-    throw new Error('Git refs and reflogs must be real metadata files');
+    throw new Error('Git ref and reflog paths must be real metadata entries');
 }
 
 async function validateRefUpdatePaths(common: string, branch: string) {
