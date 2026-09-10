@@ -148,12 +148,13 @@ export async function openCodexChat(options: Options) {
   const signal = options.session.abortController.signal;
   signal.throwIfAborted();
   const privateStorage = store();
-  const { hooks, dispose } = createNativeHooks(
-    options.session.cwd!,
-    options.conversationId,
-    options.env,
-    { trustProjectHooks: process.env.MITZO_TRUST_PROJECT_HOOKS === '1' },
-  );
+  const hookRuntime = openShell
+    ? undefined
+    : createNativeHooks(options.session.cwd!, options.conversationId, options.env, {
+        trustProjectHooks: process.env.MITZO_TRUST_PROJECT_HOOKS === '1',
+      });
+  const hooks = hookRuntime?.hooks;
+  const dispose = hookRuntime?.dispose ?? (() => {});
   let startup: { context?: string };
   try {
     if (runtimeManager) {
@@ -161,11 +162,9 @@ export async function openCodexChat(options: Options) {
       options.onBootContext?.(context);
       startup = { context: context.fullMarkdown };
     } else {
-      startup = await hooks.run(
-        'SessionStart',
-        { source: options.resume ? 'resume' : 'startup' },
-        signal,
-      );
+      startup = hooks
+        ? await hooks.run('SessionStart', { source: options.resume ? 'resume' : 'startup' }, signal)
+        : {};
     }
   } catch (error) {
     dispose();
@@ -193,10 +192,12 @@ export async function openCodexChat(options: Options) {
   function finish() {
     if (closed) return;
     closed = true;
-    void hooks
-      .run('SessionEnd', { reason: 'other' }, AbortSignal.timeout(5000))
-      .catch(() => {})
-      .finally(dispose);
+    if (hooks)
+      void hooks
+        .run('SessionEnd', { reason: 'other' }, AbortSignal.timeout(5000))
+        .catch(() => {})
+        .finally(dispose);
+    else dispose();
     signal.removeEventListener('abort', close);
     events.close();
     void mcp.close();
@@ -215,7 +216,7 @@ export async function openCodexChat(options: Options) {
         : HOST_TOOL_INSTRUCTIONS) +
       (startup.context ? `\n\n${startup.context}` : ''),
     beforeComplete: async (signal) => {
-      await hooks.run('Stop', { stop_hook_active: false }, signal);
+      await hooks?.run('Stop', { stop_hook_active: false }, signal);
     },
     validateModel: (model, reasoningEffort) => {
       const entry = loadAccountProfiles()
@@ -261,7 +262,7 @@ export async function openCodexChat(options: Options) {
       return requestCodexUserInput(params, signal, owner.clientId, options.registry);
     },
     executeTool: async (name, input, signal) =>
-      hooks.executeTool(mcp.displayName(name), input, signal, async (input, forcePrompt) => {
+      hooks?.executeTool(mcp.displayName(name), input, signal, async (input, forcePrompt) => {
         const owner = options.registry.findBySessionId(options.conversationId);
         if (!owner) throw new Error('Codex session unavailable');
         if (mcp.definitions.some((t) => t.name === name))
@@ -285,7 +286,7 @@ export async function openCodexChat(options: Options) {
         });
         const result = await execute({ type: 'tool_use', id: randomUUID(), name, input }, signal);
         return { content: result.content, isError: !!result.is_error };
-      }),
+      }) ?? Promise.reject(new Error('Host tools are unavailable inside OpenShell')),
     onQueueChange: () => {
       const message = {
         type: 'codex_queue',

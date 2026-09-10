@@ -1,4 +1,7 @@
 import { expect, it, vi } from 'vitest';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 const mocks = vi.hoisted(() => ({
   initialize: vi.fn(),
   close: vi.fn(),
@@ -138,6 +141,33 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
   expect(mocks.conversationOptions?.runtimeConfig).toEqual({ web_search: 'disabled' });
   expect(mocks.connect).not.toHaveBeenCalled();
   vi.unstubAllEnvs();
+});
+
+it('never loads trusted project hooks on the host for OpenShell sessions', async () => {
+  vi.clearAllMocks();
+  const cwd = mkdtempSync(join(tmpdir(), 'mitzo-openshell-hooks-'));
+  const marker = join(cwd, 'host-hook-ran');
+  mkdirSync(join(cwd, '.claude'));
+  writeFileSync(
+    join(cwd, '.claude', 'settings.json'),
+    JSON.stringify({
+      hooks: {
+        SessionStart: [{ hooks: [{ type: 'command', command: `touch ${marker}` }] }],
+      },
+    }),
+  );
+  vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', 'sandbox');
+  vi.stubEnv('MITZO_TRUST_PROJECT_HOOKS', '1');
+  try {
+    await openCodexChat({
+      ...options(new AbortController()),
+      session: { ...options(new AbortController()).session, cwd },
+    });
+    expect(existsSync(marker)).toBe(false);
+  } finally {
+    vi.unstubAllEnvs();
+    rmSync(cwd, { recursive: true, force: true });
+  }
 });
 
 it('fails closed instead of substituting API billing for a ChatGPT subscription in OpenShell', async () => {

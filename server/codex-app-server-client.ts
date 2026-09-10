@@ -2,7 +2,7 @@ import { applicationVersion } from './application-version.js';
 import { spawn } from 'node:child_process';
 import type { EventEmitter } from 'node:events';
 import type { Readable, Writable } from 'node:stream';
-import { isAbsolute } from 'node:path';
+import { isAbsolute, posix } from 'node:path';
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
 
 type JsonObject = Record<string, unknown>;
@@ -38,7 +38,8 @@ export function openShellCodexProcessSpec(
 ) {
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(options.sandboxName))
     throw new Error('Invalid OpenShell sandbox name');
-  if (!options.workdir.startsWith('/sandbox/workspaces/'))
+  const workdir = posix.resolve(options.workdir);
+  if (workdir === '/sandbox/workspaces' || !workdir.startsWith('/sandbox/workspaces/'))
     throw new Error('OpenShell workdir must be inside /sandbox/workspaces');
   const env: Record<string, string> = {};
   for (const key of [

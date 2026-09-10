@@ -233,6 +233,12 @@ describe('Codex app-server transport', () => {
     expect(() => openShellCodexProcessSpec({ sandboxName: 'safe', workdir: '/host/path' })).toThrow(
       /workdir/i,
     );
+    expect(() =>
+      openShellCodexProcessSpec({
+        sandboxName: 'safe',
+        workdir: '/sandbox/workspaces/../other',
+      }),
+    ).toThrow(/workdir/i);
   });
 
   it('terminates the SSH proxy process group on close', () => {

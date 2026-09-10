@@ -232,6 +232,49 @@ it('routes API accounts through OpenShell in production without resolving host c
   }
 });
 
+it('fails closed for unsupported account providers when OpenShell is enabled', async () => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-openshell-unsupported-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  const chat = await import('../chat.js');
+  const profiles = new AccountProfiles([
+    {
+      id: 'vertex',
+      label: 'Vertex',
+      provider: 'google-vertex',
+      projectId: 'synthetic',
+      region: 'global',
+      credentialRef: '/must/not/be/read.json',
+      models: [{ id: 'gemini-test', label: 'Gemini test' }],
+    },
+  ]);
+  const send = vi.fn();
+  try {
+    await chat.startChat({ send, isOpen: () => true }, 'unsupported', 'hello', {
+      cwd: root,
+      isolation: false,
+      accountId: 'vertex',
+      model: 'gemini-test',
+      accountProfiles: profiles,
+    });
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'error',
+        error: expect.stringContaining('does not yet support google-vertex'),
+      }),
+    );
+    expect(openResponsesChat).not.toHaveBeenCalled();
+    expect(openCodexChat).not.toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalled();
+  } finally {
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 vi.mock('google-auth-library', () => ({
   GoogleAuth: class {
     async getAccessToken() {

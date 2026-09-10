@@ -861,6 +861,14 @@ async function _startChatInner(
       (options.accountId || storedBinding ? loadAccountProfiles() : undefined);
     accountBinding = resolveAccountSelection(options, storedBinding, !!options.resume, profiles);
     if (accountBinding) {
+      if (
+        process.env.MITZO_OPENSHELL_ENABLED === '1' &&
+        accountBinding.provider !== 'openai' &&
+        accountBinding.provider !== 'openai-codex'
+      )
+        throw new Error(
+          `OpenShell execution does not yet support ${accountBinding.provider} accounts`,
+        );
       options = {
         ...options,
         model:
