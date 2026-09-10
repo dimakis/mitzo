@@ -3,6 +3,7 @@
     "id": "openshell-work-api",
     "label": "OpenShell · Work API",
     "provider": "openai",
+    "sandboxProvider": "mitzo-openai-keychain-spike",
     "credentialRef": {
       "provider": "keychain",
       "service": "com.mitzo.openai",

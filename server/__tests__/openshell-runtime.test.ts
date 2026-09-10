@@ -15,10 +15,15 @@ const config = {
   gateway: 'local',
   workdir: '/sandbox/workspaces/mgmt',
   webSearch: 'disabled' as const,
+  accountProvider: 'openai-work',
 };
 const owner = '8b34dbc2c05eb4d7e25d48efeace82456b16cee760bcae80c157f52a3c2e787b';
 const ready = (phase = 'Ready') =>
-  JSON.stringify({ name: 'sandbox', phase, labels: { 'mitzo.conversation': owner } });
+  JSON.stringify({
+    name: 'sandbox',
+    phase,
+    labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+  });
 
 describe('OpenShell runtime lifecycle', () => {
   it('derives a stable non-revealing sandbox identity', () => {
@@ -41,6 +46,7 @@ describe('OpenShell runtime lifecycle', () => {
     expect(create).toContain('create');
     expect(create).toContain('/seed/mgmt:/sandbox/workspaces/mgmt');
     expect(create.filter((value) => value === '--provider')).toHaveLength(3);
+    expect(create).toContain('mitzo.account_provider=openai-work');
     expect(create).not.toContain('auto-providers');
   });
 
@@ -114,13 +120,32 @@ describe('OpenShell runtime lifecycle', () => {
       JSON.stringify({
         name: 'sandbox',
         phase: 'Ready',
-        labels: { 'mitzo.conversation': 'different' },
+        labels: {
+          'mitzo.conversation': 'different',
+          'mitzo.account_provider': 'openai-work',
+        },
       }),
     );
     await expect(
       new OpenShellRuntimeManager(config, run).ensure('conversation', new AbortController().signal),
     ).rejects.toThrow('not owned');
     expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reuse a sandbox bound to another API provider', async () => {
+    const run = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        name: 'sandbox',
+        phase: 'Ready',
+        labels: {
+          'mitzo.conversation': owner,
+          'mitzo.account_provider': 'openai-other',
+        },
+      }),
+    );
+    await expect(
+      new OpenShellRuntimeManager(config, run).ensure('conversation', new AbortController().signal),
+    ).rejects.toThrow('another account provider');
   });
 
   it('compiles launch context against the exact sandbox workspace', async () => {

@@ -149,6 +149,7 @@ it('routes API accounts through the referenced secret store without passing keys
       label: 'Work',
       provider: 'openai',
       credentialRef: ref,
+      sandboxProvider: 'openai-work',
       models: [{ id: 'test', label: 'Test' }],
     },
   ]);
@@ -192,6 +193,7 @@ it('routes API accounts through OpenShell in production without resolving host c
       label: 'Work',
       provider: 'openai',
       credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
+      sandboxProvider: 'openai-work',
       models: [{ id: 'test', label: 'Test' }],
     },
   ]);
@@ -226,6 +228,7 @@ it('routes API accounts through OpenShell in production without resolving host c
     expect(registerSession).not.toHaveBeenCalled();
     const options = vi.mocked(openCodexChat).mock.calls[0][0];
     expect(options.profile.planType).toBe('api');
+    expect(options.profile.sandboxProvider).toBe('openai-work');
     expect(options.session.cwd).toBe('/sandbox/workspaces/mgmt');
     expect(options.systemPrompt).toContain('/sandbox/workspaces/mgmt');
     expect(options.systemPrompt).not.toContain(root);

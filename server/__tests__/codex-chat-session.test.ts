@@ -234,3 +234,19 @@ it('rejects managed OpenShell subscription profiles before provisioning a sandbo
     vi.unstubAllEnvs();
   }
 });
+
+it('rejects managed OpenShell API profiles without an account provider binding', async () => {
+  vi.clearAllMocks();
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_IMAGE', 'mitzo-runtime:1');
+  vi.stubEnv('MITZO_OPENSHELL_POLICY', '/config/policy.yaml');
+  vi.stubEnv('MITZO_OPENSHELL_SEED', '/seed/mgmt');
+  try {
+    await expect(openCodexChat(options(new AbortController()))).rejects.toThrow(
+      'sandbox provider binding',
+    );
+    expect(mocks.initialize).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});

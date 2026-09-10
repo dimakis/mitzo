@@ -44,6 +44,10 @@ export interface OpenShellRuntimeConfig {
   webSearch: 'disabled' | 'live';
 }
 
+export interface BoundOpenShellRuntimeConfig extends OpenShellRuntimeConfig {
+  accountProvider: string;
+}
+
 type Run = (args: readonly string[], signal: AbortSignal) => Promise<string>;
 
 function command(args: readonly string[], signal: AbortSignal): Promise<string> {
@@ -129,7 +133,7 @@ export function sandboxNameForConversation(conversationId: string) {
 /** Owns lifecycle only. OpenShell owns process/filesystem/network enforcement and providers. */
 export class OpenShellRuntimeManager {
   constructor(
-    private config: OpenShellRuntimeConfig,
+    private config: BoundOpenShellRuntimeConfig,
     private run: Run = command,
     private readiness: { pollIntervalMs: number; timeoutMs: number } = {
       pollIntervalMs: 250,
@@ -177,6 +181,8 @@ export class OpenShellRuntimeManager {
       phase = sandbox?.phase ?? 'unavailable';
       if (sandbox && sandbox.labels?.['mitzo.conversation'] !== owner)
         throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
+      if (sandbox && sandbox.labels?.['mitzo.account_provider'] !== this.config.accountProvider)
+        throw new Error(`OpenShell sandbox ${name} has another account provider binding`);
       if (sandbox?.phase === 'Ready') return sandbox;
       if (sandbox?.phase === 'Error') throw new Error(`OpenShell sandbox ${name} is Error`);
       await this.delay(signal);
@@ -190,6 +196,8 @@ export class OpenShellRuntimeManager {
     let sandbox = await this.get(name, signal);
     if (sandbox && sandbox.labels?.['mitzo.conversation'] !== owner)
       throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
+    if (sandbox && sandbox.labels?.['mitzo.account_provider'] !== this.config.accountProvider)
+      throw new Error(`OpenShell sandbox ${name} has another account provider binding`);
     if (!sandbox) {
       const args = [
         'sandbox',
@@ -205,6 +213,8 @@ export class OpenShellRuntimeManager {
         `${this.config.seed}:${this.config.workdir}`,
         '--label',
         `mitzo.conversation=${owner}`,
+        '--label',
+        `mitzo.account_provider=${this.config.accountProvider}`,
         '--no-auto-providers',
         '--detach',
       ];

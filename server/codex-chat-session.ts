@@ -119,11 +119,14 @@ interface Options {
 export async function openCodexChat(options: Options) {
   const configuredRuntime = openShellRuntimeConfig(process.env);
   const openShellName = process.env.MITZO_OPENSHELL_SANDBOX_NAME;
+  const accountProvider = options.profile.sandboxProvider;
   const openShellRequested = !!configuredRuntime || !!openShellName;
   if (openShellRequested && options.profile.planType !== 'api')
     throw new Error(
       'ChatGPT subscription execution inside OpenShell requires supported brokered Codex OAuth; API billing substitution is forbidden.',
     );
+  if (configuredRuntime && !accountProvider)
+    throw new Error('OpenShell API accounts require an explicit sandbox provider binding.');
   if (openShellRequested && options.session.mode === 'ask')
     throw new Error(
       'OpenShell native tools do not yet support Mitzo Ask mode; select Agent or Auto mode.',
@@ -131,6 +134,7 @@ export async function openCodexChat(options: Options) {
   const runtimeManager = configuredRuntime
     ? new OpenShellRuntimeManager({
         ...configuredRuntime,
+        accountProvider: accountProvider!,
         providers: [
           ...new Set([
             ...configuredRuntime.providers,

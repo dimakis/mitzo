@@ -933,6 +933,7 @@ async function _startChatInner(
       } else if (accountBinding.provider === 'openai') {
         if (options.images?.length)
           throw new Error('OpenAI API image attachments are not yet supported');
+        const profile = profiles!.apiProfile(accountBinding);
         if (
           process.env.MITZO_OPENSHELL_ENABLED === '1' ||
           process.env.MITZO_OPENSHELL_SANDBOX_NAME
@@ -943,9 +944,10 @@ async function _startChatInner(
             credentialRef: '/sandbox/.codex',
             email: 'openshell-api@invalid',
             planType: 'api',
+            sandboxProvider: profile.sandboxProvider,
             model: accountBinding.model,
           };
-        } else apiKey = await credentials.resolve(profiles!.apiCredential(accountBinding));
+        } else apiKey = await credentials.resolve(profile.credentialRef);
         accountEnv = Object.fromEntries(
           ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
             process.env[key] ? [[key, process.env[key]!]] : [],

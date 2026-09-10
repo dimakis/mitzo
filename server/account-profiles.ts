@@ -45,6 +45,7 @@ const ApiProfile = z
     label: z.string().min(1),
     provider: z.literal('openai'),
     credentialRef: CredentialReferenceSchema,
+    sandboxProvider: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/),
     models: z.array(z.object({ id: z.string().min(1), label: z.string().min(1) }).strict()).min(1),
   })
   .strict();
@@ -194,7 +195,7 @@ export class AccountProfiles {
                 profile.sandboxProvider,
               ]
             : profile.provider === 'openai'
-              ? [profile.provider, profile.credentialRef]
+              ? [profile.provider, profile.credentialRef, profile.sandboxProvider]
               : [profile.provider, profile.projectId, profile.region, profile.credentialRef],
         ),
       )
@@ -253,10 +254,17 @@ export class AccountProfiles {
   }
 
   apiCredential(binding: AccountBinding) {
+    return this.apiProfile(binding).credentialRef;
+  }
+
+  apiProfile(binding: AccountBinding) {
     this.resume(binding);
     const profile = this.profiles.find((p) => p.id === binding.accountId);
     if (!profile || profile.provider !== 'openai') throw new Error('Not an OpenAI API account');
-    return profile.credentialRef;
+    return {
+      credentialRef: profile.credentialRef,
+      sandboxProvider: profile.sandboxProvider,
+    };
   }
 
   sdkEnv(binding: AccountBinding, base: Record<string, string>): Record<string, string> {

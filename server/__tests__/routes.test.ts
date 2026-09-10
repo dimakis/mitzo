@@ -1026,6 +1026,7 @@ describe('account catalog routes', () => {
           label: 'API',
           provider: 'openai',
           credentialRef: { provider: 'keychain', service: 'test', account: 'test' },
+          sandboxProvider: 'openai-test',
           models: [{ id: 'gpt-test', label: 'GPT' }],
         },
       ]),
