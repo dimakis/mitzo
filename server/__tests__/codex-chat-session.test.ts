@@ -189,3 +189,30 @@ it('fails closed instead of substituting API billing for a ChatGPT subscription 
   expect(mocks.initialize).not.toHaveBeenCalled();
   vi.unstubAllEnvs();
 });
+
+it('rejects managed OpenShell subscription profiles before provisioning a sandbox', async () => {
+  vi.clearAllMocks();
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_IMAGE', 'mitzo-runtime:1');
+  vi.stubEnv('MITZO_OPENSHELL_POLICY', '/config/policy.yaml');
+  vi.stubEnv('MITZO_OPENSHELL_SEED', '/seed/mgmt');
+  try {
+    await expect(
+      openCodexChat({
+        ...options(new AbortController()),
+        profile: {
+          accountId: 'personal',
+          accountLabel: 'Personal ChatGPT',
+          credentialRef: '/test/login',
+          email: 'test@example.invalid',
+          planType: 'pro',
+          model: 'test-model',
+          sandboxProvider: 'personal-chatgpt',
+        },
+      }),
+    ).rejects.toThrow('brokered Codex OAuth');
+    expect(mocks.initialize).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});

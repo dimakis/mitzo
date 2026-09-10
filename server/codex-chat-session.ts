@@ -118,6 +118,11 @@ interface Options {
 /** Shared chat adapter. Execution remains gated by the account catalog and unsupported capabilities fail explicitly. */
 export async function openCodexChat(options: Options) {
   const configuredRuntime = openShellRuntimeConfig(process.env);
+  const openShellName = process.env.MITZO_OPENSHELL_SANDBOX_NAME;
+  if ((configuredRuntime || openShellName) && options.profile.planType !== 'api')
+    throw new Error(
+      'ChatGPT subscription execution inside OpenShell requires supported brokered Codex OAuth; API billing substitution is forbidden.',
+    );
   const runtimeManager = configuredRuntime
     ? new OpenShellRuntimeManager({
         ...configuredRuntime,
@@ -132,7 +137,6 @@ export async function openCodexChat(options: Options) {
   const managedOpenShell = runtimeManager
     ? await runtimeManager.ensure(options.conversationId, options.session.abortController.signal)
     : undefined;
-  const openShellName = process.env.MITZO_OPENSHELL_SANDBOX_NAME;
   const openShell =
     managedOpenShell ??
     (openShellName
@@ -141,10 +145,6 @@ export async function openCodexChat(options: Options) {
           workdir: process.env.MITZO_OPENSHELL_WORKDIR || '/sandbox/workspaces/mgmt',
         }
       : undefined);
-  if (openShell && !managedOpenShell && options.profile.planType !== 'api')
-    throw new Error(
-      'ChatGPT subscription execution inside OpenShell requires supported brokered Codex OAuth; API billing substitution is forbidden.',
-    );
   const signal = options.session.abortController.signal;
   signal.throwIfAborted();
   const privateStorage = store();
