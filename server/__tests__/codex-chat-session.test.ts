@@ -30,7 +30,11 @@ vi.mock('../codex-private-path.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../codex-private-path.js')>()),
   codexPrivateDirectory: () => '/tmp',
 }));
-import { openCodexChat, waitForCodexRuntime } from '../codex-chat-session.js';
+import {
+  openCodexChat,
+  waitForCodexRuntime,
+  waitForCodexRuntimeBySessionId,
+} from '../codex-chat-session.js';
 function options(abortController: AbortController) {
   return { session: { cwd: '/tmp', abortController }, mcpServers: {} } as Parameters<
     typeof openCodexChat
@@ -72,6 +76,22 @@ it('waits for cold-reconnect runtime registration', async () => {
   await vi.waitFor(() => expect(release).toBeTypeOf('function'));
   release();
   await opening;
+  expect(await waiting).toBeDefined();
+  abort.abort();
+});
+
+it('waits for the reconnect session and runtime to both register', async () => {
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const registry = {
+    findBySessionId: vi.fn(() => undefined),
+  } as unknown as import('@mitzo/harness').SessionRegistry;
+  const abort = new AbortController();
+  const opts = options(abort);
+  const waiting = waitForCodexRuntimeBySessionId(registry, 'session', 1000);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  registry.findBySessionId = vi.fn(() => ({ session: opts.session, clientId: 'client' }));
+  await openCodexChat(opts);
   expect(await waiting).toBeDefined();
   abort.abort();
 });
