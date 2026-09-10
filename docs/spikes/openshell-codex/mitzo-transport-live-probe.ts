@@ -16,7 +16,9 @@ const developerInstructions = instructionArtifact
 const prompt =
   process.env.MITZO_OPENSHELL_PROBE_PROMPT ??
   'Use a shell command to create mitzo-transport-marker.txt containing exactly MITZO_OPENSHELL_TRANSPORT=pass, then reply done.';
-const normalShape = new Set((process.env.MITZO_OPENSHELL_NORMAL_SHAPE ?? '').split(',').filter(Boolean));
+const normalShape = new Set(
+  (process.env.MITZO_OPENSHELL_NORMAL_SHAPE ?? '').split(',').filter(Boolean),
+);
 let threadId = '';
 let complete!: () => void;
 const finished = new Promise<void>((resolve) => (complete = resolve));

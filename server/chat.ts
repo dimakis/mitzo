@@ -919,9 +919,8 @@ async function _startChatInner(
         if (options.images?.length)
           throw new Error('OpenAI API image attachments are not yet supported');
         if (
-          (process.env.MITZO_OPENSHELL_ENABLED === '1' ||
-            process.env.MITZO_OPENSHELL_SANDBOX_NAME) &&
-          process.env.NODE_ENV !== 'production'
+          process.env.MITZO_OPENSHELL_ENABLED === '1' ||
+          process.env.MITZO_OPENSHELL_SANDBOX_NAME
         ) {
           codexProfile = {
             accountId: accountBinding.accountId,
@@ -1153,9 +1152,10 @@ async function _startChatInner(
   }
 
   // Build the system prompt append string (used by both query and comparison)
-  const openShellWorkdir = process.env.MITZO_OPENSHELL_SANDBOX_NAME
-    ? process.env.MITZO_OPENSHELL_WORKDIR || '/sandbox/workspaces/mgmt'
-    : undefined;
+  const openShellWorkdir =
+    process.env.MITZO_OPENSHELL_ENABLED === '1' || process.env.MITZO_OPENSHELL_SANDBOX_NAME
+      ? process.env.MITZO_OPENSHELL_WORKDIR || '/sandbox/workspaces/mgmt'
+      : undefined;
   const workspacePrompt = openShellWorkdir
     ? buildOpenShellWorkspaceSystemPrompt(openShellWorkdir, wtId)
     : buildWorktreeSystemPrompt(repoWorktrees);

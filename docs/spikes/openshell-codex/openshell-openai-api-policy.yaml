@@ -12,7 +12,13 @@ network_policies:
   openai_api:
     name: openai-api-inspected
     endpoints:
-      - { host: api.openai.com, port: 443, protocol: rest, enforcement: enforce, access: read-write }
+      - {
+          host: api.openai.com,
+          port: 443,
+          protocol: rest,
+          enforcement: enforce,
+          access: read-write,
+        }
     binaries:
       - { path: /usr/bin/curl }
       - { path: /usr/bin/codex }

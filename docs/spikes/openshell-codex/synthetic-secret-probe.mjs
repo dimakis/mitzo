@@ -2,7 +2,9 @@ import { readFileSync } from 'node:fs';
 
 const canary = 'synthetic-access-token-not-real';
 const surfaces = [
-  Object.entries(process.env).map(([key, value]) => `${key}=${value}`).join('\n'),
+  Object.entries(process.env)
+    .map(([key, value]) => `${key}=${value}`)
+    .join('\n'),
   readFileSync('/proc/self/environ').toString(),
 ];
 if (surfaces.some((surface) => surface.includes(canary))) {

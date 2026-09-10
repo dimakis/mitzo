@@ -96,7 +96,9 @@ const completed = new Promise((resolve, reject) => {
                 { method: 'POST', headers: auth },
               );
               if (!continued.ok)
-                throw new Error(`queue continue failed: ${continued.status} ${await continued.text()}`);
+                throw new Error(
+                  `queue continue failed: ${continued.status} ${await continued.text()}`,
+                );
             }
             if (stopAfterMs > 0)
               setTimeout(async () => {
@@ -151,6 +153,5 @@ if (sentAt && firstToolAt)
   console.log(`MITZO_NORMAL_SSE_FIRST_TOOL_MS=${Math.round(firstToolAt - sentAt)}`);
 if (firstToolAt && firstToolResultAt)
   console.log(`MITZO_NORMAL_SSE_TOOL_RESULT_MS=${Math.round(firstToolResultAt - firstToolAt)}`);
-if (stopAt && stoppedAt)
-  console.log(`MITZO_NORMAL_SSE_STOP_MS=${Math.round(stoppedAt - stopAt)}`);
+if (stopAt && stoppedAt) console.log(`MITZO_NORMAL_SSE_STOP_MS=${Math.round(stoppedAt - stopAt)}`);
 console.log(`MITZO_NORMAL_SSE_EVENTS=${seen.join(',')}`);

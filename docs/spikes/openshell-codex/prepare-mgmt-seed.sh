@@ -12,25 +12,24 @@ git -C "$source_repo" rev-parse --is-inside-work-tree >/dev/null
 test ! -e "$output_root" || { echo 'output already exists' >&2; exit 2; }
 mkdir -p "$workspace"
 
-# The committed tree is the deterministic base. Host administrative/runtime
-# directories are intentionally absent even when the source has local content.
-git -C "$source_repo" archive HEAD | tar \
-  --exclude='.claude' --exclude='.claude/*' \
-  --exclude='.codex' --exclude='.codex/*' \
-  --exclude='.cursor' --exclude='.cursor/*' \
-  --exclude='.mitzo' --exclude='.mitzo/*' --exclude='.mitzo.json' \
-  --exclude='.venv' --exclude='.venv/*' --exclude='*/.venv' --exclude='*/.venv/*' \
-  --exclude='node_modules' --exclude='node_modules/*' \
-  --exclude='*/node_modules' --exclude='*/node_modules/*' \
-  -x -C "$workspace"
-
 safe_path() {
   case "$1" in
-    .git|.git/*|.claude|.claude/*|.codex|.codex/*|.cursor|.cursor/*|.mitzo|.mitzo/*|.venv|.venv/*|*/.venv|*/.venv/*|node_modules|node_modules/*|*/node_modules/*|.env|*/.env|credentials.json|*/credentials.json|auth.json|*/auth.json|client_secret*.json|*/client_secret*.json|*.token|*/*.token|*.sock|*/*.sock|*.log|*/*.log)
+    .git|.git/*|*/.git|*/.git/*|.claude|.claude/*|*/.claude|*/.claude/*|.codex|.codex/*|*/.codex|*/.codex/*|.cursor|.cursor/*|*/.cursor|*/.cursor/*|.mitzo|.mitzo/*|*/.mitzo|*/.mitzo/*|.mitzo.json|*/.mitzo.json|.venv|.venv/*|*/.venv|*/.venv/*|node_modules|node_modules/*|*/node_modules|*/node_modules/*|.ssh|.ssh/*|*/.ssh|*/.ssh/*|.aws|.aws/*|*/.aws|*/.aws/*|.env*|*/.env*|.npmrc|*/.npmrc|.netrc|*/.netrc|.pypirc|*/.pypirc|credentials.json|*/credentials.json|auth.json|*/auth.json|client_secret*.json|*/client_secret*.json|*credentials*.json|*/*credentials*.json|*secret*.json|*/*secret*.json|*.token|*/*.token|*.pem|*/*.pem|*.key|*/*.key|*.p12|*/*.p12|*.pfx|*/*.pfx|id_rsa|*/id_rsa|id_ed25519|*/id_ed25519|*.sock|*/*.sock|*.log|*/*.log)
       return 1 ;;
     *) return 0 ;;
   esac
 }
+
+# Every tracked path passes the same credential/runtime filter as overlays.
+# Supplying the reviewed path list to git archive preserves modes and symlinks
+# without ever materializing excluded tracked files in the seed.
+tracked_paths=()
+while IFS= read -r -d '' path; do
+  safe_path "$path" && tracked_paths+=("$path")
+done < <(git -C "$source_repo" ls-tree -rz --name-only HEAD)
+if test "${#tracked_paths[@]}" -gt 0; then
+  git -C "$source_repo" archive HEAD -- "${tracked_paths[@]}" | tar -x -C "$workspace"
+fi
 
 # Overlay modified and untracked task content, but never the credential/runtime
 # surfaces above. Deletions are reflected in the isolated copy only.
@@ -60,6 +59,10 @@ for forbidden in .git .claude .codex .cursor .mitzo .mitzo.json .venv node_modul
 done
 test -z "$(find "$workspace" -type d \( -name .venv -o -name node_modules \) -print -quit)" || {
   echo 'unsafe nested dependency directory survived' >&2
+  exit 3
+}
+test -z "$(find "$workspace" \( -name '.env*' -o -name .npmrc -o -name .netrc -o -name .pypirc -o -name .ssh -o -name .aws -o -name '*.pem' -o -name '*.key' -o -name '*.p12' -o -name '*.pfx' -o -name '*.token' \) -print -quit)" || {
+  echo 'unsafe credential path survived' >&2
   exit 3
 }
 

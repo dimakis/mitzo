@@ -43,7 +43,10 @@ readline.createInterface({ input: server.stdout }).on('line', (line) => {
   }
   if (message.id === 2) {
     const passed = message.result?.exitCode === 0 && message.result?.stdout.includes('pass');
-    done(passed ? 0 : 1, passed ? 'APP_SERVER_EXTERNAL_EXEC=pass' : 'APP_SERVER_EXTERNAL_EXEC=fail');
+    done(
+      passed ? 0 : 1,
+      passed ? 'APP_SERVER_EXTERNAL_EXEC=pass' : 'APP_SERVER_EXTERNAL_EXEC=fail',
+    );
   }
 });
 

@@ -169,6 +169,48 @@ it('routes API accounts through the referenced secret store without passing keys
   }
 });
 
+it('routes API accounts through OpenShell in production without resolving host credentials', async () => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-openshell-api-dispatch-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubEnv('NODE_ENV', 'production');
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')));
+  const chat = await import('../chat.js');
+  const profiles = new AccountProfiles([
+    {
+      id: 'work-api',
+      label: 'Work',
+      provider: 'openai',
+      credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
+      models: [{ id: 'test', label: 'Test' }],
+    },
+  ]);
+  vi.mocked(openCodexChat).mockRejectedValue(new Error('simulated OpenShell startup failure'));
+  try {
+    await chat.startChat({ send: () => {}, isOpen: () => true }, 'openshell-api', 'hello', {
+      cwd: root,
+      isolation: false,
+      accountId: 'work-api',
+      model: 'test',
+      accountProfiles: profiles,
+      initialSessionId: 'openshell-api-app',
+    });
+    expect(credentials.resolve).not.toHaveBeenCalled();
+    expect(openResponsesChat).not.toHaveBeenCalled();
+    expect(openCodexChat).toHaveBeenCalledOnce();
+    const options = vi.mocked(openCodexChat).mock.calls[0][0];
+    expect(options.profile.planType).toBe('api');
+    expect(options.systemPrompt).toContain('/sandbox/workspaces/mgmt');
+    expect(options.systemPrompt).not.toContain(root);
+  } finally {
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 vi.mock('google-auth-library', () => ({
   GoogleAuth: class {
     async getAccessToken() {

@@ -20,6 +20,11 @@ it('builds a versioned MGMT seed without host credentials or repository administ
   execFileSync('git', ['-C', source, 'config', 'user.email', 'fixture@example.invalid']);
   writeFileSync(join(source, 'AGENTS.md'), '# Synthetic instructions\n');
   writeFileSync(join(source, 'work.txt'), 'tracked\n');
+  writeFileSync(join(source, '.env.local'), 'TRACKED_SECRET=must-not-copy\n');
+  writeFileSync(join(source, '.npmrc'), '//registry.invalid/:_authToken=must-not-copy\n');
+  writeFileSync(join(source, 'client.key'), 'synthetic-private-key\n');
+  mkdirSync(join(source, '.ssh'));
+  writeFileSync(join(source, '.ssh', 'id_ed25519'), 'synthetic-private-key\n');
   execFileSync('git', ['-C', source, 'add', '.']);
   execFileSync('git', [
     '-C',
@@ -32,6 +37,8 @@ it('builds a versioned MGMT seed without host credentials or repository administ
     'fixture',
   ]);
   writeFileSync(join(source, '.env'), 'SYNTHETIC_SECRET=must-not-copy\n');
+  writeFileSync(join(source, '.netrc'), 'password must-not-copy\n');
+  writeFileSync(join(source, 'certificate.pem'), 'synthetic-certificate\n');
   writeFileSync(join(source, 'work.txt'), 'working tree overlay\n');
 
   execFileSync(
@@ -43,6 +50,16 @@ it('builds a versioned MGMT seed without host credentials or repository administ
   const workspace = join(output, 'mgmt');
   expect(readFileSync(join(workspace, 'work.txt'), 'utf8')).toBe('working tree overlay\n');
   expect(() => readFileSync(join(workspace, '.env'), 'utf8')).toThrow();
+  for (const path of [
+    '.env.local',
+    '.npmrc',
+    '.netrc',
+    'client.key',
+    'certificate.pem',
+    join('.ssh', 'id_ed25519'),
+  ]) {
+    expect(() => readFileSync(join(workspace, path), 'utf8')).toThrow();
+  }
   expect(execFileSync('git', ['-C', workspace, 'status', '--short'], { encoding: 'utf8' })).toBe(
     '',
   );
