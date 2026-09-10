@@ -17,7 +17,7 @@ const pathEnv = '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin';
 
 function run(
   file: string,
-  args: string[],
+  args: readonly string[],
   options: {
     cwd?: string;
     signal: AbortSignal;
@@ -29,7 +29,7 @@ function run(
   return new Promise((resolveRun, reject) => {
     execFile(
       file,
-      args,
+      [...args],
       {
         cwd: options.cwd,
         env: { PATH: pathEnv, ...options.env },

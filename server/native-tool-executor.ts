@@ -287,6 +287,7 @@ export function createNativeToolExecutor(
       }
       const input = { ...parsed.data };
       if ('questions' in input || 'command' in input) return result('Invalid tool input', true);
+      if (!('file_path' in input)) return result('Invalid file tool input', true);
       const isPrivate = privatePathSnapshot();
       const forcePrompt =
         options.forcePrompt === true ||
@@ -304,20 +305,16 @@ export function createNativeToolExecutor(
         }
       }
       const approvedPath = await canonicalPath(resolve(session.cwd, input.file_path));
-      if ('file_path' in input) {
-        input.file_path = approvedPath;
-        if (isPrivate(input.file_path))
-          return result('Private provider storage is unavailable', true);
-        // Present the checked path under the registry's original root alias. This keeps
-        // the shared guard and lazy creation working without mutating registry entries.
-        const root = roots.find(
-          (entry) =>
-            input.file_path === entry.canonical ||
-            input.file_path.startsWith(entry.canonical + '/'),
-        );
-        if (root)
-          input.file_path = resolve(root.original, relative(root.canonical, input.file_path));
-      }
+      input.file_path = approvedPath;
+      if (isPrivate(input.file_path))
+        return result('Private provider storage is unavailable', true);
+      // Present the checked path under the registry's original root alias. This keeps
+      // the shared guard and lazy creation working without mutating registry entries.
+      const root = roots.find(
+        (entry) =>
+          input.file_path === entry.canonical || input.file_path.startsWith(entry.canonical + '/'),
+      );
+      if (root) input.file_path = resolve(root.original, relative(root.canonical, input.file_path));
       const approvedParent = await lstat(dirname(approvedPath), { bigint: true });
       const parentIdentity = { dev: String(approvedParent.dev), ino: String(approvedParent.ino) };
       const approvedFile = await lstat(approvedPath, { bigint: true }).catch(
