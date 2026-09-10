@@ -38,7 +38,11 @@ import {
   waitForCodexRuntimeBySessionId,
 } from '../codex-chat-session.js';
 function options(abortController: AbortController) {
-  return { session: { cwd: '/tmp', abortController }, mcpServers: {} } as Parameters<
+  return {
+    session: { cwd: '/tmp', abortController },
+    mcpServers: {},
+    profile: { planType: 'api' },
+  } as Parameters<
     typeof openCodexChat
   >[0];
 }
@@ -134,5 +138,18 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
   );
   expect(mocks.conversationOptions?.systemPrompt).not.toContain('Mitzo supplies host tools');
   expect(mocks.conversationOptions?.runtimeConfig).toEqual({ web_search: 'disabled' });
+  vi.unstubAllEnvs();
+});
+
+it('fails closed instead of substituting API billing for a ChatGPT subscription in OpenShell', async () => {
+  vi.clearAllMocks();
+  vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', 'sandbox');
+  await expect(
+    openCodexChat({
+      ...options(new AbortController()),
+      profile: { planType: 'pro' },
+    }),
+  ).rejects.toThrow('brokered Codex OAuth');
+  expect(mocks.initialize).not.toHaveBeenCalled();
   vi.unstubAllEnvs();
 });

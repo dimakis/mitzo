@@ -108,6 +108,18 @@ acceptable fix. The smallest safe resolution is an OpenShell provider/profile
 that can inject/refresh Codex OAuth in an inspectable supported transport, or
 a separate trusted host-side Codex token service with a narrow protocol.
 
+The installed Codex 0.153.4 app-server schema exposes managed browser/device
+login, but that mode persists real login and refresh material in the runtime's
+`CODEX_HOME`. Its alternative `chatgptAuthTokens` request keeps tokens in memory
+and delegates refresh to the host, but the generated protocol marks it
+`UNSTABLE` and `FOR OPENAI INTERNAL USE ONLY - DO NOT USE`. A custom OpenShell
+profile could inject Authorization and ChatGPT account headers at the proxy,
+but the supported Codex runtime still requires a valid local ChatGPT identity
+for account verification, model discovery, and refresh; an opaque proxy
+placeholder is not a supported login input. Mitzo therefore fails closed when
+a subscription profile is selected while its runtime is configured inside
+OpenShell, instead of silently routing the turn through the work API provider.
+
 For the API route, the installed registry had no `openai` profile. A distinct,
 workspace-scoped custom profile added the missing `OPENAI_API_KEY` bearer
 placement and `api.openai.com` endpoint. With that correction, matched direct

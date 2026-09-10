@@ -117,6 +117,10 @@ export async function openCodexChat(options: Options) {
         workdir: process.env.MITZO_OPENSHELL_WORKDIR || '/sandbox/workspaces/mgmt',
       }
     : undefined;
+  if (openShell && options.profile.planType !== 'api')
+    throw new Error(
+      'ChatGPT subscription execution inside OpenShell requires supported brokered Codex OAuth; API billing substitution is forbidden.',
+    );
   const signal = options.session.abortController.signal;
   signal.throwIfAborted();
   const privateStorage = store();
