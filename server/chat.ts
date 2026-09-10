@@ -968,7 +968,9 @@ async function _startChatInner(
   }
   const openShellSelected = !!codexProfile && openShellRequested;
   const openShellWorkdir = openShellSelected
-    ? process.env.MITZO_OPENSHELL_WORKDIR || '/sandbox/workspaces/mgmt'
+    ? process.env.MITZO_OPENSHELL_ENABLED === '1'
+      ? '/sandbox/workspaces/mgmt'
+      : process.env.MITZO_OPENSHELL_WORKDIR || '/sandbox/workspaces/mgmt'
     : undefined;
   const abortController = new AbortController();
   const resumedSession = options.resume

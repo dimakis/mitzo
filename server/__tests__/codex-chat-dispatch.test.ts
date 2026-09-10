@@ -187,6 +187,7 @@ it('routes API accounts through OpenShell in production without resolving host c
   vi.stubEnv('REPO_PATH', root);
   vi.stubEnv('NODE_ENV', 'production');
   vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_WORKDIR', '/sandbox/workspaces/wrong-legacy-override');
   const hostFetch = vi.fn().mockResolvedValue(new Response('{}'));
   vi.stubGlobal('fetch', hostFetch);
   const chat = await import('../chat.js');
@@ -233,6 +234,7 @@ it('routes API accounts through OpenShell in production without resolving host c
     expect(options.profile.planType).toBe('api');
     expect(options.profile.sandboxProvider).toBe('openai-work');
     expect(options.session.cwd).toBe('/sandbox/workspaces/mgmt');
+    expect(options.session.cwd).not.toContain('wrong-legacy-override');
     expect(options.systemPrompt).toContain('/sandbox/workspaces/mgmt');
     expect(options.systemPrompt).not.toContain(root);
     expect(chat.eventStore.getSession('openshell-api-app')?.bootContext).toContain(
