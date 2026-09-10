@@ -10,8 +10,8 @@ import type {
   AccountBinding,
 } from './types.js';
 import { AccountBindingSchema } from './account-binding.js';
-import { SymposiumConfigSchema } from './symposium.js';
-import type { SymposiumConfig } from './symposium.js';
+import { SymposiumConfigSchema, SymposiumProvenanceSchema } from './symposium.js';
+import type { SymposiumConfig, SymposiumProvenance } from './symposium.js';
 
 // Re-export types for consumer convenience
 export type {
@@ -50,6 +50,7 @@ const noopLogger: EventStoreLogger = { info() {} };
 
 interface EventRow {
   seat_id: string | null;
+  symposium_provenance: string | null;
   seq: number;
   session_id: string;
   type: string;
@@ -260,7 +261,7 @@ export class EventStore {
 
     this.stmts = {
       append: db.prepare(
-        'INSERT INTO events (session_id, type, payload, seat_id) VALUES (?, ?, ?, ?)',
+        'INSERT INTO events (session_id, type, payload, seat_id, symposium_provenance) VALUES (?, ?, ?, ?, ?)',
       ),
       hasUserMessage: db.prepare(
         `SELECT 1 FROM events
@@ -269,13 +270,13 @@ export class EventStore {
          LIMIT 1`,
       ),
       eventsAfter: db.prepare(
-        'SELECT seq, session_id, type, payload, created_at, seat_id FROM events WHERE session_id = ? AND seq > ? ORDER BY seq',
+        'SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance FROM events WHERE session_id = ? AND seq > ? ORDER BY seq',
       ),
       eventsAfterLimited: db.prepare(
-        'SELECT seq, session_id, type, payload, created_at, seat_id FROM events WHERE session_id = ? AND seq > ? ORDER BY seq LIMIT ?',
+        'SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance FROM events WHERE session_id = ? AND seq > ? ORDER BY seq LIMIT ?',
       ),
       sessionEvents: db.prepare(
-        'SELECT seq, session_id, type, payload, created_at, seat_id FROM events WHERE session_id = ? ORDER BY seq',
+        'SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance FROM events WHERE session_id = ? ORDER BY seq',
       ),
       getSession: db.prepare('SELECT * FROM sessions WHERE session_id = ?'),
       listSessions: db.prepare(
@@ -457,6 +458,9 @@ export class EventStore {
       if (!events.some((column) => column.name === 'seat_id')) {
         db.exec('ALTER TABLE events ADD COLUMN seat_id TEXT');
       }
+      if (!events.some((column) => column.name === 'symposium_provenance')) {
+        db.exec('ALTER TABLE events ADD COLUMN symposium_provenance TEXT');
+      }
     })();
   }
 
@@ -475,9 +479,46 @@ export class EventStore {
   }
 
   append(sessionId: string, type: string, payload: Record<string, unknown>): number {
-    const seatId = typeof payload.seatId === 'string' && payload.seatId ? payload.seatId : null;
-    const result = this.stmts.append.run(sessionId, type, JSON.stringify(payload), seatId);
+    const result = this.stmts.append.run(sessionId, type, JSON.stringify(payload), null, null);
     return Number(result.lastInsertRowid);
+  }
+
+  /** Persist a seat-attributed event only when its provenance matches the active config. */
+  appendSymposium(
+    sessionId: string,
+    type: string,
+    payload: Record<string, unknown>,
+    input: unknown,
+  ): number {
+    const provenance = SymposiumProvenanceSchema.parse(input);
+    return this.db!.transaction(() => {
+      const session = this.getSession(sessionId);
+      if (session?.sessionType !== 'symposium' || !session.symposiumConfig) {
+        throw new Error('Cannot append a Symposium event to an inactive session');
+      }
+      const config = SymposiumConfigSchema.parse(JSON.parse(session.symposiumConfig));
+      const seat = config.seats.find((candidate) => candidate.id === provenance.seatId);
+      if (!seat) throw new Error('Symposium provenance references an unknown seat');
+      if (
+        provenance.configRevision !== config.revision ||
+        provenance.accountProfileRevision !== seat.accountBinding?.profileRevision ||
+        provenance.seatProfileRevision !== seat.profileBinding?.profileRevision ||
+        provenance.contextGrantRevision !== seat.contextGrant?.revision ||
+        provenance.authorityGrantRevision !== seat.authorityGrant?.revision ||
+        provenance.isolationDomainId !== seat.isolationRequest?.trustDomainId ||
+        provenance.isolationDomainRevision !== seat.isolationRequest?.revision
+      ) {
+        throw new Error('Symposium provenance does not match the active seat configuration');
+      }
+      const result = this.stmts.append.run(
+        sessionId,
+        type,
+        JSON.stringify(payload),
+        provenance.seatId,
+        JSON.stringify(provenance),
+      );
+      return Number(result.lastInsertRowid);
+    }).immediate();
   }
 
   /** Check if a user_message with the given messageId already exists for this session. */
@@ -534,14 +575,12 @@ export class EventStore {
   }
 
   deactivateSymposium(sessionId: string, expectedRevision: number): void {
-    const result = this.db!
-      .prepare(
-        `UPDATE sessions SET
+    const result = this.db!.prepare(
+      `UPDATE sessions SET
           session_type = 'chat', symposium_config = NULL,
           updated_at = unixepoch('now', 'subsec') * 1000
          WHERE session_id = ? AND session_type = 'symposium' AND symposium_revision = ?`,
-      )
-      .run(sessionId, expectedRevision);
+    ).run(sessionId, expectedRevision);
     if (result.changes !== 1) {
       throw new Error('Symposium deactivation revision conflict');
     }
@@ -897,14 +936,26 @@ export class EventStore {
 }
 
 function rowToEvent(row: EventRow): StoredEvent {
+  const symposiumProvenance = parseSymposiumProvenance(row.symposium_provenance);
   return {
     seq: row.seq,
     ...(row.seat_id ? { seatId: row.seat_id } : {}),
+    ...(symposiumProvenance ? { symposiumProvenance } : {}),
     sessionId: row.session_id,
     type: row.type,
     payload: JSON.parse(row.payload),
     createdAt: row.created_at,
   };
+}
+
+function parseSymposiumProvenance(raw: string | null): SymposiumProvenance | undefined {
+  if (!raw) return undefined;
+  try {
+    const result = SymposiumProvenanceSchema.safeParse(JSON.parse(raw));
+    return result.success ? result.data : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Extract a text snippet around the query match from a JSON payload string. */

@@ -28,6 +28,7 @@ export const AuthorityGrantSchema = z.strictObject({
 
 export const IsolationRequestSchema = z.strictObject({
   trustDomainId: z.string().trim().min(1),
+  revision: z.number().int().positive(),
   placement: z.enum(['reuse-compatible', 'dedicated']),
 });
 
@@ -40,6 +41,7 @@ export const SymposiumProvenanceSchema = z.strictObject({
   contextGrantRevision: z.number().int().positive(),
   authorityGrantRevision: z.number().int().positive(),
   isolationDomainId: z.string().trim().min(1),
+  isolationDomainRevision: z.number().int().positive(),
 });
 
 export const SeatConfigSchema = z

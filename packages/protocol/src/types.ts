@@ -1,5 +1,5 @@
 import type { AccountBinding } from './account-binding.js';
-import type { SessionType } from './symposium.js';
+import type { SessionType, SymposiumProvenance } from './symposium.js';
 export type { AccountBinding } from './account-binding.js';
 // Unified protocol types — single source of truth for both server and frontends.
 // Previously duplicated between server/session-registry.ts, server/tool-summary.ts,
@@ -297,6 +297,8 @@ export interface EventStoreLogger {
 export interface StoredEvent {
   /** Absent for ordinary chat and director events. */
   seatId?: string;
+  /** Validated immutable execution context for seat-attributed Symposium events. */
+  symposiumProvenance?: SymposiumProvenance;
   seq: number;
   sessionId: string;
   type: string;

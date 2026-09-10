@@ -44,7 +44,7 @@ const config: SymposiumConfig = {
         tools: 'write',
         network: 'restricted',
       },
-      isolationRequest: { trustDomainId: 'work', placement: 'reuse-compatible' },
+      isolationRequest: { trustDomainId: 'work', revision: 1, placement: 'reuse-compatible' },
     },
     {
       id: 'reviewer',
@@ -74,7 +74,7 @@ const config: SymposiumConfig = {
         tools: 'read',
         network: 'restricted',
       },
-      isolationRequest: { trustDomainId: 'work', placement: 'reuse-compatible' },
+      isolationRequest: { trustDomainId: 'work', revision: 1, placement: 'reuse-compatible' },
     },
   ],
   turnRules: { mode: 'directed', maxTurns: 6 },
@@ -141,7 +141,7 @@ describe('Symposium configuration contract', () => {
         ...config.seats[0].accountBinding,
         provider: 'google-vertex',
       }).success,
-    ).toBe(true);
+    ).toBe(false);
   });
   it('allows incomplete seats only while configuration is a draft', () => {
     const draftSeat = {
@@ -191,7 +191,11 @@ describe('Symposium configuration contract', () => {
           config.seats[0],
           {
             ...config.seats[1],
-            isolationRequest: { trustDomainId: 'other-boundary', placement: 'dedicated' },
+            isolationRequest: {
+              trustDomainId: 'other-boundary',
+              revision: 1,
+              placement: 'dedicated',
+            },
           },
         ],
       }).success,
@@ -207,6 +211,7 @@ describe('Symposium configuration contract', () => {
         contextGrantRevision: 3,
         authorityGrantRevision: 4,
         isolationDomainId: 'sandbox-work-1',
+        isolationDomainRevision: 5,
       }),
     ).toMatchObject({ seatId: 'reviewer', configRevision: 2 });
   });
@@ -314,20 +319,54 @@ describe('Symposium persistence', () => {
     const store = open(path);
     store.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });
     store.setSymposiumConfig('chat', config);
-    const first = store.append('chat', 'message_start', { messageId: 'm1', seatId: 'reviewer' });
+    const provenance = {
+      seatId: 'reviewer',
+      configRevision: 1,
+      accountProfileRevision: 'account-2',
+      seatProfileRevision: 'profile-2',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'work',
+      isolationDomainRevision: 1,
+    };
+    const first = store.appendSymposium('chat', 'message_start', { messageId: 'm1' }, provenance);
     store.append('chat', 'user_message', { text: 'Next' });
     stores.pop()!.close();
     const reopened = open(path);
     expect(JSON.parse(reopened.getSession('chat')!.symposiumConfig!)).toEqual(config);
     expect(reopened.getSessionEvents('chat')[0]).toMatchObject({
       seatId: 'reviewer',
-      payload: { seatId: 'reviewer' },
+      symposiumProvenance: provenance,
+      payload: { messageId: 'm1' },
     });
     expect(reopened.getEventsAfter('chat', 0, 1)[0]).toMatchObject({
       seq: first,
       seatId: 'reviewer',
     });
     expect(reopened.getEventsAfter('chat', first)[0]).not.toHaveProperty('seatId');
+  });
+  it('rejects stale or unknown seat provenance and never infers it from ordinary payloads', () => {
+    const store = open();
+    store.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });
+    const ordinary = store.append('chat', 'message_start', { seatId: 'reviewer' });
+    expect(store.getEventsAfter('chat', ordinary - 1)[0]).not.toHaveProperty('seatId');
+    store.setSymposiumConfig('chat', config);
+    const provenance = {
+      seatId: 'reviewer',
+      configRevision: 1,
+      accountProfileRevision: 'account-2',
+      seatProfileRevision: 'profile-2',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'work',
+      isolationDomainRevision: 1,
+    };
+    expect(() =>
+      store.appendSymposium('chat', 'message_start', {}, { ...provenance, seatId: 'ghost' }),
+    ).toThrow('Symposium provenance references an unknown seat');
+    expect(() =>
+      store.appendSymposium('chat', 'message_start', {}, { ...provenance, configRevision: 2 }),
+    ).toThrow('Symposium provenance does not match the active seat configuration');
   });
   it('upgrades an existing database idempotently without changing legacy rows', () => {
     const dir = mkdtempSync(join(tmpdir(), 'symposium-'));
@@ -354,7 +393,10 @@ describe('Symposium persistence', () => {
     const inspect = new Database(path, { readonly: true });
     try {
       expect(inspect.prepare("PRAGMA table_info('events')").all()).toEqual(
-        expect.arrayContaining([expect.objectContaining({ name: 'seat_id' })]),
+        expect.arrayContaining([
+          expect.objectContaining({ name: 'seat_id' }),
+          expect.objectContaining({ name: 'symposium_provenance' }),
+        ]),
       );
       expect(inspect.prepare("PRAGMA table_info('sessions')").all()).toEqual(
         expect.arrayContaining([expect.objectContaining({ name: 'symposium_revision' })]),
