@@ -13,7 +13,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 
 const pathEnv = '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin';
 
@@ -131,6 +131,39 @@ async function promoteQuarantinedObjects(quarantine: string, objectStore: string
   }
 }
 
+async function requireRealDirectoryChain(root: string, directory: string) {
+  const suffix = relative(root, directory);
+  if (!suffix || suffix.startsWith('..') || resolve(root, suffix) !== directory)
+    throw new Error('Git metadata path is outside the common Git directory');
+  let current = root;
+  for (const component of suffix.split('/')) {
+    current = join(current, component);
+    const info = await lstat(current);
+    if (!info.isDirectory() || (await realpath(current)) !== current)
+      throw new Error('Git ref and reflog parents must be real metadata directories');
+  }
+}
+
+async function requireRealFileIfPresent(path: string) {
+  const info = await lstat(path).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== 'ENOENT') throw error;
+    return null;
+  });
+  if (info && (!info.isFile() || (await realpath(path)) !== path))
+    throw new Error('Git refs and reflogs must be real metadata files');
+}
+
+async function validateRefUpdatePaths(common: string, branch: string) {
+  const ref = join(common, branch);
+  const reflog = join(common, 'logs', branch);
+  await Promise.all([
+    requireRealDirectoryChain(common, dirname(ref)),
+    requireRealDirectoryChain(common, dirname(reflog)),
+    requireRealFileIfPresent(ref),
+    requireRealFileIfPresent(reflog),
+  ]);
+}
+
 async function linkedMetadata(cwd: string) {
   const marker = join(cwd, '.git');
   const markerInfo = await lstat(marker, { bigint: true });
@@ -154,6 +187,7 @@ async function linkedMetadata(cwd: string) {
   const branch = /^ref: (refs\/heads\/[A-Za-z0-9._/-]+)$/.exec(head)?.[1];
   if (!branch || branch.includes('..') || branch.includes('//'))
     throw new Error('Trusted commits require a valid symbolic branch');
+  await validateRefUpdatePaths(common, branch);
   return {
     marker,
     admin,
@@ -310,6 +344,7 @@ export async function executeTrustedGitCommit(
     ]);
     await promoteQuarantinedObjects(quarantineObjects, join(metadata.common, 'objects'));
     await sameIdentity(join(metadata.common, 'objects'), metadata.identities.objects);
+    await validateRefUpdatePaths(metadata.common, metadata.branch);
     await lock.writeFile(await readFile(index));
     await run(
       'git',

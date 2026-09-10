@@ -187,6 +187,34 @@ describe('trusted native Git operation', () => {
     await expect(readFile(join(outside, object.slice(2)))).rejects.toThrow();
   });
 
+  it('rejects symlinked nested ref and reflog parents before updating a branch', async () => {
+    root = await mkdtemp(join(tmpdir(), 'mitzo-trusted-git-ref-'));
+    const repo = join(root, 'repo');
+    const worktree = join(root, 'worktree');
+    const outside = join(root, 'outside-refs');
+    execFileSync('git', ['init', repo]);
+    execFileSync('git', ['-C', repo, 'config', 'user.name', 'Mitzo Test']);
+    execFileSync('git', ['-C', repo, 'config', 'user.email', 'test@example.invalid']);
+    execFileSync('git', [
+      '-C',
+      repo,
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '--allow-empty',
+      '-m',
+      'initial',
+    ]);
+    execFileSync('git', ['-C', repo, 'worktree', 'add', '-b', 'nested/branch', worktree]);
+    await rename(join(repo, '.git', 'refs', 'heads', 'nested'), outside);
+    await symlink(outside, join(repo, '.git', 'refs', 'heads', 'nested'));
+    await writeFile(join(worktree, 'approved.txt'), 'approved');
+    await expect(
+      executeTrustedGitCommit(worktree, ['approved.txt'], 'blocked', new AbortController().signal),
+    ).rejects.toThrow('ref and reflog parents must be real');
+    await expect(readFile(join(outside, 'branch.lock'))).rejects.toThrow();
+  });
+
   it('pins authenticated GitHub reads to github.com GET requests', () => {
     expect(trustedGitHubReadRequest('/user')).toEqual({
       file: 'gh',
