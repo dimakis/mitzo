@@ -297,42 +297,19 @@ describe('native tool execution through session permissions', () => {
       }),
     );
   });
-  it('requires a distinct approval and passes exact external hostnames to the sandbox', async () => {
+  it('rejects Bash network grants instead of exposing a hostname-only egress boundary', async () => {
     vi.mocked(executeSandboxedCommand).mockClear();
     registry.setMode('client', 'auto');
-    const pending = executor()(
-      call('Bash', {
-        command: 'curl https://api.github.com/user',
-        allowed_domains: ['api.github.com', 'api.github.com'],
-      }),
-      abort.signal,
-    );
-    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
-    expect(executeSandboxedCommand).not.toHaveBeenCalled();
-    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
-    await pending;
-    expect(executeSandboxedCommand).toHaveBeenCalledWith(
-      expect.objectContaining({ allowedDomains: ['api.github.com'] }),
-    );
-  });
-  it('rejects URLs, wildcards and malformed domain grants', async () => {
-    vi.mocked(executeSandboxedCommand).mockClear();
-    registry.setMode('client', 'auto');
-    for (const domain of [
-      'https://api.github.com',
-      '*.github.com',
-      'api.github.com/path',
-      'localhost',
-      '127.0.0.1',
-      'metadata.google.internal',
-    ]) {
-      expect(
-        await executor()(
-          call('Bash', { command: 'curl https://api.github.com', allowed_domains: [domain] }),
-          abort.signal,
-        ),
-      ).toMatchObject({ is_error: true, content: 'Invalid native tool input' });
-    }
+    expect(
+      await executor()(
+        call('Bash', {
+          command: 'curl https://api.github.com/user',
+          allowed_domains: ['api.github.com'],
+        }),
+        abort.signal,
+      ),
+    ).toMatchObject({ is_error: true, content: 'Invalid native tool input' });
+    expect(sent).toHaveLength(0);
     expect(executeSandboxedCommand).not.toHaveBeenCalled();
   });
   it('allows sandboxed commands in Auto but denies them after switching to Ask', async () => {

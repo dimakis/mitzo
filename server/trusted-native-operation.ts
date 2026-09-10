@@ -5,6 +5,7 @@ import {
   mkdir,
   mkdtemp,
   open,
+  readdir,
   readFile,
   realpath,
   rename,
@@ -83,6 +84,52 @@ const sameIdentity = async (path: string, expected: Identity) => {
   if (actual.dev !== expected.dev || actual.ino !== expected.ino)
     throw new Error('Git metadata changed during the approved operation');
 };
+
+async function promoteQuarantinedObjects(quarantine: string, objectStore: string) {
+  for (const fanout of await readdir(quarantine, { withFileTypes: true })) {
+    if (!/^[0-9a-f]{2}$/.test(fanout.name) || !fanout.isDirectory())
+      throw new Error('Unexpected entry in quarantined Git object store');
+    const sourceDirectory = join(quarantine, fanout.name);
+    const targetDirectory = join(objectStore, fanout.name);
+    await mkdir(targetDirectory).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'EEXIST') throw error;
+    });
+    const targetDirectoryInfo = await lstat(targetDirectory);
+    if (!targetDirectoryInfo.isDirectory() || (await realpath(targetDirectory)) !== targetDirectory)
+      throw new Error('Git object fanout must be a real directory inside the object store');
+    for (const object of await readdir(sourceDirectory, { withFileTypes: true })) {
+      if (!/^[0-9a-f]{38}$/.test(object.name) || !object.isFile())
+        throw new Error('Unexpected quarantined Git object');
+      const source = join(sourceDirectory, object.name);
+      const target = join(targetDirectory, object.name);
+      const existing = await lstat(target).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== 'ENOENT') throw error;
+        return null;
+      });
+      if (existing) {
+        if (!existing.isFile() || (await realpath(target)) !== target)
+          throw new Error('Existing Git object must be a real file inside the object store');
+        continue;
+      }
+      // Loose objects are immutable and content-addressed. Exclusive, no-follow
+      // creation prevents replacing an existing object or following a leaf symlink.
+      const destination = await open(
+        target,
+        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+        0o444,
+      ).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'EEXIST')
+          throw new Error('Git object changed while promoting the approved commit');
+        throw error;
+      });
+      try {
+        await destination.writeFile(await readFile(source));
+      } finally {
+        await destination.close();
+      }
+    }
+  }
+}
 
 async function linkedMetadata(cwd: string) {
   const marker = join(cwd, '.git');
@@ -163,8 +210,13 @@ export async function executeTrustedGitCommit(
     const hooks = join(temporary, 'hooks');
     const index = join(temporary, 'index');
     const originalIndex = join(temporary, 'original-index');
+    const quarantineObjects = join(temporary, 'objects');
     await Promise.all([mkdir(gitDir), mkdir(hooks)]);
-    await Promise.all([mkdir(join(gitDir, 'objects')), mkdir(join(gitDir, 'refs'))]);
+    await Promise.all([
+      mkdir(join(gitDir, 'objects')),
+      mkdir(join(gitDir, 'refs')),
+      mkdir(quarantineObjects),
+    ]);
     const symbolicHead = (await readFile(join(metadata.admin, 'HEAD'), 'utf8')).trim();
     if (symbolicHead !== `ref: ${metadata.branch}`)
       throw new Error('Git branch changed before commit');
@@ -190,7 +242,8 @@ export async function executeTrustedGitCommit(
       GIT_DIR: gitDir,
       GIT_WORK_TREE: cwd,
       GIT_INDEX_FILE: index,
-      GIT_OBJECT_DIRECTORY: join(metadata.common, 'objects'),
+      GIT_OBJECT_DIRECTORY: quarantineObjects,
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: join(metadata.common, 'objects'),
       GIT_CONFIG_SYSTEM: '/dev/null',
       GIT_CONFIG_GLOBAL: '/dev/null',
       GIT_ATTR_NOSYSTEM: '1',
@@ -255,6 +308,8 @@ export async function executeTrustedGitCommit(
       sameIdentity(metadata.common, metadata.identities.common),
       sameIdentity(join(metadata.common, 'objects'), metadata.identities.objects),
     ]);
+    await promoteQuarantinedObjects(quarantineObjects, join(metadata.common, 'objects'));
+    await sameIdentity(join(metadata.common, 'objects'), metadata.identities.objects);
     await lock.writeFile(await readFile(index));
     await run(
       'git',

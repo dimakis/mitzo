@@ -24,20 +24,6 @@ const approval = {
     .optional()
     .describe('Set true to request an explicit Mitzo approval card before this exact action.'),
 };
-const externalHostname = z
-  .string()
-  .min(1)
-  .max(253)
-  .regex(
-    /^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/,
-  )
-  .refine(
-    (value) =>
-      !['localhost', 'local', 'internal', 'home.arpa', 'test', 'invalid'].some(
-        (suffix) => value.toLowerCase() === suffix || value.toLowerCase().endsWith(`.${suffix}`),
-      ),
-    'Local and reserved hostnames are unavailable',
-  );
 const privatePathSnapshot = createCodexPathProtection(() =>
   loadAccountProfiles().privateCodexRoots(),
 );
@@ -46,11 +32,6 @@ const schemas = {
   Bash: z
     .object({
       command: z.string().min(1).max(32000),
-      allowed_domains: z
-        .array(externalHostname)
-        .max(16)
-        .optional()
-        .describe('Exact external hostnames this command may contact. No credentials are added.'),
       ...approval,
     })
     .strict(),
@@ -84,7 +65,7 @@ const schemas = {
 const descriptions = {
   AskUserQuestion:
     'Ask structured questions in Mitzo and wait for the user’s answers. Questions do not authorize tool execution.',
-  Bash: 'Run a command in the session workspace using an OS sandbox. Use for tests, Git and directory creation. Network is denied unless exact public hostnames are requested in allowed_domains; credentials are never added. Writes outside session roots and unavailable sandboxes fail explicitly.',
+  Bash: 'Run a command in the session workspace using an OS sandbox. Use for tests, Git and directory creation. Network and credentials are unavailable; use a dedicated trusted integration for external services. Writes outside session roots and unavailable sandboxes fail explicitly.',
   GitHubRead:
     'Perform one approved authenticated GitHub API GET through Mitzo. Credentials remain in the trusted host process and are never exposed to the command sandbox.',
   GitCommit:
@@ -236,22 +217,12 @@ export function createNativeToolExecutor(
         );
       }
       if (block.name === 'Bash' && 'command' in parsed.data) {
-        const input = {
-          command: parsed.data.command,
-          ...(parsed.data.allowed_domains?.length
-            ? { allowed_domains: [...new Set(parsed.data.allowed_domains)] }
-            : {}),
-        };
+        const input = { command: parsed.data.command };
         const approvalMode = effectivePermissionMode(session);
         const permission = await canUseTool('Bash', input, {
           signal,
           toolUseID: block.id,
-          // A previous persistent Bash approval must never authorize a new
-          // network destination. Every egress grant gets its own visible card.
-          forcePrompt:
-            options.forcePrompt ||
-            parsed.data.require_approval === true ||
-            !!parsed.data.allowed_domains?.length,
+          forcePrompt: options.forcePrompt || parsed.data.require_approval === true,
         });
         signal.throwIfAborted();
         if (permission.behavior !== 'allow') return result(permission.message, true);
@@ -273,7 +244,6 @@ export function createNativeToolExecutor(
           writableRoots,
           deniedRoots: await Promise.all(deniedRoots.map(canonicalPath)),
           env: options.env,
-          allowedDomains: input.allowed_domains,
           signal,
           timeoutMs: options.timeoutMs,
           maxOutputBytes: options.maxOutputBytes,

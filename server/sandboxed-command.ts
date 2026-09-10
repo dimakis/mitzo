@@ -17,7 +17,6 @@ export interface SandboxedCommandOptions {
   signal: AbortSignal;
   timeoutMs?: number;
   maxOutputBytes?: number;
-  allowedDomains?: string[];
   beforeSpawn?: () => void;
 }
 
@@ -99,7 +98,6 @@ export async function executeSandboxedCommand(
     writableRoots: [...options.writableRoots],
     deniedRoots: [...options.deniedRoots],
     env: { ...options.env },
-    allowedDomains: options.allowedDomains ? [...options.allowedDomains] : undefined,
   };
   const authority = new AuthoritySnapshot();
   for (const path of [options.cwd, ...options.writableRoots, ...options.deniedRoots]) {
@@ -158,7 +156,7 @@ export async function executeSandboxedCommand(
           ],
         },
         network: {
-          allowedDomains: options.allowedDomains ?? [],
+          allowedDomains: [],
           // Deny explicit local/metadata destinations even if a caller later
           // weakens hostname validation. Redirect targets remain subject to
           // this deny-first list and the exact allowlist in SRT's proxy.
