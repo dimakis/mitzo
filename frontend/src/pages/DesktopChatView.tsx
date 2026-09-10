@@ -206,7 +206,15 @@ export function DesktopChatView() {
       center={
         <div className="desktop-chat-center workspace-chat">
           <WorkspaceControls
-            status={messages.running ? 'Working' : activeSessionId ? 'Ready' : 'New chat'}
+            status={
+              !connected
+                ? 'Reconnecting'
+                : messages.running
+                  ? 'Working'
+                  : activeSessionId
+                    ? 'Ready'
+                    : 'New chat'
+            }
           >
             <header className="desktop-chat-header">
               {!connected && (
