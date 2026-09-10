@@ -420,7 +420,7 @@ describe('SymposiumOrchestrator', () => {
       reviewer.calls.push(input);
       calls += 1;
       if (calls === 1) throw new Error('temporary provider failure');
-      return { providerThreadId: 'thread-reviewer', content: 'recovered' };
+      return { providerThreadId: 'thread-reviewer', content: 'recovered', costUsd: 0 };
     });
     const staged = orchestrator.stageDelivery({
       sessionId: 'chat',
@@ -456,7 +456,7 @@ describe('SymposiumOrchestrator', () => {
       reviewer.calls.push(input);
       await waiting;
       if (input.signal.aborted) throw new DOMException('Aborted', 'AbortError');
-      return { providerThreadId: 'late-thread', content: 'late' };
+      return { providerThreadId: 'late-thread', content: 'late', costUsd: 0 };
     });
     const staged = orchestrator.stageDelivery({
       sessionId: 'chat',
@@ -588,7 +588,7 @@ describe('SymposiumOrchestrator', () => {
     reviewer.execute = vi.fn(async (input: SymposiumSeatExecution) => {
       reviewer.calls.push(input);
       await waiting;
-      return { providerThreadId: 'thread-reviewer', content: 'done' };
+      return { providerThreadId: 'thread-reviewer', content: 'done', costUsd: 0 };
     });
     const deliveries = ['one', 'two'].map((content) => {
       const staged = orchestrator.stageDelivery({
