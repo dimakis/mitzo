@@ -235,6 +235,19 @@ describe('Symposium persistence', () => {
       revision: 3,
     });
   });
+  it('atomically rejects a stale revision from another store instance', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'symposium-cas-'));
+    dirs.push(dir);
+    const path = join(dir, 'events.db');
+    const first = open(path);
+    const second = open(path);
+    first.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });
+    first.setSymposiumConfig('chat', { ...config, revision: 2 });
+    expect(() => second.setSymposiumConfig('chat', config)).toThrow(
+      'Symposium configuration revision must increase',
+    );
+    expect(second.getSession('chat')).toMatchObject({ symposiumRevision: 2 });
+  });
   it('adds and removes Symposium on the same session without losing history or account binding', () => {
     const store = open();
     store.upsertSession({

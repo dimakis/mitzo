@@ -500,32 +500,33 @@ export class EventStore {
    */
   setSymposiumConfig(sessionId: string, input: unknown): SymposiumConfig {
     const config = SymposiumConfigSchema.parse(input);
-    const session = this.getSession(sessionId);
-    if (!session) throw new Error('Cannot configure Symposium for an unknown session');
+    return this.db!.transaction(() => {
+      const session = this.getSession(sessionId);
+      if (!session) throw new Error('Cannot configure Symposium for an unknown session');
 
-    if (config.revision <= session.symposiumRevision) {
-      throw new Error('Symposium configuration revision must increase');
-    }
-
-    if (config.state === 'active') {
-      const sessionBinding = AccountBindingSchema.safeParse(session.accountBinding);
-      const primaryBinding = config.seats[0].accountBinding;
-      if (
-        !sessionBinding.success ||
-        !primaryBinding ||
-        !sameBinding(sessionBinding.data, primaryBinding)
-      ) {
-        throw new Error('Seat 1 must retain the existing session account binding');
+      if (config.state === 'active') {
+        const sessionBinding = AccountBindingSchema.safeParse(session.accountBinding);
+        const primaryBinding = config.seats[0].accountBinding;
+        if (
+          !sessionBinding.success ||
+          !primaryBinding ||
+          !sameBinding(sessionBinding.data, primaryBinding)
+        ) {
+          throw new Error('Seat 1 must retain the existing session account binding');
+        }
       }
-    }
 
-    this.upsertSession({
-      sessionId,
-      sessionType: 'symposium',
-      symposiumConfig: JSON.stringify(config),
-      symposiumRevision: config.revision,
-    });
-    return config;
+      const result = this.db!.prepare(
+        `UPDATE sessions SET
+          session_type = 'symposium', symposium_config = ?, symposium_revision = ?,
+          updated_at = unixepoch('now', 'subsec') * 1000
+         WHERE session_id = ? AND symposium_revision < ?`,
+      ).run(JSON.stringify(config), config.revision, sessionId, config.revision);
+      if (result.changes !== 1) {
+        throw new Error('Symposium configuration revision must increase');
+      }
+      return config;
+    }).immediate();
   }
 
   deactivateSymposium(sessionId: string): void {
