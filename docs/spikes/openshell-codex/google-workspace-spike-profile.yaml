@@ -28,5 +28,6 @@ endpoints:
     access: read-only
     enforcement: enforce
 binaries:
+  - /usr/bin/gws
   - /usr/bin/curl
   - /usr/local/bin/curl

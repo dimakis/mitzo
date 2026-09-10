@@ -13,6 +13,7 @@ export class CodexSessionEvents {
   >();
   private finishedTurns = new Set<string>();
   private commandTools = new Map<string, string>();
+  private runtimeTools = new Map<string, string>();
   private turnFinished = false;
   private usage?: {
     input_tokens: number;
@@ -105,10 +106,12 @@ export class CodexSessionEvents {
       if (!toolId) return;
       this.commandTools.delete(commandItem.id);
       const exitCode = typeof commandItem.exitCode === 'number' ? commandItem.exitCode : undefined;
-      const output = typeof commandItem.aggregatedOutput === 'string' ? commandItem.aggregatedOutput : '';
+      const output =
+        typeof commandItem.aggregatedOutput === 'string' ? commandItem.aggregatedOutput : '';
       this.toolResult(
         toolId,
-        output || (exitCode === undefined ? String(commandItem.status ?? '') : `exit code ${exitCode}`),
+        output ||
+          (exitCode === undefined ? String(commandItem.status ?? '') : `exit code ${exitCode}`),
         commandItem.status !== 'completed' || (exitCode !== undefined && exitCode !== 0),
       );
       return;
@@ -116,6 +119,50 @@ export class CodexSessionEvents {
     // Provider events may be delivered late. Never create renderer blocks after
     // the terminal result for a turn; the next turn/started reopens the mapper.
     if (this.turnFinished && method.startsWith('item/')) return;
+    if (
+      method === 'item/started' &&
+      commandItem.type === 'mcpToolCall' &&
+      typeof commandItem.id === 'string' &&
+      typeof commandItem.server === 'string' &&
+      typeof commandItem.tool === 'string'
+    ) {
+      this.runtimeTools.set(
+        commandItem.id,
+        this.toolStart(commandItem.id, `mcp__${commandItem.server}__${commandItem.tool}`, {
+          ...(object(commandItem.arguments) as ObjectValue),
+        }),
+      );
+      return;
+    }
+    if (
+      method === 'item/started' &&
+      commandItem.type === 'webSearch' &&
+      typeof commandItem.id === 'string'
+    ) {
+      this.runtimeTools.set(
+        commandItem.id,
+        this.toolStart(commandItem.id, 'WebSearch', {
+          ...(typeof commandItem.query === 'string' ? { search_term: commandItem.query } : {}),
+        }),
+      );
+      return;
+    }
+    if (
+      method === 'item/completed' &&
+      (commandItem.type === 'mcpToolCall' || commandItem.type === 'webSearch') &&
+      typeof commandItem.id === 'string'
+    ) {
+      const toolId = this.runtimeTools.get(commandItem.id);
+      if (!toolId) return;
+      this.runtimeTools.delete(commandItem.id);
+      const failed = commandItem.status === 'failed' || !!commandItem.error;
+      const output =
+        commandItem.type === 'mcpToolCall'
+          ? (commandItem.error ?? commandItem.result ?? commandItem.status ?? 'completed')
+          : (commandItem.action ?? commandItem.query ?? 'completed');
+      this.toolResult(toolId, typeof output === 'string' ? output : JSON.stringify(output), failed);
+      return;
+    }
     if (method === 'thread/tokenUsage/updated') {
       const parsed = z
         .object({

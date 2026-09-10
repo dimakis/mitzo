@@ -8,6 +8,7 @@ const log = createLogger('mcp');
 interface CursorMcpEntry {
   command: string;
   args?: string[];
+  execution?: 'host' | 'sandbox';
   disabled?: boolean;
   type?: string;
   url?: string;
@@ -23,6 +24,7 @@ export interface McpServerConfig {
   command: string;
   args?: string[];
   env?: Record<string, string>;
+  execution?: 'host' | 'sandbox';
 }
 
 /**
@@ -97,6 +99,9 @@ export function loadFromFile(configPath: string): Record<string, McpServerConfig
       configs[name] = {
         command: entry.command,
         ...(entry.args ? { args: entry.args } : {}),
+        ...(entry.execution === 'host' || entry.execution === 'sandbox'
+          ? { execution: entry.execution }
+          : {}),
       };
     }
   } catch (err: unknown) {

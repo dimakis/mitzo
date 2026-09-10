@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import { z } from 'zod';
+import type { McpServerConfig } from './mcp-config.js';
 
 const Sandbox = z.object({
   name: z.string(),
@@ -27,6 +28,7 @@ export interface OpenShellRuntimeConfig {
   workspace: string;
   gateway: string;
   workdir: string;
+  webSearch: 'disabled' | 'live';
 }
 
 type Run = (args: readonly string[], signal: AbortSignal) => Promise<string>;
@@ -70,6 +72,9 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
     .split(',')
     .filter(Boolean)
     .map((value) => identifier(value, 'provider'));
+  const webSearch = env.MITZO_OPENSHELL_WEB_SEARCH || 'disabled';
+  if (webSearch !== 'disabled' && webSearch !== 'live')
+    throw new Error('Invalid OpenShell web search mode');
   return {
     image,
     policy,
@@ -78,7 +83,30 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
     workspace: identifier(env.OPENSHELL_WORKSPACE || 'default', 'workspace'),
     gateway: identifier(env.OPENSHELL_GATEWAY || 'openshell', 'gateway'),
     workdir: '/sandbox/workspaces/mgmt',
+    webSearch,
   };
+}
+
+/** Builds Codex config for capabilities that execute inside OpenShell.
+ * Host MCP definitions are deliberately omitted; credentials and egress remain
+ * governed by the sandbox's provider and network policy. */
+export function openShellCodexRuntimeConfig(
+  config: Pick<OpenShellRuntimeConfig, 'webSearch'>,
+  servers: Record<string, McpServerConfig>,
+) {
+  const runtime: Record<string, unknown> = { web_search: config.webSearch };
+  for (const [name, server] of Object.entries(servers)) {
+    if (server.execution !== 'sandbox') continue;
+    if (!/^[A-Za-z0-9_-]+$/.test(name)) throw new Error(`Invalid sandbox MCP name: ${name}`);
+    if (!isAbsolute(server.command))
+      throw new Error(`Sandbox MCP command must be absolute: ${name}`);
+    if (server.env && Object.keys(server.env).length)
+      throw new Error(`Sandbox MCP environment must use OpenShell providers: ${name}`);
+    runtime[`mcp_servers.${name}.command`] = server.command;
+    if (server.args?.length) runtime[`mcp_servers.${name}.args`] = server.args;
+    runtime[`mcp_servers.${name}.enabled`] = true;
+  }
+  return runtime;
 }
 
 export function sandboxNameForConversation(conversationId: string) {
@@ -110,7 +138,10 @@ export class OpenShellRuntimeManager {
 
   async ensure(conversationId: string, signal: AbortSignal): Promise<OpenShellRuntime> {
     const name = sandboxNameForConversation(conversationId);
+    const owner = createHash('sha256').update(conversationId).digest('hex');
     let sandbox = await this.get(name, signal);
+    if (sandbox && sandbox.labels?.['mitzo.conversation'] !== owner)
+      throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
     if (!sandbox) {
       const args = [
         'sandbox',
@@ -125,12 +156,17 @@ export class OpenShellRuntimeManager {
         '--upload',
         `${this.config.seed}:${this.config.workdir}`,
         '--label',
-        `mitzo.conversation=${createHash('sha256').update(conversationId).digest('hex')}`,
+        `mitzo.conversation=${owner}`,
         '--no-auto-providers',
         '--detach',
       ];
       for (const provider of this.config.providers) args.push('--provider', provider);
-      await this.run(args, signal);
+      try {
+        await this.run(args, signal);
+      } catch (error) {
+        if (!/already exists|conflict|409/i.test(error instanceof Error ? error.message : ''))
+          throw error;
+      }
       sandbox = await this.get(name, signal);
     } else if (sandbox.phase === 'Stopped') {
       await this.run(['sandbox', ...this.base(), 'start', name], signal);
@@ -138,6 +174,8 @@ export class OpenShellRuntimeManager {
     }
     if (!sandbox || sandbox.phase !== 'Ready')
       throw new Error(`OpenShell sandbox ${name} is ${sandbox?.phase ?? 'unavailable'}`);
+    if (sandbox.labels?.['mitzo.conversation'] !== owner)
+      throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
     return { sandboxName: name, workdir: this.config.workdir };
   }
 

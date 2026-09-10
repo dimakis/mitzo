@@ -42,9 +42,7 @@ function options(abortController: AbortController) {
     session: { cwd: '/tmp', abortController },
     mcpServers: {},
     profile: { planType: 'api' },
-  } as Parameters<
-    typeof openCodexChat
-  >[0];
+  } as Parameters<typeof openCodexChat>[0];
 }
 it('does not open MCP processes if private storage is unavailable', async () => {
   mocks.store.mockImplementationOnce(() => {
@@ -138,6 +136,7 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
   );
   expect(mocks.conversationOptions?.systemPrompt).not.toContain('Mitzo supplies host tools');
   expect(mocks.conversationOptions?.runtimeConfig).toEqual({ web_search: 'disabled' });
+  expect(mocks.connect).not.toHaveBeenCalled();
   vi.unstubAllEnvs();
 });
 

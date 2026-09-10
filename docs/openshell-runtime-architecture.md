@@ -13,6 +13,9 @@ metadata, host credential directories, or a container-engine socket. OpenShell
 providers hold credentials outside the agent namespace and expose only policy-bound
 placeholders/injected requests. Adding a CLI therefore requires an image dependency
 and a reusable provider/policy profile, not a new host execution endpoint in Mitzo.
+OpenShell's per-binary and per-endpoint rules remain the enforcement mechanism. The
+design avoids duplicating those rules as one Mitzo host wrapper per executable;
+host-side tools are reserved for narrow trusted control-plane mutations.
 
 ## Lifecycle contract
 
@@ -58,7 +61,16 @@ Automatic routing is opt-in until live acceptance completes:
 - `MITZO_OPENSHELL_POLICY=<absolute policy path>`
 - `MITZO_OPENSHELL_SEED=<absolute prepared seed directory>`
 - `MITZO_OPENSHELL_PROVIDERS=<comma-separated service providers>`
+- `MITZO_OPENSHELL_WEB_SEARCH=live` explicitly enables native live search;
+  omitted or `disabled` fails closed.
 - `OPENSHELL_GATEWAY` and `OPENSHELL_WORKSPACE` select the control-plane scope.
+
+MCP entries run inside the sandbox only when their normal config includes
+`"execution": "sandbox"` and an absolute command path available in the pinned
+image. Mitzo passes those definitions to the in-sandbox Codex process, never starts
+them on the host, and rejects per-server environment variables so service secrets
+continue to come from OpenShell providers. Unmarked MCP entries retain the existing
+host execution path only for non-OpenShell sessions.
 
 The legacy single-sandbox development variables remain only for the preserved spike
 probes and must not be used as the production lifecycle.
@@ -69,13 +81,16 @@ Synthetic coverage proves deterministic create/reuse/start behavior, provider
 attachment, invalid-state failure, sandbox-scoped context compilation, credential
 and host-metadata exclusion from the MGMT seed, portable Git commits, visible native
 tool event mapping, cancellation, and same-conversation provider-thread resume after
-transport replacement.
+transport replacement. Synthetic MCP and web-search coverage additionally proves
+in-sandbox runtime configuration, host-MCP suppression, fail-closed MCP validation,
+and public tool event/result mapping without real service or model calls.
 
 Still requiring separately authorized live acceptance:
 
 - matched gateway/supervisor/image versions with a real Personal ChatGPT provider;
 - bounded Google Drive read through the gateway-owned refresh flow;
 - authenticated GitHub read/private clone through its provider;
+- one policy-bounded MCP call and one live web search from the retained sandbox;
 - stop/start during a normal SSE chat with automatic transport replacement;
 - production rollout and operational migration.
 

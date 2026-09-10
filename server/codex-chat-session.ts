@@ -20,7 +20,11 @@ import {
   type NativeToolOptions,
 } from './native-tool-executor.js';
 import type { McpServerConfig } from './mcp-config.js';
-import { OpenShellRuntimeManager, openShellRuntimeConfig } from './openshell-runtime.js';
+import {
+  OpenShellRuntimeManager,
+  openShellCodexRuntimeConfig,
+  openShellRuntimeConfig,
+} from './openshell-runtime.js';
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
 let privateStore: CodexConversationStore | undefined;
@@ -157,14 +161,23 @@ export async function openCodexChat(options: Options) {
     dispose();
     throw error;
   }
-  const mcp = await connectCodexMcpTools(options.mcpServers, {
-    cwd: options.session.cwd!,
-    env: options.env,
-    signal: options.session.abortController.signal,
-  }).catch((error) => {
-    dispose();
-    throw error;
-  });
+  const mcp = openShell
+    ? {
+        definitions: [],
+        displayName: (name: string) => name,
+        close: async () => {},
+        execute: async () => {
+          throw new Error('Host MCP tools are unavailable inside OpenShell');
+        },
+      }
+    : await connectCodexMcpTools(options.mcpServers, {
+        cwd: options.session.cwd!,
+        env: options.env,
+        signal: options.session.abortController.signal,
+      }).catch((error) => {
+        dispose();
+        throw error;
+      });
   const events = new AsyncQueue<Record<string, unknown>>();
   let closed = false;
   function finish() {
@@ -223,7 +236,9 @@ export async function openCodexChat(options: Options) {
       ? {
           runtimeCwd: openShell.workdir,
           modelProvider: 'openshell',
-          runtimeConfig: { web_search: 'disabled' },
+          runtimeConfig: managedOpenShell
+            ? openShellCodexRuntimeConfig(configuredRuntime!, options.mcpServers)
+            : { web_search: 'disabled' },
           turnSandboxPolicy: { type: 'externalSandbox', networkAccess: 'restricted' },
           verifyBinding: async () => options.binding,
         }

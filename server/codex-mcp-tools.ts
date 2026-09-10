@@ -77,6 +77,7 @@ export async function connectCodexMcpTools(
   options.signal.addEventListener('abort', onAbort, { once: true });
   try {
     for (const [server, config] of Object.entries(configs)) {
+      if (config.execution === 'sandbox') continue;
       options.signal.throwIfAborted();
       const peer = await (options.connect ?? connect)(config, options);
       peers.push(peer);

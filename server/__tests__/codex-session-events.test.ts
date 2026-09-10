@@ -153,6 +153,52 @@ it('renders built-in command execution items as shell tool calls and results', (
   expect(JSON.stringify(events)).not.toContain('provider-command');
 });
 
+it('renders sandbox-native MCP and web search items as tool calls and results', () => {
+  const events: Record<string, unknown>[] = [];
+  const m = new CodexSessionEvents('app', 'provider', 'model', (event) => events.push(event));
+  m.notification('item/started', {
+    threadId: 'provider',
+    item: {
+      type: 'mcpToolCall',
+      id: 'private-mcp-id',
+      server: 'docs',
+      tool: 'lookup',
+      arguments: { document: 'synthetic' },
+    },
+  });
+  m.notification('item/completed', {
+    threadId: 'provider',
+    item: {
+      type: 'mcpToolCall',
+      id: 'private-mcp-id',
+      status: 'completed',
+      result: { content: [{ type: 'text', text: 'fixture result' }] },
+    },
+  });
+  m.notification('item/started', {
+    threadId: 'provider',
+    item: { type: 'webSearch', id: 'private-search-id', query: 'synthetic query' },
+  });
+  m.notification('item/completed', {
+    threadId: 'provider',
+    item: {
+      type: 'webSearch',
+      id: 'private-search-id',
+      query: 'synthetic query',
+      action: { type: 'search', query: 'synthetic query' },
+    },
+  });
+
+  const serialized = JSON.stringify(events);
+  expect(serialized).toContain('mcp__docs__lookup');
+  expect(serialized).toContain('WebSearch');
+  expect(serialized).toContain('fixture result');
+  expect(serialized).toContain('synthetic query');
+  expect(serialized).not.toContain('private-mcp-id');
+  expect(serialized).not.toContain('private-search-id');
+  expect(events.filter((event) => event.type === 'user')).toHaveLength(2);
+});
+
 it('renders provider reasoning summaries as thinking without exposing raw reasoning', () => {
   const events: Record<string, unknown>[] = [];
   const m = new CodexSessionEvents('app', 'provider', 'model', (e) => events.push(e));

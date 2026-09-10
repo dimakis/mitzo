@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   OpenShellRuntimeManager,
+  openShellCodexRuntimeConfig,
   openShellRuntimeConfig,
   sandboxNameForConversation,
 } from '../openshell-runtime.js';
@@ -13,7 +14,11 @@ const config = {
   workspace: 'mitzo',
   gateway: 'local',
   workdir: '/sandbox/workspaces/mgmt',
+  webSearch: 'disabled' as const,
 };
+const owner = '8b34dbc2c05eb4d7e25d48efeace82456b16cee760bcae80c157f52a3c2e787b';
+const ready = (phase = 'Ready') =>
+  JSON.stringify({ name: 'sandbox', phase, labels: { 'mitzo.conversation': owner } });
 
 describe('OpenShell runtime lifecycle', () => {
   it('derives a stable non-revealing sandbox identity', () => {
@@ -26,7 +31,7 @@ describe('OpenShell runtime lifecycle', () => {
       .fn()
       .mockRejectedValueOnce(new Error('sandbox not found'))
       .mockResolvedValueOnce('{}')
-      .mockResolvedValueOnce(JSON.stringify({ name: 'ignored', phase: 'Ready' }));
+      .mockResolvedValueOnce(ready());
     const result = await new OpenShellRuntimeManager(config, run).ensure(
       'conversation',
       new AbortController().signal,
@@ -40,18 +45,18 @@ describe('OpenShell runtime lifecycle', () => {
   });
 
   it('reuses Ready and starts Stopped sandboxes without recreating them', async () => {
-    const ready = vi.fn().mockResolvedValue(JSON.stringify({ name: 'sandbox', phase: 'Ready' }));
-    await new OpenShellRuntimeManager(config, ready).ensure(
+    const readyRun = vi.fn().mockResolvedValue(ready());
+    await new OpenShellRuntimeManager(config, readyRun).ensure(
       'conversation',
       new AbortController().signal,
     );
-    expect(ready).toHaveBeenCalledTimes(1);
+    expect(readyRun).toHaveBeenCalledTimes(1);
 
     const stopped = vi
       .fn()
-      .mockResolvedValueOnce(JSON.stringify({ name: 'sandbox', phase: 'Stopped' }))
+      .mockResolvedValueOnce(ready('Stopped'))
       .mockResolvedValueOnce('{}')
-      .mockResolvedValueOnce(JSON.stringify({ name: 'sandbox', phase: 'Ready' }));
+      .mockResolvedValueOnce(ready());
     await new OpenShellRuntimeManager(config, stopped).ensure(
       'conversation',
       new AbortController().signal,
@@ -61,10 +66,24 @@ describe('OpenShell runtime lifecycle', () => {
   });
 
   it('fails closed on errored or incomplete runtimes', async () => {
-    const run = vi.fn().mockResolvedValue(JSON.stringify({ name: 'sandbox', phase: 'Error' }));
+    const run = vi.fn().mockResolvedValue(ready('Error'));
     await expect(
       new OpenShellRuntimeManager(config, run).ensure('conversation', new AbortController().signal),
     ).rejects.toThrow('is Error');
+  });
+
+  it('does not adopt a same-named sandbox owned by another conversation', async () => {
+    const run = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        name: 'sandbox',
+        phase: 'Ready',
+        labels: { 'mitzo.conversation': 'different' },
+      }),
+    );
+    await expect(
+      new OpenShellRuntimeManager(config, run).ensure('conversation', new AbortController().signal),
+    ).rejects.toThrow('not owned');
+    expect(run).toHaveBeenCalledTimes(1);
   });
 
   it('compiles launch context against the exact sandbox workspace', async () => {
@@ -108,5 +127,49 @@ describe('OpenShell runtime lifecycle', () => {
         MITZO_OPENSHELL_SEED: '/seed',
       }),
     ).toThrow('absolute');
+    expect(() =>
+      openShellRuntimeConfig({
+        MITZO_OPENSHELL_ENABLED: '1',
+        MITZO_OPENSHELL_IMAGE: 'runtime:1',
+        MITZO_OPENSHELL_POLICY: '/policy',
+        MITZO_OPENSHELL_SEED: '/seed',
+        MITZO_OPENSHELL_WEB_SEARCH: 'enabled',
+      }),
+    ).toThrow('web search');
+  });
+
+  it('passes only explicitly sandboxed MCP servers and live search to Codex', () => {
+    expect(
+      openShellCodexRuntimeConfig(
+        { webSearch: 'live' },
+        {
+          docs: { execution: 'sandbox', command: '/usr/bin/docs-mcp', args: ['--stdio'] },
+          host: { command: '/host/private-mcp' },
+        },
+      ),
+    ).toEqual({
+      web_search: 'live',
+      'mcp_servers.docs.command': '/usr/bin/docs-mcp',
+      'mcp_servers.docs.args': ['--stdio'],
+      'mcp_servers.docs.enabled': true,
+    });
+  });
+
+  it('rejects sandbox MCP host paths, ambiguous names, and injected environments', () => {
+    expect(() =>
+      openShellCodexRuntimeConfig(config, {
+        docs: { execution: 'sandbox', command: 'relative-mcp' },
+      }),
+    ).toThrow('absolute');
+    expect(() =>
+      openShellCodexRuntimeConfig(config, {
+        'docs.private': { execution: 'sandbox', command: '/usr/bin/docs-mcp' },
+      }),
+    ).toThrow('name');
+    expect(() =>
+      openShellCodexRuntimeConfig(config, {
+        docs: { execution: 'sandbox', command: '/usr/bin/docs-mcp', env: { TOKEN: 'secret' } },
+      }),
+    ).toThrow('providers');
   });
 });
