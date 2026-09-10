@@ -63,11 +63,21 @@ export const SeatConfigSchema = z
     path: ['accountBinding', 'model'],
   });
 
-export const TurnRulesSchema = z.strictObject({
-  mode: z.enum(['round-robin', 'directed', 'budgeted']),
+const BoundedTurnRulesSchema = z.strictObject({
+  mode: z.enum(['round-robin', 'directed']),
   maxTurns: z.number().int().positive(),
-  budgetUsd: z.number().positive().optional(),
 });
+
+const BudgetedTurnRulesSchema = z.strictObject({
+  mode: z.literal('budgeted'),
+  maxTurns: z.number().int().positive(),
+  budgetUsd: z.number().positive(),
+});
+
+export const TurnRulesSchema = z.discriminatedUnion('mode', [
+  BoundedTurnRulesSchema,
+  BudgetedTurnRulesSchema,
+]);
 
 /** An optional capability of an existing chat, with exactly two seats in v1.
  * These are configuration contracts, not runtime grants or scheduler behavior.

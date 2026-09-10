@@ -177,6 +177,26 @@ describe('Symposium configuration contract', () => {
       }).success,
     ).toBe(false);
   });
+  it('requires a budget only for the budgeted turn strategy', () => {
+    expect(
+      SymposiumConfigSchema.safeParse({
+        ...config,
+        turnRules: { mode: 'budgeted', maxTurns: 6 },
+      }).success,
+    ).toBe(false);
+    expect(
+      SymposiumConfigSchema.safeParse({
+        ...config,
+        turnRules: { mode: 'directed', maxTurns: 6, budgetUsd: 1 },
+      }).success,
+    ).toBe(false);
+    expect(
+      SymposiumConfigSchema.safeParse({
+        ...config,
+        turnRules: { mode: 'budgeted', maxTurns: 6, budgetUsd: 1 },
+      }).success,
+    ).toBe(true);
+  });
   it('allows different account providers inside one Symposium trust domain', () => {
     expect(config.seats[0].accountBinding?.provider).not.toBe(
       config.seats[1].accountBinding?.provider,
