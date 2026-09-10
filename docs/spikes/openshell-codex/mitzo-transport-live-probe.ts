@@ -42,12 +42,20 @@ try {
     approvalPolicy: 'never',
     sandboxPolicy: { type: 'externalSandbox', networkAccess: 'restricted' },
   });
-  await Promise.race([
-    finished,
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Mitzo OpenShell transport probe timed out')), 120_000),
-    ),
-  ]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      finished,
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error('Mitzo OpenShell transport probe timed out')),
+          120_000,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
   console.log('MITZO_OPENSHELL_TRANSPORT_TURN=completed');
 } finally {
   client.close();

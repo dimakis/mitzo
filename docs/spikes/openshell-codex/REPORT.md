@@ -45,12 +45,12 @@ remove the risk that 0.153.4 is only a desktop-app-bundled build.
 | Brokered Codex subscription turn | **Blocked safely** | A `codex --from-existing` provider was attached without mounting the host auth store. OpenShell explicitly denied raw OAuth traffic to `chatgpt.com`/`api.openai.com`: the built-in profile has no L7-injectable auth mapping, so the proxy failed closed. No model action occurred. |
 | Inspected OpenAI API request | **Pass** | Direct and sandboxed `POST /v1/responses` with the same exact Keychain credential, `gpt-4.1-mini`, and request body both succeeded after importing the custom endpoint-bearing bearer profile. The legacy `openai` type had produced `invalid_api_key` because no installed profile supplied placement metadata. |
 | Codex API-key app-server turn | **Pass through custom HTTPS provider** | The built-in provider still received 401 at its WebSocket handshake, but a custom Codex `responses` provider for `https://api.openai.com/v1` used inspected HTTPS. A real model turn ran shell inside OpenShell and created the required marker. |
-| Mitzo app-server transport | **Pass (development seam)** | `CodexAppServerClient.launchOpenShell` uses OpenShell's SSH proxy as a bidirectional stdio bridge and forwards only an allowlisted host environment. A real turn driven through this Mitzo class created and committed a file in the sandbox repository. Normal chat binding and per-task provisioning are not wired yet. |
+| Mitzo app-server transport | **Pass (development seam)** | `CodexAppServerClient.launchOpenShell` uses OpenShell's SSH proxy as a bidirectional stdio bridge and forwards only an allowlisted host environment. A real turn driven through this Mitzo class created and committed a file in the sandbox repository. Normal chat binding is implemented behind development environment variables, but its first server launch was stopped before chat because startup repository cleanup escaped the disposable root; see the incident below. |
 | Follow-up/cancel/restart/resume/refresh | Partial | Client close left no remote app-server process after the SSH process-group fix. Follow-up, explicit mid-turn cancellation, sandbox recreation, and durable workspace restore are not yet proven. Conversation SQLite alone cannot restore uncommitted sandbox files. |
 | GitHub read and clone | **Pass (broker/clone)** | Existing `gh` token was captured in process memory, stored in a temporary provider, and exposed only as a placeholder. Authenticated `gh api user` passed; a genuinely private repository clone passed when the placeholder was supplied through HTTPS Basic auth. The earlier Mitzo clone was public. These are filesystem clones, not Mitzo workspace registration. |
 | GitHub write denial | **Pass** | A write request was explicitly `policy_denied`; no issue was created. Future controls should use only a synthetic endpoint. |
 | Google Workspace read | Partial | Host `gws 0.18.1` encrypted OAuth login is healthy and a one-item Drive read passed. OpenShell supports safe `--secret-material-env` input and the profile was imported, but the exported material failed with both its exported client secret and the actual configured client secret (`invalid_client`, then `invalid_grant`). GWS re-auth/new refresh material is required. |
-| MGMT seed and repository workflow | **Partial** | A reviewed seed reduced 13 GB to ~28 MB while preserving sampled modifications/deletions and excluding runtime/auth stores. `./mgmt --help` passed. A Mitzo-driven sandbox agent created and committed a proof file. `./mgmt agents` failed because `litellm` is absent: MGMT's `uv.lock` is stale relative to `pyproject.toml`. |
+| MGMT seed and repository workflow | **Partial** | A reviewed seed reduced 13 GB to ~28 MB while preserving sampled modifications/deletions and excluding runtime/auth stores. Warm sandbox submission was ~0.69 s, seed preparation ~2.10 s, and upload ~0.39 s on this Mac. A Mitzo-driven sandbox agent created and committed a proof file. Disposable dependency resolution added `litellm`, but the next bounded MGMT check exposed another undeclared dependency, `anthropic`; parity is incomplete. |
 | Credential isolation | **Pass for static API/GitHub placeholders; broader open** | Hash-only checks proved sandbox provider variables differ from the real host tokens; host `gh` config and host Codex paths were absent. Gateway default storage uses AES-256-GCM envelopes and wrapped per-credential keys. Image-local `/sandbox/.codex` exists and still needs content classification. OAuth refresh-material and sibling-process threat tests remain. |
 | External-effect approval bypass | Not tested | No real write credential or trusted-executor mock was used. |
 | Two-seat Symposium contract | **Pass (design sketch only)** | `node --test symposium-seat-fixture.test.mjs` verifies independent seat bindings and message provenance in one shared workspace. It is not live Mitzo, runtime, or isolation evidence. |
@@ -123,6 +123,25 @@ GITHUB_TOKEN` by environment-name lookup, and stored in the gateway's encrypted
 credential store. The sandbox received a revisioned placeholder rather than the
 real token, and no host `gh` configuration directory was mounted.
 
+After explicit approval, policy version 2 added inspected read-only
+`api.github.com` access for `/usr/bin/gh`, `git`, and `curl`. A real
+Mitzo-transported agent turn ran `gh api user` without recording the identity,
+then created and committed `github-chat-proof.txt`; verification emitted
+`MITZO_GITHUB_CHAT=pass`. GitHub write access remains absent.
+
+## Development-server safety incident
+
+The first normal-server launch used a disposable `REPO_PATH`, but the copied
+MGMT `.mitzo.json` retained absolute host repository paths. Startup stale-
+worktree cleanup followed those paths before any chat was sent. Logs report
+seven MGMT worktrees removed and one Mitzo worktree auto-rescued: it created
+draft PR `dimakis/mitzo#483` from branch
+`session/2026-08-07-fc97c914401c`, then removed that worktree. The PR contains
+three files and one rescue commit. The server was stopped immediately. No
+cleanup, PR closure, or restoration was attempted. A safe relaunch requires a
+development flag that disables startup cleanup and rejects repository paths
+outside the disposable root; copying metadata alone is not isolation.
+
 ## Local task lifecycle and recovery
 
 The target is one retained sandbox per Mitzo task/Symposium. A warmed,
@@ -148,9 +167,9 @@ parity is not established: `.agents` skills are included, while executable
 ## Next qualification gate
 
 Wire per-task provisioning and the SSH transport into normal Mitzo chat
-selection, with a sandbox-path binding distinct from host cwd. Refresh MGMT's
-lockfile in its source repository (with user authorization), rebuild the local
-runtime image, and test representative MGMT commands. Add durable workspace
+selection, with a sandbox-path binding distinct from host cwd. Validate the
+disposable resolved MGMT runtime image with representative commands, and keep
+the source lock divergence visible rather than rewriting host MGMT. Add durable workspace
 checkpoints before expiry/recreation tests. The retained sandbox's GitHub API
 rule is absent: an attempted policy expansion was denied by the local approval
 layer, so the chat GitHub marker was not created. GWS needs a fresh refresh

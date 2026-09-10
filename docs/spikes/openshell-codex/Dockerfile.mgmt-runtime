@@ -4,7 +4,9 @@ USER root
 RUN npm install --global @openai/codex@0.153.4
 COPY pyproject.toml uv.lock /opt/mgmt-deps/
 RUN cd /opt/mgmt-deps \
-    && uv lock --check \
+    # MGMT's checked-in lock currently predates a declared dependency. Resolve
+    # only in this disposable build layer; never rewrite the host checkout.
+    && uv lock \
     && UV_PROJECT_ENVIRONMENT=/opt/mgmt-venv uv sync --frozen --no-dev --no-install-project
 COPY run-mitzo-app-server /sandbox/run-mitzo-app-server
 RUN chmod 0755 /sandbox/run-mitzo-app-server \

@@ -110,6 +110,13 @@ interface Options {
 }
 /** Shared chat adapter. Execution remains gated by the account catalog and unsupported capabilities fail explicitly. */
 export async function openCodexChat(options: Options) {
+  const openShellName = process.env.MITZO_OPENSHELL_SANDBOX_NAME;
+  const openShell = openShellName
+    ? {
+        sandboxName: openShellName,
+        workdir: process.env.MITZO_OPENSHELL_WORKDIR || '/sandbox/workspaces/mgmt',
+      }
+    : undefined;
   const signal = options.session.abortController.signal;
   signal.throwIfAborted();
   const privateStorage = store();
@@ -184,10 +191,21 @@ export async function openCodexChat(options: Options) {
       )
         throw new Error('Account configuration changed');
     },
-    tools: [...nativeToolDefinitions, ...mcp.definitions],
+    tools: openShell ? [] : [...nativeToolDefinitions, ...mcp.definitions],
     displayToolName: mcp.displayName,
     createClient: (callbacks) =>
-      CodexAppServerClient.launch(options.profile.credentialRef, process.env, callbacks),
+      openShell
+        ? CodexAppServerClient.launchOpenShell(openShell, process.env, callbacks)
+        : CodexAppServerClient.launch(options.profile.credentialRef, process.env, callbacks),
+    ...(openShell
+      ? {
+          runtimeCwd: openShell.workdir,
+          modelProvider: 'openshell',
+          runtimeConfig: { web_search: 'disabled', 'agents.enabled': false },
+          turnSandboxPolicy: { type: 'externalSandbox', networkAccess: 'restricted' },
+          verifyBinding: async () => options.binding,
+        }
+      : {}),
     emit: (event) => events.push(event),
     onClosed: finish,
     requestUserInput: async (params, signal) => {

@@ -3,7 +3,7 @@ set -euo pipefail
 
 source_repo="${1:?usage: prepare-mgmt-seed.sh SOURCE_REPO OUTPUT_DIR}"
 output_root="${2:?usage: prepare-mgmt-seed.sh SOURCE_REPO OUTPUT_DIR}"
-workspace="$output_root/workspace"
+workspace="$output_root/mgmt"
 baseline="$output_root/baseline.json"
 
 test "${source_repo#/}" != "$source_repo" || { echo 'source must be absolute' >&2; exit 2; }

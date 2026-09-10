@@ -1,0 +1,13 @@
+[
+  {
+    "id": "openshell-work-api",
+    "label": "OpenShell · Work API",
+    "provider": "openai",
+    "credentialRef": {
+      "provider": "keychain",
+      "service": "com.mitzo.openai",
+      "account": "work"
+    },
+    "models": [{ "id": "gpt-4.1-mini", "label": "GPT-4.1 mini" }]
+  }
+]

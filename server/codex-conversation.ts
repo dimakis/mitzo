@@ -38,6 +38,11 @@ interface Options {
   displayToolName?: (name: string) => string;
   beforeComplete?: (signal: AbortSignal) => Promise<void>;
   completionHookTimeoutMs?: number;
+  runtimeCwd?: string;
+  modelProvider?: string;
+  runtimeConfig?: Record<string, unknown>;
+  turnSandboxPolicy?: Record<string, unknown>;
+  verifyBinding?: (client: Rpc, stored?: AccountBinding) => Promise<AccountBinding>;
   onQueueChange?: () => void;
   onClosed?: () => void;
   onError?: (error: Error) => void;
@@ -78,23 +83,22 @@ export class CodexConversation {
   async initialize() {
     if (this.ready) throw new Error('Codex conversation already initialized');
     await this.client.initialize();
-    this.binding = await verifyCodexAccount(
-      this.client,
-      this.opts.profile,
-      this.opts.storedBinding,
-    );
+    this.binding = this.opts.verifyBinding
+      ? await this.opts.verifyBinding(this.client, this.opts.storedBinding)
+      : await verifyCodexAccount(this.client, this.opts.profile, this.opts.storedBinding);
     this.opts.store.create(this.opts.conversationId, this.binding, this.opts.cwd);
     const state = this.opts.store.read(this.opts.conversationId, this.binding);
     this.paused = !!state.recovery;
-    const configResponse = z
-      .object({ config: z.unknown() })
-      .parse(
-        await this.client.request('config/read', { cwd: this.opts.cwd, includeLayers: false }),
-      );
-    const runtimeConfig = codexRuntimeOverrides(
-      configResponse.config,
-      this.opts.profile.workspaceId,
+    const configResponse = z.object({ config: z.unknown() }).parse(
+      await this.client.request('config/read', {
+        cwd: this.opts.runtimeCwd ?? this.opts.cwd,
+        includeLayers: false,
+      }),
     );
+    const runtimeConfig =
+      this.opts.runtimeConfig ??
+      codexRuntimeOverrides(configResponse.config, this.opts.profile.workspaceId);
+    const modelProvider = this.opts.modelProvider ?? 'openai';
     const method = state.threadId ? 'thread/resume' : 'thread/start';
     const result = z
       .object({
@@ -106,25 +110,29 @@ export class CodexConversation {
         await this.client.request(method, {
           ...(state.threadId ? { threadId: state.threadId } : {}),
           model: this.binding.model,
-          modelProvider: 'openai',
+          modelProvider,
           allowProviderModelFallback: false,
-          cwd: this.opts.cwd,
+          cwd: this.opts.runtimeCwd ?? this.opts.cwd,
           config: runtimeConfig,
           environments: [],
           approvalPolicy: 'never',
           sandbox: 'read-only',
           developerInstructions: this.opts.systemPrompt,
-          dynamicTools: this.opts.tools.map((t) => ({
-            type: 'function',
-            name: t.name,
-            description: t.description,
-            inputSchema: t.input_schema,
-          })),
+          ...(this.opts.tools.length
+            ? {
+                dynamicTools: this.opts.tools.map((t) => ({
+                  type: 'function',
+                  name: t.name,
+                  description: t.description,
+                  inputSchema: t.input_schema,
+                })),
+              }
+            : {}),
         }),
       );
     if (
       result.model !== this.binding.model ||
-      result.modelProvider !== 'openai' ||
+      result.modelProvider !== modelProvider ||
       (state.threadId && result.thread.id !== state.threadId)
     )
       throw new Error('Codex execution binding changed');
@@ -221,7 +229,7 @@ export class CodexConversation {
           ],
           environments: [],
           approvalPolicy: 'never',
-          sandboxPolicy: { type: 'readOnly' },
+          sandboxPolicy: this.opts.turnSandboxPolicy ?? { type: 'readOnly' },
           ...(command.reasoningEffort ? { effort: command.reasoningEffort } : {}),
         }),
       );
