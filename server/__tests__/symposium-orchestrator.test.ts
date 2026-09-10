@@ -188,6 +188,7 @@ describe('SymposiumOrchestrator', () => {
   });
 
   it('preserves original and edited delivery content, recipients, interventions, and grants', async () => {
+    admit('builder');
     admit('reviewer');
     const staged = orchestrator.stageDelivery({
       sessionId: 'chat',
@@ -227,6 +228,7 @@ describe('SymposiumOrchestrator', () => {
   });
 
   it('reuses one durable provider thread per seat instead of issuing fresh queries', async () => {
+    admit('builder');
     admit('reviewer');
     for (const [index, content] of ['first', 'second'].entries()) {
       const staged = orchestrator.stageDelivery({
@@ -253,6 +255,7 @@ describe('SymposiumOrchestrator', () => {
   });
 
   it('starts a new thread when a persisted grant revision changes', async () => {
+    admit('builder');
     admit('reviewer');
     const first = orchestrator.stageDelivery({
       sessionId: 'chat',
@@ -291,6 +294,12 @@ describe('SymposiumOrchestrator', () => {
     ).toThrow('not admitted');
     orchestrator.recordProviderAdmission({
       sessionId: 'chat',
+      seatId: 'builder',
+      decision: 'admitted',
+      idempotencyKey: 'admit-builder-new-grant',
+    });
+    orchestrator.recordProviderAdmission({
+      sessionId: 'chat',
       seatId: 'reviewer',
       decision: 'admitted',
       idempotencyKey: 'admit-new-grant',
@@ -314,6 +323,7 @@ describe('SymposiumOrchestrator', () => {
   });
 
   it('fails closed when provider admission was refused or is missing', () => {
+    admit('builder');
     admit('reviewer');
     admit('reviewer', 'refused');
     expect(() =>
@@ -327,7 +337,21 @@ describe('SymposiumOrchestrator', () => {
     ).toThrow('not admitted');
   });
 
+  it('requires admission for a non-director source seat before claiming its provenance', () => {
+    admit('reviewer');
+    expect(() =>
+      orchestrator.stageDelivery({
+        sessionId: 'chat',
+        sourceSeatId: 'builder',
+        recipientSeatIds: ['reviewer'],
+        originalContent: 'unadmitted source output',
+        idempotencyKey: 'stage-unadmitted-source',
+      }),
+    ).toThrow('builder is not admitted');
+  });
+
   it('makes staging, intervention, and execution retries idempotent', async () => {
+    admit('builder');
     admit('reviewer');
     const input = {
       sessionId: 'chat',
@@ -369,6 +393,7 @@ describe('SymposiumOrchestrator', () => {
   });
 
   it('records replace and drop interventions without losing the original content', async () => {
+    admit('builder');
     admit('reviewer');
     const replaced = orchestrator.stageDelivery({
       sessionId: 'chat',
@@ -414,6 +439,7 @@ describe('SymposiumOrchestrator', () => {
   });
 
   it('retries a failed seat attempt with the same provider idempotency key', async () => {
+    admit('builder');
     admit('reviewer');
     let calls = 0;
     reviewer.execute = vi.fn(async (input: SymposiumSeatExecution) => {
@@ -449,13 +475,13 @@ describe('SymposiumOrchestrator', () => {
   });
 
   it('persists cancellation and aborts an in-flight injected executor', async () => {
+    admit('builder');
     admit('reviewer');
     let release!: () => void;
     const waiting = new Promise<void>((resolve) => (release = resolve));
     reviewer.execute = vi.fn(async (input: SymposiumSeatExecution) => {
       reviewer.calls.push(input);
       await waiting;
-      if (input.signal.aborted) throw new DOMException('Aborted', 'AbortError');
       return { providerThreadId: 'late-thread', content: 'late', costUsd: 0 };
     });
     const staged = orchestrator.stageDelivery({
@@ -488,9 +514,11 @@ describe('SymposiumOrchestrator', () => {
     });
     expect(cancelled.recipients[0].status).toBe('cancelled');
     expect(reviewer.cancellations).toEqual(['delivery:delivery-1:seat:reviewer']);
+    expect(store.getSymposiumSeatThreads('chat')).toEqual([]);
   });
 
   it('marks crash-interrupted attempts for explicit recovery and reuses their execution key', async () => {
+    admit('builder');
     admit('reviewer');
     const staged = orchestrator.stageDelivery({
       sessionId: 'chat',
@@ -579,6 +607,12 @@ describe('SymposiumOrchestrator', () => {
     });
     orchestrator.recordProviderAdmission({
       sessionId: 'chat',
+      seatId: 'builder',
+      decision: 'admitted',
+      idempotencyKey: 'admit-builder-concurrent',
+    });
+    orchestrator.recordProviderAdmission({
+      sessionId: 'chat',
       seatId: 'reviewer',
       decision: 'admitted',
       idempotencyKey: 'admit-concurrent',
@@ -622,5 +656,124 @@ describe('SymposiumOrchestrator', () => {
       release();
       secondStore.close();
     }
+  });
+
+  it('treats a concurrent duplicate claim as an idempotent observation', async () => {
+    store.setSymposiumConfig('chat', {
+      ...config,
+      revision: 4,
+      turnRules: { mode: 'directed', maxTurns: 1 },
+    });
+    orchestrator.recordProviderAdmission({
+      sessionId: 'chat',
+      seatId: 'reviewer',
+      decision: 'admitted',
+      idempotencyKey: 'admit-duplicate-claim',
+    });
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => (release = resolve));
+    reviewer.execute = vi.fn(async (input: SymposiumSeatExecution) => {
+      reviewer.calls.push(input);
+      await waiting;
+      return { providerThreadId: 'thread-reviewer', content: 'done', costUsd: 0 };
+    });
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: null,
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'one turn',
+      idempotencyKey: 'stage-duplicate-claim',
+    });
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-duplicate-claim',
+    });
+    const secondStore = new EventStore(dbPath);
+    const secondOrchestrator = new SymposiumOrchestrator({
+      store: secondStore,
+      executors: { builder, reviewer },
+    });
+    try {
+      const firstRun = orchestrator.deliver(staged.deliveryId);
+      await vi.waitFor(() => expect(reviewer.calls).toHaveLength(1));
+      await expect(secondOrchestrator.deliver(staged.deliveryId)).resolves.toMatchObject({
+        status: 'delivering',
+      });
+      expect(reviewer.calls).toHaveLength(1);
+      release();
+      await firstRun;
+    } finally {
+      release();
+      secondStore.close();
+    }
+  });
+
+  it('rechecks the active configuration before dispatching each recipient', async () => {
+    admit('builder');
+    admit('reviewer');
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => (release = resolve));
+    builder.execute = vi.fn(async (input: SymposiumSeatExecution) => {
+      builder.calls.push(input);
+      await waiting;
+      return { providerThreadId: 'thread-builder', content: 'builder done', costUsd: 0 };
+    });
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: null,
+      recipientSeatIds: ['builder', 'reviewer'],
+      originalContent: 'both seats',
+      idempotencyKey: 'stage-revision-race',
+    });
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-revision-race',
+    });
+    const running = orchestrator.deliver(staged.deliveryId);
+    await vi.waitFor(() => expect(builder.calls).toHaveLength(1));
+    store.setSymposiumConfig('chat', { ...config, revision: 4 });
+    release();
+    const result = await running;
+
+    expect(result.status).toBe('failed');
+    expect(result.recipients[1]).toMatchObject({
+      seatId: 'reviewer',
+      status: 'failed',
+      error: 'Delivery configuration revision is stale',
+    });
+    expect(reviewer.calls).toHaveLength(0);
+  });
+
+  it('allows distinct seat providers to return the same opaque thread id', async () => {
+    admit('builder');
+    admit('reviewer');
+    builder.execute = vi.fn(async (input: SymposiumSeatExecution) => {
+      builder.calls.push(input);
+      return { providerThreadId: 'thread-1', content: 'builder done', costUsd: 0 };
+    });
+    reviewer.execute = vi.fn(async (input: SymposiumSeatExecution) => {
+      reviewer.calls.push(input);
+      return { providerThreadId: 'thread-1', content: 'reviewer done', costUsd: 0 };
+    });
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: null,
+      recipientSeatIds: ['builder', 'reviewer'],
+      originalContent: 'both seats',
+      idempotencyKey: 'stage-opaque-threads',
+    });
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-opaque-threads',
+    });
+
+    expect(await orchestrator.deliver(staged.deliveryId)).toMatchObject({ status: 'delivered' });
+    expect(store.getSymposiumSeatThreads('chat')).toEqual([
+      expect.objectContaining({ seatId: 'builder', providerThreadId: 'thread-1' }),
+      expect.objectContaining({ seatId: 'reviewer', providerThreadId: 'thread-1' }),
+    ]);
   });
 });

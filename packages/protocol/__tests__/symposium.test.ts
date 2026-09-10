@@ -221,6 +221,23 @@ describe('Symposium configuration contract', () => {
       }).success,
     ).toBe(false);
   });
+  it('requires active seats to use the same Symposium trust-domain revision', () => {
+    expect(
+      SymposiumConfigSchema.safeParse({
+        ...config,
+        seats: [
+          config.seats[0],
+          {
+            ...config.seats[1],
+            isolationRequest: {
+              ...config.seats[1].isolationRequest!,
+              revision: 2,
+            },
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
   it('validates the immutable delivery provenance envelope', () => {
     expect(
       SymposiumProvenanceSchema.parse({

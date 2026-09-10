@@ -2,6 +2,7 @@ import type {
   SeatConfig,
   SymposiumAdmissionDecision,
   SymposiumAdmissionRecord,
+  SymposiumConfig,
   SymposiumDeliveryRecord,
   SymposiumIntervention,
   SymposiumProvenance,
@@ -138,8 +139,16 @@ export class SymposiumOrchestrator {
       throw new Error('Delivery recipients must be one or two distinct configured seats');
     }
 
+    const sourceSeat =
+      input.sourceSeatId === null
+        ? undefined
+        : config.seats.find((seat) => seat.id === input.sourceSeatId);
     const recipients = config.seats.filter((seat) => input.recipientSeatIds.includes(seat.id));
-    for (const seat of recipients) {
+    const admittedSeats = config.seats.filter(
+      (seat) =>
+        seat.id === sourceSeat?.id || recipients.some((recipient) => recipient.id === seat.id),
+    );
+    for (const seat of admittedSeats) {
       const admission = this.store.getLatestSymposiumAdmission(
         input.sessionId,
         seat.id,
@@ -152,10 +161,6 @@ export class SymposiumOrchestrator {
 
     const deliveryId = this.idFactory();
     const timestamp = this.now();
-    const sourceSeat =
-      input.sourceSeatId === null
-        ? undefined
-        : config.seats.find((seat) => seat.id === input.sourceSeatId);
     return this.store.createSymposiumDelivery({
       deliveryId,
       sessionId: input.sessionId,
@@ -286,7 +291,30 @@ export class SymposiumOrchestrator {
     delivery = this.store.getSymposiumDelivery(deliveryId)!;
     for (const recipient of delivery.recipients) {
       if (!this.store.claimSymposiumRecipient(deliveryId, recipient.seatId)) continue;
-      const seat = config.seats.find((candidate) => candidate.id === recipient.seatId)!;
+      let currentConfig: SymposiumConfig;
+      try {
+        currentConfig = this.requireDirectedManualConfig(delivery.sessionId);
+        if (currentConfig.revision !== delivery.configRevision) {
+          throw new Error('Delivery configuration revision is stale');
+        }
+        const admission = this.store.getLatestSymposiumAdmission(
+          delivery.sessionId,
+          recipient.seatId,
+          currentConfig.revision,
+        );
+        if (admission?.decision !== 'admitted') {
+          throw new Error(`Provider for Symposium seat ${recipient.seatId} is not admitted`);
+        }
+      } catch (error) {
+        this.store.failSymposiumRecipient({
+          deliveryId,
+          seatId: recipient.seatId,
+          error: error instanceof Error ? error.message : String(error),
+          updatedAt: this.now(),
+        });
+        break;
+      }
+      const seat = currentConfig.seats.find((candidate) => candidate.id === recipient.seatId)!;
       const executor = this.executors[recipient.seatId];
       if (!executor) {
         this.store.failSymposiumRecipient({
@@ -300,6 +328,7 @@ export class SymposiumOrchestrator {
       const bindingKey = seatBindingKey(seat);
       const thread = this.store.getSymposiumSeatThread(delivery.sessionId, seat.id, bindingKey);
       try {
+        if (abortController.signal.aborted) return this.store.getSymposiumDelivery(deliveryId)!;
         const result = await executor.execute({
           sessionId: delivery.sessionId,
           deliveryId,
@@ -307,23 +336,18 @@ export class SymposiumOrchestrator {
           content: delivery.deliveredContent!,
           idempotencyKey: recipient.idempotencyKey,
           providerThreadId: thread?.providerThreadId,
-          provenance: provenanceFor(seat, config.revision),
+          provenance: provenanceFor(seat, currentConfig.revision),
           signal: abortController.signal,
         });
         const timestamp = this.now();
-        this.store.bindSymposiumSeatThread({
+        delivery = this.store.completeSymposiumRecipient({
           sessionId: delivery.sessionId,
+          deliveryId,
           seatId: seat.id,
           bindingKey,
           providerThreadId: result.providerThreadId,
-          configRevision: config.revision,
-          createdAt: thread?.createdAt ?? timestamp,
-          updatedAt: timestamp,
-        });
-        delivery = this.store.completeSymposiumRecipient({
-          deliveryId,
-          seatId: seat.id,
-          providerThreadId: result.providerThreadId,
+          configRevision: currentConfig.revision,
+          threadCreatedAt: thread?.createdAt ?? timestamp,
           resultContent: result.content,
           costUsd: result.costUsd ?? 0,
           updatedAt: timestamp,

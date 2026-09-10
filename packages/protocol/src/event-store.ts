@@ -574,8 +574,7 @@ export class EventStore {
           config_revision INTEGER NOT NULL,
           created_at INTEGER NOT NULL,
           updated_at INTEGER NOT NULL,
-          PRIMARY KEY (session_id, seat_id, binding_key),
-          UNIQUE (session_id, provider_thread_id)
+          PRIMARY KEY (session_id, seat_id, binding_key)
         );
       `);
     })();
@@ -1073,9 +1072,10 @@ export class EventStore {
 
   claimSymposiumDelivery(deliveryId: string, maxTurns?: number): boolean {
     return this.db!.transaction(() => {
+      const delivery = this.getSymposiumDelivery(deliveryId);
+      if (!delivery) throw new Error('Unknown Symposium delivery');
+      if (delivery.status !== 'ready') return false;
       if (maxTurns !== undefined) {
-        const delivery = this.getSymposiumDelivery(deliveryId);
-        if (!delivery) throw new Error('Unknown Symposium delivery');
         const reserved = this.db!.prepare(
           `SELECT count(*) AS count FROM symposium_delivery_recipients r
            JOIN symposium_deliveries d ON d.delivery_id = r.delivery_id
@@ -1107,14 +1107,28 @@ export class EventStore {
   }
 
   completeSymposiumRecipient(input: {
+    sessionId: string;
     deliveryId: string;
     seatId: string;
+    bindingKey: string;
     providerThreadId: string;
+    configRevision: number;
+    threadCreatedAt: number;
     resultContent: string;
     costUsd: number;
     updatedAt: number;
   }): SymposiumDeliveryRecord {
     return this.db!.transaction(() => {
+      const delivery = this.db!.prepare(
+        `SELECT session_id, config_revision FROM symposium_deliveries WHERE delivery_id = ?`,
+      ).get(input.deliveryId) as { session_id: string; config_revision: number } | undefined;
+      if (
+        !delivery ||
+        delivery.session_id !== input.sessionId ||
+        delivery.config_revision !== input.configRevision
+      ) {
+        throw new Error('Symposium completion does not match its delivery configuration');
+      }
       const result = this.db!.prepare(
         `UPDATE symposium_delivery_recipients SET status = 'delivered',
           provider_thread_id = ?, result_content = ?, cost_usd = ?, error = NULL, updated_at = ?
@@ -1128,6 +1142,35 @@ export class EventStore {
         input.seatId,
       );
       if (result.changes === 1) {
+        const existingThread = this.getSymposiumSeatThread(
+          input.sessionId,
+          input.seatId,
+          input.bindingKey,
+        );
+        if (existingThread && existingThread.providerThreadId !== input.providerThreadId) {
+          throw new Error('Symposium provider thread changed for an existing seat binding');
+        }
+        if (existingThread) {
+          this.db!.prepare(
+            `UPDATE symposium_seat_threads SET updated_at = ?
+             WHERE session_id = ? AND seat_id = ? AND binding_key = ?`,
+          ).run(input.updatedAt, input.sessionId, input.seatId, input.bindingKey);
+        } else {
+          this.db!.prepare(
+            `INSERT INTO symposium_seat_threads (
+              session_id, seat_id, binding_key, provider_thread_id,
+              config_revision, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          ).run(
+            input.sessionId,
+            input.seatId,
+            input.bindingKey,
+            input.providerThreadId,
+            input.configRevision,
+            input.threadCreatedAt,
+            input.updatedAt,
+          );
+        }
         const remaining = this.db!.prepare(
           `SELECT 1 FROM symposium_delivery_recipients
            WHERE delivery_id = ? AND status != 'delivered' LIMIT 1`,

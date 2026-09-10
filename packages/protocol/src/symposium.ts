@@ -147,6 +147,15 @@ export const SymposiumConfigSchema = z
           path: ['seats', 1, 'isolationRequest', 'trustDomainId'],
         });
       }
+      if (
+        config.seats[0].isolationRequest?.revision !== config.seats[1].isolationRequest?.revision
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Active Symposium seats must share one trust-domain revision',
+          path: ['seats', 1, 'isolationRequest', 'revision'],
+        });
+      }
     }
   });
 
