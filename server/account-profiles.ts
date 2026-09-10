@@ -60,6 +60,12 @@ const CodexProfile = z
         message: 'Codex profile requires a host login or brokered subscription binding',
       });
     }
+    if (profile.credentialRef && brokered) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Codex profile cannot combine a host login with a brokered subscription binding',
+      });
+    }
   })
   .strict();
 const ApiProfile = z

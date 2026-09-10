@@ -209,6 +209,15 @@ describe('brokered ChatGPT subscription profile', () => {
       }).resume(binding),
     ).toThrow('changed');
   });
+
+  it('rejects mixed host-login and brokered subscription routes', () => {
+    expect(
+      () =>
+        new AccountProfiles([{ ...subscription, credentialRef: '/private/codex' }], {
+          codexEnabled: true,
+        }),
+    ).toThrow('Invalid account profiles configuration');
+  });
 });
 
 describe('legacy model catalog', () => {
