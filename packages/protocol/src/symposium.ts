@@ -5,6 +5,19 @@ export type SessionType = 'chat' | 'symposium';
 export type TurnMode = 'round-robin' | 'directed' | 'budgeted';
 export type InterceptMode = 'auto' | 'manual';
 export type SymposiumState = 'draft' | 'active';
+export type SymposiumAdmissionDecision = 'admitted' | 'refused';
+export type SymposiumIntervention = 'approve' | 'edit' | 'replace' | 'drop' | 'retry';
+export type SymposiumDeliveryStatus =
+  | 'awaiting_intervention'
+  | 'ready'
+  | 'delivering'
+  | 'delivered'
+  | 'dropped'
+  | 'failed'
+  | 'cancelled'
+  | 'recovery_required';
+export type SymposiumRecipientStatus =
+  'pending' | 'executing' | 'delivered' | 'failed' | 'cancelled' | 'recovery_required';
 
 export const ProfileBindingSchema = z.strictObject({
   profileId: z.string().trim().min(1),
@@ -145,3 +158,86 @@ export type SymposiumProvenance = z.infer<typeof SymposiumProvenanceSchema>;
 export type SeatConfig = z.infer<typeof SeatConfigSchema>;
 export type TurnRules = z.infer<typeof TurnRulesSchema>;
 export type SymposiumConfig = z.infer<typeof SymposiumConfigSchema>;
+
+/** Durable decision to admit one configured provider into the shared Symposium boundary. */
+export interface SymposiumAdmissionRecord {
+  admissionId: string;
+  sessionId: string;
+  seatId: string;
+  decision: SymposiumAdmissionDecision;
+  reason: string | null;
+  idempotencyKey: string;
+  configRevision: number;
+  provider: string;
+  accountId: string;
+  model: string;
+  accountProfileRevision: string;
+  isolationDomainId: string;
+  isolationDomainRevision: number;
+  decidedAt: number;
+}
+
+/** Immutable target snapshot for one delivery attempt. */
+export interface SymposiumDeliveryRecipient {
+  deliveryId: string;
+  seatId: string;
+  status: SymposiumRecipientStatus;
+  idempotencyKey: string;
+  configRevision: number;
+  accountProfileRevision: string;
+  seatProfileRevision: string;
+  contextGrantId: string;
+  contextGrantRevision: number;
+  authorityGrantId: string;
+  authorityGrantRevision: number;
+  isolationDomainId: string;
+  isolationDomainRevision: number;
+  providerThreadId: string | null;
+  resultContent: string | null;
+  costUsd: number;
+  error: string | null;
+  updatedAt: number;
+}
+
+/** One directed/manual message, preserving the pre- and post-intervention forms. */
+export interface SymposiumDeliveryRecord {
+  deliveryId: string;
+  sessionId: string;
+  sourceSeatId: string | null;
+  recipientSeatIds: string[];
+  originalContent: string;
+  deliveredContent: string | null;
+  status: SymposiumDeliveryStatus;
+  intervention: SymposiumIntervention | null;
+  interventionReason: string | null;
+  idempotencyKey: string;
+  configRevision: number;
+  sourceProvenance: SymposiumProvenance | null;
+  cancellationReason: string | null;
+  cancellationIdempotencyKey: string | null;
+  cancelledAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+  recipients: SymposiumDeliveryRecipient[];
+}
+
+export interface SymposiumInterventionRecord {
+  interventionId: number;
+  deliveryId: string;
+  action: SymposiumIntervention;
+  content: string | null;
+  reason: string | null;
+  idempotencyKey: string;
+  createdAt: number;
+}
+
+/** Provider conversation binding retained across deliveries for one seat/config binding. */
+export interface SymposiumSeatThreadRecord {
+  sessionId: string;
+  seatId: string;
+  bindingKey: string;
+  providerThreadId: string;
+  configRevision: number;
+  createdAt: number;
+  updatedAt: number;
+}

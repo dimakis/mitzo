@@ -1,0 +1,626 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { SymposiumConfig } from '@mitzo/protocol';
+import { EventStore } from '../event-store.js';
+import {
+  SymposiumOrchestrator,
+  type SymposiumSeatExecutor,
+  type SymposiumSeatExecution,
+} from '../symposium-orchestrator.js';
+
+const config: SymposiumConfig = {
+  version: 1,
+  revision: 3,
+  state: 'active',
+  seats: [
+    {
+      id: 'builder',
+      name: 'Builder',
+      role: 'primary',
+      model: 'model-a',
+      systemPrompt: 'Build.',
+      color: '#8040cc',
+      accountBinding: {
+        accountId: 'work-builder',
+        accountLabel: 'Work Builder',
+        provider: 'openai-codex',
+        model: 'model-a',
+        profileRevision: 'account-1',
+      },
+      profileBinding: { profileId: 'builder', profileRevision: 'profile-1' },
+      contextGrant: {
+        grantId: 'context-builder',
+        revision: 4,
+        classification: 'work',
+        sourceRefs: ['repo:mitzo'],
+      },
+      authorityGrant: {
+        grantId: 'authority-builder',
+        revision: 5,
+        filesystem: 'write',
+        tools: 'write',
+        network: 'restricted',
+      },
+      isolationRequest: {
+        trustDomainId: 'symposium-shared',
+        revision: 2,
+        placement: 'reuse-compatible',
+      },
+    },
+    {
+      id: 'reviewer',
+      name: 'Reviewer',
+      role: 'reviewer',
+      model: 'model-b',
+      systemPrompt: 'Review.',
+      color: '#008888',
+      accountBinding: {
+        accountId: 'work-reviewer',
+        accountLabel: 'Work Reviewer',
+        provider: 'anthropic-vertex',
+        model: 'model-b',
+        profileRevision: 'account-2',
+      },
+      profileBinding: { profileId: 'reviewer', profileRevision: 'profile-2' },
+      contextGrant: {
+        grantId: 'context-reviewer',
+        revision: 6,
+        classification: 'work',
+        sourceRefs: ['repo:mitzo'],
+      },
+      authorityGrant: {
+        grantId: 'authority-reviewer',
+        revision: 7,
+        filesystem: 'read',
+        tools: 'read',
+        network: 'restricted',
+      },
+      isolationRequest: {
+        trustDomainId: 'symposium-shared',
+        revision: 2,
+        placement: 'reuse-compatible',
+      },
+    },
+  ],
+  turnRules: { mode: 'directed', maxTurns: 4 },
+  interceptMode: 'manual',
+};
+
+class FakeExecutor implements SymposiumSeatExecutor {
+  calls: SymposiumSeatExecution[] = [];
+  cancellations: string[] = [];
+  private threadCount = 0;
+  private results = new Map<
+    string,
+    { providerThreadId: string; content: string; costUsd: number }
+  >();
+
+  async execute(input: SymposiumSeatExecution) {
+    this.calls.push(input);
+    const prior = this.results.get(input.idempotencyKey);
+    if (prior) return prior;
+    this.threadCount += input.providerThreadId ? 0 : 1;
+    const result = {
+      providerThreadId:
+        input.providerThreadId ??
+        `thread-${input.seat.id}${this.threadCount === 1 ? '' : `-${this.threadCount}`}`,
+      content: `${input.seat.id}: ${input.content}`,
+      costUsd: 0.01,
+    };
+    this.results.set(input.idempotencyKey, result);
+    return result;
+  }
+
+  async cancel(input: { providerThreadId?: string; idempotencyKey: string }) {
+    this.cancellations.push(input.idempotencyKey);
+  }
+}
+
+let dir: string;
+let dbPath: string;
+let store: EventStore;
+let builder: FakeExecutor;
+let reviewer: FakeExecutor;
+let orchestrator: SymposiumOrchestrator;
+
+function openStore() {
+  const opened = new EventStore(dbPath);
+  opened.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });
+  if (opened.getSession('chat')?.sessionType !== 'symposium') {
+    opened.setSymposiumConfig('chat', config);
+  }
+  return opened;
+}
+
+function createOrchestrator() {
+  return new SymposiumOrchestrator({
+    store,
+    executors: { builder, reviewer },
+    idFactory: (() => {
+      let value = 0;
+      return () => `delivery-${++value}`;
+    })(),
+    now: () => 1_700_000_000_000,
+  });
+}
+
+function admit(seatId: 'builder' | 'reviewer', decision: 'admitted' | 'refused' = 'admitted') {
+  return orchestrator.recordProviderAdmission({
+    sessionId: 'chat',
+    seatId,
+    decision,
+    reason: decision === 'admitted' ? 'Director accepted shared boundary' : 'Not approved',
+    idempotencyKey: `admit-${seatId}-${decision}`,
+  });
+}
+
+beforeEach(() => {
+  dir = mkdtempSync(join(tmpdir(), 'mitzo-symposium-'));
+  dbPath = join(dir, 'events.db');
+  store = openStore();
+  builder = new FakeExecutor();
+  reviewer = new FakeExecutor();
+  orchestrator = createOrchestrator();
+});
+
+afterEach(() => {
+  store.close();
+  rmSync(dir, { recursive: true, force: true });
+});
+
+describe('SymposiumOrchestrator', () => {
+  it('records explicit provider admission against one shared trust boundary', () => {
+    const admission = admit('reviewer');
+
+    expect(admission).toMatchObject({
+      sessionId: 'chat',
+      seatId: 'reviewer',
+      decision: 'admitted',
+      configRevision: 3,
+      model: 'model-b',
+      accountProfileRevision: 'account-2',
+      isolationDomainId: 'symposium-shared',
+      isolationDomainRevision: 2,
+    });
+    expect(store.getSymposiumAdmissions('chat')).toEqual([admission]);
+  });
+
+  it('preserves original and edited delivery content, recipients, interventions, and grants', async () => {
+    admit('reviewer');
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: 'builder',
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'Unredacted draft',
+      idempotencyKey: 'stage-1',
+    });
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'edit',
+      content: 'Redacted draft',
+      reason: 'Removed customer data',
+      idempotencyKey: 'edit-1',
+    });
+
+    const delivered = await orchestrator.deliver(staged.deliveryId);
+
+    expect(delivered).toMatchObject({
+      originalContent: 'Unredacted draft',
+      deliveredContent: 'Redacted draft',
+      recipientSeatIds: ['reviewer'],
+      status: 'delivered',
+      intervention: 'edit',
+    });
+    expect(delivered.recipients[0]).toMatchObject({
+      seatId: 'reviewer',
+      configRevision: 3,
+      contextGrantRevision: 6,
+      authorityGrantRevision: 7,
+      providerThreadId: 'thread-reviewer',
+      resultContent: 'reviewer: Redacted draft',
+    });
+    expect(store.getSymposiumInterventions(staged.deliveryId)).toEqual([
+      expect.objectContaining({ action: 'edit', reason: 'Removed customer data' }),
+    ]);
+  });
+
+  it('reuses one durable provider thread per seat instead of issuing fresh queries', async () => {
+    admit('reviewer');
+    for (const [index, content] of ['first', 'second'].entries()) {
+      const staged = orchestrator.stageDelivery({
+        sessionId: 'chat',
+        sourceSeatId: 'builder',
+        recipientSeatIds: ['reviewer'],
+        originalContent: content,
+        idempotencyKey: `stage-${index}`,
+      });
+      orchestrator.intervene({
+        deliveryId: staged.deliveryId,
+        action: 'approve',
+        idempotencyKey: `approve-${index}`,
+      });
+      await orchestrator.deliver(staged.deliveryId);
+    }
+
+    expect(reviewer.calls).toHaveLength(2);
+    expect(reviewer.calls[0].providerThreadId).toBeUndefined();
+    expect(reviewer.calls[1].providerThreadId).toBe('thread-reviewer');
+    expect(store.getSymposiumSeatThreads('chat')).toEqual([
+      expect.objectContaining({ seatId: 'reviewer', providerThreadId: 'thread-reviewer' }),
+    ]);
+  });
+
+  it('starts a new thread when a persisted grant revision changes', async () => {
+    admit('reviewer');
+    const first = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: 'builder',
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'under grant 6',
+      idempotencyKey: 'stage-old-grant',
+    });
+    orchestrator.intervene({
+      deliveryId: first.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-old-grant',
+    });
+    await orchestrator.deliver(first.deliveryId);
+
+    const nextConfig: SymposiumConfig = {
+      ...config,
+      revision: 4,
+      seats: [
+        config.seats[0],
+        {
+          ...config.seats[1],
+          contextGrant: { ...config.seats[1].contextGrant!, revision: 7 },
+        },
+      ],
+    };
+    store.setSymposiumConfig('chat', nextConfig);
+    expect(() =>
+      orchestrator.stageDelivery({
+        sessionId: 'chat',
+        sourceSeatId: 'builder',
+        recipientSeatIds: ['reviewer'],
+        originalContent: 'under grant 7',
+        idempotencyKey: 'stage-new-grant',
+      }),
+    ).toThrow('not admitted');
+    orchestrator.recordProviderAdmission({
+      sessionId: 'chat',
+      seatId: 'reviewer',
+      decision: 'admitted',
+      idempotencyKey: 'admit-new-grant',
+    });
+    const second = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: 'builder',
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'under grant 7',
+      idempotencyKey: 'stage-new-grant',
+    });
+    orchestrator.intervene({
+      deliveryId: second.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-new-grant',
+    });
+    await orchestrator.deliver(second.deliveryId);
+
+    expect(reviewer.calls[1].providerThreadId).toBeUndefined();
+    expect(store.getSymposiumSeatThreads('chat')).toHaveLength(2);
+  });
+
+  it('fails closed when provider admission was refused or is missing', () => {
+    admit('reviewer');
+    admit('reviewer', 'refused');
+    expect(() =>
+      orchestrator.stageDelivery({
+        sessionId: 'chat',
+        sourceSeatId: 'builder',
+        recipientSeatIds: ['reviewer'],
+        originalContent: 'draft',
+        idempotencyKey: 'stage-refused',
+      }),
+    ).toThrow('not admitted');
+  });
+
+  it('makes staging, intervention, and execution retries idempotent', async () => {
+    admit('reviewer');
+    const input = {
+      sessionId: 'chat',
+      sourceSeatId: 'builder',
+      recipientSeatIds: ['reviewer'] as ['reviewer'],
+      originalContent: 'draft',
+      idempotencyKey: 'same-stage',
+    };
+    const first = orchestrator.stageDelivery(input);
+    const duplicate = orchestrator.stageDelivery(input);
+    expect(duplicate.deliveryId).toBe(first.deliveryId);
+
+    const intervention = {
+      deliveryId: first.deliveryId,
+      action: 'approve' as const,
+      idempotencyKey: 'same-approval',
+    };
+    orchestrator.intervene(intervention);
+    orchestrator.intervene(intervention);
+    await Promise.all([
+      orchestrator.deliver(first.deliveryId),
+      orchestrator.deliver(first.deliveryId),
+    ]);
+
+    expect(reviewer.calls).toHaveLength(1);
+    expect(store.getSymposiumInterventions(first.deliveryId)).toHaveLength(1);
+
+    store.setSymposiumConfig('chat', { ...config, revision: 4 });
+    expect(orchestrator.stageDelivery(input).deliveryId).toBe(first.deliveryId);
+    expect(
+      orchestrator.recordProviderAdmission({
+        sessionId: 'chat',
+        seatId: 'reviewer',
+        decision: 'admitted',
+        reason: 'Director accepted shared boundary',
+        idempotencyKey: 'admit-reviewer-admitted',
+      }).configRevision,
+    ).toBe(3);
+  });
+
+  it('records replace and drop interventions without losing the original content', async () => {
+    admit('reviewer');
+    const replaced = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: 'builder',
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'unsafe original',
+      idempotencyKey: 'stage-replace',
+    });
+    orchestrator.intervene({
+      deliveryId: replaced.deliveryId,
+      action: 'replace',
+      content: 'safe replacement',
+      idempotencyKey: 'replace-1',
+    });
+    expect(await orchestrator.deliver(replaced.deliveryId)).toMatchObject({
+      originalContent: 'unsafe original',
+      deliveredContent: 'safe replacement',
+      intervention: 'replace',
+      status: 'delivered',
+    });
+
+    const dropped = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: 'builder',
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'do not send',
+      idempotencyKey: 'stage-drop',
+    });
+    const result = orchestrator.intervene({
+      deliveryId: dropped.deliveryId,
+      action: 'drop',
+      reason: 'Director rejected it',
+      idempotencyKey: 'drop-1',
+    });
+    expect(result).toMatchObject({
+      originalContent: 'do not send',
+      deliveredContent: null,
+      intervention: 'drop',
+      status: 'dropped',
+    });
+    expect((await orchestrator.deliver(dropped.deliveryId)).status).toBe('dropped');
+    expect(reviewer.calls).toHaveLength(1);
+  });
+
+  it('retries a failed seat attempt with the same provider idempotency key', async () => {
+    admit('reviewer');
+    let calls = 0;
+    reviewer.execute = vi.fn(async (input: SymposiumSeatExecution) => {
+      reviewer.calls.push(input);
+      calls += 1;
+      if (calls === 1) throw new Error('temporary provider failure');
+      return { providerThreadId: 'thread-reviewer', content: 'recovered' };
+    });
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: 'builder',
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'review this',
+      idempotencyKey: 'stage-failure',
+    });
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-failure',
+    });
+    expect(await orchestrator.deliver(staged.deliveryId)).toMatchObject({ status: 'failed' });
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'retry',
+      reason: 'Provider recovered',
+      idempotencyKey: 'retry-failure',
+    });
+    expect(await orchestrator.deliver(staged.deliveryId)).toMatchObject({ status: 'delivered' });
+    expect(reviewer.calls.map((call) => call.idempotencyKey)).toEqual([
+      'delivery:delivery-1:seat:reviewer',
+      'delivery:delivery-1:seat:reviewer',
+    ]);
+  });
+
+  it('persists cancellation and aborts an in-flight injected executor', async () => {
+    admit('reviewer');
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => (release = resolve));
+    reviewer.execute = vi.fn(async (input: SymposiumSeatExecution) => {
+      reviewer.calls.push(input);
+      await waiting;
+      if (input.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+      return { providerThreadId: 'late-thread', content: 'late' };
+    });
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: 'builder',
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'draft',
+      idempotencyKey: 'stage-cancel',
+    });
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-cancel',
+    });
+
+    const running = orchestrator.deliver(staged.deliveryId);
+    await vi.waitFor(() => expect(reviewer.calls).toHaveLength(1));
+    await orchestrator.cancel({
+      deliveryId: staged.deliveryId,
+      reason: 'Director stopped review',
+      idempotencyKey: 'cancel-1',
+    });
+    release();
+    const cancelled = await running;
+
+    expect(cancelled).toMatchObject({
+      status: 'cancelled',
+      cancellationReason: 'Director stopped review',
+      cancellationIdempotencyKey: 'cancel-1',
+    });
+    expect(cancelled.recipients[0].status).toBe('cancelled');
+    expect(reviewer.cancellations).toEqual(['delivery:delivery-1:seat:reviewer']);
+  });
+
+  it('marks crash-interrupted attempts for explicit recovery and reuses their execution key', async () => {
+    admit('reviewer');
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: 'builder',
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'draft',
+      idempotencyKey: 'stage-recovery',
+    });
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-recovery',
+    });
+    store.claimSymposiumDelivery(staged.deliveryId);
+    store.claimSymposiumRecipient(staged.deliveryId, 'reviewer');
+    store.close();
+
+    store = openStore();
+    orchestrator = createOrchestrator();
+    expect(orchestrator.recover()).toEqual([
+      expect.objectContaining({ deliveryId: staged.deliveryId, status: 'recovery_required' }),
+    ]);
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'retry',
+      reason: 'Resume after restart',
+      idempotencyKey: 'retry-recovery',
+    });
+    const recovered = await orchestrator.deliver(staged.deliveryId);
+
+    expect(recovered.status).toBe('delivered');
+    expect(reviewer.calls[0].idempotencyKey).toBe('delivery:delivery-1:seat:reviewer');
+  });
+
+  it('enforces the persisted turn limit before dispatch', async () => {
+    admit('builder');
+    admit('reviewer');
+    const first = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: null,
+      recipientSeatIds: ['builder', 'reviewer'],
+      originalContent: 'both seats',
+      idempotencyKey: 'stage-both',
+    });
+    orchestrator.intervene({
+      deliveryId: first.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-both',
+    });
+    await orchestrator.deliver(first.deliveryId);
+
+    const second = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: 'builder',
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'third turn',
+      idempotencyKey: 'stage-third',
+    });
+    orchestrator.intervene({
+      deliveryId: second.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-third',
+    });
+    await orchestrator.deliver(second.deliveryId);
+
+    const third = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: 'reviewer',
+      recipientSeatIds: ['builder', 'reviewer'],
+      originalContent: 'would exceed four',
+      idempotencyKey: 'stage-over-limit',
+    });
+    orchestrator.intervene({
+      deliveryId: third.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-over-limit',
+    });
+    await expect(orchestrator.deliver(third.deliveryId)).rejects.toThrow('turn limit');
+  });
+
+  it('reserves the turn cap atomically across orchestrator instances', async () => {
+    store.setSymposiumConfig('chat', {
+      ...config,
+      revision: 4,
+      turnRules: { mode: 'directed', maxTurns: 1 },
+    });
+    orchestrator.recordProviderAdmission({
+      sessionId: 'chat',
+      seatId: 'reviewer',
+      decision: 'admitted',
+      idempotencyKey: 'admit-concurrent',
+    });
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => (release = resolve));
+    reviewer.execute = vi.fn(async (input: SymposiumSeatExecution) => {
+      reviewer.calls.push(input);
+      await waiting;
+      return { providerThreadId: 'thread-reviewer', content: 'done' };
+    });
+    const deliveries = ['one', 'two'].map((content) => {
+      const staged = orchestrator.stageDelivery({
+        sessionId: 'chat',
+        sourceSeatId: 'builder',
+        recipientSeatIds: ['reviewer'],
+        originalContent: content,
+        idempotencyKey: `stage-concurrent-${content}`,
+      });
+      orchestrator.intervene({
+        deliveryId: staged.deliveryId,
+        action: 'approve',
+        idempotencyKey: `approve-concurrent-${content}`,
+      });
+      return staged;
+    });
+    const secondStore = new EventStore(dbPath);
+    const secondOrchestrator = new SymposiumOrchestrator({
+      store: secondStore,
+      executors: { builder, reviewer },
+    });
+    try {
+      const firstRun = orchestrator.deliver(deliveries[0].deliveryId);
+      await vi.waitFor(() => expect(reviewer.calls).toHaveLength(1));
+      await expect(secondOrchestrator.deliver(deliveries[1].deliveryId)).rejects.toThrow(
+        'turn limit',
+      );
+      release();
+      await firstRun;
+    } finally {
+      release();
+      secondStore.close();
+    }
+  });
+});

@@ -147,4 +147,13 @@ export type {
   SeatConfig,
   TurnRules,
   SymposiumConfig,
+  SymposiumAdmissionDecision,
+  SymposiumAdmissionRecord,
+  SymposiumIntervention,
+  SymposiumDeliveryStatus,
+  SymposiumRecipientStatus,
+  SymposiumDeliveryRecipient,
+  SymposiumDeliveryRecord,
+  SymposiumInterventionRecord,
+  SymposiumSeatThreadRecord,
 } from './symposium.js';
