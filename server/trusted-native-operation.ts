@@ -344,7 +344,7 @@ export async function executeTrustedGitCommit(
       } catch (error: unknown) {
         if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
           if (hasApprovedIdentity && approvedIdentity !== null)
-            throw new Error('Git commit path changed after approval');
+            throw new Error('Git commit path changed after approval', { cause: error });
           await run('git', ['update-index', '--remove', '--', file], opts);
           continue;
         }
