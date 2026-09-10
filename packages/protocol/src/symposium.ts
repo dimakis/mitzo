@@ -112,6 +112,19 @@ export const SymposiumConfigSchema = z
           }
         }
       });
+      const primary = config.seats[0];
+      const reviewer = config.seats[1];
+      const sameAccount =
+        primary.accountBinding?.accountId === reviewer.accountBinding?.accountId &&
+        primary.accountBinding?.provider === reviewer.accountBinding?.provider &&
+        primary.accountBinding?.profileRevision === reviewer.accountBinding?.profileRevision;
+      if (!sameAccount && reviewer.isolationRequest?.placement !== 'dedicated') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'A reviewer with another account binding requires dedicated isolation',
+          path: ['seats', 1, 'isolationRequest', 'placement'],
+        });
+      }
     }
   });
 

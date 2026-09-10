@@ -74,7 +74,7 @@ const config: SymposiumConfig = {
         tools: 'read',
         network: 'restricted',
       },
-      isolationRequest: { trustDomainId: 'work', placement: 'reuse-compatible' },
+      isolationRequest: { trustDomainId: 'work-reviewer', placement: 'dedicated' },
     },
   ],
   turnRules: { mode: 'directed', maxTurns: 6 },
@@ -173,6 +173,20 @@ describe('Symposium configuration contract', () => {
         seats: [
           { ...config.seats[0], role: 'reviewer' },
           { ...config.seats[1], role: 'primary' },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+  it('requires a different account binding to use dedicated isolation', () => {
+    expect(
+      SymposiumConfigSchema.safeParse({
+        ...config,
+        seats: [
+          config.seats[0],
+          {
+            ...config.seats[1],
+            isolationRequest: { trustDomainId: 'work', placement: 'reuse-compatible' },
+          },
         ],
       }).success,
     ).toBe(false);
