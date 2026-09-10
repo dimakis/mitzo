@@ -4,7 +4,12 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { FinishedMessage } from '../types/chat';
-import { linkifyFilePaths, FILE_SCHEME } from '../lib/file-paths';
+import {
+  decodeFilePathUrl,
+  linkifyFilePaths,
+  remarkNeutralizeMalformedFileLinks,
+  FILE_SCHEME,
+} from '../lib/file-paths';
 import { formatTime } from '../lib/formatTime';
 import { CopyButton } from './CopyButton';
 import { ShareButton } from './ShareButton';
@@ -107,7 +112,7 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
     >
       <div className="msg-bubble-markdown" ref={contentRef}>
         <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
+          remarkPlugins={[remarkGfm, remarkNeutralizeMalformedFileLinks]}
           rehypePlugins={[rehypeHighlight]}
           urlTransform={(url) => (url.startsWith(FILE_SCHEME) ? url : defaultUrlTransform(url))}
           components={{
@@ -136,8 +141,8 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
                 const el = childArray[0] as React.ReactElement<Record<string, unknown>>;
                 const href = el.props?.href as string | undefined;
                 if (href?.startsWith(FILE_SCHEME)) {
-                  const filePath = decodeURIComponent(href.slice(FILE_SCHEME.length));
-                  if (/\.mdx?$/i.test(filePath)) {
+                  const filePath = decodeFilePathUrl(href);
+                  if (filePath && /\.mdx?$/i.test(filePath)) {
                     return <MarkdownPreviewCard filePath={filePath} />;
                   }
                 }
@@ -146,7 +151,10 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
             },
             a: ({ href, children }) => {
               if (href?.startsWith(FILE_SCHEME)) {
-                const filePath = decodeURIComponent(href.slice(FILE_SCHEME.length));
+                const filePath = decodeFilePathUrl(href);
+                if (!filePath) {
+                  return <span className="file-path-invalid">{children}</span>;
+                }
                 return (
                   <span className="file-path-group">
                     <a

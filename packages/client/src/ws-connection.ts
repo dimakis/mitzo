@@ -32,10 +32,10 @@ export interface WebSocketLike {
   readyState: number;
   onopen: ((ev: unknown) => void) | null;
   onmessage: ((ev: { data: string }) => void) | null;
-  onclose: (() => void) | null;
+  onclose: ((ev?: { code?: number }) => void) | null;
   onerror: ((ev: unknown) => void) | null;
   send(data: string): void;
-  close(): void;
+  close(code?: number, reason?: string): void;
 }
 
 /**

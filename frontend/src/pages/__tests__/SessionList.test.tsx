@@ -127,7 +127,7 @@ describe('SessionList status dot', () => {
 });
 
 describe('SessionList hash and tokens', () => {
-  it('renders session hash (last 6 chars) in session item', async () => {
+  it('keeps the full session ID inside collapsed conversation details', async () => {
     mockFetchResponses({
       '/api/sessions': [{ id: 'abc123def456', summary: 'Test', lastModified: 1 }],
     });
@@ -140,7 +140,8 @@ describe('SessionList hash and tokens', () => {
 
     const hash = container.querySelector('.session-item-hash');
     expect(hash).not.toBeNull();
-    expect(hash!.textContent).toBe('def456');
+    expect(hash!.textContent).toBe('abc123def456');
+    expect(hash!.closest('details')?.open).toBe(false);
   });
 
   it('renders token count when totalTokens is present', async () => {

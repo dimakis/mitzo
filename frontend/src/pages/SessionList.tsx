@@ -1,3 +1,4 @@
+import { sessionAttentionReason } from '../lib/session-attention';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Session } from '../types/chat';
@@ -5,22 +6,23 @@ import { formatRelativeTime } from '../lib/formatTime';
 import { useLongPress } from '../hooks/useLongPress';
 import { computeSwipeState, REVEAL_WIDTH } from '../lib/swipe-reveal';
 import { selectionChanged } from '../lib/haptics';
-import { EmptyState } from '../components/EmptyState';
 import { MitzoLogo } from '../components/MitzoLogo';
 import { useSessionList } from '../hooks/useSessionList';
 import type { QuickAction } from '../hooks/useSessionList';
 import { formatTokens } from '../lib/formatTokens';
-import { SessionSearchBar } from '../components/SessionSearchBar';
 import { useSessionSearch } from '../hooks/useSessionSearch';
-import { SessionOverview } from '../components/SessionOverview';
+import { useSessionOverview, type SessionActivity } from '../hooks/useSessionOverview';
+import { UiIcon } from '../components/UiIcon';
 
 function SwipeableSession({
   session,
+  activity,
   onDismiss,
   onClick,
   onRename,
 }: {
   session: Session;
+  activity?: SessionActivity;
   onDismiss: (id: string) => void;
   onClick: (id: string) => void;
   onRename: (id: string, title: string) => void;
@@ -83,11 +85,8 @@ function SwipeableSession({
 
   function handleDeleteTap(e: React.MouseEvent | React.TouchEvent) {
     e.stopPropagation();
-    if (!ref.current) return;
-    ref.current.style.transition = 'transform 0.2s, opacity 0.2s';
-    ref.current.style.transform = 'translateX(-100%)';
-    ref.current.style.opacity = '0';
-    setTimeout(() => onDismiss(session.id), 200);
+    closeReveal();
+    onDismiss(session.id);
   }
 
   function handleTouchStart(e: React.TouchEvent) {
@@ -166,7 +165,7 @@ function SwipeableSession({
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
-        {session.isActive && (
+        {session.isActive && session.isAttached != null && (
           <span
             className={`session-status-dot ${session.isAttached ? 'attached' : 'detached'}`}
             role="status"
@@ -186,16 +185,65 @@ function SwipeableSession({
               onTouchStart={(e) => e.stopPropagation()}
             />
           ) : (
-            <div className="session-item-summary">{session.summary || 'Untitled session'}</div>
+            <div
+              className="session-item-navigation"
+              role="link"
+              tabIndex={0}
+              aria-label={`Open ${session.summary || 'Untitled conversation'}`}
+              onKeyDown={(e) => {
+                if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+                  e.preventDefault();
+                  handleClick();
+                }
+              }}
+            >
+              <div className="session-item-summary">
+                {session.summary || 'Untitled conversation'}
+              </div>
+              <div className="session-item-meta">
+                {activity && (
+                  <span className={`conversation-state conversation-state--${activity.state}`}>
+                    {activityLabel(activity)}
+                  </span>
+                )}
+                {activity?.progress && (
+                  <span className="conversation-progress">
+                    {activity.progress.done}/{activity.progress.total} tasks
+                  </span>
+                )}
+                {!activity && session.isActive && (
+                  <span className="conversation-state">Active</span>
+                )}
+                <span className="session-item-time">
+                  {formatRelativeTime(session.lastModified)}
+                </span>
+                {activity?.repo && <span className="conversation-repo">{activity.repo}</span>}
+              </div>
+            </div>
           )}
-          <div className="session-item-meta">
-            <span className="session-item-hash">{session.id.slice(-6)}</span>
-            <span className="session-item-time">{formatRelativeTime(session.lastModified)}</span>
-            {session.branch && <span className="session-item-branch">{session.branch}</span>}
-            {session.totalTokens != null && session.totalTokens > 0 && (
-              <span className="session-item-tokens">{formatTokens(session.totalTokens)}</span>
-            )}
-          </div>
+          <details
+            className="conversation-details"
+            onClick={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <summary aria-label={`Details for ${session.summary || 'Untitled conversation'}`}>
+              <UiIcon name="more" />
+            </summary>
+            <div className="conversation-details-body">
+              <div>
+                Session <span className="session-item-hash">{session.id}</span>
+              </div>
+              {session.branch && <div>Branch: {session.branch}</div>}
+              {session.totalTokens != null && session.totalTokens > 0 && (
+                <div className="session-item-tokens">
+                  {formatTokens(session.totalTokens)} tokens
+                </div>
+              )}
+              <button onClick={enterEditMode}>Rename</button>
+              <button onClick={handleDeleteTap}>Delete conversation</button>
+            </div>
+          </details>
         </div>
         {!editing && <span className="session-item-chevron">&rsaquo;</span>}
       </div>
@@ -229,15 +277,33 @@ export function SessionList() {
   } = useSessionList();
   const search = useSessionSearch();
 
-  const [quickOpen, setQuickOpen] = useState(
-    () => localStorage.getItem('mitzo:quickActionsOpen') !== 'false',
-  );
-
-  function toggleQuickActions() {
-    setQuickOpen((prev) => {
-      localStorage.setItem('mitzo:quickActionsOpen', String(!prev));
-      return !prev;
+  const { activities } = useSessionOverview();
+  const [filter, setFilter] = useState<'all' | 'active' | 'attention'>('all');
+  const byId = new Map(activities.map((a) => [a.sessionId, a]));
+  const combined = new Map(sessions.map((s) => [s.id, s]));
+  for (const a of activities) {
+    const existing = combined.get(a.sessionId);
+    combined.set(a.sessionId, {
+      ...existing,
+      id: a.sessionId,
+      summary: existing?.summary || a.title,
+      lastModified: Math.max(existing?.lastModified ?? 0, a.lastEventAt),
+      isActive: !['idle', 'done'].includes(a.state),
     });
+  }
+  const all = [...combined.values()].sort((a, b) => b.lastModified - a.lastModified);
+  const active = all.filter((s) => s.isActive);
+  const attention = all.filter((s) => {
+    const activity = byId.get(s.id);
+    return activity && sessionAttentionReason(activity) !== null;
+  });
+  const visible = filter === 'active' ? active : filter === 'attention' ? attention : all;
+  function openSession(id: string) {
+    selectionChanged();
+    navigate(`/chat/${id}`);
+  }
+  function dismiss(id: string) {
+    dismissSession(id);
   }
 
   function handleDeployAction() {
@@ -256,121 +322,156 @@ export function SessionList() {
   }
 
   return (
-    <div className="session-list-page">
+    <div className="session-list-page workspace-page conversation-library">
       <header className="session-list-header">
         <div className="session-list-header-title">
           <MitzoLogo />
           <h1>Chats</h1>
         </div>
-        <div className="session-list-header-actions">
-          <SessionSearchBar
-            query={search.query}
-            setQuery={search.setQuery}
-            results={search.results}
-            searching={search.searching}
-            active={search.active}
-            clear={search.clear}
-            onSelectSession={(id) => {
-              selectionChanged();
-              navigate(`/chat/${id}`);
-            }}
-          />
+        <div className="conversation-header-actions">
           <button
-            className="check-update-btn"
-            onClick={checkForUpdates}
-            disabled={checking}
-            title="Check for server updates"
+            className="hero-chat-btn workspace-primary"
+            onClick={() => {
+              selectionChanged();
+              navigate('/chat');
+            }}
           >
-            {checking ? '…' : '☁↑'}
+            + New chat
           </button>
-          <button className="refresh-ui-btn" onClick={refreshUI} title="Clear cache and reload">
-            ↺
-          </button>
+          <details className="conversation-options">
+            <summary aria-label="Conversation options">
+              <UiIcon name="more" />
+            </summary>
+            <div className="conversation-options-menu">
+              <button onClick={checkForUpdates} disabled={checking}>
+                {checking ? 'Checking…' : 'Check for updates'}
+              </button>
+              <button onClick={refreshUI}>Reload interface</button>
+              {quickActions
+                .filter((a) => !['Chat Session', 'Files'].includes(a.label))
+                .map((a) => (
+                  <button key={a.label} onClick={() => handleQuickAction(a)}>
+                    {a.label}
+                  </button>
+                ))}
+              <button
+                onClick={() => {
+                  search.clear();
+                  clearAll();
+                }}
+              >
+                Clear conversation history
+              </button>
+            </div>
+          </details>
         </div>
       </header>
-
+      <div className="conversation-search">
+        <input
+          type="search"
+          aria-label="Search conversations"
+          placeholder="Search conversations…"
+          value={search.query}
+          onChange={(e) => search.setQuery(e.target.value)}
+        />
+        {search.active && <button onClick={search.clear}>Clear search</button>}
+      </div>
+      {!search.active && (
+        <div className="conversation-filters" aria-label="Conversation filters">
+          <button aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>
+            All
+          </button>
+          <button aria-pressed={filter === 'active'} onClick={() => setFilter('active')}>
+            Active <span>{active.length}</span>
+          </button>
+          <button aria-pressed={filter === 'attention'} onClick={() => setFilter('attention')}>
+            Needs attention <span>{attention.length}</span>
+          </button>
+        </div>
+      )}
       <div className="session-list-scroll">
         {updateAvailable && (
           <button className="update-banner" onClick={handleDeployAction}>
             Update available — Deploy Mitzo
           </button>
         )}
-
-        <button
-          className="hero-chat-btn"
-          onClick={() => {
-            selectionChanged();
-            navigate('/chat');
-          }}
-        >
-          New Chat
-        </button>
-
-        <SessionOverview />
-
-        {quickActions.length > 0 && (
-          <div className="quick-section">
-            <button className="quick-section-toggle" onClick={toggleQuickActions}>
-              <span>Quick Actions</span>
-              <span
-                className={`quick-section-chevron${quickOpen ? ' quick-section-chevron--open' : ''}`}
+        {search.active ? (
+          <div className="conversation-results" aria-live="polite">
+            <p className="conversation-list-caption">
+              {search.searching ? 'Searching…' : `${search.results.length} results`}
+            </p>
+            {!search.searching && search.results.length === 0 && (
+              <p className="session-list-empty">No matching conversations</p>
+            )}
+            {search.results.map((r) => (
+              <button
+                className="conversation-result"
+                key={r.sessionId}
+                onClick={() => openSession(r.sessionId)}
               >
-                ›
-              </span>
-            </button>
-            {quickOpen && (
-              <div className="quick-list">
-                {quickActions.map((action) => (
-                  <button
-                    key={action.label}
-                    type="button"
-                    className="quick-row"
-                    onClick={() => handleQuickAction(action)}
-                  >
-                    <span className="quick-row-label">{action.label}</span>
-                    <span className="quick-row-desc">{action.desc}</span>
-                    <span className="quick-row-chevron">&rsaquo;</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {loading && <p className="session-list-empty">Loading...</p>}
-
-        {!loading && sessions.length === 0 && (
-          <EmptyState icon={'\uD83D\uDCAC'} title="No past sessions" />
-        )}
-
-        {!loading && sessions.length > 0 && (
-          <div className="session-list">
-            <div className="session-list-section-header">
-              <span className="session-list-section-title">Recent</span>
-              <button className="session-list-clear" onClick={clearAll}>
-                Clear
+                <span className="session-item-summary">{r.summary || 'Untitled conversation'}</span>
+                <span className="conversation-result-snippet">{r.snippet}</span>
+                <span className="session-item-time">{formatRelativeTime(r.updatedAt)}</span>
               </button>
-            </div>
-            {sessions.map((s) => (
-              <SwipeableSession
-                key={s.id}
-                session={s}
-                onDismiss={dismissSession}
-                onClick={(id) => {
-                  selectionChanged();
-                  navigate(`/chat/${id}`);
-                }}
-                onRename={handleRename}
-              />
             ))}
-            {hasMore && (
+          </div>
+        ) : (
+          <>
+            <p className="conversation-list-caption">
+              {filter === 'all'
+                ? 'Recent conversations'
+                : filter === 'active'
+                  ? 'In progress'
+                  : 'Waiting for you'}
+            </p>
+            {loading && <p className="session-list-empty">Loading…</p>}
+            {!loading && visible.length === 0 && (
+              <p className="session-list-empty">
+                {filter === 'attention'
+                  ? 'Nothing needs your attention'
+                  : filter === 'active'
+                    ? 'No active conversations'
+                    : 'Start your first conversation'}
+              </p>
+            )}
+            <div className="session-list">
+              {visible.map((s) => (
+                <SwipeableSession
+                  key={s.id}
+                  session={s}
+                  activity={byId.get(s.id)}
+                  onDismiss={dismiss}
+                  onClick={openSession}
+                  onRename={handleRename}
+                />
+              ))}
+            </div>
+            {hasMore && filter === 'all' && (
               <button className="session-load-more" onClick={loadMore} disabled={loadingMore}>
-                {loadingMore ? 'Loading...' : 'Load More'}
+                {loadingMore ? 'Loading…' : 'Load more conversations'}
               </button>
             )}
-          </div>
+          </>
         )}
       </div>
     </div>
   );
+}
+
+function activityLabel(activity: SessionActivity): string {
+  const reason = sessionAttentionReason(activity);
+  if (reason === 'awaiting-reply') return 'Awaiting reply';
+  if (reason === 'uncommitted-work') return 'Uncommitted work';
+  if (activity.state === 'waiting') {
+    return activity.waitReason === 'review'
+      ? 'Review needed'
+      : activity.waitReason === 'permission'
+        ? 'Permission needed'
+        : activity.waitReason === 'blocked'
+          ? 'Blocked'
+          : 'Needs attention';
+  }
+  return { init: 'Starting', working: 'Working', done: 'Finished', idle: 'Idle', paused: 'Paused' }[
+    activity.state
+  ];
 }

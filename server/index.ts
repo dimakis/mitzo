@@ -15,7 +15,11 @@ import { join } from 'path';
 import { fileURLToPath } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { WsTransport } from './ws-transport.js';
-import { verifyWsAuth, verifyToken } from './auth.js';
+import { authenticateWs, registerAuthSession, type AuthSession } from './auth.js';
+import {
+  claimTransportConnection,
+  releaseTransportConnection,
+} from './transport-auth-ownership.js';
 import {
   startChat,
   sendToChat,
@@ -87,6 +91,7 @@ import {
   getOwnerConnection,
   handleHello,
   dispatchV2Message,
+  handleLegacySetMode,
   type V2HandlerContext,
 } from './ws-handler-v2.js';
 import { withSpan, withSpanAsync } from './tracing.js';
@@ -291,6 +296,7 @@ overviewEmitter = new SessionOverviewEmitter({
   taskStore,
   eventStore,
   getSessionTitle: (id: string) => eventStore.getSession(id)?.summary ?? undefined,
+  isSessionHidden: (id: string) => eventStore.getSession(id)?.isHidden ?? false,
 });
 setOverviewEmitter(overviewEmitter);
 
@@ -340,10 +346,8 @@ server.on('upgrade', async (req, socket, head) => {
     return;
   }
 
-  const authed =
-    (await verifyWsAuth(req.headers.cookie)) ||
-    (await verifyToken(url.searchParams.get('token') || ''));
-  if (!authed) {
+  const authSession = await authenticateWs(req.headers.cookie, url.searchParams.get('token'));
+  if (!authSession) {
     socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
     socket.destroy();
     return;
@@ -351,6 +355,14 @@ server.on('upgrade', async (req, socket, head) => {
 
   wss.handleUpgrade(req, socket, head, (ws) => {
     const connId = `conn-${crypto.randomUUID()}`;
+    claimTransportConnection(connId, authSession.id);
+    const unregisterAuth = registerAuthSession(authSession, (reason) => {
+      ws.close(4401, reason === 'expired' ? 'Authentication expired' : 'Logged out');
+    });
+    ws.once('close', () => {
+      unregisterAuth();
+      releaseTransportConnection(connId, authSession.id);
+    });
     log.info('chat connected', { connectionId: connId });
     routeWsClient(ws, connId);
   });
@@ -418,25 +430,18 @@ app.get('/api/chat/events', (req, res) => {
 
   const connectionId = `conn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const transport = new SseTransport(connectionId, chatSseRegistry);
+  const authSession = res.locals.authSession as AuthSession | undefined;
 
-  chatSseRegistry.add(connectionId, res);
+  chatSseRegistry.add(connectionId, res, authSession?.id);
+  if (authSession) claimTransportConnection(connectionId, authSession.id);
   connRegistry.register(connectionId, transport);
-
-  // Send welcome with connectionId — client uses this in X-Connection-ID header on POSTs
-  chatSseRegistry.sendTo(connectionId, {
-    type: 'welcome',
-    protocolVersion: 2,
-    connectionId,
-  });
-
-  // Reconnect is handled via POST /api/chat/reconnect — the client sends
-  // a reconnect POST on every welcome event. The old ?sessions= query param
-  // path was removed because EventSource auto-reconnect reuses the original
-  // URL (without the param), making it unreliable.
-
-  log.info('SSE chat stream connected', { connectionId });
-
-  req.on('close', () => {
+  let cleaned = false;
+  let unregisterAuth: () => void = () => undefined;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    unregisterAuth();
+    if (authSession) releaseTransportConnection(connectionId, authSession.id);
     chatSseRegistry.remove(connectionId);
 
     const conn = connRegistry.get(connectionId);
@@ -470,7 +475,33 @@ app.get('/api/chat/events', (req, res) => {
     });
 
     log.info('SSE chat stream disconnected', { connectionId });
+  };
+  req.on('close', cleanup);
+  unregisterAuth = authSession
+    ? registerAuthSession(authSession, (reason) => {
+        chatSseRegistry.sendTo(connectionId, { type: 'auth_expired', reason });
+        res.end();
+        cleanup();
+      })
+    : () => undefined;
+  if (cleaned) {
+    unregisterAuth();
+    return;
+  }
+
+  // Send welcome with connectionId — client uses this in X-Connection-ID header on POSTs
+  chatSseRegistry.sendTo(connectionId, {
+    type: 'welcome',
+    protocolVersion: 2,
+    connectionId,
   });
+
+  // Reconnect is handled via POST /api/chat/reconnect — the client sends
+  // a reconnect POST on every welcome event. The old ?sessions= query param
+  // path was removed because EventSource auto-reconnect reuses the original
+  // URL (without the param), making it unreliable.
+
+  log.info('SSE chat stream connected', { connectionId });
 });
 
 // Mount HTTP POST chat endpoints (authenticated)
@@ -910,18 +941,7 @@ function handleChatWs(
           contextFromTraceparent(traceparent),
         );
       } else if (msg.type === 'set_mode') {
-        withSpan(
-          'ws.set_mode',
-          { 'ws.client_id': clientId, 'ws.mode': msg.mode },
-          () => {
-            registry.setMode(clientId, msg.mode);
-            const session = registry.get(clientId);
-            if (session) {
-              transport.send({ type: 'mode_changed', mode: msg.mode });
-            }
-          },
-          contextFromTraceparent(traceparent),
-        );
+        await handleLegacySetMode(clientId, transport, msg.mode, v2Ctx);
       } else if (msg.type === 'interrupt') {
         await withSpanAsync(
           'ws.interrupt',

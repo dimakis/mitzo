@@ -104,3 +104,32 @@ describe('DesktopShell', () => {
     expect(container.querySelector('.desktop-status-row')).toBeNull();
   });
 });
+
+it('can default the supporting panel closed while respecting an explicit saved preference', () => {
+  render(
+    <DesktopShell
+      center={<div>Conversation</div>}
+      right={<div>Context</div>}
+      rightDefaultCollapsed
+    />,
+  );
+  expect(screen.queryByText('Context')).toBeNull();
+  fireEvent.click(screen.getByTitle('Show context'));
+  expect(screen.getByText('Context')).toBeTruthy();
+  cleanup();
+  render(
+    <DesktopShell
+      center={<div>Conversation</div>}
+      right={<div>Context</div>}
+      rightDefaultCollapsed
+    />,
+  );
+  expect(screen.getByText('Context')).toBeTruthy();
+});
+
+it('places the navigation toggle in its own row below the brand', () => {
+  render(<DesktopShell center={<div>Conversation</div>} />);
+  const toggle = screen.getByRole('button', { name: 'Collapse navigation' });
+  expect(toggle.closest('.workspace-rail-heading')).toBeNull();
+  expect(toggle.closest('.workspace-rail-controls')).toBeTruthy();
+});

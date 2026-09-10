@@ -139,15 +139,22 @@ export function useSessionList(): UseSessionListReturn {
   }, [loadingMore, hasMore]);
 
   const dismissSession = useCallback((id: string) => {
-    setSessions((prev) => prev.filter((s) => s.id !== id));
-    apiFetch(`/api/sessions/${id}`, { method: 'DELETE' }).catch(() => {});
+    apiFetch(`/api/sessions/${id}`, { method: 'DELETE' })
+      .then((response) => {
+        if (response.ok) setSessions((prev) => prev.filter((s) => s.id !== id));
+      })
+      .catch(() => {});
   }, []);
 
   const clearAll = useCallback(() => {
-    setSessions([]);
-    setHasMore(false);
-    nextOffset.current = 0;
-    apiFetch('/api/sessions', { method: 'DELETE' }).catch(() => {});
+    apiFetch('/api/sessions', { method: 'DELETE' })
+      .then((response) => {
+        if (!response.ok) return;
+        setSessions([]);
+        setHasMore(false);
+        nextOffset.current = 0;
+      })
+      .catch(() => {});
   }, []);
 
   const handleRename = useCallback((id: string, title: string) => {

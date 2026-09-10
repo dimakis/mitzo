@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
 import type { Express } from 'express';
 import request from 'supertest';
 import { mkdirSync, writeFileSync } from 'fs';
@@ -131,8 +131,10 @@ vi.mock('../git-version.js', () => ({
 import { hideSession, hideAllSessions, renameSessionById, eventStore } from '../chat.js';
 import { resolvePending } from '../permissions.js';
 
+const overviewBroadcast = vi.fn();
 let app: Express;
 let authCookie: string;
+let authSessionId: string;
 
 async function getAuthCookie(agent: request.Agent): Promise<string> {
   const res = await agent.post('/api/auth/login').send({ passphrase: process.env.AUTH_PASSPHRASE });
@@ -143,6 +145,7 @@ async function getAuthCookie(agent: request.Agent): Promise<string> {
 }
 
 const INBOX_DIR = join(TEST_REPO, 'mgmt_lib', 'inbox');
+const BRIEFINGS_DIR = join(TEST_REPO, 'command_center', 'briefings');
 const SAMPLE_INBOX_ITEM = `---
 agent: troubadour
 timestamp: 2026-04-03T15:41:49
@@ -161,20 +164,43 @@ beforeAll(async () => {
   mkdirSync(join(TEST_REPO, 'subdir'), { recursive: true });
   writeFileSync(join(TEST_REPO, 'subdir', 'nested.txt'), 'nested content');
   mkdirSync(join(INBOX_DIR, 'archive'), { recursive: true });
+  mkdirSync(BRIEFINGS_DIR, { recursive: true });
   writeFileSync(join(INBOX_DIR, '20260403_154149_01_troubadour.md'), SAMPLE_INBOX_ITEM);
+  writeFileSync(join(BRIEFINGS_DIR, 'morning_2026-09-10_0830.md'), '# Morning briefing');
 
   process.env.NTFY_AUTH_TOKEN = 'test-ntfy-token';
 
   const mod = await import('../app.js');
   app = mod.app;
+  mod.setOverviewEmitter({
+    scheduleBroadcast: overviewBroadcast,
+  } as unknown as import('../session-overview.js').SessionOverviewEmitter);
 
   const agent = request(app);
   authCookie = await getAuthCookie(agent);
 });
 
-beforeEach(() => {
+afterAll(async () => {
+  const { releaseTransportConnection } = await import('../transport-auth-ownership.js');
+  releaseTransportConnection('conn-abc', authSessionId);
+  releaseTransportConnection('conn-other', authSessionId);
+});
+
+beforeEach(async () => {
+  overviewBroadcast.mockClear();
   vi.mocked(hideSession).mockClear();
   vi.mocked(hideAllSessions).mockClear();
+
+  const [{ authenticateToken, COOKIE_NAME }, { claimTransportConnection }] = await Promise.all([
+    import('../auth.js'),
+    import('../transport-auth-ownership.js'),
+  ]);
+  const token = authCookie.match(new RegExp(`${COOKIE_NAME}=([^;]+)`))?.[1];
+  const authSession = token ? await authenticateToken(token) : null;
+  if (!authSession) throw new Error('test login did not produce a valid auth session');
+  authSessionId = authSession.id;
+  claimTransportConnection('conn-abc', authSessionId);
+  claimTransportConnection('conn-other', authSessionId);
 });
 
 // --- Auth Routes ---
@@ -198,10 +224,53 @@ describe('auth routes', () => {
     expect(res.body.error).toBe('Invalid passphrase');
   });
 
+  it('POST /api/auth/login — failed attempt does not clear an existing session cookie', async () => {
+    const res = await request(app)
+      .post('/api/auth/login')
+      .set('Cookie', authCookie)
+      .send({ passphrase: 'wrong' });
+
+    expect(res.status).toBe(401);
+    expect(res.headers['set-cookie']).toBeUndefined();
+  });
+
   it('POST /api/auth/logout — clears cookie', async () => {
     const res = await request(app).post('/api/auth/logout').set('Cookie', authCookie);
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
+    const { login } = await import('../auth.js');
+    authCookie = `cc_auth=${await login(process.env.AUTH_PASSPHRASE!)}`;
+  });
+
+  it('POST /api/auth/logout — revokes the presented bearer token', async () => {
+    const { login } = await import('../auth.js');
+    const token = (await login(process.env.AUTH_PASSPHRASE!))!;
+
+    expect(
+      (await request(app).get('/api/auth/check').set('Authorization', `Bearer ${token}`)).status,
+    ).toBe(200);
+    expect(
+      (await request(app).post('/api/auth/logout').set('Authorization', `Bearer ${token}`)).status,
+    ).toBe(200);
+    expect(
+      (await request(app).get('/api/auth/check').set('Authorization', `Bearer ${token}`)).status,
+    ).toBe(401);
+  });
+
+  it('POST /api/auth/logout — clears and revokes a valid cookie despite an invalid bearer', async () => {
+    const token = authCookie.slice('cc_auth='.length);
+    const response = await request(app)
+      .post('/api/auth/logout')
+      .set('Authorization', 'Bearer expired')
+      .set('Cookie', authCookie);
+
+    expect(response.status).toBe(200);
+    expect(response.headers['set-cookie']?.[0]).toContain('cc_auth=;');
+    expect(
+      (await request(app).get('/api/auth/check').set('Authorization', `Bearer ${token}`)).status,
+    ).toBe(401);
+    const { login } = await import('../auth.js');
+    authCookie = `cc_auth=${await login(process.env.AUTH_PASSPHRASE!)}`;
   });
 
   it('GET /api/auth/check — unauthenticated returns 401', async () => {
@@ -227,6 +296,8 @@ describe('bearer token auth', () => {
       .post('/api/auth/login')
       .send({ passphrase: process.env.AUTH_PASSPHRASE });
     bearerToken = res.body.token;
+    const { verifyToken } = await import('../auth.js');
+    expect(await verifyToken(bearerToken)).toBe(true);
   });
 
   it('GET /api/auth/check — accepts Authorization: Bearer header', async () => {
@@ -405,12 +476,14 @@ describe('session routes', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
     expect(hideSession).toHaveBeenCalledWith('s1');
+    expect(overviewBroadcast).toHaveBeenCalledOnce();
   });
 
   it('DELETE /api/sessions — hides all sessions', async () => {
     const res = await request(app).delete('/api/sessions').set('Cookie', authCookie);
     expect(res.status).toBe(200);
     expect(hideAllSessions).toHaveBeenCalled();
+    expect(overviewBroadcast).toHaveBeenCalledOnce();
   });
 
   it('PUT /api/sessions/:id/rename — renames session', async () => {
@@ -700,6 +773,31 @@ describe('file routes', () => {
 
 // --- Inbox Routes ---
 
+describe('briefing routes', () => {
+  it('GET /api/briefings/latest returns today’s saved morning briefing', async () => {
+    const res = await request(app)
+      .get('/api/briefings/latest')
+      .query({ date: '2026-09-10' })
+      .set('Cookie', authCookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      filename: 'morning_2026-09-10_0830.md',
+      date: '2026-09-10',
+      path: join(BRIEFINGS_DIR, 'morning_2026-09-10_0830.md'),
+    });
+  });
+
+  it('GET /api/briefings/latest rejects an invalid date', async () => {
+    const res = await request(app)
+      .get('/api/briefings/latest')
+      .query({ date: 'today' })
+      .set('Cookie', authCookie);
+
+    expect(res.status).toBe(400);
+  });
+});
+
 describe('inbox routes', () => {
   it('GET /api/inbox — returns inbox items', async () => {
     const res = await request(app).get('/api/inbox').set('Cookie', authCookie);
@@ -880,6 +978,23 @@ describe('skills routes', () => {
 });
 
 describe('account catalog routes', () => {
+  beforeEach(() => {
+    // Each case owns its provider environment, independent of the developer's login.
+    for (const key of Object.keys(process.env)) {
+      if (
+        /^(ANTHROPIC_|OPENAI_|CLAUDE_CODE_USE_|CLAUDE_CODE_SKIP_|VERTEX_REGION_)/.test(key) ||
+        [
+          'GOOGLE_API_KEY',
+          'GOOGLE_APPLICATION_CREDENTIALS',
+          'CLAUDE_CODE_OAUTH_TOKEN',
+          'MITZO_ACCOUNT_PROFILES_FILE',
+          'CLOUD_ML_REGION',
+        ].includes(key)
+      )
+        vi.stubEnv(key, undefined);
+    }
+  });
+  afterEach(() => vi.unstubAllEnvs());
   it('requires authentication', async () => {
     expect((await request(app).get('/api/accounts')).status).toBe(401);
   });
@@ -893,6 +1008,143 @@ describe('account catalog routes', () => {
       expect(res.body[0]).toMatchObject({ id: 'vertex-default', provider: 'anthropic-vertex' });
       expect(JSON.stringify(res.body)).not.toContain('credentialRef');
       expect(JSON.stringify(res.body)).not.toContain('test-project');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('uses the configured Vertex allowlist for the legacy selector too', async () => {
+    const file = join(TEST_REPO, 'model-profiles.json');
+    const models = [{ id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' }];
+    writeFileSync(
+      file,
+      JSON.stringify([
+        {
+          id: 'work',
+          label: 'Work',
+          provider: 'anthropic-vertex',
+          projectId: 'test-project',
+          region: 'global',
+          credentialRef: '/credentials/adc.json',
+          models,
+        },
+      ]),
+    );
+    vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', file);
+    vi.stubEnv('ANTHROPIC_VERTEX_PROJECT_ID', 'test-project');
+    vi.stubEnv('CLOUD_ML_REGION', 'global');
+    vi.stubEnv('GOOGLE_APPLICATION_CREDENTIALS', '/credentials/adc.json');
+    // Unrelated tool credentials and default model preferences do not reroute explicit model IDs.
+    vi.stubEnv('OPENAI_API_KEY', 'test-tool-key');
+    vi.stubEnv('ANTHROPIC_DEFAULT_HAIKU_MODEL', 'claude-haiku-4-5');
+    try {
+      const res = await request(app).get('/api/models').set('Cookie', authCookie);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(models);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('keeps the conservative legacy fallback when the profile file has only OpenAI accounts', async () => {
+    const file = join(TEST_REPO, 'openai-only-profiles.json');
+    writeFileSync(
+      file,
+      JSON.stringify([
+        {
+          id: 'api',
+          label: 'API',
+          provider: 'openai',
+          credentialRef: { provider: 'keychain', service: 'test', account: 'test' },
+          models: [{ id: 'gpt-test', label: 'GPT' }],
+        },
+      ]),
+    );
+    vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', file);
+    vi.stubEnv('ANTHROPIC_VERTEX_PROJECT_ID', 'legacy-project');
+    try {
+      const res = await request(app).get('/api/models').set('Cookie', authCookie);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual([{ id: 'test-model', label: 'Test', desc: 'Test model' }]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('returns an explicit error for ambiguous legacy profiles instead of a broader fallback', async () => {
+    const file = join(TEST_REPO, 'ambiguous-profiles.json');
+    const profile = {
+      label: 'Work',
+      provider: 'anthropic-vertex',
+      projectId: 'test-project',
+      region: 'global',
+      credentialRef: '/credentials/adc.json',
+      models: [{ id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' }],
+    };
+    writeFileSync(
+      file,
+      JSON.stringify([
+        { ...profile, id: 'one' },
+        { ...profile, id: 'two' },
+      ]),
+    );
+    vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', file);
+    vi.stubEnv('ANTHROPIC_VERTEX_PROJECT_ID', 'test-project');
+    vi.stubEnv('CLOUD_ML_REGION', 'global');
+    vi.stubEnv('GOOGLE_APPLICATION_CREDENTIALS', '/credentials/adc.json');
+    try {
+      const res = await request(app).get('/api/models').set('Cookie', authCookie);
+      expect(res.status).toBe(503);
+      expect(res.body.error).toMatch(/configuration unavailable/i);
+      expect(JSON.stringify(res.body)).not.toContain('/credentials/');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it.each([
+    ['CLAUDE_CODE_USE_VERTEX', '0'],
+    ['VERTEX_REGION_CLAUDE_4_6_OPUS', 'us-east5'],
+    ['CLAUDE_CODE_USE_BEDROCK', '1'],
+    ['CLAUDE_CODE_USE_FOUNDRY', '1'],
+    ['CLAUDE_CODE_SKIP_VERTEX_AUTH', '1'],
+    ['ANTHROPIC_AUTH_TOKEN', 'test-token'],
+    ['GOOGLE_API_KEY', 'test-key'],
+    ['CLAUDE_CODE_OAUTH_TOKEN', 'test-token'],
+  ])('does not use a Vertex profile with inherited %s=%s', async (key, value) => {
+    const file = join(TEST_REPO, 'override-profiles.json');
+    writeFileSync(
+      file,
+      JSON.stringify([
+        {
+          id: 'work',
+          label: 'Work',
+          provider: 'anthropic-vertex',
+          projectId: 'test-project',
+          region: 'global',
+          credentialRef: '/credentials/adc.json',
+          models: [{ id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' }],
+        },
+      ]),
+    );
+    vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', file);
+    vi.stubEnv('ANTHROPIC_VERTEX_PROJECT_ID', 'test-project');
+    vi.stubEnv('CLOUD_ML_REGION', 'global');
+    vi.stubEnv('GOOGLE_APPLICATION_CREDENTIALS', '/credentials/adc.json');
+    vi.stubEnv(key, value);
+    try {
+      const res = await request(app).get('/api/models').set('Cookie', authCookie);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual([{ id: 'test-model', label: 'Test', desc: 'Test model' }]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('still rejects invalid profile configuration when legacy routing is overridden', async () => {
+    const file = join(TEST_REPO, 'invalid-override-profiles.json');
+    writeFileSync(file, '{invalid');
+    vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', file);
+    vi.stubEnv('CLAUDE_CODE_USE_VERTEX', '0');
+    try {
+      const res = await request(app).get('/api/models').set('Cookie', authCookie);
+      expect(res.status).toBe(503);
+      expect(res.body.error).toMatch(/configuration unavailable/i);
     } finally {
       vi.unstubAllEnvs();
     }

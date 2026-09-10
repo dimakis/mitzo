@@ -5,7 +5,7 @@ import request from 'supertest';
 import { SessionSseRegistry } from '../session-sse-registry.js';
 import { SseTransport } from '../sse-transport.js';
 import { createChatRestRouter } from '../chat-rest-handler.js';
-import { ConnectionRegistry } from '@mitzo/harness';
+import { ConnectionRegistry, SessionRegistry } from '@mitzo/harness';
 import type { V2HandlerContext } from '../ws-handler-v2.js';
 
 // ─── Mock the handler functions ──────────────────────────────────────────────
@@ -18,7 +18,9 @@ vi.mock('../ws-handler-v2.js', async (importOriginal) => {
     handleStopV2: vi.fn(),
     handleInterruptV2: vi.fn(),
     handlePermissionResponseV2: vi.fn(),
-    handleSetModeV2: vi.fn(),
+    handleSetModeV2: vi
+      .fn()
+      .mockResolvedValue({ ok: true, applied: true, persisted: true, mode: 'agent' }),
     handleWatch: vi.fn(),
     handleUnwatch: vi.fn(),
     handleSwitchSession: vi.fn().mockResolvedValue(undefined),
@@ -62,6 +64,11 @@ function buildApp(sseRegistry: SessionSseRegistry, connRegistry: ConnectionRegis
 
   const app = express();
   app.use(express.json());
+  app.use((req, res, next) => {
+    const id = req.headers['x-test-auth'];
+    if (typeof id === 'string') res.locals.authSession = { id };
+    next();
+  });
   app.use('/api/chat', createChatRestRouter(sseRegistry, ctx));
   return { app, ctx };
 }
@@ -73,6 +80,7 @@ describe('chat-rest-handler', () => {
   let connRegistry: ConnectionRegistry;
   let testApp: express.Express;
   let eventStore: EventStore;
+  let handlerContext: V2HandlerContext;
   const CONNECTION_ID = 'conn-test-123';
 
   beforeEach(() => {
@@ -88,6 +96,7 @@ describe('chat-rest-handler', () => {
 
     const { app, ctx } = buildApp(sseRegistry, connRegistry);
     testApp = app;
+    handlerContext = ctx;
     eventStore = ctx.eventStore;
   });
 
@@ -108,6 +117,48 @@ describe('chat-rest-handler', () => {
       .send({ nonce: 'probe-1' });
     expect(response.status).toBe(202);
     expect(send).toHaveBeenCalledWith({ type: '_probe', nonce: 'probe-1' });
+  });
+
+  it('rejects a POST authenticated by a different login than the SSE stream', async () => {
+    sseRegistry.add(CONNECTION_ID, mockResponse(), 'login-one');
+
+    const response = await request(testApp)
+      .post('/api/chat/probe')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .set('X-Test-Auth', 'login-two')
+      .send({ nonce: 'probe-1' });
+
+    expect(response.status).toBe(403);
+    expect(response.body.error).toContain('another login');
+  });
+
+  it('retains login ownership while a closed SSE entry awaits cleanup', async () => {
+    const staleResponse = mockResponse();
+    Object.defineProperty(staleResponse, 'writableEnded', { value: true });
+    sseRegistry.add('stale-connection', staleResponse, 'login-one');
+    connRegistry.register('stale-connection', new SseTransport('stale-connection', sseRegistry));
+
+    const response = await request(testApp)
+      .post('/api/chat/stop')
+      .set('X-Connection-ID', 'stale-connection')
+      .set('X-Test-Auth', 'login-two')
+      .send({ type: 'stop', sessionId: 'sess-1' });
+
+    expect(response.status).toBe(403);
+    expect(handleStopV2).not.toHaveBeenCalled();
+  });
+
+  it('rejects REST control requests that present a WebSocket connection ID', async () => {
+    connRegistry.register('ws-connection', new SseTransport('ws-connection', sseRegistry));
+
+    const response = await request(testApp)
+      .post('/api/chat/stop')
+      .set('X-Connection-ID', 'ws-connection')
+      .set('X-Test-Auth', 'different-login')
+      .send({ type: 'stop', sessionId: 'sess-1' });
+
+    expect(response.status).toBe(403);
+    expect(handleStopV2).not.toHaveBeenCalled();
   });
 
   it('persists startup events before a stream exists without duplicating sequenced events', async () => {
@@ -249,6 +300,101 @@ describe('chat-rest-handler', () => {
     expect(res.body.ok).toBe(true);
     expect(handleSetModeV2).toHaveBeenCalledOnce();
   });
+
+  it('POST /mode waits for asynchronous provider acknowledgement', async () => {
+    let finish!: () => void;
+    vi.mocked(handleSetModeV2).mockImplementationOnce(
+      () =>
+        new Promise<import('../ws-handler-v2.js').ModeChangeResult>((resolve) => {
+          finish = () => resolve({ ok: true, applied: true, persisted: true, mode: 'agent' });
+        }),
+    );
+    let responded = false;
+    const response = request(testApp)
+      .post('/api/chat/mode')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send({ type: 'set_mode', sessionId: 'sess-1', mode: 'agent' })
+      .then((result) => {
+        responded = true;
+        return result;
+      });
+    await vi.waitFor(() => expect(handleSetModeV2).toHaveBeenCalled());
+    // Let an incorrectly immediate response reach the client before checking.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    try {
+      expect(responded).toBe(false);
+    } finally {
+      finish();
+    }
+    expect((await response).status).toBe(200);
+  });
+
+  it('POST /mode catches rejected asynchronous handlers', async () => {
+    vi.mocked(handleSetModeV2).mockRejectedValueOnce(new Error('provider unavailable'));
+    const response = await request(testApp)
+      .post('/api/chat/mode')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send({ type: 'set_mode', sessionId: 'sess-1', mode: 'agent' });
+    expect(response.status).toBe(500);
+    expect(response.body.ok).toBe(false);
+  });
+
+  it.each([
+    ['provider', 409, false, 'ask'],
+    ['persistence', 500, true, 'agent'],
+    ['missing', 404, false, undefined],
+    ['success', 200, true, 'agent'],
+  ] as const)(
+    'POST /mode reports actual handler %s outcome',
+    async (failure, status, applied, mode) => {
+      const actual =
+        await vi.importActual<typeof import('../ws-handler-v2.js')>('../ws-handler-v2.js');
+      vi.mocked(handleSetModeV2).mockImplementationOnce(actual.handleSetModeV2);
+      const registry = new SessionRegistry();
+      handlerContext.sessionRegistry = registry;
+      if (failure !== 'missing') {
+        eventStore.upsertSession({ sessionId: 'sess-1', mode: 'ask' });
+        registry.register('owner', {
+          transport: connRegistry.get(CONNECTION_ID)!.transport,
+          abortController: new AbortController(),
+          mode: 'ask',
+          sessionId: 'sess-1',
+          sessionAllowList: new Set(),
+        });
+        registry.get('owner')!.queryInstance = {
+          interrupt: vi.fn(),
+          close: vi.fn(),
+          stopTask: vi.fn(),
+          setPermissionMode:
+            failure === 'provider'
+              ? vi.fn().mockRejectedValue(new Error('SDK rejected'))
+              : vi.fn().mockResolvedValue(undefined),
+        };
+      }
+      if (failure === 'persistence')
+        vi.spyOn(eventStore, 'upsertSession').mockImplementationOnce(() => {
+          throw new Error('Disk full');
+        });
+      try {
+        const response = await request(testApp)
+          .post('/api/chat/mode')
+          .set('X-Connection-ID', CONNECTION_ID)
+          .send({ type: 'set_mode', sessionId: 'sess-1', mode: 'agent' });
+        expect(response.status).toBe(status);
+        expect(response.body).toMatchObject({
+          ok: failure === 'success',
+          applied,
+          persisted: failure === 'success',
+          ...(mode ? { mode } : {}),
+        });
+        if (failure !== 'success') expect(response.body.error).toBeTruthy();
+        if (failure === 'provider') expect(eventStore.getSession('sess-1')?.mode).toBe('ask');
+        if (failure === 'persistence') expect(registry.get('owner')?.mode).toBe('agent');
+      } finally {
+        registry.dispose();
+      }
+    },
+  );
 
   // ─── POST /api/chat/watch + unwatch ─────────────────────────────────────
 

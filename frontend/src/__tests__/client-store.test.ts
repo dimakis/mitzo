@@ -16,4 +16,8 @@ describe('client-store window guard', () => {
     expect(source).toContain("typeof window !== 'undefined'");
     expect(source).toContain('getPreferredModel()');
   });
+
+  it('starts transports blocked until guarded authentication succeeds', () => {
+    expect(source).toContain('initiallyAuthenticated: false');
+  });
 });

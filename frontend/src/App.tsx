@@ -1,6 +1,12 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { apiFetch } from './lib/api-fetch';
+import {
+  AUTH_LOST_EVENT,
+  AUTH_RESTORED_EVENT,
+  isCrossTabAuthEvent,
+  isLogoutPending,
+  restoreCookieAuthentication,
+} from './lib/api-fetch';
 import { hideSplash } from './lib/splash';
 import { saveTokenToWatch } from './lib/watch-auth';
 import { Login } from './pages/Login';
@@ -8,13 +14,11 @@ import { Today } from './pages/Today';
 import { MoreView } from './pages/MoreView';
 import { AttentionFeed } from './components/AttentionFeed';
 import { SessionList } from './pages/SessionList';
-import { ChatView } from './pages/ChatView';
-import { DesktopChatView } from './pages/DesktopChatView';
+import { ResponsiveChatView } from './components/ResponsiveChatView';
 import { FileViewer } from './pages/FileViewer';
 import { InboxView } from './pages/InboxView';
 import { CalendarView } from './pages/CalendarView';
-import { TodoView } from './pages/TodoView';
-import { TodoDetailView } from './pages/TodoDetailView';
+import { TodoWorkspace } from './pages/TodoWorkspace';
 import { TaskBoard } from './pages/TaskBoard';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { MobileShell } from './components/MobileShell';
@@ -22,22 +26,69 @@ import { DesktopShell } from './components/DesktopShell';
 import { useIsDesktop } from './hooks/useMediaQuery';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const [auth, setAuth] = useState<'loading' | 'ok' | 'denied'>('loading');
+  const [auth, setAuth] = useState<'loading' | 'ok' | 'denied' | 'unavailable'>('loading');
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    apiFetch('/api/auth/check')
-      .then((r) => {
-        setAuth(r.ok ? 'ok' : 'denied');
-        if (r.ok) {
+    let ignoreCheckResult = false;
+    const onAuthLost = () => {
+      ignoreCheckResult = true;
+      localStorage.removeItem('mitzo_auth_token');
+      setAuth('denied');
+      hideSplash();
+    };
+    const onAuthRestored = (event: Event) => {
+      if (!isCrossTabAuthEvent(event)) return;
+      ignoreCheckResult = true;
+      setAuth('loading');
+      setAttempt((value) => value + 1);
+    };
+    window.addEventListener(AUTH_LOST_EVENT, onAuthLost);
+    window.addEventListener(AUTH_RESTORED_EVENT, onAuthRestored);
+    if (isLogoutPending()) {
+      onAuthLost();
+      return () => {
+        window.removeEventListener(AUTH_LOST_EVENT, onAuthLost);
+        window.removeEventListener(AUTH_RESTORED_EVENT, onAuthRestored);
+      };
+    }
+    restoreCookieAuthentication()
+      .then((authenticated) => {
+        if (ignoreCheckResult) return;
+        setAuth(authenticated ? 'ok' : 'denied');
+        if (authenticated) {
           const token = localStorage.getItem('mitzo_auth_token');
           if (token) saveTokenToWatch(token);
         }
       })
-      .catch(() => setAuth('denied'))
+      .catch(() => {
+        if (!ignoreCheckResult) setAuth('unavailable');
+      })
       .finally(() => hideSplash());
-  }, []);
+    return () => {
+      ignoreCheckResult = true;
+      window.removeEventListener(AUTH_LOST_EVENT, onAuthLost);
+      window.removeEventListener(AUTH_RESTORED_EVENT, onAuthRestored);
+    };
+  }, [attempt]);
   if (auth === 'denied') return <Navigate to="/login" replace />;
   if (auth === 'loading') {
-    return <div style={{ background: 'var(--bg)', minHeight: '100dvh' }} />;
+    return <div className="auth-status">Checking authentication…</div>;
+  }
+  if (auth === 'unavailable') {
+    return (
+      <div className="auth-status" role="alert">
+        <p>Mitzo could not be reached. Check your connection and try again.</p>
+        <button
+          className="btn-primary"
+          onClick={() => {
+            setAuth('loading');
+            setAttempt((value) => value + 1);
+          }}
+        >
+          Retry
+        </button>
+      </div>
+    );
   }
   return <>{children}</>;
 }
@@ -51,8 +102,21 @@ function HomeRoute() {
 }
 
 function ChatRoute() {
+  return <ResponsiveChatView />;
+}
+
+function CollectionRoute({ page }: { page: 'proposals' | 'calendar' }) {
   const isDesktop = useIsDesktop();
-  return isDesktop ? <DesktopChatView /> : <ChatView />;
+  return page === 'proposals' ? (
+    <InboxView desktop={isDesktop} />
+  ) : (
+    <CalendarView desktop={isDesktop} />
+  );
+}
+
+function TaskBoardRoute() {
+  const isDesktop = useIsDesktop();
+  return <TaskBoard key={isDesktop ? 'desktop' : 'mobile'} desktop={isDesktop} />;
 }
 
 function PageRoute({ children }: { children: React.ReactNode }) {
@@ -150,7 +214,7 @@ export function App() {
                 element={
                   <ProtectedRoute>
                     <PageRoute>
-                      <InboxView />
+                      <CollectionRoute page="proposals" />
                     </PageRoute>
                   </ProtectedRoute>
                 }
@@ -160,27 +224,17 @@ export function App() {
                 element={
                   <ProtectedRoute>
                     <PageRoute>
-                      <CalendarView />
+                      <CollectionRoute page="calendar" />
                     </PageRoute>
                   </ProtectedRoute>
                 }
               />
               <Route
-                path="/todos"
+                path="/todos/:id?"
                 element={
                   <ProtectedRoute>
                     <PageRoute>
-                      <TodoView />
-                    </PageRoute>
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/todos/:id"
-                element={
-                  <ProtectedRoute>
-                    <PageRoute>
-                      <TodoDetailView />
+                      <TodoWorkspace />
                     </PageRoute>
                   </ProtectedRoute>
                 }
@@ -190,7 +244,7 @@ export function App() {
                 element={
                   <ProtectedRoute>
                     <PageRoute>
-                      <TaskBoard />
+                      <TaskBoardRoute />
                     </PageRoute>
                   </ProtectedRoute>
                 }

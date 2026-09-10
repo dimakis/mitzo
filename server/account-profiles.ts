@@ -1,3 +1,4 @@
+import { protectCodexProfileRoots } from './codex-private-path.js';
 import { cachedModels, refreshModels, readCodexModels } from './model-catalog.js';
 import { CredentialReferenceSchema } from './credentials.js';
 import { createHash } from 'node:crypto';
@@ -43,7 +44,13 @@ const ApiProfile = z
     models: z.array(z.object({ id: z.string().min(1), label: z.string().min(1) }).strict()).min(1),
   })
   .strict();
-const Profile = z.discriminatedUnion('provider', [VertexProfile, CodexProfile, ApiProfile]);
+const GoogleProfile = VertexProfile.extend({ provider: z.literal('google-vertex') });
+const Profile = z.discriminatedUnion('provider', [
+  VertexProfile,
+  GoogleProfile,
+  CodexProfile,
+  ApiProfile,
+]);
 
 /** Account configuration is server-owned; invocation adapters remain harness-owned. */
 export class AccountProfiles {
@@ -60,6 +67,11 @@ export class AccountProfiles {
     if (new Set(this.profiles.map((p) => p.id)).size !== this.profiles.length) {
       throw new Error('Account profile IDs must be unique');
     }
+    protectCodexProfileRoots(
+      this.profiles.flatMap((profile) =>
+        typeof profile.credentialRef === 'string' ? [profile.credentialRef] : [],
+      ),
+    );
   }
 
   privateCodexRoots(): string[] {
@@ -82,26 +94,43 @@ export class AccountProfiles {
               : provider === 'openai'
                 ? 'openai-api'
                 : 'google-cloud',
-          models: discovered?.models ?? profile.models,
+          models:
+            provider === 'anthropic-vertex'
+              ? profile.models
+              : (discovered?.models ?? profile.models),
           modelDiscovery: { updatedAt: discovered?.updatedAt, stale: !!discovered?.error },
-          capabilities: { streaming: true, tools: true, images: provider !== 'openai' },
+          capabilities: {
+            streaming: provider !== 'google-vertex',
+            tools: true,
+            images: provider === 'anthropic-vertex' || provider === 'openai-codex',
+          },
         };
       });
+  }
+
+  /** Legacy requests use the server's Vertex route, not any other account's models. */
+  legacyModels(projectId: string | undefined, region: string, credentialRef: string | undefined) {
+    // Ambient ADC can resolve through several sources; do not guess a profile identity.
+    if (!projectId || !credentialRef) return undefined;
+    const profiles = this.profiles.filter(
+      (p) =>
+        p.provider === 'anthropic-vertex' &&
+        p.projectId === projectId &&
+        p.region === region &&
+        p.credentialRef === credentialRef,
+    );
+    if (profiles.length > 1) throw new Error('Ambiguous legacy Vertex account profiles');
+    return profiles[0]?.models;
   }
 
   async refresh(force = false) {
     await Promise.all(
       this.profiles
-        .filter(
-          (p) =>
-            p.provider === 'anthropic-vertex' ||
-            (p.provider === 'openai-codex' && this.options.codexEnabled),
-        )
+        .filter((p) => p.provider === 'openai-codex' && this.options.codexEnabled)
         .map((profile) =>
           refreshModels(
             JSON.stringify(profile),
             async () => {
-              const binding = this.resolve(profile.id, profile.models[0].id, true);
               if (profile.provider === 'openai-codex') {
                 const { CodexAppServerClient } = await import('./codex-app-server-client.js');
                 const { verifyCodexAccount } = await import('./codex-account.js');
@@ -122,40 +151,7 @@ export class AccountProfiles {
                   client.close();
                 }
               }
-              const { query } = await import('@anthropic-ai/claude-agent-sdk');
-              const { AsyncQueue } = await import('./async-queue.js');
-              const queue = new AsyncQueue<
-                import('@anthropic-ai/claude-agent-sdk').SDKUserMessage
-              >();
-              const controller = new AbortController();
-              const timeout = setTimeout(() => controller.abort(), 30_000);
-              const q = query({
-                prompt: queue,
-                options: {
-                  env: this.sdkEnv(
-                    binding,
-                    Object.fromEntries(
-                      Object.entries(process.env).filter(
-                        (entry): entry is [string, string] => typeof entry[1] === 'string',
-                      ),
-                    ),
-                  ),
-                  abortController: controller,
-                  persistSession: false,
-                  settingSources: [],
-                  mcpServers: {},
-                },
-              });
-              try {
-                return (await q.supportedModels()).map((m) => ({
-                  id: m.value,
-                  label: m.displayName,
-                }));
-              } finally {
-                clearTimeout(timeout);
-                queue.close();
-                q.close();
-              }
+              return profile.models;
             },
             force,
           ),
@@ -172,7 +168,7 @@ export class AccountProfiles {
     if (
       !model ||
       !(
-        configured
+        configured || profile.provider === 'anthropic-vertex'
           ? profile.models
           : (cachedModels(JSON.stringify(profile))?.models ?? profile.models)
       ).some((m) => m.id === model)
@@ -237,6 +233,18 @@ export class AccountProfiles {
     };
   }
 
+  googleProfile(binding: AccountBinding) {
+    this.resume(binding);
+    const profile = this.profiles.find((p) => p.id === binding.accountId);
+    if (!profile || profile.provider !== 'google-vertex')
+      throw new Error('Not a Google Vertex account');
+    return {
+      projectId: profile.projectId,
+      region: profile.region,
+      credentialRef: profile.credentialRef,
+    };
+  }
+
   apiCredential(binding: AccountBinding) {
     this.resume(binding);
     const profile = this.profiles.find((p) => p.id === binding.accountId);
@@ -251,6 +259,8 @@ export class AccountProfiles {
       throw new Error('Codex accounts require the subscription runtime');
     if (profile.provider === 'openai')
       throw new Error('OpenAI API accounts require their native runtime');
+    if (profile.provider === 'google-vertex')
+      throw new Error('Google Vertex accounts require their native runtime');
     const env = { ...base };
     // Remove inherited alternate billing/routing controls before setting the chosen profile.
     for (const key of Object.keys(env)) {
@@ -314,10 +324,7 @@ export function loadAccountProfiles(): AccountProfiles {
 }
 
 export const LEGACY_MODELS = [
-  { id: 'claude-opus-4-8', label: 'Opus 4.8', desc: 'Latest Opus' },
-  { id: 'claude-opus-4-8:max', label: 'Opus 4.8 Max', desc: 'Max thinking (128k)' },
-  { id: 'claude-opus-4-6', label: 'Opus 4.6', desc: 'Previous Opus' },
-  { id: 'claude-sonnet-5', label: 'Sonnet 5', desc: 'Latest Sonnet' },
+  { id: 'claude-opus-4-6', label: 'Opus 4.6', desc: 'Most capable' },
   { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', desc: 'Balanced' },
   { id: 'claude-sonnet-4-5', label: 'Sonnet 4.5', desc: 'Previous Sonnet' },
   { id: 'claude-haiku-4-5', label: 'Haiku 4.5', desc: 'Fastest' },

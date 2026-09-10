@@ -11,6 +11,7 @@ const rootBlock = rootMatch?.[1] ?? '';
 describe('design tokens', () => {
   describe('required CSS variables are defined in :root', () => {
     const requiredVars = [
+      '--ui-font',
       '--bg',
       '--surface',
       '--border',

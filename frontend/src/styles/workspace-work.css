@@ -1,0 +1,136 @@
+.todo-card-open {
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+.todo-card-open:focus-visible {
+  outline: 2px solid var(--workspace-accent);
+  outline-offset: 4px;
+  border-radius: 3px;
+}
+.workspace-work {
+  width: 100%;
+  max-width: 1328px;
+  height: 100%;
+  min-height: 0;
+  margin: 0 auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  background: var(--workspace-bg);
+  color: var(--workspace-text);
+}
+.workspace-work-heading {
+  margin-bottom: 24px;
+}
+.workspace-work-heading h1 {
+  font-size: 30px;
+  font-weight: 500;
+  letter-spacing: -0.035em;
+  margin: 8px 0;
+}
+.workspace-work-heading p {
+  margin: 0;
+  line-height: 1.5;
+}
+.workspace-work-panels {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(300px, 1.15fr);
+  gap: 20px;
+}
+.workspace-work-list,
+.workspace-work-detail {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--workspace-line);
+  border-radius: var(--workspace-radius);
+  overflow: hidden;
+}
+.workspace-work .todo-page,
+.workspace-work .todo-detail-page {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-width: none;
+  padding: 0 16px;
+  background: var(--workspace-bg);
+}
+.workspace-work .page-header {
+  flex-wrap: wrap;
+  height: auto;
+  gap: 8px;
+  padding: 16px 0;
+}
+.workspace-work .page-header-actions {
+  flex-wrap: wrap;
+}
+.workspace-work .todo-scroll,
+.workspace-work .todo-detail-scroll {
+  padding-bottom: 24px;
+}
+.workspace-work .todo-card--selected {
+  outline: 2px solid var(--workspace-accent);
+  outline-offset: -2px;
+  background: var(--workspace-panel);
+}
+.workspace-work .todo-detail-summary {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.workspace-work-placeholder {
+  padding: 32px;
+  color: var(--workspace-muted);
+  line-height: 1.6;
+}
+.workspace-work-placeholder h2 {
+  color: var(--workspace-text);
+  font-size: 20px;
+  font-weight: 500;
+}
+@media (min-width: 768px) and (max-width: 1099px) {
+  .workspace-work {
+    padding: 16px;
+    overflow-y: auto;
+  }
+  .workspace-work-panels {
+    flex: none;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .workspace-work-list {
+    height: 48dvh;
+  }
+  .workspace-work-detail {
+    min-height: 240px;
+    height: 60dvh;
+  }
+}
+
+.workspace-work .todo-detail-source-row,
+.workspace-work .todo-filter-pill,
+.workspace-work .todo-detail-chip {
+  background: var(--workspace-bg);
+  color: var(--workspace-text);
+  border: 1px solid var(--workspace-line);
+}
+.workspace-work .todo-filter-pill--active {
+  background: var(--workspace-panel);
+  color: var(--workspace-accent);
+  border-color: var(--workspace-accent);
+}
+.workspace-work .todo-card-add-child,
+.workspace-work .todo-card-session-btn {
+  font-size: 12px;
+  padding: 5px 10px;
+  color: var(--workspace-text);
+  border-color: var(--workspace-line);
+}
+.workspace-work .todo-card-session-btn {
+  color: var(--workspace-accent);
+}

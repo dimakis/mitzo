@@ -1,19 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMitzoStore } from '@mitzo/client/hooks';
+import { ProposalDetail } from '../components/ProposalDetail';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 import { apiFetch } from '../lib/api-fetch';
 import { buildInboxContext, buildInboxPrompt } from '../lib/inbox-utils';
 
-interface InboxItem {
-  filename: string;
-  agent: string;
-  title: string;
-  tags: string[];
-  timestamp: string;
-  preview: string;
-}
+import type { InboxItem } from '../lib/inbox-utils';
 
 function InboxCard({
   item,
@@ -106,7 +100,7 @@ function InboxCard({
   return (
     <div className="inbox-card-wrapper">
       <div className="inbox-card-actions-bg">
-        <span className="inbox-action-label inbox-action-approve">Approve</span>
+        <span className="inbox-action-label inbox-action-approve">Archive</span>
         <span className="inbox-action-label inbox-action-discard">Discard</span>
       </div>
       <div
@@ -145,7 +139,7 @@ function InboxCard({
                   onApprove(item.filename);
                 }}
               >
-                Approve
+                Archive
               </button>
               <button
                 className="inbox-btn inbox-btn-discard"
@@ -163,7 +157,7 @@ function InboxCard({
                   onStartSession(item, fullContent ?? item.preview);
                 }}
               >
-                Start Session
+                Review in session
               </button>
             </div>
           </div>
@@ -173,7 +167,9 @@ function InboxCard({
   );
 }
 
-export function InboxView() {
+export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
+  const [selectedFilename, setSelectedFilename] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const navigate = useNavigate();
   const [items, setItems] = useState<InboxItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -217,38 +213,33 @@ export function InboxView() {
     setItems(filtered);
   }, [storeInbox, pendingRemovals]);
 
-  function handleApprove(filename: string) {
+  async function handleRemove(filename: string, archive: boolean) {
+    setActionError(null);
     setPendingRemovals((prev) => new Set(prev).add(filename));
-    setItems((prev) => prev.filter((i) => i.filename !== filename));
-    apiFetch(`/api/inbox/${encodeURIComponent(filename)}/approve`, { method: 'POST' })
-      .then((res) => {
-        if (!res.ok) loadInbox();
-      })
-      .catch(() => loadInbox())
-      .finally(() => {
-        setPendingRemovals((prev) => {
-          const next = new Set(prev);
-          next.delete(filename);
-          return next;
-        });
+    try {
+      const res = await apiFetch(
+        `/api/inbox/${encodeURIComponent(filename)}${archive ? '/approve' : ''}`,
+        { method: archive ? 'POST' : 'DELETE' },
+      );
+      if (!res.ok) throw new Error('Request failed');
+      await loadInbox();
+      // Keep the optimistic removal until the store confirms the file is absent.
+      // The synchronization effect prunes confirmed removals.
+    } catch {
+      setPendingRemovals((prev) => {
+        const next = new Set(prev);
+        next.delete(filename);
+        return next;
       });
+      setActionError(`${archive ? 'Archive' : 'Discard'} failed. Refresh and try again.`);
+    }
   }
 
+  function handleApprove(filename: string) {
+    void handleRemove(filename, true);
+  }
   function handleDiscard(filename: string) {
-    setPendingRemovals((prev) => new Set(prev).add(filename));
-    setItems((prev) => prev.filter((i) => i.filename !== filename));
-    apiFetch(`/api/inbox/${encodeURIComponent(filename)}`, { method: 'DELETE' })
-      .then((res) => {
-        if (!res.ok) loadInbox();
-      })
-      .catch(() => loadInbox())
-      .finally(() => {
-        setPendingRemovals((prev) => {
-          const next = new Set(prev);
-          next.delete(filename);
-          return next;
-        });
-      });
+    void handleRemove(filename, false);
   }
 
   function handleStartSession(item: InboxItem, body: string) {
@@ -262,10 +253,22 @@ export function InboxView() {
   const sources = [...new Set(items.map((i) => i.agent))].sort();
   const filtered = activeFilter ? items.filter((i) => i.agent === activeFilter) : items;
 
-  return (
-    <div className="inbox-page">
-      <PageHeader title="Inbox" badge={items.length || undefined} />
+  const selected = filtered.find((item) => item.filename === selectedFilename);
 
+  return (
+    <div className={`inbox-page${desktop ? ' collection-page proposals-desktop' : ''}`}>
+      {desktop && (
+        <div className="collection-heading">
+          <p className="workspace-muted">PROPOSALS</p>
+          <h1>Ideas worth a closer look</h1>
+          <p className="workspace-muted">
+            Review suggestions from your agents and decide what comes next.
+          </p>
+        </div>
+      )}
+      <PageHeader title="Proposals" badge={items.length || undefined} />
+
+      {actionError && <p role="alert">{actionError}</p>}
       {loading && <p className="inbox-empty">Loading...</p>}
 
       {!loading && items.length === 0 && <EmptyState icon={'\u2713'} title="No pending items" />}
@@ -293,20 +296,56 @@ export function InboxView() {
         </div>
       )}
 
-      <div className="inbox-hint">
-        {filtered.length > 0 && <span>Swipe right to approve, left to discard</span>}
-      </div>
-
-      <div className="inbox-scroll">
-        {filtered.map((item) => (
-          <InboxCard
-            key={item.filename}
-            item={item}
-            onApprove={handleApprove}
-            onDiscard={handleDiscard}
-            onStartSession={handleStartSession}
-          />
-        ))}
+      {!desktop && (
+        <div className="inbox-hint">
+          {filtered.length > 0 && <span>Swipe right to archive, left to discard</span>}
+        </div>
+      )}
+      <div className={desktop ? 'collection-panels' : 'collection-mobile-body'}>
+        <div className="inbox-scroll">
+          {filtered.map((item) =>
+            desktop ? (
+              <button
+                key={item.filename}
+                className="collection-record"
+                aria-current={selected?.filename === item.filename ? 'true' : undefined}
+                aria-label={item.title}
+                onClick={() => setSelectedFilename(item.filename)}
+              >
+                <small>{item.agent}</small>
+                <strong>{item.title}</strong>
+                <p>{item.preview}</p>
+                {item.tags.length > 0 && <small>{item.tags.join(' · ')}</small>}
+              </button>
+            ) : (
+              <InboxCard
+                key={item.filename}
+                item={item}
+                onApprove={handleApprove}
+                onDiscard={handleDiscard}
+                onStartSession={handleStartSession}
+              />
+            ),
+          )}
+        </div>
+        {desktop && (
+          <section className="collection-inspector" aria-label="Proposal details">
+            {selected ? (
+              <ProposalDetail
+                key={selected.filename}
+                item={selected}
+                onArchive={handleApprove}
+                onDiscard={handleDiscard}
+                onReview={handleStartSession}
+              />
+            ) : (
+              <div className="collection-placeholder">
+                <h2>Select a proposal</h2>
+                <p>Read its full context and review it in a session.</p>
+              </div>
+            )}
+          </section>
+        )}
       </div>
     </div>
   );

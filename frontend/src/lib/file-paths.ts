@@ -1,6 +1,73 @@
 /** Internal scheme for file path links — intercepted by the custom renderer. */
 export const FILE_SCHEME = 'file-path://';
 
+/**
+ * Decode an internal file URL without allowing malformed URI data to escape
+ * into the React render path.
+ */
+export function decodeFilePathUrl(url: string): string | null {
+  if (!url.startsWith(FILE_SCHEME)) return null;
+
+  try {
+    return decodeURIComponent(url.slice(FILE_SCHEME.length));
+  } catch {
+    return null;
+  }
+}
+
+interface MarkdownNode {
+  type: string;
+  url?: string;
+  identifier?: string;
+  children?: MarkdownNode[];
+}
+
+/**
+ * Remark plugin that turns malformed internal file links into readable text.
+ * It runs before Markdown URL normalization and only visits parsed link nodes,
+ * so every supported link form is covered while code remains byte-for-byte.
+ */
+export function remarkNeutralizeMalformedFileLinks() {
+  return (tree: MarkdownNode) => {
+    const definitions = new Map<string, boolean>();
+
+    const collectDefinitions = (node: MarkdownNode) => {
+      if (node.type === 'definition' && node.identifier && !definitions.has(node.identifier)) {
+        definitions.set(
+          node.identifier,
+          Boolean(node.url?.startsWith(FILE_SCHEME) && decodeFilePathUrl(node.url) === null),
+        );
+      }
+      node.children?.forEach(collectDefinitions);
+    };
+
+    const visit = (node: MarkdownNode) => {
+      if (!node.children) return;
+
+      node.children = node.children.flatMap((child) => {
+        const malformedDirectLink =
+          child.type === 'link' &&
+          child.url?.startsWith(FILE_SCHEME) &&
+          decodeFilePathUrl(child.url) === null;
+        const malformedReference =
+          child.type === 'linkReference' &&
+          child.identifier !== undefined &&
+          definitions.get(child.identifier) === true;
+
+        if (malformedDirectLink || malformedReference) {
+          return child.children ?? [];
+        }
+
+        visit(child);
+        return [child];
+      });
+    };
+
+    collectDefinitions(tree);
+    visit(tree);
+  };
+}
+
 /** Detect whether a string looks like a file path (not a URL). */
 export function isFilePath(str: string): boolean {
   // Reject URLs

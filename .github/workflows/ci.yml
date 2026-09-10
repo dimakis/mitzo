@@ -6,6 +6,39 @@ on:
   pull_request:
 
 jobs:
+  native:
+    name: Native Swift tests and builds
+    runs-on: macos-26
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      # MitzoShared requires Swift 6.3; keep the toolchain explicit.
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Test shared native package
+        run: swift test --package-path frontend/ios/MitzoShared
+
+      - name: Build iOS simulator package
+        if: always()
+        working-directory: frontend/ios/MitzoShared
+        run: >-
+          xcodebuild -scheme MitzoShared
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath "$RUNNER_TEMP/mitzo-ios-build"
+          CODE_SIGNING_ALLOWED=NO build
+
+      - name: Build watchOS simulator package
+        if: always()
+        working-directory: frontend/ios/MitzoShared
+        run: >-
+          xcodebuild -scheme MitzoShared
+          -destination 'generic/platform=watchOS Simulator'
+          -derivedDataPath "$RUNNER_TEMP/mitzo-watch-build"
+          CODE_SIGNING_ALLOWED=NO build
+
   ci:
     runs-on: ubuntu-latest
 

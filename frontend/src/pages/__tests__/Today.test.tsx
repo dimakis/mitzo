@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { Today } from '../Today';
 const data = vi.hoisted(() => ({
@@ -20,12 +20,21 @@ const data = vi.hoisted(() => ({
     navigateTo: `/tasks?task=task-${i}`,
   })),
   loading: false,
+  briefing: null as { path: string; generatedAt: string } | null,
+  fetch: (_url: string) =>
+    Promise.resolve({ ok: true, json: () => Promise.resolve(null) }) as Promise<{
+      ok: boolean;
+      json: () => Promise<{ path: string; generatedAt: string } | null>;
+    }>,
 }));
 vi.mock('../../hooks/useSessionList', () => ({
   useSessionList: () => ({ sessions: data.sessions, loading: data.loading }),
 }));
 vi.mock('../../hooks/useAttentionFeed', () => ({
   useAttentionFeed: () => ({ items: data.items, loading: data.loading }),
+}));
+vi.mock('../../lib/api-fetch', () => ({
+  apiFetch: vi.fn((url: string) => data.fetch(url)),
 }));
 function Location() {
   return (
@@ -45,6 +54,8 @@ function show() {
 }
 beforeEach(() => {
   localStorage.clear();
+  data.briefing = null;
+  data.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(data.briefing) });
   vi.useFakeTimers();
   vi.setSystemTime(new Date(2026, 8, 8, 9));
 });
@@ -70,6 +81,87 @@ describe('Today', () => {
     expect(screen.getByText('Start with what matters.')).toBeTruthy();
     fireEvent.click(screen.getByRole('link', { name: 'Prepare my briefing' }));
     expect(screen.getByTestId('location').textContent).toContain('/chat?prompt=');
+  });
+  it('shows and opens a briefing already prepared today', async () => {
+    data.briefing = {
+      path: '/workspace/command_center/briefings/morning_2026-09-08_0830.md',
+      generatedAt: '2026-09-08T08:30:00.000Z',
+    };
+    show();
+    await act(async () => {});
+
+    expect(screen.getByText(/Briefing prepared/)).toBeTruthy();
+    const briefing = screen.getByRole('link', { name: 'Open briefing' });
+    expect(briefing.getAttribute('href')).toContain('/files?path=');
+    expect(briefing.getAttribute('href')).toContain('morning_2026-09-08_0830.md');
+  });
+  it('refreshes an already-open page after the scheduled briefing is saved', async () => {
+    show();
+    await act(async () => {});
+    expect(screen.getByText('Sources haven’t been checked here yet.')).toBeTruthy();
+
+    data.briefing = {
+      path: '/workspace/command_center/briefings/morning_2026-09-08_0830.md',
+      generatedAt: '2026-09-08T08:30:00.000Z',
+    };
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
+
+    expect(screen.getByText(/Briefing prepared/)).toBeTruthy();
+  });
+  it('keeps a newer briefing result when an earlier refresh resolves later', async () => {
+    let resolveFirst: (response: {
+      ok: boolean;
+      json: () => Promise<{ path: string; generatedAt: string } | null>;
+    }) => void;
+    let requestCount = 0;
+    data.fetch = () => {
+      requestCount += 1;
+      return requestCount === 1
+        ? new Promise((resolve) => {
+            resolveFirst = resolve;
+          })
+        : Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                path: '/workspace/command_center/briefings/morning_2026-09-08_0830.md',
+                generatedAt: '2026-09-08T08:30:00.000Z',
+              }),
+          });
+    };
+    show();
+
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(screen.getByText(/Briefing prepared/)).toBeTruthy();
+
+    await act(async () => {
+      resolveFirst!({ ok: true, json: () => Promise.resolve(null) });
+    });
+    expect(screen.getByText(/Briefing prepared/)).toBeTruthy();
+  });
+  it('clears yesterday’s briefing while the new day refreshes', async () => {
+    vi.setSystemTime(new Date(2026, 8, 8, 23, 59));
+    data.briefing = {
+      path: '/workspace/command_center/briefings/morning_2026-09-08_0830.md',
+      generatedAt: '2026-09-08T08:30:00.000Z',
+    };
+    show();
+    await act(async () => {});
+    expect(screen.getByText(/Briefing prepared/)).toBeTruthy();
+
+    data.fetch = (url) =>
+      url.includes('date=2026-09-09')
+        ? new Promise(() => {})
+        : Promise.resolve({ ok: true, json: () => Promise.resolve(data.briefing) });
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
+
+    expect(screen.getByText('Sources haven’t been checked here yet.')).toBeTruthy();
   });
   it('shows evening copy after 18:00', () => {
     vi.setSystemTime(new Date(2026, 8, 8, 22));

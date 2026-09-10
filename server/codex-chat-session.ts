@@ -1,3 +1,4 @@
+import { HOST_TOOL_INSTRUCTIONS } from './session-permission-policy.js';
 import { createNativeHooks } from './native-hooks.js';
 import { requestCodexUserInput } from './codex-user-input.js';
 import { loadAccountProfiles } from './account-profiles.js';
@@ -13,7 +14,11 @@ import { CodexAppServerClient } from './codex-app-server-client.js';
 import { CodexConversation } from './codex-conversation.js';
 import { CodexConversationStore } from './codex-conversation-store.js';
 import type { CodexAccountProfile } from './codex-account.js';
-import { createNativeToolExecutor, nativeToolDefinitions } from './native-tool-executor.js';
+import {
+  createNativeToolExecutor,
+  nativeToolDefinitions,
+  type NativeToolOptions,
+} from './native-tool-executor.js';
 import type { McpServerConfig } from './mcp-config.js';
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
@@ -29,6 +34,40 @@ function store() {
 }
 export function getCodexRuntime(session: ManagedSession) {
   return runtimes.get(session);
+}
+/** Cold reconnect creates the session before its app-server runtime is ready.
+ * Bound queue continuation waits briefly for that registration instead of
+ * exposing a timing-dependent 409 to the client. */
+export async function waitForCodexRuntime(
+  session: ManagedSession,
+  timeoutMs = 5000,
+  signal?: AbortSignal,
+) {
+  const deadline = Date.now() + timeoutMs;
+  let runtime = getCodexRuntime(session);
+  while (!runtime && Date.now() < deadline && !signal?.aborted) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    if (signal?.aborted) break;
+    runtime = getCodexRuntime(session);
+  }
+  return runtime;
+}
+export async function waitForCodexRuntimeBySessionId(
+  registry: SessionRegistry,
+  sessionId: string,
+  timeoutMs = 5000,
+  signal?: AbortSignal,
+) {
+  const deadline = Date.now() + timeoutMs;
+  let session = registry.findBySessionId(sessionId)?.session;
+  let runtime = session ? getCodexRuntime(session) : undefined;
+  while (!runtime && Date.now() < deadline && !signal?.aborted) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    if (signal?.aborted) break;
+    session = registry.findBySessionId(sessionId)?.session;
+    runtime = session ? getCodexRuntime(session) : undefined;
+  }
+  return runtime;
 }
 export function readCodexQueue(
   conversationId: string,
@@ -67,6 +106,7 @@ interface Options {
   systemPrompt: string;
   env: Record<string, string>;
   mcpServers: Record<string, McpServerConfig>;
+  onDemandCreate?: NativeToolOptions['onDemandCreate'];
 }
 /** Shared chat adapter. Execution remains gated by the account catalog and unsupported capabilities fail explicitly. */
 export async function openCodexChat(options: Options) {
@@ -118,7 +158,10 @@ export async function openCodexChat(options: Options) {
     profile: options.profile,
     storedBinding: options.binding,
     store: privateStorage,
-    systemPrompt: options.systemPrompt + (startup.context ? `\n\n${startup.context}` : ''),
+    systemPrompt:
+      options.systemPrompt +
+      HOST_TOOL_INSTRUCTIONS +
+      (startup.context ? `\n\n${startup.context}` : ''),
     beforeComplete: async (signal) => {
       await hooks.run('Stop', { stop_hook_active: false }, signal);
     },
@@ -161,7 +204,9 @@ export async function openCodexChat(options: Options) {
             name,
             input,
             async (canonical, args, s) =>
-              buildPermissionHandler(owner.clientId, options.registry)(canonical, args, {
+              buildPermissionHandler(owner.clientId, options.registry, {
+                onDemandCreate: options.onDemandCreate,
+              })(canonical, args, {
                 signal: s,
                 toolUseID: randomUUID(),
                 forcePrompt,
@@ -171,6 +216,7 @@ export async function openCodexChat(options: Options) {
         const execute = createNativeToolExecutor(owner.clientId, options.registry, {
           env: options.env,
           forcePrompt,
+          onDemandCreate: options.onDemandCreate,
         });
         const result = await execute({ type: 'tool_use', id: randomUUID(), name, input }, signal);
         return { content: result.content, isError: !!result.is_error };

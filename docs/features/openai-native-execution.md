@@ -4,7 +4,7 @@ This is an internal server execution slice built on the Responses adapter. It is
 
 ## Delivered boundary
 
-`server/native-tool-executor.ts` supplies Read, Write, Edit and AskUserQuestion definitions and execution. It accepts a registered session and an explicit environment, normalizes file paths and worktree roots, and calls the existing permission handler. Skill restrictions, worktree redirects, tier overrides and permission responses remain authoritative. Ask mode explicitly rejects mutating tools because there is no SDK plan-mode guard in native execution. Native shell execution is deliberately unavailable.
+`server/native-tool-executor.ts` supplies Read, Write, Edit, Bash and AskUserQuestion definitions and execution. It accepts a registered session and an explicit environment, normalizes file paths and worktree roots, and calls the existing permission handler. Skill restrictions, worktree redirects, tier overrides and permission responses remain authoritative. Ask mode explicitly rejects mutating tools because there is no SDK plan-mode guard in native execution. Bash now runs through a separate OS sandbox with the live shared permission policy. Network access remains blocked; see [unified in-chat permissions](../design/unified-chat-permissions.md) for limits and validation.
 
 Sessions intentionally configured without worktree entries use the existing unisolated permission policy; the executor does not invent a worktree requirement.
 

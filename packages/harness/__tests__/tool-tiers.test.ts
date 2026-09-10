@@ -10,6 +10,8 @@ describe('tool-tiers', () => {
   describe('getToolTier', () => {
     it('returns safe for Read', () => {
       expect(getToolTier('Read')).toBe('safe');
+      expect(getToolTier('GitHubRead')).toBe('safe');
+      expect(shouldAutoAllow('GitHubRead', 'ask')).toBe(true);
     });
 
     it('returns standard for Write', () => {
@@ -20,8 +22,23 @@ describe('tool-tiers', () => {
       expect(getToolTier('Bash')).toBe('elevated');
     });
 
-    it('returns safe for mcp__task-board__ tools', () => {
-      expect(getToolTier('mcp__task-board__TaskComplete')).toBe('safe');
+    it('only auto-allows the read-only task-board status tool', () => {
+      expect(getToolTier('mcp__task-board__TaskStatus')).toBe('safe');
+      for (const name of ['TaskSet', 'TaskComplete', 'TaskBlock', 'FutureTool']) {
+        const tool = `mcp__task-board__${name}`;
+        expect(getToolTier(tool)).toBe('unknown');
+        for (const mode of ['ask', 'agent', 'auto'] as const) {
+          expect(shouldAutoAllow(tool, mode)).toBe(false);
+        }
+      }
+    });
+
+    it('treats local planning as a write and delegated execution as requiring approval', () => {
+      expect(getToolTier('TodoWrite')).toBe('standard');
+      expect(getToolTier('Task')).toBe('unknown');
+      expect(shouldAutoAllow('TodoWrite', 'ask')).toBe(false);
+      expect(shouldAutoAllow('TodoWrite', 'agent')).toBe(true);
+      expect(shouldAutoAllow('Task', 'auto')).toBe(false);
     });
 
     it('returns unknown for other mcp tools', () => {
@@ -49,8 +66,8 @@ describe('tool-tiers', () => {
       expect(shouldAutoAllow('Write', 'auto')).toBe(true);
     });
 
-    it('allows elevated tools in agent and auto modes', () => {
-      expect(shouldAutoAllow('Bash', 'agent')).toBe(true);
+    it('prompts for elevated tools in agent and allows them in auto', () => {
+      expect(shouldAutoAllow('Bash', 'agent')).toBe(false);
       expect(shouldAutoAllow('Bash', 'auto')).toBe(true);
     });
 
@@ -69,11 +86,11 @@ describe('tool-tiers', () => {
       expect(allowed).not.toContain('Bash');
     });
 
-    it('returns safe + standard + elevated for agent mode', () => {
+    it('returns safe + standard for agent mode', () => {
       const allowed = getAllowedToolsForMode('agent');
       expect(allowed).toContain('Read');
       expect(allowed).toContain('Write');
-      expect(allowed).toContain('Bash');
+      expect(allowed).not.toContain('Bash');
     });
   });
 
@@ -81,6 +98,17 @@ describe('tool-tiers', () => {
     afterEach(() => {
       applyTierOverrides({});
     });
+
+    it.each(['Write', 'Bash', 'CustomTool', 'Task', 'mcp__custom__mutate'])(
+      'cannot grant %s to Ask by marking it safe',
+      (tool) => {
+        applyTierOverrides({ [tool]: 'safe' });
+        expect(getToolTier(tool)).toBe('safe');
+        expect(shouldAutoAllow(tool, 'ask')).toBe(false);
+        expect(getAllowedToolsForMode('ask')).not.toContain(tool);
+        expect(shouldAutoAllow(tool, 'agent')).toBe(true);
+      },
+    );
 
     it('overrides default tiers', () => {
       applyTierOverrides({ CustomTool: 'safe' });

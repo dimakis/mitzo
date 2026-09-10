@@ -1,11 +1,9 @@
-// URLSession that trusts Tailscale / self-signed certificates.
-// Mitzo runs over Tailscale with HTTPS; the cert isn't in the
-// system trust store, so URLSession rejects it by default.
+// Shared native transport uses platform TLS validation for every host.
 
 import Foundation
 
-/// URLSession delegate that accepts TLS certificates for *.ts.net
-/// and localhost hosts (matching Capacitor's allowNavigation config).
+/// Uses normal URLSession authentication handling for all hosts.
+/// Self-signed deployments must explicitly establish trust on the device.
 public final class TailscaleTrustDelegate: NSObject, URLSessionDelegate, Sendable {
     public static let shared = TailscaleTrustDelegate()
 
@@ -13,21 +11,13 @@ public final class TailscaleTrustDelegate: NSObject, URLSessionDelegate, Sendabl
         _ session: URLSession,
         didReceive challenge: URLAuthenticationChallenge
     ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
-        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
-              let trust = challenge.protectionSpace.serverTrust else {
-            return (.performDefaultHandling, nil)
-        }
-
-        let host = challenge.protectionSpace.host
-        if host.hasSuffix(".ts.net") || host == "localhost" || host.hasSuffix(".tail") {
-            return (.useCredential, URLCredential(trust: trust))
-        }
-
+        // Network location does not establish server identity. Let URLSession
+        // validate the certificate chain, expiry and hostname using platform trust.
         return (.performDefaultHandling, nil)
     }
 }
 
-/// Shared URLSession that trusts Tailscale hosts.
+/// Shared URLSession with platform certificate validation and a bounded request timeout.
 public let tailscaleURLSession: URLSession = {
     let config = URLSessionConfiguration.default
     config.timeoutIntervalForRequest = 15

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { AccountProfiles, resolveAccountSelection } from '../account-profiles.js';
+import { AccountProfiles, LEGACY_MODELS, resolveAccountSelection } from '../account-profiles.js';
 import { V2SendMessage } from '@mitzo/protocol';
 
 const profile = {
@@ -149,3 +149,101 @@ describe('work OpenAI API profile', () => {
     ).toThrow('changed');
   });
 });
+
+describe('legacy model catalog', () => {
+  it('uses only the allowlist matching the legacy Vertex route', () => {
+    const profiles = new AccountProfiles([
+      profile,
+      {
+        ...profile,
+        id: 'other',
+        projectId: 'other-project',
+        models: [{ id: 'claude-sonnet-5', label: 'Sonnet 5' }],
+      },
+    ]);
+    expect(profiles.legacyModels('work-project', 'us-east5', profile.credentialRef)).toEqual(
+      profile.models,
+    );
+    expect(profiles.legacyModels('work-project', 'global', profile.credentialRef)).toBeUndefined();
+    expect(profiles.legacyModels(undefined, 'us-east5', profile.credentialRef)).toBeUndefined();
+  });
+});
+
+it('does not advertise unavailable newer models in the fallback Vertex catalog', () => {
+  expect(LEGACY_MODELS.map((m) => m.id)).not.toContain('claude-sonnet-5');
+  expect(LEGACY_MODELS.map((m) => m.id)).not.toContain('claude-opus-4-8');
+});
+
+it('never expands a Vertex project allowlist from SDK model discovery', async () => {
+  const { refreshModels } = await import('../model-catalog.js');
+  const restricted = { ...profile, id: 'restricted-discovery' };
+  await refreshModels(JSON.stringify(restricted), async () => [
+    ...profile.models,
+    { id: 'claude-sonnet-5', label: 'Sonnet 5' },
+    { id: 'claude-opus-4-8', label: 'Opus 4.8' },
+  ]);
+  const profiles = new AccountProfiles([restricted]);
+  expect(profiles.catalog()[0].models).toEqual(profile.models);
+  expect(() => profiles.resolve(restricted.id, 'claude-sonnet-5')).toThrow(/unavailable/);
+});
+
+it('matches legacy credentials and rejects ambiguous route profiles', () => {
+  const other = {
+    ...profile,
+    id: 'other-credentials',
+    credentialRef: '/other/adc.json',
+    models: [{ id: 'other-model', label: 'Other' }],
+  };
+  const profiles = new AccountProfiles([other, profile]);
+  expect(profiles.legacyModels(profile.projectId, profile.region, profile.credentialRef)).toEqual(
+    profile.models,
+  );
+  expect(
+    profiles.legacyModels(profile.projectId, profile.region, '/missing/adc.json'),
+  ).toBeUndefined();
+  expect(profiles.legacyModels(profile.projectId, profile.region, undefined)).toBeUndefined();
+  const ambiguous = new AccountProfiles([
+    profile,
+    { ...profile, id: 'duplicate-route', models: other.models },
+  ]);
+  expect(() =>
+    ambiguous.legacyModels(profile.projectId, profile.region, profile.credentialRef),
+  ).toThrow(/ambiguous/i);
+});
+
+it('binds Gemini to its explicit Google Vertex route without using the Claude SDK', () => {
+  const google = {
+    ...profile,
+    id: 'google-work',
+    provider: 'google-vertex',
+    models: [{ id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash' }],
+  };
+  const profiles = new AccountProfiles([google]);
+  const binding = profiles.resolve('google-work', 'gemini-3.8-flash');
+  expect(profiles.googleProfile(binding)).toEqual({
+    projectId: profile.projectId,
+    region: profile.region,
+    credentialRef: profile.credentialRef,
+  });
+  expect(profiles.catalog()[0]).toMatchObject({
+    provider: 'google-vertex',
+    billing: 'google-cloud',
+    capabilities: { images: false, streaming: false },
+  });
+  expect(() => profiles.sdkEnv(binding, {})).toThrow(/native/);
+  expect(
+    profiles.legacyModels(profile.projectId, profile.region, profile.credentialRef),
+  ).toBeUndefined();
+});
+
+it.each(['anthropic-vertex', 'google-vertex'])(
+  'protects custom %s credential paths from native tools even after profile removal',
+  async (provider) => {
+    const { isPrivateCodexPath } = await import('../codex-private-path.js');
+    const credentialRef = `/server/custom-${provider}/adc.json`;
+    new AccountProfiles([{ ...profile, provider, credentialRef }]);
+    expect(isPrivateCodexPath(credentialRef)).toBe(true);
+    new AccountProfiles([]);
+    expect(isPrivateCodexPath(credentialRef)).toBe(true);
+  },
+);

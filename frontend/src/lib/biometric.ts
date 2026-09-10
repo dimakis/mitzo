@@ -1,9 +1,16 @@
 import { Capacitor } from '@capacitor/core';
 import { NativeBiometric, BiometryType } from '@capgo/capacitor-native-biometric';
 import { saveTokenToWatch } from './watch-auth';
+import { getStoredAuthToken, isLogoutPending, loginSucceeded, markAuthLost } from './api-fetch';
 
 const SERVER = 'com.mitzo.app';
-const AUTH_TOKEN_KEY = 'mitzo_auth_token';
+let credentialMutation = Promise.resolve();
+
+function enqueueCredentialMutation(operation: () => Promise<void>): Promise<void> {
+  const next = credentialMutation.then(operation, operation);
+  credentialMutation = next.catch(() => undefined);
+  return next;
+}
 
 export async function isBiometricAvailable(): Promise<boolean> {
   if (!Capacitor.isNativePlatform()) return false;
@@ -46,25 +53,29 @@ export function biometryLabel(type: BiometryType): string {
 /** Store JWT in Keychain after successful passphrase login. */
 export async function saveCredentials(token: string): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
-  try {
-    await NativeBiometric.setCredentials({
-      username: 'mitzo-user',
-      password: token,
-      server: SERVER,
-    });
-  } catch {
-    // Keychain write failed — fall back to localStorage only
-  }
+  await enqueueCredentialMutation(async () => {
+    try {
+      await NativeBiometric.setCredentials({
+        username: 'mitzo-user',
+        password: token,
+        server: SERVER,
+      });
+    } catch {
+      // Keychain write failed — fall back to localStorage only
+    }
+  });
 }
 
 /** Remove stored credentials (logout). */
 export async function deleteCredentials(): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
-  try {
-    await NativeBiometric.deleteCredentials({ server: SERVER });
-  } catch {
-    // No credentials to delete
-  }
+  await enqueueCredentialMutation(async () => {
+    try {
+      await NativeBiometric.deleteCredentials({ server: SERVER });
+    } catch {
+      // No credentials to delete
+    }
+  });
 }
 
 /**
@@ -74,6 +85,13 @@ export async function deleteCredentials(): Promise<void> {
  */
 export async function biometricLogin(apiBaseUrl = ''): Promise<string | null> {
   if (!Capacitor.isNativePlatform()) return null;
+  if (isLogoutPending()) {
+    await deleteCredentials();
+    return null;
+  }
+  const authTokenAtStart = getStoredAuthToken();
+  const authContextIsCurrent = () =>
+    !isLogoutPending() && getStoredAuthToken() === authTokenAtStart;
 
   try {
     await NativeBiometric.verifyIdentity({
@@ -89,22 +107,26 @@ export async function biometricLogin(apiBaseUrl = ''): Promise<string | null> {
     const token = credentials.password;
 
     if (!token) return null;
+    if (!authContextIsCurrent()) return null;
 
     // Validate the token with the server before accepting it
     const res = await fetch(`${apiBaseUrl}/api/sessions`, {
       headers: { Authorization: `Bearer ${token}` },
       credentials: 'include',
     });
+    if (!authContextIsCurrent()) return null;
     if (!res.ok) {
-      // Token expired or invalid — clear stale credentials
-      await deleteCredentials();
-      localStorage.removeItem(AUTH_TOKEN_KEY);
+      if (authTokenAtStart === null || authTokenAtStart === token) {
+        markAuthLost();
+        await deleteCredentials();
+      }
       return null;
     }
 
-    localStorage.setItem(AUTH_TOKEN_KEY, token);
     // Also save to native shared Keychain for Apple Watch
     await saveTokenToWatch(token);
+    if (!authContextIsCurrent()) return null;
+    loginSucceeded(token);
     return token;
   } catch {
     return null;

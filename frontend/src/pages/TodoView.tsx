@@ -155,7 +155,7 @@ function SectionHeader({
 
 // ─── Main view ─────────────────────────────────────────────────────────────
 
-export function TodoView() {
+export function TodoView({ selectedId }: { selectedId?: string } = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const restoredProfile = (location.state as { activeProfile?: string } | null)?.activeProfile;
@@ -282,6 +282,7 @@ export function TodoView() {
                     <TodoCard
                       key={item.id}
                       item={item}
+                      selectedId={selectedId}
                       onAck={ack}
                       onDone={done}
                       onStar={star}

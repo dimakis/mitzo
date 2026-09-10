@@ -5,6 +5,7 @@
 }
 
 :root {
+  --ui-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --bg: #111113;
   --surface: #1a1a1c;
   --border: #2a2a2c;
@@ -63,7 +64,7 @@ html {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--ui-font);
   background: var(--bg);
   color: var(--text);
   min-height: 100dvh;
@@ -90,6 +91,7 @@ a:hover {
 }
 
 button {
+  font-family: var(--ui-font);
   cursor: pointer;
   border: none;
   padding: var(--space-2) var(--space-4);
@@ -1081,7 +1083,7 @@ textarea:focus {
 
 .session-item-branch {
   font-size: var(--text-2xs);
-  font-family: var(--code-font);
+  font-family: var(--ui-font);
   color: var(--accent);
   background: rgba(108, 99, 255, 0.12);
   padding: 0.1rem 0.4rem;
@@ -1094,14 +1096,14 @@ textarea:focus {
 
 .session-item-hash {
   font-size: var(--text-2xs);
-  font-family: var(--code-font);
+  font-family: var(--ui-font);
   color: var(--text-dim);
   opacity: 0.6;
 }
 
 .session-item-tokens {
   font-size: var(--text-2xs);
-  font-family: var(--code-font);
+  font-family: var(--ui-font);
   color: var(--text-dim);
 }
 
@@ -1365,7 +1367,7 @@ textarea:focus {
 
 .inbox-card-agent {
   font-size: var(--text-2xs);
-  font-family: var(--code-font);
+  font-family: var(--ui-font);
   color: var(--accent);
   background: rgba(108, 99, 255, 0.12);
   padding: 0.1rem 0.4rem;
@@ -1602,7 +1604,7 @@ textarea:focus {
 }
 
 .chat-header-branch {
-  font-family: var(--code-font);
+  font-family: var(--ui-font);
   font-size: var(--text-2xs);
   color: var(--text-dim);
   background: var(--bg);
@@ -2402,7 +2404,7 @@ textarea:focus {
 }
 
 .thinking-block-text {
-  font-family: var(--code-font);
+  font-family: var(--ui-font);
   font-size: var(--text-xxs);
   line-height: 1.4;
   color: var(--text-dim);
@@ -2859,7 +2861,7 @@ textarea:focus {
 .md-preview-card-name {
   font-weight: 500;
   color: var(--text);
-  font-family: var(--code-font);
+  font-family: var(--ui-font);
   font-size: var(--text-xxs);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3458,7 +3460,7 @@ textarea:focus {
 }
 
 .chat-input-session-hash {
-  font-family: var(--code-font);
+  font-family: var(--ui-font);
   font-size: 0.6rem;
   color: var(--text-dim);
   opacity: 0.5;
@@ -3466,7 +3468,7 @@ textarea:focus {
 }
 
 .chat-input-branch {
-  font-family: var(--code-font);
+  font-family: var(--ui-font);
   font-size: var(--text-2xs);
   color: var(--text-dim);
   background: var(--surface);
@@ -3494,7 +3496,7 @@ textarea:focus {
   gap: 0.4rem;
   margin-left: auto;
   padding: 0.15rem 0.5rem;
-  font-family: var(--code-font);
+  font-family: var(--ui-font);
   font-size: var(--text-2xs);
   border-radius: 4px;
   border: 1px solid var(--border);
@@ -3572,7 +3574,7 @@ textarea:focus {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: var(--space-2) var(--space-3);
-  font-family: var(--code-font);
+  font-family: var(--ui-font);
   font-size: var(--text-xxs);
   color: var(--text);
   min-width: 14rem;
@@ -3722,7 +3724,7 @@ textarea:focus {
   align-items: center;
   justify-content: center;
   line-height: 1;
-  font-family: monospace;
+  font-family: var(--ui-font);
 }
 
 .chat-input-btn--skills:hover {
@@ -4282,7 +4284,7 @@ textarea:focus {
 }
 
 .viewer-entry-icon {
-  font-family: var(--code-font);
+  font-family: var(--ui-font);
   font-size: var(--text-sm);
   color: var(--accent);
   width: 1rem;
@@ -4452,7 +4454,7 @@ textarea:focus {
 
 .viewer-header-branch {
   font-size: var(--text-xxs);
-  font-family: var(--code-font);
+  font-family: var(--ui-font);
   color: var(--accent);
   background: rgba(108, 99, 255, 0.12);
   padding: 0.15rem 0.5rem;
@@ -4513,7 +4515,7 @@ textarea:focus {
 
 .viewer-root-btn {
   font-size: var(--text-xxs);
-  font-family: var(--code-font);
+  font-family: var(--ui-font);
   font-weight: 600;
   padding: 0.3rem 0.6rem;
   border-radius: 6px;
@@ -6717,4 +6719,12 @@ a.session-tray-resource:hover {
 
 .tray-preview-toolbar {
   justify-content: flex-start;
+}
+
+/* Native form controls must use the same UI family as navigation and messages. */
+input,
+select,
+textarea,
+option {
+  font-family: var(--ui-font);
 }

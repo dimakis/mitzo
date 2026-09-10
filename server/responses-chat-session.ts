@@ -1,3 +1,5 @@
+import type { GeminiOptions } from './gemini-session.js';
+import { HOST_TOOL_INSTRUCTIONS } from './session-permission-policy.js';
 import { createNativeHooks } from './native-hooks.js';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -8,7 +10,11 @@ import { NativeResponsesRunner } from './native-responses-runner.js';
 import { NativeResponsesStore } from './native-responses-store.js';
 import { codexPrivateDirectory } from './codex-private-path.js';
 import { connectCodexMcpTools } from './codex-mcp-tools.js';
-import { createNativeToolExecutor, nativeToolDefinitions } from './native-tool-executor.js';
+import {
+  createNativeToolExecutor,
+  nativeToolDefinitions,
+  type NativeToolOptions,
+} from './native-tool-executor.js';
 import type { McpServerConfig } from './mcp-config.js';
 
 let privateStore: NativeResponsesStore | undefined;
@@ -29,7 +35,8 @@ interface Options {
   resume?: boolean;
   conversationId: string;
   binding: AccountBinding;
-  apiKey: string;
+  apiKey?: string;
+  gemini?: GeminiOptions;
   session: ManagedSession;
   registry: SessionRegistry;
   input: AsyncIterable<{ message: { content: unknown }; mitzoMessageId?: string }> & {
@@ -38,6 +45,7 @@ interface Options {
   systemPrompt: string;
   env: Record<string, string>;
   mcpServers: Record<string, McpServerConfig>;
+  onDemandCreate?: NativeToolOptions['onDemandCreate'];
   store?: NativeResponsesStore;
 }
 /** API execution uses the shared interaction policy and a private continuation store. */
@@ -75,8 +83,12 @@ export async function openResponsesChat(options: Options) {
     conversationId: options.conversationId,
     binding: options.binding,
     apiKey: options.apiKey,
+    gemini: options.gemini,
     store: privateStorage,
-    systemPrompt: options.systemPrompt + (startup.context ? `\n\n${startup.context}` : ''),
+    systemPrompt:
+      options.systemPrompt +
+      HOST_TOOL_INSTRUCTIONS +
+      (startup.context ? `\n\n${startup.context}` : ''),
     maxTokens: 8192,
     tools: [...nativeToolDefinitions, ...mcp.definitions],
     executeTool: async (block, signal) => {
@@ -92,7 +104,9 @@ export async function openResponsesChat(options: Options) {
               block.name,
               input,
               (name, input, signal) =>
-                buildPermissionHandler(owner.clientId, options.registry)(name, input, {
+                buildPermissionHandler(owner.clientId, options.registry, {
+                  onDemandCreate: options.onDemandCreate,
+                })(name, input, {
                   signal,
                   toolUseID: randomUUID(),
                   forcePrompt,
@@ -104,6 +118,7 @@ export async function openResponsesChat(options: Options) {
           const result = await createNativeToolExecutor(owner.clientId, options.registry, {
             env: options.env,
             forcePrompt,
+            onDemandCreate: options.onDemandCreate,
           })({ ...block, input }, signal);
           return { content: result.content, isError: !!result.is_error };
         },
@@ -153,7 +168,7 @@ export async function openResponsesChat(options: Options) {
           } catch {
             if (!interrupted || signal.aborted)
               throw new Error(
-                'OpenAI API turn failed or was interrupted. Inspect the task before retrying.',
+                'API turn failed or was interrupted. Inspect the task before retrying.',
               );
             yield { type: 'result', session_id: options.conversationId, is_error: true };
           }
@@ -170,7 +185,7 @@ export async function openResponsesChat(options: Options) {
     },
     close,
     stopTask: async () => {
-      throw new Error('OpenAI API subagents are unavailable');
+      throw new Error('Native API subagents are unavailable');
     },
   };
 }

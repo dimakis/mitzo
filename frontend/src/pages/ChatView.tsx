@@ -1,11 +1,13 @@
+import { PermissionModePicker } from '../components/PermissionModePicker';
+import { StatusBar } from '../components/StatusBar';
+import { WorkspaceControls } from '../components/WorkspaceControls';
 import { CodexQueueStatus } from '../components/CodexQueueStatus';
 import { AccountModelPicker, type AccountSelection } from '../components/AccountModelPicker';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { ChatArea } from '../components/ChatArea';
 import { ChatInput } from '../components/ChatInput';
 import { VoiceSettings } from '../components/VoiceSettings';
-import { MitzoLogo } from '../components/MitzoLogo';
 import { useMessages, useConnection, useTokens, useMitzoStore } from '@mitzo/client/hooks';
 import { LAST_SESSION_KEY } from '../lib/constants';
 import { getPreferredModel, setPreferredModel } from '../lib/model-preference';
@@ -40,6 +42,7 @@ export function ChatView() {
   const sendError = useMitzoStore((s) => s.sendError);
   const sendStatus = useMitzoStore((s) => s.sendStatus);
   const activeSessionId = useMitzoStore((s) => s.sessions.active);
+  const modeChangeReady = useMitzoStore((s) => s.modeChangeReady);
 
   // Select individual action functions — stable references
   const storeSendMessage = useMitzoStore((s) => s.sendMessage);
@@ -82,9 +85,10 @@ export function ChatView() {
     [setModel],
   );
 
-  const [mode, setMode] = useState<'ask' | 'agent' | 'auto'>(
-    searchParams.get('extraTools') ? 'auto' : 'agent',
-  );
+  const mode = useMitzoStore((s) => s.config.mode);
+  useEffect(() => {
+    if (!activeSessionId && searchParams.get('extraTools')) storeSetMode('auto');
+  }, [activeSessionId, searchParams, storeSetMode]);
   const [isolation, setIsolation] = useState(true);
 
   const voice = useVoice();
@@ -233,68 +237,98 @@ export function ChatView() {
   }
 
   function handleModeChange(newMode: 'ask' | 'agent' | 'auto') {
-    setMode(newMode);
     storeSetMode(newMode);
   }
 
   const initialPrompt = searchParams.get('prompt') || undefined;
 
   return (
-    <div className={`chat-page${keyboardOpen ? ' keyboard-open' : ''}`}>
-      <header className="chat-header">
-        <MitzoLogo />
-        {!connected && (
-          <span
-            className="chat-header-offline"
-            title={messages.running ? 'Reconnecting — session still active' : 'Reconnecting...'}
-          >
-            !
-          </span>
-        )}
+    <div className={`chat-page workspace-chat${keyboardOpen ? ' keyboard-open' : ''}`}>
+      <div className="conversation-heading">
+        <Link to="/sessions" aria-label="Back to chats">
+          ← Chats
+        </Link>
+        <h1>{activeSessionId ? 'Conversation' : 'New chat'}</h1>
+        <button
+          onClick={() => {
+            storeNewSession();
+            navigate('/chat');
+          }}
+        >
+          New chat
+        </button>
+      </div>
+      <WorkspaceControls
+        status={!connected ? 'Reconnecting' : messages.running ? 'Working' : 'Ready'}
+      >
+        <div className="chat-account-bar">
+          <AccountModelPicker
+            disabled={messages.running}
+            sessionId={activeSessionId}
+            preferredModel={modelState}
+            onChange={selectAccount}
+            onUnavailable={accountUnavailable}
+          />
+        </div>
+        <header className="chat-header">
+          {!connected && (
+            <span
+              className="chat-header-offline"
+              title={messages.running ? 'Reconnecting — session still active' : 'Reconnecting...'}
+            >
+              !
+            </span>
+          )}
 
-        {!keyboardOpen && (
-          <>
-            <div className="mode-pills">
-              {(['ask', 'agent', 'auto'] as const).map((m) => (
+          {!keyboardOpen && (
+            <>
+              <PermissionModePicker
+                mode={mode}
+                onChange={handleModeChange}
+                disabled={modeChangeReady === false}
+              />
+              {!activeSessionId && (
                 <button
-                  key={m}
-                  className={`mode-pill${mode === m ? ' mode-pill--active' : ''}`}
-                  onClick={() => handleModeChange(m)}
+                  className={`isolation-toggle${isolation ? ' isolation-toggle--active' : ''}`}
+                  onClick={() => setIsolation((v) => !v)}
+                  title={isolation ? 'Worktree isolation: ON' : 'Worktree isolation: OFF'}
                 >
-                  {m.charAt(0).toUpperCase() + m.slice(1)}
+                  {isolation ? '\u{1f512}' : '\u{1f513}'}
                 </button>
-              ))}
-            </div>
-            {!activeSessionId && (
-              <button
-                className={`isolation-toggle${isolation ? ' isolation-toggle--active' : ''}`}
-                onClick={() => setIsolation((v) => !v)}
-                title={isolation ? 'Worktree isolation: ON' : 'Worktree isolation: OFF'}
-              >
-                {isolation ? '\u{1f512}' : '\u{1f513}'}
-              </button>
-            )}
-            {activeSessionId && (
-              <button
-                className="session-close-btn"
-                onClick={storeCloseSession}
-                title="Close session"
-              >
-                &times;
-              </button>
-            )}
-            <VoiceSettings
-              ttsAvailable={voice.ttsAvailable}
-              ttsEnabled={voice.ttsEnabled}
-              speaking={voice.speaking}
-              voices={voice.voices}
-              selectedVoice={voice.selectedVoice}
-              onToggle={() => voice.setTtsEnabled(!voice.ttsEnabled)}
-              onVoiceChange={voice.setVoice}
-            />
-          </>
-        )}
-      </header>
+              )}
+              {activeSessionId && (
+                <button
+                  className="session-close-btn"
+                  onClick={storeCloseSession}
+                  title="Close session"
+                >
+                  &times;
+                </button>
+              )}
+              <VoiceSettings
+                ttsAvailable={voice.ttsAvailable}
+                ttsEnabled={voice.ttsEnabled}
+                speaking={voice.speaking}
+                voices={voice.voices}
+                selectedVoice={voice.selectedVoice}
+                onToggle={() => voice.setTtsEnabled(!voice.ttsEnabled)}
+                onVoiceChange={voice.setVoice}
+              />
+            </>
+          )}
+        </header>
+      </WorkspaceControls>
+      {activeSessionId && (
+        <div className="mobile-session-context">
+          <StatusBar
+            connected={connected}
+            sessionId={activeSessionId}
+            branch={messages.branch || undefined}
+            isWorktree={messages.isWorktree}
+            wtId={messages.wtId || undefined}
+          />
+        </div>
+      )}
       {(sendError || sendStatus) && (
         <div
           role={sendError ? 'alert' : 'status'}
@@ -305,15 +339,6 @@ export function ChatView() {
           {sendError || sendStatus}
         </div>
       )}
-      <div className="chat-account-bar">
-        <AccountModelPicker
-          disabled={messages.running}
-          sessionId={activeSessionId}
-          preferredModel={modelState}
-          onChange={selectAccount}
-          onUnavailable={accountUnavailable}
-        />
-      </div>
 
       <CodexQueueStatus sessionId={activeSessionId} />
       <ChatArea

@@ -51,6 +51,8 @@ export class SseConnection implements ChatConnection {
   private seqBySession = new Map<string, number>();
   private pendingSends: Array<{ endpoint: string; body: Record<string, unknown> }> = [];
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private authProbe: Promise<void> | null = null;
+  private authBlocked = false;
   private boundOnVisibility: (() => void) | null = null;
   private boundOnPageShow: ((e: PageTransitionEvent) => void) | null = null;
   private boundOnPageHide: (() => void) | null = null;
@@ -93,7 +95,7 @@ export class SseConnection implements ChatConnection {
   }
 
   connect(): void {
-    this.outbox.start();
+    if (!this.authBlocked) this.outbox.start();
     this.doConnect();
     this.addBrowserListeners();
   }
@@ -114,6 +116,19 @@ export class SseConnection implements ChatConnection {
     this._connected = false;
   }
 
+  blockAuthentication(): void {
+    this.authBlocked = true;
+  }
+
+  invalidateAuthentication(): void {
+    this.handleAuthLoss(false);
+  }
+
+  restoreAuthentication(): void {
+    this.authBlocked = false;
+    this.checkAndReconnect(true);
+  }
+
   /**
    * Send a message to the server via HTTP POST.
    *
@@ -128,6 +143,7 @@ export class SseConnection implements ChatConnection {
    * could not be queued; true is local acceptance, not server delivery.
    */
   send(msg: Record<string, unknown>): boolean {
+    if (this.authBlocked) return false;
     if (msg.type === 'send') return this.outbox.enqueue(msg, this.sendScope);
     const endpoint = this.messageTypeToEndpoint(msg.type as string);
     if (!endpoint) return false;
@@ -222,7 +238,9 @@ export class SseConnection implements ChatConnection {
    * tears down and rebuilds for iOS Capacitor lifecycle hooks.
    */
   checkAndReconnect(force = false): void {
+    if (this.authBlocked) return;
     if (!force && this._connected) return;
+    if (force) this.outbox.start();
     this.foregroundProbe?.cancel();
     if (this.reconnectTimer) return;
     if (this.es) {
@@ -240,6 +258,7 @@ export class SseConnection implements ChatConnection {
   // ─── Internal ──────────────────────────────────────────────────────────────
 
   private doConnect(): void {
+    if (this.authBlocked) return;
     if (this.es) return;
 
     if (this.reconnectTimer) {
@@ -265,6 +284,7 @@ export class SseConnection implements ChatConnection {
       } catch {
         return;
       }
+
       this._connectionId = msg.connectionId as string;
 
       // Control messages wait for replay readiness. Prompt delivery uses
@@ -289,6 +309,11 @@ export class SseConnection implements ChatConnection {
       try {
         msg = JSON.parse(e.data);
       } catch {
+        return;
+      }
+
+      if (msg.type === 'auth_expired') {
+        this.handleAuthLoss();
         return;
       }
 
@@ -317,10 +342,40 @@ export class SseConnection implements ChatConnection {
         this._connected = false;
         this.listener?.({ type: '_close' });
       }
+      this.probeAuthAfterStreamError(es);
     };
 
     // EventSource fires 'open' when the connection is established,
     // but we wait for the 'welcome' event before marking as connected.
+  }
+
+  private probeAuthAfterStreamError(es: EventSource): void {
+    if (this.authProbe) return;
+    this.authProbe = this.config
+      .fetch(`${this.config.baseUrl}/api/auth/check`, { method: 'GET' })
+      .then((response) => {
+        if (this.es === es && response.status === 401) this.handleAuthLoss();
+      })
+      .catch(() => {
+        // A network error is not proof of auth loss; EventSource may keep retrying.
+      })
+      .finally(() => {
+        this.authProbe = null;
+      });
+  }
+
+  private handleAuthLoss(notify = true): void {
+    this.authBlocked = true;
+    this.foregroundProbe?.cancel();
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.es?.close();
+    this.es = null;
+    this._connectionId = null;
+    this._connected = false;
+    this.pendingSends = [];
+    this.outbox.rejectAll('Authentication expired. Sign in again to retry.');
+    if (notify) this.listener?.({ type: '_auth_lost' });
   }
 
   /**
@@ -422,6 +477,8 @@ export class SseConnection implements ChatConnection {
 
   private async doPost(endpoint: string, body: Record<string, unknown>): Promise<void> {
     if (!this._connectionId) return;
+    const scope =
+      typeof body.sessionId === 'string' && body.sessionId ? { sessionId: body.sessionId } : {};
     try {
       const res = await this.config.fetch(`${this.config.baseUrl}/api/chat/${endpoint}`, {
         method: 'POST',
@@ -431,10 +488,11 @@ export class SseConnection implements ChatConnection {
       if (!res.ok)
         this.listener?.({
           type: 'error',
+          ...scope,
           error: `Could not ${endpoint} (${res.status}). Please retry.`,
         });
     } catch {
-      this.listener?.({ type: 'error', error: `Could not ${endpoint}. Please retry.` });
+      this.listener?.({ type: 'error', ...scope, error: `Could not ${endpoint}. Please retry.` });
     }
   }
 

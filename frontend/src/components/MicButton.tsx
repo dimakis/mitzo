@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 // Toggle mic button for voice capture.
 // Tap to start recording, tap again to stop and send.
 
@@ -24,7 +25,7 @@ export function MicButton({
   if (micBlocked) {
     return (
       <button className="mic-btn mic-btn--blocked" title="Microphone blocked" disabled>
-        <span className="mic-btn-icon">&#x1F507;</span>
+        <UiIcon name="blocked" />
       </button>
     );
   }
@@ -37,6 +38,10 @@ export function MicButton({
     <button
       className={`mic-btn ${stateClass}`.trim()}
       title={title}
+      aria-label={
+        recording ? 'Stop recording' : transcribing ? 'Transcribing audio' : 'Record voice message'
+      }
+      aria-pressed={recording}
       disabled={transcribing}
       onClick={() => {
         if (transcribing) return;
@@ -47,7 +52,7 @@ export function MicButton({
         }
       }}
     >
-      <span className="mic-btn-icon">{transcribing ? '\u23F3' : '\uD83C\uDF99\uFE0F'}</span>
+      <UiIcon name={transcribing ? 'loading' : recording ? 'stop' : 'mic'} />
     </button>
   );
 }

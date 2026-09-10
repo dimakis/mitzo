@@ -46,34 +46,21 @@ describe('ChatInput command strip', () => {
     expect(screen.getByRole('button', { name: 'Add source' })).toBeTruthy();
   });
 
-  it('renders branch pill when branch is provided', () => {
+  it('keeps technical branch and session identifiers out of the composer', () => {
     const { container } = render(
-      <ChatInput onSend={noop} onStop={noopVoid} running={false} branch="main" />,
+      <ChatInput
+        onSend={noop}
+        onStop={noopVoid}
+        running={false}
+        branch="session/123abc"
+        isWorktree
+        wtId="123abc"
+        sessionId="abcdef123456"
+      />,
     );
-    const pill = container.querySelector('.chat-input-branch');
-    expect(pill).toBeTruthy();
-    expect(pill?.textContent).toBe('main');
-  });
-
-  it('does not render branch pill when branch is undefined', () => {
-    const { container } = render(<ChatInput onSend={noop} onStop={noopVoid} running={false} />);
     expect(container.querySelector('.chat-input-branch')).toBeNull();
-  });
-
-  it('applies worktree class when isWorktree is true', () => {
-    const { container } = render(
-      <ChatInput onSend={noop} onStop={noopVoid} running={false} branch="feat/test" isWorktree />,
-    );
-    expect(container.querySelector('.chat-input-branch--wt')).toBeTruthy();
-  });
-
-  it('sets title attribute on branch pill for long names', () => {
-    const longBranch = 'feat/command-strip-redesign-v2-with-extra-context';
-    const { container } = render(
-      <ChatInput onSend={noop} onStop={noopVoid} running={false} branch={longBranch} />,
-    );
-    const pill = container.querySelector('.chat-input-branch');
-    expect(pill?.getAttribute('title')).toBe(longBranch);
+    expect(container.querySelector('.chat-input-session-hash')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Commands' })).toBeTruthy();
   });
 
   it('renders mic button in input row, not command strip', () => {
@@ -101,15 +88,6 @@ describe('ChatInput command strip', () => {
     const textarea = container.querySelector('textarea')!;
     fireEvent.change(textarea, { target: { value: 'hello' } });
     expect(container.querySelectorAll('.mic-btn')).toHaveLength(1);
-  });
-
-  it('renders session hash badge when sessionId is provided', () => {
-    const { container } = render(
-      <ChatInput onSend={noop} onStop={noopVoid} running={false} sessionId="abc123def456ghi789" />,
-    );
-    const badge = container.querySelector('.chat-input-session-hash');
-    expect(badge).toBeTruthy();
-    expect(badge?.textContent).toBe('hi789');
   });
 
   it('does not render session hash badge when sessionId is undefined', () => {

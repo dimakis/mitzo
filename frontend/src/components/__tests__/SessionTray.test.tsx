@@ -192,3 +192,12 @@ describe('SessionTray', () => {
     expect(screen.getByTestId('session-tray').dataset.snap).toBe('peek');
   });
 });
+
+it('offers a keyboard-accessible full-size tray without requiring a swipe', () => {
+  render(<SessionTray {...props} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Open session tray' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Expand session tray' }));
+  expect(screen.getByTestId('session-tray').dataset.snap).toBe('full');
+  fireEvent.click(screen.getByRole('button', { name: 'Reduce session tray' }));
+  expect(screen.getByTestId('session-tray').dataset.snap).toBe('half');
+});

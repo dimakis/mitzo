@@ -124,6 +124,64 @@ describe('createMitzoStore', () => {
     expect(ws.parsedSent()).toContainEqual({ type: 'hello', protocolVersion: 2 });
   });
 
+  it('does not open the initial transport while authentication starts invalidated', () => {
+    const options = makeOptions();
+    const createWebSocket = vi.spyOn(options.wsConfig, 'createWebSocket');
+    const store = createMitzoStore({ ...options, initiallyAuthenticated: false });
+
+    expect(createWebSocket).not.toHaveBeenCalled();
+
+    store.getState().restoreAuthentication();
+    expect(createWebSocket).toHaveBeenCalledOnce();
+  });
+
+  it('preserves the persisted SSE outbox until startup authentication succeeds', async () => {
+    const prompt = {
+      type: 'send',
+      sessionId: null,
+      clientMsgId: 'persisted-startup',
+      prompt: 'resume after reload',
+    };
+    const storage = {
+      getItem: vi.fn(() => JSON.stringify([{ body: prompt, scope: 1 }])),
+      setItem: vi.fn(),
+    };
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 202,
+      json: async () => ({ accepted: true, clientMsgId: prompt.clientMsgId }),
+    });
+    const eventSource = {
+      readyState: 0,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      close: vi.fn(),
+      onerror: null,
+      onmessage: null,
+    } as unknown as EventSource;
+    const store = createMitzoStore({
+      ...makeOptions(),
+      initiallyAuthenticated: false,
+      sseConfig: {
+        baseUrl: 'https://localhost:3100',
+        fetch,
+        outboxStorage: storage,
+        createEventSource: () => eventSource,
+      },
+    });
+
+    await Promise.resolve();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(storage.setItem).not.toHaveBeenCalled();
+
+    store.getState().restoreAuthentication();
+    await Promise.resolve();
+    expect(fetch).toHaveBeenCalledWith(
+      'https://localhost:3100/api/chat/send',
+      expect.objectContaining({ body: JSON.stringify(prompt) }),
+    );
+  });
+
   it('sets connection status to connected after welcome', () => {
     const store = createReadyStore();
     expect(store.getState().connection.status).toBe('connected');
@@ -880,19 +938,156 @@ describe('session isolation via sessionId filtering', () => {
   });
 });
 
+it('does not send stale mode when sending immediately after switching sessions', async () => {
+  const store = createReadyStore();
+  store.getState().setMode('auto');
+  const switching = store.getState().switchSession('cold-ask-session');
+  store.getState().sendMessage('continue', { mode: 'auto' });
+  const sent = lastWs.parsedSent().find((message) => message.type === 'send');
+  expect(sent).toMatchObject({ sessionId: 'cold-ask-session' });
+  expect(sent).not.toHaveProperty('mode');
+  await switching;
+});
+
 describe('setMode', () => {
-  it('updates config mode and sends v2 set_mode', async () => {
+  it('keeps the picker unavailable until the selected session mode is hydrated', async () => {
     const store = createReadyStore();
-    await store.getState().switchSession('test-session');
-
+    await store.getState().switchSession('selected');
+    expect(store.getState().modeChangeReady).toBe(false);
     store.getState().setMode('auto');
+    expect(lastWs.parsedSent().some((msg) => msg.type === 'set_mode')).toBe(false);
+    lastWs.simulateMessage({ type: 'session_switched', sessionId: 'old', mode: 'auto' });
+    lastWs.simulateMessage({ type: 'session_switched', sessionId: 'selected', mode: 'invalid' });
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'selected' });
+    expect(store.getState().modeChangeReady).toBe(false);
+    lastWs.simulateMessage({ type: 'session_switched', sessionId: 'selected', mode: 'ask' });
+    expect(store.getState().modeChangeReady).toBe(true);
+    expect(store.getState().config.mode).toBe('ask');
+  });
 
-    expect(store.getState().config.mode).toBe('auto');
+  it('releases hydration immediately when the switch request cannot be sent', async () => {
+    const store = createReadyStore();
+    lastWs.readyState = WS_READY_STATE.CLOSED;
+    await store.getState().switchSession('selected');
+    expect(store.getState().modeChangeReady).toBe(true);
+    expect(store.getState().sendError).toContain('Could not switch session');
+    lastWs.completeHandshake();
+    store.getState().setMode('ask');
+    expect(lastWs.parsedSent().find((msg) => msg.type === 'set_mode')).toMatchObject({
+      sessionId: 'selected',
+      mode: 'ask',
+    });
+  });
+
+  it('releases switch hydration after a matching terminal error', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('selected');
+    lastWs.simulateMessage({ type: 'error', error: 'Unrelated global failure' });
+    expect(store.getState().modeChangeReady).toBe(false);
+    lastWs.simulateMessage({ type: 'error', sessionId: 'old', error: 'old failure' });
+    expect(store.getState().modeChangeReady).toBe(false);
+    lastWs.simulateMessage({ type: 'error', sessionId: 'selected', error: 'Session unavailable' });
+    expect(store.getState().modeChangeReady).toBe(true);
+  });
+
+  it('keeps mode fixed until startup readiness, even after send acceptance', () => {
+    const store = createReadyStore();
+    store.getState().sendMessage('hello');
+    const sent = lastWs.parsedSent().find((msg) => msg.type === 'send')!;
+    expect(store.getState().modeChangeReady).toBe(false);
+    store.getState().setMode('ask');
+    lastWs.simulateMessage({
+      type: '_send_accepted',
+      sessionId: 'new-chat',
+      clientMsgId: sent.clientMsgId,
+    });
+    store.getState().setMode('ask');
+    expect(store.getState().config.mode).toBe('agent');
+    expect(lastWs.parsedSent().some((msg) => msg.type === 'set_mode')).toBe(false);
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'new-chat' });
+    expect(store.getState().modeChangeReady).toBe(true);
+    store.getState().setMode('ask');
+    expect(lastWs.parsedSent()).toContainEqual({
+      type: 'set_mode',
+      sessionId: 'new-chat',
+      mode: 'ask',
+    });
+  });
+
+  it('releases startup controls after a legacy WebSocket native command', () => {
+    const store = createReadyStore();
+    store.getState().sendMessage('/skills');
+    lastWs.simulateMessage({
+      type: 'native_command_result',
+      command: 'skills',
+      content: 'Available skills',
+    });
+    expect(store.getState().modeChangeReady).toBe(true);
+  });
+
+  it('releases the mode control after a native command creates no session', () => {
+    const store = createReadyStore();
+    store.getState().sendMessage('/skills');
+    const sent = lastWs.parsedSent().find((msg) => msg.type === 'send')!;
+    lastWs.simulateMessage({
+      type: '_send_accepted',
+      sessionId: null,
+      clientMsgId: sent.clientMsgId,
+    });
+    expect(store.getState().modeChangeReady).toBe(true);
+    store.getState().setMode('ask');
+    expect(store.getState().config.mode).toBe('ask');
+  });
+
+  it('releases the startup mode control after a startup failure', () => {
+    const store = createReadyStore();
+    store.getState().sendMessage('hello');
+    lastWs.simulateMessage({ type: 'error', error: 'Account verification failed' });
+    expect(store.getState().modeChangeReady).toBe(true);
+    store.getState().setMode('ask');
+    expect(store.getState().config.mode).toBe('ask');
+  });
+
+  it('restores the new-chat mode picker when abandoning startup', () => {
+    const store = createReadyStore();
+    store.getState().sendMessage('hello');
+    store.getState().newSession();
+    expect(store.getState().modeChangeReady).toBe(true);
+    store.getState().setMode('ask');
+    expect(store.getState().config.mode).toBe('ask');
+  });
+
+  it('waits for the active session acknowledgement before changing mode', async () => {
+    const store = createReadyStore();
+    store.getState().setMode('agent');
+    await store.getState().switchSession('test-session');
+    lastWs.simulateMessage({ type: 'session_switched', sessionId: 'test-session', mode: 'agent' });
+    store.getState().setMode('auto');
+    expect(store.getState().config.mode).toBe('agent');
     expect(lastWs.parsedSent()).toContainEqual({
       type: 'set_mode',
       sessionId: 'test-session',
       mode: 'auto',
     });
+    lastWs.simulateMessage({ type: 'mode_changed', sessionId: 'test-session', mode: 'auto' });
+    expect(store.getState().config.mode).toBe('auto');
+  });
+
+  it('updates the new chat default immediately without a server request', () => {
+    const store = createReadyStore();
+    store.getState().setMode('ask');
+    expect(store.getState().config.mode).toBe('ask');
+    expect(lastWs.parsedSent().some((msg) => msg.type === 'set_mode')).toBe(false);
+  });
+
+  it('hydrates mode on session switch and ignores foreign or invalid acknowledgements', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('test-session');
+    lastWs.simulateMessage({ type: 'session_switched', sessionId: 'test-session', mode: 'ask' });
+    expect(store.getState().config.mode).toBe('ask');
+    lastWs.simulateMessage({ type: 'mode_changed', sessionId: 'other-session', mode: 'auto' });
+    lastWs.simulateMessage({ type: 'mode_changed', sessionId: 'test-session', mode: 'invalid' });
+    expect(store.getState().config.mode).toBe('ask');
   });
 });
 
@@ -1307,6 +1502,23 @@ describe('delivery status', () => {
     });
     expect(store.getState().sendStatus).toBeNull();
     expect(store.getState().sendError).toBe('Rejected');
+  });
+
+  it('surfaces delivery ambiguity without presenting it as a safe retry', () => {
+    const store = createReadyStore();
+    store.getState().sendMessage('hello');
+    const command = lastWs.parsedSent().find((message) => message.type === 'send')!;
+    const error =
+      'The server may have accepted this message; check the conversation before sending it again.';
+
+    lastWs.simulateMessage({
+      type: '_send_uncertain',
+      clientMsgId: command.clientMsgId,
+      error,
+    });
+
+    expect(store.getState().sendStatus).toBeNull();
+    expect(store.getState().sendError).toBe(error);
   });
 });
 it('sends question answers without losing the request identity', async () => {

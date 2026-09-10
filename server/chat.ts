@@ -1,3 +1,10 @@
+import { permissionRevision, type ResumePermission } from './session-permission-revision.js';
+import { GoogleAuth } from 'google-auth-library';
+import type { GeminiOptions } from './gemini-session.js';
+import {
+  buildSessionPermissionHooks,
+  SESSION_PERMISSION_INSTRUCTIONS,
+} from './session-permission-policy.js';
 import { credentials } from './credentials.js';
 import { getResponsesRuntime, openResponsesChat } from './responses-chat-session.js';
 import { CodexAppServerClient, codexEnvironment } from './codex-app-server-client.js';
@@ -34,10 +41,11 @@ import {
   discoverSessionWorktrees,
 } from './worktree.js';
 import type { OnDemandCreateFn } from '@mitzo/harness';
+import { effectivePermissionMode } from '@mitzo/harness';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
 import { parseContentBlocks } from './content-blocks.js';
 import { loadMcpServers, type McpServerConfig } from './mcp-config.js';
-import { getAllowedToolsForMode, applyTierOverrides } from './tool-tiers.js';
+import { applyTierOverrides } from './tool-tiers.js';
 import { loadRepoConfig } from './repo-config.js';
 import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
@@ -83,6 +91,9 @@ export function adaptSdkQuery(sdkQuery: Query): QueryInstance {
   return new Proxy(sdkQuery, {
     get(target, property) {
       if (property === Symbol.asyncIterator) return validatedIterator;
+      if (property === 'setPermissionMode') {
+        return (mode: MitzoMode) => target.setPermissionMode(mode === 'ask' ? 'plan' : 'default');
+      }
       const value: unknown = Reflect.get(target, property, target);
       return typeof value === 'function' ? value.bind(target) : value;
     },
@@ -386,7 +397,7 @@ export function generateWtId(): string {
 const MODE_TO_SDK: Record<MitzoMode, string> = {
   ask: 'plan',
   agent: 'default',
-  auto: 'acceptEdits',
+  auto: 'default',
 };
 
 export const registry = new SessionRegistry();
@@ -779,6 +790,7 @@ export async function startChat(
     skillAllowedTools?: string[];
     isolation?: boolean;
     mode?: MitzoMode;
+    resumePermission?: ResumePermission;
     images?: Array<{ data: string; mediaType: string }>;
     contextBlocks?: string[];
     clientMsgId?: string;
@@ -814,6 +826,7 @@ async function _startChatInner(
     skillAllowedTools?: string[];
     isolation?: boolean;
     mode?: MitzoMode;
+    resumePermission?: ResumePermission;
     images?: Array<{ data: string; mediaType: string }>;
     contextBlocks?: string[];
     clientMsgId?: string;
@@ -825,6 +838,7 @@ async function _startChatInner(
   let accountBinding;
   let codexProfile: CodexAccountProfile | undefined;
   let apiKey: string | undefined;
+  let gemini: GeminiOptions | undefined;
   let accountEnv: Record<string, string> | undefined;
   try {
     const storedBinding = options.resume
@@ -854,6 +868,30 @@ async function _startChatInner(
           preflight.close();
         }
         accountEnv = codexEnvironment(codexProfile.credentialRef, process.env);
+      } else if (accountBinding.provider === 'google-vertex') {
+        if (options.images?.length)
+          throw new Error('Gemini image attachments are not yet supported');
+        const profile = profiles!.googleProfile(accountBinding);
+        const auth = new GoogleAuth({
+          keyFilename: profile.credentialRef,
+          scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+        });
+        gemini = {
+          accountId: accountBinding.accountId,
+          projectId: profile.projectId,
+          region: profile.region,
+          getAccessToken: async () => {
+            const token = await auth.getAccessToken();
+            if (!token) throw new Error('Google Vertex credentials unavailable');
+            return token;
+          },
+        };
+        await gemini.getAccessToken();
+        accountEnv = Object.fromEntries(
+          ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
+            process.env[key] ? [[key, process.env[key]!]] : [],
+          ),
+        );
       } else if (accountBinding.provider === 'openai') {
         if (options.images?.length)
           throw new Error('OpenAI API image attachments are not yet supported');
@@ -873,13 +911,28 @@ async function _startChatInner(
     return;
   }
   const abortController = new AbortController();
-  const mode = options.mode || 'agent';
+  const resumedSession = options.resume
+    ? registry.findBySessionId(options.resume)?.session
+    : undefined;
+  // Read durable policy after account verification. A stopped runtime's captured
+  // ceiling is valid only until another mode change has been acknowledged.
+  const capturedPermission = options.resumePermission;
+  const mode = options.resume
+    ? ((resumedSession && effectivePermissionMode(resumedSession)) ??
+      (capturedPermission &&
+      capturedPermission.revision === permissionRevision(eventStore, options.resume)
+        ? capturedPermission.mode
+        : eventStore.getSession(options.resume)?.mode) ??
+      'agent')
+    : (options.mode ?? 'agent');
 
   const baseCwd = resolveResumeCwd(options);
 
   if (options.resume) {
     const validation =
-      codexProfile || apiKey ? { valid: true } : validateResumable(baseCwd, options.resume);
+      codexProfile || apiKey || gemini
+        ? { valid: true }
+        : validateResumable(baseCwd, options.resume);
     if (!validation.valid) {
       log.warn('session not resumable, starting fresh', {
         sessionId: options.resume,
@@ -935,7 +988,6 @@ async function _startChatInner(
   const currentConfig = getRepoConfig();
   applyTierOverrides(currentConfig.toolTierOverrides);
 
-  const modeAllowed = getAllowedToolsForMode(mode);
   const mcpAllowed = buildMcpAllowedTools(clientId);
   const extraTools = options.extraTools ? options.extraTools.split(',').map((t) => t.trim()) : [];
 
@@ -1067,7 +1119,7 @@ async function _startChatInner(
   // Build the system prompt append string (used by both query and comparison)
   const systemPromptAppend =
     'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
-    '- Never take mutating actions (writes, comments, transitions, commits) without explicit user approval. Present analysis first, wait for confirmation.\n' +
+    SESSION_PERMISSION_INSTRUCTIONS +
     '- Read operations are fine without asking.\n' +
     '- Keep responses concise — small screen.\n' +
     '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.' +
@@ -1105,7 +1157,7 @@ async function _startChatInner(
 
   // Resolve SDK session UUID for resume — worktree IDs are not valid SDK session IDs
   let resolvedResume: string | undefined;
-  if (options.resume && !codexProfile && !apiKey) {
+  if (options.resume && !codexProfile && !apiKey && !gemini) {
     if (!BASE_REPO) {
       log.warn('REPO_PATH unset — resume will use raw worktree ID, SDK may reject it');
     }
@@ -1125,7 +1177,7 @@ async function _startChatInner(
         accountBinding,
         bootContext: JSON.stringify(bootContextMsg),
         cwd,
-        mode,
+        mode: session.mode,
         agentName,
       });
     }
@@ -1161,8 +1213,9 @@ async function _startChatInner(
         systemPrompt: systemPromptAppend,
         env: sessionEnv,
         mcpServers: allMcpServers,
+        onDemandCreate: buildOnDemandCreate(wtId),
       });
-    } else if (apiKey) {
+    } else if (apiKey || gemini) {
       const conversationId = options.resume ?? newSdkSessionId!;
       session.sessionId = conversationId;
       options.onSessionResolved?.(conversationId);
@@ -1182,12 +1235,14 @@ async function _startChatInner(
         conversationId,
         binding: accountBinding!,
         apiKey,
+        gemini,
         session,
         registry,
         input: inputQueue,
         systemPrompt: systemPromptAppend,
         env: sessionEnv,
         mcpServers: allMcpServers,
+        onDemandCreate: buildOnDemandCreate(wtId),
       });
     } else
       q = adaptSdkQuery(
@@ -1204,14 +1259,19 @@ async function _startChatInner(
               preset: 'claude_code',
               append: systemPromptAppend,
             },
-            permissionMode: MODE_TO_SDK[mode] as 'plan' | 'default' | 'bypassPermissions',
-            allowedTools: [...modeAllowed, ...mcpAllowed, ...extraTools],
+            permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
+            allowedTools: [...mcpAllowed, ...extraTools],
             thinking: resolveThinking(options.model),
             ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
             ...(resolvedResume ? { resume: resolvedResume } : {}),
             ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
             ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
-            ...(hooks ? { hooks } : {}),
+            hooks: buildSessionPermissionHooks(
+              buildPermissionHandler(clientId, registry, {
+                onDemandCreate: buildOnDemandCreate(wtId),
+              }),
+              hooks,
+            ),
             canUseTool: buildPermissionHandler(clientId, registry, {
               onDemandCreate: buildOnDemandCreate(wtId),
             }),
@@ -1230,7 +1290,7 @@ async function _startChatInner(
     // For resumed sessions the prompt is sent to the SDK but was never stored
     // in the event store — making user messages invisible after WS reconnect.
     // Store and echo it here so the frontend can replay it.
-    if (options.resume && !codexProfile && !apiKey) {
+    if (options.resume && !codexProfile && !apiKey && !gemini) {
       const messageId =
         options.clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-resume`;
       storeAndEchoIfNew(
@@ -1251,7 +1311,7 @@ async function _startChatInner(
       registry,
       abortController,
       eventStore,
-      options.resume || codexProfile || apiKey ? undefined : fullPrompt,
+      options.resume || codexProfile || apiKey || gemini ? undefined : fullPrompt,
       {
         connRegistry: _connRegistry ?? undefined,
         initialClientMsgId: options.clientMsgId,
@@ -2058,7 +2118,7 @@ export async function renameSessionById(
   manual = true,
 ): Promise<void> {
   const provider = eventStore.getSession(sessionId)?.accountBinding?.provider;
-  if (provider === 'openai' || provider === 'openai-codex') {
+  if (provider === 'openai' || provider === 'openai-codex' || provider === 'google-vertex') {
     if (manual) eventStore.markManuallyRenamed(sessionId);
     eventStore.upsertSession({ sessionId, summary: title });
     return;

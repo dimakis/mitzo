@@ -1,5 +1,67 @@
 import { describe, it, expect } from 'vitest';
-import { detectFilePaths, isFilePath, linkifyFilePaths, FILE_SCHEME } from '../file-paths';
+import {
+  decodeFilePathUrl,
+  detectFilePaths,
+  isFilePath,
+  linkifyFilePaths,
+  remarkNeutralizeMalformedFileLinks,
+  FILE_SCHEME,
+} from '../file-paths';
+
+describe('decodeFilePathUrl', () => {
+  it('decodes a valid internal file URL', () => {
+    expect(decodeFilePathUrl(`${FILE_SCHEME}%2Ftmp%2Fnotes.md`)).toBe('/tmp/notes.md');
+  });
+
+  it('rejects malformed encoded UTF-8', () => {
+    expect(decodeFilePathUrl(`${FILE_SCHEME}%E0%A4%25A`)).toBeNull();
+  });
+
+  it('preserves a valid encoded literal percent in a file path', () => {
+    expect(decodeFilePathUrl(`${FILE_SCHEME}%2Ftmp%2F100%25-done.md`)).toBe('/tmp/100%-done.md');
+  });
+
+  it('does not decode unrelated URL schemes', () => {
+    expect(decodeFilePathUrl('https://example.com/file.md')).toBeNull();
+  });
+});
+
+describe('remarkNeutralizeMalformedFileLinks', () => {
+  it('replaces malformed direct and referenced links with their readable children', () => {
+    const malformed = {
+      type: 'link',
+      url: `${FILE_SCHEME}%2`,
+      children: [{ type: 'text', value: 'invalid' }],
+    };
+    const valid = {
+      type: 'link',
+      url: `${FILE_SCHEME}%2Ftmp%2F100%25-done.md`,
+      children: [{ type: 'text', value: 'report' }],
+    };
+    const definition = {
+      type: 'definition',
+      identifier: 'bad-reference',
+      url: `${FILE_SCHEME}%2`,
+    };
+    const reference = {
+      type: 'linkReference',
+      identifier: 'bad-reference',
+      children: [{ type: 'text', value: 'referenced' }],
+    };
+    const code = { type: 'code', value: '[invalid](file-path://%2)' };
+    const tree = { type: 'root', children: [malformed, valid, reference, definition, code] };
+
+    remarkNeutralizeMalformedFileLinks()(tree);
+
+    expect(tree.children).toEqual([
+      malformed.children[0],
+      valid,
+      reference.children[0],
+      definition,
+      code,
+    ]);
+  });
+});
 
 describe('isFilePath', () => {
   it('recognises absolute Unix paths', () => {

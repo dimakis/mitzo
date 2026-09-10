@@ -9,24 +9,35 @@ interface WatchAuthBridgePlugin {
 }
 
 let watchAuthBridge: WatchAuthBridgePlugin | undefined;
+let watchMutation = Promise.resolve();
 function bridge(): WatchAuthBridgePlugin {
   return (watchAuthBridge ??= registerPlugin<WatchAuthBridgePlugin>('WatchAuthBridge'));
 }
 
+function enqueueWatchMutation(operation: () => Promise<void>): Promise<void> {
+  const next = watchMutation.then(operation, operation);
+  watchMutation = next.catch(() => undefined);
+  return next;
+}
+
 export async function saveTokenToWatch(token: string): Promise<void> {
   if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'ios') return;
-  try {
-    await bridge().saveToken({ token });
-  } catch {
-    // Plugin not available or save failed — non-fatal
-  }
+  await enqueueWatchMutation(async () => {
+    try {
+      await bridge().saveToken({ token });
+    } catch {
+      // Plugin not available or save failed — non-fatal
+    }
+  });
 }
 
 export async function clearWatchToken(): Promise<void> {
   if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'ios') return;
-  try {
-    await bridge().clearToken();
-  } catch {
-    // Plugin not available — non-fatal
-  }
+  await enqueueWatchMutation(async () => {
+    try {
+      await bridge().clearToken();
+    } catch {
+      // Plugin not available — non-fatal
+    }
+  });
 }

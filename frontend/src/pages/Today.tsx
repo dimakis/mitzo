@@ -1,11 +1,24 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useSessionList } from '../hooks/useSessionList';
 import { useAttentionFeed } from '../hooks/useAttentionFeed';
 import { formatRelativeTime } from '../lib/formatTime';
 import { formatTokens } from '../lib/formatTokens';
+import { apiFetch } from '../lib/api-fetch';
 
 const TOKEN_PREFERENCE = 'mitzo-today-tokens';
+const BRIEFING_REFRESH_MS = 60_000;
+interface Briefing {
+  path: string;
+  generatedAt: string;
+}
+
+function localDate(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
 export function Today() {
   const navigate = useNavigate();
   const { sessions, loading } = useSessionList();
@@ -15,10 +28,40 @@ export function Today() {
   const [showTokens, setShowTokens] = useState(
     () => localStorage.getItem(TOKEN_PREFERENCE) === 'true',
   );
+  const [briefingState, setBriefing] = useState<{ date: string; result: Briefing | null }>(() => ({
+    date: localDate(new Date()),
+    result: null,
+  }));
+  const briefingRequest = useRef(0);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
+  const today = localDate(now);
+  const briefingResult = briefingState.date === today ? briefingState.result : null;
+  useEffect(() => {
+    let cancelled = false;
+    setBriefing({ date: today, result: null });
+    const refreshBriefing = () => {
+      const request = ++briefingRequest.current;
+      apiFetch(`/api/briefings/latest?date=${today}`)
+        .then((response) => (response.ok ? response.json() : null))
+        .then((result: Briefing | null) => {
+          if (!cancelled && request === briefingRequest.current)
+            setBriefing({ date: today, result });
+        })
+        .catch(() => {
+          if (!cancelled && request === briefingRequest.current)
+            setBriefing({ date: today, result: null });
+        });
+    };
+    refreshBriefing();
+    const timer = window.setInterval(refreshBriefing, BRIEFING_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [today]);
   const hour = now.getHours();
   const period =
     hour >= 5 && hour < 12 ? 'morning' : hour >= 12 && hour < 18 ? 'afternoon' : 'evening';
@@ -57,11 +100,31 @@ export function Today() {
             <p className="workspace-eyebrow">Your {period}</p>
             <h2 id="brief-title">Get your bearings</h2>
             <p>Review changes across calendar, email and Jira.</p>
-            <p className="workspace-muted">Sources haven’t been checked here yet.</p>
+            <p className="workspace-muted">
+              {briefingResult
+                ? `Briefing prepared at ${new Date(briefingResult.generatedAt).toLocaleTimeString(
+                    [],
+                    {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    },
+                  )}.`
+                : 'Sources haven’t been checked here yet.'}
+            </p>
             <div className="workspace-actions">
-              <Link className="workspace-primary" to={`/chat?${briefing}`}>
-                Prepare my briefing
-              </Link>
+              {briefingResult ? (
+                <Link
+                  className="workspace-primary"
+                  to={`/files?${new URLSearchParams({ path: briefingResult.path, from: '/' })}`}
+                >
+                  Open briefing
+                </Link>
+              ) : (
+                <Link className="workspace-primary" to={`/chat?${briefing}`}>
+                  Prepare my briefing
+                </Link>
+              )}
+              {briefingResult && <Link to={`/chat?${briefing}`}>Prepare another</Link>}
               <Link to="/calendar">Open calendar</Link>
             </div>
           </section>

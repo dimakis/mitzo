@@ -9,12 +9,19 @@
 
 import { createMitzoStore } from '@mitzo/client';
 import type { SseConnectionConfig } from '@mitzo/client';
-import { apiFetch, getApiBaseUrl, getEventSourceUrl, getWsChatUrl } from './lib/api-fetch';
+import {
+  apiFetch,
+  getApiBaseUrl,
+  getEventSourceUrl,
+  getWsChatUrl,
+  AUTH_LOST_EVENT,
+  AUTH_RESTORED_EVENT,
+} from './lib/api-fetch';
 import { isCapacitor, registerCapacitorLifecycle } from './lib/capacitor';
 import { parseChatTransportPreference, shouldUseSseTransport } from './lib/chat-transport';
 import { configureKeyboard } from './lib/keyboard';
 import { initPushNotifications } from './lib/push';
-import { eventBus } from './lib/event-bus-singleton';
+import { ensureEventBusConnected } from './lib/event-bus-singleton';
 import { getPreferredModel } from './lib/model-preference';
 
 /**
@@ -47,12 +54,21 @@ export const clientStore = createMitzoStore({
   },
   wsConfig: {
     buildUrl: () => getWsChatUrl(),
+    checkAuth: () => apiFetch('/api/auth/check'),
     createWebSocket: (url) => new WebSocket(url) as import('@mitzo/client').WebSocketLike,
     reconnectDelayMs: 500,
     suspendUrl: `${getApiBaseUrl()}/api/sessions/suspend`,
   },
   ...(sseConfig ? { sseConfig } : {}),
+  initiallyAuthenticated: false,
 });
+
+if (typeof window !== 'undefined') {
+  window.addEventListener(AUTH_LOST_EVENT, () => clientStore.getState().invalidateAuthentication());
+  window.addEventListener(AUTH_RESTORED_EVENT, () =>
+    clientStore.getState().restoreAuthentication(),
+  );
+}
 
 // Sync localStorage model preference into the store so sendMessage() includes it
 if (typeof window !== 'undefined') {
@@ -63,7 +79,7 @@ if (typeof window !== 'undefined') {
 registerCapacitorLifecycle(
   () => {
     clientStore.getState().forceReconnect();
-    eventBus.ensureConnected();
+    ensureEventBusConnected();
   },
   () => clientStore.getState().sendSuspend(),
 );

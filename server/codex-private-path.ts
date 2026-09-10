@@ -16,13 +16,40 @@ function canonical(path: string): string {
     return parent === full ? full : join(canonical(parent), basename(full));
   }
 }
-export function isPrivateCodexPath(path: string, extraRoots: string[] = []) {
-  const target = canonical(path);
+// Process-lifetime registry shared by profile consumers and all path guards.
+// Removing a configured account must not make its credential storage public.
+const observedProfileRoots = new Set<string>();
+export function protectCodexProfileRoots(roots: string[]) {
+  const resolved = roots.map(canonical);
+  resolved.forEach((root) => observedProfileRoots.add(root));
+}
+
+export function privateCodexRoots(extraRoots: string[] = []): string[] {
   return [
     codexPrivateDirectory(),
     process.env.CODEX_HOME || join(homedir(), '.codex'),
+    ...observedProfileRoots,
     ...extraRoots,
-  ].some((root) => {
+    ...[
+      '.mitzo',
+      '.claude',
+      '.claude.json',
+      '.aws',
+      '.ssh',
+      '.config/gcloud',
+      '.config/gws',
+      '.config/gh',
+      '.cursor/mcp.json',
+      'Library/Keychains',
+    ].map((p) => join(homedir(), p)),
+    join(process.cwd(), '.env'),
+    ...(process.env.MITZO_ACCOUNT_PROFILES_FILE ? [process.env.MITZO_ACCOUNT_PROFILES_FILE] : []),
+  ].map(canonical);
+}
+
+export function isPrivateCodexPath(path: string, extraRoots: string[] = []) {
+  const target = canonical(path);
+  return privateCodexRoots(extraRoots).some((root) => {
     const rel = relative(canonical(root), target);
     return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith('../'));
   });

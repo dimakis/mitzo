@@ -123,3 +123,14 @@ describe('TokenBar', () => {
     expect(screen.getByText(/142,580/)).toBeTruthy();
   });
 });
+
+it('labels context occupancy separately from session spend before expanding', () => {
+  render(
+    <TokenBar tokenState={makeState({ agentContext: 12000, sessionTotal: 24000, turnIndex: 1 })} />,
+  );
+  expect(screen.getByText('Context')).toBeTruthy();
+  expect(screen.getByText('Session')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Token usage' }).getAttribute('aria-expanded')).toBe(
+    'false',
+  );
+});
