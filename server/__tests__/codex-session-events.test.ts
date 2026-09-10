@@ -251,6 +251,24 @@ it('drops late item events after a result and accepts them after the next turn s
     summaryIndex: 0,
     delta: 'too late',
   });
+  m.notification('item/started', {
+    threadId: 'provider',
+    item: {
+      type: 'commandExecution',
+      id: 'late-command',
+      command: 'must-not-render',
+    },
+  });
+  m.notification('item/completed', {
+    threadId: 'provider',
+    item: {
+      type: 'commandExecution',
+      id: 'late-command',
+      status: 'completed',
+      aggregatedOutput: 'must-not-render',
+      exitCode: 0,
+    },
+  });
   expect(events).toHaveLength(afterResult);
   m.notification('turn/started', { threadId: 'provider', turn: { id: 'second' } });
   m.notification('item/reasoning/summaryTextDelta', {
@@ -261,5 +279,6 @@ it('drops late item events after a result and accepts them after the next turn s
   });
   expect(events.length).toBeGreaterThan(afterResult);
   expect(JSON.stringify(events)).not.toContain('too late');
+  expect(JSON.stringify(events)).not.toContain('must-not-render');
   expect(JSON.stringify(events)).toContain('current summary');
 });

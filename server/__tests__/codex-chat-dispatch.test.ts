@@ -7,6 +7,8 @@ import { AccountProfiles } from '../account-profiles.js';
 import { openResponsesChat } from '../responses-chat-session.js';
 import { credentials } from '../credentials.js';
 import { openCodexChat } from '../codex-chat-session.js';
+import { registerSession } from '../session-index.js';
+import { createWorktree } from '../worktree.js';
 vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
   ...(await original<object>()),
   query: vi.fn(),
@@ -14,6 +16,10 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
 vi.mock('../session-index.js', async (original) => ({
   ...(await original<object>()),
   registerSession: vi.fn(),
+}));
+vi.mock('../worktree.js', async (original) => ({
+  ...(await original<object>()),
+  createWorktree: vi.fn(() => '/host/worktree/must-not-be-created'),
 }));
 vi.mock('../prompt-compare.js', () => ({
   capturePromptComparison: vi.fn().mockResolvedValue(undefined),
@@ -175,7 +181,6 @@ it('routes API accounts through OpenShell in production without resolving host c
   vi.clearAllMocks();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-openshell-api-dispatch-'));
   vi.stubEnv('REPO_PATH', root);
-  vi.stubEnv('WORKTREE_ENABLED', 'false');
   vi.stubEnv('NODE_ENV', 'production');
   vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
   const hostFetch = vi.fn().mockResolvedValue(new Response('{}'));
@@ -206,8 +211,6 @@ it('routes API accounts through OpenShell in production without resolving host c
   });
   try {
     await chat.startChat({ send: () => {}, isOpen: () => true }, 'openshell-api', 'hello', {
-      cwd: root,
-      isolation: false,
       accountId: 'work-api',
       model: 'test',
       accountProfiles: profiles,
@@ -219,13 +222,17 @@ it('routes API accounts through OpenShell in production without resolving host c
     expect(hostFetch).toHaveBeenCalledTimes(1);
     expect(openResponsesChat).not.toHaveBeenCalled();
     expect(openCodexChat).toHaveBeenCalledOnce();
+    expect(createWorktree).not.toHaveBeenCalled();
+    expect(registerSession).not.toHaveBeenCalled();
     const options = vi.mocked(openCodexChat).mock.calls[0][0];
     expect(options.profile.planType).toBe('api');
+    expect(options.session.cwd).toBe('/sandbox/workspaces/mgmt');
     expect(options.systemPrompt).toContain('/sandbox/workspaces/mgmt');
     expect(options.systemPrompt).not.toContain(root);
     expect(chat.eventStore.getSession('openshell-api-app')?.bootContext).toContain(
       '"source":"sandbox"',
     );
+    expect(chat.eventStore.getSession('openshell-api-app')?.cwd).toBe('/sandbox/workspaces/mgmt');
   } finally {
     chat.eventStore.close();
     await rm(root, { recursive: true, force: true });

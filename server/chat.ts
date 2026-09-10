@@ -960,6 +960,12 @@ async function _startChatInner(
     });
     return;
   }
+  const openShellSelected =
+    !!codexProfile &&
+    (process.env.MITZO_OPENSHELL_ENABLED === '1' || !!process.env.MITZO_OPENSHELL_SANDBOX_NAME);
+  const openShellWorkdir = openShellSelected
+    ? process.env.MITZO_OPENSHELL_WORKDIR || '/sandbox/workspaces/mgmt'
+    : undefined;
   const abortController = new AbortController();
   const resumedSession = options.resume
     ? registry.findBySessionId(options.resume)?.session
@@ -976,7 +982,7 @@ async function _startChatInner(
       'agent')
     : (options.mode ?? 'agent');
 
-  const baseCwd = resolveResumeCwd(options);
+  const baseCwd = openShellWorkdir ?? resolveResumeCwd(options);
 
   if (options.resume) {
     const validation =
@@ -998,18 +1004,19 @@ async function _startChatInner(
 
   // Generate session-scoped worktree ID and create worktrees in all repos
   const wtId = generateWtId();
-  const { cwd, worktreePath, repoWorktrees } = createSessionWorktrees(
-    transport,
-    baseCwd,
-    wtId,
-    options,
-  );
+  const { cwd, worktreePath, repoWorktrees } = openShellSelected
+    ? {
+        cwd: openShellWorkdir!,
+        worktreePath: undefined,
+        repoWorktrees: new Map<string, { path: string; wtId: string }>(),
+      }
+    : createSessionWorktrees(transport, baseCwd, wtId, options);
 
   // On resume, rebuild worktreePaths from disk so the system prompt and guard
   // have the full map even after server restart (Phase 2d).
   // Merge discovered entries — the map may already have the primary but be
   // missing lazily-created secondaries after a restart.
-  if (options.resume && BASE_REPO) {
+  if (!openShellSelected && options.resume && BASE_REPO) {
     const config = getRepoConfig();
     const wtIdFromCwd = baseCwd.match(/\/(\.claude|\.cursor)\/worktrees\/([^/]+)/)?.[2];
     if (wtIdFromCwd) {
@@ -1043,9 +1050,6 @@ async function _startChatInner(
 
   // Resolve agent name early — needed for registration, resume upsert, and boot context.
   const agentName = options.agentName ?? DEFAULT_AGENT_NAME;
-  const openShellSelected =
-    !!codexProfile &&
-    (process.env.MITZO_OPENSHELL_ENABLED === '1' || !!process.env.MITZO_OPENSHELL_SANDBOX_NAME);
 
   // Streaming-input queue — kept open for the session lifetime.
   const inputQueue = new AsyncQueue<SDKUserMessage>();
@@ -1115,13 +1119,16 @@ async function _startChatInner(
     });
   }
 
-  // Register session in the workspace index (fire-and-forget, best-effort)
-  try {
-    registerSession(BASE_REPO, wtId, repoWorktrees, branch);
-  } catch (err: unknown) {
-    log.warn('session index write failed', {
-      error: err instanceof Error ? err.message : 'unknown',
-    });
+  // OpenShell owns its workspace lifecycle; only host sessions belong in the
+  // host worktree index.
+  if (!openShellSelected) {
+    try {
+      registerSession(BASE_REPO, wtId, repoWorktrees, branch);
+    } catch (err: unknown) {
+      log.warn('session index write failed', {
+        error: err instanceof Error ? err.message : 'unknown',
+      });
+    }
   }
 
   // Build session env with worktree paths for the agent (all repos including primary)
@@ -1176,9 +1183,6 @@ async function _startChatInner(
   }
 
   // Build the system prompt append string (used by both query and comparison)
-  const openShellWorkdir = openShellSelected
-    ? process.env.MITZO_OPENSHELL_WORKDIR || '/sandbox/workspaces/mgmt'
-    : undefined;
   const workspacePrompt = openShellWorkdir
     ? buildOpenShellWorkspaceSystemPrompt(openShellWorkdir, wtId)
     : buildWorktreeSystemPrompt(repoWorktrees);

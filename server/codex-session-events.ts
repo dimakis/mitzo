@@ -83,6 +83,9 @@ export class CodexSessionEvents {
       this.turnFinished = false;
       return;
     }
+    // Provider events may be delivered late. Never create renderer blocks after
+    // the terminal result for a turn; the next turn/started reopens the mapper.
+    if (this.turnFinished && method.startsWith('item/')) return;
     const commandItem = object(params.item);
     if (
       method === 'item/started' &&
@@ -116,9 +119,6 @@ export class CodexSessionEvents {
       );
       return;
     }
-    // Provider events may be delivered late. Never create renderer blocks after
-    // the terminal result for a turn; the next turn/started reopens the mapper.
-    if (this.turnFinished && method.startsWith('item/')) return;
     if (
       method === 'item/started' &&
       commandItem.type === 'mcpToolCall' &&
