@@ -1,4 +1,6 @@
 import './network';
+import '../lib/event-bus-singleton';
+import { AUTH_RESTORED_EVENT } from '../lib/api-fetch';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter, Routes, Route, Navigate } from 'react-router-dom';
 import type { WebSocketLike } from '@mitzo/client';
@@ -63,6 +65,9 @@ store.setState({
 function PreviewSessions() {
   return useIsDesktop() ? <DesktopShell center={<SessionList />} /> : <SessionList />;
 }
+
+// Unblock the fixture event stream without changing real login state or storage.
+window.dispatchEvent(new Event(AUTH_RESTORED_EVENT));
 
 createRoot(document.getElementById('root')!).render(
   <MitzoStoreProvider value={store}>
