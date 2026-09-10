@@ -23,12 +23,36 @@ const approval = {
     .optional()
     .describe('Set true to request an explicit Mitzo approval card before this exact action.'),
 };
+const externalHostname = z
+  .string()
+  .min(1)
+  .max(253)
+  .regex(/^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/)
+  .refine(
+    (value) =>
+      !['localhost', 'local', 'internal', 'home.arpa', 'test', 'invalid'].some(
+        (suffix) => value.toLowerCase() === suffix || value.toLowerCase().endsWith(`.${suffix}`),
+      ),
+    'Local and reserved hostnames are unavailable',
+  );
 const privatePathSnapshot = createCodexPathProtection(() =>
   loadAccountProfiles().privateCodexRoots(),
 );
 const schemas = {
   AskUserQuestion: z.object({ questions: UserQuestionsSchema }).strict(),
-  Bash: z.object({ command: z.string().min(1).max(32000), ...approval }).strict(),
+  Bash: z
+    .object({
+      command: z.string().min(1).max(32000),
+      allowed_domains: z
+        .array(
+          externalHostname,
+        )
+        .max(16)
+        .optional()
+            .describe('Exact external hostnames this command may contact. No credentials are added.'),
+      ...approval,
+    })
+    .strict(),
   Read: z.object({ file_path: z.string().min(1) }).strict(),
   Write: z.object({ file_path: z.string().min(1), content: z.string(), ...approval }).strict(),
   Edit: z
@@ -43,7 +67,7 @@ const schemas = {
 const descriptions = {
   AskUserQuestion:
     'Ask structured questions in Mitzo and wait for the user’s answers. Questions do not authorize tool execution.',
-  Bash: 'Run a command in the session workspace using an OS sandbox. Use for tests, Git and directory creation. Writes outside session roots and network access are blocked; unavailable sandboxes fail explicitly.',
+  Bash: 'Run a command in the session workspace using an OS sandbox. Use for tests, Git and directory creation. Network is denied unless exact public hostnames are requested in allowed_domains; credentials are never added. Writes outside session roots and unavailable sandboxes fail explicitly.',
   Read: 'Read a UTF-8 file. Paths are relative to the session cwd unless absolute.',
   Write: 'Write a UTF-8 file in an existing directory.',
   Edit: 'Replace exactly one occurrence of old_string in a UTF-8 file.',
@@ -124,12 +148,22 @@ export function createNativeToolExecutor(
           : result(permission.message, true);
       }
       if (block.name === 'Bash' && 'command' in parsed.data) {
-        const input = { command: parsed.data.command };
+        const input = {
+          command: parsed.data.command,
+          ...(parsed.data.allowed_domains?.length
+            ? { allowed_domains: [...new Set(parsed.data.allowed_domains)] }
+            : {}),
+        };
         const approvalMode = effectivePermissionMode(session);
         const permission = await canUseTool('Bash', input, {
           signal,
           toolUseID: block.id,
-          forcePrompt: options.forcePrompt || parsed.data.require_approval === true,
+          // A previous persistent Bash approval must never authorize a new
+          // network destination. Every egress grant gets its own visible card.
+          forcePrompt:
+            options.forcePrompt ||
+            parsed.data.require_approval === true ||
+            !!parsed.data.allowed_domains?.length,
         });
         signal.throwIfAborted();
         if (permission.behavior !== 'allow') return result(permission.message, true);
@@ -151,6 +185,7 @@ export function createNativeToolExecutor(
           writableRoots,
           deniedRoots: await Promise.all(deniedRoots.map(canonicalPath)),
           env: options.env,
+          allowedDomains: input.allowed_domains,
           signal,
           timeoutMs: options.timeoutMs,
           maxOutputBytes: options.maxOutputBytes,

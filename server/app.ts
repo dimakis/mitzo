@@ -1,5 +1,5 @@
 import { AccountAliases } from './account-aliases.js';
-import { readCodexQueue, getCodexRuntime } from './codex-chat-session.js';
+import { readCodexQueue, waitForCodexRuntime } from './codex-chat-session.js';
 import { createCodexPathProtection } from './codex-private-path.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import express from 'express';
@@ -1409,7 +1409,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
 
 app.post('/api/sessions/:id/codex-queue/continue', async (req, res) => {
   const session = registry.findBySessionId(req.params.id)?.session;
-  const runtime = session ? getCodexRuntime(session) : undefined;
+  const runtime = session ? await waitForCodexRuntime(session) : undefined;
   if (!runtime) {
     res
       .status(409)

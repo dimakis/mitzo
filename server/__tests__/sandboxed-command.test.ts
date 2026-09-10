@@ -98,6 +98,32 @@ describe.runIf(process.env.MITZO_SANDBOX_INTEGRATION === '1')('OS sandbox', () =
       );
     }
   }, 20000);
+  it('keeps loopback denied even if it is mistakenly included in an allowlist', async () => {
+    const server = createServer((_req, res) => res.end('admin-leaked'));
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('Missing port');
+      const denied = await run(`/usr/bin/curl --max-time 2 http://localhost:${address.port}`, {
+        allowedDomains: ['localhost'],
+      });
+      expect(denied.isError).toBe(true);
+      expect(denied.content).not.toContain('admin-leaked');
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
+  }, 20000);
+  it('allows only an explicitly granted public hostname without adding credentials', async () => {
+    const allowed = await run(
+      '/usr/bin/curl --fail --silent --show-error --max-time 10 https://api.github.com/rate_limit',
+      { allowedDomains: ['api.github.com'] },
+    );
+    expect(allowed.isError).toBe(false);
+    expect(allowed.content).toContain('rate');
+    expect(allowed.content).not.toContain('synthetic-secret');
+  }, 20000);
   it('bounds output and terminates long-running command trees', async () => {
     expect((await run('yes noisy', { maxOutputBytes: 100 })).isError).toBe(true);
     const abort = new AbortController();

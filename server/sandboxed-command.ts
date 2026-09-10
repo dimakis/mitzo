@@ -159,7 +159,16 @@ export async function executeSandboxedCommand(
         },
         network: {
           allowedDomains: options.allowedDomains ?? [],
-          deniedDomains: [],
+          // Deny explicit local/metadata destinations even if a caller later
+          // weakens hostname validation. Redirect targets remain subject to
+          // this deny-first list and the exact allowlist in SRT's proxy.
+          deniedDomains: [
+            'localhost',
+            '127.0.0.1',
+            '[::1]',
+            '169.254.169.254',
+            'metadata.google.internal',
+          ],
           allowLocalBinding: false,
           allowAllUnixSockets: false,
         },

@@ -30,7 +30,7 @@ vi.mock('../codex-private-path.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../codex-private-path.js')>()),
   codexPrivateDirectory: () => '/tmp',
 }));
-import { openCodexChat } from '../codex-chat-session.js';
+import { openCodexChat, waitForCodexRuntime } from '../codex-chat-session.js';
 function options(abortController: AbortController) {
   return { session: { cwd: '/tmp', abortController }, mcpServers: {} } as Parameters<
     typeof openCodexChat
@@ -56,6 +56,24 @@ it('closes an initialization aborted before the first turn starts', async () => 
   expect(mocks.close).toHaveBeenCalled();
   expect(mocks.mcpClose).toHaveBeenCalled();
   expect(mocks.send).not.toHaveBeenCalled();
+});
+
+it('waits for cold-reconnect runtime registration', async () => {
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  let release!: () => void;
+  mocks.initialize.mockImplementationOnce(
+    () => new Promise<void>((resolve) => (release = resolve)),
+  );
+  const abort = new AbortController();
+  const opts = options(abort);
+  const opening = openCodexChat(opts);
+  const waiting = waitForCodexRuntime(opts.session, 1000);
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  release();
+  await opening;
+  expect(await waiting).toBeDefined();
+  abort.abort();
 });
 
 it('cleans each resource once across explicit close, runtime close and abort', async () => {
