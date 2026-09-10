@@ -128,6 +128,20 @@ describe('loadFromFile', () => {
 
     expect(loadFromFile(path).docs.execution).toBe('sandbox');
   });
+
+  it('preserves sandbox environment fields so the runtime can reject them', () => {
+    const path = writeConfig('mcp.json', {
+      mcpServers: {
+        docs: {
+          command: '/usr/bin/docs-mcp',
+          execution: 'sandbox',
+          env: { TOKEN: 'synthetic-secret' },
+        },
+      },
+    });
+
+    expect(loadFromFile(path).docs.env).toEqual({ TOKEN: 'synthetic-secret' });
+  });
 });
 
 describe('getMcpConfigPaths', () => {

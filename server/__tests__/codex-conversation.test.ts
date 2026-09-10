@@ -21,6 +21,7 @@ async function setup(
     model: string;
     profileRevision: string;
   }>,
+  beforeReconnect?: () => Promise<void>,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -78,6 +79,7 @@ async function setup(
     displayToolName,
     beforeComplete,
     completionHookTimeoutMs,
+    beforeReconnect,
     verifyBinding,
     tools: [{ name: 'Read', description: 'Read', input_schema: { type: 'object' } }],
     createClient: (cb) => {
@@ -229,6 +231,21 @@ it('keeps the public conversation open on process loss and resumes through a fre
   await c.acknowledgeRecovery();
   expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(1);
   expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
+});
+
+it('re-establishes the external sandbox before recreating a recovery transport', async () => {
+  const beforeReconnect = vi.fn(async () => {});
+  const { c, callbacks } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    beforeReconnect,
+  );
+  callbacks.onClose(new Error('sandbox stopped'));
+  await c.acknowledgeRecovery();
+  expect(beforeReconnect).toHaveBeenCalledOnce();
 });
 
 it('pins an allowed model to each queued command while retaining the subscription binding', async () => {

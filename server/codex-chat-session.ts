@@ -218,6 +218,13 @@ export async function openCodexChat(options: Options) {
     beforeComplete: async (signal) => {
       await hooks?.run('Stop', { stop_hook_active: false }, signal);
     },
+    ...(runtimeManager
+      ? {
+          beforeReconnect: async () => {
+            await runtimeManager.ensure(options.conversationId, signal);
+          },
+        }
+      : {}),
     validateModel: (model, reasoningEffort) => {
       const entry = loadAccountProfiles()
         .catalog()

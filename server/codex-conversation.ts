@@ -37,6 +37,7 @@ interface Options {
   validateModel?: (model: string, reasoningEffort?: string) => void;
   displayToolName?: (name: string) => string;
   beforeComplete?: (signal: AbortSignal) => Promise<void>;
+  beforeReconnect?: () => Promise<void>;
   completionHookTimeoutMs?: number;
   runtimeCwd?: string;
   modelProvider?: string;
@@ -224,6 +225,7 @@ export class CodexConversation {
   }
   private async reconnect() {
     if (!this.binding || !this.threadId) throw new Error('Codex recovery state is unavailable');
+    await this.opts.beforeReconnect?.();
     const client = this.createClient();
     this.client = client;
     try {
