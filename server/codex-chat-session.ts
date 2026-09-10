@@ -35,6 +35,40 @@ function store() {
 export function getCodexRuntime(session: ManagedSession) {
   return runtimes.get(session);
 }
+/** Cold reconnect creates the session before its app-server runtime is ready.
+ * Bound queue continuation waits briefly for that registration instead of
+ * exposing a timing-dependent 409 to the client. */
+export async function waitForCodexRuntime(
+  session: ManagedSession,
+  timeoutMs = 5000,
+  signal?: AbortSignal,
+) {
+  const deadline = Date.now() + timeoutMs;
+  let runtime = getCodexRuntime(session);
+  while (!runtime && Date.now() < deadline && !signal?.aborted) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    if (signal?.aborted) break;
+    runtime = getCodexRuntime(session);
+  }
+  return runtime;
+}
+export async function waitForCodexRuntimeBySessionId(
+  registry: SessionRegistry,
+  sessionId: string,
+  timeoutMs = 5000,
+  signal?: AbortSignal,
+) {
+  const deadline = Date.now() + timeoutMs;
+  let session = registry.findBySessionId(sessionId)?.session;
+  let runtime = session ? getCodexRuntime(session) : undefined;
+  while (!runtime && Date.now() < deadline && !signal?.aborted) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    if (signal?.aborted) break;
+    session = registry.findBySessionId(sessionId)?.session;
+    runtime = session ? getCodexRuntime(session) : undefined;
+  }
+  return runtime;
+}
 export function readCodexQueue(
   conversationId: string,
   binding: AccountBinding,

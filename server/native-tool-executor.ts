@@ -1,6 +1,13 @@
 import { executeSandboxedCommand } from './sandboxed-command.js';
 import { executeNativeFileOperation } from './native-file-operation.js';
+import {
+  executeTrustedGitCommit,
+  executeTrustedGitHubRead,
+  isTrustedGitHubEndpoint,
+} from './trusted-native-operation.js';
 import { lstat, realpath } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
@@ -28,7 +35,28 @@ const privatePathSnapshot = createCodexPathProtection(() =>
 );
 const schemas = {
   AskUserQuestion: z.object({ questions: UserQuestionsSchema }).strict(),
-  Bash: z.object({ command: z.string().min(1).max(32000), ...approval }).strict(),
+  Bash: z
+    .object({
+      command: z.string().min(1).max(32000),
+      ...approval,
+    })
+    .strict(),
+  GitHubRead: z
+    .object({
+      endpoint: z
+        .string()
+        .min(1)
+        .max(1000)
+        .regex(/^\/(?:user|repos\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_./?=&%+-]*)?)$/)
+        .refine(isTrustedGitHubEndpoint, 'Invalid GitHub path'),
+    })
+    .strict(),
+  GitCommit: z
+    .object({
+      files: z.array(z.string().min(1).max(1000)).min(1).max(64),
+      message: z.string().min(1).max(500),
+    })
+    .strict(),
   Read: z.object({ file_path: z.string().min(1) }).strict(),
   Write: z.object({ file_path: z.string().min(1), content: z.string(), ...approval }).strict(),
   Edit: z
@@ -43,7 +71,11 @@ const schemas = {
 const descriptions = {
   AskUserQuestion:
     'Ask structured questions in Mitzo and wait for the user’s answers. Questions do not authorize tool execution.',
-  Bash: 'Run a command in the session workspace using an OS sandbox. Use for tests, Git and directory creation. Writes outside session roots and network access are blocked; unavailable sandboxes fail explicitly.',
+  Bash: 'Run a command in the session workspace using an OS sandbox. Use for tests, Git and directory creation. Network and credentials are unavailable; use a dedicated trusted integration for external services. Writes outside session roots and unavailable sandboxes fail explicitly.',
+  GitHubRead:
+    'Perform one approved authenticated GitHub API GET through Mitzo. Credentials remain in the trusted host process and are never exposed to the command sandbox.',
+  GitCommit:
+    'Stage exactly the approved workspace files and create one local Git commit through Mitzo. Refuses an already-staged index and credential-like files.',
   Read: 'Read a UTF-8 file. Paths are relative to the session cwd unless absolute.',
   Write: 'Write a UTF-8 file in an existing directory.',
   Edit: 'Replace exactly one occurrence of old_string in a UTF-8 file.',
@@ -107,7 +139,7 @@ export function createNativeToolExecutor(
       if (!session?.cwd) return result('Session workspace is unavailable', true);
       if (
         effectivePermissionMode(session) === 'ask' &&
-        !['Read', 'AskUserQuestion'].includes(block.name)
+        !['Read', 'AskUserQuestion', 'GitHubRead'].includes(block.name)
       )
         return result('Ask mode only permits read-only native tools', true);
       if (!Object.hasOwn(schemas, block.name)) return result('Native tool is unavailable', true);
@@ -122,6 +154,96 @@ export function createNativeToolExecutor(
         return permission.behavior === 'allow'
           ? result(JSON.stringify({ answers: permission.updatedInput?.answers }))
           : result(permission.message, true);
+      }
+      if (block.name === 'GitHubRead' && 'endpoint' in parsed.data) {
+        const input = { endpoint: parsed.data.endpoint };
+        const permission = await canUseTool(block.name, input, {
+          signal,
+          toolUseID: block.id,
+          forcePrompt: true,
+        });
+        signal.throwIfAborted();
+        if (permission.behavior !== 'allow') return result(permission.message, true);
+        if (!isDeepStrictEqual(permission.updatedInput, input))
+          return result('Tool input changed during approval; retry the tool', true);
+        if (
+          registry.get(clientId) !== session ||
+          checkSkillPolicy(registry, clientId, block.name) === 'deny'
+        )
+          return result('Session permissions changed; retry the tool', true);
+        return result(
+          await executeTrustedGitHubRead(
+            input.endpoint,
+            signal,
+            options.timeoutMs,
+            options.maxOutputBytes,
+          ),
+        );
+      }
+      if (block.name === 'GitCommit' && 'files' in parsed.data) {
+        const root = await realpath(session.cwd);
+        const files: string[] = [];
+        const approvedIdentities = new Map<
+          string,
+          { dev: number; ino: number; sha256: string } | null
+        >();
+        for (const requested of parsed.data.files) {
+          const canonical = await canonicalPath(resolve(root, requested));
+          if (canonical === root || !canonical.startsWith(root + '/'))
+            return result('Git commit path is outside the session workspace', true);
+          const info = await lstat(canonical).catch((error: NodeJS.ErrnoException) => {
+            if (error.code !== 'ENOENT') throw error;
+            return null;
+          });
+          if (info && !info.isFile())
+            return result('Git commit paths must be regular files or tracked deletions', true);
+          const file = relative(root, canonical);
+          files.push(file);
+          if (info) {
+            const content = await readFile(canonical);
+            const afterRead = await lstat(canonical);
+            if (
+              (await realpath(canonical)) !== canonical ||
+              afterRead.dev !== info.dev ||
+              afterRead.ino !== info.ino ||
+              afterRead.size !== info.size ||
+              afterRead.mtimeMs !== info.mtimeMs
+            )
+              return result('Git commit path changed while preparing approval; retry', true);
+            approvedIdentities.set(file, {
+              dev: info.dev,
+              ino: info.ino,
+              sha256: createHash('sha256').update(content).digest('hex'),
+            });
+          } else approvedIdentities.set(file, null);
+        }
+        const input = { files: [...new Set(files)], message: parsed.data.message };
+        const permission = await canUseTool(block.name, input, {
+          signal,
+          toolUseID: block.id,
+          forcePrompt: true,
+        });
+        signal.throwIfAborted();
+        if (permission.behavior !== 'allow') return result(permission.message, true);
+        if (!isDeepStrictEqual(permission.updatedInput, input))
+          return result('Tool input changed during approval; retry the tool', true);
+        if (
+          registry.get(clientId) !== session ||
+          effectivePermissionMode(session) === 'ask' ||
+          checkSkillPolicy(registry, clientId, block.name) === 'deny'
+        )
+          return result('Session permissions changed; retry the tool', true);
+        return result(
+          await executeTrustedGitCommit(
+            root,
+            input.files,
+            input.message,
+            signal,
+            options.timeoutMs,
+            options.maxOutputBytes,
+            new Map(input.files.map((file) => [file, approvedIdentities.get(file) ?? null])),
+          ),
+        );
       }
       if (block.name === 'Bash' && 'command' in parsed.data) {
         const input = { command: parsed.data.command };
@@ -170,6 +292,7 @@ export function createNativeToolExecutor(
       }
       const input = { ...parsed.data };
       if ('questions' in input || 'command' in input) return result('Invalid tool input', true);
+      if (!('file_path' in input)) return result('Invalid file tool input', true);
       const isPrivate = privatePathSnapshot();
       const forcePrompt =
         options.forcePrompt === true ||
@@ -187,20 +310,16 @@ export function createNativeToolExecutor(
         }
       }
       const approvedPath = await canonicalPath(resolve(session.cwd, input.file_path));
-      if ('file_path' in input) {
-        input.file_path = approvedPath;
-        if (isPrivate(input.file_path))
-          return result('Private provider storage is unavailable', true);
-        // Present the checked path under the registry's original root alias. This keeps
-        // the shared guard and lazy creation working without mutating registry entries.
-        const root = roots.find(
-          (entry) =>
-            input.file_path === entry.canonical ||
-            input.file_path.startsWith(entry.canonical + '/'),
-        );
-        if (root)
-          input.file_path = resolve(root.original, relative(root.canonical, input.file_path));
-      }
+      input.file_path = approvedPath;
+      if (isPrivate(input.file_path))
+        return result('Private provider storage is unavailable', true);
+      // Present the checked path under the registry's original root alias. This keeps
+      // the shared guard and lazy creation working without mutating registry entries.
+      const root = roots.find(
+        (entry) =>
+          input.file_path === entry.canonical || input.file_path.startsWith(entry.canonical + '/'),
+      );
+      if (root) input.file_path = resolve(root.original, relative(root.canonical, input.file_path));
       const approvedParent = await lstat(dirname(approvedPath), { bigint: true });
       const parentIdentity = { dev: String(approvedParent.dev), ino: String(approvedParent.ino) };
       const approvedFile = await lstat(approvedPath, { bigint: true }).catch(

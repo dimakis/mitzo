@@ -17,7 +17,6 @@ export interface SandboxedCommandOptions {
   signal: AbortSignal;
   timeoutMs?: number;
   maxOutputBytes?: number;
-  allowedDomains?: string[];
   beforeSpawn?: () => void;
 }
 
@@ -36,7 +35,12 @@ function gitMetadataRoots(
   const marker = join(root, '.git');
   authority.capture(marker, true);
   const entry = identity(marker);
-  if (!entry || entry.isDirectory()) return { writable: [], protected: [] };
+  if (!entry) return { writable: [], protected: [] };
+  if (entry.isDirectory()) {
+    if (realpathSync(marker) !== marker)
+      throw new Error('Git metadata must be a real directory inside the workspace');
+    return { writable: [], protected: [marker] };
+  }
   if (!entry.isFile()) throw new Error('Git worktree marker must be a regular file');
   const match = /^gitdir: ([^\r\n]+)\r?\n?$/.exec(readFileSync(marker, 'utf8'));
   if (!match) throw new Error('Invalid Git worktree marker');
@@ -99,7 +103,6 @@ export async function executeSandboxedCommand(
     writableRoots: [...options.writableRoots],
     deniedRoots: [...options.deniedRoots],
     env: { ...options.env },
-    allowedDomains: options.allowedDomains ? [...options.allowedDomains] : undefined,
   };
   const authority = new AuthoritySnapshot();
   for (const path of [options.cwd, ...options.writableRoots, ...options.deniedRoots]) {
@@ -158,8 +161,17 @@ export async function executeSandboxedCommand(
           ],
         },
         network: {
-          allowedDomains: options.allowedDomains ?? [],
-          deniedDomains: [],
+          allowedDomains: [],
+          // Deny explicit local/metadata destinations even if a caller later
+          // weakens hostname validation. Redirect targets remain subject to
+          // this deny-first list and the exact allowlist in SRT's proxy.
+          deniedDomains: [
+            'localhost',
+            '127.0.0.1',
+            '[::1]',
+            '169.254.169.254',
+            'metadata.google.internal',
+          ],
           allowLocalBinding: false,
           allowAllUnixSockets: false,
         },

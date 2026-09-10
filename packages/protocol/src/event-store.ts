@@ -175,6 +175,14 @@ export class EventStore {
     );
   }
 
+  hasRecentSendCommandForSession(sessionId: string, since: number): boolean {
+    return !!this.db!.prepare(
+      `SELECT 1 FROM send_commands
+         WHERE session_id = ? AND error IS NULL AND created_at >= ?
+         LIMIT 1`,
+    ).get(sessionId, since);
+  }
+
   /** Synchronous insert before dispatch: retries can never allocate another session. */
   insertSendCommand(
     clientMsgId: string,

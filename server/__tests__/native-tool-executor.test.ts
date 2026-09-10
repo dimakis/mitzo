@@ -1,12 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  lstat,
+  mkdtemp,
+  mkdir,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { SessionRegistry, resolvePending } from '@mitzo/harness';
 import { loadAccountProfiles } from '../account-profiles.js';
 import { executeSandboxedCommand } from '../sandboxed-command.js';
+import { executeTrustedGitCommit, executeTrustedGitHubRead } from '../trusted-native-operation.js';
 vi.mock('../sandboxed-command.js', () => ({
   executeSandboxedCommand: vi.fn().mockResolvedValue({ content: 'done', isError: false }),
+}));
+vi.mock('../trusted-native-operation.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  executeTrustedGitHubRead: vi.fn().mockResolvedValue('{"login":"test"}'),
+  executeTrustedGitCommit: vi.fn().mockResolvedValue('[branch abc] approved'),
 }));
 import { createNativeToolExecutor } from '../native-tool-executor.js';
 
@@ -67,6 +84,104 @@ describe('native tool execution through session permissions', () => {
     resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
     expect(await allowed).toMatchObject({ is_error: false });
     expect(await readFile(join(root, 'worktree/approved'), 'utf8')).toBe('yes');
+  });
+  it('requires an exact approval for authenticated GitHub reads without exposing credentials', async () => {
+    registry.get('client')!.mode = 'ask';
+    const pending = executor()(call('GitHubRead', { endpoint: '/user' }), abort.signal);
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
+    expect(await pending).toMatchObject({ content: '{"login":"test"}', is_error: false });
+    expect(executeTrustedGitHubRead).toHaveBeenCalledWith(
+      '/user',
+      abort.signal,
+      undefined,
+      undefined,
+    );
+  });
+  it('rejects GitHub traversal before requesting approval', async () => {
+    for (const endpoint of [
+      '/repos/owner/repo/../../user',
+      '/repos/owner/repo/%2e%2e/%2e%2e/user',
+      '/repos/owner/repo/%2Fuser',
+    ]) {
+      const response = await executor()(call('GitHubRead', { endpoint }), abort.signal);
+      expect(response).toMatchObject({ is_error: true, content: 'Invalid native tool input' });
+    }
+    expect(sent).toEqual([]);
+  });
+  it('commits only canonical approved workspace paths through the trusted operation', async () => {
+    await writeFile(join(root, 'worktree/change.txt'), 'change');
+    const approved = await lstat(join(root, 'worktree/change.txt'));
+    const pending = executor()(
+      call('GitCommit', { files: ['./change.txt', 'change.txt'], message: 'test: approved' }),
+      abort.signal,
+    );
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
+    expect(await pending).toMatchObject({ is_error: false });
+    expect(executeTrustedGitCommit).toHaveBeenCalledWith(
+      await realpath(join(root, 'worktree')),
+      ['change.txt'],
+      'test: approved',
+      abort.signal,
+      undefined,
+      undefined,
+      new Map([
+        [
+          'change.txt',
+          {
+            dev: approved.dev,
+            ino: approved.ino,
+            sha256: createHash('sha256').update('change').digest('hex'),
+          },
+        ],
+      ]),
+    );
+  });
+  it('pins the approved file identity across the approval wait', async () => {
+    const file = join(root, 'worktree/change.txt');
+    await writeFile(file, 'approved');
+    const approved = await lstat(file);
+    const pending = executor()(
+      call('GitCommit', { files: ['change.txt'], message: 'test: approved identity' }),
+      abort.signal,
+    );
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    await rename(file, join(root, 'worktree/original.txt'));
+    await writeFile(file, 'replacement');
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
+    await pending;
+    expect(executeTrustedGitCommit).toHaveBeenLastCalledWith(
+      await realpath(join(root, 'worktree')),
+      ['change.txt'],
+      'test: approved identity',
+      abort.signal,
+      undefined,
+      undefined,
+      new Map([
+        [
+          'change.txt',
+          {
+            dev: approved.dev,
+            ino: approved.ino,
+            sha256: createHash('sha256').update('approved').digest('hex'),
+          },
+        ],
+      ]),
+    );
+  });
+  it('rejects GitCommit directories before approval or recursive staging', async () => {
+    await mkdir(join(root, 'worktree/changes'));
+    await writeFile(join(root, 'worktree/changes/.env'), 'SECRET=synthetic');
+    const result = await executor()(
+      call('GitCommit', { files: ['changes'], message: 'unsafe recursive commit' }),
+      abort.signal,
+    );
+    expect(result).toMatchObject({
+      is_error: true,
+      content: expect.stringContaining('regular files'),
+    });
+    expect(sent).toEqual([]);
   });
   it('returns structured answers through the native question tool in ask mode', async () => {
     registry.get('client')!.mode = 'ask';
@@ -239,6 +354,21 @@ describe('native tool execution through session permissions', () => {
         signal: abort.signal,
       }),
     );
+  });
+  it('rejects Bash network grants instead of exposing a hostname-only egress boundary', async () => {
+    vi.mocked(executeSandboxedCommand).mockClear();
+    registry.setMode('client', 'auto');
+    expect(
+      await executor()(
+        call('Bash', {
+          command: 'curl https://api.github.com/user',
+          allowed_domains: ['api.github.com'],
+        }),
+        abort.signal,
+      ),
+    ).toMatchObject({ is_error: true, content: 'Invalid native tool input' });
+    expect(sent).toHaveLength(0);
+    expect(executeSandboxedCommand).not.toHaveBeenCalled();
   });
   it('allows sandboxed commands in Auto but denies them after switching to Ask', async () => {
     vi.mocked(executeSandboxedCommand).mockClear();
