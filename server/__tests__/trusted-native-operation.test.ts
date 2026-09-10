@@ -1,5 +1,15 @@
 import { execFileSync } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -283,6 +293,42 @@ describe('trusted native Git operation', () => {
     expect(
       execFileSync('git', ['-C', worktree, 'log', '-1', '--format=%s'], { encoding: 'utf8' }),
     ).toContain('initial');
+  });
+
+  it('rejects a regular file replaced after its inode was approved', async () => {
+    root = await mkdtemp(join(tmpdir(), 'mitzo-trusted-git-file-swap-'));
+    const repo = join(root, 'repo');
+    const worktree = join(root, 'worktree');
+    execFileSync('git', ['init', repo]);
+    execFileSync('git', ['-C', repo, 'config', 'user.name', 'Mitzo Test']);
+    execFileSync('git', ['-C', repo, 'config', 'user.email', 'test@example.invalid']);
+    execFileSync('git', [
+      '-C',
+      repo,
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '--allow-empty',
+      '-m',
+      'initial',
+    ]);
+    execFileSync('git', ['-C', repo, 'worktree', 'add', '-b', 'file-swap', worktree]);
+    const file = join(worktree, 'approved.txt');
+    await writeFile(file, 'approved');
+    const approved = await lstat(file);
+    await rename(file, join(worktree, 'original.txt'));
+    await writeFile(file, 'replacement');
+    await expect(
+      executeTrustedGitCommit(
+        worktree,
+        ['approved.txt'],
+        'blocked',
+        new AbortController().signal,
+        undefined,
+        undefined,
+        new Map([['approved.txt', { dev: approved.dev, ino: approved.ino }]]),
+      ),
+    ).rejects.toThrow('path changed after approval');
   });
 
   it('pins authenticated GitHub reads to github.com GET requests', () => {

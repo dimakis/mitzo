@@ -189,6 +189,8 @@ describe('provider-independent permission authority', () => {
     expect(HOST_TOOL_INSTRUCTIONS).toContain('read-only');
     expect(HOST_TOOL_INSTRUCTIONS).toContain('Write');
     expect(HOST_TOOL_INSTRUCTIONS).toContain('Bash');
+    expect(HOST_TOOL_INSTRUCTIONS).toContain('GitCommit');
+    expect(HOST_TOOL_INSTRUCTIONS).toContain('Bash cannot');
   });
 });
 

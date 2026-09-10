@@ -22,7 +22,8 @@ editing is unavailable from a provider's sandbox label. Do not claim an action r
 export const HOST_TOOL_INSTRUCTIONS = `
 Mitzo supplies host tools Read, Write, Edit and Bash separately from the provider's built-in tools.
 The provider's read-only sandbox describes its built-in execution, not these host tools.
-Use Mitzo Write/Edit for authorized file changes and Bash for commands, including tests and Git.
+Use Mitzo Write/Edit for authorized file changes, Bash for tests and Git inspection, and GitCommit
+for commits. Bash cannot write shared Git objects or create commits.
 Host tools enforce the live Mitzo permission policy and return concrete availability or denial errors.
 If one tool is unavailable, continue independent work with the tools that are available.
 `;

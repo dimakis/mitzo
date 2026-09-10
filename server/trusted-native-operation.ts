@@ -94,6 +94,7 @@ export function trustedGitHubReadRequest(endpoint: string) {
 }
 
 type Identity = { dev: bigint; ino: bigint };
+export type ApprovedGitFileIdentity = { dev: number; ino: number } | null;
 const identity = async (path: string): Promise<Identity> => {
   const stat = await lstat(path, { bigint: true });
   return { dev: stat.dev, ino: stat.ino };
@@ -252,6 +253,7 @@ export async function executeTrustedGitCommit(
   signal: AbortSignal,
   timeoutMs = 30_000,
   maxOutputBytes = 64 * 1024,
+  approvedIdentities?: ReadonlyMap<string, ApprovedGitFileIdentity>,
 ): Promise<string> {
   cwd = await realpath(cwd);
   validateCommitFiles(files);
@@ -335,10 +337,14 @@ export async function executeTrustedGitCommit(
       if (absolute === cwd || !absolute.startsWith(cwd + '/'))
         throw new Error('Git commit path is outside the approved workspace');
       let handle;
+      const hasApprovedIdentity = approvedIdentities?.has(file) === true;
+      const approvedIdentity = approvedIdentities?.get(file);
       try {
         handle = await open(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
       } catch (error: unknown) {
         if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+          if (hasApprovedIdentity && approvedIdentity !== null)
+            throw new Error('Git commit path changed after approval');
           await run('git', ['update-index', '--remove', '--', file], opts);
           continue;
         }
@@ -348,6 +354,13 @@ export async function executeTrustedGitCommit(
         const stat = await handle.stat();
         if (!stat.isFile() || stat.nlink !== 1)
           throw new Error('Git commit paths must be regular files without aliases');
+        if (
+          hasApprovedIdentity &&
+          (approvedIdentity === null ||
+            approvedIdentity?.dev !== stat.dev ||
+            approvedIdentity.ino !== stat.ino)
+        )
+          throw new Error('Git commit path changed after approval');
         const currentPath = await realpath(absolute);
         const current = await lstat(absolute);
         if (

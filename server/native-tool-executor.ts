@@ -181,6 +181,7 @@ export function createNativeToolExecutor(
       if (block.name === 'GitCommit' && 'files' in parsed.data) {
         const root = await realpath(session.cwd);
         const files: string[] = [];
+        const approvedIdentities = new Map<string, { dev: number; ino: number } | null>();
         for (const requested of parsed.data.files) {
           const canonical = await canonicalPath(resolve(root, requested));
           if (canonical === root || !canonical.startsWith(root + '/'))
@@ -191,7 +192,9 @@ export function createNativeToolExecutor(
           });
           if (info && !info.isFile())
             return result('Git commit paths must be regular files or tracked deletions', true);
-          files.push(relative(root, canonical));
+          const file = relative(root, canonical);
+          files.push(file);
+          approvedIdentities.set(file, info ? { dev: info.dev, ino: info.ino } : null);
         }
         const input = { files: [...new Set(files)], message: parsed.data.message };
         const permission = await canUseTool(block.name, input, {
@@ -217,6 +220,7 @@ export function createNativeToolExecutor(
             signal,
             options.timeoutMs,
             options.maxOutputBytes,
+            new Map(input.files.map((file) => [file, approvedIdentities.get(file) ?? null])),
           ),
         );
       }

@@ -1,5 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  lstat,
+  mkdtemp,
+  mkdir,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SessionRegistry, resolvePending } from '@mitzo/harness';
@@ -100,6 +110,7 @@ describe('native tool execution through session permissions', () => {
   });
   it('commits only canonical approved workspace paths through the trusted operation', async () => {
     await writeFile(join(root, 'worktree/change.txt'), 'change');
+    const approved = await lstat(join(root, 'worktree/change.txt'));
     const pending = executor()(
       call('GitCommit', { files: ['./change.txt', 'change.txt'], message: 'test: approved' }),
       abort.signal,
@@ -114,6 +125,30 @@ describe('native tool execution through session permissions', () => {
       abort.signal,
       undefined,
       undefined,
+      new Map([['change.txt', { dev: approved.dev, ino: approved.ino }]]),
+    );
+  });
+  it('pins the approved file identity across the approval wait', async () => {
+    const file = join(root, 'worktree/change.txt');
+    await writeFile(file, 'approved');
+    const approved = await lstat(file);
+    const pending = executor()(
+      call('GitCommit', { files: ['change.txt'], message: 'test: approved identity' }),
+      abort.signal,
+    );
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    await rename(file, join(root, 'worktree/original.txt'));
+    await writeFile(file, 'replacement');
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
+    await pending;
+    expect(executeTrustedGitCommit).toHaveBeenLastCalledWith(
+      await realpath(join(root, 'worktree')),
+      ['change.txt'],
+      'test: approved identity',
+      abort.signal,
+      undefined,
+      undefined,
+      new Map([['change.txt', { dev: approved.dev, ino: approved.ino }]]),
     );
   });
   it('rejects GitCommit directories before approval or recursive staging', async () => {
