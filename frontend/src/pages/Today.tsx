@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useSessionList } from '../hooks/useSessionList';
 import { useAttentionFeed } from '../hooks/useAttentionFeed';
@@ -29,6 +29,7 @@ export function Today() {
     () => localStorage.getItem(TOKEN_PREFERENCE) === 'true',
   );
   const [briefingResult, setBriefingResult] = useState<Briefing | null>(null);
+  const briefingRequest = useRef(0);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(timer);
@@ -37,13 +38,14 @@ export function Today() {
   useEffect(() => {
     let cancelled = false;
     const refreshBriefing = () => {
+      const request = ++briefingRequest.current;
       apiFetch(`/api/briefings/latest?date=${today}`)
         .then((response) => (response.ok ? response.json() : null))
         .then((result: Briefing | null) => {
-          if (!cancelled) setBriefingResult(result);
+          if (!cancelled && request === briefingRequest.current) setBriefingResult(result);
         })
         .catch(() => {
-          if (!cancelled) setBriefingResult(null);
+          if (!cancelled && request === briefingRequest.current) setBriefingResult(null);
         });
     };
     refreshBriefing();

@@ -21,6 +21,10 @@ const data = vi.hoisted(() => ({
   })),
   loading: false,
   briefing: null as { path: string; generatedAt: string } | null,
+  apiResponses: [] as Promise<{
+    ok: boolean;
+    json: () => Promise<{ path: string; generatedAt: string } | null>;
+  }>[],
 }));
 vi.mock('../../hooks/useSessionList', () => ({
   useSessionList: () => ({ sessions: data.sessions, loading: data.loading }),
@@ -29,7 +33,11 @@ vi.mock('../../hooks/useAttentionFeed', () => ({
   useAttentionFeed: () => ({ items: data.items, loading: data.loading }),
 }));
 vi.mock('../../lib/api-fetch', () => ({
-  apiFetch: vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve(data.briefing) })),
+  apiFetch: vi.fn(
+    () =>
+      data.apiResponses.shift() ??
+      Promise.resolve({ ok: true, json: () => Promise.resolve(data.briefing) }),
+  ),
 }));
 function Location() {
   return (
@@ -50,6 +58,7 @@ function show() {
 beforeEach(() => {
   localStorage.clear();
   data.briefing = null;
+  data.apiResponses = [];
   vi.useFakeTimers();
   vi.setSystemTime(new Date(2026, 8, 8, 9));
 });
@@ -102,6 +111,36 @@ describe('Today', () => {
       vi.advanceTimersByTime(60_000);
     });
 
+    expect(screen.getByText(/Briefing prepared/)).toBeTruthy();
+  });
+  it('keeps a newer briefing result when an earlier refresh resolves later', async () => {
+    let resolveFirst: (response: {
+      ok: boolean;
+      json: () => Promise<{ path: string; generatedAt: string } | null>;
+    }) => void;
+    data.apiResponses = [
+      new Promise((resolve) => {
+        resolveFirst = resolve;
+      }),
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            path: '/workspace/command_center/briefings/morning_2026-09-08_0830.md',
+            generatedAt: '2026-09-08T08:30:00.000Z',
+          }),
+      }),
+    ];
+    show();
+
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(screen.getByText(/Briefing prepared/)).toBeTruthy();
+
+    await act(async () => {
+      resolveFirst!({ ok: true, json: () => Promise.resolve(null) });
+    });
     expect(screen.getByText(/Briefing prepared/)).toBeTruthy();
   });
   it('shows evening copy after 18:00', () => {
