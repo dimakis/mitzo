@@ -273,6 +273,79 @@ escape review. Kubernetes/Kata work is now deferred. A kind base cluster named
 `mitzo-openshell` was created with a separate kubeconfig before the deferral
 arrived; no OpenShell or Mitzo workload was installed into it.
 
+## Retained-sandbox restart acceptance
+
+A dedicated normal Mitzo conversation survived an actual stop/start of the
+same retained OpenShell sandbox, but recovery required a Mitzo controller
+restart; sandbox-only seamless recovery failed. Before the stop, a visible Bash tool event created
+`full-restart-before.txt` with `BEFORE_RESTART=pass`. After `openshell sandbox
+stop` followed by `openshell sandbox start`—with no sandbox recreation—the
+workspace retained that file. The resumed turn used the same Mitzo session and
+the same persisted Codex thread id, `01a08a8f-4bb9-7613-979e-19411ab32910`.
+The model recalled the previously supplied phrase `LILAC-ORBIT-731`, emitted a
+visible Bash start/result pair, and created `full-restart-after.txt` with
+`AFTER_RESTART=pass`. This is exact Codex `thread/resume` evidence, not merely
+prompt-history reconstruction: the conversation record retained its thread id
+before and after recovery and returned to `recovery=0` with the post-restart
+command completed.
+
+The unfinished run found two recovery gates. A Mitzo controller kept alive across the
+sandbox restart retained a dead SSH/app-server transport and could not recover
+the turn. Restarting only the controller reconstructed the runtime and resumed
+the exact thread, but an immediate queue-continuation request raced runtime
+registration and returned 409; a bounded retry after registration succeeded.
+Productionization therefore needs transport invalidation/recreation when a
+sandbox generation changes and queue continuation that waits for, or retries,
+runtime registration.
+
+## Gateway-owned subscription OAuth review
+
+The public `saariuslystoned/OpenShell` PR 1 implementation was checked out in
+isolation at reviewed head `2098a95c872c72ddfe36430a8c0f0c1a37b5edfb`.
+Independent local validation used Rust 1.95.0 and installed the missing Z3
+linker dependency. `git diff --check` and `cargo fmt --all -- --check` passed.
+Focused tests passed for the subscription grant registry (3), router protected
+header handling (1), supervisor inference-route behavior (17), and OpenAI
+Codex refresh/material isolation (8). `cargo check -p openshell-server -p
+openshell-cli` also passed. A filter named `subscription_oauth` matched zero
+server and CLI tests and is not counted as evidence. The repository-wide
+`mise run ci` was not run because `mise` is absent on this host; author-reported
+CI results remain distinct from these local results.
+
+The architecture remains suitable: the gateway owns device authorization,
+refresh, account/FedRAMP metadata, and bearer injection while the sandbox uses
+credential-free `inference.local`. The matched CLI and gateway binaries built
+successfully and an isolated gateway started as version
+`0.0.103-dev.35+g2098a95c` on IPv6 loopback port 18670 with a fresh SQLite
+database, separate XDG state, and a separately scoped IPv4 Podman callback
+listener. The first IPv4-primary start failed closed because the callback
+would have shared its authorization scope; binding the primary listener to
+`::1` resolved that concrete runtime constraint. The existing working gateway
+was not replaced or migrated.
+
+This proves the reviewed head can run in isolation despite being 201 commits
+behind current OpenShell `main`; that divergence is a later integration gate,
+not a blocker to the isolated proof. The next step is explicitly attended:
+run the matched CLI against `http://[::1]:18670` with `provider login --type
+codex-subscription --name mitzo-personal-subscription`. After the user completes
+the displayed ChatGPT device flow, attach that separately named provider to a
+fresh isolated sandbox and run a real sandbox-native tool turn. The existing
+work-API option remains unchanged.
+
+The copyable attended-login command is preserved in
+`run-isolated-subscription-login.sh`; it hard-codes the matched CLI path,
+isolated XDG paths, endpoint, provider type, and separate provider name, and
+checks gateway health before beginning authorization.
+
+## GWS acceptance result
+
+The retained GWS-enabled sandbox `mitzo-context-v3` is Ready and reports `gws
+0.18.1`, but `gws auth status` reports `auth_method: none`: no client config,
+encrypted or plain credentials, keyring credential, or token cache exists.
+Read-only Gmail/Calendar/Drive acceptance is therefore blocked on a fresh
+attended `gws auth login` using the Red Hat Google account. No Google data was
+read and no write was attempted.
+
 ## Sources
 
 - [Codex app-server](https://learn.chatgpt.com/docs/app-server) — lifecycle
