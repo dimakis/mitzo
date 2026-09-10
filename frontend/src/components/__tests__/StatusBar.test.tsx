@@ -18,9 +18,9 @@ describe('StatusBar', () => {
     expect(container.querySelector('.status-dot--off')).toBeTruthy();
   });
 
-  it('renders session ID truncated', () => {
+  it('keeps the complete session ID in details', () => {
     render(<StatusBar connected={true} sessionId="abcdef1234567890" />);
-    expect(screen.getByText('abcdef123456')).toBeTruthy();
+    expect(screen.getByText('abcdef1234567890')).toBeTruthy();
   });
 
   it('does not render session ID when absent', () => {
@@ -30,10 +30,10 @@ describe('StatusBar', () => {
 
   it('renders branch name', () => {
     render(<StatusBar connected={true} branch="feat/desktop-ui" />);
-    expect(screen.getByText('feat/desktop-ui')).toBeTruthy();
+    expect(screen.getByText('Branch: feat/desktop-ui')).toBeTruthy();
   });
 
-  it('renders session hash badge when in worktree with wtId', () => {
+  it('describes isolation instead of displaying a worktree hash', () => {
     render(
       <StatusBar
         connected={true}
@@ -42,7 +42,7 @@ describe('StatusBar', () => {
         wtId="2026-04-13-a3f2b1"
       />,
     );
-    expect(screen.getByText('a3f2b1')).toBeTruthy();
+    expect(screen.getByText('Isolated workspace')).toBeTruthy();
   });
 
   it('does not render session hash badge when not worktree', () => {

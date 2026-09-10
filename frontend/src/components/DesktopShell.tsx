@@ -1,5 +1,6 @@
 import { useState, useCallback, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { UiIcon } from './UiIcon';
 import { DesktopNav } from './DesktopNav';
 
 export interface DesktopShellProps {
@@ -29,6 +30,9 @@ export function DesktopShell({
   statusBar,
   rightDefaultCollapsed = false,
 }: DesktopShellProps) {
+  const [railCollapsed, setRailCollapsed] = useState(() =>
+    readCollapsed('mitzo-navigation-collapsed'),
+  );
   const [leftCollapsed, setLeftCollapsed] = useState(() => readCollapsed(STORAGE_KEY_LEFT));
   const [rightCollapsed, setRightCollapsed] = useState(() =>
     readCollapsed(STORAGE_KEY_RIGHT, rightDefaultCollapsed),
@@ -61,10 +65,32 @@ export function DesktopShell({
   return (
     <div className="desktop-shell workspace-shell">
       <div className="desktop-body">
-        <aside className="workspace-rail">
-          <Link to="/" className="workspace-brand">
-            Mitzo<span aria-hidden="true">.</span>
-          </Link>
+        <aside className={`workspace-rail${railCollapsed ? ' workspace-rail--collapsed' : ''}`}>
+          <div className="workspace-rail-heading">
+            <Link to="/" className="workspace-brand" aria-label="Mitzo home">
+              {railCollapsed ? 'M' : 'Mitzo'}
+              <span aria-hidden="true">.</span>
+            </Link>
+          </div>
+          <div className="workspace-rail-controls">
+            <button
+              className="workspace-rail-toggle"
+              aria-label={railCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+              title={railCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+              aria-expanded={!railCollapsed}
+              onClick={() => {
+                const next = !railCollapsed;
+                setRailCollapsed(next);
+                try {
+                  localStorage.setItem('mitzo-navigation-collapsed', next ? '1' : '0');
+                } catch {
+                  /* optional preference */
+                }
+              }}
+            >
+              <UiIcon name="panel" />
+            </button>
+          </div>
           <DesktopNav />
         </aside>
         {left && (

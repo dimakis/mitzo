@@ -296,6 +296,7 @@ overviewEmitter = new SessionOverviewEmitter({
   taskStore,
   eventStore,
   getSessionTitle: (id: string) => eventStore.getSession(id)?.summary ?? undefined,
+  isSessionHidden: (id: string) => eventStore.getSession(id)?.isHidden ?? false,
 });
 setOverviewEmitter(overviewEmitter);
 

@@ -56,6 +56,7 @@ function makeDeps(overrides: Partial<SessionOverviewDeps> = {}): SessionOverview
       getAttentionSessions: vi.fn(() => []),
     } as unknown as SessionOverviewDeps['eventStore'],
     getSessionTitle: vi.fn(() => undefined),
+    isSessionHidden: vi.fn(() => false),
     ...overrides,
   };
 }
@@ -107,6 +108,23 @@ describe('SessionOverviewEmitter', () => {
     deps = makeDeps();
     emitter = new SessionOverviewEmitter(deps);
 
+    expect(emitter.getSnapshot()).toEqual([]);
+  });
+
+  it('keeps deleted live sessions hidden across snapshots and emitter recreation', () => {
+    const hidden = new Set<string>();
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => [makeActiveSession({ hasSnapshot: true })]),
+      } as unknown as SessionOverviewDeps['registry'],
+      isSessionHidden: (id) => hidden.has(id),
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    expect(emitter.getSnapshot()).toHaveLength(1);
+    hidden.add('session-1');
+    expect(emitter.getSnapshot()).toEqual([]);
+    emitter.destroy();
+    emitter = new SessionOverviewEmitter(deps);
     expect(emitter.getSnapshot()).toEqual([]);
   });
 
@@ -302,6 +320,7 @@ describe('SessionOverviewEmitter', () => {
         getActiveSessions: vi.fn(() => [makeActiveSession({ sessionId: 'abcdef12-3456-7890' })]),
       } as unknown as SessionOverviewDeps['registry'],
       getSessionTitle: vi.fn(() => undefined),
+      isSessionHidden: vi.fn(() => false),
     });
     emitter = new SessionOverviewEmitter(deps);
     emitter.touch('client-1');

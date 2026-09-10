@@ -1,3 +1,4 @@
+import { sessionAttentionReason } from '../lib/session-attention';
 import { useState, useEffect, useMemo } from 'react';
 import { apiFetch } from '../lib/api-fetch';
 import { eventBus } from '../lib/event-bus-singleton';
@@ -135,8 +136,9 @@ function atbToAttention(tasks: Task[]): AttentionItem[] {
 function sessionsToAttention(activities: SessionActivity[]): AttentionItem[] {
   const items: AttentionItem[] = [];
   for (const a of activities) {
+    const reason = sessionAttentionReason(a);
     // Priority 1: awaiting reply (agent responded, user hasn't)
-    if (a.awaitingReply && (a.state === 'done' || a.state === 'idle')) {
+    if (reason === 'awaiting-reply') {
       items.push({
         id: `session-${a.sessionId}`,
         source: 'session',
@@ -152,7 +154,7 @@ function sessionsToAttention(activities: SessionActivity[]): AttentionItem[] {
       continue;
     }
     // Priority 2: waiting for input (permission/review/blocked)
-    if (a.state === 'waiting') {
+    if (reason === 'waiting') {
       items.push({
         id: `session-${a.sessionId}`,
         source: 'session',
@@ -173,7 +175,7 @@ function sessionsToAttention(activities: SessionActivity[]): AttentionItem[] {
       continue;
     }
     // Priority 3: uncommitted worktree work
-    if (a.uncommittedWork && (a.state === 'done' || a.state === 'idle')) {
+    if (reason === 'uncommitted-work') {
       items.push({
         id: `session-${a.sessionId}`,
         source: 'session',

@@ -11,17 +11,36 @@ export function StatusBar({ connected, sessionId, branch, isWorktree, wtId }: St
     <div className="desktop-status-bar">
       <span className={`status-dot ${connected ? 'status-dot--on' : 'status-dot--off'}`} />
       <span className="status-label">{connected ? 'Connected' : 'Disconnected'}</span>
-      {sessionId && (
-        <span className="status-session" title={sessionId}>
-          {sessionId.slice(0, 12)}
+      {(branch || isWorktree) && (
+        <span className="status-workspace">
+          {isWorktree ? 'Isolated workspace' : `Branch: ${branch}`}
         </span>
       )}
-      {isWorktree && wtId && (
-        <span className="status-wt-badge" title={`session: ${wtId}\nbranch: ${branch}`}>
-          {wtId.slice(-6)}
-        </span>
+      {(sessionId || branch || wtId) && (
+        <details className="status-details">
+          <summary>Session details</summary>
+          <dl>
+            {sessionId && (
+              <>
+                <dt>Session ID</dt>
+                <dd>{sessionId}</dd>
+              </>
+            )}
+            {branch && (
+              <>
+                <dt>Branch</dt>
+                <dd>{branch}</dd>
+              </>
+            )}
+            {wtId && (
+              <>
+                <dt>Worktree ID</dt>
+                <dd>{wtId}</dd>
+              </>
+            )}
+          </dl>
+        </details>
       )}
-      {branch && <span className="status-branch">{branch}</span>}
     </div>
   );
 }

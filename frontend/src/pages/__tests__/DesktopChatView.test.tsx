@@ -301,6 +301,7 @@ it('keeps the active mode selected until the store receives server confirmation'
       </MitzoStoreProvider>
     </MemoryRouter>,
   );
+  fireEvent.click(screen.getByRole('button', { name: /^Workspace/ }));
   fireEvent.click(screen.getByRole('button', { name: 'Auto' }));
   expect(store.getState().setMode).toHaveBeenCalledWith('auto');
   expect(screen.getByRole('button', { name: 'Agent' }).className).toContain('mode-pill--active');
@@ -317,7 +318,23 @@ it('disables mode controls while a new chat starts', () => {
       </MitzoStoreProvider>
     </MemoryRouter>,
   );
+  fireEvent.click(screen.getByRole('button', { name: /^Workspace/ }));
   fireEvent.click(screen.getByRole('button', { name: 'Auto' }));
   expect(store.getState().setMode).not.toHaveBeenCalled();
   expect((screen.getByRole('button', { name: 'Auto' }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it('shows reconnecting in collapsed workspace settings when disconnected', () => {
+  const store = createMockStore();
+  store.setState((s) => ({ connection: { ...s.connection, status: 'disconnected' } }));
+  render(
+    <MemoryRouter>
+      <MitzoStoreProvider value={store}>
+        <DesktopChatView />
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  const toggle = screen.getByRole('button', { name: /^Workspace/ });
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  expect(toggle.textContent).toContain('Reconnecting');
 });

@@ -1,4 +1,5 @@
 import { PermissionModePicker } from '../components/PermissionModePicker';
+import { WorkspaceControls } from '../components/WorkspaceControls';
 import { AccountModelPicker, type AccountSelection } from '../components/AccountModelPicker';
 import { CodexQueueStatus } from '../components/CodexQueueStatus';
 import { useState, useCallback, useEffect, useRef } from 'react';
@@ -204,67 +205,68 @@ export function DesktopChatView() {
       }
       center={
         <div className="desktop-chat-center workspace-chat">
-          <div className="conversation-heading">
-            <div>
-              <span className="workspace-eyebrow">YOUR WORKSPACE</span>
-              <h1>{activeSessionId ? 'Conversation' : 'New chat'}</h1>
-            </div>
-            <span className="conversation-state">
-              {messages.running
-                ? 'Working'
-                : activeSessionId
-                  ? 'Ready'
-                  : 'Start with a question or a task'}
-            </span>
-          </div>
-          <header className="desktop-chat-header">
-            {!connected && (
-              <span
-                className="chat-header-offline"
-                title={messages.running ? 'Reconnecting — session still active' : 'Reconnecting...'}
-              >
-                !
-              </span>
-            )}
-            <AccountModelPicker
-              sessionId={activeSessionId}
-              preferredModel={modelState}
-              onChange={selectAccount}
-              disabled={messages.running}
-            />
-            <PermissionModePicker
-              mode={mode}
-              onChange={handleModeChange}
-              disabled={modeChangeReady === false}
-            />
-            {!activeSessionId && (
-              <button
-                className={`isolation-toggle${isolation ? ' isolation-toggle--active' : ''}`}
-                onClick={() => setIsolation((v) => !v)}
-                title={isolation ? 'Worktree isolation: ON' : 'Worktree isolation: OFF'}
-              >
-                {isolation ? '\u{1f512}' : '\u{1f513}'}
-              </button>
-            )}
-            {activeSessionId && (
-              <button
-                className="session-close-btn"
-                onClick={storeCloseSession}
-                title="Close session"
-              >
-                &times;
-              </button>
-            )}
-            <VoiceSettings
-              ttsAvailable={voice.ttsAvailable}
-              ttsEnabled={voice.ttsEnabled}
-              speaking={voice.speaking}
-              voices={voice.voices}
-              selectedVoice={voice.selectedVoice}
-              onToggle={() => voice.setTtsEnabled(!voice.ttsEnabled)}
-              onVoiceChange={voice.setVoice}
-            />
-          </header>
+          <WorkspaceControls
+            status={
+              !connected
+                ? 'Reconnecting'
+                : messages.running
+                  ? 'Working'
+                  : activeSessionId
+                    ? 'Ready'
+                    : 'New chat'
+            }
+          >
+            <header className="desktop-chat-header">
+              {!connected && (
+                <span
+                  className="chat-header-offline"
+                  title={
+                    messages.running ? 'Reconnecting — session still active' : 'Reconnecting...'
+                  }
+                >
+                  !
+                </span>
+              )}
+              <AccountModelPicker
+                sessionId={activeSessionId}
+                preferredModel={modelState}
+                onChange={selectAccount}
+                disabled={messages.running}
+              />
+              <PermissionModePicker
+                mode={mode}
+                onChange={handleModeChange}
+                disabled={modeChangeReady === false}
+              />
+              {!activeSessionId && (
+                <button
+                  className={`isolation-toggle${isolation ? ' isolation-toggle--active' : ''}`}
+                  onClick={() => setIsolation((v) => !v)}
+                  title={isolation ? 'Worktree isolation: ON' : 'Worktree isolation: OFF'}
+                >
+                  {isolation ? '\u{1f512}' : '\u{1f513}'}
+                </button>
+              )}
+              {activeSessionId && (
+                <button
+                  className="session-close-btn"
+                  onClick={storeCloseSession}
+                  title="Close session"
+                >
+                  &times;
+                </button>
+              )}
+              <VoiceSettings
+                ttsAvailable={voice.ttsAvailable}
+                ttsEnabled={voice.ttsEnabled}
+                speaking={voice.speaking}
+                voices={voice.voices}
+                selectedVoice={voice.selectedVoice}
+                onToggle={() => voice.setTtsEnabled(!voice.ttsEnabled)}
+                onVoiceChange={voice.setVoice}
+              />
+            </header>
+          </WorkspaceControls>
           <CodexQueueStatus sessionId={activeSessionId} />
           <ChatArea
             messages={messages.messages}

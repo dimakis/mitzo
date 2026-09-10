@@ -27,12 +27,12 @@ beforeEach(() => {
   // Default: all fetches succeed with empty data
   vi.mocked(apiFetch).mockImplementation((url: string) => {
     if (url === '/api/sessions')
-      return Promise.resolve({ json: () => Promise.resolve([]) }) as Promise<Response>;
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) }) as Promise<Response>;
     if (url === '/api/config')
-      return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) }) as Promise<Response>;
     if (url === '/api/version')
-      return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
-    return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) }) as Promise<Response>;
+    return Promise.resolve({ ok: true, json: () => Promise.resolve({}) }) as Promise<Response>;
   });
 });
 
@@ -50,12 +50,15 @@ describe('useSessionList', () => {
     const sessions = [{ id: 'abc', summary: 'Test', lastModified: Date.now() }];
     vi.mocked(apiFetch).mockImplementation((url: string) => {
       if (url === '/api/sessions')
-        return Promise.resolve({ json: () => Promise.resolve(sessions) }) as Promise<Response>;
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(sessions),
+        }) as Promise<Response>;
       if (url === '/api/config')
-        return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) }) as Promise<Response>;
       if (url === '/api/version')
-        return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
-      return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) }) as Promise<Response>;
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) }) as Promise<Response>;
     });
 
     const { result } = renderHook(() => useSessionList());
@@ -74,18 +77,21 @@ describe('useSessionList', () => {
     ];
     vi.mocked(apiFetch).mockImplementation((url: string) => {
       if (url === '/api/sessions')
-        return Promise.resolve({ json: () => Promise.resolve(sessions) }) as Promise<Response>;
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(sessions),
+        }) as Promise<Response>;
       if (url === '/api/config')
-        return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) }) as Promise<Response>;
       if (url === '/api/version')
-        return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
-      return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) }) as Promise<Response>;
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) }) as Promise<Response>;
     });
 
     const { result } = renderHook(() => useSessionList());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    act(() => {
+    await act(async () => {
       result.current.dismissSession('a');
     });
 
@@ -98,18 +104,21 @@ describe('useSessionList', () => {
     const sessions = [{ id: 'a', summary: 'A', lastModified: Date.now() }];
     vi.mocked(apiFetch).mockImplementation((url: string) => {
       if (url === '/api/sessions')
-        return Promise.resolve({ json: () => Promise.resolve(sessions) }) as Promise<Response>;
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(sessions),
+        }) as Promise<Response>;
       if (url === '/api/config')
-        return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) }) as Promise<Response>;
       if (url === '/api/version')
-        return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
-      return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) }) as Promise<Response>;
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) }) as Promise<Response>;
     });
 
     const { result } = renderHook(() => useSessionList());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    act(() => {
+    await act(async () => {
       result.current.clearAll();
     });
 
@@ -121,12 +130,15 @@ describe('useSessionList', () => {
     const sessions = [{ id: 'a', summary: 'Old', lastModified: Date.now() }];
     vi.mocked(apiFetch).mockImplementation((url: string) => {
       if (url === '/api/sessions')
-        return Promise.resolve({ json: () => Promise.resolve(sessions) }) as Promise<Response>;
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(sessions),
+        }) as Promise<Response>;
       if (url === '/api/config')
-        return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) }) as Promise<Response>;
       if (url === '/api/version')
-        return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
-      return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) }) as Promise<Response>;
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) }) as Promise<Response>;
     });
 
     const { result } = renderHook(() => useSessionList());
@@ -142,14 +154,14 @@ describe('useSessionList', () => {
   it('builds quick actions from config', async () => {
     vi.mocked(apiFetch).mockImplementation((url: string) => {
       if (url === '/api/sessions')
-        return Promise.resolve({ json: () => Promise.resolve([]) }) as Promise<Response>;
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) }) as Promise<Response>;
       if (url === '/api/config')
         return Promise.resolve({
           json: () => Promise.resolve({ quickActions: [{ label: 'Test', desc: 'Test action' }] }),
         }) as Promise<Response>;
       if (url === '/api/version')
-        return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
-      return Promise.resolve({ json: () => Promise.resolve({}) }) as Promise<Response>;
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) }) as Promise<Response>;
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) }) as Promise<Response>;
     });
 
     const { result } = renderHook(() => useSessionList());
@@ -158,4 +170,39 @@ describe('useSessionList', () => {
     expect(result.current.quickActions).toHaveLength(3); // Chat + server action + Files
     expect(result.current.quickActions[1].label).toBe('Test');
   });
+});
+
+it.each([
+  ['delete', 'network'],
+  ['delete', 'http'],
+  ['clear', 'network'],
+  ['clear', 'http'],
+] as const)('preserves sessions and pagination when %s fails with %s', async (action, failure) => {
+  const sessions = [
+    { id: 'a', summary: 'A', lastModified: 2 },
+    { id: 'b', summary: 'B', lastModified: 1 },
+  ];
+  let rejectDelete!: (error: Error) => void;
+  let resolveDelete!: (response: Response) => void;
+  const deletion = new Promise<Response>((resolve, reject) => {
+    resolveDelete = resolve;
+    rejectDelete = reject;
+  });
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (init?.method === 'DELETE') return deletion;
+    if (url === '/api/sessions') return Response.json({ sessions, hasMore: true });
+    return Response.json({});
+  });
+  const { result } = renderHook(() => useSessionList());
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  await act(async () => {
+    if (action === 'delete') result.current.dismissSession('a');
+    else result.current.clearAll();
+    if (failure === 'network') rejectDelete(new Error('offline'));
+    else resolveDelete(Response.json({ error: 'unavailable' }, { status: 503 }));
+  });
+  expect(result.current.sessions).toEqual(sessions);
+  expect(result.current.hasMore).toBe(true);
+  act(() => result.current.loadMore());
+  expect(apiFetch).toHaveBeenCalledWith('/api/sessions?offset=2');
 });

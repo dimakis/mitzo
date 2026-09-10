@@ -1,4 +1,6 @@
 import { PermissionModePicker } from '../components/PermissionModePicker';
+import { StatusBar } from '../components/StatusBar';
+import { WorkspaceControls } from '../components/WorkspaceControls';
 import { CodexQueueStatus } from '../components/CodexQueueStatus';
 import { AccountModelPicker, type AccountSelection } from '../components/AccountModelPicker';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -256,53 +258,77 @@ export function ChatView() {
           New chat
         </button>
       </div>
-      <header className="chat-header">
-        {!connected && (
-          <span
-            className="chat-header-offline"
-            title={messages.running ? 'Reconnecting — session still active' : 'Reconnecting...'}
-          >
-            !
-          </span>
-        )}
+      <WorkspaceControls
+        status={!connected ? 'Reconnecting' : messages.running ? 'Working' : 'Ready'}
+      >
+        <div className="chat-account-bar">
+          <AccountModelPicker
+            disabled={messages.running}
+            sessionId={activeSessionId}
+            preferredModel={modelState}
+            onChange={selectAccount}
+            onUnavailable={accountUnavailable}
+          />
+        </div>
+        <header className="chat-header">
+          {!connected && (
+            <span
+              className="chat-header-offline"
+              title={messages.running ? 'Reconnecting — session still active' : 'Reconnecting...'}
+            >
+              !
+            </span>
+          )}
 
-        {!keyboardOpen && (
-          <>
-            <PermissionModePicker
-              mode={mode}
-              onChange={handleModeChange}
-              disabled={modeChangeReady === false}
-            />
-            {!activeSessionId && (
-              <button
-                className={`isolation-toggle${isolation ? ' isolation-toggle--active' : ''}`}
-                onClick={() => setIsolation((v) => !v)}
-                title={isolation ? 'Worktree isolation: ON' : 'Worktree isolation: OFF'}
-              >
-                {isolation ? '\u{1f512}' : '\u{1f513}'}
-              </button>
-            )}
-            {activeSessionId && (
-              <button
-                className="session-close-btn"
-                onClick={storeCloseSession}
-                title="Close session"
-              >
-                &times;
-              </button>
-            )}
-            <VoiceSettings
-              ttsAvailable={voice.ttsAvailable}
-              ttsEnabled={voice.ttsEnabled}
-              speaking={voice.speaking}
-              voices={voice.voices}
-              selectedVoice={voice.selectedVoice}
-              onToggle={() => voice.setTtsEnabled(!voice.ttsEnabled)}
-              onVoiceChange={voice.setVoice}
-            />
-          </>
-        )}
-      </header>
+          {!keyboardOpen && (
+            <>
+              <PermissionModePicker
+                mode={mode}
+                onChange={handleModeChange}
+                disabled={modeChangeReady === false}
+              />
+              {!activeSessionId && (
+                <button
+                  className={`isolation-toggle${isolation ? ' isolation-toggle--active' : ''}`}
+                  onClick={() => setIsolation((v) => !v)}
+                  title={isolation ? 'Worktree isolation: ON' : 'Worktree isolation: OFF'}
+                >
+                  {isolation ? '\u{1f512}' : '\u{1f513}'}
+                </button>
+              )}
+              {activeSessionId && (
+                <button
+                  className="session-close-btn"
+                  onClick={storeCloseSession}
+                  title="Close session"
+                >
+                  &times;
+                </button>
+              )}
+              <VoiceSettings
+                ttsAvailable={voice.ttsAvailable}
+                ttsEnabled={voice.ttsEnabled}
+                speaking={voice.speaking}
+                voices={voice.voices}
+                selectedVoice={voice.selectedVoice}
+                onToggle={() => voice.setTtsEnabled(!voice.ttsEnabled)}
+                onVoiceChange={voice.setVoice}
+              />
+            </>
+          )}
+        </header>
+      </WorkspaceControls>
+      {activeSessionId && (
+        <div className="mobile-session-context">
+          <StatusBar
+            connected={connected}
+            sessionId={activeSessionId}
+            branch={messages.branch || undefined}
+            isWorktree={messages.isWorktree}
+            wtId={messages.wtId || undefined}
+          />
+        </div>
+      )}
       {(sendError || sendStatus) && (
         <div
           role={sendError ? 'alert' : 'status'}
@@ -313,15 +339,6 @@ export function ChatView() {
           {sendError || sendStatus}
         </div>
       )}
-      <div className="chat-account-bar">
-        <AccountModelPicker
-          disabled={messages.running}
-          sessionId={activeSessionId}
-          preferredModel={modelState}
-          onChange={selectAccount}
-          onUnavailable={accountUnavailable}
-        />
-      </div>
 
       <CodexQueueStatus sessionId={activeSessionId} />
       <ChatArea
