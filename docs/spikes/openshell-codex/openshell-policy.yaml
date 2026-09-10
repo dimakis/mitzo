@@ -7,7 +7,16 @@ filesystem_policy:
 landlock:
   compatibility: best_effort
 
-# No network policies means default-deny egress.  Add narrowly scoped read-only
-# endpoint rules for a specific smoke test; do not place provider credentials in
-# this file or use it to authorize external writes.
-network_policies: {}
+# A public read-only endpoint is an explicit positive control. The companion
+# POST control is denied by the proxy before it reaches GitHub.
+network_policies:
+  github_api:
+    name: github-api-readonly
+    endpoints:
+      - host: api.github.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        access: read-only
+    binaries:
+      - { path: /usr/bin/curl }

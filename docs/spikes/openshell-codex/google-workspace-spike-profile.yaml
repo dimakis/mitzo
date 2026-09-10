@@ -1,0 +1,32 @@
+id: mitzo-google-workspace-spike
+display_name: Mitzo Google Workspace Spike
+description: Disposable delegated Google Workspace read provider
+category: data
+inference_capable: false
+credentials:
+  - name: access_token
+    description: Short-lived Google Workspace access token
+    env_vars: [GWS_ACCESS_TOKEN]
+    required: true
+    auth_style: bearer
+    header_name: authorization
+    refresh:
+      strategy: oauth2_refresh_token
+      token_url: https://oauth2.googleapis.com/token
+      scopes:
+        - https://www.googleapis.com/auth/drive
+      refresh_before_seconds: 300
+      max_lifetime_seconds: 3600
+      material:
+        - { name: client_id, description: OAuth client ID, required: true, secret: false }
+        - { name: client_secret, description: OAuth client secret, required: true, secret: true }
+        - { name: refresh_token, description: OAuth refresh token, required: true, secret: true }
+endpoints:
+  - host: www.googleapis.com
+    port: 443
+    protocol: rest
+    access: read-only
+    enforcement: enforce
+binaries:
+  - /usr/bin/curl
+  - /usr/local/bin/curl

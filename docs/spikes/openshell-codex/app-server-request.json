@@ -1,15 +1,22 @@
-{
-  "method": "thread/start",
-  "params": {
-    "model": "gpt-5.6-terra",
-    "modelProvider": "openai",
-    "cwd": "/sandbox/workspaces/primary",
-    "approvalPolicy": "never",
-    "sandboxPolicy": {
-      "type": "externalSandbox",
-      "networkAccess": "restricted"
-    },
-    "developerInstructions": "The outer OpenShell sandbox is authoritative. Use only approved tools.",
-    "dynamicTools": []
+[
+  {
+    "method": "thread/start",
+    "id": 1,
+    "params": {
+      "model": "gpt-5.6-terra",
+      "cwd": "/sandbox/workspaces/primary"
+    }
+  },
+  {
+    "method": "turn/start",
+    "id": 2,
+    "params": {
+      "threadId": "<thread-id-from-thread-start>",
+      "input": [{ "type": "text", "text": "Run the approved task." }],
+      "sandboxPolicy": {
+        "type": "externalSandbox",
+        "networkAccess": "restricted"
+      }
+    }
   }
-}
+]
