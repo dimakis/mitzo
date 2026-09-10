@@ -10,6 +10,7 @@ const READ_ONLY_TOOLS = new Set([
   'Grep',
   'WebSearch',
   'WebFetch',
+  'GitHubRead',
   'mcp__task-board__TaskStatus',
 ]);
 
@@ -23,6 +24,7 @@ const DEFAULT_TOOL_TIERS: Record<string, ToolTier> = {
   Grep: 'safe',
   WebSearch: 'safe',
   WebFetch: 'safe',
+  GitHubRead: 'safe',
   'mcp__task-board__TaskStatus': 'safe',
 
   TodoWrite: 'standard',

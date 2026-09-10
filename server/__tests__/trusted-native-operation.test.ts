@@ -146,4 +146,37 @@ describe('trusted native Git operation', () => {
     );
     expect(await readFile(join(root, '.env'), 'utf8')).toBe('SECRET=synthetic');
   });
+
+  it('never recursively stages a directory passed directly to the trusted boundary', async () => {
+    root = await mkdtemp(join(tmpdir(), 'mitzo-trusted-git-directory-'));
+    const repo = join(root, 'repo');
+    const worktree = join(root, 'worktree');
+    execFileSync('git', ['init', repo]);
+    execFileSync('git', ['-C', repo, 'config', 'user.name', 'Mitzo Test']);
+    execFileSync('git', ['-C', repo, 'config', 'user.email', 'test@example.invalid']);
+    execFileSync('git', [
+      '-C',
+      repo,
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '--allow-empty',
+      '-m',
+      'initial',
+    ]);
+    execFileSync('git', ['-C', repo, 'worktree', 'add', '-b', 'directory', worktree]);
+    await mkdir(join(worktree, 'changes'));
+    await writeFile(join(worktree, 'changes/.env'), 'SECRET=synthetic');
+    await expect(
+      executeTrustedGitCommit(
+        worktree,
+        ['changes'],
+        'unsafe recursive commit',
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('regular files');
+    expect(
+      execFileSync('git', ['-C', worktree, 'status', '--short'], { encoding: 'utf8' }),
+    ).toContain('?? changes/');
+  });
 });

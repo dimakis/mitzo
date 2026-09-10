@@ -200,6 +200,12 @@ export function createNativeToolExecutor(
           const canonical = await canonicalPath(resolve(root, requested));
           if (canonical === root || !canonical.startsWith(root + '/'))
             return result('Git commit path is outside the session workspace', true);
+          const info = await lstat(canonical).catch((error: NodeJS.ErrnoException) => {
+            if (error.code !== 'ENOENT') throw error;
+            return null;
+          });
+          if (info && !info.isFile())
+            return result('Git commit paths must be regular files or tracked deletions', true);
           files.push(relative(root, canonical));
         }
         const input = { files: [...new Set(files)], message: parsed.data.message };

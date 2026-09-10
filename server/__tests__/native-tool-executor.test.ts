@@ -74,7 +74,7 @@ describe('native tool execution through session permissions', () => {
     expect(await readFile(join(root, 'worktree/approved'), 'utf8')).toBe('yes');
   });
   it('requires an exact approval for authenticated GitHub reads without exposing credentials', async () => {
-    registry.get('client')!.mode = 'auto';
+    registry.get('client')!.mode = 'ask';
     const pending = executor()(call('GitHubRead', { endpoint: '/user' }), abort.signal);
     await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
     resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
@@ -111,6 +111,19 @@ describe('native tool execution through session permissions', () => {
       undefined,
       undefined,
     );
+  });
+  it('rejects GitCommit directories before approval or recursive staging', async () => {
+    await mkdir(join(root, 'worktree/changes'));
+    await writeFile(join(root, 'worktree/changes/.env'), 'SECRET=synthetic');
+    const result = await executor()(
+      call('GitCommit', { files: ['changes'], message: 'unsafe recursive commit' }),
+      abort.signal,
+    );
+    expect(result).toMatchObject({
+      is_error: true,
+      content: expect.stringContaining('regular files'),
+    });
+    expect(sent).toEqual([]);
   });
   it('returns structured answers through the native question tool in ask mode', async () => {
     registry.get('client')!.mode = 'ask';

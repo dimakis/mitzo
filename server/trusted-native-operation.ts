@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { constants } from 'node:fs';
 import {
   lstat,
   mkdir,
@@ -24,10 +25,11 @@ function run(
     timeoutMs: number;
     maxOutputBytes: number;
     env?: Record<string, string>;
+    input?: Buffer;
   },
 ): Promise<string> {
   return new Promise((resolveRun, reject) => {
-    execFile(
+    const child = execFile(
       file,
       [...args],
       {
@@ -43,6 +45,7 @@ function run(
         else resolveRun(stdout.trim());
       },
     );
+    if (options.input) child.stdin?.end(options.input);
   });
 }
 
@@ -200,9 +203,36 @@ export async function executeTrustedGitCommit(
     });
     if (realIndexTree !== baselineTree)
       throw new Error('Git index already contains staged changes; commit them separately');
-    // The synthetic repository has no repository-controlled config or hooks.
-    // Worktree attributes may name filters, but no driver exists to execute.
-    await run('git', ['add', '--', ...files], opts);
+    // Hash and index each approved regular file explicitly. This never asks Git
+    // to traverse a directory and bypasses repository attributes and filters.
+    for (const file of files) {
+      const absolute = resolve(cwd, file);
+      if (absolute === cwd || !absolute.startsWith(cwd + '/'))
+        throw new Error('Git commit path is outside the approved workspace');
+      let handle;
+      try {
+        handle = await open(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
+      } catch (error: unknown) {
+        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+          await run('git', ['update-index', '--remove', '--', file], opts);
+          continue;
+        }
+        throw error;
+      }
+      try {
+        const stat = await handle.stat();
+        if (!stat.isFile() || stat.nlink !== 1)
+          throw new Error('Git commit paths must be regular files without aliases');
+        const hash = await run('git', ['hash-object', '-w', '--stdin'], {
+          ...opts,
+          input: await handle.readFile(),
+        });
+        const mode = stat.mode & 0o111 ? '100755' : '100644';
+        await run('git', ['update-index', '--add', '--cacheinfo', `${mode},${hash},${file}`], opts);
+      } finally {
+        await handle.close();
+      }
+    }
     const tree = await run('git', ['write-tree'], opts);
     if (tree === baselineTree) throw new Error('Approved files contain no changes');
     const commit = await run('git', ['commit-tree', tree, '-p', oldCommit, '-m', message], {

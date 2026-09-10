@@ -10,6 +10,8 @@ describe('tool-tiers', () => {
   describe('getToolTier', () => {
     it('returns safe for Read', () => {
       expect(getToolTier('Read')).toBe('safe');
+      expect(getToolTier('GitHubRead')).toBe('safe');
+      expect(shouldAutoAllow('GitHubRead', 'ask')).toBe(true);
     });
 
     it('returns standard for Write', () => {
