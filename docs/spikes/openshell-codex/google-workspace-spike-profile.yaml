@@ -6,7 +6,8 @@ inference_capable: false
 credentials:
   - name: access_token
     description: Short-lived Google Workspace access token
-    env_vars: [GWS_ACCESS_TOKEN]
+    # gws 0.18.1 consumes a pre-obtained access token from this exact variable.
+    env_vars: [GOOGLE_WORKSPACE_CLI_TOKEN]
     required: true
     auth_style: bearer
     header_name: authorization
