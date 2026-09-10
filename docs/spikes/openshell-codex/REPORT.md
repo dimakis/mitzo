@@ -2,7 +2,7 @@
 
 ## Decision
 
-**No-go for a production migration now; go for a bounded qualification.** The
+**No-go for a production migration now; go for a local development integration.** The
 outer OpenShell boundary works on the local rootless Podman/arm64 path, and a
 current Codex app-server can execute with `externalSandbox` inside it. This is
 not evidence that live account credentials, recovery, Mitzo integrations, or
@@ -44,11 +44,13 @@ remove the risk that 0.153.4 is only a desktop-app-bundled build.
 | Correct protocol placement | **Pass (fixture/schema)** | `sandboxPolicy` is turn-scoped (`turn/start`) and command-scoped (`command/exec`); it is not a `thread/start` parameter. The request fixture reflects this. |
 | Brokered Codex subscription turn | **Blocked safely** | A `codex --from-existing` provider was attached without mounting the host auth store. OpenShell explicitly denied raw OAuth traffic to `chatgpt.com`/`api.openai.com`: the built-in profile has no L7-injectable auth mapping, so the proxy failed closed. No model action occurred. |
 | Inspected OpenAI API request | **Pass** | Direct and sandboxed `POST /v1/responses` with the same exact Keychain credential, `gpt-4.1-mini`, and request body both succeeded after importing the custom endpoint-bearing bearer profile. The legacy `openai` type had produced `invalid_api_key` because no installed profile supplied placement metadata. |
-| Codex API-key app-server turn | **Blocked at WebSocket handshake auth** | With ordinary HTTP substitution proven, Codex still received upstream 401 on `wss://api.openai.com/v1/responses`; adding a documented WebSocket endpoint/rules admitted the upgrade but did not substitute its Authorization header. OpenShell supports WebSockets generally; `websocket_credential_rewrite` applies to text frames after HTTP 101, not handshake headers. No marker file was created. |
-| Follow-up/cancel/restart/resume/refresh | Not tested | No authenticated live account turn was authorized. Restarting an app-server must not be confused with replacing the OpenShell sandbox. |
+| Codex API-key app-server turn | **Pass through custom HTTPS provider** | The built-in provider still received 401 at its WebSocket handshake, but a custom Codex `responses` provider for `https://api.openai.com/v1` used inspected HTTPS. A real model turn ran shell inside OpenShell and created the required marker. |
+| Mitzo app-server transport | **Pass (development seam)** | `CodexAppServerClient.launchOpenShell` uses OpenShell's SSH proxy as a bidirectional stdio bridge and forwards only an allowlisted host environment. A real turn driven through this Mitzo class created and committed a file in the sandbox repository. Normal chat binding and per-task provisioning are not wired yet. |
+| Follow-up/cancel/restart/resume/refresh | Partial | Client close left no remote app-server process after the SSH process-group fix. Follow-up, explicit mid-turn cancellation, sandbox recreation, and durable workspace restore are not yet proven. Conversation SQLite alone cannot restore uncommitted sandbox files. |
 | GitHub read and clone | **Pass (broker/clone)** | Existing `gh` token was captured in process memory, stored in a temporary provider, and exposed only as a placeholder. Authenticated `gh api user` passed; a genuinely private repository clone passed when the placeholder was supplied through HTTPS Basic auth. The earlier Mitzo clone was public. These are filesystem clones, not Mitzo workspace registration. |
 | GitHub write denial | **Pass** | A write request was explicitly `policy_denied`; no issue was created. Future controls should use only a synthetic endpoint. |
-| Google Workspace read | Partial | Host `gws 0.18.1` encrypted OAuth login is healthy and a one-item Drive read passed. Sandbox brokerage is blocked by secure import: `gws auth export` yields refresh/client material, while OpenShell's refresh CLI accepts material values in process arguments. That is unsuitable for secret isolation without a stdin/handle integration. |
+| Google Workspace read | Partial | Host `gws 0.18.1` encrypted OAuth login is healthy and a one-item Drive read passed. OpenShell supports safe `--secret-material-env` input and the profile was imported, but the exported material failed with both its exported client secret and the actual configured client secret (`invalid_client`, then `invalid_grant`). GWS re-auth/new refresh material is required. |
+| MGMT seed and repository workflow | **Partial** | A reviewed seed reduced 13 GB to ~28 MB while preserving sampled modifications/deletions and excluding runtime/auth stores. `./mgmt --help` passed. A Mitzo-driven sandbox agent created and committed a proof file. `./mgmt agents` failed because `litellm` is absent: MGMT's `uv.lock` is stale relative to `pyproject.toml`. |
 | Credential isolation | **Pass for static API/GitHub placeholders; broader open** | Hash-only checks proved sandbox provider variables differ from the real host tokens; host `gh` config and host Codex paths were absent. Gateway default storage uses AES-256-GCM envelopes and wrapped per-credential keys. Image-local `/sandbox/.codex` exists and still needs content classification. OAuth refresh-material and sibling-process threat tests remain. |
 | External-effect approval bypass | Not tested | No real write credential or trusted-executor mock was used. |
 | Two-seat Symposium contract | **Pass (design sketch only)** | `node --test symposium-seat-fixture.test.mjs` verifies independent seat bindings and message provenance in one shared workspace. It is not live Mitzo, runtime, or isolation evidence. |
@@ -109,11 +111,11 @@ a separate trusted host-side Codex token service with a narrow protocol.
 For the API route, the installed registry had no `openai` profile. A distinct,
 workspace-scoped custom profile added the missing `OPENAI_API_KEY` bearer
 placement and `api.openai.com` endpoint. With that correction, matched direct
-and sandboxed HTTP Responses calls succeeded. Codex's WebSocket upgrade still
-received 401 even after adding explicit `protocol: websocket` rules. This does
-not mean OpenShell lacks WebSocket support: installed source and schema support
-GET upgrades and `WEBSOCKET_TEXT`. It is specifically the credential placeholder
-in the HTTP upgrade Authorization header that remains unresolved.
+and sandboxed HTTP Responses calls succeeded. Codex's built-in provider
+WebSocket upgrade still received 401 even after adding explicit
+`protocol: websocket` rules. This does not mean OpenShell lacks WebSocket
+support. The working route is instead a custom Codex Responses provider over
+inspected HTTPS; its live model/tool turn passed.
 
 The GitHub provider followed the same secret boundary: the host `gh auth token`
 was captured to a shell variable, passed to `provider create --credential
@@ -121,15 +123,38 @@ GITHUB_TOKEN` by environment-name lookup, and stored in the gateway's encrypted
 credential store. The sandbox received a revisioned placeholder rather than the
 real token, and no host `gh` configuration directory was mounted.
 
+## Local task lifecycle and recovery
+
+The target is one retained sandbox per Mitzo task/Symposium. A warmed,
+local-only image contains Linux-compatible agent and MGMT dependencies, while a
+fresh writable workspace is seeded from `/Users/dsaridak/redhat/mgmt`.
+Credentials arrive only through attached gateway providers. The source checkout
+is never mounted writable or modified.
+
+The seed records the starting commit and file hashes in a host-side baseline.
+Future nontechnical save-back also requires externally durable change
+checkpoints, attachments, repo registrations, account bindings, and runtime
+continuation metadata. Mitzo must compare current host state to that baseline
+before applying an exact reviewed change set. Workspace Markdown/front matter
+is ordinary content and cannot alter grants or approval policy. Destroy/recreate
+recovery and native agent-thread resume are not yet tested.
+
+The raw 13 GB is dominated by accumulated `.claude/worktrees` (~4.9 GB),
+`.mitzo` (~1.9 GB), two macOS virtualenvs (~2.8 GB), and a 1.6 GB refresh log.
+Those are not per-task seed content. The reviewed seed is ~28 MB, but full MGMT
+parity is not established: `.agents` skills are included, while executable
+`.codex`/`.claude` hooks require explicit trust review before inclusion.
+
 ## Next qualification gate
 
-The next engineering gate is handshake-header placeholder substitution for
-Codex's Responses WebSocket, followed by real turn/follow-up/cancel/restart
-tests. Independently, add a secret-handle or stdin path for GWS OAuth refresh
-material before sandboxing `gws`. Mitzo multi-repository registration and a
-synthetic trusted-executor denial fixture remain separate from the proven
-private filesystem clone. Do not replace Mitzo's host-native executor until
-those gates pass.
+Wire per-task provisioning and the SSH transport into normal Mitzo chat
+selection, with a sandbox-path binding distinct from host cwd. Refresh MGMT's
+lockfile in its source repository (with user authorization), rebuild the local
+runtime image, and test representative MGMT commands. Add durable workspace
+checkpoints before expiry/recreation tests. The retained sandbox's GitHub API
+rule is absent: an attempted policy expansion was denied by the local approval
+layer, so the chat GitHub marker was not created. GWS needs a fresh refresh
+token. Anthropic/Vertex remains a separate worker entrypoint.
 
 ## Kubernetes integration target
 
@@ -155,7 +180,9 @@ namespace and relaxes parts of the combined process model. Minimum Kubernetes
 acceptance covers CR lifecycle, RBAC and ServiceAccount scope, projected-token
 absence from the agent, denial of gateway/Mitzo administrative reachability,
 placeholder isolation, storage scope, pod restart/resume, and node/runtime
-escape review. This spike did not provision a cluster.
+escape review. Kubernetes/Kata work is now deferred. A kind base cluster named
+`mitzo-openshell` was created with a separate kubeconfig before the deferral
+arrived; no OpenShell or Mitzo workload was installed into it.
 
 ## Sources
 

@@ -37,11 +37,17 @@ different filesystem trust domains.
   supplies the bearer placement metadata missing from the installed registry;
   it contains no credential value.
 - `openshell-openai-api-policy.yaml`: narrow inspected OpenAI Responses policy.
-- `google-workspace-spike-profile.yaml`: unimported design fixture for delegated
-  GWS refresh. It must not be used until refresh material can be supplied
-  without appearing in process arguments.
-- `app-server-live-turn-probe.mjs`: real model/tool-loop marker probe. Ordinary
-  HTTP auth passes, but the current Codex WebSocket handshake remains blocked.
+- `google-workspace-spike-profile.yaml`: imported delegated-refresh profile.
+  Its safe environment-name material path works, but the exported refresh
+  material is invalid and needs a fresh GWS authorization.
+- `app-server-live-turn-probe.mjs`: real model/tool-loop marker probe. The
+  built-in WebSocket route remains blocked; the custom inspected HTTPS provider passes.
+- `mitzo-transport-live-probe.ts`: drives a live turn through Mitzo's app-server
+  client over OpenShell's bidirectional SSH proxy.
+- `prepare-mgmt-seed.sh`: creates filtered task content plus a host-side
+  baseline manifest; save-back is not implemented.
+- `Dockerfile.mgmt-runtime` and `build-mgmt-runtime.sh`: local-only reusable
+  Linux runtime image. The build fails closed if MGMT's lockfile is stale.
 - `synthetic-secret-probe.mjs`: presence-only placeholder/canary boundary probe.
 - `run-disposable.sh`: creates a no-credential sandbox, performs harmless
   filesystem/network boundary checks, then deletes the sandbox on exit.
