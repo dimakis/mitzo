@@ -44,12 +44,13 @@ tool-policy enforcement, or data visibility. Callers should use the typed
 OpenShell permits multiple providers to be attached to one sandbox, including with
 repeated `--provider` flags at creation or attach commands at runtime. Those
 attachments and their composed policy are sandbox-wide for newly launched processes;
-they are not per-seat isolation. Mitzo's long-term OpenShell runtime deliberately
-attaches one account/inference provider plus reviewed service providers to each
-sandbox. Symposium extends its identity from a conversation to a seat isolation
-domain. Different account bindings therefore require separate sandboxes. Same-account
-sharing is a future optimization and still requires identical context, authority,
-policy, retention, image, and seed compatibility.
+they are not per-seat isolation. Ordinary Mitzo conversations attach one
+account/inference provider by default. An explicitly shared Symposium is different:
+the Symposium sandbox is the declared trust boundary and may attach multiple seat
+providers after explicit admission. Every admitted seat shares the sandbox's
+artifacts and effective provider/tool policy. If the user or organisational policy
+does not accept that sharing, the additional seat cannot join that Symposium;
+brokered multi-sandbox federation is outside v1.
 
 ## Next implementation slice (test-first)
 
