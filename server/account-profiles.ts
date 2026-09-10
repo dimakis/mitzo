@@ -45,7 +45,10 @@ const ApiProfile = z
     label: z.string().min(1),
     provider: z.literal('openai'),
     credentialRef: CredentialReferenceSchema,
-    sandboxProvider: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/),
+    sandboxProvider: z
+      .string()
+      .regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/)
+      .optional(),
     models: z.array(z.object({ id: z.string().min(1), label: z.string().min(1) }).strict()).min(1),
   })
   .strict();

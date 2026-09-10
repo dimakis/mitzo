@@ -851,6 +851,8 @@ async function _startChatInner(
     agentName?: string;
   },
 ) {
+  const openShellRequested =
+    process.env.MITZO_OPENSHELL_ENABLED === '1' || !!process.env.MITZO_OPENSHELL_SANDBOX_NAME;
   let accountBinding;
   let codexProfile: CodexAccountProfile | undefined;
   let apiKey: string | undefined;
@@ -864,11 +866,11 @@ async function _startChatInner(
       options.accountProfiles ??
       (options.accountId || storedBinding ? loadAccountProfiles() : undefined);
     accountBinding = resolveAccountSelection(options, storedBinding, !!options.resume, profiles);
-    if (!accountBinding && process.env.MITZO_OPENSHELL_ENABLED === '1')
+    if (!accountBinding && openShellRequested)
       throw new Error('OpenShell execution requires an explicit account selection');
     if (accountBinding) {
       if (
-        process.env.MITZO_OPENSHELL_ENABLED === '1' &&
+        openShellRequested &&
         accountBinding.provider !== 'openai' &&
         accountBinding.provider !== 'openai-codex'
       )
@@ -886,7 +888,11 @@ async function _startChatInner(
         if (options.skillAllowedTools)
           throw new Error('Codex restricted skill tool ceilings are not yet supported');
         codexProfile = profiles!.codexProfile(accountBinding);
-        if (process.env.MITZO_OPENSHELL_ENABLED === '1') {
+        if (openShellRequested) {
+          if (codexProfile.planType !== 'api')
+            throw new Error(
+              'ChatGPT subscription execution inside OpenShell requires supported brokered Codex OAuth; API billing substitution is forbidden.',
+            );
           if (!codexProfile.sandboxProvider)
             throw new Error('The selected ChatGPT account has no OpenShell provider binding');
         } else {
@@ -898,14 +904,13 @@ async function _startChatInner(
             preflight.close();
           }
         }
-        accountEnv =
-          process.env.MITZO_OPENSHELL_ENABLED === '1'
-            ? Object.fromEntries(
-                ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
-                  process.env[key] ? [[key, process.env[key]!]] : [],
-                ),
-              )
-            : codexEnvironment(codexProfile.credentialRef, process.env);
+        accountEnv = openShellRequested
+          ? Object.fromEntries(
+              ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
+                process.env[key] ? [[key, process.env[key]!]] : [],
+              ),
+            )
+          : codexEnvironment(codexProfile.credentialRef, process.env);
       } else if (accountBinding.provider === 'google-vertex') {
         if (options.images?.length)
           throw new Error('Gemini image attachments are not yet supported');
@@ -934,10 +939,9 @@ async function _startChatInner(
         if (options.images?.length)
           throw new Error('OpenAI API image attachments are not yet supported');
         const profile = profiles!.apiProfile(accountBinding);
-        if (
-          process.env.MITZO_OPENSHELL_ENABLED === '1' ||
-          process.env.MITZO_OPENSHELL_SANDBOX_NAME
-        ) {
+        if (openShellRequested) {
+          if (!profile.sandboxProvider)
+            throw new Error('The selected API account has no OpenShell provider binding');
           codexProfile = {
             accountId: accountBinding.accountId,
             accountLabel: accountBinding.accountLabel,
@@ -962,9 +966,7 @@ async function _startChatInner(
     });
     return;
   }
-  const openShellSelected =
-    !!codexProfile &&
-    (process.env.MITZO_OPENSHELL_ENABLED === '1' || !!process.env.MITZO_OPENSHELL_SANDBOX_NAME);
+  const openShellSelected = !!codexProfile && openShellRequested;
   const openShellWorkdir = openShellSelected
     ? process.env.MITZO_OPENSHELL_WORKDIR || '/sandbox/workspaces/mgmt'
     : undefined;

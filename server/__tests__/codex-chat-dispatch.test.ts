@@ -9,6 +9,15 @@ import { credentials } from '../credentials.js';
 import { openCodexChat } from '../codex-chat-session.js';
 import { registerSession } from '../session-index.js';
 import { createWorktree } from '../worktree.js';
+const codexLaunch = vi.hoisted(() =>
+  vi.fn(() => ({
+    initialize: async () => {},
+    request: async () => ({
+      account: { type: 'chatgpt', email: 'test@example.com', planType: 'test' },
+    }),
+    close: () => {},
+  })),
+);
 vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
   ...(await original<object>()),
   query: vi.fn(),
@@ -36,13 +45,7 @@ vi.mock('../codex-chat-session.js', () => ({
 }));
 vi.mock('../codex-app-server-client.js', () => ({
   CodexAppServerClient: {
-    launch: () => ({
-      initialize: async () => {},
-      request: async () => ({
-        account: { type: 'chatgpt', email: 'test@example.com', planType: 'test' },
-      }),
-      close: () => {},
-    }),
+    launch: codexLaunch,
   },
   codexEnvironment: () => ({ PATH: '/bin' }),
 }));
@@ -279,6 +282,46 @@ it('fails closed for unsupported account providers when OpenShell is enabled', a
     expect(openResponsesChat).not.toHaveBeenCalled();
     expect(openCodexChat).not.toHaveBeenCalled();
     expect(query).not.toHaveBeenCalled();
+  } finally {
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('rejects legacy OpenShell subscription routing before host credential preflight', async () => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-openshell-legacy-subscription-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', 'legacy-sandbox');
+  const chat = await import('../chat.js');
+  const profiles = new AccountProfiles(
+    [
+      {
+        id: 'personal',
+        label: 'Personal ChatGPT',
+        provider: 'openai-codex',
+        credentialRef: '/host/private/codex',
+        email: 'test@example.com',
+        planType: 'test',
+        sandboxProvider: 'personal-chatgpt',
+        models: [{ id: 'test-model', label: 'Test model' }],
+      },
+    ],
+    { codexEnabled: true },
+  );
+  const send = vi.fn();
+  try {
+    await chat.startChat({ send, isOpen: () => true }, 'legacy-subscription', 'hello', {
+      accountId: 'personal',
+      model: 'test-model',
+      accountProfiles: profiles,
+    });
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'error', error: expect.stringContaining('brokered') }),
+    );
+    expect(codexLaunch).not.toHaveBeenCalled();
+    expect(openCodexChat).not.toHaveBeenCalled();
   } finally {
     chat.eventStore.close();
     await rm(root, { recursive: true, force: true });

@@ -153,7 +153,7 @@ describe('work OpenAI API profile', () => {
     ).toThrow('changed');
     const unbound: Record<string, unknown> = { ...api };
     delete unbound.sandboxProvider;
-    expect(() => new AccountProfiles([unbound])).toThrow('Invalid account profiles');
+    expect(() => new AccountProfiles([unbound])).not.toThrow();
   });
 });
 
