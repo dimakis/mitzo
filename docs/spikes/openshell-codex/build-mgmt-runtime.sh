@@ -5,13 +5,10 @@ mgmt_repo="${1:?usage: build-mgmt-runtime.sh MGMT_REPO OUTPUT_TAG BASE_IMAGE@sha
 tag="${2:?usage: build-mgmt-runtime.sh MGMT_REPO OUTPUT_TAG BASE_IMAGE@sha256:DIGEST}"
 base_image="${3:?usage: build-mgmt-runtime.sh MGMT_REPO OUTPUT_TAG BASE_IMAGE@sha256:DIGEST}"
 
-case "$base_image" in
-  *@sha256:[0-9a-f][0-9a-f]*) ;;
-  *)
-    echo 'base image must use an immutable @sha256 digest' >&2
-    exit 2
-    ;;
-esac
+if [[ ! "$base_image" =~ ^[^@[:space:]]+@sha256:[0-9a-f]{64}$ ]]; then
+  echo 'base image must use an immutable @sha256 digest' >&2
+  exit 2
+fi
 tag_component="${tag##*/}"
 case "$tag_component" in
   *:*) ;;

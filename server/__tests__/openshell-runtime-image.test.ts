@@ -21,6 +21,9 @@ describe('OpenShell runtime image builder', () => {
     'ghcr.io/nvidia/openshell-community/sandboxes/base:latest',
     'ghcr.io/nvidia/openshell-community/sandboxes/base:0.0.116',
     'sha256:bcf4897ab8f95ec875847998297da98d16a44c8741c62c738d917f0eb8d35097',
+    'ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:ab-not-a-digest',
+    `ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:${'a'.repeat(63)}`,
+    `ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:${'a'.repeat(65)}`,
   ])('rejects mutable or registry-less base reference %s', (base) => {
     expect(rejectedBase(base)).toContain('base image must use an immutable @sha256 digest');
   });
