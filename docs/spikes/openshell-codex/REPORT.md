@@ -145,16 +145,22 @@ startup reconciliation and stale-worktree cleanup outside production; the
 latter rejects configured repositories whose canonical paths escape the
 ceiling.
 
-## ContexGin trust boundary
+## ContexGin session boundary
 
-ContexGin remains part of MGMT parity, but it should not run inside each task
-sandbox. Mitzo's trusted host process already fetches
+ContexGin remains part of MGMT parity. Mitzo already fetches
 `/api/agents/:name/context`, sends provenance to the UI, and appends the
-compiled Markdown to the system prompt before opening the agent turn. Only the
-resulting context crosses into OpenShell. If the host daemon is unavailable,
-Mitzo retains its local boot-context fallback. This keeps ContexGin's daemon,
-filesystem graph, and SQLite state outside the untrusted execution boundary and
-avoids granting the sandbox a route back to a host-local service.
+compiled Markdown to the system prompt before opening the agent turn. The live
+daemon is healthy on its documented port 4195, but the current Mitzo defaults
+still point at stale port 8321. More importantly, daemon compilation observes
+the host checkout rather than the exact seeded task state.
+
+The target is a session-start hook that compiles context against the sandbox's
+seeded MGMT workspace and injects that payload into the same task. Shared
+indexing and goal services may remain outside the sandbox. Compiled content is
+context, not an authority grant: filesystem, network, credential, and approval
+policy remain independently enforced. If session-scoped compilation is
+unavailable, Mitzo must expose that fallback rather than silently presenting
+host-derived context as sandbox-derived context.
 
 ## Local task lifecycle and recovery
 
@@ -187,7 +193,9 @@ rather than rewriting host MGMT. Add durable workspace checkpoints before
 expiry/recreation tests. The retained development sandbox has inspected,
 read-only GitHub API access for `gh`, `git`, and `curl`; its real
 Mitzo-transported GitHub marker passed. GWS still needs a fresh refresh token.
-Anthropic/Vertex remains a separate worker entrypoint.
+Add session-start ContexGin compilation against the seeded sandbox workspace;
+the current host-daemon call is not exact-state parity. Anthropic/Vertex remains
+a separate worker entrypoint.
 
 ## Kubernetes integration target
 
