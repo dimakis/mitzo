@@ -7,15 +7,19 @@ import {
 } from '../openshell-runtime.js';
 
 const config = {
+  cli: '/opt/isolated/bin/openshell',
   image: 'mitzo-runtime:1',
   policy: '/config/policy.yaml',
   seed: '/seed/mgmt',
   serviceProviders: ['google-workspace', 'github'],
   workspace: 'mitzo',
   gateway: 'local',
+  gatewayInsecure: false,
+  createDetached: true,
+  sandboxIdLength: 24,
   workdir: '/sandbox/workspaces/mgmt',
   webSearch: 'disabled' as const,
-  accountProvider: 'openai-work',
+  account: { kind: 'api' as const, provider: 'openai-work', model: 'test-model' },
 };
 const owner = '8b34dbc2c05eb4d7e25d48efeace82456b16cee760bcae80c157f52a3c2e787b';
 const ready = (phase = 'Ready') =>
@@ -52,6 +56,9 @@ describe('OpenShell runtime lifecycle', () => {
       'github',
     ]);
     expect(create).toContain('mitzo.account_provider=openai-work');
+    expect(create).toContain('--inference-provider');
+    expect(create).toContain('--inference-model');
+    expect(create).toContain('test-model');
     expect(create).not.toContain('auto-providers');
   });
 
@@ -170,7 +177,15 @@ describe('OpenShell runtime lifecycle', () => {
     const manager = new OpenShellRuntimeManager(config, run);
     await expect(
       manager.compileContext(
-        { sandboxName: 'mitzo-runtime', workdir: '/sandbox/workspaces/mgmt' },
+        {
+          sandboxName: 'mitzo-runtime',
+          workdir: '/sandbox/workspaces/mgmt',
+          appServerCommand: '/sandbox/run-mitzo-app-server',
+          cli: config.cli,
+          gateway: config.gateway,
+          workspace: config.workspace,
+          gatewayInsecure: false,
+        },
         new AbortController().signal,
       ),
     ).resolves.toMatchObject({ fullMarkdown: '# Context', scope: 'sandbox' });
@@ -194,6 +209,34 @@ describe('OpenShell runtime lifecycle', () => {
         MITZO_OPENSHELL_SERVICE_PROVIDERS: 'google-workspace,github',
       }),
     ).toMatchObject({ serviceProviders: ['google-workspace', 'github'] });
+    expect(
+      openShellRuntimeConfig({
+        MITZO_OPENSHELL_ENABLED: '1',
+        MITZO_OPENSHELL_IMAGE: 'runtime:1',
+        MITZO_OPENSHELL_POLICY: '/policy',
+        MITZO_OPENSHELL_SEED: '/seed',
+        MITZO_OPENSHELL_CLI: '/isolated/openshell',
+      }),
+    ).toMatchObject({ cli: '/isolated/openshell' });
+    expect(
+      openShellRuntimeConfig({
+        MITZO_OPENSHELL_ENABLED: '1',
+        MITZO_OPENSHELL_IMAGE: 'runtime:1',
+        MITZO_OPENSHELL_POLICY: '/policy',
+        MITZO_OPENSHELL_SEED: '/seed',
+        MITZO_OPENSHELL_CREATE_DETACHED: '0',
+        MITZO_OPENSHELL_SANDBOX_ID_LENGTH: '12',
+      }),
+    ).toMatchObject({ createDetached: false, sandboxIdLength: 12 });
+    expect(() =>
+      openShellRuntimeConfig({
+        MITZO_OPENSHELL_ENABLED: '1',
+        MITZO_OPENSHELL_IMAGE: 'runtime:1',
+        MITZO_OPENSHELL_POLICY: '/policy',
+        MITZO_OPENSHELL_SEED: '/seed',
+        MITZO_OPENSHELL_CLI: 'relative/openshell',
+      }),
+    ).toThrow('absolute');
     expect(() =>
       openShellRuntimeConfig({
         MITZO_OPENSHELL_ENABLED: '1',
@@ -229,6 +272,126 @@ describe('OpenShell runtime lifecycle', () => {
         MITZO_OPENSHELL_PROVIDERS: 'openai-other-account',
       }),
     ).toThrow('ambiguous');
+  });
+
+  it('verifies the exact subscription provider and grant before creating a sandbox', async () => {
+    const subscription = {
+      ...config,
+      createDetached: false,
+      sandboxIdLength: 12,
+      account: {
+        kind: 'chatgpt-subscription' as const,
+        provider: 'personal-chatgpt',
+        providerType: 'openai-codex-oauth' as const,
+        providerId: 'provider-object-1',
+        grantId: 'grant-generation-1',
+        model: 'gpt-test',
+      },
+    };
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce(
+        JSON.stringify([
+          {
+            id: 'provider-object-1',
+            name: 'personal-chatgpt',
+            workspace: 'mitzo',
+            type: 'openai-codex-oauth',
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          credentials: [
+            {
+              provider_name: 'personal-chatgpt',
+              provider_id: 'provider-object-1',
+              credential_key: 'OPENAI_CODEX_OAUTH_ACCESS_TOKEN',
+              status: 'refreshed',
+              expires_at_ms: Date.now() + 60_000,
+              refresh_generation_id: 'grant-generation-1',
+            },
+          ],
+        }),
+      )
+      .mockRejectedValueOnce(new Error('sandbox not found'))
+      .mockResolvedValueOnce('{}')
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          name: 'sandbox',
+          phase: 'Ready',
+          labels: {
+            'mitzo.conversation': owner,
+            'mitzo.account_provider': 'personal-chatgpt',
+          },
+        }),
+      );
+    await new OpenShellRuntimeManager(subscription, run).ensure(
+      'conversation',
+      new AbortController().signal,
+    );
+    expect(run.mock.calls[0][0]).toContain('list');
+    expect(run.mock.calls[1][0]).toContain('status');
+    expect(run.mock.calls[3][0]).toEqual(
+      expect.arrayContaining([
+        '--provider',
+        'personal-chatgpt',
+        '--inference-provider',
+        'personal-chatgpt',
+        '--inference-model',
+        'gpt-test',
+      ]),
+    );
+    expect(run.mock.calls[3][0]).not.toContain('--detach');
+    expect(run.mock.calls[3][0]).toEqual(expect.arrayContaining(['--output', 'json']));
+  });
+
+  it.each([
+    ['wrong provider object', { providerId: 'other' }],
+    ['wrong grant generation', { grantId: 'other' }],
+  ])('fails closed for %s', async (_name, override) => {
+    const account = {
+      kind: 'chatgpt-subscription' as const,
+      provider: 'personal-chatgpt',
+      providerType: 'openai-codex-oauth' as const,
+      providerId: 'provider-object-1',
+      grantId: 'grant-generation-1',
+      model: 'gpt-test',
+      ...override,
+    };
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce(
+        JSON.stringify([
+          {
+            id: 'provider-object-1',
+            name: 'personal-chatgpt',
+            workspace: 'mitzo',
+            type: 'openai-codex-oauth',
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          credentials: [
+            {
+              provider_name: 'personal-chatgpt',
+              provider_id: 'provider-object-1',
+              credential_key: 'OPENAI_CODEX_OAUTH_ACCESS_TOKEN',
+              status: 'refreshed',
+              expires_at_ms: Date.now() + 60_000,
+              refresh_generation_id: 'grant-generation-1',
+            },
+          ],
+        }),
+      );
+    await expect(
+      new OpenShellRuntimeManager({ ...config, account }, run).ensure(
+        'conversation',
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(/does not match|expired|revoked|sign-in/);
+    expect(run.mock.calls.flat().flat()).not.toContain('create');
   });
 
   it('passes only explicitly sandboxed MCP servers and live search to Codex', () => {

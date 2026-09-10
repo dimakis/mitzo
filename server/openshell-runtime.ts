@@ -9,6 +9,25 @@ const Sandbox = z.object({
   phase: z.enum(['Ready', 'Stopped', 'Pending', 'Creating', 'Starting', 'Error']),
   labels: z.record(z.string(), z.string()).optional(),
 });
+const Provider = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  workspace: z.string(),
+  type: z.string().min(1),
+});
+const ProviderList = z.array(Provider);
+const RefreshStatus = z.object({
+  credentials: z.array(
+    z.object({
+      provider_name: z.string(),
+      provider_id: z.string(),
+      credential_key: z.string(),
+      status: z.string(),
+      expires_at_ms: z.number(),
+      refresh_generation_id: z.string(),
+    }),
+  ),
+});
 const ContextSection = z.object({
   source: z.string(),
   heading: z.string(),
@@ -31,15 +50,26 @@ export type OpenShellBootContext = z.infer<typeof BootContext>;
 export interface OpenShellRuntime {
   sandboxName: string;
   workdir: string;
+  appServerCommand: '/sandbox/run-mitzo-app-server' | '/sandbox/run-mitzo-subscription-app-server';
+  cli: string;
+  gateway: string;
+  workspace: string;
+  gatewayEndpoint?: string;
+  gatewayInsecure: boolean;
 }
 
 export interface OpenShellRuntimeConfig {
+  cli: string;
   image: string;
   policy: string;
   seed: string;
   serviceProviders: string[];
   workspace: string;
   gateway: string;
+  gatewayEndpoint?: string;
+  gatewayInsecure: boolean;
+  createDetached: boolean;
+  sandboxIdLength: number;
   workdir: string;
   webSearch: 'disabled' | 'live';
 }
@@ -47,15 +77,26 @@ export interface OpenShellRuntimeConfig {
 const SERVICE_PROVIDERS = new Set(['google-workspace', 'github']);
 
 export interface BoundOpenShellRuntimeConfig extends OpenShellRuntimeConfig {
-  accountProvider: string;
+  account: OpenShellAccountRoute;
 }
+
+export type OpenShellAccountRoute =
+  | { kind: 'api'; provider: string; model: string }
+  | {
+      kind: 'chatgpt-subscription';
+      provider: string;
+      providerType: 'openai-codex-oauth';
+      providerId: string;
+      grantId: string;
+      model: string;
+    };
 
 type Run = (args: readonly string[], signal: AbortSignal) => Promise<string>;
 
-function command(args: readonly string[], signal: AbortSignal): Promise<string> {
+function command(binary: string, args: readonly string[], signal: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
-      'openshell',
+      binary,
       [...args],
       {
         env: Object.fromEntries(
@@ -89,6 +130,9 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
   const policy = env.MITZO_OPENSHELL_POLICY;
   const seed = env.MITZO_OPENSHELL_SEED;
   if (!image || !policy || !seed) throw new Error('OpenShell runtime configuration is incomplete');
+  const cli = env.MITZO_OPENSHELL_CLI || 'openshell';
+  if ((cli !== 'openshell' && !isAbsolute(cli)) || !/^[A-Za-z0-9_./+-]+$/.test(cli))
+    throw new Error('MITZO_OPENSHELL_CLI must be an absolute path');
   if (!isAbsolute(policy) || !isAbsolute(seed))
     throw new Error('OpenShell policy and seed paths must be absolute');
   const serviceProviders = (env.MITZO_OPENSHELL_SERVICE_PROVIDERS || '')
@@ -102,13 +146,28 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
   const webSearch = env.MITZO_OPENSHELL_WEB_SEARCH || 'disabled';
   if (webSearch !== 'disabled' && webSearch !== 'live')
     throw new Error('Invalid OpenShell web search mode');
+  const gatewayEndpoint = env.MITZO_OPENSHELL_GATEWAY_ENDPOINT;
+  if (gatewayEndpoint && !/^https?:\/\/[A-Za-z0-9.:[\]_-]+(?::\d+)?$/.test(gatewayEndpoint))
+    throw new Error('Invalid OpenShell gateway endpoint');
+  const gatewayInsecure = env.MITZO_OPENSHELL_GATEWAY_INSECURE === '1';
+  if (gatewayInsecure && !gatewayEndpoint?.startsWith('http://'))
+    throw new Error('OpenShell insecure mode requires an explicit HTTP endpoint');
+  const createDetached = env.MITZO_OPENSHELL_CREATE_DETACHED !== '0';
+  const sandboxIdLength = Number(env.MITZO_OPENSHELL_SANDBOX_ID_LENGTH || '24');
+  if (!Number.isInteger(sandboxIdLength) || sandboxIdLength < 8 || sandboxIdLength > 24)
+    throw new Error('MITZO_OPENSHELL_SANDBOX_ID_LENGTH must be an integer from 8 to 24');
   return {
+    cli,
     image,
     policy,
     seed,
     serviceProviders,
     workspace: identifier(env.OPENSHELL_WORKSPACE || 'default', 'workspace'),
     gateway: identifier(env.OPENSHELL_GATEWAY || 'openshell', 'gateway'),
+    ...(gatewayEndpoint ? { gatewayEndpoint } : {}),
+    gatewayInsecure,
+    createDetached,
+    sandboxIdLength,
     workdir: '/sandbox/workspaces/mgmt',
     webSearch,
   };
@@ -136,23 +195,39 @@ export function openShellCodexRuntimeConfig(
   return runtime;
 }
 
-export function sandboxNameForConversation(conversationId: string) {
-  return `mitzo-${createHash('sha256').update(conversationId).digest('hex').slice(0, 24)}`;
+export function sandboxNameForConversation(conversationId: string, idLength = 24) {
+  if (!Number.isInteger(idLength) || idLength < 8 || idLength > 24)
+    throw new Error('OpenShell sandbox id length must be an integer from 8 to 24');
+  return `mitzo-${createHash('sha256').update(conversationId).digest('hex').slice(0, idLength)}`;
 }
 
 /** Owns lifecycle only. OpenShell owns process/filesystem/network enforcement and providers. */
 export class OpenShellRuntimeManager {
+  private run: Run;
+
   constructor(
     private config: BoundOpenShellRuntimeConfig,
-    private run: Run = command,
+    run?: Run,
     private readiness: { pollIntervalMs: number; timeoutMs: number } = {
       pollIntervalMs: 250,
       timeoutMs: 30_000,
     },
-  ) {}
+  ) {
+    this.run = run ?? ((args, signal) => command(config.cli, args, signal));
+  }
 
   private base() {
-    return ['--gateway', this.config.gateway, '--workspace', this.config.workspace] as const;
+    return [
+      ...(this.config.gatewayEndpoint
+        ? [
+            '--gateway-endpoint',
+            this.config.gatewayEndpoint,
+            ...(this.config.gatewayInsecure ? ['--gateway-insecure'] : []),
+          ]
+        : ['--gateway', this.config.gateway]),
+      '--workspace',
+      this.config.workspace,
+    ] as const;
   }
 
   private async get(name: string, signal: AbortSignal) {
@@ -182,6 +257,47 @@ export class OpenShellRuntimeManager {
     });
   }
 
+  private async verifyAccountProvider(signal: AbortSignal) {
+    const account = this.config.account;
+    if (account.kind === 'api') return;
+    const providers = ProviderList.parse(
+      JSON.parse(
+        await this.run(
+          ['provider', ...this.base(), 'list', '--output', 'json', '--limit', '100'],
+          signal,
+        ),
+      ),
+    );
+    const provider = providers.find((entry) => entry.name === account.provider);
+    if (
+      !provider ||
+      provider.workspace !== this.config.workspace ||
+      provider.type !== account.providerType ||
+      provider.id !== account.providerId
+    )
+      throw new Error('OpenShell subscription provider does not match the selected account');
+    const refresh = RefreshStatus.parse(
+      JSON.parse(
+        await this.run(
+          ['provider', ...this.base(), 'refresh', 'status', account.provider, '--output', 'json'],
+          signal,
+        ),
+      ),
+    );
+    const credential = refresh.credentials.find(
+      (entry) => entry.credential_key === 'OPENAI_CODEX_OAUTH_ACCESS_TOKEN',
+    );
+    if (
+      !credential ||
+      credential.provider_name !== account.provider ||
+      credential.provider_id !== account.providerId ||
+      credential.status !== 'refreshed' ||
+      credential.refresh_generation_id !== account.grantId ||
+      credential.expires_at_ms <= Date.now()
+    )
+      throw new Error('OpenShell ChatGPT grant is expired, revoked, or requires sign-in');
+  }
+
   private async waitForReady(name: string, owner: string, signal: AbortSignal) {
     const deadline = Date.now() + this.readiness.timeoutMs;
     let phase = 'unavailable';
@@ -191,7 +307,7 @@ export class OpenShellRuntimeManager {
       phase = sandbox?.phase ?? 'unavailable';
       if (sandbox && sandbox.labels?.['mitzo.conversation'] !== owner)
         throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
-      if (sandbox && sandbox.labels?.['mitzo.account_provider'] !== this.config.accountProvider)
+      if (sandbox && sandbox.labels?.['mitzo.account_provider'] !== this.config.account.provider)
         throw new Error(`OpenShell sandbox ${name} has another account provider binding`);
       if (sandbox?.phase === 'Ready') return sandbox;
       if (sandbox?.phase === 'Error') throw new Error(`OpenShell sandbox ${name} is Error`);
@@ -201,12 +317,14 @@ export class OpenShellRuntimeManager {
   }
 
   async ensure(conversationId: string, signal: AbortSignal): Promise<OpenShellRuntime> {
-    const name = sandboxNameForConversation(conversationId);
+    await this.verifyAccountProvider(signal);
+    const accountProvider = this.config.account.provider;
+    const name = sandboxNameForConversation(conversationId, this.config.sandboxIdLength);
     const owner = createHash('sha256').update(conversationId).digest('hex');
     let sandbox = await this.get(name, signal);
     if (sandbox && sandbox.labels?.['mitzo.conversation'] !== owner)
       throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
-    if (sandbox && sandbox.labels?.['mitzo.account_provider'] !== this.config.accountProvider)
+    if (sandbox && sandbox.labels?.['mitzo.account_provider'] !== accountProvider)
       throw new Error(`OpenShell sandbox ${name} has another account provider binding`);
     if (!sandbox) {
       const args = [
@@ -224,11 +342,20 @@ export class OpenShellRuntimeManager {
         '--label',
         `mitzo.conversation=${owner}`,
         '--label',
-        `mitzo.account_provider=${this.config.accountProvider}`,
+        `mitzo.account_provider=${accountProvider}`,
         '--no-auto-providers',
-        '--detach',
+        '--output',
+        'json',
       ];
-      args.push('--provider', this.config.accountProvider);
+      if (this.config.createDetached) args.push('--detach');
+      args.push(
+        '--provider',
+        accountProvider,
+        '--inference-provider',
+        accountProvider,
+        '--inference-model',
+        this.config.account.model,
+      );
       for (const provider of this.config.serviceProviders) args.push('--provider', provider);
       try {
         await this.run(args, signal);
@@ -247,7 +374,19 @@ export class OpenShellRuntimeManager {
       throw new Error(`OpenShell sandbox ${name} is ${sandbox?.phase ?? 'unavailable'}`);
     if (sandbox.labels?.['mitzo.conversation'] !== owner)
       throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
-    return { sandboxName: name, workdir: this.config.workdir };
+    return {
+      sandboxName: name,
+      workdir: this.config.workdir,
+      appServerCommand:
+        this.config.account.kind === 'chatgpt-subscription'
+          ? '/sandbox/run-mitzo-subscription-app-server'
+          : '/sandbox/run-mitzo-app-server',
+      cli: this.config.cli,
+      gateway: this.config.gateway,
+      workspace: this.config.workspace,
+      ...(this.config.gatewayEndpoint ? { gatewayEndpoint: this.config.gatewayEndpoint } : {}),
+      gatewayInsecure: this.config.gatewayInsecure,
+    };
   }
 
   async compileContext(runtime: OpenShellRuntime, signal: AbortSignal) {

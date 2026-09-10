@@ -157,6 +157,60 @@ describe('work OpenAI API profile', () => {
   });
 });
 
+describe('brokered ChatGPT subscription profile', () => {
+  const subscription = {
+    id: 'personal',
+    label: 'Personal ChatGPT',
+    provider: 'openai-codex',
+    email: 'person@example.test',
+    planType: 'pro',
+    sandboxProvider: 'personal-chatgpt',
+    sandboxProviderType: 'openai-codex-oauth',
+    sandboxProviderId: 'provider-object-1',
+    sandboxGrantId: 'grant-generation-1',
+    models: [{ id: 'gpt-test', label: 'GPT test' }],
+  };
+
+  it('preserves subscription billing and binds only opaque broker identities', () => {
+    const profiles = new AccountProfiles([subscription], { codexEnabled: true });
+    const binding = profiles.resolve('personal', 'gpt-test');
+    expect(profiles.catalog()[0]).toMatchObject({
+      provider: 'openai-codex',
+      billing: 'chatgpt-subscription',
+    });
+    expect(profiles.codexProfile(binding)).toMatchObject({
+      accountId: 'personal',
+      planType: 'pro',
+      sandboxProvider: 'personal-chatgpt',
+      sandboxProviderType: 'openai-codex-oauth',
+      sandboxProviderId: 'provider-object-1',
+      sandboxGrantId: 'grant-generation-1',
+    });
+    expect(JSON.stringify(binding)).not.toContain('provider-object-1');
+    expect(JSON.stringify(binding)).not.toContain('grant-generation-1');
+  });
+
+  it('requires a complete broker binding and rejects grant changes on resume', () => {
+    for (const field of [
+      'sandboxProvider',
+      'sandboxProviderType',
+      'sandboxProviderId',
+      'sandboxGrantId',
+    ]) {
+      const incomplete: Record<string, unknown> = { ...subscription };
+      delete incomplete[field];
+      expect(() => new AccountProfiles([incomplete], { codexEnabled: true })).toThrow();
+    }
+    const profiles = new AccountProfiles([subscription], { codexEnabled: true });
+    const binding = profiles.resolve('personal', 'gpt-test');
+    expect(() =>
+      new AccountProfiles([{ ...subscription, sandboxGrantId: 'another-grant' }], {
+        codexEnabled: true,
+      }).resume(binding),
+    ).toThrow('changed');
+  });
+});
+
 describe('legacy model catalog', () => {
   it('uses only the allowlist matching the legacy Vertex route', () => {
     const profiles = new AccountProfiles([

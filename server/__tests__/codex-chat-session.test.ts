@@ -44,7 +44,7 @@ function options(abortController: AbortController) {
   return {
     session: { cwd: '/tmp', abortController },
     mcpServers: {},
-    profile: { planType: 'api' },
+    profile: { planType: 'api', credentialRef: '/test/login' },
   } as Parameters<typeof openCodexChat>[0];
 }
 it('does not open MCP processes if private storage is unavailable', async () => {

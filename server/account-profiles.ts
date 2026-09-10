@@ -28,7 +28,7 @@ const CodexProfile = z
     id: z.string().regex(/^[a-zA-Z0-9_-]+$/),
     label: z.string().min(1),
     provider: z.literal('openai-codex'),
-    credentialRef: z.string().refine(isAbsolute),
+    credentialRef: z.string().refine(isAbsolute).optional(),
     email: z.string().min(1),
     planType: z.string().min(1),
     workspaceId: z.string().min(1).optional(),
@@ -36,7 +36,30 @@ const CodexProfile = z
       .string()
       .regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/)
       .optional(),
+    sandboxProviderType: z.literal('openai-codex-oauth').optional(),
+    sandboxProviderId: z.string().min(1).max(128).optional(),
+    sandboxGrantId: z.string().min(1).max(128).optional(),
     models: z.array(z.object({ id: z.string().min(1), label: z.string().min(1) }).strict()).min(1),
+  })
+  .superRefine((profile, context) => {
+    const brokerFields = [
+      profile.sandboxProviderType,
+      profile.sandboxProviderId,
+      profile.sandboxGrantId,
+    ];
+    const brokered = brokerFields.some(Boolean);
+    if (brokered && (!profile.sandboxProvider || brokerFields.some((value) => !value))) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Brokered subscription binding is incomplete',
+      });
+    }
+    if (!profile.credentialRef && !brokered) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Codex profile requires a host login or brokered subscription binding',
+      });
+    }
   })
   .strict();
 const ApiProfile = z
@@ -83,7 +106,9 @@ export class AccountProfiles {
   }
 
   privateCodexRoots(): string[] {
-    return this.profiles.filter((p) => p.provider === 'openai-codex').map((p) => p.credentialRef);
+    return this.profiles.flatMap((profile) =>
+      profile.provider === 'openai-codex' && profile.credentialRef ? [profile.credentialRef] : [],
+    );
   }
 
   catalog() {
@@ -140,6 +165,7 @@ export class AccountProfiles {
             JSON.stringify(profile),
             async () => {
               if (profile.provider === 'openai-codex') {
+                if (!profile.credentialRef) return profile.models;
                 const { CodexAppServerClient } = await import('./codex-app-server-client.js');
                 const { verifyCodexAccount } = await import('./codex-account.js');
                 const client = CodexAppServerClient.launch(profile.credentialRef);
@@ -196,6 +222,9 @@ export class AccountProfiles {
                 profile.planType,
                 profile.workspaceId,
                 profile.sandboxProvider,
+                profile.sandboxProviderType,
+                profile.sandboxProviderId,
+                profile.sandboxGrantId,
               ]
             : profile.provider === 'openai'
               ? [profile.provider, profile.credentialRef, profile.sandboxProvider]
@@ -240,6 +269,9 @@ export class AccountProfiles {
       planType: profile.planType,
       ...(profile.workspaceId ? { workspaceId: profile.workspaceId } : {}),
       ...(profile.sandboxProvider ? { sandboxProvider: profile.sandboxProvider } : {}),
+      ...(profile.sandboxProviderType ? { sandboxProviderType: profile.sandboxProviderType } : {}),
+      ...(profile.sandboxProviderId ? { sandboxProviderId: profile.sandboxProviderId } : {}),
+      ...(profile.sandboxGrantId ? { sandboxGrantId: profile.sandboxGrantId } : {}),
       model: binding.model,
     };
   }

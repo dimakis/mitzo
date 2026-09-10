@@ -199,6 +199,12 @@ describe('Codex app-server transport', () => {
         {
           sandboxName: 'mitzo-session-ab12',
           workdir: '/sandbox/workspaces/mgmt',
+          appServerCommand: '/sandbox/run-mitzo-subscription-app-server',
+          cli: '/isolated/openshell',
+          gateway: 'isolated',
+          workspace: 'mitzo-dev',
+          gatewayEndpoint: 'http://[::1]:18670',
+          gatewayInsecure: true,
         },
         {
           PATH: '/bin',
@@ -221,9 +227,9 @@ describe('Codex app-server transport', () => {
         '-o',
         'LogLevel=ERROR',
         '-o',
-        'ProxyCommand=openshell ssh-proxy --gateway-name openshell --name mitzo-session-ab12 --workspace mitzo-dev',
+        'ProxyCommand=/isolated/openshell --gateway-endpoint http://[::1]:18670 --gateway-insecure ssh-proxy --gateway-name isolated --name mitzo-session-ab12 --workspace mitzo-dev',
         'sandbox@openshell-mitzo-session-ab12.mitzo-dev',
-        '/sandbox/run-mitzo-app-server',
+        '/sandbox/run-mitzo-subscription-app-server',
       ],
       env: { PATH: '/bin', HOME: '/Users/test', OPENSHELL_WORKSPACE: 'mitzo-dev' },
     });

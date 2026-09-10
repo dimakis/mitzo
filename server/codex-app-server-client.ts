@@ -26,6 +26,12 @@ interface Pending {
 export interface OpenShellCodexOptions {
   sandboxName: string;
   workdir: string;
+  appServerCommand?: '/sandbox/run-mitzo-app-server' | '/sandbox/run-mitzo-subscription-app-server';
+  cli?: string;
+  gateway?: string;
+  workspace?: string;
+  gatewayEndpoint?: string;
+  gatewayInsecure?: boolean;
 }
 
 /** Build the development transport without forwarding host credentials to the
@@ -55,12 +61,24 @@ export function openShellCodexProcessSpec(
   ]) {
     if (base[key]) env[key] = base[key]!;
   }
-  const workspace = base.OPENSHELL_WORKSPACE || 'default';
-  const gateway = base.OPENSHELL_GATEWAY || 'openshell';
+  const workspace = options.workspace || base.OPENSHELL_WORKSPACE || 'default';
+  const gateway = options.gateway || base.OPENSHELL_GATEWAY || 'openshell';
+  const cli = options.cli || 'openshell';
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(workspace))
     throw new Error('Invalid OpenShell workspace name');
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(gateway))
     throw new Error('Invalid OpenShell gateway name');
+  if ((cli !== 'openshell' && !isAbsolute(cli)) || !/^[A-Za-z0-9_./+-]+$/.test(cli))
+    throw new Error('Invalid OpenShell CLI path');
+  if (
+    options.gatewayEndpoint &&
+    !/^https?:\/\/[A-Za-z0-9.:[\]_-]+(?::\d+)?$/.test(options.gatewayEndpoint)
+  )
+    throw new Error('Invalid OpenShell gateway endpoint');
+  const proxyGateway = options.gatewayEndpoint
+    ? `--gateway-endpoint ${options.gatewayEndpoint}${options.gatewayInsecure ? ' --gateway-insecure' : ''}`
+    : `--gateway ${gateway}`;
+  const appServerCommand = options.appServerCommand || '/sandbox/run-mitzo-app-server';
   return {
     command: 'ssh',
     args: [
@@ -74,9 +92,9 @@ export function openShellCodexProcessSpec(
       '-o',
       'LogLevel=ERROR',
       '-o',
-      `ProxyCommand=openshell ssh-proxy --gateway-name ${gateway} --name ${options.sandboxName} --workspace ${workspace}`,
+      `ProxyCommand=${cli} ${proxyGateway} ssh-proxy --gateway-name ${gateway} --name ${options.sandboxName} --workspace ${workspace}`,
       `sandbox@openshell-${options.sandboxName}.${workspace}`,
-      '/sandbox/run-mitzo-app-server',
+      appServerCommand,
     ],
     env,
   };
