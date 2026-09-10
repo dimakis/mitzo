@@ -1,6 +1,18 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { apiFetch, getApiBaseUrl, getEventSourceUrl, getWsBaseUrl } from '../api-fetch';
+import {
+  apiFetch,
+  getApiBaseUrl,
+  getEventSourceUrl,
+  getWsBaseUrl,
+  isLogoutPending,
+  loginSucceeded,
+  markAuthLost,
+  logout,
+  restoreCookieAuthentication,
+  AUTH_LOST_EVENT,
+  AUTH_RESTORED_EVENT,
+} from '../api-fetch';
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -9,6 +21,7 @@ beforeEach(() => {
   mockFetch.mockReset();
   mockFetch.mockResolvedValue(new Response('ok'));
   localStorage.clear();
+  markAuthLost();
 });
 
 describe('getApiBaseUrl', () => {
@@ -37,6 +50,43 @@ describe('getEventSourceUrl', () => {
 });
 
 describe('apiFetch', () => {
+  it('propagates token changes from another tab as auth lifecycle events', () => {
+    const restored = vi.fn();
+    const lost = vi.fn();
+    window.addEventListener(AUTH_RESTORED_EVENT, restored);
+    window.addEventListener(AUTH_LOST_EVENT, lost);
+
+    window.dispatchEvent(
+      new StorageEvent('storage', { key: 'mitzo_auth_token', newValue: 'fresh-token' }),
+    );
+    window.dispatchEvent(
+      new StorageEvent('storage', { key: 'mitzo_auth_token', oldValue: 'fresh-token' }),
+    );
+
+    expect(restored).toHaveBeenCalledOnce();
+    expect(restored.mock.calls[0][0]).toMatchObject({ detail: { source: 'cross-tab' } });
+    expect(lost).toHaveBeenCalledOnce();
+    window.removeEventListener(AUTH_RESTORED_EVENT, restored);
+    window.removeEventListener(AUTH_LOST_EVENT, lost);
+  });
+
+  it('propagates cookie-only restoration from another tab', () => {
+    const restored = vi.fn();
+    window.addEventListener(AUTH_RESTORED_EVENT, restored);
+
+    window.dispatchEvent(
+      new StorageEvent('storage', {
+        key: 'mitzo_auth_restored_signal',
+        newValue: 'cookie-generation-2',
+        storageArea: localStorage,
+      }),
+    );
+
+    expect(restored).toHaveBeenCalledOnce();
+    expect(restored.mock.calls[0][0]).toMatchObject({ detail: { source: 'cross-tab' } });
+    window.removeEventListener(AUTH_RESTORED_EVENT, restored);
+  });
+
   it('prepends base URL to relative paths when configured', async () => {
     const originalEnv = import.meta.env.VITE_API_BASE_URL;
     // We test the prepend logic via the default (empty) base — relative path stays relative
@@ -91,5 +141,212 @@ describe('apiFetch', () => {
     const [, init] = mockFetch.mock.calls[0];
     const headers = new Headers(init.headers);
     expect(headers.get('Content-Type')).toBe('application/json');
+  });
+
+  it('clears stale bearer state and announces protected 401 responses', async () => {
+    localStorage.setItem('mitzo_auth_token', 'expired-token');
+    mockFetch.mockResolvedValueOnce(new Response('{}', { status: 401 }));
+    const listener = vi.fn();
+    window.addEventListener(AUTH_LOST_EVENT, listener);
+
+    await apiFetch('/api/sessions');
+
+    expect(localStorage.getItem('mitzo_auth_token')).toBeNull();
+    expect(listener).toHaveBeenCalledOnce();
+    window.removeEventListener(AUTH_LOST_EVENT, listener);
+  });
+
+  it('does not let a delayed old-token 401 clear a newer login', async () => {
+    localStorage.setItem('mitzo_auth_token', 'old-token');
+    let resolveResponse!: (response: Response) => void;
+    mockFetch.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        resolveResponse = resolve;
+      }),
+    );
+
+    const pending = apiFetch('/api/sessions');
+    loginSucceeded('fresh-token');
+    resolveResponse(new Response('{}', { status: 401 }));
+    await pending;
+
+    expect(localStorage.getItem('mitzo_auth_token')).toBe('fresh-token');
+  });
+
+  it('does not announce a delayed cookie-only 401 after a newer cookie login', async () => {
+    let resolveResponse!: (response: Response) => void;
+    mockFetch.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        resolveResponse = resolve;
+      }),
+    );
+    const listener = vi.fn();
+    window.addEventListener(AUTH_LOST_EVENT, listener);
+
+    const pending = apiFetch('/api/sessions');
+    loginSucceeded();
+    resolveResponse(new Response('{}', { status: 401 }));
+    await pending;
+
+    expect(listener).not.toHaveBeenCalled();
+    window.removeEventListener(AUTH_LOST_EVENT, listener);
+  });
+
+  it('does not announce an expected failed login as auth loss', async () => {
+    mockFetch.mockResolvedValueOnce(new Response('{}', { status: 401 }));
+    const listener = vi.fn();
+    window.addEventListener(AUTH_LOST_EVENT, listener);
+
+    await apiFetch('/api/auth/login', { method: 'POST' });
+
+    expect(listener).not.toHaveBeenCalled();
+    window.removeEventListener(AUTH_LOST_EVENT, listener);
+  });
+
+  it('restores the auth latch when an existing cookie session is still valid', async () => {
+    mockFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }));
+    const listener = vi.fn();
+    window.addEventListener(AUTH_RESTORED_EVENT, listener);
+
+    expect(await restoreCookieAuthentication()).toBe(true);
+
+    expect(listener).toHaveBeenCalledOnce();
+    expect(localStorage.getItem('mitzo_auth_restored_signal')).toBeTruthy();
+    expect(listener.mock.calls[0][0]).toMatchObject({ detail: { source: 'local' } });
+    window.removeEventListener(AUTH_RESTORED_EVENT, listener);
+  });
+
+  it('does not emit another restoration event for repeated protected-route checks', async () => {
+    mockFetch
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+    const listener = vi.fn();
+    window.addEventListener(AUTH_RESTORED_EVENT, listener);
+
+    expect(await restoreCookieAuthentication()).toBe(true);
+    expect(await restoreCookieAuthentication()).toBe(true);
+
+    expect(listener).toHaveBeenCalledOnce();
+    window.removeEventListener(AUTH_RESTORED_EVENT, listener);
+  });
+
+  it('shares one successful result across concurrent cookie restoration checks', async () => {
+    mockFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }));
+    const listener = vi.fn();
+    window.addEventListener(AUTH_RESTORED_EVENT, listener);
+
+    const first = restoreCookieAuthentication();
+    const second = restoreCookieAuthentication();
+
+    await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
+    expect(mockFetch).toHaveBeenCalledOnce();
+    expect(listener).toHaveBeenCalledOnce();
+    window.removeEventListener(AUTH_RESTORED_EVENT, listener);
+  });
+
+  it('starts a fresh cookie check after cross-tab auth changes during an older check', async () => {
+    let resolveOld!: (response: Response) => void;
+    mockFetch
+      .mockReturnValueOnce(
+        new Promise<Response>((resolve) => {
+          resolveOld = resolve;
+        }),
+      )
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+    const oldCheck = restoreCookieAuthentication();
+    localStorage.setItem('mitzo_auth_token', 'fresh-token');
+    window.dispatchEvent(
+      new StorageEvent('storage', {
+        key: 'mitzo_auth_token',
+        newValue: 'fresh-token',
+        storageArea: localStorage,
+      }),
+    );
+    const currentCheck = restoreCookieAuthentication();
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    await expect(currentCheck).resolves.toBe(true);
+    resolveOld(new Response('{}', { status: 200 }));
+    await expect(oldCheck).resolves.toBe(false);
+  });
+
+  it('does not restore a stale cookie check after logout begins in another tab', async () => {
+    let resolveResponse!: (response: Response) => void;
+    mockFetch.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        resolveResponse = resolve;
+      }),
+    );
+    const listener = vi.fn();
+    window.addEventListener(AUTH_RESTORED_EVENT, listener);
+
+    const pending = restoreCookieAuthentication();
+    localStorage.setItem('mitzo_logout_pending', '1');
+    window.dispatchEvent(
+      new StorageEvent('storage', { key: 'mitzo_logout_pending', newValue: '1' }),
+    );
+    resolveResponse(new Response('{}', { status: 200 }));
+
+    expect(await pending).toBe(false);
+    expect(listener).not.toHaveBeenCalled();
+    expect(isLogoutPending()).toBe(true);
+    window.removeEventListener(AUTH_RESTORED_EVENT, listener);
+  });
+
+  it('logs out on the server before deleting the credential', async () => {
+    localStorage.setItem('mitzo_auth_token', 'current-token');
+
+    await logout();
+
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe('/api/auth/logout');
+    expect(new Headers(init.headers).get('Authorization')).toBe('Bearer current-token');
+    expect(localStorage.getItem('mitzo_auth_token')).toBeNull();
+    expect(isLogoutPending()).toBe(false);
+  });
+
+  it('still completes local logout when the server is unavailable', async () => {
+    localStorage.setItem('mitzo_auth_token', 'current-token');
+    mockFetch.mockRejectedValueOnce(new Error('offline'));
+
+    await expect(logout()).resolves.toBeUndefined();
+
+    expect(localStorage.getItem('mitzo_auth_token')).toBeNull();
+    expect(isLogoutPending()).toBe(true);
+  });
+
+  it('keeps logout pending when no response proves cookie clearing ran', async () => {
+    localStorage.setItem('mitzo_auth_token', 'stale-token');
+    mockFetch.mockResolvedValueOnce(new Response('{}', { status: 401 }));
+
+    await logout();
+
+    expect(isLogoutPending()).toBe(true);
+  });
+
+  it('clears local auth immediately and bounds a blackholed logout request', async () => {
+    vi.useFakeTimers();
+    localStorage.setItem('mitzo_auth_token', 'current-token');
+    mockFetch.mockImplementationOnce(() => new Promise(() => {}));
+
+    const pending = logout();
+    expect(localStorage.getItem('mitzo_auth_token')).toBeNull();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(pending).resolves.toBeUndefined();
+    expect(isLogoutPending()).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it('announces successful reauthentication after storing the new token', () => {
+    const listener = vi.fn();
+    window.addEventListener(AUTH_RESTORED_EVENT, listener);
+
+    loginSucceeded('fresh-token');
+
+    expect(localStorage.getItem('mitzo_auth_token')).toBe('fresh-token');
+    expect(isLogoutPending()).toBe(false);
+    expect(listener).toHaveBeenCalledOnce();
+    window.removeEventListener(AUTH_RESTORED_EVENT, listener);
   });
 });

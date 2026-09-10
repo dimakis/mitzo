@@ -64,6 +64,11 @@ function buildApp(sseRegistry: SessionSseRegistry, connRegistry: ConnectionRegis
 
   const app = express();
   app.use(express.json());
+  app.use((req, res, next) => {
+    const id = req.headers['x-test-auth'];
+    if (typeof id === 'string') res.locals.authSession = { id };
+    next();
+  });
   app.use('/api/chat', createChatRestRouter(sseRegistry, ctx));
   return { app, ctx };
 }
@@ -112,6 +117,48 @@ describe('chat-rest-handler', () => {
       .send({ nonce: 'probe-1' });
     expect(response.status).toBe(202);
     expect(send).toHaveBeenCalledWith({ type: '_probe', nonce: 'probe-1' });
+  });
+
+  it('rejects a POST authenticated by a different login than the SSE stream', async () => {
+    sseRegistry.add(CONNECTION_ID, mockResponse(), 'login-one');
+
+    const response = await request(testApp)
+      .post('/api/chat/probe')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .set('X-Test-Auth', 'login-two')
+      .send({ nonce: 'probe-1' });
+
+    expect(response.status).toBe(403);
+    expect(response.body.error).toContain('another login');
+  });
+
+  it('retains login ownership while a closed SSE entry awaits cleanup', async () => {
+    const staleResponse = mockResponse();
+    Object.defineProperty(staleResponse, 'writableEnded', { value: true });
+    sseRegistry.add('stale-connection', staleResponse, 'login-one');
+    connRegistry.register('stale-connection', new SseTransport('stale-connection', sseRegistry));
+
+    const response = await request(testApp)
+      .post('/api/chat/stop')
+      .set('X-Connection-ID', 'stale-connection')
+      .set('X-Test-Auth', 'login-two')
+      .send({ type: 'stop', sessionId: 'sess-1' });
+
+    expect(response.status).toBe(403);
+    expect(handleStopV2).not.toHaveBeenCalled();
+  });
+
+  it('rejects REST control requests that present a WebSocket connection ID', async () => {
+    connRegistry.register('ws-connection', new SseTransport('ws-connection', sseRegistry));
+
+    const response = await request(testApp)
+      .post('/api/chat/stop')
+      .set('X-Connection-ID', 'ws-connection')
+      .set('X-Test-Auth', 'different-login')
+      .send({ type: 'stop', sessionId: 'sess-1' });
+
+    expect(response.status).toBe(403);
+    expect(handleStopV2).not.toHaveBeenCalled();
   });
 
   it('persists startup events before a stream exists without duplicating sequenced events', async () => {

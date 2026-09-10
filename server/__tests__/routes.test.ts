@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
 import type { Express } from 'express';
 import request from 'supertest';
 import { mkdirSync, writeFileSync } from 'fs';
@@ -133,6 +133,7 @@ import { resolvePending } from '../permissions.js';
 
 let app: Express;
 let authCookie: string;
+let authSessionId: string;
 
 async function getAuthCookie(agent: request.Agent): Promise<string> {
   const res = await agent.post('/api/auth/login').send({ passphrase: process.env.AUTH_PASSPHRASE });
@@ -172,9 +173,26 @@ beforeAll(async () => {
   authCookie = await getAuthCookie(agent);
 });
 
-beforeEach(() => {
+afterAll(async () => {
+  const { releaseTransportConnection } = await import('../transport-auth-ownership.js');
+  releaseTransportConnection('conn-abc', authSessionId);
+  releaseTransportConnection('conn-other', authSessionId);
+});
+
+beforeEach(async () => {
   vi.mocked(hideSession).mockClear();
   vi.mocked(hideAllSessions).mockClear();
+
+  const [{ authenticateToken, COOKIE_NAME }, { claimTransportConnection }] = await Promise.all([
+    import('../auth.js'),
+    import('../transport-auth-ownership.js'),
+  ]);
+  const token = authCookie.match(new RegExp(`${COOKIE_NAME}=([^;]+)`))?.[1];
+  const authSession = token ? await authenticateToken(token) : null;
+  if (!authSession) throw new Error('test login did not produce a valid auth session');
+  authSessionId = authSession.id;
+  claimTransportConnection('conn-abc', authSessionId);
+  claimTransportConnection('conn-other', authSessionId);
 });
 
 // --- Auth Routes ---
@@ -198,10 +216,53 @@ describe('auth routes', () => {
     expect(res.body.error).toBe('Invalid passphrase');
   });
 
+  it('POST /api/auth/login — failed attempt does not clear an existing session cookie', async () => {
+    const res = await request(app)
+      .post('/api/auth/login')
+      .set('Cookie', authCookie)
+      .send({ passphrase: 'wrong' });
+
+    expect(res.status).toBe(401);
+    expect(res.headers['set-cookie']).toBeUndefined();
+  });
+
   it('POST /api/auth/logout — clears cookie', async () => {
     const res = await request(app).post('/api/auth/logout').set('Cookie', authCookie);
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
+    const { login } = await import('../auth.js');
+    authCookie = `cc_auth=${await login(process.env.AUTH_PASSPHRASE!)}`;
+  });
+
+  it('POST /api/auth/logout — revokes the presented bearer token', async () => {
+    const { login } = await import('../auth.js');
+    const token = (await login(process.env.AUTH_PASSPHRASE!))!;
+
+    expect(
+      (await request(app).get('/api/auth/check').set('Authorization', `Bearer ${token}`)).status,
+    ).toBe(200);
+    expect(
+      (await request(app).post('/api/auth/logout').set('Authorization', `Bearer ${token}`)).status,
+    ).toBe(200);
+    expect(
+      (await request(app).get('/api/auth/check').set('Authorization', `Bearer ${token}`)).status,
+    ).toBe(401);
+  });
+
+  it('POST /api/auth/logout — clears and revokes a valid cookie despite an invalid bearer', async () => {
+    const token = authCookie.slice('cc_auth='.length);
+    const response = await request(app)
+      .post('/api/auth/logout')
+      .set('Authorization', 'Bearer expired')
+      .set('Cookie', authCookie);
+
+    expect(response.status).toBe(200);
+    expect(response.headers['set-cookie']?.[0]).toContain('cc_auth=;');
+    expect(
+      (await request(app).get('/api/auth/check').set('Authorization', `Bearer ${token}`)).status,
+    ).toBe(401);
+    const { login } = await import('../auth.js');
+    authCookie = `cc_auth=${await login(process.env.AUTH_PASSPHRASE!)}`;
   });
 
   it('GET /api/auth/check — unauthenticated returns 401', async () => {
@@ -227,6 +288,8 @@ describe('bearer token auth', () => {
       .post('/api/auth/login')
       .send({ passphrase: process.env.AUTH_PASSPHRASE });
     bearerToken = res.body.token;
+    const { verifyToken } = await import('../auth.js');
+    expect(await verifyToken(bearerToken)).toBe(true);
   });
 
   it('GET /api/auth/check — accepts Authorization: Bearer header', async () => {

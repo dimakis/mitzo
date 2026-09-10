@@ -86,6 +86,64 @@ describe('SseConnection', () => {
     vi.useRealTimers();
   });
 
+  it('does not start a persisted outbox when invalidated before connect', async () => {
+    const fetch = vi.fn();
+    const key = 'mitzo-send-outbox:https://localhost:3100/api/chat/send';
+    const storage = {
+      getItem: vi.fn((requested: string) =>
+        requested === key
+          ? JSON.stringify([
+              {
+                scope: 1,
+                body: { type: 'send', clientMsgId: 'queued-1', prompt: 'do not replay' },
+              },
+            ])
+          : null,
+      ),
+      setItem: vi.fn(),
+    };
+    const conn = new SseConnection(createConfig({ fetch, outboxStorage: storage }));
+
+    conn.invalidateAuthentication();
+    conn.connect();
+    await Promise.resolve();
+
+    expect(MockEventSource.instances).toHaveLength(0);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('preserves persisted prompts while startup waits for authentication', async () => {
+    const prompt = {
+      type: 'send',
+      sessionId: null,
+      clientMsgId: 'persisted-before-reload',
+      prompt: 'keep me',
+    };
+    const storage = {
+      getItem: vi.fn(() => JSON.stringify([{ body: prompt, scope: 1 }])),
+      setItem: vi.fn(),
+    };
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 202,
+      json: async () => ({ accepted: true, clientMsgId: prompt.clientMsgId }),
+    });
+    const conn = new SseConnection(createConfig({ fetch, outboxStorage: storage }));
+
+    conn.blockAuthentication();
+    conn.connect();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(storage.setItem).not.toHaveBeenCalled();
+
+    conn.restoreAuthentication();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch).toHaveBeenCalledWith(
+      'https://localhost:3100/api/chat/send',
+      expect.objectContaining({ body: JSON.stringify(prompt) }),
+    );
+  });
+
   it('serializes replay requests and includes sessions accepted during an in-flight replay', async () => {
     const replays: Array<{
       body: { sessions: Array<{ sessionId: string }> };
@@ -227,6 +285,72 @@ describe('SseConnection', () => {
 
     expect(MockEventSource.instances).toHaveLength(1);
     expect(lastES().url).toBe('https://localhost:3100/api/chat/events');
+  });
+
+  it('stops reconnecting and rejects queued prompts when authentication expires', async () => {
+    const fetch = vi.fn().mockReturnValue(new Promise<Response>(() => {}));
+    const listener = vi.fn();
+    const conn = new SseConnection(createConfig({ fetch }));
+    conn.onMessage(listener);
+    conn.connect();
+    conn.send({ type: 'send', sessionId: null, clientMsgId: 'first', prompt: 'sensitive' });
+
+    lastES()._emit('message', { type: 'auth_expired' });
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({ type: '_auth_lost' }));
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({ type: '_send_uncertain', clientMsgId: 'first' }),
+    );
+    expect(MockEventSource.instances).toHaveLength(1);
+    expect(conn.send({ type: 'send', clientMsgId: 'blocked', prompt: 'blocked' })).toBe(false);
+
+    conn.checkAndReconnect(true);
+    expect(MockEventSource.instances).toHaveLength(1);
+
+    conn.restoreAuthentication();
+    expect(MockEventSource.instances).toHaveLength(2);
+  });
+
+  it('uses refreshed credentials for the first prompt after reauthentication', async () => {
+    const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      return {
+        ok: true,
+        status: 202,
+        json: async () => ({
+          accepted: true,
+          clientMsgId: body.clientMsgId,
+          sessionId: 'new-session',
+        }),
+      } as Response;
+    });
+    let token = 'expired';
+    const conn = new SseConnection(
+      createConfig({
+        fetch,
+        buildEventUrl: () => `https://localhost:3100/api/chat/events?token=${token}`,
+      }),
+    );
+    const listener = vi.fn();
+    conn.onMessage(listener);
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'expired-id' });
+    lastES()._emit('message', { type: 'auth_expired' });
+
+    token = 'fresh';
+    conn.restoreAuthentication();
+    expect(lastES().url).toContain('token=fresh');
+    conn.send({ type: 'send', sessionId: null, clientMsgId: 'after-login', prompt: 'safe' });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const sendCall = fetch.mock.calls.find(([url]) => String(url).endsWith('/api/chat/send'));
+    expect(new Headers(sendCall?.[1]?.headers).get('X-Connection-ID')).toBeNull();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'fresh-id' });
+
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({ type: '_send_accepted', clientMsgId: 'after-login' }),
+    );
   });
 
   it('rebuilds the authenticated event URL for every connection attempt', () => {
@@ -982,6 +1106,25 @@ describe('SseConnection', () => {
     // URL should be clean — reconnect is handled via POST, not query param
     const newES = lastES();
     expect(newES.url).toBe('https://localhost:3100/api/chat/events');
+  });
+
+  it('detects a 401 when an EventSource cannot establish authentication', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 401 });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    const listener = vi.fn();
+    conn.onMessage(listener);
+    conn.connect();
+
+    lastES()._triggerError();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://localhost:3100/api/auth/check',
+      expect.objectContaining({ method: 'GET' }),
+    );
+    expect(listener).toHaveBeenCalledWith({ type: '_auth_lost' });
+    expect(lastES().readyState).toBe(2);
+    conn.disconnect();
   });
 
   it('checkAndReconnect(false) is no-op when connected', () => {

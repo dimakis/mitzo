@@ -164,6 +164,8 @@ function createMockStore() {
     pendingSession: null,
     setPendingSession: vi.fn(),
     clearPendingSession: vi.fn(),
+    invalidateAuthentication: vi.fn(),
+    restoreAuthentication: vi.fn(),
     forceReconnect: vi.fn(),
     sendSuspend: vi.fn(),
     closeSession: vi.fn().mockResolvedValue(undefined),

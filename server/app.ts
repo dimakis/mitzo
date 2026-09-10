@@ -13,7 +13,16 @@ import { promisify } from 'util';
 import { createHash, randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import { login, authMiddleware, verifyToken, COOKIE_NAME, MAX_AGE_HOURS } from './auth.js';
+import {
+  login,
+  authenticateToken,
+  authMiddleware,
+  registerAuthSession,
+  revokeAuthSession,
+  COOKIE_NAME,
+  MAX_AGE_HOURS,
+  type AuthSession,
+} from './auth.js';
 import {
   getSessions,
   getSessionsCached,
@@ -96,6 +105,7 @@ import { homedir } from 'os';
 import { TaskStore, type TaskCreateInput, type TaskUpdateInput } from './task-store.js';
 import { SseRegistry } from '@mitzo/harness';
 import { SessionSseRegistry } from './session-sse-registry.js';
+import { isTransportConnectionOwnedBy } from './transport-auth-ownership.js';
 import { WorkloadStore, type WorkSignal, type TodoItemUpdateInput } from './workload-store.js';
 
 const log = createLogger('server');
@@ -536,7 +546,8 @@ async function handleSessionCreate(
 // --- Suspend endpoint (sendBeacon fallback) ---
 // Above authMiddleware because sendBeacon cannot set custom headers.
 // Auth is verified via the session cookie (sent automatically by sendBeacon
-// on same-origin requests). connectionId ownership is checked per-session.
+// on same-origin requests). The transport connection is bound to the same
+// login session, and connectionId ownership is also checked per chat session.
 
 app.post('/api/sessions/suspend', (req, res) => {
   const token = req.cookies?.[COOKIE_NAME];
@@ -545,8 +556,8 @@ app.post('/api/sessions/suspend', (req, res) => {
     return;
   }
 
-  verifyToken(token).then((valid) => {
-    if (!valid) {
+  authenticateToken(token).then((authSession) => {
+    if (!authSession) {
       res.status(401).json({ error: 'Invalid or expired token' });
       return;
     }
@@ -555,6 +566,10 @@ app.post('/api/sessions/suspend', (req, res) => {
 
     if (!connectionId || typeof connectionId !== 'string') {
       res.status(400).json({ error: 'connectionId is required' });
+      return;
+    }
+    if (!isTransportConnectionOwnedBy(connectionId, authSession.id)) {
+      res.status(403).json({ error: 'Connection belongs to another login' });
       return;
     }
     if (!Array.isArray(sessions) || sessions.length === 0) {
@@ -592,6 +607,21 @@ app.post('/api/sessions/suspend', (req, res) => {
   });
 });
 
+// Logout must always reach cookie clearing, even when an explicit stale bearer
+// would otherwise be rejected before the handler. Revoke every valid presented
+// browser/native credential; invalid credentials do not prevent cookie removal.
+app.post('/api/auth/logout', async (req, res) => {
+  const bearer = req.headers.authorization?.startsWith('Bearer ')
+    ? req.headers.authorization.slice(7).trim()
+    : undefined;
+  const cookie = req.cookies?.[COOKIE_NAME] as string | undefined;
+  const tokens = [...new Set([bearer, cookie].filter((token): token is string => Boolean(token)))];
+  const sessions = await Promise.all(tokens.map((token) => authenticateToken(token)));
+  for (const session of sessions) revokeAuthSession(session ?? undefined);
+  res.clearCookie(COOKIE_NAME, { httpOnly: true, sameSite: 'strict' });
+  res.json({ ok: true });
+});
+
 app.use('/api', authMiddleware);
 
 // --- SSE Event Bus ---
@@ -606,6 +636,27 @@ app.get('/api/events', (req, res) => {
 
   const clientId = randomUUID();
   sseRegistry.add(clientId, res);
+  const authSession = res.locals.authSession as AuthSession | undefined;
+  let cleaned = false;
+  let unregisterAuth: () => void = () => undefined;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    unregisterAuth();
+    sseRegistry.remove(clientId);
+  };
+  req.on('close', cleanup);
+  unregisterAuth = authSession
+    ? registerAuthSession(authSession, (reason) => {
+        sseRegistry.sendTo(clientId, 'auth_expired', { reason });
+        res.end();
+        cleanup();
+      })
+    : () => undefined;
+  if (cleaned) {
+    unregisterAuth();
+    return;
+  }
 
   // Hydrate: send server version + session overview on connect
   sseRegistry.sendTo(clientId, 'connected', {
@@ -619,8 +670,6 @@ app.get('/api/events', (req, res) => {
   if (healthMonitor) {
     sseRegistry.sendTo(clientId, 'health', healthMonitor.getSnapshot());
   }
-
-  req.on('close', () => sseRegistry.remove(clientId));
 });
 
 // REST fallback for service health (iOS WebKit can't do SSE with self-signed certs)
@@ -1099,11 +1148,6 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     maxAge: MAX_AGE_HOURS * 60 * 60 * 1000,
   });
   res.json({ ok: true, token });
-});
-
-app.post('/api/auth/logout', (_req, res) => {
-  res.clearCookie(COOKIE_NAME);
-  res.json({ ok: true });
 });
 
 app.get('/api/auth/check', (_req, res) => res.json({ ok: true }));

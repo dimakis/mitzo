@@ -8,21 +8,55 @@ class MockEventSource {
   static CONNECTING = 0;
   static OPEN = 1;
   static CLOSED = 2;
+  static instances = 0;
   readyState = MockEventSource.CONNECTING;
   onopen: ((ev: unknown) => void) | null = null;
   onerror: ((ev: unknown) => void) | null = null;
   close = vi.fn();
   addEventListener = vi.fn();
   removeEventListener = vi.fn();
+
+  constructor() {
+    MockEventSource.instances++;
+  }
 }
 
 // Must be set before module loads — static imports are hoisted above beforeAll
 global.EventSource = MockEventSource as unknown as typeof EventSource;
 
 // Dynamic import so the module-level side effects run after EventSource is defined
-const { eventBus } = await import('../event-bus-singleton');
+const { eventBus, ensureEventBusConnected } = await import('../event-bus-singleton');
 
 describe('event-bus-singleton visibilitychange recovery', () => {
+  it('starts blocked until authentication is explicitly restored', () => {
+    expect(MockEventSource.instances).toBe(0);
+  });
+
+  it('disconnects stale EventSource credentials on auth loss', () => {
+    const disconnectSpy = vi.spyOn(eventBus, 'disconnect');
+
+    window.dispatchEvent(new Event('mitzo:auth-lost'));
+
+    expect(disconnectSpy).toHaveBeenCalled();
+    const ensureConnectedSpy = vi.spyOn(eventBus, 'ensureConnected');
+    ensureEventBusConnected();
+    expect(ensureConnectedSpy).not.toHaveBeenCalled();
+    ensureConnectedSpy.mockRestore();
+    disconnectSpy.mockRestore();
+  });
+
+  it('recreates EventSource with fresh credentials after auth restoration', () => {
+    const disconnectSpy = vi.spyOn(eventBus, 'disconnect');
+    const connectSpy = vi.spyOn(eventBus, 'connect');
+
+    window.dispatchEvent(new Event('mitzo:auth-restored'));
+
+    expect(disconnectSpy).toHaveBeenCalled();
+    expect(connectSpy).toHaveBeenCalled();
+    disconnectSpy.mockRestore();
+    connectSpy.mockRestore();
+  });
+
   it('calls ensureConnected when page becomes visible', () => {
     const ensureConnectedSpy = vi.spyOn(eventBus, 'ensureConnected');
 

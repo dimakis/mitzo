@@ -55,6 +55,11 @@ function getTransport(
     res.status(404).json({ ok: false, error: 'No SSE stream for this connection' });
     return null;
   }
+  const authSessionId = res.locals.authSession?.id as string | undefined;
+  if (authSessionId && !sseRegistry.isOwnedBy(connectionId, authSessionId)) {
+    res.status(403).json({ ok: false, error: 'SSE connection belongs to another login' });
+    return null;
+  }
   const conn = connRegistry.get(connectionId);
   if (!conn) {
     res.status(404).json({ ok: false, error: 'Connection not registered' });
@@ -94,6 +99,32 @@ export function createChatRestRouter(
   ctx: V2HandlerContext,
 ): Router {
   const router = Router();
+
+  // A connection ID is not a credential. Bind every operation targeting an
+  // registered SSE stream to the same login session that created that stream.
+  // Ownership survives the brief writableEnded→close-handler cleanup window.
+  router.use((req, res, next) => {
+    const connectionId = req.headers['x-connection-id'];
+    const authSessionId = res.locals.authSession?.id as string | undefined;
+    if (
+      typeof connectionId === 'string' &&
+      ctx.connRegistry.get(connectionId) &&
+      !sseRegistry.has(connectionId)
+    ) {
+      res.status(403).json({ ok: false, error: 'REST operations require an SSE connection' });
+      return;
+    }
+    if (
+      typeof connectionId === 'string' &&
+      authSessionId &&
+      sseRegistry.has(connectionId) &&
+      !sseRegistry.isOwnedBy(connectionId, authSessionId)
+    ) {
+      res.status(403).json({ ok: false, error: 'SSE connection belongs to another login' });
+      return;
+    }
+    next();
+  });
 
   router.post('/send', (req, res) => {
     const msg = validateBody(V2SendMessage, req.body, res);

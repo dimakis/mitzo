@@ -15,9 +15,11 @@ interface Config {
 export class SendOutbox {
   private entries: Entry[] = [];
   private active = false;
-  private busy = false;
+  private busyGeneration: number | null = null;
   private timer?: ReturnType<typeof setTimeout>;
   private failures = 0;
+  private generation = 0;
+  private activeAbort?: AbortController;
   private readonly key: string;
 
   constructor(private config: Config) {
@@ -62,6 +64,31 @@ export class SendOutbox {
     return true;
   }
 
+  /** Reject queued prompts and surface an in-flight prompt as delivery-ambiguous. */
+  rejectAll(error: string): void {
+    this.active = false;
+    this.generation++;
+    const hadInFlight = this.busyGeneration !== null;
+    this.busyGeneration = null;
+    this.activeAbort?.abort();
+    this.activeAbort = undefined;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = undefined;
+    const rejected = this.entries.splice(0);
+    this.persist();
+    for (const [index, entry] of rejected.entries()) {
+      const deliveryUncertain = hadInFlight && index === 0;
+      this.config.notify({
+        type: deliveryUncertain ? '_send_uncertain' : '_send_failed',
+        clientMsgId: entry.body.clientMsgId,
+        sessionId: entry.body.sessionId,
+        error: deliveryUncertain
+          ? 'Authentication changed while this message was being delivered. The server may have accepted it; check the conversation before sending it again.'
+          : error,
+      });
+    }
+  }
+
   private persist(): void {
     try {
       this.config.storage?.setItem(this.key, JSON.stringify(this.entries));
@@ -71,10 +98,12 @@ export class SendOutbox {
   }
 
   private async pump(): Promise<void> {
-    if (!this.active || this.busy || this.timer || !this.entries.length) return;
-    this.busy = true;
+    if (!this.active || this.busyGeneration !== null || this.timer || !this.entries.length) return;
     const entry = this.entries[0];
     const abort = new AbortController();
+    const generation = this.generation;
+    this.busyGeneration = generation;
+    this.activeAbort = abort;
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
       const { response, receipt } = await Promise.race([
@@ -103,6 +132,7 @@ export class SendOutbox {
           timeout = setTimeout(() => abort.abort(), this.config.timeoutMs ?? 15000);
         }),
       ]);
+      if (generation !== this.generation) return;
       if (!response.ok) {
         this.entries.shift();
         this.config.notify({
@@ -135,7 +165,7 @@ export class SendOutbox {
       this.failures = 0;
       this.persist();
     } catch {
-      if (this.active) {
+      if (this.active && generation === this.generation) {
         this.config.notify({
           type: '_send_pending',
           clientMsgId: entry.body.clientMsgId,
@@ -151,9 +181,12 @@ export class SendOutbox {
         );
       }
     } finally {
+      if (this.activeAbort === abort) this.activeAbort = undefined;
       if (timeout) clearTimeout(timeout);
-      this.busy = false;
-      if (this.active && !this.timer) void this.pump();
+      if (this.busyGeneration === generation) {
+        this.busyGeneration = null;
+        if (this.active && !this.timer) void this.pump();
+      }
     }
   }
 }

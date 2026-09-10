@@ -124,6 +124,64 @@ describe('createMitzoStore', () => {
     expect(ws.parsedSent()).toContainEqual({ type: 'hello', protocolVersion: 2 });
   });
 
+  it('does not open the initial transport while authentication starts invalidated', () => {
+    const options = makeOptions();
+    const createWebSocket = vi.spyOn(options.wsConfig, 'createWebSocket');
+    const store = createMitzoStore({ ...options, initiallyAuthenticated: false });
+
+    expect(createWebSocket).not.toHaveBeenCalled();
+
+    store.getState().restoreAuthentication();
+    expect(createWebSocket).toHaveBeenCalledOnce();
+  });
+
+  it('preserves the persisted SSE outbox until startup authentication succeeds', async () => {
+    const prompt = {
+      type: 'send',
+      sessionId: null,
+      clientMsgId: 'persisted-startup',
+      prompt: 'resume after reload',
+    };
+    const storage = {
+      getItem: vi.fn(() => JSON.stringify([{ body: prompt, scope: 1 }])),
+      setItem: vi.fn(),
+    };
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 202,
+      json: async () => ({ accepted: true, clientMsgId: prompt.clientMsgId }),
+    });
+    const eventSource = {
+      readyState: 0,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      close: vi.fn(),
+      onerror: null,
+      onmessage: null,
+    } as unknown as EventSource;
+    const store = createMitzoStore({
+      ...makeOptions(),
+      initiallyAuthenticated: false,
+      sseConfig: {
+        baseUrl: 'https://localhost:3100',
+        fetch,
+        outboxStorage: storage,
+        createEventSource: () => eventSource,
+      },
+    });
+
+    await Promise.resolve();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(storage.setItem).not.toHaveBeenCalled();
+
+    store.getState().restoreAuthentication();
+    await Promise.resolve();
+    expect(fetch).toHaveBeenCalledWith(
+      'https://localhost:3100/api/chat/send',
+      expect.objectContaining({ body: JSON.stringify(prompt) }),
+    );
+  });
+
   it('sets connection status to connected after welcome', () => {
     const store = createReadyStore();
     expect(store.getState().connection.status).toBe('connected');
@@ -1444,6 +1502,23 @@ describe('delivery status', () => {
     });
     expect(store.getState().sendStatus).toBeNull();
     expect(store.getState().sendError).toBe('Rejected');
+  });
+
+  it('surfaces delivery ambiguity without presenting it as a safe retry', () => {
+    const store = createReadyStore();
+    store.getState().sendMessage('hello');
+    const command = lastWs.parsedSent().find((message) => message.type === 'send')!;
+    const error =
+      'The server may have accepted this message; check the conversation before sending it again.';
+
+    lastWs.simulateMessage({
+      type: '_send_uncertain',
+      clientMsgId: command.clientMsgId,
+      error,
+    });
+
+    expect(store.getState().sendStatus).toBeNull();
+    expect(store.getState().sendError).toBe(error);
   });
 });
 it('sends question answers without losing the request identity', async () => {

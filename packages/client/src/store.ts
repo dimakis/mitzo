@@ -141,6 +141,8 @@ export interface MitzoStoreState {
   clearPendingSession(): void;
 
   // Actions — lifecycle
+  invalidateAuthentication(): void;
+  restoreAuthentication(): void;
   forceReconnect(): void;
   sendSuspend(): void;
 }
@@ -152,6 +154,8 @@ export interface MitzoStoreOptions {
   wsConfig: MitzoConnectionConfig;
   /** When provided, the store uses SSE + HTTP POST instead of WebSocket. */
   sseConfig?: SseConnectionConfig;
+  /** Start with transports latched off until restoreAuthentication() after an explicit login. */
+  initiallyAuthenticated?: boolean;
 }
 
 // ─── Tree helpers ───────────────────────────────────────────────────────────
@@ -633,6 +637,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       set({ pendingSession: null });
     },
 
+    invalidateAuthentication() {
+      connection.invalidateAuthentication();
+    },
+
+    restoreAuthentication() {
+      connection.restoreAuthentication();
+    },
+
     forceReconnect() {
       connection.checkAndReconnect(true);
     },
@@ -701,9 +713,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   };
 
   function wsListener(msg: Record<string, unknown>) {
+    if (msg.type === '_auth_lost') {
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('mitzo:auth-lost'));
+      return;
+    }
     if (
       msg.type === '_send_pending' ||
       msg.type === '_send_failed' ||
+      msg.type === '_send_uncertain' ||
       msg.type === '_send_accepted'
     ) {
       const visible = store
@@ -718,7 +735,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           store.setState({ modeChangeReady: true });
         }
         store.setState({
-          sendError: msg.type === '_send_failed' ? String(msg.error) : null,
+          sendError:
+            msg.type === '_send_failed' || msg.type === '_send_uncertain'
+              ? String(msg.error)
+              : null,
           sendStatus:
             msg.type === '_send_pending'
               ? msg.retrying
@@ -887,6 +907,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   }
 
   connection.onMessage(wsListener);
+  if (options.initiallyAuthenticated === false) connection.blockAuthentication();
   connection.connect();
 
   return store;

@@ -1,6 +1,14 @@
 import { useState, useEffect, useRef, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiFetch, getApiBaseUrl } from '../lib/api-fetch';
+import {
+  apiFetch,
+  AUTH_RESTORED_EVENT,
+  getApiBaseUrl,
+  isCrossTabAuthEvent,
+  loginSucceeded,
+  markAuthLost,
+  restoreCookieAuthentication,
+} from '../lib/api-fetch';
 import {
   isBiometricAvailable,
   getBiometricLabel,
@@ -13,10 +21,19 @@ import { notifySuccess } from '../lib/haptics';
 export function Login() {
   const [passphrase, setPassphrase] = useState('');
   const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const [biometricReady, setBiometricReady] = useState(false);
   const biometricAttempted = useRef(false);
   const [bioLabel, setBioLabel] = useState('Biometric');
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const onAuthRestored = (event: Event) => {
+      if (isCrossTabAuthEvent(event)) navigate('/');
+    };
+    window.addEventListener(AUTH_RESTORED_EVENT, onAuthRestored);
+    return () => window.removeEventListener(AUTH_RESTORED_EVENT, onAuthRestored);
+  }, [navigate]);
 
   useEffect(() => {
     isBiometricAvailable().then((available) => {
@@ -47,24 +64,36 @@ export function Login() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError('');
+    setSubmitting(true);
 
-    localStorage.removeItem('mitzo_auth_token');
-    const res = await apiFetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ passphrase }),
-    });
+    markAuthLost();
+    try {
+      const res = await apiFetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ passphrase }),
+      });
 
-    if (res.ok) {
-      const data = (await res.json()) as { token?: string };
-      if (data.token) {
-        localStorage.setItem('mitzo_auth_token', data.token);
-        await saveCredentials(data.token);
-        await saveTokenToWatch(data.token);
+      if (res.ok) {
+        const data = (await res.json()) as { token?: string };
+        if (data.token) {
+          loginSucceeded(data.token);
+          await saveCredentials(data.token);
+          await saveTokenToWatch(data.token);
+        } else loginSucceeded();
+        navigate('/');
+      } else {
+        const restored = await restoreCookieAuthentication().catch(() => false);
+        if (restored) {
+          navigate('/');
+          return;
+        }
+        setError('Invalid passphrase');
       }
-      navigate('/');
-    } else {
-      setError('Invalid passphrase');
+    } catch {
+      setError('Unable to reach Mitzo — check your connection and try again');
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -79,8 +108,8 @@ export function Login() {
           onChange={(e) => setPassphrase(e.target.value)}
           autoFocus
         />
-        <button type="submit" className="btn-primary">
-          Login
+        <button type="submit" className="btn-primary" disabled={submitting}>
+          {submitting ? 'Signing in…' : 'Login'}
         </button>
         {biometricReady && (
           <button type="button" className="btn-biometric" onClick={handleBiometric}>
