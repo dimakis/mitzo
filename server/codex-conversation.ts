@@ -80,12 +80,15 @@ export class CodexConversation {
       onClose: () => this.close(),
     });
   }
+  private verifyCurrentBinding(stored?: AccountBinding) {
+    return this.opts.verifyBinding
+      ? this.opts.verifyBinding(this.client, stored)
+      : verifyCodexAccount(this.client, this.opts.profile, stored);
+  }
   async initialize() {
     if (this.ready) throw new Error('Codex conversation already initialized');
     await this.client.initialize();
-    this.binding = this.opts.verifyBinding
-      ? await this.opts.verifyBinding(this.client, this.opts.storedBinding)
-      : await verifyCodexAccount(this.client, this.opts.profile, this.opts.storedBinding);
+    this.binding = await this.verifyCurrentBinding(this.opts.storedBinding);
     this.opts.store.create(this.opts.conversationId, this.binding, this.opts.cwd);
     const state = this.opts.store.read(this.opts.conversationId, this.binding);
     this.paused = !!state.recovery;
@@ -213,7 +216,7 @@ export class CodexConversation {
       const model = command.model ?? this.binding!.model;
       this.validateModel(model, command.reasoningEffort);
       this.mapper?.setModel(model);
-      await verifyCodexAccount(this.client, this.opts.profile, this.binding);
+      await this.verifyCurrentBinding(this.binding);
       active.abort.signal.throwIfAborted();
       const result = z.object({ turn: z.object({ id: z.string() }) }).parse(
         await this.client.request('turn/start', {

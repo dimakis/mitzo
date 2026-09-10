@@ -14,6 +14,13 @@ async function setup(
   displayToolName?: (name: string) => string,
   beforeComplete?: (signal: AbortSignal) => Promise<void>,
   completionHookTimeoutMs?: number,
+  verifyBinding?: () => Promise<{
+    accountId: string;
+    accountLabel: string;
+    provider: 'openai';
+    model: string;
+    profileRevision: string;
+  }>,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -71,6 +78,7 @@ async function setup(
     displayToolName,
     beforeComplete,
     completionHookTimeoutMs,
+    verifyBinding,
     tools: [{ name: 'Read', description: 'Read', input_schema: { type: 'object' } }],
     createClient: (cb) => {
       callbacks = cb;
@@ -118,6 +126,20 @@ it('runs queued turns sequentially, rechecks account and never uses SDK/provider
   expect(events.find((e) => e.type === 'system')).toMatchObject({ session_id: 'app' });
   await c.send({ id: 'b', prompt: 'next' });
   expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
+});
+it('uses the injected binding verifier both at startup and before each turn', async () => {
+  const verifyBinding = vi.fn(async () => ({
+    accountId: 'api',
+    accountLabel: 'API',
+    provider: 'openai' as const,
+    model: 'test-model',
+    profileRevision: 'revision',
+  }));
+  const { c, requests } = await setup(undefined, undefined, undefined, undefined, verifyBinding);
+  await c.send({ id: 'a', prompt: 'hello' });
+  expect(verifyBinding).toHaveBeenCalledTimes(2);
+  expect(requests.filter((r) => r.method === 'account/read')).toHaveLength(0);
+  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
 });
 it('rejects account changes and unsupported skill ceilings before model execution', async () => {
   const { c, rpc, requests } = await setup();

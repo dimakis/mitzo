@@ -1,8 +1,18 @@
 import { CodexAppServerClient } from '../../../server/codex-app-server-client.js';
+import { readFileSync } from 'node:fs';
 
 const sandboxName = process.env.MITZO_OPENSHELL_SANDBOX_NAME;
 if (!sandboxName) throw new Error('MITZO_OPENSHELL_SANDBOX_NAME is required');
 const workdir = process.env.MITZO_OPENSHELL_WORKDIR ?? '/sandbox/workspaces/mgmt';
+const model = process.env.MITZO_OPENSHELL_MODEL ?? 'gpt-4.1-mini';
+const instructionArtifact = process.env.MITZO_OPENSHELL_INSTRUCTIONS_FILE
+  ? readFileSync(process.env.MITZO_OPENSHELL_INSTRUCTIONS_FILE, 'utf8')
+  : undefined;
+const developerInstructions = instructionArtifact
+  ? process.env.MITZO_OPENSHELL_INSTRUCTIONS_FILE?.endsWith('.json')
+    ? String(JSON.parse(instructionArtifact).systemPromptAppend)
+    : instructionArtifact
+  : 'Operate only inside the supplied OpenShell sandbox workspace.';
 const prompt =
   process.env.MITZO_OPENSHELL_PROBE_PROMPT ??
   'Use a shell command to create mitzo-transport-marker.txt containing exactly MITZO_OPENSHELL_TRANSPORT=pass, then reply done.';
@@ -22,13 +32,13 @@ const client = CodexAppServerClient.launchOpenShell({ sandboxName, workdir }, pr
 try {
   await client.initialize();
   const started = (await client.request('thread/start', {
-    model: 'gpt-4.1-mini',
+    model,
     modelProvider: 'openshell',
     allowProviderModelFallback: false,
     cwd: workdir,
     approvalPolicy: 'never',
     sandbox: 'read-only',
-    developerInstructions: 'Operate only inside the supplied OpenShell sandbox workspace.',
+    developerInstructions,
   })) as { thread: { id: string } };
   threadId = started.thread.id;
   await client.request('turn/start', {

@@ -672,6 +672,15 @@ export function buildWorktreeSystemPrompt(
   return lines.join('\n');
 }
 
+export function buildOpenShellWorkspaceSystemPrompt(workdir: string, wtId: string): string {
+  return [
+    '\n\n## OpenShell Session Workspace',
+    `Session ID: ${wtId}`,
+    `The task workspace is \`${workdir}\` inside OpenShell.`,
+    'All reads, edits, and commands must use this sandbox workspace. Host worktree paths are controller metadata and are not reachable from the agent runtime.',
+  ].join('\n');
+}
+
 const CONTEXT_BLOCK_MAX_BYTES = 100 * 1024; // 100 KB
 
 /** Escape characters that would break XML attribute values. */
@@ -1128,13 +1137,19 @@ async function _startChatInner(
   }
 
   // Build the system prompt append string (used by both query and comparison)
+  const openShellWorkdir = process.env.MITZO_OPENSHELL_SANDBOX_NAME
+    ? process.env.MITZO_OPENSHELL_WORKDIR || '/sandbox/workspaces/mgmt'
+    : undefined;
+  const workspacePrompt = openShellWorkdir
+    ? buildOpenShellWorkspaceSystemPrompt(openShellWorkdir, wtId)
+    : buildWorktreeSystemPrompt(repoWorktrees);
   const systemPromptAppend =
     'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
     SESSION_PERMISSION_INSTRUCTIONS +
     '- Read operations are fine without asking.\n' +
     '- Keep responses concise — small screen.\n' +
     '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.' +
-    buildWorktreeSystemPrompt(repoWorktrees) +
+    workspacePrompt +
     buildTaskPromptForSession(clientId) +
     bootContextAppend;
 

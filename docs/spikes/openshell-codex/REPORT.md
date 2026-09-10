@@ -145,6 +145,15 @@ startup reconciliation and stale-worktree cleanup outside production; the
 latter rejects configured repositories whose canonical paths escape the
 ceiling.
 
+The first guarded acceptance fixture exposed a second seed defect before
+launch: BSD tar ignored exclusions placed after `-x`, so the supposedly
+sanitized tree still contained `.mitzo.json`. The seed script now places all
+exclusions before extraction, explicitly excludes `.mitzo.json`, and fails
+closed if protected roots survive. A regenerated seed contained 2,317 files
+(27,553,792 bytes), no `.mitzo` directory, and no `.mitzo.json`; the host and
+sandbox Git repositories matched at commit
+`9a3ce221c29e81542419676a2e3d97d237c8f9a5`.
+
 ## ContexGin session boundary
 
 ContexGin remains part of MGMT parity. Mitzo already fetches
@@ -194,8 +203,35 @@ expiry/recreation tests. The retained development sandbox has inspected,
 read-only GitHub API access for `gh`, `git`, and `curl`; its real
 Mitzo-transported GitHub marker passed. GWS still needs a fresh refresh token.
 Add session-start ContexGin compilation against the seeded sandbox workspace;
-the current host-daemon call is not exact-state parity. Anthropic/Vertex remains
-a separate worker entrypoint.
+the current host-daemon call is not exact-state parity. Vertex support is an
+accepted dependency based on existing colleague validation, not locally
+re-proven by this spike; Vertex/Anthropic end-to-end work is deferred.
+
+## Guarded normal-chat checkpoint
+
+The browser-default SSE + HTTP path reached a real `gpt-5.3-codex` turn through
+the inspected OpenAI provider. It delivered `welcome`, reconnect, worktree,
+session, ContexGin boot-context, message, token, and session-end events; SSE
+connection-to-send readiness was 7 ms in that single local observation. This
+is lifecycle evidence, not tool-loop acceptance: the model replied `done`
+without a tool event or the requested marker, so the result correctly remains
+a failure.
+
+Two adapter defects found by this run now have focused coverage: per-turn
+verification incorrectly fell back to ChatGPT account inspection instead of
+the injected API binding verifier, and the OpenShell prompt advertised
+unavailable host tools. A direct control using the same sandbox, credential,
+transport, and `gpt-5.3-codex` created and verified
+`direct-codex-marker.txt`, proving the underlying persistent tool loop works.
+The normal prompt also exposed host worktree paths that do not exist in the
+sandbox; it now emits only the sandbox workspace path. The next full-context
+SSE rerun requires explicit authorization because assembled MGMT context can
+contain personal and organizational material sent to the configured OpenAI API.
+
+No tool-call transport latency is claimed yet: the failed normal turns emitted
+no tool event. The successful direct control's whole-turn duration includes
+inference and is not a transport-latency measurement. Stop/resume remains to be
+verified after the first marker-producing SSE turn.
 
 ## Kubernetes integration target
 

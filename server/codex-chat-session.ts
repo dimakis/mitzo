@@ -167,7 +167,9 @@ export async function openCodexChat(options: Options) {
     store: privateStorage,
     systemPrompt:
       options.systemPrompt +
-      HOST_TOOL_INSTRUCTIONS +
+      (openShell
+        ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again.\n`
+        : HOST_TOOL_INSTRUCTIONS) +
       (startup.context ? `\n\n${startup.context}` : ''),
     beforeComplete: async (signal) => {
       await hooks.run('Stop', { stop_hook_active: false }, signal);

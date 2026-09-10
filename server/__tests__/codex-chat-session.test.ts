@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   mcpClose: vi.fn(),
   connect: vi.fn(),
   store: vi.fn(),
+  conversationOptions: undefined as Record<string, unknown> | undefined,
 }));
 vi.mock('../codex-conversation-store.js', () => ({
   CodexConversationStore: class {
@@ -18,6 +19,7 @@ vi.mock('../codex-conversation-store.js', () => ({
 vi.mock('../codex-conversation.js', () => ({
   CodexConversation: class {
     constructor(options: { onClosed: () => void }) {
+      mocks.conversationOptions = options;
       mocks.close.mockImplementation(options.onClosed);
     }
     initialize = mocks.initialize;
@@ -117,4 +119,19 @@ it('cleans each resource once across explicit close, runtime close and abort', a
   abort.abort();
   expect(mocks.close).toHaveBeenCalledTimes(1);
   expect(mocks.mcpClose).toHaveBeenCalledTimes(1);
+});
+
+it('does not advertise unavailable host tools to an OpenShell runtime', async () => {
+  vi.clearAllMocks();
+  vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', 'sandbox');
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  await openCodexChat({
+    ...options(new AbortController()),
+    systemPrompt: 'base prompt',
+  });
+  expect(mocks.conversationOptions?.systemPrompt).toContain(
+    'In Agent or Auto mode, a user request to edit that workspace is the required approval',
+  );
+  expect(mocks.conversationOptions?.systemPrompt).not.toContain('Mitzo supplies host tools');
+  vi.unstubAllEnvs();
 });

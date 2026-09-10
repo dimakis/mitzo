@@ -14,9 +14,15 @@ mkdir -p "$workspace"
 
 # The committed tree is the deterministic base. Host administrative/runtime
 # directories are intentionally absent even when the source has local content.
-git -C "$source_repo" archive HEAD | tar -x -C "$workspace" \
-  --exclude='.claude' --exclude='.codex' --exclude='.cursor' --exclude='.mitzo' \
-  --exclude='.venv' --exclude='node_modules'
+git -C "$source_repo" archive HEAD | tar \
+  --exclude='.claude' --exclude='.claude/*' \
+  --exclude='.codex' --exclude='.codex/*' \
+  --exclude='.cursor' --exclude='.cursor/*' \
+  --exclude='.mitzo' --exclude='.mitzo/*' --exclude='.mitzo.json' \
+  --exclude='.venv' --exclude='.venv/*' --exclude='*/.venv' --exclude='*/.venv/*' \
+  --exclude='node_modules' --exclude='node_modules/*' \
+  --exclude='*/node_modules' --exclude='*/node_modules/*' \
+  -x -C "$workspace"
 
 safe_path() {
   case "$1" in
@@ -42,6 +48,20 @@ done < <(
     git -C "$source_repo" ls-files --others --exclude-standard -z
   } | sort -zu
 )
+
+# Fail closed if archive-tool option semantics or a later edit reintroduces a
+# host/runtime surface. In particular, .mitzo.json can contain absolute paths
+# to repositories outside this seed.
+for forbidden in .git .claude .codex .cursor .mitzo .mitzo.json .venv node_modules; do
+  test ! -e "$workspace/$forbidden" || {
+    echo "unsafe seed path survived: $forbidden" >&2
+    exit 3
+  }
+done
+test -z "$(find "$workspace" -type d \( -name .venv -o -name node_modules \) -print -quit)" || {
+  echo 'unsafe nested dependency directory survived' >&2
+  exit 3
+}
 
 SOURCE_REPO="$source_repo" WORKSPACE="$workspace" BASELINE="$baseline" python3 - <<'PY'
 import hashlib, json, os, pathlib, subprocess
