@@ -145,6 +145,20 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
   vi.unstubAllEnvs();
 });
 
+it('rejects the legacy shared-sandbox seam in production', async () => {
+  vi.clearAllMocks();
+  vi.stubEnv('NODE_ENV', 'production');
+  vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', 'shared-sandbox');
+  try {
+    await expect(openCodexChat(options(new AbortController()))).rejects.toThrow(
+      'disabled in production',
+    );
+    expect(mocks.initialize).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
 it('rejects OpenShell Ask mode before enabling provider-native tools', async () => {
   vi.clearAllMocks();
   vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', 'sandbox');

@@ -37,12 +37,14 @@ export interface OpenShellRuntimeConfig {
   image: string;
   policy: string;
   seed: string;
-  providers: string[];
+  serviceProviders: string[];
   workspace: string;
   gateway: string;
   workdir: string;
   webSearch: 'disabled' | 'live';
 }
+
+const SERVICE_PROVIDERS = new Set(['google-workspace', 'github']);
 
 export interface BoundOpenShellRuntimeConfig extends OpenShellRuntimeConfig {
   accountProvider: string;
@@ -79,16 +81,24 @@ function identifier(value: string, label: string) {
 
 export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntimeConfig | undefined {
   if (env.MITZO_OPENSHELL_ENABLED !== '1') return undefined;
+  if (env.MITZO_OPENSHELL_PROVIDERS)
+    throw new Error(
+      'MITZO_OPENSHELL_PROVIDERS is ambiguous; use MITZO_OPENSHELL_SERVICE_PROVIDERS.',
+    );
   const image = env.MITZO_OPENSHELL_IMAGE;
   const policy = env.MITZO_OPENSHELL_POLICY;
   const seed = env.MITZO_OPENSHELL_SEED;
   if (!image || !policy || !seed) throw new Error('OpenShell runtime configuration is incomplete');
   if (!isAbsolute(policy) || !isAbsolute(seed))
     throw new Error('OpenShell policy and seed paths must be absolute');
-  const providers = (env.MITZO_OPENSHELL_PROVIDERS || '')
+  const serviceProviders = (env.MITZO_OPENSHELL_SERVICE_PROVIDERS || '')
     .split(',')
     .filter(Boolean)
-    .map((value) => identifier(value, 'provider'));
+    .map((value) => identifier(value, 'service provider'));
+  for (const provider of serviceProviders) {
+    if (!SERVICE_PROVIDERS.has(provider))
+      throw new Error(`OpenShell provider is not an allowed service provider: ${provider}`);
+  }
   const webSearch = env.MITZO_OPENSHELL_WEB_SEARCH || 'disabled';
   if (webSearch !== 'disabled' && webSearch !== 'live')
     throw new Error('Invalid OpenShell web search mode');
@@ -96,7 +106,7 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
     image,
     policy,
     seed,
-    providers,
+    serviceProviders,
     workspace: identifier(env.OPENSHELL_WORKSPACE || 'default', 'workspace'),
     gateway: identifier(env.OPENSHELL_GATEWAY || 'openshell', 'gateway'),
     workdir: '/sandbox/workspaces/mgmt',
@@ -218,7 +228,8 @@ export class OpenShellRuntimeManager {
         '--no-auto-providers',
         '--detach',
       ];
-      for (const provider of this.config.providers) args.push('--provider', provider);
+      args.push('--provider', this.config.accountProvider);
+      for (const provider of this.config.serviceProviders) args.push('--provider', provider);
       try {
         await this.run(args, signal);
       } catch (error) {

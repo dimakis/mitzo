@@ -10,7 +10,7 @@ const config = {
   image: 'mitzo-runtime:1',
   policy: '/config/policy.yaml',
   seed: '/seed/mgmt',
-  providers: ['personal-chatgpt', 'google-workspace', 'github'],
+  serviceProviders: ['google-workspace', 'github'],
   workspace: 'mitzo',
   gateway: 'local',
   workdir: '/sandbox/workspaces/mgmt',
@@ -46,6 +46,11 @@ describe('OpenShell runtime lifecycle', () => {
     expect(create).toContain('create');
     expect(create).toContain('/seed/mgmt:/sandbox/workspaces/mgmt');
     expect(create.filter((value) => value === '--provider')).toHaveLength(3);
+    expect(create.filter((_, index) => create[index - 1] === '--provider')).toEqual([
+      'openai-work',
+      'google-workspace',
+      'github',
+    ]);
     expect(create).toContain('mitzo.account_provider=openai-work');
     expect(create).not.toContain('auto-providers');
   });
@@ -186,9 +191,9 @@ describe('OpenShell runtime lifecycle', () => {
         MITZO_OPENSHELL_IMAGE: 'runtime:1',
         MITZO_OPENSHELL_POLICY: '/policy',
         MITZO_OPENSHELL_SEED: '/seed',
-        MITZO_OPENSHELL_PROVIDERS: 'openai,gws',
+        MITZO_OPENSHELL_SERVICE_PROVIDERS: 'google-workspace,github',
       }),
-    ).toMatchObject({ providers: ['openai', 'gws'] });
+    ).toMatchObject({ serviceProviders: ['google-workspace', 'github'] });
     expect(() =>
       openShellRuntimeConfig({
         MITZO_OPENSHELL_ENABLED: '1',
@@ -206,6 +211,24 @@ describe('OpenShell runtime lifecycle', () => {
         MITZO_OPENSHELL_WEB_SEARCH: 'enabled',
       }),
     ).toThrow('web search');
+    expect(() =>
+      openShellRuntimeConfig({
+        MITZO_OPENSHELL_ENABLED: '1',
+        MITZO_OPENSHELL_IMAGE: 'runtime:1',
+        MITZO_OPENSHELL_POLICY: '/policy',
+        MITZO_OPENSHELL_SEED: '/seed',
+        MITZO_OPENSHELL_SERVICE_PROVIDERS: 'openai-other-account',
+      }),
+    ).toThrow('allowed service provider');
+    expect(() =>
+      openShellRuntimeConfig({
+        MITZO_OPENSHELL_ENABLED: '1',
+        MITZO_OPENSHELL_IMAGE: 'runtime:1',
+        MITZO_OPENSHELL_POLICY: '/policy',
+        MITZO_OPENSHELL_SEED: '/seed',
+        MITZO_OPENSHELL_PROVIDERS: 'openai-other-account',
+      }),
+    ).toThrow('ambiguous');
   });
 
   it('passes only explicitly sandboxed MCP servers and live search to Codex', () => {

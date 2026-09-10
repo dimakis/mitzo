@@ -30,9 +30,10 @@ conversation ID. At session open it:
    provider thread.
 
 The selected account profile may name an OpenShell provider with
-`sandboxProvider`. This name participates in the profile revision and is attached at
-sandbox creation alongside explicitly configured service providers. Raw credential
-values are never accepted by the runtime configuration.
+`sandboxProvider`. This name participates in the profile revision and is the only
+account/inference provider attached at sandbox creation. The separately configured
+service-provider list accepts only Mitzo's reviewed non-inference allowlist. Raw
+credential values are never accepted by the runtime configuration.
 
 An SSH/app-server exit now invalidates the transport rather than closing the public
 conversation. Mitzo marks in-flight work interrupted, retains queued work, creates a
@@ -60,7 +61,8 @@ Automatic routing is opt-in until live acceptance completes:
 - `MITZO_OPENSHELL_IMAGE=<pinned image>`
 - `MITZO_OPENSHELL_POLICY=<absolute policy path>`
 - `MITZO_OPENSHELL_SEED=<absolute prepared seed directory>`
-- `MITZO_OPENSHELL_PROVIDERS=<comma-separated service providers>`
+- `MITZO_OPENSHELL_SERVICE_PROVIDERS=<comma-separated reviewed service providers>`;
+  currently `google-workspace` and `github` are accepted.
 - `MITZO_OPENSHELL_WEB_SEARCH=live` explicitly enables native live search;
   omitted or `disabled` fails closed.
 - `OPENSHELL_GATEWAY` and `OPENSHELL_WORKSPACE` select the control-plane scope.
@@ -72,8 +74,8 @@ them on the host, and rejects per-server environment variables so service secret
 continue to come from OpenShell providers. Unmarked MCP entries retain the existing
 host execution path only for non-OpenShell sessions.
 
-The legacy single-sandbox development variables remain only for the preserved spike
-probes and must not be used as the production lifecycle.
+The legacy single-sandbox development variables remain only for preserved spike
+probes. Mitzo rejects that shared-sandbox seam when `NODE_ENV=production`.
 
 ## Acceptance status
 

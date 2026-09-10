@@ -119,6 +119,8 @@ interface Options {
 export async function openCodexChat(options: Options) {
   const configuredRuntime = openShellRuntimeConfig(process.env);
   const openShellName = process.env.MITZO_OPENSHELL_SANDBOX_NAME;
+  if (openShellName && process.env.NODE_ENV === 'production')
+    throw new Error('Legacy shared OpenShell sandboxes are disabled in production.');
   const accountProvider = options.profile.sandboxProvider;
   const openShellRequested = !!configuredRuntime || !!openShellName;
   if (openShellRequested && options.profile.planType !== 'api')
@@ -135,12 +137,6 @@ export async function openCodexChat(options: Options) {
     ? new OpenShellRuntimeManager({
         ...configuredRuntime,
         accountProvider: accountProvider!,
-        providers: [
-          ...new Set([
-            ...configuredRuntime.providers,
-            ...(options.profile.sandboxProvider ? [options.profile.sandboxProvider] : []),
-          ]),
-        ],
       })
     : undefined;
   const managedOpenShell = runtimeManager
