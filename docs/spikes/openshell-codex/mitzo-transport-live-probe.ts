@@ -16,11 +16,14 @@ const developerInstructions = instructionArtifact
 const prompt =
   process.env.MITZO_OPENSHELL_PROBE_PROMPT ??
   'Use a shell command to create mitzo-transport-marker.txt containing exactly MITZO_OPENSHELL_TRANSPORT=pass, then reply done.';
+const normalShape = new Set((process.env.MITZO_OPENSHELL_NORMAL_SHAPE ?? '').split(',').filter(Boolean));
 let threadId = '';
 let complete!: () => void;
 const finished = new Promise<void>((resolve) => (complete = resolve));
 const client = CodexAppServerClient.launchOpenShell({ sandboxName, workdir }, process.env, {
   onNotification(method, params) {
+    if (process.env.MITZO_OPENSHELL_TRACE_ITEMS === '1' && method.startsWith('item/'))
+      console.log(JSON.stringify({ method, params }));
     if (method === 'turn/completed' && params.threadId === threadId) complete();
   },
   async onRequest() {
@@ -36,6 +39,10 @@ try {
     modelProvider: 'openshell',
     allowProviderModelFallback: false,
     cwd: workdir,
+    ...(normalShape.has('config') ? { config: { web_search: 'disabled' } } : {}),
+    ...(normalShape.has('environments') || normalShape.has('thread-environments')
+      ? { environments: [] }
+      : {}),
     approvalPolicy: 'never',
     sandbox: 'read-only',
     developerInstructions,
@@ -43,12 +50,17 @@ try {
   threadId = started.thread.id;
   await client.request('turn/start', {
     threadId,
+    ...(normalShape.has('client-id') ? { clientUserMessageId: crypto.randomUUID() } : {}),
+    ...(normalShape.has('turn-model') ? { model } : {}),
     input: [
       {
         type: 'text',
         text: prompt,
       },
     ],
+    ...(normalShape.has('environments') || normalShape.has('turn-environments')
+      ? { environments: [] }
+      : {}),
     approvalPolicy: 'never',
     sandboxPolicy: { type: 'externalSandbox', networkAccess: 'restricted' },
   });

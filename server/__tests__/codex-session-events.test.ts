@@ -113,6 +113,46 @@ it('renders host tool calls and results without putting provider continuation ID
   });
 });
 
+it('renders built-in command execution items as shell tool calls and results', () => {
+  const events: Record<string, unknown>[] = [];
+  const m = new CodexSessionEvents('app', 'provider', 'model', (event) => events.push(event));
+  m.notification('item/started', {
+    threadId: 'provider',
+    item: {
+      type: 'commandExecution',
+      id: 'provider-command',
+      command: 'pwd',
+      cwd: '/sandbox/workspaces/mgmt',
+    },
+  });
+  m.notification('item/completed', {
+    threadId: 'provider',
+    item: {
+      type: 'commandExecution',
+      id: 'provider-command',
+      status: 'completed',
+      aggregatedOutput: '/sandbox/workspaces/mgmt\n',
+      exitCode: 0,
+    },
+  });
+  expect(events).toContainEqual(
+    expect.objectContaining({
+      type: 'stream_event',
+      event: expect.objectContaining({
+        type: 'content_block_start',
+        content_block: expect.objectContaining({ type: 'tool_use', name: 'Bash' }),
+      }),
+    }),
+  );
+  expect(events).toContainEqual(
+    expect.objectContaining({
+      type: 'user',
+      message: { content: [expect.objectContaining({ type: 'tool_result', is_error: false })] },
+    }),
+  );
+  expect(JSON.stringify(events)).not.toContain('provider-command');
+});
+
 it('renders provider reasoning summaries as thinking without exposing raw reasoning', () => {
   const events: Record<string, unknown>[] = [];
   const m = new CodexSessionEvents('app', 'provider', 'model', (e) => events.push(e));

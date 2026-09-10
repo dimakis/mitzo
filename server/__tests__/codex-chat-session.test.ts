@@ -133,5 +133,6 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
     'In Agent or Auto mode, a user request to edit that workspace is the required approval',
   );
   expect(mocks.conversationOptions?.systemPrompt).not.toContain('Mitzo supplies host tools');
+  expect(mocks.conversationOptions?.runtimeConfig).toEqual({ web_search: 'disabled' });
   vi.unstubAllEnvs();
 });

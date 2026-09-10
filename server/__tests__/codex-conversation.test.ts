@@ -141,6 +141,14 @@ it('uses the injected binding verifier both at startup and before each turn', as
   expect(requests.filter((r) => r.method === 'account/read')).toHaveLength(0);
   expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
 });
+it('does not send an empty environments override that disables built-in Codex tools', async () => {
+  const { c, requests } = await setup();
+  await c.send({ id: 'a', prompt: 'use the shell' });
+  const thread = requests.find((request) => request.method === 'thread/start');
+  const turn = requests.find((request) => request.method === 'turn/start');
+  expect(thread?.params).not.toHaveProperty('environments');
+  expect(turn?.params).not.toHaveProperty('environments');
+});
 it('rejects account changes and unsupported skill ceilings before model execution', async () => {
   const { c, rpc, requests } = await setup();
   await expect(

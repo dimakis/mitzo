@@ -12,6 +12,7 @@ export class CodexSessionEvents {
     { text: string; closed: boolean; messageId: string; kind: 'text' | 'thinking' }
   >();
   private finishedTurns = new Set<string>();
+  private commandTools = new Map<string, string>();
   private turnFinished = false;
   private usage?: {
     input_tokens: number;
@@ -79,6 +80,37 @@ export class CodexSessionEvents {
     if (params.threadId !== this.threadId) return;
     if (method === 'turn/started') {
       this.turnFinished = false;
+      return;
+    }
+    const commandItem = object(params.item);
+    if (
+      method === 'item/started' &&
+      commandItem.type === 'commandExecution' &&
+      typeof commandItem.id === 'string' &&
+      typeof commandItem.command === 'string'
+    ) {
+      const toolId = this.toolStart(commandItem.id, 'Bash', {
+        command: commandItem.command,
+        ...(typeof commandItem.cwd === 'string' ? { cwd: commandItem.cwd } : {}),
+      });
+      this.commandTools.set(commandItem.id, toolId);
+      return;
+    }
+    if (
+      method === 'item/completed' &&
+      commandItem.type === 'commandExecution' &&
+      typeof commandItem.id === 'string'
+    ) {
+      const toolId = this.commandTools.get(commandItem.id);
+      if (!toolId) return;
+      this.commandTools.delete(commandItem.id);
+      const exitCode = typeof commandItem.exitCode === 'number' ? commandItem.exitCode : undefined;
+      const output = typeof commandItem.aggregatedOutput === 'string' ? commandItem.aggregatedOutput : '';
+      this.toolResult(
+        toolId,
+        output || (exitCode === undefined ? String(commandItem.status ?? '') : `exit code ${exitCode}`),
+        commandItem.status !== 'completed' || (exitCode !== undefined && exitCode !== 0),
+      );
       return;
     }
     // Provider events may be delivered late. Never create renderer blocks after

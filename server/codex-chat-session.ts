@@ -203,7 +203,7 @@ export async function openCodexChat(options: Options) {
       ? {
           runtimeCwd: openShell.workdir,
           modelProvider: 'openshell',
-          runtimeConfig: { web_search: 'disabled', 'agents.enabled': false },
+          runtimeConfig: { web_search: 'disabled' },
           turnSandboxPolicy: { type: 'externalSandbox', networkAccess: 'restricted' },
           verifyBinding: async () => options.binding,
         }

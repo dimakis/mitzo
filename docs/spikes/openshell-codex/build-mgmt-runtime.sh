@@ -4,6 +4,7 @@ set -euo pipefail
 mgmt_repo="${1:-/Users/dsaridak/redhat/mgmt}"
 tag="${2:-localhost/mitzo-mgmt-runtime:codex-0.153.4}"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$root/../../.." && pwd)"
 context="$(mktemp -d "${TMPDIR:-/tmp}/mitzo-mgmt-runtime.XXXXXX")"
 cleanup() { rm -rf "$context"; }
 trap cleanup EXIT
@@ -12,6 +13,10 @@ test -f "$mgmt_repo/pyproject.toml"
 test -f "$mgmt_repo/uv.lock"
 cp "$root/Dockerfile.mgmt-runtime" "$context/Dockerfile"
 cp "$root/run-mitzo-app-server" "$context/run-mitzo-app-server"
+cp "$root/compile-mgmt-context.mjs" "$context/compile-mgmt-context.mjs"
+mkdir -p "$context/contexgin/dist"
+cp "$repo_root/node_modules/contexgin/package.json" "$context/contexgin/package.json"
+cp -R "$repo_root/node_modules/contexgin/dist/." "$context/contexgin/dist/"
 cp "$mgmt_repo/pyproject.toml" "$context/pyproject.toml"
 cp "$mgmt_repo/uv.lock" "$context/uv.lock"
 podman build --tag "$tag" "$context"
