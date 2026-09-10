@@ -5,8 +5,13 @@ import { join } from 'node:path';
 import { SessionRegistry, resolvePending } from '@mitzo/harness';
 import { loadAccountProfiles } from '../account-profiles.js';
 import { executeSandboxedCommand } from '../sandboxed-command.js';
+import { executeTrustedGitCommit, executeTrustedGitHubRead } from '../trusted-native-operation.js';
 vi.mock('../sandboxed-command.js', () => ({
   executeSandboxedCommand: vi.fn().mockResolvedValue({ content: 'done', isError: false }),
+}));
+vi.mock('../trusted-native-operation.js', () => ({
+  executeTrustedGitHubRead: vi.fn().mockResolvedValue('{"login":"test"}'),
+  executeTrustedGitCommit: vi.fn().mockResolvedValue('[branch abc] approved'),
 }));
 import { createNativeToolExecutor } from '../native-tool-executor.js';
 
@@ -67,6 +72,45 @@ describe('native tool execution through session permissions', () => {
     resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
     expect(await allowed).toMatchObject({ is_error: false });
     expect(await readFile(join(root, 'worktree/approved'), 'utf8')).toBe('yes');
+  });
+  it('requires an exact approval for authenticated GitHub reads without exposing credentials', async () => {
+    registry.get('client')!.mode = 'auto';
+    const pending = executor()(call('GitHubRead', { endpoint: '/user' }), abort.signal);
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
+    expect(await pending).toMatchObject({ content: '{"login":"test"}', is_error: false });
+    expect(executeTrustedGitHubRead).toHaveBeenCalledWith(
+      '/user',
+      abort.signal,
+      undefined,
+      undefined,
+    );
+  });
+  it('rejects GitHub traversal before requesting approval', async () => {
+    const response = await executor()(
+      call('GitHubRead', { endpoint: '/repos/owner/repo/../../user' }),
+      abort.signal,
+    );
+    expect(response).toMatchObject({ is_error: true, content: 'Invalid native tool input' });
+    expect(sent).toEqual([]);
+  });
+  it('commits only canonical approved workspace paths through the trusted operation', async () => {
+    await writeFile(join(root, 'worktree/change.txt'), 'change');
+    const pending = executor()(
+      call('GitCommit', { files: ['./change.txt', 'change.txt'], message: 'test: approved' }),
+      abort.signal,
+    );
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
+    expect(await pending).toMatchObject({ is_error: false });
+    expect(executeTrustedGitCommit).toHaveBeenCalledWith(
+      await realpath(join(root, 'worktree')),
+      ['change.txt'],
+      'test: approved',
+      abort.signal,
+      undefined,
+      undefined,
+    );
   });
   it('returns structured answers through the native question tool in ask mode', async () => {
     registry.get('client')!.mode = 'ask';

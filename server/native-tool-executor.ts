@@ -1,5 +1,6 @@
 import { executeSandboxedCommand } from './sandboxed-command.js';
 import { executeNativeFileOperation } from './native-file-operation.js';
+import { executeTrustedGitCommit, executeTrustedGitHubRead } from './trusted-native-operation.js';
 import { lstat, realpath } from 'node:fs/promises';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -27,7 +28,9 @@ const externalHostname = z
   .string()
   .min(1)
   .max(253)
-  .regex(/^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/)
+  .regex(
+    /^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/,
+  )
   .refine(
     (value) =>
       !['localhost', 'local', 'internal', 'home.arpa', 'test', 'invalid'].some(
@@ -44,13 +47,27 @@ const schemas = {
     .object({
       command: z.string().min(1).max(32000),
       allowed_domains: z
-        .array(
-          externalHostname,
-        )
+        .array(externalHostname)
         .max(16)
         .optional()
-            .describe('Exact external hostnames this command may contact. No credentials are added.'),
+        .describe('Exact external hostnames this command may contact. No credentials are added.'),
       ...approval,
+    })
+    .strict(),
+  GitHubRead: z
+    .object({
+      endpoint: z
+        .string()
+        .min(1)
+        .max(1000)
+        .regex(/^\/(?:user|repos\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_./?=&%+-]*)?)$/)
+        .refine((value) => !value.includes('..') && !value.includes('//'), 'Invalid GitHub path'),
+    })
+    .strict(),
+  GitCommit: z
+    .object({
+      files: z.array(z.string().min(1).max(1000)).min(1).max(64),
+      message: z.string().min(1).max(500),
     })
     .strict(),
   Read: z.object({ file_path: z.string().min(1) }).strict(),
@@ -68,6 +85,10 @@ const descriptions = {
   AskUserQuestion:
     'Ask structured questions in Mitzo and wait for the user’s answers. Questions do not authorize tool execution.',
   Bash: 'Run a command in the session workspace using an OS sandbox. Use for tests, Git and directory creation. Network is denied unless exact public hostnames are requested in allowed_domains; credentials are never added. Writes outside session roots and unavailable sandboxes fail explicitly.',
+  GitHubRead:
+    'Perform one approved authenticated GitHub API GET through Mitzo. Credentials remain in the trusted host process and are never exposed to the command sandbox.',
+  GitCommit:
+    'Stage exactly the approved workspace files and create one local Git commit through Mitzo. Refuses an already-staged index and credential-like files.',
   Read: 'Read a UTF-8 file. Paths are relative to the session cwd unless absolute.',
   Write: 'Write a UTF-8 file in an existing directory.',
   Edit: 'Replace exactly one occurrence of old_string in a UTF-8 file.',
@@ -131,7 +152,7 @@ export function createNativeToolExecutor(
       if (!session?.cwd) return result('Session workspace is unavailable', true);
       if (
         effectivePermissionMode(session) === 'ask' &&
-        !['Read', 'AskUserQuestion'].includes(block.name)
+        !['Read', 'AskUserQuestion', 'GitHubRead'].includes(block.name)
       )
         return result('Ask mode only permits read-only native tools', true);
       if (!Object.hasOwn(schemas, block.name)) return result('Native tool is unavailable', true);
@@ -146,6 +167,67 @@ export function createNativeToolExecutor(
         return permission.behavior === 'allow'
           ? result(JSON.stringify({ answers: permission.updatedInput?.answers }))
           : result(permission.message, true);
+      }
+      if (block.name === 'GitHubRead' && 'endpoint' in parsed.data) {
+        const input = { endpoint: parsed.data.endpoint };
+        const permission = await canUseTool(block.name, input, {
+          signal,
+          toolUseID: block.id,
+          forcePrompt: true,
+        });
+        signal.throwIfAborted();
+        if (permission.behavior !== 'allow') return result(permission.message, true);
+        if (!isDeepStrictEqual(permission.updatedInput, input))
+          return result('Tool input changed during approval; retry the tool', true);
+        if (
+          registry.get(clientId) !== session ||
+          checkSkillPolicy(registry, clientId, block.name) === 'deny'
+        )
+          return result('Session permissions changed; retry the tool', true);
+        return result(
+          await executeTrustedGitHubRead(
+            input.endpoint,
+            signal,
+            options.timeoutMs,
+            options.maxOutputBytes,
+          ),
+        );
+      }
+      if (block.name === 'GitCommit' && 'files' in parsed.data) {
+        const root = await realpath(session.cwd);
+        const files: string[] = [];
+        for (const requested of parsed.data.files) {
+          const canonical = await canonicalPath(resolve(root, requested));
+          if (canonical === root || !canonical.startsWith(root + '/'))
+            return result('Git commit path is outside the session workspace', true);
+          files.push(relative(root, canonical));
+        }
+        const input = { files: [...new Set(files)], message: parsed.data.message };
+        const permission = await canUseTool(block.name, input, {
+          signal,
+          toolUseID: block.id,
+          forcePrompt: true,
+        });
+        signal.throwIfAborted();
+        if (permission.behavior !== 'allow') return result(permission.message, true);
+        if (!isDeepStrictEqual(permission.updatedInput, input))
+          return result('Tool input changed during approval; retry the tool', true);
+        if (
+          registry.get(clientId) !== session ||
+          effectivePermissionMode(session) === 'ask' ||
+          checkSkillPolicy(registry, clientId, block.name) === 'deny'
+        )
+          return result('Session permissions changed; retry the tool', true);
+        return result(
+          await executeTrustedGitCommit(
+            root,
+            input.files,
+            input.message,
+            signal,
+            options.timeoutMs,
+            options.maxOutputBytes,
+          ),
+        );
       }
       if (block.name === 'Bash' && 'command' in parsed.data) {
         const input = {

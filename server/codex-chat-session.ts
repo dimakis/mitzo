@@ -47,6 +47,21 @@ export async function waitForCodexRuntime(session: ManagedSession, timeoutMs = 5
   }
   return runtime;
 }
+export async function waitForCodexRuntimeBySessionId(
+  registry: SessionRegistry,
+  sessionId: string,
+  timeoutMs = 5000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  let session = registry.findBySessionId(sessionId)?.session;
+  let runtime = session ? getCodexRuntime(session) : undefined;
+  while (!runtime && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    session = registry.findBySessionId(sessionId)?.session;
+    runtime = session ? getCodexRuntime(session) : undefined;
+  }
+  return runtime;
+}
 export function readCodexQueue(
   conversationId: string,
   binding: AccountBinding,
