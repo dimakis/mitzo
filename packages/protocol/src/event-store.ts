@@ -9,6 +9,9 @@ import type {
   EventStoreLogger,
   AccountBinding,
 } from './types.js';
+import { AccountBindingSchema } from './account-binding.js';
+import { SymposiumConfigSchema, SymposiumProvenanceSchema } from './symposium.js';
+import type { SymposiumConfig, SymposiumProvenance } from './symposium.js';
 
 // Re-export types for consumer convenience
 export type {
@@ -46,6 +49,8 @@ export function toClientState(state: SessionState): ClientSessionState {
 const noopLogger: EventStoreLogger = { info() {} };
 
 interface EventRow {
+  seat_id: string | null;
+  symposium_provenance: string | null;
   seq: number;
   session_id: string;
   type: string;
@@ -54,6 +59,9 @@ interface EventRow {
 }
 
 interface SessionRow {
+  session_type: string;
+  symposium_config: string | null;
+  symposium_revision: number;
   session_id: string;
   summary: string | null;
   branch: string | null;
@@ -93,6 +101,10 @@ export interface SendCommandReceipt {
   payload: Record<string, unknown>;
   error: string | null;
 }
+
+type SessionUpsert = Partial<
+  Omit<SessionMeta, 'sessionType' | 'symposiumConfig' | 'symposiumRevision'>
+> & { sessionId: string };
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS send_commands (
@@ -250,12 +262,15 @@ export class EventStore {
     this.migrateAttentionTracking(db);
     this.migrateSessionState(db);
     this.migrateBootContext(db);
+    this.migrateSymposium(db);
     this.migrateUserMessageIndex(db);
 
     this.log.info('EventStore initialized', { dbPath });
 
     this.stmts = {
-      append: db.prepare('INSERT INTO events (session_id, type, payload) VALUES (?, ?, ?)'),
+      append: db.prepare(
+        'INSERT INTO events (session_id, type, payload, seat_id, symposium_provenance) VALUES (?, ?, ?, ?, ?)',
+      ),
       hasUserMessage: db.prepare(
         `SELECT 1 FROM events
          WHERE session_id = ? AND type = 'user_message'
@@ -263,13 +278,13 @@ export class EventStore {
          LIMIT 1`,
       ),
       eventsAfter: db.prepare(
-        'SELECT seq, session_id, type, payload, created_at FROM events WHERE session_id = ? AND seq > ? ORDER BY seq',
+        'SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance FROM events WHERE session_id = ? AND seq > ? ORDER BY seq',
       ),
       eventsAfterLimited: db.prepare(
-        'SELECT seq, session_id, type, payload, created_at FROM events WHERE session_id = ? AND seq > ? ORDER BY seq LIMIT ?',
+        'SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance FROM events WHERE session_id = ? AND seq > ? ORDER BY seq LIMIT ?',
       ),
       sessionEvents: db.prepare(
-        'SELECT seq, session_id, type, payload, created_at FROM events WHERE session_id = ? ORDER BY seq',
+        'SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance FROM events WHERE session_id = ? ORDER BY seq',
       ),
       getSession: db.prepare('SELECT * FROM sessions WHERE session_id = ?'),
       listSessions: db.prepare(
@@ -434,6 +449,29 @@ export class EventStore {
     }
   }
 
+  private migrateSymposium(db: Database.Database): void {
+    db.transaction(() => {
+      const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
+      const names = new Set(columns.map((column) => column.name));
+      if (!names.has('session_type')) {
+        db.exec("ALTER TABLE sessions ADD COLUMN session_type TEXT NOT NULL DEFAULT 'chat'");
+      }
+      if (!names.has('symposium_config')) {
+        db.exec('ALTER TABLE sessions ADD COLUMN symposium_config TEXT');
+      }
+      if (!names.has('symposium_revision')) {
+        db.exec('ALTER TABLE sessions ADD COLUMN symposium_revision INTEGER NOT NULL DEFAULT 0');
+      }
+      const events = db.prepare("PRAGMA table_info('events')").all() as Array<{ name: string }>;
+      if (!events.some((column) => column.name === 'seat_id')) {
+        db.exec('ALTER TABLE events ADD COLUMN seat_id TEXT');
+      }
+      if (!events.some((column) => column.name === 'symposium_provenance')) {
+        db.exec('ALTER TABLE events ADD COLUMN symposium_provenance TEXT');
+      }
+    })();
+  }
+
   private migrateUserMessageIndex(db: Database.Database): void {
     db.exec(
       `CREATE INDEX IF NOT EXISTS idx_events_user_msg_dedup
@@ -449,8 +487,49 @@ export class EventStore {
   }
 
   append(sessionId: string, type: string, payload: Record<string, unknown>): number {
-    const result = this.stmts.append.run(sessionId, type, JSON.stringify(payload));
+    const result = this.stmts.append.run(sessionId, type, JSON.stringify(payload), null, null);
     return Number(result.lastInsertRowid);
+  }
+
+  /** Persist a seat-attributed event only when its provenance matches the active config. */
+  appendSymposium(
+    sessionId: string,
+    type: string,
+    payload: Record<string, unknown>,
+    input: unknown,
+  ): number {
+    const provenance = SymposiumProvenanceSchema.parse(input);
+    return this.db!.transaction(() => {
+      const session = this.getSession(sessionId);
+      if (session?.sessionType !== 'symposium' || !session.symposiumConfig) {
+        throw new Error('Cannot append a Symposium event to an inactive session');
+      }
+      const config = SymposiumConfigSchema.parse(JSON.parse(session.symposiumConfig));
+      if (config.state !== 'active') {
+        throw new Error('Cannot append a Symposium event from a draft configuration');
+      }
+      const seat = config.seats.find((candidate) => candidate.id === provenance.seatId);
+      if (!seat) throw new Error('Symposium provenance references an unknown seat');
+      if (
+        provenance.configRevision !== config.revision ||
+        provenance.accountProfileRevision !== seat.accountBinding?.profileRevision ||
+        provenance.seatProfileRevision !== seat.profileBinding?.profileRevision ||
+        provenance.contextGrantRevision !== seat.contextGrant?.revision ||
+        provenance.authorityGrantRevision !== seat.authorityGrant?.revision ||
+        provenance.isolationDomainId !== seat.isolationRequest?.trustDomainId ||
+        provenance.isolationDomainRevision !== seat.isolationRequest?.revision
+      ) {
+        throw new Error('Symposium provenance does not match the active seat configuration');
+      }
+      const result = this.stmts.append.run(
+        sessionId,
+        type,
+        JSON.stringify(payload),
+        provenance.seatId,
+        JSON.stringify(provenance),
+      );
+      return Number(result.lastInsertRowid);
+    }).immediate();
   }
 
   /** Check if a user_message with the given messageId already exists for this session. */
@@ -471,7 +550,54 @@ export class EventStore {
     return (rows as EventRow[]).map(rowToEvent);
   }
 
-  upsertSession(meta: Partial<SessionMeta> & { sessionId: string }): void {
+  /** Persist a validated draft or activate Symposium on an existing session.
+   * Activation is fail-closed: Seat 1 must retain the session's durable account
+   * binding and configuration revisions must move forward.
+   */
+  setSymposiumConfig(sessionId: string, input: unknown): SymposiumConfig {
+    const config = SymposiumConfigSchema.parse(input);
+    return this.db!.transaction(() => {
+      const session = this.getSession(sessionId);
+      if (!session) throw new Error('Cannot configure Symposium for an unknown session');
+
+      if (config.state === 'active') {
+        const sessionBinding = AccountBindingSchema.safeParse(session.accountBinding);
+        const primaryBinding = config.seats[0].accountBinding;
+        if (
+          !sessionBinding.success ||
+          !primaryBinding ||
+          !sameBinding(sessionBinding.data, primaryBinding)
+        ) {
+          throw new Error('Seat 1 must retain the existing session account binding');
+        }
+      }
+
+      const result = this.db!.prepare(
+        `UPDATE sessions SET
+          session_type = 'symposium', symposium_config = ?, symposium_revision = ?,
+          updated_at = unixepoch('now', 'subsec') * 1000
+         WHERE session_id = ? AND symposium_revision < ?`,
+      ).run(JSON.stringify(config), config.revision, sessionId, config.revision);
+      if (result.changes !== 1) {
+        throw new Error('Symposium configuration revision must increase');
+      }
+      return config;
+    }).immediate();
+  }
+
+  deactivateSymposium(sessionId: string, expectedRevision: number): void {
+    const result = this.db!.prepare(
+      `UPDATE sessions SET
+          session_type = 'chat', symposium_config = NULL,
+          updated_at = unixepoch('now', 'subsec') * 1000
+         WHERE session_id = ? AND session_type = 'symposium' AND symposium_revision = ?`,
+    ).run(sessionId, expectedRevision);
+    if (result.changes !== 1) {
+      throw new Error('Symposium deactivation revision conflict');
+    }
+  }
+
+  upsertSession(meta: SessionUpsert): void {
     const existing = this.getSession(meta.sessionId);
     if (existing) {
       const fields: string[] = [];
@@ -821,13 +947,26 @@ export class EventStore {
 }
 
 function rowToEvent(row: EventRow): StoredEvent {
+  const symposiumProvenance = parseSymposiumProvenance(row.symposium_provenance);
   return {
     seq: row.seq,
+    ...(row.seat_id ? { seatId: row.seat_id } : {}),
+    ...(symposiumProvenance ? { symposiumProvenance } : {}),
     sessionId: row.session_id,
     type: row.type,
     payload: JSON.parse(row.payload),
     createdAt: row.created_at,
   };
+}
+
+function parseSymposiumProvenance(raw: string | null): SymposiumProvenance | undefined {
+  if (!raw) return undefined;
+  try {
+    const result = SymposiumProvenanceSchema.safeParse(JSON.parse(raw));
+    return result.success ? result.data : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Extract a text snippet around the query match from a JSON payload string. */
@@ -885,6 +1024,9 @@ function rowToSession(row: SessionRow): SessionMeta {
     agentName: row.agent_name ?? null,
     bootContext: row.boot_context ?? null,
     accountBinding: parseAccountBinding(row.account_binding),
+    sessionType: row.session_type === 'symposium' ? 'symposium' : 'chat',
+    symposiumConfig: row.symposium_config ?? null,
+    symposiumRevision: row.symposium_revision ?? 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -893,14 +1035,8 @@ function rowToSession(row: SessionRow): SessionMeta {
 function parseAccountBinding(raw: string | null): AccountBinding | null {
   if (raw === null || raw === undefined) return null;
   try {
-    const binding = JSON.parse(raw);
-    if (
-      binding &&
-      ['accountId', 'accountLabel', 'provider', 'model', 'profileRevision'].every(
-        (key) => typeof binding[key] === 'string' && binding[key].length > 0,
-      )
-    )
-      return binding;
+    const binding = AccountBindingSchema.safeParse(JSON.parse(raw));
+    if (binding.success) return binding.data;
   } catch {
     /* Preserve a failed binding, never silently downgrade to the legacy route. */
   }
@@ -911,4 +1047,13 @@ function parseAccountBinding(raw: string | null): AccountBinding | null {
     model: 'unavailable',
     profileRevision: 'invalid',
   };
+}
+
+function sameBinding(left: AccountBinding, right: AccountBinding): boolean {
+  return (
+    left.accountId === right.accountId &&
+    left.provider === right.provider &&
+    left.model === right.model &&
+    left.profileRevision === right.profileRevision
+  );
 }
