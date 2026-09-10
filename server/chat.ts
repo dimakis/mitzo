@@ -410,7 +410,9 @@ const CONFIG_TTL_MS = 5_000;
 export function getRepoConfig() {
   const now = Date.now();
   if (_cachedConfig && now - _cachedAt < CONFIG_TTL_MS) return _cachedConfig;
-  _cachedConfig = loadRepoConfig(BASE_REPO);
+  _cachedConfig = loadRepoConfig(BASE_REPO, {
+    pathCeiling: process.env.MITZO_REPO_PATH_CEILING,
+  });
   _cachedAt = now;
   return _cachedConfig;
 }

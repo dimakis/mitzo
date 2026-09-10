@@ -151,6 +151,19 @@ describe('loadRepoConfig', () => {
     expect(config.repos).toEqual({ mgmt: repo1, team_home: repo2 });
   });
 
+  it('drops configured repositories outside an explicit path ceiling', () => {
+    const inside = join(TMP_DIR, 'inside');
+    const outside = join(TMP_DIR, '..', 'outside-repo-config');
+    mkdirSync(join(inside, '.git'), { recursive: true });
+    mkdirSync(join(outside, '.git'), { recursive: true });
+    writeFileSync(join(TMP_DIR, '.mitzo.json'), JSON.stringify({ repos: { inside, outside } }));
+    try {
+      expect(loadRepoConfig(TMP_DIR, { pathCeiling: TMP_DIR }).repos).toEqual({ inside });
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
   it('returns empty repos when not specified', () => {
     const data = { quickActions: [] };
     writeFileSync(join(TMP_DIR, '.mitzo.json'), JSON.stringify(data));

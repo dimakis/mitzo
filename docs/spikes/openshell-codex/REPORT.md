@@ -18,14 +18,14 @@ an embedded session only—not a competitive runtime result.
 
 ## Exact inventory
 
-| Component | Version / evidence | Result |
-| --- | --- | --- |
-| Host Codex CLI | `0.153.4` | Generated app-server schema exposes `externalSandbox`. |
-| OpenShell | `0.0.116` gateway and CLI | Connected local mTLS gateway using a rootless Podman machine. |
-| OpenShell base | upstream `ghcr.io/nvidia/openshell-community/sandboxes/base:latest` | Carries Codex `0.117.0`; warmed successfully for the smoke tests. |
-| Derived Codex image | local `mitzo-codex-spike:0.153.4` | Public `@openai/codex@0.153.4` installed successfully on Linux/arm64. |
-| Pi coding agent | npm `@earendil-works/pi-coding-agent@0.85.1`, MIT | SDK session created with read-only tools and no auth/model call. |
-| OpenCode | npm `opencode-ai@1.18.30`, MIT | Upstream-document comparison only. |
+| Component           | Version / evidence                                                  | Result                                                                |
+| ------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Host Codex CLI      | `0.153.4`                                                           | Generated app-server schema exposes `externalSandbox`.                |
+| OpenShell           | `0.0.116` gateway and CLI                                           | Connected local mTLS gateway using a rootless Podman machine.         |
+| OpenShell base      | upstream `ghcr.io/nvidia/openshell-community/sandboxes/base:latest` | Carries Codex `0.117.0`; warmed successfully for the smoke tests.     |
+| Derived Codex image | local `mitzo-codex-spike:0.153.4`                                   | Public `@openai/codex@0.153.4` installed successfully on Linux/arm64. |
+| Pi coding agent     | npm `@earendil-works/pi-coding-agent@0.85.1`, MIT                   | SDK session created with read-only tools and no auth/model call.      |
+| OpenCode            | npm `opencode-ai@1.18.30`, MIT                                      | Upstream-document comparison only.                                    |
 
 The host and base schemas were generated with the same ordinary
 `codex app-server generate-json-schema` command. The host 0.153.4 schema
@@ -36,36 +36,36 @@ remove the risk that 0.153.4 is only a desktop-app-bundled build.
 
 ## Execution evidence
 
-| Acceptance item | Status | Evidence / limitation |
-| --- | --- | --- |
-| OpenShell topology | **Pass** | Gateway 0.0.116 ran with the rootless Podman driver and its machine socket. The earlier VM provisioning stall is not treated as an incompatibility finding. |
-| OpenShell filesystem and egress boundary | **Pass** | `run-disposable.sh` emitted `POSITIVE_FILESYSTEM=pass`, `POSITIVE_NETWORK=pass`, and `NEGATIVE_NETWORK_POLICY_DENIAL=pass`. The negative control is a denied POST and requires the proxy's `policy_denied` response—not merely a failed connection. |
-| Codex `externalSandbox` command execution | **Pass** | A no-secret JSONL app-server probe in the derived 0.153.4 image executed `/bin/sh` through `command/exec` with the command `sandboxPolicy` set to `externalSandbox`; it emitted `APP_SERVER_EXTERNAL_EXEC=pass`. |
-| Correct protocol placement | **Pass (fixture/schema)** | `sandboxPolicy` is turn-scoped (`turn/start`) and command-scoped (`command/exec`); it is not a `thread/start` parameter. The request fixture reflects this. |
-| Brokered Codex subscription turn | **Blocked safely** | A `codex --from-existing` provider was attached without mounting the host auth store. OpenShell explicitly denied raw OAuth traffic to `chatgpt.com`/`api.openai.com`: the built-in profile has no L7-injectable auth mapping, so the proxy failed closed. No model action occurred. |
-| Inspected OpenAI API request | **Pass** | Direct and sandboxed `POST /v1/responses` with the same exact Keychain credential, `gpt-4.1-mini`, and request body both succeeded after importing the custom endpoint-bearing bearer profile. The legacy `openai` type had produced `invalid_api_key` because no installed profile supplied placement metadata. |
-| Codex API-key app-server turn | **Pass through custom HTTPS provider** | The built-in provider still received 401 at its WebSocket handshake, but a custom Codex `responses` provider for `https://api.openai.com/v1` used inspected HTTPS. A real model turn ran shell inside OpenShell and created the required marker. |
-| Mitzo app-server transport | **Pass (development seam)** | `CodexAppServerClient.launchOpenShell` uses OpenShell's SSH proxy as a bidirectional stdio bridge and forwards only an allowlisted host environment. A real turn driven through this Mitzo class created and committed a file in the sandbox repository. Normal chat binding is implemented behind development environment variables, but its first server launch was stopped before chat because startup repository cleanup escaped the disposable root; see the incident below. |
-| Follow-up/cancel/restart/resume/refresh | Partial | Client close left no remote app-server process after the SSH process-group fix. Follow-up, explicit mid-turn cancellation, sandbox recreation, and durable workspace restore are not yet proven. Conversation SQLite alone cannot restore uncommitted sandbox files. |
-| GitHub read and clone | **Pass (broker/clone)** | Existing `gh` token was captured in process memory, stored in a temporary provider, and exposed only as a placeholder. Authenticated `gh api user` passed; a genuinely private repository clone passed when the placeholder was supplied through HTTPS Basic auth. The earlier Mitzo clone was public. These are filesystem clones, not Mitzo workspace registration. |
-| GitHub write denial | **Pass** | A write request was explicitly `policy_denied`; no issue was created. Future controls should use only a synthetic endpoint. |
-| Google Workspace read | Partial | Host `gws 0.18.1` encrypted OAuth login is healthy and a one-item Drive read passed. OpenShell supports safe `--secret-material-env` input and the profile was imported, but the exported material failed with both its exported client secret and the actual configured client secret (`invalid_client`, then `invalid_grant`). GWS re-auth/new refresh material is required. |
-| MGMT seed and repository workflow | **Partial** | A reviewed seed reduced 13 GB to ~28 MB while preserving sampled modifications/deletions and excluding runtime/auth stores. Warm sandbox submission was ~0.69 s, seed preparation ~2.10 s, and upload ~0.39 s on this Mac. A Mitzo-driven sandbox agent created and committed a proof file. Disposable dependency resolution added `litellm`, but the next bounded MGMT check exposed another undeclared dependency, `anthropic`; parity is incomplete. |
-| Credential isolation | **Pass for static API/GitHub placeholders; broader open** | Hash-only checks proved sandbox provider variables differ from the real host tokens; host `gh` config and host Codex paths were absent. Gateway default storage uses AES-256-GCM envelopes and wrapped per-credential keys. Image-local `/sandbox/.codex` exists and still needs content classification. OAuth refresh-material and sibling-process threat tests remain. |
-| External-effect approval bypass | Not tested | No real write credential or trusted-executor mock was used. |
-| Two-seat Symposium contract | **Pass (design sketch only)** | `node --test symposium-seat-fixture.test.mjs` verifies independent seat bindings and message provenance in one shared workspace. It is not live Mitzo, runtime, or isolation evidence. |
+| Acceptance item                           | Status                                                    | Evidence / limitation                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OpenShell topology                        | **Pass**                                                  | Gateway 0.0.116 ran with the rootless Podman driver and its machine socket. The earlier VM provisioning stall is not treated as an incompatibility finding.                                                                                                                                                                                                                                                                                                                       |
+| OpenShell filesystem and egress boundary  | **Pass**                                                  | `run-disposable.sh` emitted `POSITIVE_FILESYSTEM=pass`, `POSITIVE_NETWORK=pass`, and `NEGATIVE_NETWORK_POLICY_DENIAL=pass`. The negative control is a denied POST and requires the proxy's `policy_denied` response—not merely a failed connection.                                                                                                                                                                                                                               |
+| Codex `externalSandbox` command execution | **Pass**                                                  | A no-secret JSONL app-server probe in the derived 0.153.4 image executed `/bin/sh` through `command/exec` with the command `sandboxPolicy` set to `externalSandbox`; it emitted `APP_SERVER_EXTERNAL_EXEC=pass`.                                                                                                                                                                                                                                                                  |
+| Correct protocol placement                | **Pass (fixture/schema)**                                 | `sandboxPolicy` is turn-scoped (`turn/start`) and command-scoped (`command/exec`); it is not a `thread/start` parameter. The request fixture reflects this.                                                                                                                                                                                                                                                                                                                       |
+| Brokered Codex subscription turn          | **Blocked safely**                                        | A `codex --from-existing` provider was attached without mounting the host auth store. OpenShell explicitly denied raw OAuth traffic to `chatgpt.com`/`api.openai.com`: the built-in profile has no L7-injectable auth mapping, so the proxy failed closed. No model action occurred.                                                                                                                                                                                              |
+| Inspected OpenAI API request              | **Pass**                                                  | Direct and sandboxed `POST /v1/responses` with the same exact Keychain credential, `gpt-4.1-mini`, and request body both succeeded after importing the custom endpoint-bearing bearer profile. The legacy `openai` type had produced `invalid_api_key` because no installed profile supplied placement metadata.                                                                                                                                                                  |
+| Codex API-key app-server turn             | **Pass through custom HTTPS provider**                    | The built-in provider still received 401 at its WebSocket handshake, but a custom Codex `responses` provider for `https://api.openai.com/v1` used inspected HTTPS. A real model turn ran shell inside OpenShell and created the required marker.                                                                                                                                                                                                                                  |
+| Mitzo app-server transport                | **Pass (development seam)**                               | `CodexAppServerClient.launchOpenShell` uses OpenShell's SSH proxy as a bidirectional stdio bridge and forwards only an allowlisted host environment. A real turn driven through this Mitzo class created and committed a file in the sandbox repository. Normal chat binding is implemented behind development environment variables, but its first server launch was stopped before chat because startup repository cleanup escaped the disposable root; see the incident below. |
+| Follow-up/cancel/restart/resume/refresh   | Partial                                                   | Client close left no remote app-server process after the SSH process-group fix. Follow-up, explicit mid-turn cancellation, sandbox recreation, and durable workspace restore are not yet proven. Conversation SQLite alone cannot restore uncommitted sandbox files.                                                                                                                                                                                                              |
+| GitHub read and clone                     | **Pass (broker/clone)**                                   | Existing `gh` token was captured in process memory, stored in a temporary provider, and exposed only as a placeholder. Authenticated `gh api user` passed; a genuinely private repository clone passed when the placeholder was supplied through HTTPS Basic auth. The earlier Mitzo clone was public. These are filesystem clones, not Mitzo workspace registration.                                                                                                             |
+| GitHub write denial                       | **Pass**                                                  | A write request was explicitly `policy_denied`; no issue was created. Future controls should use only a synthetic endpoint.                                                                                                                                                                                                                                                                                                                                                       |
+| Google Workspace read                     | Partial                                                   | Host `gws 0.18.1` encrypted OAuth login is healthy and a one-item Drive read passed. OpenShell supports safe `--secret-material-env` input and the profile was imported, but the exported material failed with both its exported client secret and the actual configured client secret (`invalid_client`, then `invalid_grant`). GWS re-auth/new refresh material is required.                                                                                                    |
+| MGMT seed and repository workflow         | **Partial**                                               | A reviewed seed reduced 13 GB to ~28 MB while preserving sampled modifications/deletions and excluding runtime/auth stores. Warm sandbox submission was ~0.69 s, seed preparation ~2.10 s, and upload ~0.39 s on this Mac. A Mitzo-driven sandbox agent created and committed a proof file. Disposable dependency resolution added `litellm`, but the next bounded MGMT check exposed another undeclared dependency, `anthropic`; parity is incomplete.                           |
+| Credential isolation                      | **Pass for static API/GitHub placeholders; broader open** | Hash-only checks proved sandbox provider variables differ from the real host tokens; host `gh` config and host Codex paths were absent. Gateway default storage uses AES-256-GCM envelopes and wrapped per-credential keys. Image-local `/sandbox/.codex` exists and still needs content classification. OAuth refresh-material and sibling-process threat tests remain.                                                                                                          |
+| External-effect approval bypass           | Not tested                                                | No real write credential or trusted-executor mock was used.                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Two-seat Symposium contract               | **Pass (design sketch only)**                             | `node --test symposium-seat-fixture.test.mjs` verifies independent seat bindings and message provenance in one shared workspace. It is not live Mitzo, runtime, or isolation evidence.                                                                                                                                                                                                                                                                                            |
 
 ## Harness comparison
 
-| Criterion | Codex app-server | Pi coding agent | OpenCode |
-| --- | --- | --- | --- |
-| Integration surface | JSON-RPC app server, dynamic tools, thread lifecycle | First-class TypeScript SDK with sessions/events/custom tools | Whole coding agent with HTTP server, REST/SSE control surface |
-| Built-in local tools | Shell/files; OpenShell must enforce | Read/write/edit/bash; OpenShell must enforce | Rich coding-agent tools; OpenShell must enforce |
-| Subscription auth | ChatGPT login and documented external-token paths | Documents ChatGPT Plus/Pro `/login` | Documents ChatGPT Plus/Pro browser `/connect`, or API key |
-| API/provider breadth | OpenAI/Codex routes | Broad model runtime; candidate for API/Vertex runner | Broad provider support |
-| Mitzo-owned approvals/history/recovery | Must remain in Mitzo | Must remain in Mitzo if embedded | Must remain in Mitzo for Symposium orchestration |
-| Reusable executor only | Not preferred: app-server owns a Codex thread | Possible, but leaves Mitzo owning the agent loop | No current reason to adopt solely for tools |
-| Evaluation status | Outer execution and inspected HTTP auth demonstrated; subscription and API-key WebSocket agent turns blocked | Session construction demonstrated; no inference | Documentation only; no local test |
+| Criterion                              | Codex app-server                                                                                             | Pi coding agent                                              | OpenCode                                                      |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------- |
+| Integration surface                    | JSON-RPC app server, dynamic tools, thread lifecycle                                                         | First-class TypeScript SDK with sessions/events/custom tools | Whole coding agent with HTTP server, REST/SSE control surface |
+| Built-in local tools                   | Shell/files; OpenShell must enforce                                                                          | Read/write/edit/bash; OpenShell must enforce                 | Rich coding-agent tools; OpenShell must enforce               |
+| Subscription auth                      | ChatGPT login and documented external-token paths                                                            | Documents ChatGPT Plus/Pro `/login`                          | Documents ChatGPT Plus/Pro browser `/connect`, or API key     |
+| API/provider breadth                   | OpenAI/Codex routes                                                                                          | Broad model runtime; candidate for API/Vertex runner         | Broad provider support                                        |
+| Mitzo-owned approvals/history/recovery | Must remain in Mitzo                                                                                         | Must remain in Mitzo if embedded                             | Must remain in Mitzo for Symposium orchestration              |
+| Reusable executor only                 | Not preferred: app-server owns a Codex thread                                                                | Possible, but leaves Mitzo owning the agent loop             | No current reason to adopt solely for tools                   |
+| Evaluation status                      | Outer execution and inspected HTTP auth demonstrated; subscription and API-key WebSocket agent turns blocked | Session construction demonstrated; no inference              | Documentation only; no local test                             |
 
 ## Symposium topology
 
@@ -134,13 +134,27 @@ then created and committed `github-chat-proof.txt`; verification emitted
 The first normal-server launch used a disposable `REPO_PATH`, but the copied
 MGMT `.mitzo.json` retained absolute host repository paths. Startup stale-
 worktree cleanup followed those paths before any chat was sent. Logs report
-seven MGMT worktrees removed and one Mitzo worktree auto-rescued: it created
-draft PR `dimakis/mitzo#483` from branch
-`session/2026-08-07-fc97c914401c`, then removed that worktree. The PR contains
-three files and one rescue commit. The server was stopped immediately. No
-cleanup, PR closure, or restoration was attempted. A safe relaunch requires a
-development flag that disables startup cleanup and rejects repository paths
-outside the disposable root; copying metadata alone is not isolation.
+seven MGMT worktrees removed and one Mitzo worktree auto-rescued.
+Cross-repository GitHub inventory confirmed that the cleanup created eight open
+draft rescue PRs: `dimakis/mgmt#291` through `#297`, plus `dimakis/mitzo#483`.
+Those drafts preserve the corresponding session branches; none were closed,
+merged, deleted, or restored. The server was stopped immediately. A guarded
+development relaunch now requires `MITZO_DISABLE_REPO_MAINTENANCE=1` and
+`MITZO_REPO_PATH_CEILING` set to the disposable root. The former disables
+startup reconciliation and stale-worktree cleanup outside production; the
+latter rejects configured repositories whose canonical paths escape the
+ceiling.
+
+## ContexGin trust boundary
+
+ContexGin remains part of MGMT parity, but it should not run inside each task
+sandbox. Mitzo's trusted host process already fetches
+`/api/agents/:name/context`, sends provenance to the UI, and appends the
+compiled Markdown to the system prompt before opening the agent turn. Only the
+resulting context crosses into OpenShell. If the host daemon is unavailable,
+Mitzo retains its local boot-context fallback. This keeps ContexGin's daemon,
+filesystem graph, and SQLite state outside the untrusted execution boundary and
+avoids granting the sandbox a route back to a host-local service.
 
 ## Local task lifecycle and recovery
 
@@ -166,14 +180,14 @@ parity is not established: `.agents` skills are included, while executable
 
 ## Next qualification gate
 
-Wire per-task provisioning and the SSH transport into normal Mitzo chat
-selection, with a sandbox-path binding distinct from host cwd. Validate the
-disposable resolved MGMT runtime image with representative commands, and keep
-the source lock divergence visible rather than rewriting host MGMT. Add durable workspace
-checkpoints before expiry/recreation tests. The retained sandbox's GitHub API
-rule is absent: an attempted policy expansion was denied by the local approval
-layer, so the chat GitHub marker was not created. GWS needs a fresh refresh
-token. Anthropic/Vertex remains a separate worker entrypoint.
+Complete guarded normal Mitzo chat qualification with a sandbox-path binding
+distinct from host cwd. Validate the disposable resolved MGMT runtime image
+with representative commands, and keep the source lock divergence visible
+rather than rewriting host MGMT. Add durable workspace checkpoints before
+expiry/recreation tests. The retained development sandbox has inspected,
+read-only GitHub API access for `gh`, `git`, and `curl`; its real
+Mitzo-transported GitHub marker passed. GWS still needs a fresh refresh token.
+Anthropic/Vertex remains a separate worker entrypoint.
 
 ## Kubernetes integration target
 
