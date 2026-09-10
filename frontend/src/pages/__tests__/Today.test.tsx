@@ -21,10 +21,11 @@ const data = vi.hoisted(() => ({
   })),
   loading: false,
   briefing: null as { path: string; generatedAt: string } | null,
-  apiResponses: [] as Promise<{
-    ok: boolean;
-    json: () => Promise<{ path: string; generatedAt: string } | null>;
-  }>[],
+  fetch: (_url: string) =>
+    Promise.resolve({ ok: true, json: () => Promise.resolve(null) }) as Promise<{
+      ok: boolean;
+      json: () => Promise<{ path: string; generatedAt: string } | null>;
+    }>,
 }));
 vi.mock('../../hooks/useSessionList', () => ({
   useSessionList: () => ({ sessions: data.sessions, loading: data.loading }),
@@ -33,11 +34,7 @@ vi.mock('../../hooks/useAttentionFeed', () => ({
   useAttentionFeed: () => ({ items: data.items, loading: data.loading }),
 }));
 vi.mock('../../lib/api-fetch', () => ({
-  apiFetch: vi.fn(
-    () =>
-      data.apiResponses.shift() ??
-      Promise.resolve({ ok: true, json: () => Promise.resolve(data.briefing) }),
-  ),
+  apiFetch: vi.fn((url: string) => data.fetch(url)),
 }));
 function Location() {
   return (
@@ -58,7 +55,7 @@ function show() {
 beforeEach(() => {
   localStorage.clear();
   data.briefing = null;
-  data.apiResponses = [];
+  data.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(data.briefing) });
   vi.useFakeTimers();
   vi.setSystemTime(new Date(2026, 8, 8, 9));
 });
@@ -118,19 +115,22 @@ describe('Today', () => {
       ok: boolean;
       json: () => Promise<{ path: string; generatedAt: string } | null>;
     }) => void;
-    data.apiResponses = [
-      new Promise((resolve) => {
-        resolveFirst = resolve;
-      }),
-      Promise.resolve({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            path: '/workspace/command_center/briefings/morning_2026-09-08_0830.md',
-            generatedAt: '2026-09-08T08:30:00.000Z',
-          }),
-      }),
-    ];
+    let requestCount = 0;
+    data.fetch = () => {
+      requestCount += 1;
+      return requestCount === 1
+        ? new Promise((resolve) => {
+            resolveFirst = resolve;
+          })
+        : Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                path: '/workspace/command_center/briefings/morning_2026-09-08_0830.md',
+                generatedAt: '2026-09-08T08:30:00.000Z',
+              }),
+          });
+    };
     show();
 
     await act(async () => {
@@ -142,6 +142,26 @@ describe('Today', () => {
       resolveFirst!({ ok: true, json: () => Promise.resolve(null) });
     });
     expect(screen.getByText(/Briefing prepared/)).toBeTruthy();
+  });
+  it('clears yesterday’s briefing while the new day refreshes', async () => {
+    vi.setSystemTime(new Date(2026, 8, 8, 23, 59));
+    data.briefing = {
+      path: '/workspace/command_center/briefings/morning_2026-09-08_0830.md',
+      generatedAt: '2026-09-08T08:30:00.000Z',
+    };
+    show();
+    await act(async () => {});
+    expect(screen.getByText(/Briefing prepared/)).toBeTruthy();
+
+    data.fetch = (url) =>
+      url.includes('date=2026-09-09')
+        ? new Promise(() => {})
+        : Promise.resolve({ ok: true, json: () => Promise.resolve(data.briefing) });
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
+
+    expect(screen.getByText('Sources haven’t been checked here yet.')).toBeTruthy();
   });
   it('shows evening copy after 18:00', () => {
     vi.setSystemTime(new Date(2026, 8, 8, 22));

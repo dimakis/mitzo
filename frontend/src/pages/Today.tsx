@@ -28,24 +28,31 @@ export function Today() {
   const [showTokens, setShowTokens] = useState(
     () => localStorage.getItem(TOKEN_PREFERENCE) === 'true',
   );
-  const [briefingResult, setBriefingResult] = useState<Briefing | null>(null);
+  const [briefingState, setBriefing] = useState<{ date: string; result: Briefing | null }>(() => ({
+    date: localDate(new Date()),
+    result: null,
+  }));
   const briefingRequest = useRef(0);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
   const today = localDate(now);
+  const briefingResult = briefingState.date === today ? briefingState.result : null;
   useEffect(() => {
     let cancelled = false;
+    setBriefing({ date: today, result: null });
     const refreshBriefing = () => {
       const request = ++briefingRequest.current;
       apiFetch(`/api/briefings/latest?date=${today}`)
         .then((response) => (response.ok ? response.json() : null))
         .then((result: Briefing | null) => {
-          if (!cancelled && request === briefingRequest.current) setBriefingResult(result);
+          if (!cancelled && request === briefingRequest.current)
+            setBriefing({ date: today, result });
         })
         .catch(() => {
-          if (!cancelled && request === briefingRequest.current) setBriefingResult(null);
+          if (!cancelled && request === briefingRequest.current)
+            setBriefing({ date: today, result: null });
         });
     };
     refreshBriefing();

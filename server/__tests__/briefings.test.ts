@@ -34,6 +34,16 @@ describe('getLatestMorningBriefing', () => {
     });
   });
 
+  it('supports the legacy scheduled briefing filename', () => {
+    const path = save('2026-09-10.md');
+
+    expect(getLatestMorningBriefing(repoPath, '2026-09-10')).toMatchObject({
+      filename: '2026-09-10.md',
+      path,
+      date: '2026-09-10',
+    });
+  });
+
   it('ignores unrelated files and returns null when today has no briefing', () => {
     save('morning_2026-09-09_0830.md');
     save('weekly_2026-09-10_0830.md');

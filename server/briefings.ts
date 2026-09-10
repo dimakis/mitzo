@@ -9,6 +9,7 @@ export interface MorningBriefingSummary {
 }
 
 const MORNING_BRIEFING = /^morning_(\d{4}-\d{2}-\d{2})_(\d{4})\.md$/;
+const LEGACY_MORNING_BRIEFING = /^(\d{4}-\d{2}-\d{2})\.md$/;
 
 /**
  * Returns the most recently generated morning briefing for a calendar day.
@@ -24,7 +25,7 @@ export function getLatestMorningBriefing(
 
   const candidates = readdirSync(briefingsPath)
     .map((filename) => {
-      const match = MORNING_BRIEFING.exec(filename);
+      const match = MORNING_BRIEFING.exec(filename) ?? LEGACY_MORNING_BRIEFING.exec(filename);
       if (!match || match[1] !== date) return null;
       const path = join(briefingsPath, filename);
       const stat = statSync(path);
