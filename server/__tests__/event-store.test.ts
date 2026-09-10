@@ -22,6 +22,15 @@ describe('EventStore', () => {
     });
   });
 
+  it('recognizes only recent accepted sends for a reconnecting session', () => {
+    store.insertSendCommand('message-1', 'session-1', { prompt: 'continue' });
+    expect(store.hasRecentSendCommandForSession('session-1', Date.now() - 1000)).toBe(true);
+    expect(store.hasRecentSendCommandForSession('unknown', Date.now() - 1000)).toBe(false);
+    expect(store.hasRecentSendCommandForSession('session-1', Date.now() + 1000)).toBe(false);
+    store.failSendCommand('message-1', 'failed');
+    expect(store.hasRecentSendCommandForSession('session-1', Date.now() - 1000)).toBe(false);
+  });
+
   describe('append', () => {
     it('returns incrementing sequence numbers', () => {
       const seq1 = store.append('sess-1', 'message_start', { messageId: 'm1' });

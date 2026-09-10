@@ -1408,7 +1408,23 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
 });
 
 app.post('/api/sessions/:id/codex-queue/continue', async (req, res) => {
-  const runtime = await waitForCodexRuntimeBySessionId(registry, req.params.id);
+  const sessionId = req.params.id;
+  const live = registry.findBySessionId(sessionId);
+  const recentSend = eventStore.hasRecentSendCommandForSession(sessionId, Date.now() - 10_000);
+  if (!live && !recentSend) {
+    res
+      .status(409)
+      .json({ error: 'Send a message to reconnect this task before continuing its queue.' });
+    return;
+  }
+  const cancelled = new AbortController();
+  const cancel = () => cancelled.abort();
+  req.once('aborted', cancel);
+  res.once('close', cancel);
+  const runtime = await waitForCodexRuntimeBySessionId(registry, sessionId, 5000, cancelled.signal);
+  req.off('aborted', cancel);
+  res.off('close', cancel);
+  if (cancelled.signal.aborted || res.destroyed) return;
   if (!runtime) {
     res
       .status(409)

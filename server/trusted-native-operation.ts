@@ -96,6 +96,10 @@ async function linkedMetadata(cwd: string) {
   );
   if (basename(common) !== '.git' || dirname(admin) !== join(common, 'worktrees'))
     throw new Error('Unsupported linked-worktree metadata layout');
+  const objects = join(common, 'objects');
+  const objectsInfo = await lstat(objects, { bigint: true });
+  if (!objectsInfo.isDirectory() || (await realpath(objects)) !== objects)
+    throw new Error('Git object store must be a real directory inside the common Git directory');
   const backlink = (await readFile(join(admin, 'gitdir'), 'utf8')).trim();
   if (backlink !== marker || (await realpath(backlink)) !== marker)
     throw new Error('Git worktree registration does not match the approved workspace');
@@ -113,7 +117,7 @@ async function linkedMetadata(cwd: string) {
       marker: { dev: markerInfo.dev, ino: markerInfo.ino },
       admin: await identity(admin),
       common: await identity(common),
-      objects: await identity(join(common, 'objects')),
+      objects: { dev: objectsInfo.dev, ino: objectsInfo.ino },
     },
   };
 }

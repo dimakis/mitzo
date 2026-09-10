@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -125,6 +125,33 @@ describe('trusted native Git operation', () => {
     expect(
       execFileSync('git', ['-C', second, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
     ).toBe(execFileSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim());
+  });
+
+  it('rejects a symlinked object store before writing outside the repository', async () => {
+    root = await mkdtemp(join(tmpdir(), 'mitzo-trusted-git-objects-'));
+    const repo = join(root, 'repo');
+    const worktree = join(root, 'worktree');
+    const outside = join(root, 'outside-objects');
+    execFileSync('git', ['init', repo]);
+    execFileSync('git', ['-C', repo, 'config', 'user.name', 'Mitzo Test']);
+    execFileSync('git', ['-C', repo, 'config', 'user.email', 'test@example.invalid']);
+    execFileSync('git', [
+      '-C',
+      repo,
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '--allow-empty',
+      '-m',
+      'initial',
+    ]);
+    execFileSync('git', ['-C', repo, 'worktree', 'add', '-b', 'objects', worktree]);
+    await rename(join(repo, '.git/objects'), outside);
+    await symlink(outside, join(repo, '.git/objects'));
+    await writeFile(join(worktree, 'approved.txt'), 'approved');
+    await expect(
+      executeTrustedGitCommit(worktree, ['approved.txt'], 'blocked', new AbortController().signal),
+    ).rejects.toThrow('object store must be a real directory');
   });
 
   it('pins authenticated GitHub reads to github.com GET requests', () => {

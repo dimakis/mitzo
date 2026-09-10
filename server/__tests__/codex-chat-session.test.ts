@@ -96,6 +96,17 @@ it('waits for the reconnect session and runtime to both register', async () => {
   abort.abort();
 });
 
+it('cancels reconnect polling when the request is aborted', async () => {
+  const registry = {
+    findBySessionId: vi.fn(() => undefined),
+  } as unknown as import('@mitzo/harness').SessionRegistry;
+  const abort = new AbortController();
+  const waiting = waitForCodexRuntimeBySessionId(registry, 'session', 5000, abort.signal);
+  abort.abort();
+  await expect(waiting).resolves.toBeUndefined();
+  expect(registry.findBySessionId).toHaveBeenCalledTimes(1);
+});
+
 it('cleans each resource once across explicit close, runtime close and abort', async () => {
   vi.clearAllMocks();
   mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
