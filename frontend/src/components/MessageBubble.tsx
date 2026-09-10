@@ -11,6 +11,7 @@ import { ShareButton } from './ShareButton';
 import { ReadAloudButton } from './ReadAloudButton';
 import { extractText } from '../lib/extractText';
 import { MarkdownPreviewCard } from './MarkdownPreviewCard';
+import { getSeatColor, getSeatLabel } from '../lib/seat-colors';
 
 const COLLAPSE_HEIGHT = 300;
 
@@ -82,9 +83,10 @@ interface TextBubbleProps {
   streaming?: boolean;
   timestamp?: number;
   readAloud?: ReadAloudProps;
+  seatId?: string;
 }
 
-export function TextBubble({ content, streaming = false, timestamp, readAloud }: TextBubbleProps) {
+export function TextBubble({ content, streaming = false, timestamp, readAloud, seatId }: TextBubbleProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const processed = streaming ? content : linkifyFilePaths(content);
@@ -100,11 +102,18 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
   }, [content, streaming]);
 
   const showCollapsed = isLong && collapsed && !streaming;
+  const seatColor = seatId ? getSeatColor(seatId) : undefined;
 
   return (
     <div
-      className={`msg-bubble msg-bubble--assistant${streaming ? ' msg-bubble--streaming' : ''}${showCollapsed ? ' msg-bubble--collapsed' : ''}`}
+      className={`msg-bubble msg-bubble--assistant${streaming ? ' msg-bubble--streaming' : ''}${showCollapsed ? ' msg-bubble--collapsed' : ''}${seatId ? ' msg-bubble--symposium' : ''}`}
+      style={seatColor ? { borderLeftColor: seatColor } : undefined}
     >
+      {seatId && (
+        <span className="msg-seat-badge" style={{ backgroundColor: seatColor }}>
+          {getSeatLabel(seatId)}
+        </span>
+      )}
       <div className="msg-bubble-markdown" ref={contentRef}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
@@ -214,5 +223,5 @@ export function MessageBubble({ message }: MessageBubbleProps) {
     );
   }
   const textBlock = message.blocks.find((b) => b.blockType === 'text');
-  return <TextBubble content={textBlock?.content || ''} timestamp={message.timestamp} />;
+  return <TextBubble content={textBlock?.content || ''} timestamp={message.timestamp} seatId={message.seatId} />;
 }

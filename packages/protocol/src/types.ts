@@ -159,6 +159,8 @@ export interface FinishedMessage {
   images?: string[];
   contextBlocks?: string[];
   timestamp?: number;
+  /** Symposium seat identifier — present only for multi-seat sessions. */
+  seatId?: string;
 }
 
 // --- Permission ---
