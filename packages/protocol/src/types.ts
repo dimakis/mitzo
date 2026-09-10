@@ -318,7 +318,7 @@ export interface SessionMeta {
   /** Serialized SymposiumConfig; null when the capability is inactive. */
   symposiumConfig?: string | null;
   /** Highest configuration revision ever applied; retained after deactivation. */
-  symposiumRevision: number;
+  symposiumRevision?: number;
   accountBinding?: AccountBinding | null;
   sessionId: string;
   summary: string | null;
