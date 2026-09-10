@@ -91,3 +91,10 @@ it('uses the shared workspace page and primary action styling', () => {
     screen.getByRole('button', { name: '+ New chat' }).classList.contains('workspace-primary'),
   ).toBe(true);
 });
+
+it('does not claim synthetic activity rows are detached when attachment is unknown', () => {
+  mount();
+  const row = screen.getByRole('link', { name: 'Open Live chat outside history page' });
+  expect(row.querySelector('.session-status-dot')).toBeNull();
+  expect(row.textContent).toContain('Working');
+});

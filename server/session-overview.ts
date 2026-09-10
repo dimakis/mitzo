@@ -58,6 +58,8 @@ export interface SessionOverviewDeps {
   eventStore: EventStore;
   /** Resolve session title. Typically eventStore.getSession(id)?.summary */
   getSessionTitle: (sessionId: string) => string | undefined;
+  /** Read persisted visibility independently of the speaker cache. */
+  isSessionHidden: (sessionId: string) => boolean;
 }
 
 // ─── Emitter ──────────────────────────────────────────────────────────────────
@@ -188,7 +190,7 @@ export class SessionOverviewEmitter {
       liveActivities.push(this.persistentToActivity(meta, now));
     }
 
-    return liveActivities;
+    return liveActivities.filter((activity) => !this.deps.isSessionHidden(activity.sessionId));
   }
 
   private deriveActivity(

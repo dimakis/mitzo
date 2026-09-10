@@ -131,6 +131,7 @@ vi.mock('../git-version.js', () => ({
 import { hideSession, hideAllSessions, renameSessionById, eventStore } from '../chat.js';
 import { resolvePending } from '../permissions.js';
 
+const overviewBroadcast = vi.fn();
 let app: Express;
 let authCookie: string;
 let authSessionId: string;
@@ -168,6 +169,9 @@ beforeAll(async () => {
 
   const mod = await import('../app.js');
   app = mod.app;
+  mod.setOverviewEmitter({
+    scheduleBroadcast: overviewBroadcast,
+  } as unknown as import('../session-overview.js').SessionOverviewEmitter);
 
   const agent = request(app);
   authCookie = await getAuthCookie(agent);
@@ -180,6 +184,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  overviewBroadcast.mockClear();
   vi.mocked(hideSession).mockClear();
   vi.mocked(hideAllSessions).mockClear();
 
@@ -468,12 +473,14 @@ describe('session routes', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
     expect(hideSession).toHaveBeenCalledWith('s1');
+    expect(overviewBroadcast).toHaveBeenCalledOnce();
   });
 
   it('DELETE /api/sessions — hides all sessions', async () => {
     const res = await request(app).delete('/api/sessions').set('Cookie', authCookie);
     expect(res.status).toBe(200);
     expect(hideAllSessions).toHaveBeenCalled();
+    expect(overviewBroadcast).toHaveBeenCalledOnce();
   });
 
   it('PUT /api/sessions/:id/rename — renames session', async () => {

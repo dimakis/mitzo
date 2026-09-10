@@ -1334,6 +1334,7 @@ app.get('/api/sessions/:id/messages', async (req, res) => {
 
 app.delete('/api/sessions/:id', (req, res) => {
   hideSession(req.params.id as string);
+  overviewEmitter?.scheduleBroadcast();
   sseRegistry.broadcast('sessions_changed', {});
   res.json({ ok: true });
 });
@@ -1437,6 +1438,7 @@ app.get('/api/sessions/:id/events', (req, res) => {
 
 app.delete('/api/sessions', (_req, res) => {
   hideAllSessions();
+  overviewEmitter?.scheduleBroadcast();
   sseRegistry.broadcast('sessions_changed', {});
   res.json({ ok: true });
 });

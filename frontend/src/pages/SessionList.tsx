@@ -176,7 +176,7 @@ function SwipeableSession({
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
-        {session.isActive && (
+        {session.isActive && session.isAttached != null && (
           <span
             className={`session-status-dot ${session.isAttached ? 'attached' : 'detached'}`}
             role="status"
