@@ -4,24 +4,77 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventStore } from '../src/event-store.js';
-import { SymposiumConfigSchema, type SymposiumConfig } from '../src/index.js';
+import {
+  AccountBindingSchema,
+  SymposiumConfigSchema,
+  SymposiumProvenanceSchema,
+  type SymposiumConfig,
+} from '../src/index.js';
 
 const config: SymposiumConfig = {
+  version: 1,
+  revision: 1,
+  state: 'active',
   seats: [
-    { id: 'builder', name: 'Builder', model: 'model-a', systemPrompt: 'Build.', color: '#8040cc' },
+    {
+      id: 'builder',
+      name: 'Builder',
+      role: 'primary',
+      model: 'model-a',
+      systemPrompt: 'Build.',
+      color: '#8040cc',
+      accountBinding: {
+        accountId: 'work-builder',
+        accountLabel: 'Work Builder',
+        provider: 'openai-codex',
+        model: 'model-a',
+        profileRevision: 'account-1',
+      },
+      profileBinding: { profileId: 'builder', profileRevision: 'profile-1' },
+      contextGrant: {
+        grantId: 'context-builder',
+        revision: 1,
+        classification: 'work',
+        sourceRefs: ['repo:mitzo'],
+      },
+      authorityGrant: {
+        grantId: 'authority-builder',
+        revision: 1,
+        filesystem: 'write',
+        tools: 'write',
+        network: 'restricted',
+      },
+      isolationRequest: { trustDomainId: 'work', placement: 'reuse-compatible' },
+    },
     {
       id: 'reviewer',
       name: 'Reviewer',
+      role: 'reviewer',
       model: 'model-b',
       systemPrompt: 'Review.',
       color: '#008888',
       accountBinding: {
         accountId: 'work',
         accountLabel: 'Work',
-        provider: 'vertex',
+        provider: 'anthropic-vertex',
         model: 'model-b',
-        profileRevision: '1',
+        profileRevision: 'account-2',
       },
+      profileBinding: { profileId: 'reviewer', profileRevision: 'profile-2' },
+      contextGrant: {
+        grantId: 'context-reviewer',
+        revision: 1,
+        classification: 'work',
+        sourceRefs: ['repo:mitzo'],
+      },
+      authorityGrant: {
+        grantId: 'authority-reviewer',
+        revision: 1,
+        filesystem: 'read',
+        tools: 'read',
+        network: 'restricted',
+      },
+      isolationRequest: { trustDomainId: 'work', placement: 'reuse-compatible' },
     },
   ],
   turnRules: { mode: 'directed', maxTurns: 6 },
@@ -76,15 +129,100 @@ describe('Symposium configuration contract', () => {
       ).toBe(false);
     }
   });
+  it('rejects unsupported provider identities', () => {
+    expect(
+      AccountBindingSchema.safeParse({
+        ...config.seats[0].accountBinding,
+        provider: 'personal-provider',
+      }).success,
+    ).toBe(false);
+  });
+  it('allows incomplete seats only while configuration is a draft', () => {
+    const draftSeat = {
+      id: 'reviewer',
+      name: 'Reviewer',
+      role: 'reviewer' as const,
+      model: 'model-b',
+      systemPrompt: 'Review.',
+      color: '#008888',
+    };
+    expect(
+      SymposiumConfigSchema.safeParse({
+        ...config,
+        state: 'draft',
+        seats: [config.seats[0], draftSeat],
+      }).success,
+    ).toBe(true);
+    expect(
+      SymposiumConfigSchema.safeParse({
+        ...config,
+        seats: [config.seats[0], draftSeat],
+      }).success,
+    ).toBe(false);
+  });
+  it('keeps primary and reviewer placement stable', () => {
+    expect(
+      SymposiumConfigSchema.safeParse({
+        ...config,
+        seats: [
+          { ...config.seats[0], role: 'reviewer' },
+          { ...config.seats[1], role: 'primary' },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+  it('validates the immutable delivery provenance envelope', () => {
+    expect(
+      SymposiumProvenanceSchema.parse({
+        seatId: 'reviewer',
+        configRevision: 2,
+        accountProfileRevision: 'account-2',
+        seatProfileRevision: 'profile-2',
+        contextGrantRevision: 3,
+        authorityGrantRevision: 4,
+        isolationDomainId: 'sandbox-work-1',
+      }),
+    ).toMatchObject({ seatId: 'reviewer', configRevision: 2 });
+  });
 });
 
 describe('Symposium persistence', () => {
+  it('activates only when Seat 1 retains the existing session binding', () => {
+    const store = open();
+    store.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });
+    expect(store.setSymposiumConfig('chat', config)).toEqual(config);
+    expect(store.getSession('chat')).toMatchObject({
+      sessionType: 'symposium',
+      accountBinding: config.seats[0].accountBinding,
+    });
+    expect(JSON.parse(store.getSession('chat')!.symposiumConfig!)).toEqual(config);
+    store.deactivateSymposium('chat');
+    expect(store.getSession('chat')).toMatchObject({ sessionType: 'chat', symposiumConfig: null });
+  });
+  it('rejects an active configuration bound to a different Seat 1 account', () => {
+    const store = open();
+    store.upsertSession({ sessionId: 'chat', accountBinding: config.seats[1].accountBinding });
+    expect(() => store.setSymposiumConfig('chat', config)).toThrow(
+      'Seat 1 must retain the existing session account binding',
+    );
+  });
+  it('requires configuration revisions to increase', () => {
+    const store = open();
+    store.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });
+    store.setSymposiumConfig('chat', config);
+    expect(() => store.setSymposiumConfig('chat', config)).toThrow(
+      'Symposium configuration revision must increase',
+    );
+    expect(store.setSymposiumConfig('chat', { ...config, revision: 2 })).toMatchObject({
+      revision: 2,
+    });
+  });
   it('adds and removes Symposium on the same session without losing history or account binding', () => {
     const store = open();
     store.upsertSession({
       sessionId: 'chat',
       summary: 'Existing work',
-      accountBinding: config.seats[1].accountBinding,
+      accountBinding: config.seats[0].accountBinding,
     });
     const seq = store.append('chat', 'user_message', { text: 'Original objective' });
     expect(store.getSession('chat')).toMatchObject({ sessionType: 'chat', symposiumConfig: null });
@@ -97,7 +235,7 @@ describe('Symposium persistence', () => {
     expect(store.getSession('chat')).toMatchObject({
       sessionType: 'symposium',
       symposiumConfig: JSON.stringify(config),
-      accountBinding: config.seats[1].accountBinding,
+      accountBinding: config.seats[0].accountBinding,
     });
     store.upsertSession({ sessionId: 'chat', sessionType: 'chat', symposiumConfig: null });
     expect(store.getSession('chat')).toMatchObject({ sessionType: 'chat', symposiumConfig: null });

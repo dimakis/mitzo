@@ -1,4 +1,6 @@
+import type { AccountBinding } from './account-binding.js';
 import type { SessionType } from './symposium.js';
+export type { AccountBinding } from './account-binding.js';
 // Unified protocol types — single source of truth for both server and frontends.
 // Previously duplicated between server/session-registry.ts, server/tool-summary.ts,
 // server/event-store.ts, and frontend/src/types/chat.ts.
@@ -308,14 +310,6 @@ export interface SessionSearchResult {
   snippet: string;
   matchedAt: number; // timestamp of the matching event
   updatedAt: number;
-}
-
-export interface AccountBinding {
-  accountId: string;
-  accountLabel: string;
-  provider: string;
-  model: string;
-  profileRevision: string;
 }
 
 export interface SessionMeta {

@@ -9,6 +9,9 @@ import type {
   EventStoreLogger,
   AccountBinding,
 } from './types.js';
+import { AccountBindingSchema } from './account-binding.js';
+import { SymposiumConfigSchema } from './symposium.js';
+import type { SymposiumConfig } from './symposium.js';
 
 // Re-export types for consumer convenience
 export type {
@@ -487,6 +490,47 @@ export class EventStore {
     return (rows as EventRow[]).map(rowToEvent);
   }
 
+  /** Persist a validated draft or activate Symposium on an existing session.
+   * Activation is fail-closed: Seat 1 must retain the session's durable account
+   * binding and configuration revisions must move forward.
+   */
+  setSymposiumConfig(sessionId: string, input: unknown): SymposiumConfig {
+    const config = SymposiumConfigSchema.parse(input);
+    const session = this.getSession(sessionId);
+    if (!session) throw new Error('Cannot configure Symposium for an unknown session');
+
+    if (session.symposiumConfig) {
+      const current = SymposiumConfigSchema.safeParse(JSON.parse(session.symposiumConfig));
+      if (current.success && config.revision <= current.data.revision) {
+        throw new Error('Symposium configuration revision must increase');
+      }
+    }
+
+    if (config.state === 'active') {
+      const sessionBinding = AccountBindingSchema.safeParse(session.accountBinding);
+      const primaryBinding = config.seats[0].accountBinding;
+      if (
+        !sessionBinding.success ||
+        !primaryBinding ||
+        !sameBinding(sessionBinding.data, primaryBinding)
+      ) {
+        throw new Error('Seat 1 must retain the existing session account binding');
+      }
+    }
+
+    this.upsertSession({
+      sessionId,
+      sessionType: 'symposium',
+      symposiumConfig: JSON.stringify(config),
+    });
+    return config;
+  }
+
+  deactivateSymposium(sessionId: string): void {
+    if (!this.getSession(sessionId)) throw new Error('Cannot deactivate an unknown session');
+    this.upsertSession({ sessionId, sessionType: 'chat', symposiumConfig: null });
+  }
+
   upsertSession(meta: Partial<SessionMeta> & { sessionId: string }): void {
     const existing = this.getSession(meta.sessionId);
     if (existing) {
@@ -924,14 +968,8 @@ function rowToSession(row: SessionRow): SessionMeta {
 function parseAccountBinding(raw: string | null): AccountBinding | null {
   if (raw === null || raw === undefined) return null;
   try {
-    const binding = JSON.parse(raw);
-    if (
-      binding &&
-      ['accountId', 'accountLabel', 'provider', 'model', 'profileRevision'].every(
-        (key) => typeof binding[key] === 'string' && binding[key].length > 0,
-      )
-    )
-      return binding;
+    const binding = AccountBindingSchema.safeParse(JSON.parse(raw));
+    if (binding.success) return binding.data;
   } catch {
     /* Preserve a failed binding, never silently downgrade to the legacy route. */
   }
@@ -942,4 +980,13 @@ function parseAccountBinding(raw: string | null): AccountBinding | null {
     model: 'unavailable',
     profileRevision: 'invalid',
   };
+}
+
+function sameBinding(left: AccountBinding, right: AccountBinding): boolean {
+  return (
+    left.accountId === right.accountId &&
+    left.provider === right.provider &&
+    left.model === right.model &&
+    left.profileRevision === right.profileRevision
+  );
 }

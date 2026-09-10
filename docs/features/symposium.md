@@ -16,20 +16,37 @@ See also `../design/workspace-redesign/mitzo-redesign-launch-plan.md`.
 
 ## Foundation delivered by this change
 
-- Exported two-seat configuration schemas/types with stable seat identities,
-  separate account references, turn limits, and manual/automatic interception mode.
+- Exported a canonical validated account-binding schema using Mitzo's supported
+  provider identities, rather than accepting arbitrary provider strings.
+- Versioned two-seat configuration with stable primary/reviewer roles, separate
+  account and profile bindings, explicit context/authority grants, requested
+  isolation placement, turn limits, and manual/automatic interception mode.
+- Draft configuration permits lazy reviewer setup without authority. Active
+  configuration requires complete bindings and grants for both seats.
+- Typed activation retains the existing session binding as Seat 1 and requires
+  monotonically increasing configuration revisions. Deactivation returns the same
+  session to ordinary chat without losing history.
+- Exported immutable delivery provenance fields for later orchestration and replay:
+  configuration, account/profile, context/authority, and isolation-domain revisions.
 - Additive SQLite migration for session type/configuration and event seat identity.
 - Configuration may be attached to or removed from an existing session without
   changing its ID, transcript, account binding, or other metadata.
 - Optional `StoredEvent.seatId` is derived from the append payload, persisted, and
   returned by full and cursor-based replay. Ordinary events retain their shape.
 
-The type/configuration contract does not execute models or enforce grants. A seat
-without an account reference is unbound; later runtime integration must resolve a
-connection explicitly before execution. Schema validation checks configuration
-shape, not account ownership, model availability, tool policy, or data visibility.
-EventStore remains a low-level store for serialized configuration; callers must
-validate configurations before accepting user input.
+The type/configuration contract does not execute models or enforce grants. A draft
+seat without an account reference is unbound; later runtime integration must resolve
+a connection explicitly before execution. Schema validation checks configuration
+shape and activation completeness, not account ownership, current model availability,
+tool-policy enforcement, or data visibility. Callers should use the typed
+`setSymposiumConfig` activation path rather than writing serialized configuration.
+
+OpenShell permits multiple providers to be attached to one sandbox, including with
+repeated `--provider` flags at creation or attach commands at runtime. Those
+attachments and their composed policy are sandbox-wide for newly launched processes;
+they are not per-seat isolation. Runtime placement therefore uses one sandbox per
+compatible isolation domain, creating a separate sandbox when account/data/tool
+authority must not cross.
 
 ## Next implementation slice (test-first)
 

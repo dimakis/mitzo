@@ -116,11 +116,32 @@ export {
 // consumers that don't have the native dependency.
 // StoredEvent, SessionMeta, and EventStoreLogger types are in './types.js' above.
 
-export type { AccountBinding } from './types.js';
-
-export { SeatConfigSchema, TurnRulesSchema, SymposiumConfigSchema } from './symposium.js';
+export { AccountProviderSchema, AccountBindingSchema } from './account-binding.js';
 export type {
+  AccountProvider,
+  AccountBinding,
+  ValidAccountBinding,
+  UnavailableAccountBinding,
+} from './account-binding.js';
+
+export {
+  ProfileBindingSchema,
+  ContextGrantSchema,
+  AuthorityGrantSchema,
+  IsolationRequestSchema,
+  SymposiumProvenanceSchema,
+  SeatConfigSchema,
+  TurnRulesSchema,
+  SymposiumConfigSchema,
+} from './symposium.js';
+export type {
+  ProfileBinding,
+  ContextGrant,
+  AuthorityGrant,
+  IsolationRequest,
+  SymposiumProvenance,
   SessionType,
+  SymposiumState,
   TurnMode,
   InterceptMode,
   SeatConfig,
