@@ -233,6 +233,35 @@ it('keeps the public conversation open on process loss and resumes through a fre
   expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
 });
 
+it('treats transport loss during turn startup as paused recovery instead of a fatal send', async () => {
+  const { c, callbacks, onClosed, rpc, requests } = await setup();
+  const request = rpc.request.getMockImplementation()!;
+  let rejectPending!: (error: Error) => void;
+  let first = true;
+  rpc.request.mockImplementation(async (method, params) => {
+    if (method !== 'turn/start' || !first) return request(method, params);
+    first = false;
+    requests.push({ method, params });
+    return new Promise((_, reject) => {
+      rejectPending = reject;
+    });
+  });
+
+  const send = c.send({ id: 'pending-start', prompt: 'hello' });
+  await vi.waitFor(() => expect(requests.some((r) => r.method === 'turn/start')).toBe(true));
+  c.enqueue({ id: 'after-recovery', prompt: 'continue safely' });
+  callbacks.onClose(new Error('transport lost during turn/start'));
+  rejectPending(new Error('old transport request failed'));
+
+  await expect(send).resolves.toBeUndefined();
+  expect(c.isPaused()).toBe(true);
+  expect(onClosed).not.toHaveBeenCalled();
+  expect(c.queue().map((command) => command.status)).toEqual(['interrupted', 'queued']);
+
+  await c.acknowledgeRecovery();
+  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
+});
+
 it('re-establishes the external sandbox before recreating a recovery transport', async () => {
   const beforeReconnect = vi.fn(async () => {});
   const { c, callbacks } = await setup(

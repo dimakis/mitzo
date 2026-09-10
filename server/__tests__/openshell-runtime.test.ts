@@ -44,6 +44,42 @@ describe('OpenShell runtime lifecycle', () => {
     expect(create).not.toContain('auto-providers');
   });
 
+  it('waits through asynchronous creation phases until the sandbox is Ready', async () => {
+    const run = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('sandbox not found'))
+      .mockResolvedValueOnce('{}')
+      .mockResolvedValueOnce(ready('Creating'))
+      .mockResolvedValueOnce(ready('Starting'))
+      .mockResolvedValueOnce(ready());
+    await expect(
+      new OpenShellRuntimeManager(config, run, {
+        pollIntervalMs: 0,
+        timeoutMs: 100,
+      }).ensure('conversation', new AbortController().signal),
+    ).resolves.toMatchObject({ workdir: '/sandbox/workspaces/mgmt' });
+    expect(run).toHaveBeenCalledTimes(5);
+  });
+
+  it('bounds and aborts readiness polling', async () => {
+    const creating = vi.fn().mockResolvedValue(ready('Creating'));
+    await expect(
+      new OpenShellRuntimeManager(config, creating, {
+        pollIntervalMs: 0,
+        timeoutMs: 5,
+      }).ensure('conversation', new AbortController().signal),
+    ).rejects.toThrow('did not become Ready');
+
+    const controller = new AbortController();
+    const pending = new OpenShellRuntimeManager(config, creating, {
+      pollIntervalMs: 1_000,
+      timeoutMs: 30_000,
+    }).ensure('conversation', controller.signal);
+    await vi.waitFor(() => expect(creating).toHaveBeenCalled());
+    controller.abort();
+    await expect(pending).rejects.toThrow(/abort/i);
+  });
+
   it('reuses Ready and starts Stopped sandboxes without recreating them', async () => {
     const readyRun = vi.fn().mockResolvedValue(ready());
     await new OpenShellRuntimeManager(config, readyRun).ensure(
@@ -56,11 +92,12 @@ describe('OpenShell runtime lifecycle', () => {
       .fn()
       .mockResolvedValueOnce(ready('Stopped'))
       .mockResolvedValueOnce('{}')
+      .mockResolvedValueOnce(ready('Starting'))
       .mockResolvedValueOnce(ready());
-    await new OpenShellRuntimeManager(config, stopped).ensure(
-      'conversation',
-      new AbortController().signal,
-    );
+    await new OpenShellRuntimeManager(config, stopped, {
+      pollIntervalMs: 0,
+      timeoutMs: 100,
+    }).ensure('conversation', new AbortController().signal);
     expect(stopped.mock.calls[1][0]).toContain('start');
     expect(stopped.mock.calls.flat().flat()).not.toContain('create');
   });

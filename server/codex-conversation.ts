@@ -88,6 +88,9 @@ export class CodexConversation {
   }
   private transportClosed(generation: number, _error: Error) {
     if (this.closed || generation !== this.transportGeneration) return;
+    // Invalidate every in-flight request owned by this transport. Its rejection
+    // is recovery fallout, not a second fatal send failure.
+    this.transportGeneration += 1;
     this.ready = false;
     const commandId = this.active?.command.id;
     this.active?.abort.abort();
@@ -303,6 +306,7 @@ export class CodexConversation {
       interruptRequested: false,
     };
     this.active = active;
+    const transportGeneration = this.transportGeneration;
     this.opts.onQueueChange?.();
     try {
       const model = command.model ?? this.binding!.model;
@@ -349,6 +353,9 @@ export class CodexConversation {
     } catch (error: unknown) {
       // close() already persisted recovery and intentionally owns shutdown errors.
       if (this.closed) return;
+      // transportClosed() already paused and persisted this command. Do not
+      // propagate the old RPC rejection into the adapter's close path.
+      if (transportGeneration !== this.transportGeneration) return;
       this.paused = true;
       active.abort.abort();
       this.opts.store.pauseForRecovery(

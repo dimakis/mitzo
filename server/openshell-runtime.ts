@@ -131,6 +131,10 @@ export class OpenShellRuntimeManager {
   constructor(
     private config: OpenShellRuntimeConfig,
     private run: Run = command,
+    private readiness: { pollIntervalMs: number; timeoutMs: number } = {
+      pollIntervalMs: 250,
+      timeoutMs: 30_000,
+    },
   ) {}
 
   private base() {
@@ -147,6 +151,37 @@ export class OpenShellRuntimeManager {
       if (/not found|404|does not exist/i.test(message)) return undefined;
       throw error;
     }
+  }
+
+  private delay(signal: AbortSignal) {
+    signal.throwIfAborted();
+    return new Promise<void>((resolve, reject) => {
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(new Error('OpenShell readiness wait aborted'));
+      };
+      const timer = setTimeout(() => {
+        signal.removeEventListener('abort', onAbort);
+        resolve();
+      }, this.readiness.pollIntervalMs);
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+
+  private async waitForReady(name: string, owner: string, signal: AbortSignal) {
+    const deadline = Date.now() + this.readiness.timeoutMs;
+    let phase = 'unavailable';
+    while (Date.now() <= deadline) {
+      signal.throwIfAborted();
+      const sandbox = await this.get(name, signal);
+      phase = sandbox?.phase ?? 'unavailable';
+      if (sandbox && sandbox.labels?.['mitzo.conversation'] !== owner)
+        throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
+      if (sandbox?.phase === 'Ready') return sandbox;
+      if (sandbox?.phase === 'Error') throw new Error(`OpenShell sandbox ${name} is Error`);
+      await this.delay(signal);
+    }
+    throw new Error(`OpenShell sandbox ${name} did not become Ready (last phase: ${phase})`);
   }
 
   async ensure(conversationId: string, signal: AbortSignal): Promise<OpenShellRuntime> {
@@ -180,10 +215,12 @@ export class OpenShellRuntimeManager {
         if (!/already exists|conflict|409/i.test(error instanceof Error ? error.message : ''))
           throw error;
       }
-      sandbox = await this.get(name, signal);
+      sandbox = await this.waitForReady(name, owner, signal);
     } else if (sandbox.phase === 'Stopped') {
       await this.run(['sandbox', ...this.base(), 'start', name], signal);
-      sandbox = await this.get(name, signal);
+      sandbox = await this.waitForReady(name, owner, signal);
+    } else if (sandbox.phase !== 'Ready') {
+      sandbox = await this.waitForReady(name, owner, signal);
     }
     if (!sandbox || sandbox.phase !== 'Ready')
       throw new Error(`OpenShell sandbox ${name} is ${sandbox?.phase ?? 'unavailable'}`);
