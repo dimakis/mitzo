@@ -147,7 +147,14 @@ it('fails closed instead of substituting API billing for a ChatGPT subscription 
   await expect(
     openCodexChat({
       ...options(new AbortController()),
-      profile: { planType: 'pro' },
+      profile: {
+        accountId: 'personal',
+        accountLabel: 'Personal ChatGPT',
+        credentialRef: '/test/login',
+        email: 'test@example.invalid',
+        planType: 'pro',
+        model: 'test-model',
+      },
     }),
   ).rejects.toThrow('brokered Codex OAuth');
   expect(mocks.initialize).not.toHaveBeenCalled();

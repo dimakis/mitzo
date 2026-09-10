@@ -20,6 +20,7 @@ import {
   type NativeToolOptions,
 } from './native-tool-executor.js';
 import type { McpServerConfig } from './mcp-config.js';
+import { OpenShellRuntimeManager, openShellRuntimeConfig } from './openshell-runtime.js';
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
 let privateStore: CodexConversationStore | undefined;
@@ -110,14 +111,31 @@ interface Options {
 }
 /** Shared chat adapter. Execution remains gated by the account catalog and unsupported capabilities fail explicitly. */
 export async function openCodexChat(options: Options) {
-  const openShellName = process.env.MITZO_OPENSHELL_SANDBOX_NAME;
-  const openShell = openShellName
-    ? {
-        sandboxName: openShellName,
-        workdir: process.env.MITZO_OPENSHELL_WORKDIR || '/sandbox/workspaces/mgmt',
-      }
+  const configuredRuntime = openShellRuntimeConfig(process.env);
+  const runtimeManager = configuredRuntime
+    ? new OpenShellRuntimeManager({
+        ...configuredRuntime,
+        providers: [
+          ...new Set([
+            ...configuredRuntime.providers,
+            ...(options.profile.sandboxProvider ? [options.profile.sandboxProvider] : []),
+          ]),
+        ],
+      })
     : undefined;
-  if (openShell && options.profile.planType !== 'api')
+  const managedOpenShell = runtimeManager
+    ? await runtimeManager.ensure(options.conversationId, options.session.abortController.signal)
+    : undefined;
+  const openShellName = process.env.MITZO_OPENSHELL_SANDBOX_NAME;
+  const openShell =
+    managedOpenShell ??
+    (openShellName
+      ? {
+          sandboxName: openShellName,
+          workdir: process.env.MITZO_OPENSHELL_WORKDIR || '/sandbox/workspaces/mgmt',
+        }
+      : undefined);
+  if (openShell && !managedOpenShell && options.profile.planType !== 'api')
     throw new Error(
       'ChatGPT subscription execution inside OpenShell requires supported brokered Codex OAuth; API billing substitution is forbidden.',
     );
@@ -130,13 +148,11 @@ export async function openCodexChat(options: Options) {
     options.env,
     { trustProjectHooks: process.env.MITZO_TRUST_PROJECT_HOOKS === '1' },
   );
-  let startup;
+  let startup: { context?: string };
   try {
-    startup = await hooks.run(
-      'SessionStart',
-      { source: options.resume ? 'resume' : 'startup' },
-      signal,
-    );
+    startup = runtimeManager
+      ? { context: await runtimeManager.compileContext(managedOpenShell!, signal) }
+      : await hooks.run('SessionStart', { source: options.resume ? 'resume' : 'startup' }, signal);
   } catch (error) {
     dispose();
     throw error;

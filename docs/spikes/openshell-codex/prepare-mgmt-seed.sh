@@ -63,6 +63,15 @@ test -z "$(find "$workspace" -type d \( -name .venv -o -name node_modules \) -pr
   exit 3
 }
 
+# Create a fresh portable repository rather than copying the host's .git data.
+# This gives the isolated task ordinary diff/commit semantics without access to
+# host worktrees, hooks, remotes, credential helpers, or repository config.
+git -C "$workspace" init -q
+git -C "$workspace" config user.name 'Mitzo Sandbox'
+git -C "$workspace" config user.email 'sandbox@mitzo.invalid'
+git -C "$workspace" add --all
+git -C "$workspace" -c commit.gpgsign=false commit -q -m 'chore: seed isolated MGMT workspace'
+
 SOURCE_REPO="$source_repo" WORKSPACE="$workspace" BASELINE="$baseline" python3 - <<'PY'
 import hashlib, json, os, pathlib, subprocess
 source = pathlib.Path(os.environ['SOURCE_REPO'])

@@ -217,15 +217,18 @@ it('interrupts the current turn, keeps queued follow-ups paused, and cancels a p
   expect(c.queue().map((q) => q.status)).toEqual(['interrupted', 'queued']);
 });
 
-it('closes the public stream on process loss and retains new messages in a paused queue', async () => {
-  const { c, callbacks, onClosed } = await setup();
+it('keeps the public conversation open on process loss and resumes through a fresh transport', async () => {
+  const { c, callbacks, onClosed, requests } = await setup();
   await c.send({ id: 'a', prompt: 'hello' });
   await c.interrupt();
   expect(c.isPaused()).toBe(true);
   await c.send({ id: 'b', prompt: 'saved until acknowledgement' });
   expect(c.queue().map((q) => q.status)).toEqual(['interrupted', 'queued']);
   callbacks.onClose(new Error('process lost'));
-  expect(onClosed).toHaveBeenCalledOnce();
+  expect(onClosed).not.toHaveBeenCalled();
+  await c.acknowledgeRecovery();
+  expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(1);
+  expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
 });
 
 it('pins an allowed model to each queued command while retaining the subscription binding', async () => {
@@ -407,7 +410,7 @@ it('does not throw from a transport close callback when recovery persistence fai
   });
   expect(() => callbacks.onClose(new Error('transport lost'))).not.toThrow();
   expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'disk unavailable' }));
-  expect(onClosed).toHaveBeenCalledOnce();
+  expect(onClosed).not.toHaveBeenCalled();
 });
 
 it('marks failed provider turns as errors and pauses the queue', async () => {

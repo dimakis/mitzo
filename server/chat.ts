@@ -871,14 +871,26 @@ async function _startChatInner(
         if (options.skillAllowedTools)
           throw new Error('Codex restricted skill tool ceilings are not yet supported');
         codexProfile = profiles!.codexProfile(accountBinding);
-        const preflight = CodexAppServerClient.launch(codexProfile.credentialRef);
-        try {
-          await preflight.initialize();
-          await verifyCodexAccount(preflight, codexProfile, accountBinding);
-        } finally {
-          preflight.close();
+        if (process.env.MITZO_OPENSHELL_ENABLED === '1') {
+          if (!codexProfile.sandboxProvider)
+            throw new Error('The selected ChatGPT account has no OpenShell provider binding');
+        } else {
+          const preflight = CodexAppServerClient.launch(codexProfile.credentialRef);
+          try {
+            await preflight.initialize();
+            await verifyCodexAccount(preflight, codexProfile, accountBinding);
+          } finally {
+            preflight.close();
+          }
         }
-        accountEnv = codexEnvironment(codexProfile.credentialRef, process.env);
+        accountEnv =
+          process.env.MITZO_OPENSHELL_ENABLED === '1'
+            ? Object.fromEntries(
+                ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
+                  process.env[key] ? [[key, process.env[key]!]] : [],
+                ),
+              )
+            : codexEnvironment(codexProfile.credentialRef, process.env);
       } else if (accountBinding.provider === 'google-vertex') {
         if (options.images?.length)
           throw new Error('Gemini image attachments are not yet supported');
@@ -906,7 +918,11 @@ async function _startChatInner(
       } else if (accountBinding.provider === 'openai') {
         if (options.images?.length)
           throw new Error('OpenAI API image attachments are not yet supported');
-        if (process.env.MITZO_OPENSHELL_SANDBOX_NAME && process.env.NODE_ENV !== 'production') {
+        if (
+          (process.env.MITZO_OPENSHELL_ENABLED === '1' ||
+            process.env.MITZO_OPENSHELL_SANDBOX_NAME) &&
+          process.env.NODE_ENV !== 'production'
+        ) {
           codexProfile = {
             accountId: accountBinding.accountId,
             accountLabel: accountBinding.accountLabel,

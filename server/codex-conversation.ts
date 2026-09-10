@@ -58,6 +58,7 @@ const ToolCall = z.object({
 /** Owns one application conversation. The process, private store and public event sink are supplied by the server. */
 export class CodexConversation {
   private client: Rpc;
+  private transportGeneration = 0;
   private binding?: AccountBinding;
   private threadId?: string;
   private mapper?: CodexSessionEvents;
@@ -74,11 +75,40 @@ export class CodexConversation {
   private ready = false;
   private pumping?: Promise<void>;
   constructor(private opts: Options) {
-    this.client = opts.createClient({
+    this.client = this.createClient();
+  }
+  private createClient() {
+    const generation = ++this.transportGeneration;
+    return this.opts.createClient({
       onNotification: (m, p) => this.notification(m, p),
       onRequest: (m, p, s) => this.request(m, p, s),
-      onClose: () => this.close(),
+      onClose: (error) => this.transportClosed(generation, error),
     });
+  }
+  private transportClosed(generation: number, _error: Error) {
+    if (this.closed || generation !== this.transportGeneration) return;
+    this.ready = false;
+    const commandId = this.active?.command.id;
+    this.active?.abort.abort();
+    this.active = undefined;
+    try {
+      if (this.binding)
+        this.opts.store.pauseForRecovery(
+          this.opts.conversationId,
+          this.binding,
+          commandId,
+          'interrupted',
+        );
+    } catch (persistenceError) {
+      this.opts.onError?.(
+        persistenceError instanceof Error
+          ? persistenceError
+          : new Error('Codex recovery persistence failed'),
+      );
+    }
+    this.paused = true;
+    this.opts.onQueueChange?.();
+    this.opts.onError?.(new Error('Codex transport disconnected; recovery is available'));
   }
   private verifyCurrentBinding(stored?: AccountBinding) {
     return this.opts.verifyBinding
@@ -186,10 +216,71 @@ export class CodexConversation {
     await this.pump();
   }
   async acknowledgeRecovery() {
-    if (!this.ready || this.closed) throw new Error('Codex conversation unavailable');
+    if (this.closed) throw new Error('Codex conversation unavailable');
+    if (!this.ready) await this.reconnect();
     this.opts.store.acknowledgeRecovery(this.opts.conversationId, this.binding!);
     this.paused = false;
     await this.pump();
+  }
+  private async reconnect() {
+    if (!this.binding || !this.threadId) throw new Error('Codex recovery state is unavailable');
+    const client = this.createClient();
+    this.client = client;
+    try {
+      await client.initialize();
+      const binding = await this.verifyCurrentBinding(this.binding);
+      if (binding.profileRevision !== this.binding.profileRevision)
+        throw new Error('Codex execution binding changed');
+      const configResponse = z.object({ config: z.unknown() }).parse(
+        await client.request('config/read', {
+          cwd: this.opts.runtimeCwd ?? this.opts.cwd,
+          includeLayers: false,
+        }),
+      );
+      const runtimeConfig =
+        this.opts.runtimeConfig ??
+        codexRuntimeOverrides(configResponse.config, this.opts.profile.workspaceId);
+      const modelProvider = this.opts.modelProvider ?? 'openai';
+      const result = z
+        .object({
+          thread: z.object({ id: z.string().min(1) }),
+          model: z.string(),
+          modelProvider: z.string(),
+        })
+        .parse(
+          await client.request('thread/resume', {
+            threadId: this.threadId,
+            model: this.binding.model,
+            modelProvider,
+            allowProviderModelFallback: false,
+            cwd: this.opts.runtimeCwd ?? this.opts.cwd,
+            config: runtimeConfig,
+            approvalPolicy: 'never',
+            sandbox: 'read-only',
+            developerInstructions: this.opts.systemPrompt,
+            ...(this.opts.tools.length
+              ? {
+                  dynamicTools: this.opts.tools.map((tool) => ({
+                    type: 'function',
+                    name: tool.name,
+                    description: tool.description,
+                    inputSchema: tool.input_schema,
+                  })),
+                }
+              : {}),
+          }),
+        );
+      if (
+        result.thread.id !== this.threadId ||
+        result.model !== this.binding.model ||
+        result.modelProvider !== modelProvider
+      )
+        throw new Error('Codex execution binding changed');
+      this.ready = true;
+    } catch (error) {
+      client.close();
+      throw error;
+    }
   }
   private pump(): Promise<void> {
     if (this.pumping) return this.pumping;

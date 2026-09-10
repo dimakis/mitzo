@@ -32,6 +32,10 @@ const CodexProfile = z
     email: z.string().min(1),
     planType: z.string().min(1),
     workspaceId: z.string().min(1).optional(),
+    sandboxProvider: z
+      .string()
+      .regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/)
+      .optional(),
     models: z.array(z.object({ id: z.string().min(1), label: z.string().min(1) }).strict()).min(1),
   })
   .strict();
@@ -144,6 +148,7 @@ export class AccountProfiles {
                     email: profile.email,
                     planType: profile.planType,
                     workspaceId: profile.workspaceId,
+                    sandboxProvider: profile.sandboxProvider,
                     model: profile.models[0].id,
                   });
                   return await readCodexModels(client);
@@ -186,6 +191,7 @@ export class AccountProfiles {
                 profile.email,
                 profile.planType,
                 profile.workspaceId,
+                profile.sandboxProvider,
               ]
             : profile.provider === 'openai'
               ? [profile.provider, profile.credentialRef]
@@ -229,6 +235,7 @@ export class AccountProfiles {
       email: profile.email,
       planType: profile.planType,
       ...(profile.workspaceId ? { workspaceId: profile.workspaceId } : {}),
+      ...(profile.sandboxProvider ? { sandboxProvider: profile.sandboxProvider } : {}),
       model: binding.model,
     };
   }
