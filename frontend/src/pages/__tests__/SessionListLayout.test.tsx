@@ -177,3 +177,16 @@ it.each(['delete', 'clear'] as const)(
     }
   },
 );
+
+it.each([0, 2])('shows orchestrated task progress when %s tasks are complete', (done) => {
+  const previous = mocks.overview.activities;
+  const activity = { ...previous[0], progress: { done, total: 5 } };
+  mocks.overview.activities = [activity];
+  try {
+    mount();
+    const row = screen.getByRole('link', { name: 'Open Review UI' });
+    expect(within(row).getByText(`${done}/5 tasks`)).toBeTruthy();
+  } finally {
+    mocks.overview.activities = previous;
+  }
+});

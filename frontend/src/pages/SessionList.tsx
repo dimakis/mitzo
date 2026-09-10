@@ -206,6 +206,11 @@ function SwipeableSession({
                     {activityLabel(activity)}
                   </span>
                 )}
+                {activity?.progress && (
+                  <span className="conversation-progress">
+                    {activity.progress.done}/{activity.progress.total} tasks
+                  </span>
+                )}
                 {!activity && session.isActive && (
                   <span className="conversation-state">Active</span>
                 )}
