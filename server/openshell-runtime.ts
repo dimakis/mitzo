@@ -358,7 +358,10 @@ export class OpenShellRuntimeManager {
         '--policy',
         this.config.policy,
         '--upload',
-        `${this.config.seed}:${this.config.workdir}`,
+        // OpenShell uploads a source directory as a child of the destination.
+        // Target the fixed parent so the MGMT seed lands at the canonical cwd
+        // instead of /sandbox/workspaces/mgmt/mgmt.
+        `${this.config.seed}:/sandbox/workspaces`,
         '--label',
         `mitzo.conversation=${owner}`,
         '--label',
@@ -368,14 +371,18 @@ export class OpenShellRuntimeManager {
         'json',
       ];
       if (this.config.createDetached) args.push('--detach');
-      args.push(
-        '--provider',
-        accountProvider,
-        '--inference-provider',
-        accountProvider,
-        '--inference-model',
-        this.config.account.model,
-      );
+      args.push('--provider', accountProvider);
+      // The reviewed subscription compatibility CLI requires an explicit
+      // inference route. Released OpenShell 0.0.116 does not expose these
+      // flags, and API providers already define their own inspected endpoint.
+      if (this.config.account.kind === 'chatgpt-subscription') {
+        args.push(
+          '--inference-provider',
+          accountProvider,
+          '--inference-model',
+          this.config.account.model,
+        );
+      }
       for (const provider of this.config.serviceProviders) args.push('--provider', provider);
       try {
         await this.run(args, signal);

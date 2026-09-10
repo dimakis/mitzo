@@ -50,7 +50,7 @@ describe('OpenShell runtime lifecycle', () => {
     expect(result.workdir).toBe('/sandbox/workspaces/mgmt');
     const create = run.mock.calls[2][0] as string[];
     expect(create).toContain('create');
-    expect(create).toContain('/seed/mgmt:/sandbox/workspaces/mgmt');
+    expect(create).toContain('/seed/mgmt:/sandbox/workspaces');
     expect(create.filter((value) => value === '--provider')).toHaveLength(3);
     expect(create.filter((_, index) => create[index - 1] === '--provider')).toEqual([
       'openai-work',
@@ -61,9 +61,8 @@ describe('OpenShell runtime lifecycle', () => {
     expect(
       create.find((value) => value.startsWith('mitzo.conversation='))?.split('=')[1],
     ).toHaveLength(63);
-    expect(create).toContain('--inference-provider');
-    expect(create).toContain('--inference-model');
-    expect(create).toContain('test-model');
+    expect(create).not.toContain('--inference-provider');
+    expect(create).not.toContain('--inference-model');
     expect(create).not.toContain('auto-providers');
   });
 

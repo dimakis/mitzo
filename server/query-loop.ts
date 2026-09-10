@@ -674,6 +674,10 @@ async function _runQueryLoopInner(
           log.debug('stream event', { clientId, evtType: evt?.type });
 
           if (evt?.type === 'message_start') {
+            // A resumed SDK stream can contain multiple turns. A result marks only
+            // the preceding turn complete, so a later turn must be eligible for
+            // the finally-path session_end when it is stopped or interrupted.
+            doneSent = false;
             const parentToolUseId = msg.parent_tool_use_id as string | undefined;
 
             // Subagent message_start — emit subagent_start instead of normal message_start
@@ -1382,7 +1386,12 @@ async function _runQueryLoopInner(
       // It is read in two places after remove: (1) span attributes block reads
       // cumulativeCostUsd, (2) fallback usage recorder reads cumulativeCostUsd.
       // Both are safe due to reference semantics, but keep the ordering if refactoring.
-      const finalSession = currentOwnerSession();
+      // SessionRegistry.abort() removes the entry synchronously before the
+      // async iterator unwinds. Keep using the exact session object captured
+      // at loop start so an explicit user stop can still publish terminal
+      // state; never fall back this way for a non-abort ownership mismatch.
+      const finalSession =
+        currentOwnerSession() ?? (abortController.signal.aborted ? ownedSession : undefined);
       if (finalSession) {
         finalSession.currentSnapshot = null;
         if (!doneSent) {
