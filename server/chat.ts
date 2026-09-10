@@ -150,7 +150,8 @@ export type { MitzoMode } from './session-registry.js';
 // ── Boot context via ContexGin HTTP API ──────────────────────────
 export interface BootContextMessage {
   type: 'boot_context';
-  source: 'contexgin' | 'local-fallback';
+  source: 'contexgin' | 'local-fallback' | 'sandbox';
+  scope?: 'sandbox';
   sourceCount: number;
   tokenCount: number;
   tokenBudget: number;
@@ -1028,6 +1029,9 @@ async function _startChatInner(
 
   // Resolve agent name early — needed for registration, resume upsert, and boot context.
   const agentName = options.agentName ?? DEFAULT_AGENT_NAME;
+  const openShellSelected =
+    !!codexProfile &&
+    (process.env.MITZO_OPENSHELL_ENABLED === '1' || !!process.env.MITZO_OPENSHELL_SANDBOX_NAME);
 
   // Streaming-input queue — kept open for the session lifetime.
   const inputQueue = new AsyncQueue<SDKUserMessage>();
@@ -1126,12 +1130,14 @@ async function _startChatInner(
   // fetchBootContext never throws and has a 5s AbortSignal timeout internally.
   // Race with a 2s deadline so session startup isn't blocked when ContexGin is slow.
   let raceTimer: ReturnType<typeof setTimeout> | undefined;
-  const bootContextMsg = await Promise.race([
-    fetchBootContext(agentName),
-    new Promise<Awaited<ReturnType<typeof fetchBootContext>>>((resolve) => {
-      raceTimer = setTimeout(() => resolve({ ...FALLBACK_BOOT_CONTEXT }), 2000);
-    }),
-  ]);
+  const bootContextMsg: BootContextMessage = openShellSelected
+    ? { ...FALLBACK_BOOT_CONTEXT, source: 'sandbox', scope: 'sandbox' }
+    : await Promise.race([
+        fetchBootContext(agentName),
+        new Promise<Awaited<ReturnType<typeof fetchBootContext>>>((resolve) => {
+          raceTimer = setTimeout(() => resolve({ ...FALLBACK_BOOT_CONTEXT }), 2000);
+        }),
+      ]);
   clearTimeout(raceTimer);
   const bootContextAppend = bootContextMsg.fullMarkdown
     ? `\n\n# Boot Context\n${bootContextMsg.fullMarkdown}`
@@ -1139,7 +1145,11 @@ async function _startChatInner(
 
   // Send boot context to UI immediately (sessionId may be undefined for new sessions — OK,
   // it's a display-only hint; the client doesn't key on it for boot context).
-  send(transport, { ...bootContextMsg, ...(stateSessionId ? { sessionId: stateSessionId } : {}) });
+  if (!openShellSelected)
+    send(transport, {
+      ...bootContextMsg,
+      ...(stateSessionId ? { sessionId: stateSessionId } : {}),
+    });
   // Cache in ManagedSession for replay on reconnect/switch
   session.bootContext = bootContextMsg as unknown as Record<string, unknown>;
   // For resumed sessions, persist immediately (sessionId is known).
@@ -1152,10 +1162,9 @@ async function _startChatInner(
   }
 
   // Build the system prompt append string (used by both query and comparison)
-  const openShellWorkdir =
-    process.env.MITZO_OPENSHELL_ENABLED === '1' || process.env.MITZO_OPENSHELL_SANDBOX_NAME
-      ? process.env.MITZO_OPENSHELL_WORKDIR || '/sandbox/workspaces/mgmt'
-      : undefined;
+  const openShellWorkdir = openShellSelected
+    ? process.env.MITZO_OPENSHELL_WORKDIR || '/sandbox/workspaces/mgmt'
+    : undefined;
   const workspacePrompt = openShellWorkdir
     ? buildOpenShellWorkspaceSystemPrompt(openShellWorkdir, wtId)
     : buildWorktreeSystemPrompt(repoWorktrees);
@@ -1256,6 +1265,15 @@ async function _startChatInner(
         env: sessionEnv,
         mcpServers: allMcpServers,
         onDemandCreate: buildOnDemandCreate(wtId),
+        onBootContext: (context) => {
+          const message: BootContextMessage = { ...context, source: 'sandbox' };
+          send(transport, { ...message, sessionId: conversationId });
+          session.bootContext = message as unknown as Record<string, unknown>;
+          eventStore.upsertSession({
+            sessionId: conversationId,
+            bootContext: JSON.stringify(message),
+          });
+        },
       });
     } else if (apiKey || gemini) {
       const conversationId = options.resume ?? newSdkSessionId!;

@@ -87,18 +87,26 @@ describe('OpenShell runtime lifecycle', () => {
   });
 
   it('compiles launch context against the exact sandbox workspace', async () => {
-    const run = vi
-      .fn()
-      .mockResolvedValue(
-        JSON.stringify({ type: 'boot_context', scope: 'sandbox', fullMarkdown: '# Context' }),
-      );
+    const run = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        type: 'boot_context',
+        scope: 'sandbox',
+        sourceCount: 1,
+        tokenCount: 2,
+        tokenBudget: 12000,
+        sources: [{ path: 'AGENTS.md', kind: 'instructions' }],
+        included: [],
+        trimmed: [],
+        fullMarkdown: '# Context',
+      }),
+    );
     const manager = new OpenShellRuntimeManager(config, run);
     await expect(
       manager.compileContext(
         { sandboxName: 'mitzo-runtime', workdir: '/sandbox/workspaces/mgmt' },
         new AbortController().signal,
       ),
-    ).resolves.toBe('# Context');
+    ).resolves.toMatchObject({ fullMarkdown: '# Context', scope: 'sandbox' });
     expect(run.mock.calls[0][0]).toEqual(
       expect.arrayContaining([
         'exec',

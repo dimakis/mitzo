@@ -24,6 +24,7 @@ import {
   OpenShellRuntimeManager,
   openShellCodexRuntimeConfig,
   openShellRuntimeConfig,
+  type OpenShellBootContext,
 } from './openshell-runtime.js';
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
@@ -112,6 +113,7 @@ interface Options {
   env: Record<string, string>;
   mcpServers: Record<string, McpServerConfig>;
   onDemandCreate?: NativeToolOptions['onDemandCreate'];
+  onBootContext?: (context: OpenShellBootContext) => void;
 }
 /** Shared chat adapter. Execution remains gated by the account catalog and unsupported capabilities fail explicitly. */
 export async function openCodexChat(options: Options) {
@@ -154,9 +156,17 @@ export async function openCodexChat(options: Options) {
   );
   let startup: { context?: string };
   try {
-    startup = runtimeManager
-      ? { context: await runtimeManager.compileContext(managedOpenShell!, signal) }
-      : await hooks.run('SessionStart', { source: options.resume ? 'resume' : 'startup' }, signal);
+    if (runtimeManager) {
+      const context = await runtimeManager.compileContext(managedOpenShell!, signal);
+      options.onBootContext?.(context);
+      startup = { context: context.fullMarkdown };
+    } else {
+      startup = await hooks.run(
+        'SessionStart',
+        { source: options.resume ? 'resume' : 'startup' },
+        signal,
+      );
+    }
   } catch (error) {
     dispose();
     throw error;

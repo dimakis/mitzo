@@ -193,7 +193,8 @@ export function parseServerMessage(
       break;
 
     case 'boot_context': {
-      const source = msg.source === 'contexgin' ? 'contexgin' : 'local-fallback';
+      const source =
+        msg.source === 'contexgin' || msg.source === 'sandbox' ? msg.source : 'local-fallback';
       const sourceCount = typeof msg.sourceCount === 'number' ? msg.sourceCount : 0;
       const tokenCount = typeof msg.tokenCount === 'number' ? msg.tokenCount : 0;
       const tokenBudget = typeof msg.tokenBudget === 'number' ? msg.tokenBudget : 0;

@@ -26,7 +26,7 @@ safe_path() {
 tracked_paths=()
 while IFS= read -r -d '' path; do
   safe_path "$path" && tracked_paths+=("$path")
-done < <(git -C "$source_repo" ls-tree -rz --name-only HEAD)
+done < <(git -C "$source_repo" ls-tree --full-tree -r -z --name-only HEAD)
 if test "${#tracked_paths[@]}" -gt 0; then
   git -C "$source_repo" archive HEAD -- "${tracked_paths[@]}" | tar -x -C "$workspace"
 fi
@@ -61,7 +61,7 @@ test -z "$(find "$workspace" -type d \( -name .venv -o -name node_modules \) -pr
   echo 'unsafe nested dependency directory survived' >&2
   exit 3
 }
-test -z "$(find "$workspace" \( -name '.env*' -o -name .npmrc -o -name .netrc -o -name .pypirc -o -name .ssh -o -name .aws -o -name '*.pem' -o -name '*.key' -o -name '*.p12' -o -name '*.pfx' -o -name '*.token' \) -print -quit)" || {
+test -z "$(find "$workspace" \( -name '.env*' -o -name .npmrc -o -name .netrc -o -name .pypirc -o -name .ssh -o -name .aws -o -name credentials.json -o -name auth.json -o -name 'client_secret*.json' -o -name '*credentials*.json' -o -name '*secret*.json' -o -name '*.pem' -o -name '*.key' -o -name '*.p12' -o -name '*.pfx' -o -name '*.token' -o -name id_rsa -o -name id_ed25519 \) -print -quit)" || {
   echo 'unsafe credential path survived' >&2
   exit 3
 }

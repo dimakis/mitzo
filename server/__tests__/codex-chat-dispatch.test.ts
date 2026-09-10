@@ -133,7 +133,8 @@ it('routes API accounts through the referenced secret store without passing keys
   vi.stubEnv('REPO_PATH', root);
   vi.stubEnv('WORKTREE_ENABLED', 'false');
   vi.stubEnv('OPENAI_API_KEY', 'inherited-wrong-key');
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')));
+  const hostFetch = vi.fn().mockResolvedValue(new Response('{}'));
+  vi.stubGlobal('fetch', hostFetch);
   const chat = await import('../chat.js');
   const ref = { provider: 'keychain', service: 'mitzo', account: 'work' };
   const profiles = new AccountProfiles([
@@ -177,7 +178,8 @@ it('routes API accounts through OpenShell in production without resolving host c
   vi.stubEnv('WORKTREE_ENABLED', 'false');
   vi.stubEnv('NODE_ENV', 'production');
   vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')));
+  const hostFetch = vi.fn().mockResolvedValue(new Response('{}'));
+  vi.stubGlobal('fetch', hostFetch);
   const chat = await import('../chat.js');
   const profiles = new AccountProfiles([
     {
@@ -188,7 +190,20 @@ it('routes API accounts through OpenShell in production without resolving host c
       models: [{ id: 'test', label: 'Test' }],
     },
   ]);
-  vi.mocked(openCodexChat).mockRejectedValue(new Error('simulated OpenShell startup failure'));
+  vi.mocked(openCodexChat).mockImplementation(async (options) => {
+    options.onBootContext?.({
+      type: 'boot_context',
+      scope: 'sandbox',
+      sourceCount: 1,
+      tokenCount: 2,
+      tokenBudget: 12000,
+      sources: [{ path: 'AGENTS.md', kind: 'instructions' }],
+      included: [],
+      trimmed: [],
+      fullMarkdown: '# Sandbox context',
+    });
+    throw new Error('simulated OpenShell startup failure');
+  });
   try {
     await chat.startChat({ send: () => {}, isOpen: () => true }, 'openshell-api', 'hello', {
       cwd: root,
@@ -199,12 +214,18 @@ it('routes API accounts through OpenShell in production without resolving host c
       initialSessionId: 'openshell-api-app',
     });
     expect(credentials.resolve).not.toHaveBeenCalled();
+    // The remaining request loads UI agent metadata; the second host request
+    // that previously fetched boot context must not occur for OpenShell.
+    expect(hostFetch).toHaveBeenCalledTimes(1);
     expect(openResponsesChat).not.toHaveBeenCalled();
     expect(openCodexChat).toHaveBeenCalledOnce();
     const options = vi.mocked(openCodexChat).mock.calls[0][0];
     expect(options.profile.planType).toBe('api');
     expect(options.systemPrompt).toContain('/sandbox/workspaces/mgmt');
     expect(options.systemPrompt).not.toContain(root);
+    expect(chat.eventStore.getSession('openshell-api-app')?.bootContext).toContain(
+      '"source":"sandbox"',
+    );
   } finally {
     chat.eventStore.close();
     await rm(root, { recursive: true, force: true });

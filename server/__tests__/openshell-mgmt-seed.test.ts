@@ -25,6 +25,9 @@ it('builds a versioned MGMT seed without host credentials or repository administ
   writeFileSync(join(source, 'client.key'), 'synthetic-private-key\n');
   mkdirSync(join(source, '.ssh'));
   writeFileSync(join(source, '.ssh', 'id_ed25519'), 'synthetic-private-key\n');
+  mkdirSync(join(source, 'src'));
+  writeFileSync(join(source, 'src', 'credentials.json'), '{"token":"must-not-copy"}\n');
+  writeFileSync(join(source, 'src', 'client_secret_fixture.json'), '{"secret":"no"}\n');
   execFileSync('git', ['-C', source, 'add', '.']);
   execFileSync('git', [
     '-C',
@@ -57,6 +60,8 @@ it('builds a versioned MGMT seed without host credentials or repository administ
     'client.key',
     'certificate.pem',
     join('.ssh', 'id_ed25519'),
+    join('src', 'credentials.json'),
+    join('src', 'client_secret_fixture.json'),
   ]) {
     expect(() => readFileSync(join(workspace, path), 'utf8')).toThrow();
   }

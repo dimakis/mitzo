@@ -9,11 +9,24 @@ const Sandbox = z.object({
   phase: z.enum(['Ready', 'Stopped', 'Pending', 'Creating', 'Starting', 'Error']),
   labels: z.record(z.string(), z.string()).optional(),
 });
+const ContextSection = z.object({
+  source: z.string(),
+  heading: z.string(),
+  tokens: z.number().int().nonnegative(),
+  content: z.string(),
+});
 const BootContext = z.object({
   type: z.literal('boot_context'),
   scope: z.literal('sandbox'),
+  sourceCount: z.number().int().nonnegative(),
+  tokenCount: z.number().int().nonnegative(),
+  tokenBudget: z.number().int().nonnegative(),
+  sources: z.array(z.object({ path: z.string(), kind: z.string() })),
+  included: z.array(ContextSection),
+  trimmed: z.array(ContextSection),
   fullMarkdown: z.string(),
 });
+export type OpenShellBootContext = z.infer<typeof BootContext>;
 
 export interface OpenShellRuntime {
   sandboxName: string;
@@ -194,7 +207,6 @@ export class OpenShellRuntimeManager {
       ],
       signal,
     );
-    const context = BootContext.parse(JSON.parse(output.trim()));
-    return context.fullMarkdown;
+    return BootContext.parse(JSON.parse(output.trim()));
   }
 }
