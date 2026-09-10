@@ -1,3 +1,4 @@
+import { sessionAttentionReason } from '../lib/session-attention';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Session } from '../types/chat';
@@ -162,16 +163,6 @@ function SwipeableSession({
       <div
         ref={ref}
         className="session-item"
-        role="link"
-        tabIndex={0}
-        aria-label={`Open ${session.summary || 'Untitled conversation'}`}
-        onKeyDown={(e) => {
-          if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
-            e.preventDefault();
-            handleClick();
-          }
-        }}
-        onClick={handleClick}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
@@ -196,18 +187,38 @@ function SwipeableSession({
               onTouchStart={(e) => e.stopPropagation()}
             />
           ) : (
-            <div className="session-item-summary">{session.summary || 'Untitled conversation'}</div>
+            <div
+              className="session-item-navigation"
+              role="link"
+              tabIndex={0}
+              aria-label={`Open ${session.summary || 'Untitled conversation'}`}
+              onKeyDown={(e) => {
+                if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+                  e.preventDefault();
+                  handleClick();
+                }
+              }}
+              onClick={handleClick}
+            >
+              <div className="session-item-summary">
+                {session.summary || 'Untitled conversation'}
+              </div>
+              <div className="session-item-meta">
+                {activity && (
+                  <span className={`conversation-state conversation-state--${activity.state}`}>
+                    {activityLabel(activity)}
+                  </span>
+                )}
+                {!activity && session.isActive && (
+                  <span className="conversation-state">Active</span>
+                )}
+                <span className="session-item-time">
+                  {formatRelativeTime(session.lastModified)}
+                </span>
+                {activity?.repo && <span className="conversation-repo">{activity.repo}</span>}
+              </div>
+            </div>
           )}
-          <div className="session-item-meta">
-            {activity && (
-              <span className={`conversation-state conversation-state--${activity.state}`}>
-                {activityLabel(activity)}
-              </span>
-            )}
-            {!activity && session.isActive && <span className="conversation-state">Active</span>}
-            <span className="session-item-time">{formatRelativeTime(session.lastModified)}</span>
-            {activity?.repo && <span className="conversation-repo">{activity.repo}</span>}
-          </div>
           <details
             className="conversation-details"
             onClick={(e) => e.stopPropagation()}
@@ -283,7 +294,10 @@ export function SessionList() {
     .filter((s) => !dismissed.has(s.id))
     .sort((a, b) => b.lastModified - a.lastModified);
   const active = all.filter((s) => s.isActive);
-  const attention = all.filter((s) => byId.get(s.id)?.state === 'waiting');
+  const attention = all.filter((s) => {
+    const activity = byId.get(s.id);
+    return activity && sessionAttentionReason(activity) !== null;
+  });
   const visible = filter === 'active' ? active : filter === 'attention' ? attention : all;
   function openSession(id: string) {
     selectionChanged();
@@ -447,6 +461,9 @@ export function SessionList() {
 }
 
 function activityLabel(activity: SessionActivity): string {
+  const reason = sessionAttentionReason(activity);
+  if (reason === 'awaiting-reply') return 'Awaiting reply';
+  if (reason === 'uncommitted-work') return 'Uncommitted work';
   if (activity.state === 'waiting') {
     return activity.waitReason === 'review'
       ? 'Review needed'

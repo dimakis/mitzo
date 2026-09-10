@@ -26,12 +26,16 @@ const mocks = vi.hoisted(() => ({
         state: 'waiting',
         waitReason: 'review',
         lastEventAt: 40,
+        awaitingReply: false,
+        uncommittedWork: false,
       },
       {
         sessionId: 'three',
         title: 'Live chat outside history page',
         state: 'working',
         lastEventAt: 50,
+        awaitingReply: false,
+        uncommittedWork: false,
       },
     ],
     connected: true,
@@ -97,4 +101,35 @@ it('does not claim synthetic activity rows are detached when attachment is unkno
   const row = screen.getByRole('link', { name: 'Open Live chat outside history page' });
   expect(row.querySelector('.session-status-dot')).toBeNull();
   expect(row.textContent).toContain('Working');
+});
+
+it.each([
+  ['done', true, false, true],
+  ['idle', true, false, true],
+  ['done', false, true, true],
+  ['idle', false, true, true],
+  ['working', true, true, false],
+  ['done', false, false, false],
+] as const)(
+  'matches attention semantics for %s, reply=%s, uncommitted=%s',
+  (state, awaitingReply, uncommittedWork, expected) => {
+    const previous = mocks.overview.activities;
+    mocks.overview.activities = [{ ...previous[0], state, awaitingReply, uncommittedWork }];
+    try {
+      mount();
+      fireEvent.click(screen.getByRole('button', { name: /^Needs attention/ }));
+      expect(screen.queryByText('Review UI') !== null).toBe(expected);
+    } finally {
+      mocks.overview.activities = previous;
+    }
+  },
+);
+
+it('keeps details and actions outside the conversation navigation control', () => {
+  mount();
+  const link = screen.getByRole('link', { name: 'Open Review UI' });
+  expect(link.querySelector('details, button, input')).toBeNull();
+  fireEvent.click(screen.getByLabelText('Details for Review UI'));
+  expect(screen.queryByText('Selected conversation')).toBeNull();
+  expect(screen.getByLabelText('Details for Review UI').closest('details')?.open).toBe(true);
 });
