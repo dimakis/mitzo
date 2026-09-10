@@ -37,9 +37,10 @@ different filesystem trust domains.
   supplies the bearer placement metadata missing from the installed registry;
   it contains no credential value.
 - `openshell-openai-api-policy.yaml`: narrow inspected OpenAI Responses policy.
-- `google-workspace-spike-profile.yaml`: imported delegated-refresh profile.
-  Its safe environment-name material path works, but the exported refresh
-  material is invalid and needs a fresh GWS authorization.
+- `google-workspace-spike-profile.yaml`: delegated-refresh profile that injects
+  the gateway placeholder through GWS 0.18.1's supported
+  `GOOGLE_WORKSPACE_CLI_TOKEN` environment variable. Credential values remain
+  gateway-owned and are not copied into the sandbox filesystem.
 - `app-server-live-turn-probe.mjs`: real model/tool-loop marker probe. The
   built-in WebSocket route remains blocked; the custom inspected HTTPS provider passes.
 - `mitzo-transport-live-probe.ts`: drives a live turn through Mitzo's app-server
