@@ -359,6 +359,7 @@ export function SessionList() {
               <button
                 onClick={() => {
                   setDismissed(new Set(all.map((s) => s.id)));
+                  search.clear();
                   clearAll();
                 }}
               >

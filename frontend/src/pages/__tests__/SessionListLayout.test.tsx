@@ -133,3 +133,19 @@ it('keeps details and actions outside the conversation navigation control', () =
   expect(screen.queryByText('Selected conversation')).toBeNull();
   expect(screen.getByLabelText('Details for Review UI').closest('details')?.open).toBe(true);
 });
+
+it('clears active search when conversation history is cleared', () => {
+  mocks.search.clear.mockClear();
+  mocks.list.clearAll.mockClear();
+  const previous = mocks.search.active;
+  mocks.search.active = true;
+  try {
+    mount();
+    fireEvent.click(screen.getByLabelText('Conversation options'));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear conversation history' }));
+    expect(mocks.search.clear).toHaveBeenCalledOnce();
+    expect(mocks.list.clearAll).toHaveBeenCalledOnce();
+  } finally {
+    mocks.search.active = previous;
+  }
+});
