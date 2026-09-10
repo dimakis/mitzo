@@ -75,3 +75,45 @@ it('builds a versioned MGMT seed without host credentials or repository administ
   expect(baseline.startingCommit).toMatch(/^[a-f0-9]{40,64}$/);
   expect(baseline.saveBack).toBe('not-implemented');
 });
+
+it('serializes ContexGin maps and trimmed sections into the sandbox boot-context schema', () => {
+  root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-context-'));
+  const modulePath = join(root, 'contexgin-fixture.mjs');
+  writeFileSync(
+    modulePath,
+    `export async function compile() {
+      return {
+        bootPayload: '# Context',
+        bootTokens: 2,
+        sources: [{ relativePath: 'AGENTS.md', kind: 'reference' }],
+        contextBlocks: new Map([['Current task', 'Ship safely']]),
+        trimmed: [{
+          source: { path: '/sandbox/workspaces/mgmt/memory.md', relativePath: 'memory.md' },
+          headingPath: ['History'],
+          tokenEstimate: 3,
+          content: 'Older context'
+        }]
+      };
+    }`,
+  );
+
+  const output = execFileSync(
+    process.execPath,
+    [
+      resolve('docs/spikes/openshell-codex/compile-mgmt-context.mjs'),
+      '/sandbox/workspaces/mgmt',
+      '12000',
+    ],
+    {
+      cwd: resolve('.'),
+      env: { ...process.env, MITZO_CONTEXGIN_MODULE: modulePath },
+      encoding: 'utf8',
+    },
+  );
+  expect(JSON.parse(output)).toMatchObject({
+    included: [
+      { source: 'Current task', heading: 'Current task', tokens: 3, content: 'Ship safely' },
+    ],
+    trimmed: [{ source: 'memory.md', heading: 'History', tokens: 3, content: 'Older context' }],
+  });
+});

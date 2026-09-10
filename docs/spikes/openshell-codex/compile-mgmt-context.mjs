@@ -11,6 +11,19 @@ const modulePath = process.env.MITZO_CONTEXGIN_MODULE ?? '/usr/lib/contexgin/dis
 const { compile } = await import(pathToFileURL(modulePath).href);
 const compiled = await compile({ workspaceRoot, tokenBudget });
 
+const included = [...(compiled.contextBlocks ?? new Map())].map(([heading, content]) => ({
+  source: heading,
+  heading,
+  tokens: Math.ceil(Buffer.byteLength(content, 'utf8') / 4),
+  content,
+}));
+const trimmed = (compiled.trimmed ?? []).map((section) => ({
+  source: section.source?.relativePath ?? section.source?.path ?? 'unknown',
+  heading: section.headingPath?.join(' > ') ?? 'unknown',
+  tokens: section.tokenEstimate ?? Math.ceil(Buffer.byteLength(section.content ?? '', 'utf8') / 4),
+  content: section.content ?? '',
+}));
+
 process.stdout.write(
   `${JSON.stringify({
     type: 'boot_context',
@@ -23,8 +36,8 @@ process.stdout.write(
       path: source.relativePath,
       kind: source.kind,
     })),
-    included: compiled.contextBlocks ?? [],
-    trimmed: compiled.trimmed ?? [],
+    included,
+    trimmed,
     fullMarkdown: compiled.bootPayload,
   })}\n`,
 );

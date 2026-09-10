@@ -130,7 +130,7 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
   vi.clearAllMocks();
   vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', 'sandbox');
   mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
-  await openCodexChat({
+  const chat = await openCodexChat({
     ...options(new AbortController()),
     systemPrompt: 'base prompt',
   });
@@ -140,7 +140,25 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
   expect(mocks.conversationOptions?.systemPrompt).not.toContain('Mitzo supplies host tools');
   expect(mocks.conversationOptions?.runtimeConfig).toEqual({ web_search: 'disabled' });
   expect(mocks.connect).not.toHaveBeenCalled();
+  await expect(chat.setPermissionMode?.('agent')).resolves.toBeUndefined();
+  await expect(chat.setPermissionMode?.('ask')).rejects.toThrow('Ask mode');
   vi.unstubAllEnvs();
+});
+
+it('rejects OpenShell Ask mode before enabling provider-native tools', async () => {
+  vi.clearAllMocks();
+  vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', 'sandbox');
+  try {
+    await expect(
+      openCodexChat({
+        ...options(new AbortController()),
+        session: { ...options(new AbortController()).session, mode: 'ask' },
+      }),
+    ).rejects.toThrow('Ask mode');
+    expect(mocks.initialize).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllEnvs();
+  }
 });
 
 it('never loads trusted project hooks on the host for OpenShell sessions', async () => {
