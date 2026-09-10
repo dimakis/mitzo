@@ -262,6 +262,8 @@ export async function executeTrustedGitCommit(
   const lock = await open(indexLock, 'wx', 0o600).catch(() => {
     throw new Error('Git index is busy; retry after the other operation finishes');
   });
+  const lockIdentity = await lock.stat({ bigint: true });
+  let ownsIndexLock = true;
   const temporary = await mkdtemp(join(tmpdir(), 'mitzo-trusted-git-'));
   try {
     const gitDir = join(temporary, 'git');
@@ -423,10 +425,15 @@ export async function executeTrustedGitCommit(
       },
     );
     await rename(indexLock, metadata.index);
+    ownsIndexLock = false;
     return `[${metadata.branch} ${commit.slice(0, 7)}] ${message}`;
   } finally {
     await lock.close().catch(() => {});
-    await rm(indexLock, { force: true }).catch(() => {});
+    if (ownsIndexLock) {
+      const current = await lstat(indexLock, { bigint: true }).catch(() => null);
+      if (current && current.dev === lockIdentity.dev && current.ino === lockIdentity.ino)
+        await rm(indexLock, { force: true }).catch(() => {});
+    }
     await rm(temporary, { recursive: true, force: true });
   }
 }
