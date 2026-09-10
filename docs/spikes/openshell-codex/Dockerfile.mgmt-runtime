@@ -1,4 +1,5 @@
-FROM ghcr.io/nvidia/openshell-community/sandboxes/base:latest
+ARG OPENSHELL_BASE_IMAGE
+FROM ${OPENSHELL_BASE_IMAGE}
 
 USER root
 RUN npm install --global @openai/codex@0.153.4 \
