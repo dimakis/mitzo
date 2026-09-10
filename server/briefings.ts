@@ -34,6 +34,9 @@ export function getLatestMorningBriefing(
     })
     .filter((briefing): briefing is MorningBriefingSummary => briefing !== null);
 
-  candidates.sort((a, b) => b.filename.localeCompare(a.filename));
+  candidates.sort(
+    (a, b) =>
+      Date.parse(b.generatedAt) - Date.parse(a.generatedAt) || b.filename.localeCompare(a.filename),
+  );
   return candidates[0] ?? null;
 }

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { getLatestMorningBriefing } from '../briefings.js';
@@ -41,6 +41,18 @@ describe('getLatestMorningBriefing', () => {
       filename: '2026-09-10.md',
       path,
       date: '2026-09-10',
+    });
+  });
+
+  it('chooses the most recently generated report across filename formats', () => {
+    const chatPath = save('morning_2026-09-10_0830.md');
+    const scheduledPath = save('2026-09-10.md');
+    utimesSync(chatPath, new Date('2026-09-10T08:30:00Z'), new Date('2026-09-10T08:30:00Z'));
+    utimesSync(scheduledPath, new Date('2026-09-10T09:00:00Z'), new Date('2026-09-10T09:00:00Z'));
+
+    expect(getLatestMorningBriefing(repoPath, '2026-09-10')).toMatchObject({
+      filename: '2026-09-10.md',
+      path: scheduledPath,
     });
   });
 
