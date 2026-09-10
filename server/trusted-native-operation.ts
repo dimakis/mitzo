@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import {
   lstat,
@@ -94,7 +95,7 @@ export function trustedGitHubReadRequest(endpoint: string) {
 }
 
 type Identity = { dev: bigint; ino: bigint };
-export type ApprovedGitFileIdentity = { dev: number; ino: number } | null;
+export type ApprovedGitFileIdentity = { dev: number; ino: number; sha256: string } | null;
 const identity = async (path: string): Promise<Identity> => {
   const stat = await lstat(path, { bigint: true });
   return { dev: stat.dev, ino: stat.ino };
@@ -372,9 +373,17 @@ export async function executeTrustedGitCommit(
           current.ino !== stat.ino
         )
           throw new Error('Git commit path changed after approval');
+        const content = await handle.readFile();
+        if (
+          hasApprovedIdentity &&
+          approvedIdentity !== null &&
+          approvedIdentity !== undefined &&
+          createHash('sha256').update(content).digest('hex') !== approvedIdentity.sha256
+        )
+          throw new Error('Git commit content changed after approval');
         const hash = await run('git', ['hash-object', '-w', '--stdin'], {
           ...opts,
-          input: await handle.readFile(),
+          input: content,
         });
         const mode = stat.mode & 0o111 ? '100755' : '100644';
         await run('git', ['update-index', '--add', '--cacheinfo', `${mode},${hash},${file}`], opts);

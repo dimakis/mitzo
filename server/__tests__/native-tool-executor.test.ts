@@ -11,6 +11,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { SessionRegistry, resolvePending } from '@mitzo/harness';
 import { loadAccountProfiles } from '../account-profiles.js';
@@ -125,7 +126,16 @@ describe('native tool execution through session permissions', () => {
       abort.signal,
       undefined,
       undefined,
-      new Map([['change.txt', { dev: approved.dev, ino: approved.ino }]]),
+      new Map([
+        [
+          'change.txt',
+          {
+            dev: approved.dev,
+            ino: approved.ino,
+            sha256: createHash('sha256').update('change').digest('hex'),
+          },
+        ],
+      ]),
     );
   });
   it('pins the approved file identity across the approval wait', async () => {
@@ -148,7 +158,16 @@ describe('native tool execution through session permissions', () => {
       abort.signal,
       undefined,
       undefined,
-      new Map([['change.txt', { dev: approved.dev, ino: approved.ino }]]),
+      new Map([
+        [
+          'change.txt',
+          {
+            dev: approved.dev,
+            ino: approved.ino,
+            sha256: createHash('sha256').update('approved').digest('hex'),
+          },
+        ],
+      ]),
     );
   });
   it('rejects GitCommit directories before approval or recursive staging', async () => {

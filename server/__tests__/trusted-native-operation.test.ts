@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   chmod,
   lstat,
@@ -295,7 +296,7 @@ describe('trusted native Git operation', () => {
     ).toContain('initial');
   });
 
-  it('rejects a regular file replaced after its inode was approved', async () => {
+  it('rejects content modified in place after its digest was approved', async () => {
     root = await mkdtemp(join(tmpdir(), 'mitzo-trusted-git-file-swap-'));
     const repo = join(root, 'repo');
     const worktree = join(root, 'worktree');
@@ -316,7 +317,6 @@ describe('trusted native Git operation', () => {
     const file = join(worktree, 'approved.txt');
     await writeFile(file, 'approved');
     const approved = await lstat(file);
-    await rename(file, join(worktree, 'original.txt'));
     await writeFile(file, 'replacement');
     await expect(
       executeTrustedGitCommit(
@@ -326,9 +326,18 @@ describe('trusted native Git operation', () => {
         new AbortController().signal,
         undefined,
         undefined,
-        new Map([['approved.txt', { dev: approved.dev, ino: approved.ino }]]),
+        new Map([
+          [
+            'approved.txt',
+            {
+              dev: approved.dev,
+              ino: approved.ino,
+              sha256: createHash('sha256').update('approved').digest('hex'),
+            },
+          ],
+        ]),
       ),
-    ).rejects.toThrow('path changed after approval');
+    ).rejects.toThrow('content changed after approval');
   });
 
   it('pins authenticated GitHub reads to github.com GET requests', () => {

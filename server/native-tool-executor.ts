@@ -6,6 +6,8 @@ import {
   isTrustedGitHubEndpoint,
 } from './trusted-native-operation.js';
 import { lstat, realpath } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
@@ -181,7 +183,10 @@ export function createNativeToolExecutor(
       if (block.name === 'GitCommit' && 'files' in parsed.data) {
         const root = await realpath(session.cwd);
         const files: string[] = [];
-        const approvedIdentities = new Map<string, { dev: number; ino: number } | null>();
+        const approvedIdentities = new Map<
+          string,
+          { dev: number; ino: number; sha256: string } | null
+        >();
         for (const requested of parsed.data.files) {
           const canonical = await canonicalPath(resolve(root, requested));
           if (canonical === root || !canonical.startsWith(root + '/'))
@@ -194,7 +199,23 @@ export function createNativeToolExecutor(
             return result('Git commit paths must be regular files or tracked deletions', true);
           const file = relative(root, canonical);
           files.push(file);
-          approvedIdentities.set(file, info ? { dev: info.dev, ino: info.ino } : null);
+          if (info) {
+            const content = await readFile(canonical);
+            const afterRead = await lstat(canonical);
+            if (
+              (await realpath(canonical)) !== canonical ||
+              afterRead.dev !== info.dev ||
+              afterRead.ino !== info.ino ||
+              afterRead.size !== info.size ||
+              afterRead.mtimeMs !== info.mtimeMs
+            )
+              return result('Git commit path changed while preparing approval; retry', true);
+            approvedIdentities.set(file, {
+              dev: info.dev,
+              ino: info.ino,
+              sha256: createHash('sha256').update(content).digest('hex'),
+            });
+          } else approvedIdentities.set(file, null);
         }
         const input = { files: [...new Set(files)], message: parsed.data.message };
         const permission = await canUseTool(block.name, input, {
