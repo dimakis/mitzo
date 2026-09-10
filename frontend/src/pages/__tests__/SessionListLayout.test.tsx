@@ -190,3 +190,10 @@ it.each([0, 2])('shows orchestrated task progress when %s tasks are complete', (
     mocks.overview.activities = previous;
   }
 });
+
+it('opens a conversation when the row padding is clicked', () => {
+  mount();
+  const row = screen.getByRole('link', { name: 'Open Review UI' }).closest('.session-item');
+  fireEvent.click(row!);
+  expect(screen.getByText('Selected conversation')).toBeTruthy();
+});

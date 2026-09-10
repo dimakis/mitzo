@@ -160,6 +160,7 @@ function SwipeableSession({
       <div
         ref={ref}
         className="session-item"
+        onClick={handleClick}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
@@ -195,7 +196,6 @@ function SwipeableSession({
                   handleClick();
                 }
               }}
-              onClick={handleClick}
             >
               <div className="session-item-summary">
                 {session.summary || 'Untitled conversation'}
