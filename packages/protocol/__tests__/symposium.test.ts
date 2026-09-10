@@ -136,6 +136,12 @@ describe('Symposium configuration contract', () => {
         provider: 'personal-provider',
       }).success,
     ).toBe(false);
+    expect(
+      AccountBindingSchema.safeParse({
+        ...config.seats[0].accountBinding,
+        provider: 'google-vertex',
+      }).success,
+    ).toBe(true);
   });
   it('allows incomplete seats only while configuration is a draft', () => {
     const draftSeat = {
@@ -194,10 +200,15 @@ describe('Symposium persistence', () => {
     expect(store.getSession('chat')).toMatchObject({
       sessionType: 'symposium',
       accountBinding: config.seats[0].accountBinding,
+      symposiumRevision: 1,
     });
     expect(JSON.parse(store.getSession('chat')!.symposiumConfig!)).toEqual(config);
     store.deactivateSymposium('chat');
-    expect(store.getSession('chat')).toMatchObject({ sessionType: 'chat', symposiumConfig: null });
+    expect(store.getSession('chat')).toMatchObject({
+      sessionType: 'chat',
+      symposiumConfig: null,
+      symposiumRevision: 1,
+    });
   });
   it('rejects an active configuration bound to a different Seat 1 account', () => {
     const store = open();
@@ -215,6 +226,13 @@ describe('Symposium persistence', () => {
     );
     expect(store.setSymposiumConfig('chat', { ...config, revision: 2 })).toMatchObject({
       revision: 2,
+    });
+    store.deactivateSymposium('chat');
+    expect(() => store.setSymposiumConfig('chat', config)).toThrow(
+      'Symposium configuration revision must increase',
+    );
+    expect(store.setSymposiumConfig('chat', { ...config, revision: 3 })).toMatchObject({
+      revision: 3,
     });
   });
   it('adds and removes Symposium on the same session without losing history or account binding', () => {
@@ -294,6 +312,9 @@ describe('Symposium persistence', () => {
     try {
       expect(inspect.prepare("PRAGMA table_info('events')").all()).toEqual(
         expect.arrayContaining([expect.objectContaining({ name: 'seat_id' })]),
+      );
+      expect(inspect.prepare("PRAGMA table_info('sessions')").all()).toEqual(
+        expect.arrayContaining([expect.objectContaining({ name: 'symposium_revision' })]),
       );
     } finally {
       inspect.close();

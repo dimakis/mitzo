@@ -60,6 +60,7 @@ interface EventRow {
 interface SessionRow {
   session_type: string;
   symposium_config: string | null;
+  symposium_revision: number;
   session_id: string;
   summary: string | null;
   branch: string | null;
@@ -445,6 +446,9 @@ export class EventStore {
       if (!names.has('symposium_config')) {
         db.exec('ALTER TABLE sessions ADD COLUMN symposium_config TEXT');
       }
+      if (!names.has('symposium_revision')) {
+        db.exec('ALTER TABLE sessions ADD COLUMN symposium_revision INTEGER NOT NULL DEFAULT 0');
+      }
       const events = db.prepare("PRAGMA table_info('events')").all() as Array<{ name: string }>;
       if (!events.some((column) => column.name === 'seat_id')) {
         db.exec('ALTER TABLE events ADD COLUMN seat_id TEXT');
@@ -499,11 +503,8 @@ export class EventStore {
     const session = this.getSession(sessionId);
     if (!session) throw new Error('Cannot configure Symposium for an unknown session');
 
-    if (session.symposiumConfig) {
-      const current = SymposiumConfigSchema.safeParse(JSON.parse(session.symposiumConfig));
-      if (current.success && config.revision <= current.data.revision) {
-        throw new Error('Symposium configuration revision must increase');
-      }
+    if (config.revision <= session.symposiumRevision) {
+      throw new Error('Symposium configuration revision must increase');
     }
 
     if (config.state === 'active') {
@@ -522,6 +523,7 @@ export class EventStore {
       sessionId,
       sessionType: 'symposium',
       symposiumConfig: JSON.stringify(config),
+      symposiumRevision: config.revision,
     });
     return config;
   }
@@ -592,6 +594,10 @@ export class EventStore {
         fields.push('symposium_config = ?');
         values.push(meta.symposiumConfig);
       }
+      if (meta.symposiumRevision !== undefined) {
+        fields.push('symposium_revision = ?');
+        values.push(meta.symposiumRevision);
+      }
       if (meta.bootContext !== undefined) {
         fields.push('boot_context = ?');
         values.push(meta.bootContext);
@@ -624,6 +630,7 @@ export class EventStore {
         'account_binding',
         'session_type',
         'symposium_config',
+        'symposium_revision',
       ];
       const vals: unknown[] = [
         meta.sessionId,
@@ -642,6 +649,7 @@ export class EventStore {
         meta.accountBinding ? JSON.stringify(meta.accountBinding) : null,
         meta.sessionType ?? 'chat',
         meta.symposiumConfig ?? null,
+        meta.symposiumRevision ?? 0,
       ];
       if (meta.updatedAt !== undefined) {
         cols.push('updated_at');
@@ -960,6 +968,7 @@ function rowToSession(row: SessionRow): SessionMeta {
     accountBinding: parseAccountBinding(row.account_binding),
     sessionType: row.session_type === 'symposium' ? 'symposium' : 'chat',
     symposiumConfig: row.symposium_config ?? null,
+    symposiumRevision: row.symposium_revision ?? 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

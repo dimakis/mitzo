@@ -1,6 +1,11 @@
 import { z } from 'zod';
 
-export const AccountProviderSchema = z.enum(['anthropic-vertex', 'openai-codex', 'openai']);
+export const AccountProviderSchema = z.enum([
+  'anthropic-vertex',
+  'google-vertex',
+  'openai-codex',
+  'openai',
+]);
 
 /** A routing reference, never credentials. Runtime resolves current authorization
  * and model availability before sending any context through this account.
@@ -19,4 +24,7 @@ export type ValidAccountBinding = z.infer<typeof AccountBindingSchema>;
 export type UnavailableAccountBinding = Omit<ValidAccountBinding, 'provider'> & {
   provider: 'unavailable';
 };
-export type AccountBinding = ValidAccountBinding | UnavailableAccountBinding;
+/** Compatibility shape used by existing callers. Persisted values still pass
+ * through AccountBindingSchema and fail closed when the provider is unsupported.
+ */
+export type AccountBinding = Omit<ValidAccountBinding, 'provider'> & { provider: string };
