@@ -151,7 +151,7 @@ it('clears active search when conversation history is cleared', () => {
 });
 
 it.each(['delete', 'clear'] as const)(
-  'allows server state to restore rows after a failed %s request',
+  'keeps hook-provided rows visible until %s is confirmed',
   (action) => {
     vi.useFakeTimers();
     try {
@@ -169,7 +169,7 @@ it.each(['delete', 'clear'] as const)(
         fireEvent.click(screen.getByLabelText('Conversation options'));
         fireEvent.click(screen.getByRole('button', { name: 'Clear conversation history' }));
       }
-      // The hook still supplies the server's rows after the failed request.
+      // The hook still supplies these rows until the server confirms deletion.
       fireEvent.click(screen.getByRole('button', { name: /^Active/ }));
       expect(screen.getByRole('link', { name: 'Open Review UI' })).toBeTruthy();
     } finally {
