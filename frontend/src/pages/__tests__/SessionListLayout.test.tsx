@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { SessionList } from '../SessionList';
 
@@ -149,3 +149,31 @@ it('clears active search when conversation history is cleared', () => {
     mocks.search.active = previous;
   }
 });
+
+it.each(['delete', 'clear'] as const)(
+  'allows server state to restore rows after a failed %s request',
+  (action) => {
+    vi.useFakeTimers();
+    try {
+      mount();
+      if (action === 'delete') {
+        fireEvent.click(screen.getByLabelText('Details for Review UI'));
+        fireEvent.click(
+          within(screen.getByLabelText('Details for Review UI').closest('details')!).getByRole(
+            'button',
+            { name: 'Delete conversation' },
+          ),
+        );
+        act(() => vi.advanceTimersByTime(200));
+      } else {
+        fireEvent.click(screen.getByLabelText('Conversation options'));
+        fireEvent.click(screen.getByRole('button', { name: 'Clear conversation history' }));
+      }
+      // The hook still supplies the server's rows after the failed request.
+      fireEvent.click(screen.getByRole('button', { name: /^Active/ }));
+      expect(screen.getByRole('link', { name: 'Open Review UI' })).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);

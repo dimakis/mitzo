@@ -85,11 +85,8 @@ function SwipeableSession({
 
   function handleDeleteTap(e: React.MouseEvent | React.TouchEvent) {
     e.stopPropagation();
-    if (!ref.current) return;
-    ref.current.style.transition = 'transform 0.2s, opacity 0.2s';
-    ref.current.style.transform = 'translateX(-100%)';
-    ref.current.style.opacity = '0';
-    setTimeout(() => onDismiss(session.id), 200);
+    closeReveal();
+    onDismiss(session.id);
   }
 
   function handleTouchStart(e: React.TouchEvent) {
@@ -277,7 +274,6 @@ export function SessionList() {
 
   const { activities } = useSessionOverview();
   const [filter, setFilter] = useState<'all' | 'active' | 'attention'>('all');
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const byId = new Map(activities.map((a) => [a.sessionId, a]));
   const combined = new Map(sessions.map((s) => [s.id, s]));
   for (const a of activities) {
@@ -290,9 +286,7 @@ export function SessionList() {
       isActive: !['idle', 'done'].includes(a.state),
     });
   }
-  const all = [...combined.values()]
-    .filter((s) => !dismissed.has(s.id))
-    .sort((a, b) => b.lastModified - a.lastModified);
+  const all = [...combined.values()].sort((a, b) => b.lastModified - a.lastModified);
   const active = all.filter((s) => s.isActive);
   const attention = all.filter((s) => {
     const activity = byId.get(s.id);
@@ -304,7 +298,6 @@ export function SessionList() {
     navigate(`/chat/${id}`);
   }
   function dismiss(id: string) {
-    setDismissed((prev) => new Set([...prev, id]));
     dismissSession(id);
   }
 
@@ -358,7 +351,6 @@ export function SessionList() {
                 ))}
               <button
                 onClick={() => {
-                  setDismissed(new Set(all.map((s) => s.id)));
                   search.clear();
                   clearAll();
                 }}
