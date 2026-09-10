@@ -1,6 +1,11 @@
 import { z } from 'zod';
 
-export const AccountProviderSchema = z.enum(['anthropic-vertex', 'openai-codex', 'openai']);
+export const AccountProviderSchema = z.enum([
+  'anthropic-vertex',
+  'google-vertex',
+  'openai-codex',
+  'openai',
+]);
 
 /** A routing reference, never credentials. Runtime resolves current authorization
  * and model availability before sending any context through this account.

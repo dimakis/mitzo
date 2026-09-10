@@ -141,7 +141,7 @@ describe('Symposium configuration contract', () => {
         ...config.seats[0].accountBinding,
         provider: 'google-vertex',
       }).success,
-    ).toBe(false);
+    ).toBe(true);
   });
   it('allows incomplete seats only while configuration is a draft', () => {
     const draftSeat = {
@@ -367,6 +367,28 @@ describe('Symposium persistence', () => {
     expect(() =>
       store.appendSymposium('chat', 'message_start', {}, { ...provenance, configRevision: 2 }),
     ).toThrow('Symposium provenance does not match the active seat configuration');
+  });
+  it('rejects seat-attributed events while the Symposium configuration is a draft', () => {
+    const store = open();
+    store.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });
+    store.setSymposiumConfig('chat', { ...config, state: 'draft' });
+    expect(() =>
+      store.appendSymposium(
+        'chat',
+        'message_start',
+        {},
+        {
+          seatId: 'reviewer',
+          configRevision: 1,
+          accountProfileRevision: 'account-2',
+          seatProfileRevision: 'profile-2',
+          contextGrantRevision: 1,
+          authorityGrantRevision: 1,
+          isolationDomainId: 'work',
+          isolationDomainRevision: 1,
+        },
+      ),
+    ).toThrow('Cannot append a Symposium event from a draft configuration');
   });
   it('upgrades an existing database idempotently without changing legacy rows', () => {
     const dir = mkdtempSync(join(tmpdir(), 'symposium-'));

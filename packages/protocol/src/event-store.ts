@@ -497,6 +497,9 @@ export class EventStore {
         throw new Error('Cannot append a Symposium event to an inactive session');
       }
       const config = SymposiumConfigSchema.parse(JSON.parse(session.symposiumConfig));
+      if (config.state !== 'active') {
+        throw new Error('Cannot append a Symposium event from a draft configuration');
+      }
       const seat = config.seats.find((candidate) => candidate.id === provenance.seatId);
       if (!seat) throw new Error('Symposium provenance references an unknown seat');
       if (
