@@ -4,6 +4,11 @@ Status: in progress on isolated branch `codex/openshell-live-acceptance` at
 `deeb5371dfd9aeb3b391861ab52d8ad43f62619e`. Production remains unchanged at
 `f8479f20542ffaa1b4b90ef12d0e6dce55ff7b35`.
 
+Personal-subscription acceptance completed on the isolated
+`codex/openshell-personal-subscription` branch on 2026-09-10. This does not
+promote an image, deploy a controller, or satisfy the unrelated service-provider
+and retained-recovery gates below.
+
 ## Safety envelope
 
 - Use a disposable repository root and set both
@@ -66,6 +71,30 @@ Status: in progress on isolated branch `codex/openshell-live-acceptance` at
 
 Kubernetes/Kata, other agent harnesses, sandbox destroy/recreate checkpoints,
 cross-node durability, and reviewed save-back are outside this acceptance pass.
+
+## Personal-subscription acceptance record
+
+- Mitzo source under test included `4519e9b` plus the runtime transport changes
+  on `codex/openshell-personal-subscription`.
+- The reviewed OAuth fork was `2098a95c`, with safe provider-status output at
+  `2f5853f3` and the direct-endpoint SSH compatibility patch under review.
+- The isolated gateway listened on loopback port 18670 and used a fresh state
+  root. The default gateway and production controller were not changed.
+- The pinned supervisor image was
+  `localhost/openshell/supervisor:mitzo-oauth-2098a95c`; the uniquely tagged
+  runtime image was
+  `localhost/mitzo-mgmt-runtime:subscription-4519e9b-r2-20260910` with Codex
+  0.153.4.
+- A credential-free direct inference control returned the expected marker
+  through `https://inference.local/v1`; a direct request to `api.openai.com`
+  without gateway injection was rejected.
+- The public Mitzo SSE workflow selected account
+  `openshell-personal-subscription` and model `gpt-5.6-sol`, provisioned a fresh
+  conversation-labelled sandbox, emitted sandbox boot context, completed a real
+  subscription-backed turn, and ended normally.
+- A separate read-only command inside that sandbox confirmed the requested file
+  contained exactly `MITZO_NORMAL_SSE=pass`. No host API credential or OAuth
+  token was mounted, copied, logged, or passed to the Codex process.
 
 ## Evidence rules
 

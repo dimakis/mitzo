@@ -16,12 +16,12 @@ const config = {
   gateway: 'local',
   gatewayInsecure: false,
   createDetached: true,
-  sandboxIdLength: 24,
+  sandboxIdLength: 13,
   workdir: '/sandbox/workspaces/mgmt',
   webSearch: 'disabled' as const,
   account: { kind: 'api' as const, provider: 'openai-work', model: 'test-model' },
 };
-const owner = '8b34dbc2c05eb4d7e25d48efeace82456b16cee760bcae80c157f52a3c2e787b';
+const owner = '8b34dbc2c05eb4d7e25d48efeace82456b16cee760bcae80c157f52a3c2e787';
 const ready = (phase = 'Ready') =>
   JSON.stringify({
     name: 'sandbox',
@@ -31,7 +31,8 @@ const ready = (phase = 'Ready') =>
 
 describe('OpenShell runtime lifecycle', () => {
   it('derives a stable non-revealing sandbox identity', () => {
-    expect(sandboxNameForConversation('private-conversation-name')).toMatch(/^mitzo-[a-f0-9]{24}$/);
+    expect(sandboxNameForConversation('private-conversation-name')).toMatch(/^mitzo-[a-f0-9]{13}$/);
+    expect(sandboxNameForConversation('private-conversation-name')).toHaveLength(19);
     expect(sandboxNameForConversation('private-conversation-name')).not.toContain('private');
   });
 
@@ -56,6 +57,9 @@ describe('OpenShell runtime lifecycle', () => {
       'github',
     ]);
     expect(create).toContain('mitzo.account_provider=openai-work');
+    expect(
+      create.find((value) => value.startsWith('mitzo.conversation='))?.split('=')[1],
+    ).toHaveLength(63);
     expect(create).toContain('--inference-provider');
     expect(create).toContain('--inference-model');
     expect(create).toContain('test-model');
@@ -174,7 +178,7 @@ describe('OpenShell runtime lifecycle', () => {
         fullMarkdown: '# Context',
       }),
     );
-    const manager = new OpenShellRuntimeManager(config, run);
+    const manager = new OpenShellRuntimeManager(config, vi.fn(), undefined, run);
     await expect(
       manager.compileContext(
         {
@@ -191,10 +195,8 @@ describe('OpenShell runtime lifecycle', () => {
     ).resolves.toMatchObject({ fullMarkdown: '# Context', scope: 'sandbox' });
     expect(run.mock.calls[0][0]).toEqual(
       expect.arrayContaining([
-        'exec',
-        'mitzo-runtime',
-        '/sandbox/compile-mgmt-context.mjs',
-        '/sandbox/workspaces/mgmt',
+        'sandbox@openshell-mitzo-runtime.mitzo',
+        '/usr/bin/node /sandbox/compile-mgmt-context.mjs /sandbox/workspaces/mgmt 12000',
       ]),
     );
   });

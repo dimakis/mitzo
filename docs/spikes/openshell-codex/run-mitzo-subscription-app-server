@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+export PATH="/opt/mgmt-venv/bin:$PATH"
+# Codex requires a non-empty provider key, but OpenShell strips this public
+# placeholder and injects the gateway-owned subscription bearer upstream.
+export OPENAI_API_KEY=unused
+exec codex app-server --stdio \
+  -c 'model_provider="openshell"' \
+  -c 'model_providers.openshell={ name = "OpenShell Subscription", base_url = "https://inference.local/v1", env_key = "OPENAI_API_KEY", wire_api = "responses" }'

@@ -38,8 +38,9 @@ export interface OpenShellCodexOptions {
  * OpenShell CLI. Credential placeholders are attached to the sandbox by its
  * gateway providers; the custom provider deliberately uses inspected HTTPS.
  */
-export function openShellCodexProcessSpec(
+export function openShellSshProcessSpec(
   options: OpenShellCodexOptions,
+  remoteCommand: string,
   base: NodeJS.ProcessEnv = process.env,
 ) {
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(options.sandboxName))
@@ -75,10 +76,11 @@ export function openShellCodexProcessSpec(
     !/^https?:\/\/[A-Za-z0-9.:[\]_-]+(?::\d+)?$/.test(options.gatewayEndpoint)
   )
     throw new Error('Invalid OpenShell gateway endpoint');
-  const proxyGateway = options.gatewayEndpoint
-    ? `--gateway-endpoint ${options.gatewayEndpoint}${options.gatewayInsecure ? ' --gateway-insecure' : ''}`
-    : `--gateway ${gateway}`;
-  const appServerCommand = options.appServerCommand || '/sandbox/run-mitzo-app-server';
+  if (!/^\/[A-Za-z0-9_./ -]+$/.test(remoteCommand))
+    throw new Error('Invalid OpenShell remote command');
+  const proxyCommand = options.gatewayEndpoint
+    ? `${cli}${options.gatewayInsecure ? ' --gateway-insecure' : ''} ssh-proxy --server '${options.gatewayEndpoint}'`
+    : `${cli} ssh-proxy --gateway-name ${gateway}`;
   return {
     command: 'ssh',
     args: [
@@ -86,18 +88,37 @@ export function openShellCodexProcessSpec(
       '-o',
       'BatchMode=yes',
       '-o',
+      'PreferredAuthentications=none',
+      '-o',
+      'PubkeyAuthentication=no',
+      '-o',
+      'PasswordAuthentication=no',
+      '-o',
+      'KbdInteractiveAuthentication=no',
+      '-o',
       'StrictHostKeyChecking=no',
       '-o',
       'UserKnownHostsFile=/dev/null',
       '-o',
       'LogLevel=ERROR',
       '-o',
-      `ProxyCommand=${cli} ${proxyGateway} ssh-proxy --gateway-name ${gateway} --name ${options.sandboxName} --workspace ${workspace}`,
+      `ProxyCommand=${proxyCommand} --name ${options.sandboxName} --workspace ${workspace}`,
       `sandbox@openshell-${options.sandboxName}.${workspace}`,
-      appServerCommand,
+      remoteCommand,
     ],
     env,
   };
+}
+
+export function openShellCodexProcessSpec(
+  options: OpenShellCodexOptions,
+  base: NodeJS.ProcessEnv = process.env,
+) {
+  return openShellSshProcessSpec(
+    options,
+    options.appServerCommand || '/sandbox/run-mitzo-app-server',
+    base,
+  );
 }
 
 export function terminateOpenShellProcess(

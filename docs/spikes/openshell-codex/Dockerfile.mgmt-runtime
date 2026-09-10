@@ -12,10 +12,11 @@ RUN cd /opt/mgmt-deps \
     && uv lock \
     && UV_PROJECT_ENVIRONMENT=/opt/mgmt-venv uv sync --frozen --no-dev --no-install-project
 COPY run-mitzo-app-server /sandbox/run-mitzo-app-server
+COPY run-mitzo-subscription-app-server /sandbox/run-mitzo-subscription-app-server
 COPY compile-mgmt-context.mjs /sandbox/compile-mgmt-context.mjs
 COPY contexgin /usr/lib/contexgin
-RUN chmod 0755 /sandbox/run-mitzo-app-server /sandbox/compile-mgmt-context.mjs \
+RUN chmod 0755 /sandbox/run-mitzo-app-server /sandbox/run-mitzo-subscription-app-server /sandbox/compile-mgmt-context.mjs \
     && chmod -R a+rX /usr/lib/contexgin \
-    && chown sandbox:sandbox /sandbox/run-mitzo-app-server
+    && chown sandbox:sandbox /sandbox/run-mitzo-app-server /sandbox/run-mitzo-subscription-app-server
 ENV PATH="/opt/mgmt-venv/bin:${PATH}"
 USER sandbox

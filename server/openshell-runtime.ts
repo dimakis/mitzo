@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import { z } from 'zod';
 import type { McpServerConfig } from './mcp-config.js';
+import { openShellSshProcessSpec } from './codex-app-server-client.js';
 
 const Sandbox = z.object({
   name: z.string(),
@@ -153,9 +154,9 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
   if (gatewayInsecure && !gatewayEndpoint?.startsWith('http://'))
     throw new Error('OpenShell insecure mode requires an explicit HTTP endpoint');
   const createDetached = env.MITZO_OPENSHELL_CREATE_DETACHED !== '0';
-  const sandboxIdLength = Number(env.MITZO_OPENSHELL_SANDBOX_ID_LENGTH || '24');
-  if (!Number.isInteger(sandboxIdLength) || sandboxIdLength < 8 || sandboxIdLength > 24)
-    throw new Error('MITZO_OPENSHELL_SANDBOX_ID_LENGTH must be an integer from 8 to 24');
+  const sandboxIdLength = Number(env.MITZO_OPENSHELL_SANDBOX_ID_LENGTH || '13');
+  if (!Number.isInteger(sandboxIdLength) || sandboxIdLength < 8 || sandboxIdLength > 13)
+    throw new Error('MITZO_OPENSHELL_SANDBOX_ID_LENGTH must be an integer from 8 to 13');
   return {
     cli,
     image,
@@ -195,15 +196,16 @@ export function openShellCodexRuntimeConfig(
   return runtime;
 }
 
-export function sandboxNameForConversation(conversationId: string, idLength = 24) {
-  if (!Number.isInteger(idLength) || idLength < 8 || idLength > 24)
-    throw new Error('OpenShell sandbox id length must be an integer from 8 to 24');
+export function sandboxNameForConversation(conversationId: string, idLength = 13) {
+  if (!Number.isInteger(idLength) || idLength < 8 || idLength > 13)
+    throw new Error('OpenShell sandbox id length must be an integer from 8 to 13');
   return `mitzo-${createHash('sha256').update(conversationId).digest('hex').slice(0, idLength)}`;
 }
 
 /** Owns lifecycle only. OpenShell owns process/filesystem/network enforcement and providers. */
 export class OpenShellRuntimeManager {
   private run: Run;
+  private runSsh: Run;
 
   constructor(
     private config: BoundOpenShellRuntimeConfig,
@@ -212,8 +214,10 @@ export class OpenShellRuntimeManager {
       pollIntervalMs: 250,
       timeoutMs: 30_000,
     },
+    runSsh?: Run,
   ) {
     this.run = run ?? ((args, signal) => command(config.cli, args, signal));
+    this.runSsh = runSsh ?? ((args, signal) => command('ssh', args, signal));
   }
 
   private base() {
@@ -320,7 +324,7 @@ export class OpenShellRuntimeManager {
     await this.verifyAccountProvider(signal);
     const accountProvider = this.config.account.provider;
     const name = sandboxNameForConversation(conversationId, this.config.sandboxIdLength);
-    const owner = createHash('sha256').update(conversationId).digest('hex');
+    const owner = createHash('sha256').update(conversationId).digest('hex').slice(0, 63);
     let sandbox = await this.get(name, signal);
     if (sandbox && sandbox.labels?.['mitzo.conversation'] !== owner)
       throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
@@ -390,20 +394,11 @@ export class OpenShellRuntimeManager {
   }
 
   async compileContext(runtime: OpenShellRuntime, signal: AbortSignal) {
-    const output = await this.run(
-      [
-        'sandbox',
-        ...this.base(),
-        'exec',
-        runtime.sandboxName,
-        '--',
-        '/usr/bin/node',
-        '/sandbox/compile-mgmt-context.mjs',
-        runtime.workdir,
-        '12000',
-      ],
-      signal,
+    const spec = openShellSshProcessSpec(
+      runtime,
+      `/usr/bin/node /sandbox/compile-mgmt-context.mjs ${runtime.workdir} 12000`,
     );
+    const output = await this.runSsh(spec.args, signal);
     return BootContext.parse(JSON.parse(output.trim()));
   }
 }
