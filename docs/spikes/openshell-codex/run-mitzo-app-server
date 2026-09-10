@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
 export PATH="/opt/mgmt-venv/bin:$PATH"
+/sandbox/initialize-mitzo-workspace /sandbox/workspaces/mgmt
 exec codex app-server --stdio \
   -c 'model_provider="openshell"' \
   -c 'model_providers.openshell={ name = "OpenShell", base_url = "https://api.openai.com/v1", env_key = "OPENAI_API_KEY", wire_api = "responses" }'

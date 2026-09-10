@@ -1,8 +1,11 @@
 import { execFileSync } from 'node:child_process';
-import { resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const builder = resolve('docs/spikes/openshell-codex/build-mgmt-runtime.sh');
+const initializer = resolve('docs/spikes/openshell-codex/initialize-mitzo-workspace');
 
 function rejectedBase(base: string): string {
   try {
@@ -61,4 +64,29 @@ describe('OpenShell runtime image builder', () => {
       ).toThrow(/explicit unique tag/);
     },
   );
+
+  it('initializes an idempotent portable Git baseline inside the sandbox workspace', () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-sandbox-workspace-'));
+    const workspace = join(root, 'sandbox', 'workspaces', 'mgmt');
+    try {
+      mkdirSync(workspace, { recursive: true });
+      writeFileSync(join(workspace, 'fixture.txt'), 'seed\n');
+
+      const env = { ...process.env, MITZO_WORKSPACE_ROOT: join(root, 'sandbox', 'workspaces') };
+      execFileSync(initializer, [workspace], { env });
+      execFileSync(initializer, [workspace], { env });
+
+      expect(
+        execFileSync('git', ['-C', workspace, 'status', '--porcelain'], { encoding: 'utf8' }),
+      ).toBe('');
+      expect(
+        execFileSync('git', ['-C', workspace, 'rev-list', '--count', 'HEAD'], {
+          encoding: 'utf8',
+        }),
+      ).toBe('1\n');
+      expect(execFileSync('git', ['-C', workspace, 'remote'], { encoding: 'utf8' })).toBe('');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
