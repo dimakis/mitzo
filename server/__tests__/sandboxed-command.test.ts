@@ -200,6 +200,43 @@ describe.runIf(process.env.MITZO_SANDBOX_INTEGRATION === '1')('git worktree', ()
   }, 20000);
 });
 
+describe.runIf(process.env.MITZO_SANDBOX_INTEGRATION === '1')('regular Git checkout', () => {
+  it('allows inspection but keeps in-tree Git metadata read-only', async () => {
+    const { execFileSync } = await import('node:child_process');
+    const checkout = join(root, 'checkout');
+    await mkdir(checkout);
+    execFileSync('git', ['init', checkout]);
+    await writeFile(join(checkout, 'file'), 'base');
+    execFileSync('git', ['-C', checkout, 'add', 'file']);
+    execFileSync('git', [
+      '-C',
+      checkout,
+      '-c',
+      'user.name=Test',
+      '-c',
+      'user.email=test@example.com',
+      'commit',
+      '-m',
+      'initial',
+    ]);
+    const inspect = await run('git status --short; git log -1 --format=%s', {
+      cwd: checkout,
+      writableRoots: [checkout],
+    });
+    expect(inspect.isError, inspect.content).toBe(false);
+    expect(inspect.content).toContain('initial');
+    await writeFile(join(checkout, 'file'), 'changed');
+    const commit = await run(
+      'git add file && git -c user.name=Test -c user.email=test@example.com commit -m changed',
+      { cwd: checkout, writableRoots: [checkout] },
+    );
+    expect(commit.isError).toBe(true);
+    expect(
+      execFileSync('git', ['-C', checkout, 'log', '-1', '--format=%s'], { encoding: 'utf8' }),
+    ).toContain('initial');
+  }, 20000);
+});
+
 it('rechecks host authority immediately before spawn and cleans up on rejection', async () => {
   vi.spyOn(SandboxManager, 'checkDependencies').mockReturnValue({ errors: [], warnings: [] });
   const beforeSpawn = vi.fn(() => {

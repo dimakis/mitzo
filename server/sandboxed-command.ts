@@ -35,7 +35,12 @@ function gitMetadataRoots(
   const marker = join(root, '.git');
   authority.capture(marker, true);
   const entry = identity(marker);
-  if (!entry || entry.isDirectory()) return { writable: [], protected: [] };
+  if (!entry) return { writable: [], protected: [] };
+  if (entry.isDirectory()) {
+    if (realpathSync(marker) !== marker)
+      throw new Error('Git metadata must be a real directory inside the workspace');
+    return { writable: [], protected: [marker] };
+  }
   if (!entry.isFile()) throw new Error('Git worktree marker must be a regular file');
   const match = /^gitdir: ([^\r\n]+)\r?\n?$/.exec(readFileSync(marker, 'utf8'));
   if (!match) throw new Error('Invalid Git worktree marker');
