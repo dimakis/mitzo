@@ -348,6 +348,15 @@ export async function executeTrustedGitCommit(
         const stat = await handle.stat();
         if (!stat.isFile() || stat.nlink !== 1)
           throw new Error('Git commit paths must be regular files without aliases');
+        const currentPath = await realpath(absolute);
+        const current = await lstat(absolute);
+        if (
+          currentPath !== absolute ||
+          !current.isFile() ||
+          current.dev !== stat.dev ||
+          current.ino !== stat.ino
+        )
+          throw new Error('Git commit path changed after approval');
         const hash = await run('git', ['hash-object', '-w', '--stdin'], {
           ...opts,
           input: await handle.readFile(),

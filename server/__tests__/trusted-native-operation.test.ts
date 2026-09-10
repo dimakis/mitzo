@@ -245,6 +245,46 @@ describe('trusted native Git operation', () => {
     await expect(readFile(join(outside, 'branch.lock'))).rejects.toThrow();
   });
 
+  it('rejects an approved file whose parent is replaced by a symlink', async () => {
+    root = await mkdtemp(join(tmpdir(), 'mitzo-trusted-git-parent-swap-'));
+    const repo = join(root, 'repo');
+    const worktree = join(root, 'worktree');
+    const approvedDirectory = join(worktree, 'nested');
+    const originalDirectory = join(root, 'original-nested');
+    const outside = join(root, 'outside');
+    execFileSync('git', ['init', repo]);
+    execFileSync('git', ['-C', repo, 'config', 'user.name', 'Mitzo Test']);
+    execFileSync('git', ['-C', repo, 'config', 'user.email', 'test@example.invalid']);
+    execFileSync('git', [
+      '-C',
+      repo,
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '--allow-empty',
+      '-m',
+      'initial',
+    ]);
+    execFileSync('git', ['-C', repo, 'worktree', 'add', '-b', 'parent-swap', worktree]);
+    await mkdir(approvedDirectory);
+    await writeFile(join(approvedDirectory, 'approved.txt'), 'approved');
+    await mkdir(outside);
+    await writeFile(join(outside, 'approved.txt'), 'host-secret');
+    await rename(approvedDirectory, originalDirectory);
+    await symlink(outside, approvedDirectory);
+    await expect(
+      executeTrustedGitCommit(
+        worktree,
+        ['nested/approved.txt'],
+        'blocked',
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('path changed after approval');
+    expect(
+      execFileSync('git', ['-C', worktree, 'log', '-1', '--format=%s'], { encoding: 'utf8' }),
+    ).toContain('initial');
+  });
+
   it('pins authenticated GitHub reads to github.com GET requests', () => {
     expect(trustedGitHubReadRequest('/user')).toEqual({
       file: 'gh',
