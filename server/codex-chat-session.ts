@@ -123,10 +123,15 @@ export async function openCodexChat(options: Options) {
     throw new Error('Legacy shared OpenShell sandboxes are disabled in production.');
   const accountProvider = options.profile.sandboxProvider;
   const openShellRequested = !!configuredRuntime || !!openShellName;
-  if (openShellRequested && options.profile.planType !== 'api')
-    throw new Error(
-      'ChatGPT subscription execution inside OpenShell requires supported brokered Codex OAuth; API billing substitution is forbidden.',
-    );
+  if (!openShellRequested && !options.profile.credentialRef)
+    throw new Error('ChatGPT host execution requires an explicit login binding.');
+  const brokeredSubscription =
+    options.profile.planType !== 'api' &&
+    options.profile.sandboxProviderType === 'openai-codex-oauth' &&
+    !!options.profile.sandboxProviderId &&
+    !!options.profile.sandboxGrantId;
+  if (openShellRequested && options.profile.planType !== 'api' && !brokeredSubscription)
+    throw new Error('ChatGPT subscription requires a complete brokered Codex OAuth binding.');
   if (configuredRuntime && !accountProvider)
     throw new Error('OpenShell API accounts require an explicit sandbox provider binding.');
   if (openShellRequested && options.session.mode === 'ask')
@@ -136,7 +141,16 @@ export async function openCodexChat(options: Options) {
   const runtimeManager = configuredRuntime
     ? new OpenShellRuntimeManager({
         ...configuredRuntime,
-        accountProvider: accountProvider!,
+        account: brokeredSubscription
+          ? {
+              kind: 'chatgpt-subscription',
+              provider: accountProvider!,
+              providerType: options.profile.sandboxProviderType!,
+              providerId: options.profile.sandboxProviderId!,
+              grantId: options.profile.sandboxGrantId!,
+              model: options.binding.model,
+            }
+          : { kind: 'api', provider: accountProvider!, model: options.binding.model },
       })
     : undefined;
   const managedOpenShell = runtimeManager
@@ -254,7 +268,7 @@ export async function openCodexChat(options: Options) {
     createClient: (callbacks) =>
       openShell
         ? CodexAppServerClient.launchOpenShell(openShell, process.env, callbacks)
-        : CodexAppServerClient.launch(options.profile.credentialRef, process.env, callbacks),
+        : CodexAppServerClient.launch(options.profile.credentialRef!, process.env, callbacks),
     ...(openShell
       ? {
           runtimeCwd: openShell.workdir,

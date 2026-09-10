@@ -24,20 +24,22 @@ const trimmed = (compiled.trimmed ?? []).map((section) => ({
   content: section.content ?? '',
 }));
 
-process.stdout.write(
-  `${JSON.stringify({
-    type: 'boot_context',
-    source: 'contexgin',
-    scope: 'sandbox',
-    sourceCount: compiled.sources.length,
-    tokenCount: compiled.bootTokens,
-    tokenBudget,
-    sources: compiled.sources.map((source) => ({
-      path: source.relativePath,
-      kind: source.kind,
-    })),
-    included,
-    trimmed,
-    fullMarkdown: compiled.bootPayload,
-  })}\n`,
-);
+const output = `${JSON.stringify({
+  type: 'boot_context',
+  source: 'contexgin',
+  scope: 'sandbox',
+  sourceCount: compiled.sources.length,
+  tokenCount: compiled.bootTokens,
+  tokenBudget,
+  sources: compiled.sources.map((source) => ({
+    path: source.relativePath,
+    kind: source.kind,
+  })),
+  included,
+  trimmed,
+  fullMarkdown: compiled.bootPayload,
+})}\n`;
+
+// ContexGin dependencies may retain background handles after compilation.
+// The one-shot OpenShell exec contract is complete once stdout is flushed.
+process.stdout.write(output, () => process.exit(0));

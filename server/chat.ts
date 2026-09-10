@@ -889,13 +889,21 @@ async function _startChatInner(
           throw new Error('Codex restricted skill tool ceilings are not yet supported');
         codexProfile = profiles!.codexProfile(accountBinding);
         if (openShellRequested) {
-          if (codexProfile.planType !== 'api')
-            throw new Error(
-              'ChatGPT subscription execution inside OpenShell requires supported brokered Codex OAuth; API billing substitution is forbidden.',
-            );
           if (!codexProfile.sandboxProvider)
             throw new Error('The selected ChatGPT account has no OpenShell provider binding');
+          if (
+            codexProfile.planType !== 'api' &&
+            (process.env.MITZO_OPENSHELL_ENABLED !== '1' ||
+              codexProfile.sandboxProviderType !== 'openai-codex-oauth' ||
+              !codexProfile.sandboxProviderId ||
+              !codexProfile.sandboxGrantId)
+          )
+            throw new Error(
+              'ChatGPT subscription requires a complete brokered Codex OAuth binding; API billing substitution is forbidden.',
+            );
         } else {
+          if (!codexProfile.credentialRef)
+            throw new Error('The selected ChatGPT account has no host login binding');
           const preflight = CodexAppServerClient.launch(codexProfile.credentialRef);
           try {
             await preflight.initialize();
@@ -910,7 +918,7 @@ async function _startChatInner(
                 process.env[key] ? [[key, process.env[key]!]] : [],
               ),
             )
-          : codexEnvironment(codexProfile.credentialRef, process.env);
+          : codexEnvironment(codexProfile.credentialRef!, process.env);
       } else if (accountBinding.provider === 'google-vertex') {
         if (options.images?.length)
           throw new Error('Gemini image attachments are not yet supported');

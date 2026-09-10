@@ -249,6 +249,58 @@ it('routes API accounts through OpenShell in production without resolving host c
   }
 });
 
+it('routes an explicitly broker-bound ChatGPT subscription without reading a host login', async () => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-openshell-subscription-dispatch-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('NODE_ENV', 'production');
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')));
+  const chat = await import('../chat.js');
+  const profiles = new AccountProfiles(
+    [
+      {
+        id: 'personal',
+        label: 'Personal ChatGPT',
+        provider: 'openai-codex',
+        email: 'person@example.test',
+        planType: 'pro',
+        sandboxProvider: 'personal-chatgpt',
+        sandboxProviderType: 'openai-codex-oauth',
+        sandboxProviderId: 'provider-object-1',
+        sandboxGrantId: 'grant-generation-1',
+        models: [{ id: 'gpt-test', label: 'GPT test' }],
+      },
+    ],
+    { codexEnabled: true },
+  );
+  vi.mocked(openCodexChat).mockRejectedValue(new Error('simulated brokered startup failure'));
+  try {
+    await chat.startChat({ send: () => {}, isOpen: () => true }, 'subscription', 'hello', {
+      accountId: 'personal',
+      model: 'gpt-test',
+      accountProfiles: profiles,
+      initialSessionId: 'subscription-app',
+    });
+    expect(openCodexChat).toHaveBeenCalledOnce();
+    expect(codexLaunch).not.toHaveBeenCalled();
+    expect(credentials.resolve).not.toHaveBeenCalled();
+    expect(vi.mocked(openCodexChat).mock.calls[0][0].profile).toMatchObject({
+      planType: 'pro',
+      sandboxProviderType: 'openai-codex-oauth',
+      sandboxProviderId: 'provider-object-1',
+      sandboxGrantId: 'grant-generation-1',
+    });
+    expect(chat.eventStore.getSession('subscription-app')?.accountBinding).toEqual(
+      profiles.resolve('personal', 'gpt-test'),
+    );
+  } finally {
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 it('fails closed for unsupported account providers when OpenShell is enabled', async () => {
   vi.resetModules();
   vi.clearAllMocks();

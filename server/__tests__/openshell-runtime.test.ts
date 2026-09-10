@@ -7,17 +7,21 @@ import {
 } from '../openshell-runtime.js';
 
 const config = {
+  cli: '/opt/isolated/bin/openshell',
   image: 'mitzo-runtime:1',
   policy: '/config/policy.yaml',
   seed: '/seed/mgmt',
   serviceProviders: ['google-workspace', 'github'],
   workspace: 'mitzo',
   gateway: 'local',
+  gatewayInsecure: false,
+  createDetached: true,
+  sandboxIdLength: 13,
   workdir: '/sandbox/workspaces/mgmt',
   webSearch: 'disabled' as const,
-  accountProvider: 'openai-work',
+  account: { kind: 'api' as const, provider: 'openai-work', model: 'test-model' },
 };
-const owner = '8b34dbc2c05eb4d7e25d48efeace82456b16cee760bcae80c157f52a3c2e787b';
+const owner = '8b34dbc2c05eb4d7e25d48efeace82456b16cee760bcae80c157f52a3c2e787';
 const ready = (phase = 'Ready') =>
   JSON.stringify({
     name: 'sandbox',
@@ -27,13 +31,15 @@ const ready = (phase = 'Ready') =>
 
 describe('OpenShell runtime lifecycle', () => {
   it('derives a stable non-revealing sandbox identity', () => {
-    expect(sandboxNameForConversation('private-conversation-name')).toMatch(/^mitzo-[a-f0-9]{24}$/);
+    expect(sandboxNameForConversation('private-conversation-name')).toMatch(/^mitzo-[a-f0-9]{13}$/);
+    expect(sandboxNameForConversation('private-conversation-name')).toHaveLength(19);
     expect(sandboxNameForConversation('private-conversation-name')).not.toContain('private');
   });
 
   it('creates a missing sandbox with the seed and broker providers', async () => {
     const run = vi
       .fn()
+      .mockRejectedValueOnce(new Error('sandbox not found'))
       .mockRejectedValueOnce(new Error('sandbox not found'))
       .mockResolvedValueOnce('{}')
       .mockResolvedValueOnce(ready());
@@ -42,7 +48,7 @@ describe('OpenShell runtime lifecycle', () => {
       new AbortController().signal,
     );
     expect(result.workdir).toBe('/sandbox/workspaces/mgmt');
-    const create = run.mock.calls[1][0] as string[];
+    const create = run.mock.calls[2][0] as string[];
     expect(create).toContain('create');
     expect(create).toContain('/seed/mgmt:/sandbox/workspaces/mgmt');
     expect(create.filter((value) => value === '--provider')).toHaveLength(3);
@@ -52,12 +58,19 @@ describe('OpenShell runtime lifecycle', () => {
       'github',
     ]);
     expect(create).toContain('mitzo.account_provider=openai-work');
+    expect(
+      create.find((value) => value.startsWith('mitzo.conversation='))?.split('=')[1],
+    ).toHaveLength(63);
+    expect(create).toContain('--inference-provider');
+    expect(create).toContain('--inference-model');
+    expect(create).toContain('test-model');
     expect(create).not.toContain('auto-providers');
   });
 
   it('waits through asynchronous creation phases until the sandbox is Ready', async () => {
     const run = vi
       .fn()
+      .mockRejectedValueOnce(new Error('sandbox not found'))
       .mockRejectedValueOnce(new Error('sandbox not found'))
       .mockResolvedValueOnce('{}')
       .mockResolvedValueOnce(ready('Creating'))
@@ -69,7 +82,7 @@ describe('OpenShell runtime lifecycle', () => {
         timeoutMs: 100,
       }).ensure('conversation', new AbortController().signal),
     ).resolves.toMatchObject({ workdir: '/sandbox/workspaces/mgmt' });
-    expect(run).toHaveBeenCalledTimes(5);
+    expect(run).toHaveBeenCalledTimes(6);
   });
 
   it('bounds and aborts readiness polling', async () => {
@@ -111,6 +124,50 @@ describe('OpenShell runtime lifecycle', () => {
     }).ensure('conversation', new AbortController().signal);
     expect(stopped.mock.calls[1][0]).toContain('start');
     expect(stopped.mock.calls.flat().flat()).not.toContain('create');
+  });
+
+  it('reuses a retained legacy sandbox with its original name and ownership label', async () => {
+    const legacyOwner = `${owner}b`;
+    const run = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('sandbox not found'))
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          name: 'legacy',
+          phase: 'Ready',
+          labels: {
+            'mitzo.conversation': legacyOwner,
+            'mitzo.account_provider': 'openai-work',
+          },
+        }),
+      );
+
+    await expect(
+      new OpenShellRuntimeManager(config, run).ensure('conversation', new AbortController().signal),
+    ).resolves.toMatchObject({ sandboxName: `mitzo-${legacyOwner.slice(0, 24)}` });
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(run.mock.calls.flat().flat()).not.toContain('create');
+  });
+
+  it('does not adopt a retained legacy sandbox with mismatched ownership', async () => {
+    const run = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('sandbox not found'))
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          name: 'legacy',
+          phase: 'Ready',
+          labels: {
+            'mitzo.conversation': 'different',
+            'mitzo.account_provider': 'openai-work',
+          },
+        }),
+      );
+
+    await expect(
+      new OpenShellRuntimeManager(config, run).ensure('conversation', new AbortController().signal),
+    ).rejects.toThrow('not owned');
+    expect(run).toHaveBeenCalledTimes(2);
   });
 
   it('fails closed on errored or incomplete runtimes', async () => {
@@ -167,19 +224,25 @@ describe('OpenShell runtime lifecycle', () => {
         fullMarkdown: '# Context',
       }),
     );
-    const manager = new OpenShellRuntimeManager(config, run);
+    const manager = new OpenShellRuntimeManager(config, vi.fn(), undefined, run);
     await expect(
       manager.compileContext(
-        { sandboxName: 'mitzo-runtime', workdir: '/sandbox/workspaces/mgmt' },
+        {
+          sandboxName: 'mitzo-runtime',
+          workdir: '/sandbox/workspaces/mgmt',
+          appServerCommand: '/sandbox/run-mitzo-app-server',
+          cli: config.cli,
+          gateway: config.gateway,
+          workspace: config.workspace,
+          gatewayInsecure: false,
+        },
         new AbortController().signal,
       ),
     ).resolves.toMatchObject({ fullMarkdown: '# Context', scope: 'sandbox' });
     expect(run.mock.calls[0][0]).toEqual(
       expect.arrayContaining([
-        'exec',
-        'mitzo-runtime',
-        '/sandbox/compile-mgmt-context.mjs',
-        '/sandbox/workspaces/mgmt',
+        'sandbox@openshell-mitzo-runtime.mitzo',
+        '/usr/bin/node /sandbox/compile-mgmt-context.mjs /sandbox/workspaces/mgmt 12000',
       ]),
     );
   });
@@ -194,6 +257,34 @@ describe('OpenShell runtime lifecycle', () => {
         MITZO_OPENSHELL_SERVICE_PROVIDERS: 'google-workspace,github',
       }),
     ).toMatchObject({ serviceProviders: ['google-workspace', 'github'] });
+    expect(
+      openShellRuntimeConfig({
+        MITZO_OPENSHELL_ENABLED: '1',
+        MITZO_OPENSHELL_IMAGE: 'runtime:1',
+        MITZO_OPENSHELL_POLICY: '/policy',
+        MITZO_OPENSHELL_SEED: '/seed',
+        MITZO_OPENSHELL_CLI: '/isolated/openshell',
+      }),
+    ).toMatchObject({ cli: '/isolated/openshell' });
+    expect(
+      openShellRuntimeConfig({
+        MITZO_OPENSHELL_ENABLED: '1',
+        MITZO_OPENSHELL_IMAGE: 'runtime:1',
+        MITZO_OPENSHELL_POLICY: '/policy',
+        MITZO_OPENSHELL_SEED: '/seed',
+        MITZO_OPENSHELL_CREATE_DETACHED: '0',
+        MITZO_OPENSHELL_SANDBOX_ID_LENGTH: '12',
+      }),
+    ).toMatchObject({ createDetached: false, sandboxIdLength: 12 });
+    expect(() =>
+      openShellRuntimeConfig({
+        MITZO_OPENSHELL_ENABLED: '1',
+        MITZO_OPENSHELL_IMAGE: 'runtime:1',
+        MITZO_OPENSHELL_POLICY: '/policy',
+        MITZO_OPENSHELL_SEED: '/seed',
+        MITZO_OPENSHELL_CLI: 'relative/openshell',
+      }),
+    ).toThrow('absolute');
     expect(() =>
       openShellRuntimeConfig({
         MITZO_OPENSHELL_ENABLED: '1',
@@ -229,6 +320,127 @@ describe('OpenShell runtime lifecycle', () => {
         MITZO_OPENSHELL_PROVIDERS: 'openai-other-account',
       }),
     ).toThrow('ambiguous');
+  });
+
+  it('verifies the exact subscription provider and grant before creating a sandbox', async () => {
+    const subscription = {
+      ...config,
+      createDetached: false,
+      sandboxIdLength: 12,
+      account: {
+        kind: 'chatgpt-subscription' as const,
+        provider: 'personal-chatgpt',
+        providerType: 'openai-codex-oauth' as const,
+        providerId: 'provider-object-1',
+        grantId: 'grant-generation-1',
+        model: 'gpt-test',
+      },
+    };
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce(
+        JSON.stringify([
+          {
+            id: 'provider-object-1',
+            name: 'personal-chatgpt',
+            workspace: 'mitzo',
+            type: 'openai-codex-oauth',
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          credentials: [
+            {
+              provider_name: 'personal-chatgpt',
+              provider_id: 'provider-object-1',
+              credential_key: 'OPENAI_CODEX_OAUTH_ACCESS_TOKEN',
+              status: 'refreshed',
+              expires_at_ms: Date.now() + 60_000,
+              refresh_generation_id: 'grant-generation-1',
+            },
+          ],
+        }),
+      )
+      .mockRejectedValueOnce(new Error('sandbox not found'))
+      .mockRejectedValueOnce(new Error('sandbox not found'))
+      .mockResolvedValueOnce('{}')
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          name: 'sandbox',
+          phase: 'Ready',
+          labels: {
+            'mitzo.conversation': owner,
+            'mitzo.account_provider': 'personal-chatgpt',
+          },
+        }),
+      );
+    await new OpenShellRuntimeManager(subscription, run).ensure(
+      'conversation',
+      new AbortController().signal,
+    );
+    expect(run.mock.calls[0][0]).toContain('list');
+    expect(run.mock.calls[1][0]).toContain('status');
+    expect(run.mock.calls[4][0]).toEqual(
+      expect.arrayContaining([
+        '--provider',
+        'personal-chatgpt',
+        '--inference-provider',
+        'personal-chatgpt',
+        '--inference-model',
+        'gpt-test',
+      ]),
+    );
+    expect(run.mock.calls[4][0]).not.toContain('--detach');
+    expect(run.mock.calls[4][0]).toEqual(expect.arrayContaining(['--output', 'json']));
+  });
+
+  it.each([
+    ['wrong provider object', { providerId: 'other' }],
+    ['wrong grant generation', { grantId: 'other' }],
+  ])('fails closed for %s', async (_name, override) => {
+    const account = {
+      kind: 'chatgpt-subscription' as const,
+      provider: 'personal-chatgpt',
+      providerType: 'openai-codex-oauth' as const,
+      providerId: 'provider-object-1',
+      grantId: 'grant-generation-1',
+      model: 'gpt-test',
+      ...override,
+    };
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce(
+        JSON.stringify([
+          {
+            id: 'provider-object-1',
+            name: 'personal-chatgpt',
+            workspace: 'mitzo',
+            type: 'openai-codex-oauth',
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          credentials: [
+            {
+              provider_name: 'personal-chatgpt',
+              provider_id: 'provider-object-1',
+              credential_key: 'OPENAI_CODEX_OAUTH_ACCESS_TOKEN',
+              status: 'refreshed',
+              expires_at_ms: Date.now() + 60_000,
+              refresh_generation_id: 'grant-generation-1',
+            },
+          ],
+        }),
+      );
+    await expect(
+      new OpenShellRuntimeManager({ ...config, account }, run).ensure(
+        'conversation',
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(/does not match|expired|revoked|sign-in/);
+    expect(run.mock.calls.flat().flat()).not.toContain('create');
   });
 
   it('passes only explicitly sandboxed MCP servers and live search to Codex', () => {
