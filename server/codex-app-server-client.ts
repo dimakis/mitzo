@@ -23,6 +23,78 @@ interface Pending {
   timer: ReturnType<typeof setTimeout>;
 }
 
+export interface OpenShellCodexOptions {
+  sandboxName: string;
+  workdir: string;
+}
+
+/** Build the development transport without forwarding host credentials to the
+ * OpenShell CLI. Credential placeholders are attached to the sandbox by its
+ * gateway providers; the custom provider deliberately uses inspected HTTPS.
+ */
+export function openShellCodexProcessSpec(
+  options: OpenShellCodexOptions,
+  base: NodeJS.ProcessEnv = process.env,
+) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(options.sandboxName))
+    throw new Error('Invalid OpenShell sandbox name');
+  if (!options.workdir.startsWith('/sandbox/workspaces/'))
+    throw new Error('OpenShell workdir must be inside /sandbox/workspaces');
+  const env: Record<string, string> = {};
+  for (const key of [
+    'PATH',
+    'HOME',
+    'TMPDIR',
+    'LANG',
+    'LC_ALL',
+    'OPENSHELL_GATEWAY',
+    'OPENSHELL_GATEWAY_ENDPOINT',
+    'OPENSHELL_GATEWAY_INSECURE',
+    'OPENSHELL_WORKSPACE',
+  ]) {
+    if (base[key]) env[key] = base[key]!;
+  }
+  const workspace = base.OPENSHELL_WORKSPACE || 'default';
+  const gateway = base.OPENSHELL_GATEWAY || 'openshell';
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(workspace))
+    throw new Error('Invalid OpenShell workspace name');
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(gateway))
+    throw new Error('Invalid OpenShell gateway name');
+  return {
+    command: 'ssh',
+    args: [
+      '-T',
+      '-o',
+      'BatchMode=yes',
+      '-o',
+      'StrictHostKeyChecking=no',
+      '-o',
+      'UserKnownHostsFile=/dev/null',
+      '-o',
+      'LogLevel=ERROR',
+      '-o',
+      `ProxyCommand=openshell ssh-proxy --gateway-name ${gateway} --name ${options.sandboxName} --workspace ${workspace}`,
+      `sandbox@openshell-${options.sandboxName}.${workspace}`,
+      '/sandbox/run-mitzo-app-server',
+    ],
+    env,
+  };
+}
+
+export function terminateOpenShellProcess(
+  child: { pid?: number; kill(): unknown },
+  killGroup: (pid: number, signal: NodeJS.Signals) => unknown = process.kill,
+) {
+  if (child.pid)
+    try {
+      killGroup(-child.pid, 'SIGTERM');
+      return true;
+    } catch {
+      /* Fall back if the process exited before its group was established. */
+    }
+  return child.kill();
+}
+
 /** Explicit login storage; never pass API billing or arbitrary server secrets to Codex. */
 export function codexEnvironment(
   credentialRef: string,
@@ -97,6 +169,27 @@ export class CodexAppServerClient {
       ),
       { lifecycle },
     );
+  }
+
+  static launchOpenShell(
+    options: OpenShellCodexOptions,
+    base: NodeJS.ProcessEnv = process.env,
+    lifecycle?: CodexLifecycleTransport,
+  ) {
+    const spec = openShellCodexProcessSpec(options, base);
+    const child = spawn(spec.command, spec.args, {
+      detached: true,
+      env: spec.env,
+      shell: false,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const killChild = child.kill.bind(child);
+    // ssh starts the OpenShell ProxyCommand as a child. Kill the process group so
+    // closing or interrupting a Mitzo task cannot leave the proxy holding stdio.
+    child.kill = (() => {
+      return terminateOpenShellProcess({ pid: child.pid, kill: killChild });
+    }) as typeof child.kill;
+    return new CodexAppServerClient(child, { lifecycle });
   }
 
   initialize(): Promise<void> {
