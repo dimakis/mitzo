@@ -796,4 +796,8 @@
   .chat-page.workspace-chat {
     bottom: calc(49px + env(safe-area-inset-bottom));
   }
+
+  .workspace-chat .chat-input {
+    padding-bottom: 0.5rem;
+  }
 }

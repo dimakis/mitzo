@@ -2,6 +2,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { Link, MemoryRouter } from 'react-router-dom';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { MobileShell } from '../MobileShell';
 
 const media = vi.hoisted(() => ({ desktop: false }));
@@ -43,5 +45,13 @@ describe('MobileShell navigation', () => {
     media.desktop = true;
     renderAt('/chat/example');
     expect(screen.queryByRole('navigation')).toBeNull();
+  });
+
+  it('does not reserve the bottom safe area twice in mobile chats', () => {
+    const styles = readFileSync(
+      resolve(process.cwd(), 'frontend/src/styles/workspace-chat.css'),
+      'utf8',
+    );
+    expect(styles).toMatch(/\.workspace-chat \.chat-input\s*\{[^}]*padding-bottom:\s*0\.5rem;/s);
   });
 });
