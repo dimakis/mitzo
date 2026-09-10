@@ -1137,4 +1137,32 @@ describe('account catalog routes', () => {
     const res = await request(app).get('/api/sessions/bound/meta').set('Cookie', authCookie);
     expect(res.body.accountBinding).toEqual(binding);
   });
+  it('exposes Codex queue recovery metadata for OpenShell API sessions', async () => {
+    const binding = {
+      accountId: 'work-api',
+      accountLabel: 'Work API',
+      provider: 'openai',
+      model: 'gpt-test',
+      profileRevision: 'revision',
+    };
+    vi.mocked(eventStore.getSession).mockReturnValueOnce({
+      sessionId: 'openshell-api',
+      cwd: '/sandbox/workspaces/mgmt',
+      accountBinding: binding,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+    } as ReturnType<typeof eventStore.getSession>);
+    const res = await request(app)
+      .get('/api/sessions/openshell-api/meta')
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(res.body.codexQueue).toEqual({
+      paused: true,
+      connected: false,
+      queued: 0,
+      interrupted: 0,
+    });
+  });
 });

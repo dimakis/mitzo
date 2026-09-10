@@ -80,7 +80,7 @@ export function readCodexQueue(
   binding: AccountBinding,
   session?: ManagedSession,
 ) {
-  if (binding.provider !== 'openai-codex') return undefined;
+  if (binding.provider !== 'openai-codex' && binding.provider !== 'openai') return undefined;
   try {
     const live = session ? getCodexRuntime(session) : undefined;
     const commands = live?.queue() ?? store().commands(conversationId, binding);

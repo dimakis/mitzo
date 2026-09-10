@@ -75,6 +75,7 @@ export class CodexConversation {
   private closed = false;
   private ready = false;
   private pumping?: Promise<void>;
+  private recovery?: Promise<void>;
   constructor(private opts: Options) {
     this.client = this.createClient();
   }
@@ -220,6 +221,15 @@ export class CodexConversation {
     await this.pump();
   }
   async acknowledgeRecovery() {
+    if (this.recovery) return this.recovery;
+    const operation = this.continueRecovery();
+    const shared = operation.finally(() => {
+      if (this.recovery === shared) this.recovery = undefined;
+    });
+    this.recovery = shared;
+    return shared;
+  }
+  private async continueRecovery() {
     if (this.closed) throw new Error('Codex conversation unavailable');
     if (!this.ready) await this.reconnect();
     this.opts.store.acknowledgeRecovery(this.opts.conversationId, this.binding!);

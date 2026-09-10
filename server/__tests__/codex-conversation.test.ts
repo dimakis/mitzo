@@ -277,6 +277,33 @@ it('re-establishes the external sandbox before recreating a recovery transport',
   expect(beforeReconnect).toHaveBeenCalledOnce();
 });
 
+it('shares one reconnect across concurrent recovery acknowledgements', async () => {
+  let release!: () => void;
+  const beforeReconnect = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const { c, callbacks, requests } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    beforeReconnect,
+  );
+  callbacks.onClose(new Error('sandbox stopped'));
+
+  const first = c.acknowledgeRecovery();
+  const second = c.acknowledgeRecovery();
+  await vi.waitFor(() => expect(beforeReconnect).toHaveBeenCalledOnce());
+  release();
+  await Promise.all([first, second]);
+
+  expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(1);
+});
+
 it('pins an allowed model to each queued command while retaining the subscription binding', async () => {
   const { c, callbacks, requests } = await setup();
   await c.send({ id: 'first', prompt: 'one', model: 'test-model' });
