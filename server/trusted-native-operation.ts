@@ -67,7 +67,26 @@ export async function executeTrustedGitHubRead(
   });
 }
 
+export function isTrustedGitHubEndpoint(endpoint: string) {
+  const queryIndex = endpoint.indexOf('?');
+  const path = queryIndex === -1 ? endpoint : endpoint.slice(0, queryIndex);
+  const query = queryIndex === -1 ? '' : endpoint.slice(queryIndex + 1);
+  try {
+    return (
+      decodeURIComponent(path) === path &&
+      !path.includes('..') &&
+      !path.includes('//') &&
+      (/^\/user$/.test(path) ||
+        /^\/repos\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_./+-]*)?$/.test(path)) &&
+      /^[A-Za-z0-9_.~=&%+-]*$/.test(query)
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function trustedGitHubReadRequest(endpoint: string) {
+  if (!isTrustedGitHubEndpoint(endpoint)) throw new Error('Invalid trusted GitHub endpoint');
   return {
     file: 'gh',
     args: ['api', '--hostname', 'github.com', '--method', 'GET', endpoint],
@@ -98,7 +117,7 @@ async function promoteQuarantinedObjects(quarantine: string, objectStore: string
     if (!targetDirectoryInfo.isDirectory() || (await realpath(targetDirectory)) !== targetDirectory)
       throw new Error('Git object fanout must be a real directory inside the object store');
     for (const object of await readdir(sourceDirectory, { withFileTypes: true })) {
-      if (!/^[0-9a-f]{38}$/.test(object.name) || !object.isFile())
+      if (!/^(?:[0-9a-f]{38}|[0-9a-f]{62})$/.test(object.name) || !object.isFile())
         throw new Error('Unexpected quarantined Git object');
       const source = join(sourceDirectory, object.name);
       const target = join(targetDirectory, object.name);
@@ -208,6 +227,9 @@ function validateCommitFiles(files: string[]) {
     const name = basename(file).toLowerCase();
     if (
       name === '.env' ||
+      name.startsWith('.env.') ||
+      name === '.envrc' ||
+      name.startsWith('.envrc.') ||
       name === 'auth.json' ||
       name === 'credentials.json' ||
       name === '.npmrc' ||
@@ -270,8 +292,20 @@ export async function executeTrustedGitCommit(
         env: baseEnv,
       },
     );
+    const objectFormat = await run(
+      'git',
+      ['--git-dir', metadata.admin, 'rev-parse', '--show-object-format'],
+      { cwd, signal, timeoutMs, maxOutputBytes, env: baseEnv },
+    );
+    if (!['sha1', 'sha256'].includes(objectFormat))
+      throw new Error('Unsupported Git object format');
     await writeFile(join(gitDir, 'HEAD'), `${oldCommit}\n`);
-    await writeFile(join(gitDir, 'config'), '[core]\n\tbare = false\n');
+    await writeFile(
+      join(gitDir, 'config'),
+      objectFormat === 'sha256'
+        ? '[core]\n\trepositoryformatversion = 1\n\tbare = false\n[extensions]\n\tobjectFormat = sha256\n'
+        : '[core]\n\tbare = false\n',
+    );
     const isolated = {
       GIT_DIR: gitDir,
       GIT_WORK_TREE: cwd,

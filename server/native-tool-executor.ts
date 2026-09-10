@@ -1,6 +1,10 @@
 import { executeSandboxedCommand } from './sandboxed-command.js';
 import { executeNativeFileOperation } from './native-file-operation.js';
-import { executeTrustedGitCommit, executeTrustedGitHubRead } from './trusted-native-operation.js';
+import {
+  executeTrustedGitCommit,
+  executeTrustedGitHubRead,
+  isTrustedGitHubEndpoint,
+} from './trusted-native-operation.js';
 import { lstat, realpath } from 'node:fs/promises';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -42,7 +46,7 @@ const schemas = {
         .min(1)
         .max(1000)
         .regex(/^\/(?:user|repos\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_./?=&%+-]*)?)$/)
-        .refine((value) => !value.includes('..') && !value.includes('//'), 'Invalid GitHub path'),
+        .refine(isTrustedGitHubEndpoint, 'Invalid GitHub path'),
     })
     .strict(),
   GitCommit: z

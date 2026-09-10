@@ -9,7 +9,8 @@ import { executeTrustedGitCommit, executeTrustedGitHubRead } from '../trusted-na
 vi.mock('../sandboxed-command.js', () => ({
   executeSandboxedCommand: vi.fn().mockResolvedValue({ content: 'done', isError: false }),
 }));
-vi.mock('../trusted-native-operation.js', () => ({
+vi.mock('../trusted-native-operation.js', async (importOriginal) => ({
+  ...(await importOriginal()),
   executeTrustedGitHubRead: vi.fn().mockResolvedValue('{"login":"test"}'),
   executeTrustedGitCommit: vi.fn().mockResolvedValue('[branch abc] approved'),
 }));
@@ -87,11 +88,14 @@ describe('native tool execution through session permissions', () => {
     );
   });
   it('rejects GitHub traversal before requesting approval', async () => {
-    const response = await executor()(
-      call('GitHubRead', { endpoint: '/repos/owner/repo/../../user' }),
-      abort.signal,
-    );
-    expect(response).toMatchObject({ is_error: true, content: 'Invalid native tool input' });
+    for (const endpoint of [
+      '/repos/owner/repo/../../user',
+      '/repos/owner/repo/%2e%2e/%2e%2e/user',
+      '/repos/owner/repo/%2Fuser',
+    ]) {
+      const response = await executor()(call('GitHubRead', { endpoint }), abort.signal);
+      expect(response).toMatchObject({ is_error: true, content: 'Invalid native tool input' });
+    }
     expect(sent).toEqual([]);
   });
   it('commits only canonical approved workspace paths through the trusted operation', async () => {

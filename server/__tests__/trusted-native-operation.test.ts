@@ -35,6 +35,36 @@ describe('trusted native Git operation', () => {
     ).toBe('approved');
   });
 
+  it('promotes loose objects in a SHA-256 repository', async () => {
+    root = await mkdtemp(join(tmpdir(), 'mitzo-trusted-git-sha256-'));
+    const repo = join(root, 'repo');
+    const worktree = join(root, 'worktree');
+    execFileSync('git', ['init', '--object-format=sha256', repo]);
+    execFileSync('git', ['-C', repo, 'config', 'user.name', 'Mitzo Test']);
+    execFileSync('git', ['-C', repo, 'config', 'user.email', 'test@example.invalid']);
+    execFileSync('git', [
+      '-C',
+      repo,
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '--allow-empty',
+      '-m',
+      'initial',
+    ]);
+    execFileSync('git', ['-C', repo, 'worktree', 'add', '-b', 'sha256', worktree]);
+    await writeFile(join(worktree, 'approved.txt'), 'approved');
+    await executeTrustedGitCommit(
+      worktree,
+      ['approved.txt'],
+      'test: sha256 commit',
+      new AbortController().signal,
+    );
+    expect(
+      execFileSync('git', ['-C', worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+    ).toHaveLength(64);
+  });
+
   it('does not execute repository-controlled filters, hooks, or fsmonitor commands', async () => {
     root = await mkdtemp(join(tmpdir(), 'mitzo-trusted-git-adversarial-'));
     const repo = join(root, 'repo');
@@ -220,19 +250,24 @@ describe('trusted native Git operation', () => {
       file: 'gh',
       args: ['api', '--hostname', 'github.com', '--method', 'GET', '/user'],
     });
+    expect(() => trustedGitHubReadRequest('/repos/owner/repo/%2e%2e/user')).toThrow(
+      'Invalid trusted GitHub endpoint',
+    );
   });
 
   it('refuses credential-like files before staging them', async () => {
     root = await mkdtemp(join(tmpdir(), 'mitzo-trusted-git-'));
     execFileSync('git', ['init', root]);
-    await writeFile(join(root, '.env'), 'SECRET=synthetic');
-    await expect(
-      executeTrustedGitCommit(root, ['.env'], 'unsafe', new AbortController().signal),
-    ).rejects.toThrow('Credential-like');
+    for (const file of ['.env', '.env.local', '.env.production', '.envrc']) {
+      await writeFile(join(root, file), 'SECRET=synthetic');
+      await expect(
+        executeTrustedGitCommit(root, [file], 'unsafe', new AbortController().signal),
+      ).rejects.toThrow('Credential-like');
+    }
     expect(execFileSync('git', ['-C', root, 'status', '--short'], { encoding: 'utf8' })).toContain(
       '?? .env',
     );
-    expect(await readFile(join(root, '.env'), 'utf8')).toBe('SECRET=synthetic');
+    expect(await readFile(join(root, '.env.local'), 'utf8')).toBe('SECRET=synthetic');
   });
 
   it('never recursively stages a directory passed directly to the trusted boundary', async () => {
