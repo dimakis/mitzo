@@ -1,7 +1,12 @@
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CodexAppServerClient, codexEnvironment } from '../codex-app-server-client.js';
+import {
+  CodexAppServerClient,
+  codexEnvironment,
+  openShellCodexProcessSpec,
+  terminateOpenShellProcess,
+} from '../codex-app-server-client.js';
 
 vi.mock('../application-version.js', () => ({ applicationVersion: '9.8.7-test' }));
 
@@ -186,5 +191,61 @@ describe('Codex app-server transport', () => {
       }),
     ).toEqual({ PATH: '/bin', HOME: '/user', CODEX_HOME: '/explicit/codex-home' });
     client.close();
+  });
+
+  it('builds a credential-free OpenShell app-server process boundary', () => {
+    expect(
+      openShellCodexProcessSpec(
+        {
+          sandboxName: 'mitzo-session-ab12',
+          workdir: '/sandbox/workspaces/mgmt',
+        },
+        {
+          PATH: '/bin',
+          HOME: '/Users/test',
+          OPENAI_API_KEY: 'must-not-cross',
+          GITHUB_TOKEN: 'must-not-cross',
+          OPENSHELL_WORKSPACE: 'mitzo-dev',
+        },
+      ),
+    ).toEqual({
+      command: 'ssh',
+      args: [
+        '-T',
+        '-o',
+        'BatchMode=yes',
+        '-o',
+        'StrictHostKeyChecking=no',
+        '-o',
+        'UserKnownHostsFile=/dev/null',
+        '-o',
+        'LogLevel=ERROR',
+        '-o',
+        'ProxyCommand=openshell ssh-proxy --gateway-name openshell --name mitzo-session-ab12 --workspace mitzo-dev',
+        'sandbox@openshell-mitzo-session-ab12.mitzo-dev',
+        '/sandbox/run-mitzo-app-server',
+      ],
+      env: { PATH: '/bin', HOME: '/Users/test', OPENSHELL_WORKSPACE: 'mitzo-dev' },
+    });
+    expect(() =>
+      openShellCodexProcessSpec({ sandboxName: '../other', workdir: '/sandbox/workspaces/mgmt' }),
+    ).toThrow(/sandbox name/i);
+    expect(() => openShellCodexProcessSpec({ sandboxName: 'safe', workdir: '/host/path' })).toThrow(
+      /workdir/i,
+    );
+    expect(() =>
+      openShellCodexProcessSpec({
+        sandboxName: 'safe',
+        workdir: '/sandbox/workspaces/../other',
+      }),
+    ).toThrow(/workdir/i);
+  });
+
+  it('terminates the SSH proxy process group on close', () => {
+    const fallback = vi.fn();
+    const killGroup = vi.fn();
+    terminateOpenShellProcess({ pid: 42, kill: fallback }, killGroup);
+    expect(killGroup).toHaveBeenCalledWith(-42, 'SIGTERM');
+    expect(fallback).not.toHaveBeenCalled();
   });
 });

@@ -1,0 +1,22 @@
+[
+  {
+    "method": "thread/start",
+    "id": 1,
+    "params": {
+      "model": "gpt-5.6-terra",
+      "cwd": "/sandbox/workspaces/primary"
+    }
+  },
+  {
+    "method": "turn/start",
+    "id": 2,
+    "params": {
+      "threadId": "<thread-id-from-thread-start>",
+      "input": [{ "type": "text", "text": "Run the approved task." }],
+      "sandboxPolicy": {
+        "type": "externalSandbox",
+        "networkAccess": "restricted"
+      }
+    }
+  }
+]

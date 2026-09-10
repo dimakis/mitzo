@@ -20,6 +20,12 @@ import {
   type NativeToolOptions,
 } from './native-tool-executor.js';
 import type { McpServerConfig } from './mcp-config.js';
+import {
+  OpenShellRuntimeManager,
+  openShellCodexRuntimeConfig,
+  openShellRuntimeConfig,
+  type OpenShellBootContext,
+} from './openshell-runtime.js';
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
 let privateStore: CodexConversationStore | undefined;
@@ -74,7 +80,7 @@ export function readCodexQueue(
   binding: AccountBinding,
   session?: ManagedSession,
 ) {
-  if (binding.provider !== 'openai-codex') return undefined;
+  if (binding.provider !== 'openai-codex' && binding.provider !== 'openai') return undefined;
   try {
     const live = session ? getCodexRuntime(session) : undefined;
     const commands = live?.queue() ?? store().commands(conversationId, binding);
@@ -107,46 +113,96 @@ interface Options {
   env: Record<string, string>;
   mcpServers: Record<string, McpServerConfig>;
   onDemandCreate?: NativeToolOptions['onDemandCreate'];
+  onBootContext?: (context: OpenShellBootContext) => void;
 }
 /** Shared chat adapter. Execution remains gated by the account catalog and unsupported capabilities fail explicitly. */
 export async function openCodexChat(options: Options) {
+  const configuredRuntime = openShellRuntimeConfig(process.env);
+  const openShellName = process.env.MITZO_OPENSHELL_SANDBOX_NAME;
+  if (openShellName && process.env.NODE_ENV === 'production')
+    throw new Error('Legacy shared OpenShell sandboxes are disabled in production.');
+  const accountProvider = options.profile.sandboxProvider;
+  const openShellRequested = !!configuredRuntime || !!openShellName;
+  if (openShellRequested && options.profile.planType !== 'api')
+    throw new Error(
+      'ChatGPT subscription execution inside OpenShell requires supported brokered Codex OAuth; API billing substitution is forbidden.',
+    );
+  if (configuredRuntime && !accountProvider)
+    throw new Error('OpenShell API accounts require an explicit sandbox provider binding.');
+  if (openShellRequested && options.session.mode === 'ask')
+    throw new Error(
+      'OpenShell native tools do not yet support Mitzo Ask mode; select Agent or Auto mode.',
+    );
+  const runtimeManager = configuredRuntime
+    ? new OpenShellRuntimeManager({
+        ...configuredRuntime,
+        accountProvider: accountProvider!,
+      })
+    : undefined;
+  const managedOpenShell = runtimeManager
+    ? await runtimeManager.ensure(options.conversationId, options.session.abortController.signal)
+    : undefined;
+  const openShell =
+    managedOpenShell ??
+    (openShellName
+      ? {
+          sandboxName: openShellName,
+          workdir: process.env.MITZO_OPENSHELL_WORKDIR || '/sandbox/workspaces/mgmt',
+        }
+      : undefined);
   const signal = options.session.abortController.signal;
   signal.throwIfAborted();
   const privateStorage = store();
-  const { hooks, dispose } = createNativeHooks(
-    options.session.cwd!,
-    options.conversationId,
-    options.env,
-    { trustProjectHooks: process.env.MITZO_TRUST_PROJECT_HOOKS === '1' },
-  );
-  let startup;
+  const hookRuntime = openShell
+    ? undefined
+    : createNativeHooks(options.session.cwd!, options.conversationId, options.env, {
+        trustProjectHooks: process.env.MITZO_TRUST_PROJECT_HOOKS === '1',
+      });
+  const hooks = hookRuntime?.hooks;
+  const dispose = hookRuntime?.dispose ?? (() => {});
+  let startup: { context?: string };
   try {
-    startup = await hooks.run(
-      'SessionStart',
-      { source: options.resume ? 'resume' : 'startup' },
-      signal,
-    );
+    if (runtimeManager) {
+      const context = await runtimeManager.compileContext(managedOpenShell!, signal);
+      options.onBootContext?.(context);
+      startup = { context: context.fullMarkdown };
+    } else {
+      startup = hooks
+        ? await hooks.run('SessionStart', { source: options.resume ? 'resume' : 'startup' }, signal)
+        : {};
+    }
   } catch (error) {
     dispose();
     throw error;
   }
-  const mcp = await connectCodexMcpTools(options.mcpServers, {
-    cwd: options.session.cwd!,
-    env: options.env,
-    signal: options.session.abortController.signal,
-  }).catch((error) => {
-    dispose();
-    throw error;
-  });
+  const mcp = openShell
+    ? {
+        definitions: [],
+        displayName: (name: string) => name,
+        close: async () => {},
+        execute: async () => {
+          throw new Error('Host MCP tools are unavailable inside OpenShell');
+        },
+      }
+    : await connectCodexMcpTools(options.mcpServers, {
+        cwd: options.session.cwd!,
+        env: options.env,
+        signal: options.session.abortController.signal,
+      }).catch((error) => {
+        dispose();
+        throw error;
+      });
   const events = new AsyncQueue<Record<string, unknown>>();
   let closed = false;
   function finish() {
     if (closed) return;
     closed = true;
-    void hooks
-      .run('SessionEnd', { reason: 'other' }, AbortSignal.timeout(5000))
-      .catch(() => {})
-      .finally(dispose);
+    if (hooks)
+      void hooks
+        .run('SessionEnd', { reason: 'other' }, AbortSignal.timeout(5000))
+        .catch(() => {})
+        .finally(dispose);
+    else dispose();
     signal.removeEventListener('abort', close);
     events.close();
     void mcp.close();
@@ -160,11 +216,20 @@ export async function openCodexChat(options: Options) {
     store: privateStorage,
     systemPrompt:
       options.systemPrompt +
-      HOST_TOOL_INSTRUCTIONS +
+      (openShell
+        ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again.\n`
+        : HOST_TOOL_INSTRUCTIONS) +
       (startup.context ? `\n\n${startup.context}` : ''),
     beforeComplete: async (signal) => {
-      await hooks.run('Stop', { stop_hook_active: false }, signal);
+      await hooks?.run('Stop', { stop_hook_active: false }, signal);
     },
+    ...(runtimeManager
+      ? {
+          beforeReconnect: async () => {
+            await runtimeManager.ensure(options.conversationId, signal);
+          },
+        }
+      : {}),
     validateModel: (model, reasoningEffort) => {
       const entry = loadAccountProfiles()
         .catalog()
@@ -184,10 +249,23 @@ export async function openCodexChat(options: Options) {
       )
         throw new Error('Account configuration changed');
     },
-    tools: [...nativeToolDefinitions, ...mcp.definitions],
+    tools: openShell ? [] : [...nativeToolDefinitions, ...mcp.definitions],
     displayToolName: mcp.displayName,
     createClient: (callbacks) =>
-      CodexAppServerClient.launch(options.profile.credentialRef, process.env, callbacks),
+      openShell
+        ? CodexAppServerClient.launchOpenShell(openShell, process.env, callbacks)
+        : CodexAppServerClient.launch(options.profile.credentialRef, process.env, callbacks),
+    ...(openShell
+      ? {
+          runtimeCwd: openShell.workdir,
+          modelProvider: 'openshell',
+          runtimeConfig: managedOpenShell
+            ? openShellCodexRuntimeConfig(configuredRuntime!, options.mcpServers)
+            : { web_search: 'disabled' },
+          turnSandboxPolicy: { type: 'externalSandbox', networkAccess: 'restricted' },
+          verifyBinding: async () => options.binding,
+        }
+      : {}),
     emit: (event) => events.push(event),
     onClosed: finish,
     requestUserInput: async (params, signal) => {
@@ -196,7 +274,7 @@ export async function openCodexChat(options: Options) {
       return requestCodexUserInput(params, signal, owner.clientId, options.registry);
     },
     executeTool: async (name, input, signal) =>
-      hooks.executeTool(mcp.displayName(name), input, signal, async (input, forcePrompt) => {
+      hooks?.executeTool(mcp.displayName(name), input, signal, async (input, forcePrompt) => {
         const owner = options.registry.findBySessionId(options.conversationId);
         if (!owner) throw new Error('Codex session unavailable');
         if (mcp.definitions.some((t) => t.name === name))
@@ -220,7 +298,7 @@ export async function openCodexChat(options: Options) {
         });
         const result = await execute({ type: 'tool_use', id: randomUUID(), name, input }, signal);
         return { content: result.content, isError: !!result.is_error };
-      }),
+      }) ?? Promise.reject(new Error('Host tools are unavailable inside OpenShell')),
     onQueueChange: () => {
       const message = {
         type: 'codex_queue',
@@ -262,6 +340,12 @@ export async function openCodexChat(options: Options) {
   }
   return {
     [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](),
+    setPermissionMode: async (mode: ManagedSession['mode']) => {
+      if (openShell && mode === 'ask')
+        throw new Error(
+          'OpenShell native tools do not yet support Mitzo Ask mode; select Agent or Auto mode.',
+        );
+    },
     interrupt: () => runtime.interrupt(),
     close,
     stopTask: async () => {

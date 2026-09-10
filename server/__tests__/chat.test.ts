@@ -45,6 +45,23 @@ describe('chat module exports', () => {
   });
 });
 
+describe('OpenShell workspace prompt', () => {
+  it('exposes only the sandbox path to the runtime', async () => {
+    const { buildOpenShellWorkspaceSystemPrompt } = await import('../chat.js');
+    const prompt = buildOpenShellWorkspaceSystemPrompt('/sandbox/workspaces/mgmt', 'task-1');
+    expect(prompt).toContain('/sandbox/workspaces/mgmt');
+    expect(prompt).toContain('task-1');
+    expect(prompt).not.toContain('/private/tmp');
+    expect(prompt).toContain('Host worktree paths');
+  });
+
+  it('does not advertise host-only task tools inside OpenShell', async () => {
+    const { supportsHostTaskTools } = await import('../chat.js');
+    expect(supportsHostTaskTools(true)).toBe(false);
+    expect(supportsHostTaskTools(false)).toBe(true);
+  });
+});
+
 describe('getSessions', () => {
   it('returns an array', async () => {
     const { getSessions } = await import('../chat.js');

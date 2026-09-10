@@ -1,5 +1,5 @@
-import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import { readFileSync, existsSync, realpathSync } from 'fs';
+import { join, relative } from 'path';
 import { createLogger } from './logger.js';
 
 const log = createLogger('repo-config');
@@ -58,7 +58,10 @@ function isValidQuickAction(item: unknown): item is QuickAction {
   return typeof obj.label === 'string' && typeof obj.desc === 'string';
 }
 
-export function loadRepoConfig(repoPath: string): RepoConfig {
+export function loadRepoConfig(
+  repoPath: string,
+  options: { pathCeiling?: string } = {},
+): RepoConfig {
   if (!repoPath) return { ...EMPTY_CONFIG };
 
   let raw: string;
@@ -121,9 +124,20 @@ export function loadRepoConfig(repoPath: string): RepoConfig {
   const resolvedInboxPath = inboxPath ? join(repoPath, inboxPath) : '';
 
   const repos: Record<string, string> = {};
+  let ceiling: string | undefined;
+  let invalidCeiling = false;
+  if (options.pathCeiling) {
+    try {
+      ceiling = realpathSync(options.pathCeiling);
+    } catch {
+      invalidCeiling = true;
+      log.warn('Configured repository path ceiling does not exist; rejecting all repositories');
+    }
+  }
   if (obj.repos && typeof obj.repos === 'object' && !Array.isArray(obj.repos)) {
     for (const [name, path] of Object.entries(obj.repos as Record<string, unknown>)) {
       if (typeof path !== 'string') continue;
+      if (invalidCeiling) continue;
       if (!existsSync(path)) {
         log.warn(`repos.${name}: path does not exist: ${path}`);
         continue;
@@ -131,6 +145,14 @@ export function loadRepoConfig(repoPath: string): RepoConfig {
       if (!existsSync(join(path, '.git'))) {
         log.warn(`repos.${name}: not a git repository: ${path}`);
         continue;
+      }
+      if (ceiling) {
+        const canonical = realpathSync(path);
+        const fromCeiling = relative(ceiling, canonical);
+        if (fromCeiling === '..' || fromCeiling.startsWith('../')) {
+          log.warn(`repos.${name}: path is outside the configured ceiling`);
+          continue;
+        }
       }
       repos[name] = path;
     }

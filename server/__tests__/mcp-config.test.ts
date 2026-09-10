@@ -118,6 +118,30 @@ describe('loadFromFile', () => {
     expect(servers.simple.command).toBe('/usr/bin/my-server');
     expect(servers.simple.args).toBeUndefined();
   });
+
+  it('preserves an explicit sandbox execution boundary', () => {
+    const path = writeConfig('mcp.json', {
+      mcpServers: {
+        docs: { command: '/usr/bin/docs-mcp', execution: 'sandbox' },
+      },
+    });
+
+    expect(loadFromFile(path).docs.execution).toBe('sandbox');
+  });
+
+  it('preserves sandbox environment fields so the runtime can reject them', () => {
+    const path = writeConfig('mcp.json', {
+      mcpServers: {
+        docs: {
+          command: '/usr/bin/docs-mcp',
+          execution: 'sandbox',
+          env: { TOKEN: 'synthetic-secret' },
+        },
+      },
+    });
+
+    expect(loadFromFile(path).docs.env).toEqual({ TOKEN: 'synthetic-secret' });
+  });
 });
 
 describe('getMcpConfigPaths', () => {

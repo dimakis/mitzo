@@ -1,0 +1,20 @@
+FROM ghcr.io/nvidia/openshell-community/sandboxes/base:latest
+
+USER root
+RUN npm install --global @openai/codex@0.153.4 \
+    && npm install --prefix /usr/lib/googleworkspace-cli @googleworkspace/cli@0.18.1 \
+    && ln -s /usr/lib/googleworkspace-cli/node_modules/@googleworkspace/cli/run-gws.js /usr/bin/gws
+COPY pyproject.toml uv.lock /opt/mgmt-deps/
+RUN cd /opt/mgmt-deps \
+    # MGMT's checked-in lock currently predates a declared dependency. Resolve
+    # only in this disposable build layer; never rewrite the host checkout.
+    && uv lock \
+    && UV_PROJECT_ENVIRONMENT=/opt/mgmt-venv uv sync --frozen --no-dev --no-install-project
+COPY run-mitzo-app-server /sandbox/run-mitzo-app-server
+COPY compile-mgmt-context.mjs /sandbox/compile-mgmt-context.mjs
+COPY contexgin /usr/lib/contexgin
+RUN chmod 0755 /sandbox/run-mitzo-app-server /sandbox/compile-mgmt-context.mjs \
+    && chmod -R a+rX /usr/lib/contexgin \
+    && chown sandbox:sandbox /sandbox/run-mitzo-app-server
+ENV PATH="/opt/mgmt-venv/bin:${PATH}"
+USER sandbox

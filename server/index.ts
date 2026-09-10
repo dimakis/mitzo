@@ -95,6 +95,7 @@ import {
   type V2HandlerContext,
 } from './ws-handler-v2.js';
 import { withSpan, withSpanAsync } from './tracing.js';
+import { startupRepositoryMaintenanceEnabled } from './development-isolation.js';
 import { contextFromTraceparent } from './trace-context.js';
 import { SseTransport } from './sse-transport.js';
 import { createChatRestRouter } from './chat-rest-handler.js';
@@ -1069,8 +1070,9 @@ checkPort(PORT).then((inUse) => {
     eventStore.recoverStaleSessions();
     eventStore.recoverPendingSendCommands();
 
+    const repositoryMaintenance = startupRepositoryMaintenanceEnabled();
     // Eagerly reconcile sessions so the first /api/sessions request is fast and accurate.
-    reconcileSessionsBackground();
+    if (repositoryMaintenance) reconcileSessionsBackground();
     // Clean up stale worktrees across all repos.
     // Dirty worktrees (uncommitted work) are flagged in the mgmt inbox.
     const inboxDir = BASE_REPO ? join(BASE_REPO, 'mgmt_lib', 'inbox') : undefined;
@@ -1091,15 +1093,19 @@ checkPort(PORT).then((inUse) => {
       return ids;
     }
 
-    const startupActiveWtIds = collectActiveWtIds();
-    for (const [label, repoPath] of repoEntries) {
-      try {
-        cleanupStaleWorktrees(repoPath, inboxDir, startupActiveWtIds);
-      } catch (err: unknown) {
-        log.warn(`stale worktree cleanup failed for ${label}`, {
-          error: err instanceof Error ? err.message : 'unknown',
-        });
+    if (repositoryMaintenance) {
+      const startupActiveWtIds = collectActiveWtIds();
+      for (const [label, repoPath] of repoEntries) {
+        try {
+          cleanupStaleWorktrees(repoPath, inboxDir, startupActiveWtIds);
+        } catch (err: unknown) {
+          log.warn(`stale worktree cleanup failed for ${label}`, {
+            error: err instanceof Error ? err.message : 'unknown',
+          });
+        }
       }
+    } else {
+      log.warn('repository reconciliation and worktree cleanup disabled for development isolation');
     }
 
     const UPDATE_CHECK_INTERVAL_MS = 2 * 60 * 1000;
@@ -1123,18 +1129,19 @@ checkPort(PORT).then((inUse) => {
       resetWorktreeGuardStats();
     }, GUARD_STATS_INTERVAL_MS);
 
-    setInterval(() => {
-      const activeWtIds = collectActiveWtIds();
-      for (const [label, repoPath] of repoEntries) {
-        try {
-          cleanupStaleWorktrees(repoPath, inboxDir, activeWtIds);
-        } catch (err: unknown) {
-          log.warn(`periodic worktree cleanup failed for ${label}`, {
-            error: err instanceof Error ? err.message : 'unknown',
-          });
+    if (repositoryMaintenance)
+      setInterval(() => {
+        const activeWtIds = collectActiveWtIds();
+        for (const [label, repoPath] of repoEntries) {
+          try {
+            cleanupStaleWorktrees(repoPath, inboxDir, activeWtIds);
+          } catch (err: unknown) {
+            log.warn(`periodic worktree cleanup failed for ${label}`, {
+              error: err instanceof Error ? err.message : 'unknown',
+            });
+          }
         }
-      }
-    }, WORKTREE_CLEANUP_INTERVAL_MS);
+      }, WORKTREE_CLEANUP_INTERVAL_MS);
   });
 });
 

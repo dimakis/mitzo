@@ -1348,8 +1348,11 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
   }
   const totalTokens =
     meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens;
+  const codexBacked =
+    meta.accountBinding?.provider === 'openai-codex' ||
+    (meta.accountBinding?.provider === 'openai' && !!meta.cwd?.startsWith('/sandbox/workspaces/'));
   const codexQueue =
-    meta.accountBinding?.provider === 'openai-codex'
+    codexBacked && meta.accountBinding
       ? readCodexQueue(
           meta.sessionId,
           meta.accountBinding,
@@ -1359,7 +1362,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
   let modelSelection:
     | { model: string; reasoningEffort?: string; models: Array<{ id: string; label: string }> }
     | undefined;
-  if (meta.accountBinding?.provider === 'openai-codex') {
+  if (codexBacked && meta.accountBinding) {
     try {
       const profiles = loadAccountProfiles();
       await profiles.refresh(req.query.refresh === '1');
@@ -1397,7 +1400,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
           },
         }
       : {}),
-    ...(meta.accountBinding?.provider === 'openai-codex'
+    ...(codexBacked
       ? {
           modelSelection,
           codexQueue,

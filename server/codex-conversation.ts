@@ -37,7 +37,13 @@ interface Options {
   validateModel?: (model: string, reasoningEffort?: string) => void;
   displayToolName?: (name: string) => string;
   beforeComplete?: (signal: AbortSignal) => Promise<void>;
+  beforeReconnect?: () => Promise<void>;
   completionHookTimeoutMs?: number;
+  runtimeCwd?: string;
+  modelProvider?: string;
+  runtimeConfig?: Record<string, unknown>;
+  turnSandboxPolicy?: Record<string, unknown>;
+  verifyBinding?: (client: Rpc, stored?: AccountBinding) => Promise<AccountBinding>;
   onQueueChange?: () => void;
   onClosed?: () => void;
   onError?: (error: Error) => void;
@@ -53,6 +59,7 @@ const ToolCall = z.object({
 /** Owns one application conversation. The process, private store and public event sink are supplied by the server. */
 export class CodexConversation {
   private client: Rpc;
+  private transportGeneration = 0;
   private binding?: AccountBinding;
   private threadId?: string;
   private mapper?: CodexSessionEvents;
@@ -68,33 +75,68 @@ export class CodexConversation {
   private closed = false;
   private ready = false;
   private pumping?: Promise<void>;
+  private recovery?: Promise<void>;
   constructor(private opts: Options) {
-    this.client = opts.createClient({
+    this.client = this.createClient();
+  }
+  private createClient() {
+    const generation = ++this.transportGeneration;
+    return this.opts.createClient({
       onNotification: (m, p) => this.notification(m, p),
       onRequest: (m, p, s) => this.request(m, p, s),
-      onClose: () => this.close(),
+      onClose: (error) => this.transportClosed(generation, error),
     });
+  }
+  private transportClosed(generation: number, _error: Error) {
+    if (this.closed || generation !== this.transportGeneration) return;
+    // Invalidate every in-flight request owned by this transport. Its rejection
+    // is recovery fallout, not a second fatal send failure.
+    this.transportGeneration += 1;
+    this.ready = false;
+    const commandId = this.active?.command.id;
+    this.active?.abort.abort();
+    this.active = undefined;
+    try {
+      if (this.binding)
+        this.opts.store.pauseForRecovery(
+          this.opts.conversationId,
+          this.binding,
+          commandId,
+          'interrupted',
+        );
+    } catch (persistenceError) {
+      this.opts.onError?.(
+        persistenceError instanceof Error
+          ? persistenceError
+          : new Error('Codex recovery persistence failed'),
+      );
+    }
+    this.paused = true;
+    this.opts.onQueueChange?.();
+    this.opts.onError?.(new Error('Codex transport disconnected; recovery is available'));
+  }
+  private verifyCurrentBinding(stored?: AccountBinding) {
+    return this.opts.verifyBinding
+      ? this.opts.verifyBinding(this.client, stored)
+      : verifyCodexAccount(this.client, this.opts.profile, stored);
   }
   async initialize() {
     if (this.ready) throw new Error('Codex conversation already initialized');
     await this.client.initialize();
-    this.binding = await verifyCodexAccount(
-      this.client,
-      this.opts.profile,
-      this.opts.storedBinding,
-    );
+    this.binding = await this.verifyCurrentBinding(this.opts.storedBinding);
     this.opts.store.create(this.opts.conversationId, this.binding, this.opts.cwd);
     const state = this.opts.store.read(this.opts.conversationId, this.binding);
     this.paused = !!state.recovery;
-    const configResponse = z
-      .object({ config: z.unknown() })
-      .parse(
-        await this.client.request('config/read', { cwd: this.opts.cwd, includeLayers: false }),
-      );
-    const runtimeConfig = codexRuntimeOverrides(
-      configResponse.config,
-      this.opts.profile.workspaceId,
+    const configResponse = z.object({ config: z.unknown() }).parse(
+      await this.client.request('config/read', {
+        cwd: this.opts.runtimeCwd ?? this.opts.cwd,
+        includeLayers: false,
+      }),
     );
+    const runtimeConfig =
+      this.opts.runtimeConfig ??
+      codexRuntimeOverrides(configResponse.config, this.opts.profile.workspaceId);
+    const modelProvider = this.opts.modelProvider ?? 'openai';
     const method = state.threadId ? 'thread/resume' : 'thread/start';
     const result = z
       .object({
@@ -106,25 +148,28 @@ export class CodexConversation {
         await this.client.request(method, {
           ...(state.threadId ? { threadId: state.threadId } : {}),
           model: this.binding.model,
-          modelProvider: 'openai',
+          modelProvider,
           allowProviderModelFallback: false,
-          cwd: this.opts.cwd,
+          cwd: this.opts.runtimeCwd ?? this.opts.cwd,
           config: runtimeConfig,
-          environments: [],
           approvalPolicy: 'never',
           sandbox: 'read-only',
           developerInstructions: this.opts.systemPrompt,
-          dynamicTools: this.opts.tools.map((t) => ({
-            type: 'function',
-            name: t.name,
-            description: t.description,
-            inputSchema: t.input_schema,
-          })),
+          ...(this.opts.tools.length
+            ? {
+                dynamicTools: this.opts.tools.map((t) => ({
+                  type: 'function',
+                  name: t.name,
+                  description: t.description,
+                  inputSchema: t.input_schema,
+                })),
+              }
+            : {}),
         }),
       );
     if (
       result.model !== this.binding.model ||
-      result.modelProvider !== 'openai' ||
+      result.modelProvider !== modelProvider ||
       (state.threadId && result.thread.id !== state.threadId)
     )
       throw new Error('Codex execution binding changed');
@@ -176,10 +221,81 @@ export class CodexConversation {
     await this.pump();
   }
   async acknowledgeRecovery() {
-    if (!this.ready || this.closed) throw new Error('Codex conversation unavailable');
+    if (this.recovery) return this.recovery;
+    const operation = this.continueRecovery();
+    const shared = operation.finally(() => {
+      if (this.recovery === shared) this.recovery = undefined;
+    });
+    this.recovery = shared;
+    return shared;
+  }
+  private async continueRecovery() {
+    if (this.closed) throw new Error('Codex conversation unavailable');
+    if (!this.ready) await this.reconnect();
     this.opts.store.acknowledgeRecovery(this.opts.conversationId, this.binding!);
     this.paused = false;
     await this.pump();
+  }
+  private async reconnect() {
+    if (!this.binding || !this.threadId) throw new Error('Codex recovery state is unavailable');
+    await this.opts.beforeReconnect?.();
+    const client = this.createClient();
+    this.client = client;
+    try {
+      await client.initialize();
+      const binding = await this.verifyCurrentBinding(this.binding);
+      if (binding.profileRevision !== this.binding.profileRevision)
+        throw new Error('Codex execution binding changed');
+      const configResponse = z.object({ config: z.unknown() }).parse(
+        await client.request('config/read', {
+          cwd: this.opts.runtimeCwd ?? this.opts.cwd,
+          includeLayers: false,
+        }),
+      );
+      const runtimeConfig =
+        this.opts.runtimeConfig ??
+        codexRuntimeOverrides(configResponse.config, this.opts.profile.workspaceId);
+      const modelProvider = this.opts.modelProvider ?? 'openai';
+      const result = z
+        .object({
+          thread: z.object({ id: z.string().min(1) }),
+          model: z.string(),
+          modelProvider: z.string(),
+        })
+        .parse(
+          await client.request('thread/resume', {
+            threadId: this.threadId,
+            model: this.binding.model,
+            modelProvider,
+            allowProviderModelFallback: false,
+            cwd: this.opts.runtimeCwd ?? this.opts.cwd,
+            config: runtimeConfig,
+            approvalPolicy: 'never',
+            sandbox: 'read-only',
+            developerInstructions: this.opts.systemPrompt,
+            ...(this.opts.tools.length
+              ? {
+                  dynamicTools: this.opts.tools.map((tool) => ({
+                    type: 'function',
+                    name: tool.name,
+                    description: tool.description,
+                    inputSchema: tool.input_schema,
+                  })),
+                }
+              : {}),
+          }),
+        );
+      if (
+        result.thread.id !== this.threadId ||
+        result.model !== this.binding.model ||
+        result.modelProvider !== modelProvider
+      )
+        throw new Error('Codex execution binding changed');
+      this.ready = true;
+    } catch (error) {
+      client.close();
+      throw error;
+    }
   }
   private pump(): Promise<void> {
     if (this.pumping) return this.pumping;
@@ -200,12 +316,13 @@ export class CodexConversation {
       interruptRequested: false,
     };
     this.active = active;
+    const transportGeneration = this.transportGeneration;
     this.opts.onQueueChange?.();
     try {
       const model = command.model ?? this.binding!.model;
       this.validateModel(model, command.reasoningEffort);
       this.mapper?.setModel(model);
-      await verifyCodexAccount(this.client, this.opts.profile, this.binding);
+      await this.verifyCurrentBinding(this.binding);
       active.abort.signal.throwIfAborted();
       const result = z.object({ turn: z.object({ id: z.string() }) }).parse(
         await this.client.request('turn/start', {
@@ -219,9 +336,8 @@ export class CodexConversation {
               url: `data:${image.mediaType};base64,${image.data}`,
             })),
           ],
-          environments: [],
           approvalPolicy: 'never',
-          sandboxPolicy: { type: 'readOnly' },
+          sandboxPolicy: this.opts.turnSandboxPolicy ?? { type: 'readOnly' },
           ...(command.reasoningEffort ? { effort: command.reasoningEffort } : {}),
         }),
       );
@@ -247,6 +363,9 @@ export class CodexConversation {
     } catch (error: unknown) {
       // close() already persisted recovery and intentionally owns shutdown errors.
       if (this.closed) return;
+      // transportClosed() already paused and persisted this command. Do not
+      // propagate the old RPC rejection into the adapter's close path.
+      if (transportGeneration !== this.transportGeneration) return;
       this.paused = true;
       active.abort.abort();
       this.opts.store.pauseForRecovery(

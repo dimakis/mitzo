@@ -7,6 +7,18 @@ import { AccountProfiles } from '../account-profiles.js';
 import { openResponsesChat } from '../responses-chat-session.js';
 import { credentials } from '../credentials.js';
 import { openCodexChat } from '../codex-chat-session.js';
+import { capturePromptComparison } from '../prompt-compare.js';
+import { registerSession } from '../session-index.js';
+import { createWorktree } from '../worktree.js';
+const codexLaunch = vi.hoisted(() =>
+  vi.fn(() => ({
+    initialize: async () => {},
+    request: async () => ({
+      account: { type: 'chatgpt', email: 'test@example.com', planType: 'test' },
+    }),
+    close: () => {},
+  })),
+);
 vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
   ...(await original<object>()),
   query: vi.fn(),
@@ -14,6 +26,10 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
 vi.mock('../session-index.js', async (original) => ({
   ...(await original<object>()),
   registerSession: vi.fn(),
+}));
+vi.mock('../worktree.js', async (original) => ({
+  ...(await original<object>()),
+  createWorktree: vi.fn(() => '/host/worktree/must-not-be-created'),
 }));
 vi.mock('../prompt-compare.js', () => ({
   capturePromptComparison: vi.fn().mockResolvedValue(undefined),
@@ -30,13 +46,7 @@ vi.mock('../codex-chat-session.js', () => ({
 }));
 vi.mock('../codex-app-server-client.js', () => ({
   CodexAppServerClient: {
-    launch: () => ({
-      initialize: async () => {},
-      request: async () => ({
-        account: { type: 'chatgpt', email: 'test@example.com', planType: 'test' },
-      }),
-      close: () => {},
-    }),
+    launch: codexLaunch,
   },
   codexEnvironment: () => ({ PATH: '/bin' }),
 }));
@@ -133,7 +143,8 @@ it('routes API accounts through the referenced secret store without passing keys
   vi.stubEnv('REPO_PATH', root);
   vi.stubEnv('WORKTREE_ENABLED', 'false');
   vi.stubEnv('OPENAI_API_KEY', 'inherited-wrong-key');
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')));
+  const hostFetch = vi.fn().mockResolvedValue(new Response('{}'));
+  vi.stubGlobal('fetch', hostFetch);
   const chat = await import('../chat.js');
   const ref = { provider: 'keychain', service: 'mitzo', account: 'work' };
   const profiles = new AccountProfiles([
@@ -142,6 +153,7 @@ it('routes API accounts through the referenced secret store without passing keys
       label: 'Work',
       provider: 'openai',
       credentialRef: ref,
+      sandboxProvider: 'openai-work',
       models: [{ id: 'test', label: 'Test' }],
     },
   ]);
@@ -165,6 +177,186 @@ it('routes API accounts through the referenced secret store without passing keys
     expect(chat.eventStore.getSession('test-api-app')?.summary).toBe('Work task');
     expect(query).not.toHaveBeenCalled();
   } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('routes API accounts through OpenShell in production without resolving host credentials', async () => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-openshell-api-dispatch-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('NODE_ENV', 'production');
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_WORKDIR', '/sandbox/workspaces/wrong-legacy-override');
+  const hostFetch = vi.fn().mockResolvedValue(new Response('{}'));
+  vi.stubGlobal('fetch', hostFetch);
+  const chat = await import('../chat.js');
+  const profiles = new AccountProfiles([
+    {
+      id: 'work-api',
+      label: 'Work',
+      provider: 'openai',
+      credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
+      sandboxProvider: 'openai-work',
+      models: [{ id: 'test', label: 'Test' }],
+    },
+  ]);
+  vi.mocked(openCodexChat).mockImplementation(async (options) => {
+    options.onBootContext?.({
+      type: 'boot_context',
+      scope: 'sandbox',
+      sourceCount: 1,
+      tokenCount: 2,
+      tokenBudget: 12000,
+      sources: [{ path: 'AGENTS.md', kind: 'instructions' }],
+      included: [],
+      trimmed: [],
+      fullMarkdown: '# Sandbox context',
+    });
+    throw new Error('simulated OpenShell startup failure');
+  });
+  try {
+    await chat.startChat({ send: () => {}, isOpen: () => true }, 'openshell-api', 'hello', {
+      accountId: 'work-api',
+      model: 'test',
+      accountProfiles: profiles,
+      initialSessionId: 'openshell-api-app',
+    });
+    expect(credentials.resolve).not.toHaveBeenCalled();
+    // The remaining request loads UI agent metadata; the second host request
+    // that previously fetched boot context must not occur for OpenShell.
+    expect(hostFetch).toHaveBeenCalledTimes(1);
+    expect(openResponsesChat).not.toHaveBeenCalled();
+    expect(openCodexChat).toHaveBeenCalledOnce();
+    expect(createWorktree).not.toHaveBeenCalled();
+    expect(registerSession).not.toHaveBeenCalled();
+    expect(capturePromptComparison).not.toHaveBeenCalled();
+    const options = vi.mocked(openCodexChat).mock.calls[0][0];
+    expect(options.profile.planType).toBe('api');
+    expect(options.profile.sandboxProvider).toBe('openai-work');
+    expect(options.session.cwd).toBe('/sandbox/workspaces/mgmt');
+    expect(options.session.cwd).not.toContain('wrong-legacy-override');
+    expect(options.systemPrompt).toContain('/sandbox/workspaces/mgmt');
+    expect(options.systemPrompt).not.toContain(root);
+    expect(chat.eventStore.getSession('openshell-api-app')?.bootContext).toContain(
+      '"source":"sandbox"',
+    );
+    expect(chat.eventStore.getSession('openshell-api-app')?.cwd).toBe('/sandbox/workspaces/mgmt');
+  } finally {
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('fails closed for unsupported account providers when OpenShell is enabled', async () => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-openshell-unsupported-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  const chat = await import('../chat.js');
+  const profiles = new AccountProfiles([
+    {
+      id: 'vertex',
+      label: 'Vertex',
+      provider: 'google-vertex',
+      projectId: 'synthetic',
+      region: 'global',
+      credentialRef: '/must/not/be/read.json',
+      models: [{ id: 'gemini-test', label: 'Gemini test' }],
+    },
+  ]);
+  const send = vi.fn();
+  try {
+    await chat.startChat({ send, isOpen: () => true }, 'unsupported', 'hello', {
+      cwd: root,
+      isolation: false,
+      accountId: 'vertex',
+      model: 'gemini-test',
+      accountProfiles: profiles,
+    });
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'error',
+        error: expect.stringContaining('does not yet support google-vertex'),
+      }),
+    );
+    expect(openResponsesChat).not.toHaveBeenCalled();
+    expect(openCodexChat).not.toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalled();
+  } finally {
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('rejects legacy OpenShell subscription routing before host credential preflight', async () => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-openshell-legacy-subscription-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', 'legacy-sandbox');
+  const chat = await import('../chat.js');
+  const profiles = new AccountProfiles(
+    [
+      {
+        id: 'personal',
+        label: 'Personal ChatGPT',
+        provider: 'openai-codex',
+        credentialRef: '/host/private/codex',
+        email: 'test@example.com',
+        planType: 'test',
+        sandboxProvider: 'personal-chatgpt',
+        models: [{ id: 'test-model', label: 'Test model' }],
+      },
+    ],
+    { codexEnabled: true },
+  );
+  const send = vi.fn();
+  try {
+    await chat.startChat({ send, isOpen: () => true }, 'legacy-subscription', 'hello', {
+      accountId: 'personal',
+      model: 'test-model',
+      accountProfiles: profiles,
+    });
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'error', error: expect.stringContaining('brokered') }),
+    );
+    expect(codexLaunch).not.toHaveBeenCalled();
+    expect(openCodexChat).not.toHaveBeenCalled();
+  } finally {
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('fails closed for unbound legacy starts when OpenShell is enabled', async () => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-openshell-unbound-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  const chat = await import('../chat.js');
+  const send = vi.fn();
+  try {
+    await chat.startChat({ send, isOpen: () => true }, 'unbound', 'hello', {
+      cwd: root,
+      isolation: false,
+    });
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'error',
+        error: expect.stringContaining('explicit account selection'),
+      }),
+    );
+    expect(query).not.toHaveBeenCalled();
+    expect(openResponsesChat).not.toHaveBeenCalled();
+    expect(openCodexChat).not.toHaveBeenCalled();
+  } finally {
+    chat.eventStore.close();
     await rm(root, { recursive: true, force: true });
   }
 });

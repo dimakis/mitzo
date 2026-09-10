@@ -1,0 +1,10 @@
+# Disposable local-spike override. This uses the already-running rootless
+# Podman machine rather than OpenShell's VM compute driver.
+[openshell]
+version = 1
+
+[openshell.gateway]
+compute_drivers = ["podman"]
+
+[openshell.drivers.podman]
+socket_path = "/var/folders/y6/3pqs6vkj5wv1qkm5v1cq2n0r0000gn/T/podman/podman-machine-default-api.sock"

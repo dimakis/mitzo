@@ -39,7 +39,7 @@ export interface SectionMeta {
 }
 
 export interface BootContextMeta {
-  source: 'contexgin' | 'local-fallback';
+  source: 'contexgin' | 'local-fallback' | 'sandbox';
   sourceCount: number;
   tokenCount: number;
   tokenBudget: number;

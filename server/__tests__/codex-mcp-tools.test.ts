@@ -1,5 +1,22 @@
 import { expect, it, vi } from 'vitest';
 import { connectCodexMcpTools } from '../codex-mcp-tools.js';
+
+it('never launches sandbox-only MCP definitions on the host', async () => {
+  const connect = vi.fn();
+  const tools = await connectCodexMcpTools(
+    { docs: { execution: 'sandbox', command: '/usr/bin/docs-mcp' } },
+    {
+      cwd: '/workspace',
+      env: {},
+      signal: new AbortController().signal,
+      connect,
+    },
+  );
+  expect(connect).not.toHaveBeenCalled();
+  expect(tools.definitions).toEqual([]);
+  await tools.close();
+});
+
 it('discovers all configured tools and routes calls through canonical Mitzo permissions before effects', async () => {
   const call = vi.fn(async () => ({ content: [{ type: 'text', text: 'result' }] }));
   const close = vi.fn(async () => {});

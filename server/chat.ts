@@ -150,7 +150,8 @@ export type { MitzoMode } from './session-registry.js';
 // ── Boot context via ContexGin HTTP API ──────────────────────────
 export interface BootContextMessage {
   type: 'boot_context';
-  source: 'contexgin' | 'local-fallback';
+  source: 'contexgin' | 'local-fallback' | 'sandbox';
+  scope?: 'sandbox';
   sourceCount: number;
   tokenCount: number;
   tokenBudget: number;
@@ -410,7 +411,9 @@ const CONFIG_TTL_MS = 5_000;
 export function getRepoConfig() {
   const now = Date.now();
   if (_cachedConfig && now - _cachedAt < CONFIG_TTL_MS) return _cachedConfig;
-  _cachedConfig = loadRepoConfig(BASE_REPO);
+  _cachedConfig = loadRepoConfig(BASE_REPO, {
+    pathCeiling: process.env.MITZO_REPO_PATH_CEILING,
+  });
   _cachedAt = now;
   return _cachedConfig;
 }
@@ -629,6 +632,10 @@ function buildTaskPromptForSession(clientId: string): string {
   return buildTaskSystemPrompt(_taskStore, session.taskContext.currentTaskId);
 }
 
+export function supportsHostTaskTools(openShellSelected: boolean): boolean {
+  return !openShellSelected;
+}
+
 /**
  * Build system prompt section listing all session worktrees.
  * Lists ALL repos including primary so the agent has a complete lookup table
@@ -668,6 +675,15 @@ export function buildWorktreeSystemPrompt(
   }
 
   return lines.join('\n');
+}
+
+export function buildOpenShellWorkspaceSystemPrompt(workdir: string, wtId: string): string {
+  return [
+    '\n\n## OpenShell Session Workspace',
+    `Session ID: ${wtId}`,
+    `The task workspace is \`${workdir}\` inside OpenShell.`,
+    'All reads, edits, and commands must use this sandbox workspace. Host worktree paths are controller metadata and are not reachable from the agent runtime.',
+  ].join('\n');
 }
 
 const CONTEXT_BLOCK_MAX_BYTES = 100 * 1024; // 100 KB
@@ -835,6 +851,8 @@ async function _startChatInner(
     agentName?: string;
   },
 ) {
+  const openShellRequested =
+    process.env.MITZO_OPENSHELL_ENABLED === '1' || !!process.env.MITZO_OPENSHELL_SANDBOX_NAME;
   let accountBinding;
   let codexProfile: CodexAccountProfile | undefined;
   let apiKey: string | undefined;
@@ -848,7 +866,17 @@ async function _startChatInner(
       options.accountProfiles ??
       (options.accountId || storedBinding ? loadAccountProfiles() : undefined);
     accountBinding = resolveAccountSelection(options, storedBinding, !!options.resume, profiles);
+    if (!accountBinding && openShellRequested)
+      throw new Error('OpenShell execution requires an explicit account selection');
     if (accountBinding) {
+      if (
+        openShellRequested &&
+        accountBinding.provider !== 'openai' &&
+        accountBinding.provider !== 'openai-codex'
+      )
+        throw new Error(
+          `OpenShell execution does not yet support ${accountBinding.provider} accounts`,
+        );
       options = {
         ...options,
         model:
@@ -860,14 +888,29 @@ async function _startChatInner(
         if (options.skillAllowedTools)
           throw new Error('Codex restricted skill tool ceilings are not yet supported');
         codexProfile = profiles!.codexProfile(accountBinding);
-        const preflight = CodexAppServerClient.launch(codexProfile.credentialRef);
-        try {
-          await preflight.initialize();
-          await verifyCodexAccount(preflight, codexProfile, accountBinding);
-        } finally {
-          preflight.close();
+        if (openShellRequested) {
+          if (codexProfile.planType !== 'api')
+            throw new Error(
+              'ChatGPT subscription execution inside OpenShell requires supported brokered Codex OAuth; API billing substitution is forbidden.',
+            );
+          if (!codexProfile.sandboxProvider)
+            throw new Error('The selected ChatGPT account has no OpenShell provider binding');
+        } else {
+          const preflight = CodexAppServerClient.launch(codexProfile.credentialRef);
+          try {
+            await preflight.initialize();
+            await verifyCodexAccount(preflight, codexProfile, accountBinding);
+          } finally {
+            preflight.close();
+          }
         }
-        accountEnv = codexEnvironment(codexProfile.credentialRef, process.env);
+        accountEnv = openShellRequested
+          ? Object.fromEntries(
+              ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
+                process.env[key] ? [[key, process.env[key]!]] : [],
+              ),
+            )
+          : codexEnvironment(codexProfile.credentialRef, process.env);
       } else if (accountBinding.provider === 'google-vertex') {
         if (options.images?.length)
           throw new Error('Gemini image attachments are not yet supported');
@@ -895,7 +938,20 @@ async function _startChatInner(
       } else if (accountBinding.provider === 'openai') {
         if (options.images?.length)
           throw new Error('OpenAI API image attachments are not yet supported');
-        apiKey = await credentials.resolve(profiles!.apiCredential(accountBinding));
+        const profile = profiles!.apiProfile(accountBinding);
+        if (openShellRequested) {
+          if (!profile.sandboxProvider)
+            throw new Error('The selected API account has no OpenShell provider binding');
+          codexProfile = {
+            accountId: accountBinding.accountId,
+            accountLabel: accountBinding.accountLabel,
+            credentialRef: '/sandbox/.codex',
+            email: 'openshell-api@invalid',
+            planType: 'api',
+            sandboxProvider: profile.sandboxProvider,
+            model: accountBinding.model,
+          };
+        } else apiKey = await credentials.resolve(profile.credentialRef);
         accountEnv = Object.fromEntries(
           ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
             process.env[key] ? [[key, process.env[key]!]] : [],
@@ -910,6 +966,12 @@ async function _startChatInner(
     });
     return;
   }
+  const openShellSelected = !!codexProfile && openShellRequested;
+  const openShellWorkdir = openShellSelected
+    ? process.env.MITZO_OPENSHELL_ENABLED === '1'
+      ? '/sandbox/workspaces/mgmt'
+      : process.env.MITZO_OPENSHELL_WORKDIR || '/sandbox/workspaces/mgmt'
+    : undefined;
   const abortController = new AbortController();
   const resumedSession = options.resume
     ? registry.findBySessionId(options.resume)?.session
@@ -926,7 +988,7 @@ async function _startChatInner(
       'agent')
     : (options.mode ?? 'agent');
 
-  const baseCwd = resolveResumeCwd(options);
+  const baseCwd = openShellWorkdir ?? resolveResumeCwd(options);
 
   if (options.resume) {
     const validation =
@@ -948,18 +1010,19 @@ async function _startChatInner(
 
   // Generate session-scoped worktree ID and create worktrees in all repos
   const wtId = generateWtId();
-  const { cwd, worktreePath, repoWorktrees } = createSessionWorktrees(
-    transport,
-    baseCwd,
-    wtId,
-    options,
-  );
+  const { cwd, worktreePath, repoWorktrees } = openShellSelected
+    ? {
+        cwd: openShellWorkdir!,
+        worktreePath: undefined,
+        repoWorktrees: new Map<string, { path: string; wtId: string }>(),
+      }
+    : createSessionWorktrees(transport, baseCwd, wtId, options);
 
   // On resume, rebuild worktreePaths from disk so the system prompt and guard
   // have the full map even after server restart (Phase 2d).
   // Merge discovered entries — the map may already have the primary but be
   // missing lazily-created secondaries after a restart.
-  if (options.resume && BASE_REPO) {
+  if (!openShellSelected && options.resume && BASE_REPO) {
     const config = getRepoConfig();
     const wtIdFromCwd = baseCwd.match(/\/(\.claude|\.cursor)\/worktrees\/([^/]+)/)?.[2];
     if (wtIdFromCwd) {
@@ -1062,13 +1125,16 @@ async function _startChatInner(
     });
   }
 
-  // Register session in the workspace index (fire-and-forget, best-effort)
-  try {
-    registerSession(BASE_REPO, wtId, repoWorktrees, branch);
-  } catch (err: unknown) {
-    log.warn('session index write failed', {
-      error: err instanceof Error ? err.message : 'unknown',
-    });
+  // OpenShell owns its workspace lifecycle; only host sessions belong in the
+  // host worktree index.
+  if (!openShellSelected) {
+    try {
+      registerSession(BASE_REPO, wtId, repoWorktrees, branch);
+    } catch (err: unknown) {
+      log.warn('session index write failed', {
+        error: err instanceof Error ? err.message : 'unknown',
+      });
+    }
   }
 
   // Build session env with worktree paths for the agent (all repos including primary)
@@ -1080,7 +1146,7 @@ async function _startChatInner(
   }
 
   // Merge dynamic MCP servers (task board if active)
-  const taskMcp = buildTaskMcpServer(clientId);
+  const taskMcp = supportsHostTaskTools(openShellSelected) ? buildTaskMcpServer(clientId) : null;
   const allMcpServers = { ...mcpServers, ...taskMcp };
 
   // Load project hooks from .claude/settings.json (e.g. SessionStart boot context)
@@ -1091,12 +1157,14 @@ async function _startChatInner(
   // fetchBootContext never throws and has a 5s AbortSignal timeout internally.
   // Race with a 2s deadline so session startup isn't blocked when ContexGin is slow.
   let raceTimer: ReturnType<typeof setTimeout> | undefined;
-  const bootContextMsg = await Promise.race([
-    fetchBootContext(agentName),
-    new Promise<Awaited<ReturnType<typeof fetchBootContext>>>((resolve) => {
-      raceTimer = setTimeout(() => resolve({ ...FALLBACK_BOOT_CONTEXT }), 2000);
-    }),
-  ]);
+  const bootContextMsg: BootContextMessage = openShellSelected
+    ? { ...FALLBACK_BOOT_CONTEXT, source: 'sandbox', scope: 'sandbox' }
+    : await Promise.race([
+        fetchBootContext(agentName),
+        new Promise<Awaited<ReturnType<typeof fetchBootContext>>>((resolve) => {
+          raceTimer = setTimeout(() => resolve({ ...FALLBACK_BOOT_CONTEXT }), 2000);
+        }),
+      ]);
   clearTimeout(raceTimer);
   const bootContextAppend = bootContextMsg.fullMarkdown
     ? `\n\n# Boot Context\n${bootContextMsg.fullMarkdown}`
@@ -1104,7 +1172,11 @@ async function _startChatInner(
 
   // Send boot context to UI immediately (sessionId may be undefined for new sessions — OK,
   // it's a display-only hint; the client doesn't key on it for boot context).
-  send(transport, { ...bootContextMsg, ...(stateSessionId ? { sessionId: stateSessionId } : {}) });
+  if (!openShellSelected)
+    send(transport, {
+      ...bootContextMsg,
+      ...(stateSessionId ? { sessionId: stateSessionId } : {}),
+    });
   // Cache in ManagedSession for replay on reconnect/switch
   session.bootContext = bootContextMsg as unknown as Record<string, unknown>;
   // For resumed sessions, persist immediately (sessionId is known).
@@ -1117,14 +1189,17 @@ async function _startChatInner(
   }
 
   // Build the system prompt append string (used by both query and comparison)
+  const workspacePrompt = openShellWorkdir
+    ? buildOpenShellWorkspaceSystemPrompt(openShellWorkdir, wtId)
+    : buildWorktreeSystemPrompt(repoWorktrees);
   const systemPromptAppend =
     'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
     SESSION_PERMISSION_INSTRUCTIONS +
     '- Read operations are fine without asking.\n' +
     '- Keep responses concise — small screen.\n' +
     '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.' +
-    buildWorktreeSystemPrompt(repoWorktrees) +
-    buildTaskPromptForSession(clientId) +
+    workspacePrompt +
+    (supportsHostTaskTools(openShellSelected) ? buildTaskPromptForSession(clientId) : '') +
     bootContextAppend;
 
   // Fire-and-forget: load agent definition and store in session registry.
@@ -1153,7 +1228,9 @@ async function _startChatInner(
       });
     });
 
-  capturePromptComparison(wtId, cwd, systemPromptAppend, repoWorktrees).catch(() => {});
+  if (!openShellSelected) {
+    capturePromptComparison(wtId, cwd, systemPromptAppend, repoWorktrees).catch(() => {});
+  }
 
   // Resolve SDK session UUID for resume — worktree IDs are not valid SDK session IDs
   let resolvedResume: string | undefined;
@@ -1214,6 +1291,15 @@ async function _startChatInner(
         env: sessionEnv,
         mcpServers: allMcpServers,
         onDemandCreate: buildOnDemandCreate(wtId),
+        onBootContext: (context) => {
+          const message: BootContextMessage = { ...context, source: 'sandbox' };
+          send(transport, { ...message, sessionId: conversationId });
+          session.bootContext = message as unknown as Record<string, unknown>;
+          eventStore.upsertSession({
+            sessionId: conversationId,
+            bootContext: JSON.stringify(message),
+          });
+        },
       });
     } else if (apiKey || gemini) {
       const conversationId = options.resume ?? newSdkSessionId!;

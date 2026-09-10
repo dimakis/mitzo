@@ -8,6 +8,8 @@ const log = createLogger('mcp');
 interface CursorMcpEntry {
   command: string;
   args?: string[];
+  env?: Record<string, string>;
+  execution?: 'host' | 'sandbox';
   disabled?: boolean;
   type?: string;
   url?: string;
@@ -23,6 +25,7 @@ export interface McpServerConfig {
   command: string;
   args?: string[];
   env?: Record<string, string>;
+  execution?: 'host' | 'sandbox';
 }
 
 /**
@@ -31,7 +34,7 @@ export interface McpServerConfig {
  *   1. MCP_CONFIG_PATH env var (if set)
  *   2. ~/.cursor/mcp.json (user-level Cursor config)
  *
- * Only stdio-type servers are supported (command + args).
+ * Only stdio-type servers are supported (command, args, and optional env).
  * Disabled servers are excluded.
  */
 export function loadMcpServers(): Record<string, McpServerConfig> {
@@ -93,10 +96,23 @@ export function loadFromFile(configPath: string): Record<string, McpServerConfig
         log.info(`skipping ${name}: unsupported type '${entry.type}'`);
         continue;
       }
+      if (
+        entry.env &&
+        (typeof entry.env !== 'object' ||
+          Array.isArray(entry.env) ||
+          Object.values(entry.env).some((value) => typeof value !== 'string'))
+      ) {
+        log.info(`skipping ${name}: invalid environment`);
+        continue;
+      }
 
       configs[name] = {
         command: entry.command,
         ...(entry.args ? { args: entry.args } : {}),
+        ...(entry.env ? { env: entry.env } : {}),
+        ...(entry.execution === 'host' || entry.execution === 'sandbox'
+          ? { execution: entry.execution }
+          : {}),
       };
     }
   } catch (err: unknown) {

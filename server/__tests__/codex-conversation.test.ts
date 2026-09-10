@@ -14,6 +14,14 @@ async function setup(
   displayToolName?: (name: string) => string,
   beforeComplete?: (signal: AbortSignal) => Promise<void>,
   completionHookTimeoutMs?: number,
+  verifyBinding?: () => Promise<{
+    accountId: string;
+    accountLabel: string;
+    provider: 'openai';
+    model: string;
+    profileRevision: string;
+  }>,
+  beforeReconnect?: () => Promise<void>,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -71,6 +79,8 @@ async function setup(
     displayToolName,
     beforeComplete,
     completionHookTimeoutMs,
+    beforeReconnect,
+    verifyBinding,
     tools: [{ name: 'Read', description: 'Read', input_schema: { type: 'object' } }],
     createClient: (cb) => {
       callbacks = cb;
@@ -118,6 +128,28 @@ it('runs queued turns sequentially, rechecks account and never uses SDK/provider
   expect(events.find((e) => e.type === 'system')).toMatchObject({ session_id: 'app' });
   await c.send({ id: 'b', prompt: 'next' });
   expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
+});
+it('uses the injected binding verifier both at startup and before each turn', async () => {
+  const verifyBinding = vi.fn(async () => ({
+    accountId: 'api',
+    accountLabel: 'API',
+    provider: 'openai' as const,
+    model: 'test-model',
+    profileRevision: 'revision',
+  }));
+  const { c, requests } = await setup(undefined, undefined, undefined, undefined, verifyBinding);
+  await c.send({ id: 'a', prompt: 'hello' });
+  expect(verifyBinding).toHaveBeenCalledTimes(2);
+  expect(requests.filter((r) => r.method === 'account/read')).toHaveLength(0);
+  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+});
+it('does not send an empty environments override that disables built-in Codex tools', async () => {
+  const { c, requests } = await setup();
+  await c.send({ id: 'a', prompt: 'use the shell' });
+  const thread = requests.find((request) => request.method === 'thread/start');
+  const turn = requests.find((request) => request.method === 'turn/start');
+  expect(thread?.params).not.toHaveProperty('environments');
+  expect(turn?.params).not.toHaveProperty('environments');
 });
 it('rejects account changes and unsupported skill ceilings before model execution', async () => {
   const { c, rpc, requests } = await setup();
@@ -187,15 +219,89 @@ it('interrupts the current turn, keeps queued follow-ups paused, and cancels a p
   expect(c.queue().map((q) => q.status)).toEqual(['interrupted', 'queued']);
 });
 
-it('closes the public stream on process loss and retains new messages in a paused queue', async () => {
-  const { c, callbacks, onClosed } = await setup();
+it('keeps the public conversation open on process loss and resumes through a fresh transport', async () => {
+  const { c, callbacks, onClosed, requests } = await setup();
   await c.send({ id: 'a', prompt: 'hello' });
   await c.interrupt();
   expect(c.isPaused()).toBe(true);
   await c.send({ id: 'b', prompt: 'saved until acknowledgement' });
   expect(c.queue().map((q) => q.status)).toEqual(['interrupted', 'queued']);
   callbacks.onClose(new Error('process lost'));
-  expect(onClosed).toHaveBeenCalledOnce();
+  expect(onClosed).not.toHaveBeenCalled();
+  await c.acknowledgeRecovery();
+  expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(1);
+  expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
+});
+
+it('treats transport loss during turn startup as paused recovery instead of a fatal send', async () => {
+  const { c, callbacks, onClosed, rpc, requests } = await setup();
+  const request = rpc.request.getMockImplementation()!;
+  let rejectPending!: (error: Error) => void;
+  let first = true;
+  rpc.request.mockImplementation(async (method, params) => {
+    if (method !== 'turn/start' || !first) return request(method, params);
+    first = false;
+    requests.push({ method, params });
+    return new Promise((_, reject) => {
+      rejectPending = reject;
+    });
+  });
+
+  const send = c.send({ id: 'pending-start', prompt: 'hello' });
+  await vi.waitFor(() => expect(requests.some((r) => r.method === 'turn/start')).toBe(true));
+  c.enqueue({ id: 'after-recovery', prompt: 'continue safely' });
+  callbacks.onClose(new Error('transport lost during turn/start'));
+  rejectPending(new Error('old transport request failed'));
+
+  await expect(send).resolves.toBeUndefined();
+  expect(c.isPaused()).toBe(true);
+  expect(onClosed).not.toHaveBeenCalled();
+  expect(c.queue().map((command) => command.status)).toEqual(['interrupted', 'queued']);
+
+  await c.acknowledgeRecovery();
+  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
+});
+
+it('re-establishes the external sandbox before recreating a recovery transport', async () => {
+  const beforeReconnect = vi.fn(async () => {});
+  const { c, callbacks } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    beforeReconnect,
+  );
+  callbacks.onClose(new Error('sandbox stopped'));
+  await c.acknowledgeRecovery();
+  expect(beforeReconnect).toHaveBeenCalledOnce();
+});
+
+it('shares one reconnect across concurrent recovery acknowledgements', async () => {
+  let release!: () => void;
+  const beforeReconnect = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const { c, callbacks, requests } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    beforeReconnect,
+  );
+  callbacks.onClose(new Error('sandbox stopped'));
+
+  const first = c.acknowledgeRecovery();
+  const second = c.acknowledgeRecovery();
+  await vi.waitFor(() => expect(beforeReconnect).toHaveBeenCalledOnce());
+  release();
+  await Promise.all([first, second]);
+
+  expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(1);
 });
 
 it('pins an allowed model to each queued command while retaining the subscription binding', async () => {
@@ -377,7 +483,7 @@ it('does not throw from a transport close callback when recovery persistence fai
   });
   expect(() => callbacks.onClose(new Error('transport lost'))).not.toThrow();
   expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'disk unavailable' }));
-  expect(onClosed).toHaveBeenCalledOnce();
+  expect(onClosed).not.toHaveBeenCalled();
 });
 
 it('marks failed provider turns as errors and pauses the queue', async () => {

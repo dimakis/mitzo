@@ -1,0 +1,26 @@
+# Disposable API-key route only. The proxy can inspect and inject the OpenAI
+# Bearer credential for this endpoint; unlike Codex OAuth, it must not fall
+# back to an uninspected credential-bearing tunnel.
+version: 1
+filesystem_policy:
+  include_workdir: true
+  read_only: [/usr, /lib, /proc, /dev/urandom, /app, /opt, /etc, /var/log]
+  read_write: [/sandbox, /tmp, /dev/null]
+landlock:
+  compatibility: best_effort
+network_policies:
+  openai_api:
+    name: openai-api-inspected
+    endpoints:
+      - {
+          host: api.openai.com,
+          port: 443,
+          protocol: rest,
+          enforcement: enforce,
+          access: read-write,
+        }
+    binaries:
+      - { path: /usr/bin/curl }
+      - { path: /usr/bin/codex }
+      - { path: /usr/bin/node }
+      - { path: /usr/lib/node_modules/@openai/** }

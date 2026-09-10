@@ -129,6 +129,7 @@ describe('work OpenAI API profile', () => {
     label: 'Work OpenAI',
     provider: 'openai',
     credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
+    sandboxProvider: 'openai-work',
     models: [{ id: 'test-model', label: 'Test model' }],
   };
   it('publishes API billing without exposing its secret-store reference', () => {
@@ -147,6 +148,12 @@ describe('work OpenAI API profile', () => {
         { ...api, credentialRef: { ...api.credentialRef, account: 'other' } },
       ]).resume(binding),
     ).toThrow('changed');
+    expect(() =>
+      new AccountProfiles([{ ...api, sandboxProvider: 'openai-other' }]).resume(binding),
+    ).toThrow('changed');
+    const unbound: Record<string, unknown> = { ...api };
+    delete unbound.sandboxProvider;
+    expect(() => new AccountProfiles([unbound])).not.toThrow();
   });
 });
 

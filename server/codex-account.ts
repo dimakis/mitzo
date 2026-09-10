@@ -11,6 +11,10 @@ const Profile = z
     email: z.string().min(1),
     planType: z.string().min(1),
     workspaceId: z.string().min(1).optional(),
+    sandboxProvider: z
+      .string()
+      .regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/)
+      .optional(),
     model: z.string().min(1),
   })
   .strict();
@@ -42,6 +46,7 @@ export async function verifyCodexAccount(
           profile.email,
           profile.planType,
           profile.workspaceId,
+          profile.sandboxProvider,
         ]),
       )
       .digest('hex'),

@@ -113,6 +113,92 @@ it('renders host tool calls and results without putting provider continuation ID
   });
 });
 
+it('renders built-in command execution items as shell tool calls and results', () => {
+  const events: Record<string, unknown>[] = [];
+  const m = new CodexSessionEvents('app', 'provider', 'model', (event) => events.push(event));
+  m.notification('item/started', {
+    threadId: 'provider',
+    item: {
+      type: 'commandExecution',
+      id: 'provider-command',
+      command: 'pwd',
+      cwd: '/sandbox/workspaces/mgmt',
+    },
+  });
+  m.notification('item/completed', {
+    threadId: 'provider',
+    item: {
+      type: 'commandExecution',
+      id: 'provider-command',
+      status: 'completed',
+      aggregatedOutput: '/sandbox/workspaces/mgmt\n',
+      exitCode: 0,
+    },
+  });
+  expect(events).toContainEqual(
+    expect.objectContaining({
+      type: 'stream_event',
+      event: expect.objectContaining({
+        type: 'content_block_start',
+        content_block: expect.objectContaining({ type: 'tool_use', name: 'Bash' }),
+      }),
+    }),
+  );
+  expect(events).toContainEqual(
+    expect.objectContaining({
+      type: 'user',
+      message: { content: [expect.objectContaining({ type: 'tool_result', is_error: false })] },
+    }),
+  );
+  expect(JSON.stringify(events)).not.toContain('provider-command');
+});
+
+it('renders sandbox-native MCP and web search items as tool calls and results', () => {
+  const events: Record<string, unknown>[] = [];
+  const m = new CodexSessionEvents('app', 'provider', 'model', (event) => events.push(event));
+  m.notification('item/started', {
+    threadId: 'provider',
+    item: {
+      type: 'mcpToolCall',
+      id: 'private-mcp-id',
+      server: 'docs',
+      tool: 'lookup',
+      arguments: { document: 'synthetic' },
+    },
+  });
+  m.notification('item/completed', {
+    threadId: 'provider',
+    item: {
+      type: 'mcpToolCall',
+      id: 'private-mcp-id',
+      status: 'completed',
+      result: { content: [{ type: 'text', text: 'fixture result' }] },
+    },
+  });
+  m.notification('item/started', {
+    threadId: 'provider',
+    item: { type: 'webSearch', id: 'private-search-id', query: 'synthetic query' },
+  });
+  m.notification('item/completed', {
+    threadId: 'provider',
+    item: {
+      type: 'webSearch',
+      id: 'private-search-id',
+      query: 'synthetic query',
+      action: { type: 'search', query: 'synthetic query' },
+    },
+  });
+
+  const serialized = JSON.stringify(events);
+  expect(serialized).toContain('mcp__docs__lookup');
+  expect(serialized).toContain('WebSearch');
+  expect(serialized).toContain('fixture result');
+  expect(serialized).toContain('synthetic query');
+  expect(serialized).not.toContain('private-mcp-id');
+  expect(serialized).not.toContain('private-search-id');
+  expect(events.filter((event) => event.type === 'user')).toHaveLength(2);
+});
+
 it('renders provider reasoning summaries as thinking without exposing raw reasoning', () => {
   const events: Record<string, unknown>[] = [];
   const m = new CodexSessionEvents('app', 'provider', 'model', (e) => events.push(e));
@@ -165,6 +251,24 @@ it('drops late item events after a result and accepts them after the next turn s
     summaryIndex: 0,
     delta: 'too late',
   });
+  m.notification('item/started', {
+    threadId: 'provider',
+    item: {
+      type: 'commandExecution',
+      id: 'late-command',
+      command: 'must-not-render',
+    },
+  });
+  m.notification('item/completed', {
+    threadId: 'provider',
+    item: {
+      type: 'commandExecution',
+      id: 'late-command',
+      status: 'completed',
+      aggregatedOutput: 'must-not-render',
+      exitCode: 0,
+    },
+  });
   expect(events).toHaveLength(afterResult);
   m.notification('turn/started', { threadId: 'provider', turn: { id: 'second' } });
   m.notification('item/reasoning/summaryTextDelta', {
@@ -175,5 +279,6 @@ it('drops late item events after a result and accepts them after the next turn s
   });
   expect(events.length).toBeGreaterThan(afterResult);
   expect(JSON.stringify(events)).not.toContain('too late');
+  expect(JSON.stringify(events)).not.toContain('must-not-render');
   expect(JSON.stringify(events)).toContain('current summary');
 });

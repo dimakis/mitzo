@@ -812,6 +812,28 @@ describe('boot_context', () => {
     });
   });
 
+  it('preserves sandbox boot-context provenance', () => {
+    const r = parseServerMessage(
+      {
+        type: 'boot_context',
+        source: 'sandbox',
+        sourceCount: 1,
+        tokenCount: 10,
+        tokenBudget: 12000,
+        sources: [{ path: 'AGENTS.md', kind: 'instructions' }],
+        included: [],
+        trimmed: [],
+      },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.messagesActions[0]).toMatchObject({
+      type: 'SET_BOOT_CONTEXT',
+      bootContext: { source: 'sandbox' },
+    });
+  });
+
   it('defaults missing fields to zero/empty', () => {
     const r = parseServerMessage(
       { type: 'boot_context', source: 'contexgin' },
