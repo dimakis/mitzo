@@ -1387,7 +1387,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
             meta.accountBinding.model ??
             defaultModel.id,
           models: profile.models,
-          reasoningEffort: meta.reasoningEffort,
+          reasoningEffort: meta.reasoningEffort ?? codexQueue?.reasoningEffort ?? null,
         };
     } catch {
       // Keep metadata available when the optional account catalog is temporarily unreadable.
