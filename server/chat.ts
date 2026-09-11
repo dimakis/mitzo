@@ -890,6 +890,8 @@ async function _startChatInner(
         ...options,
         model: options.accountId ? (options.model ?? accountBinding.model) : accountBinding.model,
       };
+      if (accountBinding.provider === 'openai' || accountBinding.provider === 'google-vertex')
+        profiles!.validateModelSelection(accountBinding, options.model!, options.reasoningEffort);
       if (accountBinding.provider === 'openai-codex') {
         if (options.skillAllowedTools)
           throw new Error('Codex restricted skill tool ceilings are not yet supported');
