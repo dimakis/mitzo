@@ -22,6 +22,12 @@ The stack is intentionally split into independently managed layers:
 6. Mitzo remains the trusted control plane for account selection, durable
    conversation state, approvals, queueing, and recovery.
 
+The shared runtime is verified to contain Codex, GWS, and GitHub CLI. The
+production service-provider contract attaches Google Workspace and GitHub to
+new sandboxes, while their provider profiles remain the independent network and
+credential policy boundary. The built-in GitHub profile is intentionally
+read-only; authenticated mutations require a separate Mitzo-approved executor.
+
 The OpenShell gateway is not placed inside `docker-compose.yml`: it owns the
 Podman sandbox lifecycle and its mTLS/control-plane state. The existing Compose
 file remains the optional observability stack.

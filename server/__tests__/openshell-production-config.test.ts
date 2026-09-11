@@ -8,13 +8,13 @@ import {
 const manifest = {
   runtime: { image: 'localhost/mitzo:release-1' },
   defaults: { workspace: 'default', webSearch: 'disabled' },
-  serviceProviders: [{ name: 'google-workspace' }],
+  serviceProviders: [{ name: 'google-workspace' }, { name: 'github' }],
 };
 
 const config = {
   MITZO_OPENSHELL_ENABLED: '1',
   MITZO_OPENSHELL_IMAGE: 'localhost/mitzo:release-1',
-  MITZO_OPENSHELL_SERVICE_PROVIDERS: 'google-workspace',
+  MITZO_OPENSHELL_SERVICE_PROVIDERS: 'google-workspace,github',
   MITZO_OPENSHELL_WEB_SEARCH: 'disabled',
   OPENSHELL_WORKSPACE: 'default',
 };
@@ -24,8 +24,30 @@ describe('OpenShell production bundle validation', () => {
     expect(validateStaticConfig(config, manifest)).toEqual({
       enabled: true,
       image: 'localhost/mitzo:release-1',
-      configuredProviders: ['google-workspace'],
+      configuredProviders: ['google-workspace', 'github'],
     });
+  });
+
+  it('pins the production service-provider contract for GWS and GitHub CLI', () => {
+    const lock = JSON.parse(
+      readFileSync(
+        new URL('../../infra/openshell/production-stack.lock.json', import.meta.url),
+        'utf8',
+      ),
+    );
+    expect(lock.runtime.requiredBinaries).toEqual([
+      '/usr/bin/codex',
+      '/usr/bin/gws',
+      '/usr/bin/gh',
+    ]);
+    expect(lock.serviceProviders).toEqual([
+      {
+        name: 'google-workspace',
+        type: 'mitzo-google-workspace-spike',
+        credentialKeys: ['GOOGLE_WORKSPACE_CLI_TOKEN'],
+      },
+      { name: 'github', type: 'github', credentialKeys: ['GITHUB_TOKEN'] },
+    ]);
   });
 
   it.each(['localhost/mitzo', 'localhost/mitzo:latest', 'localhost/mitzo:dev'])(
