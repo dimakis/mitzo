@@ -232,6 +232,11 @@ it('offers model-specific thinking choices and resets them when changing model',
     model: 'gpt-a',
     reasoningEffort: 'low',
   });
+  fireEvent.change(thinking, { target: { value: '' } });
+  expect(onChange).toHaveBeenLastCalledWith({
+    accountId: 'personal',
+    model: 'gpt-a',
+  });
   fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'gpt-b' } });
   expect(onChange).toHaveBeenLastCalledWith({
     accountId: 'personal',

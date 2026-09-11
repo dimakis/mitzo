@@ -317,6 +317,9 @@ export interface AccountBinding {
 
 export interface SessionMeta {
   accountBinding?: AccountBinding | null;
+  /** Last picker values used by this conversation. Account routing remains immutable. */
+  selectedModel: string | null;
+  reasoningEffort: string | null;
   sessionId: string;
   summary: string | null;
   branch: string | null;

@@ -879,10 +879,7 @@ async function _startChatInner(
         );
       options = {
         ...options,
-        model:
-          accountBinding.provider === 'openai-codex' && options.accountId
-            ? (options.model ?? accountBinding.model)
-            : accountBinding.model,
+        model: options.accountId ? (options.model ?? accountBinding.model) : accountBinding.model,
       };
       if (accountBinding.provider === 'openai-codex') {
         if (options.skillAllowedTools)
@@ -1076,6 +1073,8 @@ async function _startChatInner(
       mode,
       initialPrompt: fullPrompt,
       ...(accountBinding ? { accountBinding } : {}),
+      selectedModel: options.model ?? accountBinding?.model ?? null,
+      reasoningEffort: options.reasoningEffort ?? null,
     });
   }
 
@@ -1130,6 +1129,10 @@ async function _startChatInner(
       ...(options.telosTaskId ? { telosTaskId: options.telosTaskId } : {}),
       ...(existingMeta ? { updatedAt: existingMeta.updatedAt } : {}),
       agentName,
+      ...(options.model ? { selectedModel: options.model } : {}),
+      ...(options.reasoningEffort !== undefined
+        ? { reasoningEffort: options.reasoningEffort || null }
+        : {}),
     });
   }
 
@@ -1264,6 +1267,8 @@ async function _startChatInner(
         cwd,
         mode: session.mode,
         agentName,
+        selectedModel: options.model ?? accountBinding?.model ?? null,
+        reasoningEffort: options.reasoningEffort ?? null,
       });
     }
     let q: QueryInstance;
@@ -1330,6 +1335,8 @@ async function _startChatInner(
         binding: accountBinding!,
         apiKey,
         gemini,
+        selectedModel: options.model,
+        reasoningEffort: options.reasoningEffort,
         session,
         registry,
         input: inputQueue,
@@ -1614,7 +1621,12 @@ export function sendToChat(
     }
     if (responses) {
       try {
-        responses.prepare(messageId, fullPrompt);
+        responses.prepare(
+          messageId,
+          fullPrompt,
+          model ? { model, ...(reasoningEffort ? { reasoningEffort } : {}) } : undefined,
+        );
+        if (model) session.model = model;
       } catch {
         send(session.transport, {
           type: 'error',
@@ -1625,6 +1637,13 @@ export function sendToChat(
       }
     }
     if (session.sessionId) {
+      if (model || reasoningEffort !== undefined) {
+        eventStore.upsertSession({
+          sessionId: session.sessionId,
+          ...(model ? { selectedModel: model } : {}),
+          ...(reasoningEffort !== undefined ? { reasoningEffort: reasoningEffort || null } : {}),
+        });
+      }
       const isDup = storeAndEchoIfNew(
         session.sessionId,
         messageId,
@@ -1685,6 +1704,7 @@ export async function interruptChat(
     const session = registry.get(clientId);
     if (!session?.queryInstance || !session?.inputQueue) return false;
     const codex = getCodexRuntime(session);
+    const responses = getResponsesRuntime(session);
     if (codex) {
       if (session.activeSkillPolicy) {
         send(session.transport, {
@@ -1706,7 +1726,26 @@ export async function interruptChat(
         reasoningEffort,
       );
     }
+    if (responses) {
+      await session.queryInstance.interrupt();
+      return sendToChat(
+        clientId,
+        prompt,
+        images,
+        contextBlocks,
+        clientMsgId,
+        model,
+        reasoningEffort,
+      );
+    }
     if (model) session.model = model;
+    if (session.sessionId && (model || reasoningEffort !== undefined)) {
+      eventStore.upsertSession({
+        sessionId: session.sessionId,
+        ...(model ? { selectedModel: model } : {}),
+        ...(reasoningEffort !== undefined ? { reasoningEffort: reasoningEffort || null } : {}),
+      });
+    }
     const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-interrupt`;
     const previews = imagePreviews(images);

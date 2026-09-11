@@ -623,7 +623,7 @@ export function handleSendV2(
                 msg.images,
                 msg.contextBlocks,
                 msg.clientMsgId,
-                msg.accountId && storedBinding?.provider === 'openai-codex' ? msg.model : undefined,
+                msg.accountId ? msg.model : undefined,
                 msg.reasoningEffort,
               )
             )

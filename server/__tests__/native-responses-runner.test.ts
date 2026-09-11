@@ -218,6 +218,20 @@ describe('durable native Responses turns', () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(store.load('app-id', binding)?.status).toBe('idle');
   });
+  it('applies a changed model and thinking effort without losing the conversation', async () => {
+    const instance = runner();
+    await collect(instance.run('first'));
+    instance.prepare('message-2', 'second', {
+      model: 'other-model',
+      reasoningEffort: 'high',
+    });
+    await collect(instance.run('second', undefined, 'message-2'));
+
+    const request = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(request.model).toBe('other-model');
+    expect(request.reasoning).toEqual({ effort: 'high' });
+    expect(request.input).toContainEqual(expect.objectContaining({ role: 'assistant' }));
+  });
   it('never replays an uncertain side effect after interruption', async () => {
     fetchMock.mockResolvedValueOnce(response(true));
     const execute = vi.fn().mockImplementation(async () => {

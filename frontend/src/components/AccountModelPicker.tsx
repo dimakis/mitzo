@@ -360,12 +360,14 @@ export function AccountModelPicker({
           disabled={disabled}
           value={selection.reasoningEffort ?? ''}
           onChange={(e) => {
-            const next = { ...selection, reasoningEffort: e.target.value };
+            const next = { ...selection };
+            if (e.target.value) next.reasoningEffort = e.target.value;
+            else delete next.reasoningEffort;
             setSelection(next);
             onChange(next);
           }}
         >
-          {!selection.reasoningEffort && <option value="">Model default</option>}
+          <option value="">Model default</option>
           {account.models
             .find((m) => m.id === selection.model)
             ?.reasoningEfforts?.map((effort) => (

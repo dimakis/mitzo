@@ -1165,6 +1165,50 @@ describe('account catalog routes', () => {
     const res = await request(app).get('/api/sessions/bound/meta').set('Cookie', authCookie);
     expect(res.body.accountBinding).toEqual(binding);
   });
+  it('restores a persisted picker selection for every configured account provider', async () => {
+    const file = join(TEST_REPO, 'picker-profiles.json');
+    writeFileSync(
+      file,
+      JSON.stringify([
+        {
+          id: 'work',
+          label: 'Work',
+          provider: 'anthropic-vertex',
+          projectId: 'test-project',
+          region: 'global',
+          credentialRef: '/credentials/adc.json',
+          models: [{ id: 'sonnet', label: 'Sonnet' }],
+        },
+      ]),
+    );
+    vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', file);
+    vi.mocked(eventStore.getSession).mockReturnValueOnce({
+      sessionId: 'bound',
+      accountBinding: {
+        accountId: 'work',
+        accountLabel: 'Work',
+        provider: 'anthropic-vertex',
+        model: 'sonnet',
+        profileRevision: 'revision',
+      },
+      selectedModel: 'sonnet',
+      reasoningEffort: 'high',
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+    } as ReturnType<typeof eventStore.getSession>);
+    try {
+      const res = await request(app).get('/api/sessions/bound/meta').set('Cookie', authCookie);
+      expect(res.body.modelSelection).toEqual({
+        model: 'sonnet',
+        reasoningEffort: 'high',
+        models: [{ id: 'sonnet', label: 'Sonnet' }],
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
   it('exposes Codex queue recovery metadata for OpenShell API sessions', async () => {
     const binding = {
       accountId: 'work-api',

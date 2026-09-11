@@ -83,6 +83,8 @@ interface SessionRow {
   agent_name: string | null;
   boot_context: string | null;
   account_binding: string | null;
+  selected_model: string | null;
+  reasoning_effort: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -250,6 +252,7 @@ export class EventStore {
     this.migrateAttentionTracking(db);
     this.migrateSessionState(db);
     this.migrateBootContext(db);
+    this.migrateModelSelection(db);
     this.migrateUserMessageIndex(db);
 
     this.log.info('EventStore initialized', { dbPath });
@@ -434,6 +437,19 @@ export class EventStore {
     }
   }
 
+  private migrateModelSelection(db: Database.Database): void {
+    const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
+    const columnNames = new Set(columns.map((c) => c.name));
+    if (!columnNames.has('selected_model')) {
+      db.exec('ALTER TABLE sessions ADD COLUMN selected_model TEXT');
+      this.log.info('migrated sessions table: added selected_model');
+    }
+    if (!columnNames.has('reasoning_effort')) {
+      db.exec('ALTER TABLE sessions ADD COLUMN reasoning_effort TEXT');
+      this.log.info('migrated sessions table: added reasoning_effort');
+    }
+  }
+
   private migrateUserMessageIndex(db: Database.Database): void {
     db.exec(
       `CREATE INDEX IF NOT EXISTS idx_events_user_msg_dedup
@@ -524,6 +540,14 @@ export class EventStore {
         fields.push('account_binding = ?');
         values.push(meta.accountBinding ? JSON.stringify(meta.accountBinding) : null);
       }
+      if (meta.selectedModel !== undefined) {
+        fields.push('selected_model = ?');
+        values.push(meta.selectedModel);
+      }
+      if (meta.reasoningEffort !== undefined) {
+        fields.push('reasoning_effort = ?');
+        values.push(meta.reasoningEffort);
+      }
       if (meta.bootContext !== undefined) {
         fields.push('boot_context = ?');
         values.push(meta.bootContext);
@@ -554,6 +578,8 @@ export class EventStore {
         'agent_name',
         'boot_context',
         'account_binding',
+        'selected_model',
+        'reasoning_effort',
       ];
       const vals: unknown[] = [
         meta.sessionId,
@@ -570,6 +596,8 @@ export class EventStore {
         meta.agentName ?? null,
         meta.bootContext ?? null,
         meta.accountBinding ? JSON.stringify(meta.accountBinding) : null,
+        meta.selectedModel ?? null,
+        meta.reasoningEffort ?? null,
       ];
       if (meta.updatedAt !== undefined) {
         cols.push('updated_at');
@@ -885,6 +913,8 @@ function rowToSession(row: SessionRow): SessionMeta {
     agentName: row.agent_name ?? null,
     bootContext: row.boot_context ?? null,
     accountBinding: parseAccountBinding(row.account_binding),
+    selectedModel: row.selected_model ?? null,
+    reasoningEffort: row.reasoning_effort ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

@@ -85,6 +85,21 @@ describe('ResponsesSession', () => {
     });
   });
 
+  it('sends the selected reasoning effort to the Responses API', async () => {
+    const fetcher = vi.fn().mockResolvedValue(response(textEvents()));
+    vi.stubGlobal('fetch', fetcher);
+    const session = new ResponsesSession(
+      { ...config, reasoningEffort: 'high' },
+      { accountId: 'personal', apiKey: 'test' },
+    );
+
+    await collect(session);
+
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toMatchObject({
+      reasoning: { effort: 'high' },
+    });
+  });
+
   it('executes a tool round trip and preserves opaque reasoning for continuation', async () => {
     const call = {
       type: 'function_call',

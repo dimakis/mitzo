@@ -19,6 +19,8 @@ interface NativeResponsesOptions extends Omit<ModelSessionConfig, 'model' | 'sig
   gemini?: GeminiOptions;
   store: NativeResponsesStore;
   maxTurns?: number;
+  selectedModel?: string;
+  reasoningEffort?: string;
   executeTool: (block: ToolUseBlock, signal: AbortSignal) => Promise<ToolResultBlock>;
 }
 
@@ -52,7 +54,14 @@ function recoverToolResults(state: NativeResponsesState) {
  */
 export class NativeResponsesRunner {
   private active?: AbortController;
-  private prepared = new Map<string, { prompt: string; state: NativeResponsesState }>();
+  private prepared = new Map<
+    string,
+    {
+      prompt: string;
+      state: NativeResponsesState;
+      selection?: { model: string; reasoningEffort?: string };
+    }
+  >();
   private idleWaiters: (() => void)[] = [];
   constructor(private options: NativeResponsesOptions) {
     if (options.binding.provider === 'openai') {
@@ -94,14 +103,18 @@ export class NativeResponsesRunner {
     return new Promise<void>((resolve) => this.idleWaiters.push(resolve));
   }
   /** Durably claim a follow-up before the public transcript acknowledges it. */
-  prepare(messageId: string, prompt: string) {
+  prepare(
+    messageId: string,
+    prompt: string,
+    selection?: { model: string; reasoningEffort?: string },
+  ) {
     if (this.active || this.prepared.size)
       throw new Error('Native Responses conversation already running');
     const state = this.options.store.begin(this.options.conversationId, this.options.binding);
     recoverToolResults(state);
     state.history.push({ role: 'user', content: prompt });
     this.options.store.save(this.options.conversationId, this.options.binding, state);
-    this.prepared.set(messageId, { prompt, state });
+    this.prepared.set(messageId, { prompt, state, selection });
   }
   // Lazy generator: merely constructing it starts no work and holds no lease.
   // At first next(), both guards run synchronously before any await/yield.
@@ -126,19 +139,29 @@ export class NativeResponsesRunner {
         state.history.push({ role: 'user', content: prompt });
         save();
       }
+      const selectedModel = prepared?.selection?.model ?? opts.selectedModel ?? opts.binding.model;
+      const checkpoint =
+        state.checkpoint && state.checkpoint.model !== selectedModel
+          ? {
+              ...state.checkpoint,
+              model: selectedModel,
+              input: state.checkpoint.input.filter((item) => item.type !== 'reasoning'),
+            }
+          : state.checkpoint;
       const config = {
-        model: opts.binding.model,
+        model: selectedModel,
         systemPrompt: opts.systemPrompt,
         maxTokens: opts.maxTokens,
         tools: opts.tools,
+        reasoningEffort: prepared?.selection?.reasoningEffort ?? opts.reasoningEffort,
         signal: abort.signal,
       };
       const session = opts.gemini
-        ? new GeminiSession(config, { ...opts.gemini, checkpoint: state.checkpoint })
+        ? new GeminiSession(config, { ...opts.gemini, checkpoint })
         : new ResponsesSession(config, {
             accountId: opts.binding.accountId,
             apiKey: opts.apiKey!,
-            checkpoint: state.checkpoint,
+            checkpoint,
           });
       for await (const event of runAgenticLoop(session, state.history, {
         sessionId: opts.conversationId,

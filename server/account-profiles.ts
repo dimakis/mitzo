@@ -1,5 +1,5 @@
 import { protectCodexProfileRoots } from './codex-private-path.js';
-import { cachedModels, refreshModels, readCodexModels } from './model-catalog.js';
+import { cachedModels, CatalogModel, refreshModels, readCodexModels } from './model-catalog.js';
 import { CredentialReferenceSchema } from './credentials.js';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -19,7 +19,7 @@ const VertexProfile = z
     credentialRef: z
       .string()
       .refine(isAbsolute, 'Credential reference must be an absolute ADC path'),
-    models: z.array(z.object({ id: z.string().min(1), label: z.string().min(1) }).strict()).min(1),
+    models: z.array(CatalogModel.strict()).min(1),
   })
   .strict();
 
@@ -39,7 +39,7 @@ const CodexProfile = z
     sandboxProviderType: z.literal('openai-codex-oauth').optional(),
     sandboxProviderId: z.string().min(1).max(128).optional(),
     sandboxGrantId: z.string().min(1).max(128).optional(),
-    models: z.array(z.object({ id: z.string().min(1), label: z.string().min(1) }).strict()).min(1),
+    models: z.array(CatalogModel.strict()).min(1),
   })
   .superRefine((profile, context) => {
     const brokerFields = [
@@ -78,7 +78,7 @@ const ApiProfile = z
       .string()
       .regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/)
       .optional(),
-    models: z.array(z.object({ id: z.string().min(1), label: z.string().min(1) }).strict()).min(1),
+    models: z.array(CatalogModel.strict()).min(1),
   })
   .strict();
 const GoogleProfile = VertexProfile.extend({ provider: z.literal('google-vertex') });
@@ -398,16 +398,12 @@ export function resolveAccountSelection(
       throw new Error(
         'Stored account binding is corrupt. Start a new task or repair its metadata.',
       );
-    if (
-      selection.accountId &&
-      (selection.accountId !== stored.accountId ||
-        (selection.model && selection.model !== stored.model && stored.provider !== 'openai-codex'))
-    ) {
+    if (selection.accountId && selection.accountId !== stored.accountId) {
       throw new Error(
-        'This task is bound to its original account and model. Start a new task to change them.',
+        'This task is bound to its original account. Start a new task to change accounts.',
       );
     }
-    if (selection.accountId && selection.model && stored.provider === 'openai-codex') {
+    if (selection.accountId && selection.model) {
       const next = (profiles ?? loadAccountProfiles()).resolve(stored.accountId, selection.model);
       if (next.profileRevision !== stored.profileRevision)
         throw new Error('Account configuration changed');
