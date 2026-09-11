@@ -22,12 +22,17 @@ complete rollout.
 - Direct or unbound credential-bearing routes fail closed.
 
 The reviewed patch series originated at NVIDIA/OpenShell issue
-[#2740](https://github.com/NVIDIA/OpenShell/issues/2740). Its converged public
-review is [saariuslystoned/OpenShell PR #1](https://github.com/saariuslystoned/OpenShell/pull/1)
-at `f8cbf77623559149e91c63385992e2acb9e8bda0`; the locally accepted follow-up
-series ends at `820ccdcee2d871921c01cba1dfaf5d8e42c72d5e`. A production build must be
-based on the intended upstream release plus the reviewed functional commits;
-do not use either hash as a version-agnostic binary pin.
+[#2740](https://github.com/NVIDIA/OpenShell/issues/2740). The production-ready
+OpenShell 0.0.116 port is published in
+[`dimakis/OpenShell`](https://github.com/dimakis/OpenShell) as immutable tag
+`v0.0.116-mitzo.1`, commit
+`226dfbcd450710ccd6b4e6dc9109deede04bd130`, with maintenance branch
+`codex/mitzo-oauth-v0.0.116`. Its historical review lineage is
+[saariuslystoned/OpenShell PR #1](https://github.com/saariuslystoned/OpenShell/pull/1)
+at `f8cbf77623559149e91c63385992e2acb9e8bda0`, followed by accepted fixes through
+`820ccdcee2d871921c01cba1dfaf5d8e42c72d5e`. A production build must use the
+immutable tag for its exact upstream release; none of these hashes is a
+version-agnostic patch.
 
 ## Upgrade procedure
 
