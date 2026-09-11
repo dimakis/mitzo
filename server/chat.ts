@@ -896,7 +896,11 @@ async function _startChatInner(
             : storedMeta?.reasoningEffort
           : storedMeta?.reasoningEffort,
       };
-      if (accountBinding.provider === 'openai' || accountBinding.provider === 'google-vertex')
+      if (
+        accountBinding.provider === 'openai' ||
+        accountBinding.provider === 'google-vertex' ||
+        accountBinding.provider === 'anthropic-vertex'
+      )
         profiles!.validateModelSelection(accountBinding, options.model!, options.reasoningEffort);
       if (accountBinding.provider === 'openai-codex') {
         if (options.skillAllowedTools)
