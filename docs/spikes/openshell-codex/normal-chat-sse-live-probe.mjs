@@ -2,6 +2,8 @@ const baseUrl = process.env.MITZO_PROBE_URL ?? 'http://localhost:4310';
 const passphrase = process.env.MITZO_PROBE_PASSPHRASE;
 if (!passphrase) throw new Error('MITZO_PROBE_PASSPHRASE is required');
 const requestedSessionId = process.env.MITZO_PROBE_SESSION_ID || null;
+const accountId = process.env.MITZO_PROBE_ACCOUNT_ID || 'openshell-work-api';
+const model = process.env.MITZO_PROBE_MODEL || 'gpt-5.3-codex';
 const prompt =
   process.env.MITZO_PROBE_PROMPT ??
   'This message explicitly authorizes the local workspace edit. Use the shell now to create normal-sse-marker.txt in the current workspace containing exactly MITZO_NORMAL_SSE=pass, then reply done. Do not ask for confirmation.';
@@ -80,8 +82,8 @@ const completed = new Promise((resolve, reject) => {
                 type: 'send',
                 sessionId: requestedSessionId,
                 clientMsgId: `openshell-sse-${Date.now()}`,
-                accountId: 'openshell-work-api',
-                model: 'gpt-5.3-codex',
+                accountId,
+                model,
                 mode: 'auto',
                 agentName: 'mitzo-conversational',
                 prompt,

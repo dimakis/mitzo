@@ -47,9 +47,10 @@ different filesystem trust domains.
 - `prepare-mgmt-seed.sh`: creates filtered task content plus a host-side
   baseline manifest; save-back is not implemented.
 - `Dockerfile.mgmt-runtime` and `build-mgmt-runtime.sh`: local-only reusable
-  Linux runtime image. Because MGMT's checked-in lock currently predates a
-  declared dependency, resolution occurs only in the disposable build context;
-  the host checkout is not rewritten.
+  Linux runtime image. The builder requires an immutable OpenShell base-image
+  digest and rejects `latest`/`dev` output tags. Because MGMT's checked-in lock
+  currently predates a declared dependency, resolution occurs only in the
+  disposable build context; the host checkout is not rewritten.
 - `synthetic-secret-probe.mjs`: presence-only placeholder/canary boundary probe.
 - `run-disposable.sh`: creates a no-credential sandbox, performs harmless
   filesystem/network boundary checks, then deletes the sandbox on exit.

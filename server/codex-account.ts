@@ -7,7 +7,7 @@ const Profile = z
   .object({
     accountId: z.string().min(1),
     accountLabel: z.string().min(1),
-    credentialRef: z.string().refine(isAbsolute),
+    credentialRef: z.string().refine(isAbsolute).optional(),
     email: z.string().min(1),
     planType: z.string().min(1),
     workspaceId: z.string().min(1).optional(),
@@ -15,6 +15,9 @@ const Profile = z
       .string()
       .regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/)
       .optional(),
+    sandboxProviderType: z.literal('openai-codex-oauth').optional(),
+    sandboxProviderId: z.string().min(1).max(128).optional(),
+    sandboxGrantId: z.string().min(1).max(128).optional(),
     model: z.string().min(1),
   })
   .strict();
@@ -47,6 +50,9 @@ export async function verifyCodexAccount(
           profile.planType,
           profile.workspaceId,
           profile.sandboxProvider,
+          profile.sandboxProviderType,
+          profile.sandboxProviderId,
+          profile.sandboxGrantId,
         ]),
       )
       .digest('hex'),
