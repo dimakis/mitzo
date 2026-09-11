@@ -155,7 +155,8 @@ export class AccountProfiles {
             images: provider === 'anthropic-vertex' || provider === 'openai-codex',
           },
         };
-      });
+      })
+      .filter((account) => account.models.length > 0);
   }
 
   /** Legacy requests use the server's Vertex route, not any other account's models. */
