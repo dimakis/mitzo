@@ -12,7 +12,10 @@ import { NativeResponsesStore, type NativeResponsesState } from './native-respon
 import { createLogger } from './logger.js';
 const log = createLogger('native-responses');
 
-interface NativeResponsesOptions extends Omit<ModelSessionConfig, 'model' | 'signal' | 'thinking'> {
+interface NativeResponsesOptions extends Omit<
+  ModelSessionConfig,
+  'model' | 'signal' | 'thinking' | 'reasoningEffort'
+> {
   conversationId: string;
   binding: AccountBinding;
   apiKey?: string;
@@ -20,7 +23,7 @@ interface NativeResponsesOptions extends Omit<ModelSessionConfig, 'model' | 'sig
   store: NativeResponsesStore;
   maxTurns?: number;
   selectedModel?: string;
-  reasoningEffort?: string;
+  reasoningEffort?: string | null;
   executeTool: (block: ToolUseBlock, signal: AbortSignal) => Promise<ToolResultBlock>;
 }
 
@@ -59,7 +62,7 @@ export class NativeResponsesRunner {
     {
       prompt: string;
       state: NativeResponsesState;
-      selection?: { model: string; reasoningEffort?: string };
+      selection?: { model?: string; reasoningEffort?: string | null };
     }
   >();
   private idleWaiters: (() => void)[] = [];
@@ -106,7 +109,7 @@ export class NativeResponsesRunner {
   prepare(
     messageId: string,
     prompt: string,
-    selection?: { model: string; reasoningEffort?: string },
+    selection?: { model?: string; reasoningEffort?: string | null },
   ) {
     if (this.active || this.prepared.size)
       throw new Error('Native Responses conversation already running');
@@ -148,12 +151,16 @@ export class NativeResponsesRunner {
               input: state.checkpoint.input.filter((item) => item.type !== 'reasoning'),
             }
           : state.checkpoint;
+      const selectedReasoningEffort =
+        prepared?.selection && 'reasoningEffort' in prepared.selection
+          ? prepared.selection.reasoningEffort
+          : opts.reasoningEffort;
       const config = {
         model: selectedModel,
         systemPrompt: opts.systemPrompt,
         maxTokens: opts.maxTokens,
         tools: opts.tools,
-        reasoningEffort: prepared?.selection?.reasoningEffort ?? opts.reasoningEffort,
+        reasoningEffort: selectedReasoningEffort ?? undefined,
         signal: abort.signal,
       };
       const session = opts.gemini

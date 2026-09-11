@@ -831,6 +831,7 @@ export function handleInterruptV2(
       ctx.connRegistry.setActive(connectionId, msg.sessionId);
       startChat(transport, sessionClientId, msg.prompt, {
         resume: msg.sessionId,
+        accountId: msg.accountId,
         resumePermission: found.session?.mode
           ? {
               mode: effectivePermissionMode(found.session),

@@ -2838,7 +2838,7 @@ describe('handleInterruptV2 forwarding', () => {
     );
   });
 
-  it('forwards msg.model to startChat when session is idle', () => {
+  it('forwards the bound account identity and model to startChat when session is idle', () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
 
     const sessionReg = mockSessionRegistry();
@@ -2858,6 +2858,7 @@ describe('handleInterruptV2 forwarding', () => {
         sessionId: 'sess-resume',
         prompt: 'urgent',
         clientMsgId: 'i-resume',
+        accountId: 'work-api',
         model: 'claude-opus-4-8',
       },
       ctx,
@@ -2867,7 +2868,11 @@ describe('handleInterruptV2 forwarding', () => {
       transport,
       'c2:sess-resume',
       'urgent',
-      expect.objectContaining({ resume: 'sess-resume', model: 'claude-opus-4-8' }),
+      expect.objectContaining({
+        resume: 'sess-resume',
+        accountId: 'work-api',
+        model: 'claude-opus-4-8',
+      }),
     );
   });
 

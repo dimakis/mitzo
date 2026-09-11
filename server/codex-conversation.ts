@@ -192,8 +192,8 @@ export class CodexConversation {
     if (!this.binding) return [];
     return this.opts.store.commands(this.opts.conversationId, this.binding);
   }
-  validateModel(model: string, reasoningEffort?: string) {
-    if (this.opts.validateModel) this.opts.validateModel(model, reasoningEffort);
+  validateModel(model: string, reasoningEffort?: string | null) {
+    if (this.opts.validateModel) this.opts.validateModel(model, reasoningEffort ?? undefined);
     else if (model !== this.opts.profile.model) throw new Error('Model unavailable');
   }
   enqueue(input: CodexCommandInput) {

@@ -140,7 +140,16 @@ function initEventStore(): EventStore {
   const mitzoDir = join(repoPath, '.mitzo');
   mkdirSync(mitzoDir, { recursive: true });
   const dbPath = join(mitzoDir, 'events.db');
-  return new EventStore(dbPath);
+  const store = new EventStore(dbPath);
+  const recover = Reflect.get(store, 'recoverSymposiumDeliveries') as
+    EventStore['recoverSymposiumDeliveries'] | undefined;
+  const recovered = recover?.call(store, Date.now()) ?? [];
+  if (recovered.length > 0) {
+    log.warn('recovered interrupted Symposium deliveries during startup', {
+      deliveryIds: recovered.map((delivery) => delivery.deliveryId),
+    });
+  }
+  return store;
 }
 
 export const eventStore = initEventStore();
@@ -800,7 +809,7 @@ export async function startChat(
     cwd?: string;
     model?: string;
     accountId?: string;
-    reasoningEffort?: string;
+    reasoningEffort?: string | null;
     accountProfiles?: AccountProfiles;
     extraTools?: string;
     skillAllowedTools?: string[];
@@ -836,7 +845,7 @@ async function _startChatInner(
     cwd?: string;
     model?: string;
     accountId?: string;
-    reasoningEffort?: string;
+    reasoningEffort?: string | null;
     accountProfiles?: AccountProfiles;
     extraTools?: string;
     skillAllowedTools?: string[];
@@ -859,9 +868,8 @@ async function _startChatInner(
   let gemini: GeminiOptions | undefined;
   let accountEnv: Record<string, string> | undefined;
   try {
-    const storedBinding = options.resume
-      ? eventStore.getSession(options.resume)?.accountBinding
-      : null;
+    const storedMeta = options.resume ? eventStore.getSession(options.resume) : undefined;
+    const storedBinding = storedMeta?.accountBinding;
     const profiles =
       options.accountProfiles ??
       (options.accountId || storedBinding ? loadAccountProfiles() : undefined);
@@ -879,8 +887,17 @@ async function _startChatInner(
         );
       options = {
         ...options,
-        model: options.accountId ? (options.model ?? accountBinding.model) : accountBinding.model,
+        model: options.accountId
+          ? (options.model ?? storedMeta?.selectedModel ?? accountBinding.model)
+          : (storedMeta?.selectedModel ?? accountBinding.model),
+        reasoningEffort: options.accountId
+          ? options.reasoningEffort !== undefined
+            ? options.reasoningEffort
+            : storedMeta?.reasoningEffort
+          : storedMeta?.reasoningEffort,
       };
+      if (accountBinding.provider === 'openai' || accountBinding.provider === 'google-vertex')
+        profiles!.validateModelSelection(accountBinding, options.model!, options.reasoningEffort);
       if (accountBinding.provider === 'openai-codex') {
         if (options.skillAllowedTools)
           throw new Error('Codex restricted skill tool ceilings are not yet supported');
@@ -1565,6 +1582,22 @@ function imagePreviews(images?: Array<{ data: string; mediaType: string }>): str
   return images?.map((image) => `data:${image.mediaType};base64,${image.data}`);
 }
 
+function validateNativeModelSelection(
+  sessionId: string,
+  model?: string,
+  reasoningEffort?: string | null,
+): void {
+  if (!model && reasoningEffort === undefined) return;
+  const meta = eventStore.getSession(sessionId);
+  const binding = meta?.accountBinding;
+  if (!binding) throw new Error('Bound account metadata is unavailable');
+  loadAccountProfiles().validateModelSelection(
+    binding,
+    model ?? meta.selectedModel ?? binding.model,
+    reasoningEffort,
+  );
+}
+
 /** Push a follow-up message into a running session. */
 export function sendToChat(
   clientId: string,
@@ -1573,7 +1606,7 @@ export function sendToChat(
   contextBlocks?: string[],
   clientMsgId?: string,
   model?: string,
-  reasoningEffort?: string,
+  reasoningEffort?: string | null,
 ): boolean {
   return withSpan('chat.send', { 'chat.clientId': clientId }, () => {
     const session = registry.get(clientId);
@@ -1621,11 +1654,12 @@ export function sendToChat(
     }
     if (responses) {
       try {
-        responses.prepare(
-          messageId,
-          fullPrompt,
-          model ? { model, ...(reasoningEffort ? { reasoningEffort } : {}) } : undefined,
-        );
+        if (!session.sessionId) throw new Error('Bound session metadata is unavailable');
+        validateNativeModelSelection(session.sessionId, model, reasoningEffort);
+        responses.prepare(messageId, fullPrompt, {
+          ...(model ? { model } : {}),
+          ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
+        });
         if (model) session.model = model;
       } catch {
         send(session.transport, {
@@ -1698,7 +1732,7 @@ export async function interruptChat(
   contextBlocks?: string[],
   clientMsgId?: string,
   model?: string,
-  reasoningEffort?: string,
+  reasoningEffort?: string | null,
 ): Promise<boolean> {
   return withSpanAsync('chat.interrupt', { 'chat.clientId': clientId }, async () => {
     const session = registry.get(clientId);

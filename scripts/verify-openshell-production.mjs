@@ -206,7 +206,6 @@ export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
   for (const binary of manifest.runtime.requiredBinaries ?? []) {
     run(podman, ['run', '--rm', '--entrypoint', '/usr/bin/test', staticResult.image, '-x', binary]);
   }
-
   console.log(`OPENSHELL_PRODUCTION_GATEWAY=${gatewayInfo.version}`);
   console.log(
     `OPENSHELL_PRODUCTION_DRIVER=${manifest.gateway.driver}@${manifest.gateway.driverVersion}`,
