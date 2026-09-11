@@ -66,6 +66,8 @@ export class NativeResponsesRunner {
     }
   >();
   private idleWaiters: (() => void)[] = [];
+  private selectedModel: string;
+  private reasoningEffort?: string | null;
   constructor(private options: NativeResponsesOptions) {
     if (options.binding.provider === 'openai') {
       if (!options.apiKey?.trim() || options.gemini) throw new Error('OpenAI API key is required');
@@ -78,6 +80,8 @@ export class NativeResponsesRunner {
         throw new Error('Explicit Google Vertex account is required');
     } else throw new Error('Native runtime requires an explicit API account');
     if (!options.conversationId) throw new Error('Application conversation ID is required');
+    this.selectedModel = options.selectedModel ?? options.binding.model;
+    this.reasoningEffort = options.reasoningEffort;
     if (
       options.maxTurns !== undefined &&
       (!Number.isInteger(options.maxTurns) || options.maxTurns < 1)
@@ -142,7 +146,7 @@ export class NativeResponsesRunner {
         state.history.push({ role: 'user', content: prompt });
         save();
       }
-      const previousModel = state.checkpoint?.model ?? opts.selectedModel ?? opts.binding.model;
+      const previousModel = this.selectedModel;
       const selectedModel = prepared?.selection?.model ?? previousModel;
       const checkpoint =
         state.checkpoint && state.checkpoint.model !== selectedModel
@@ -157,7 +161,9 @@ export class NativeResponsesRunner {
           ? prepared.selection.reasoningEffort
           : prepared?.selection?.model && prepared.selection.model !== previousModel
             ? null
-            : opts.reasoningEffort;
+            : this.reasoningEffort;
+      this.selectedModel = selectedModel;
+      this.reasoningEffort = selectedReasoningEffort;
       const config = {
         model: selectedModel,
         systemPrompt: opts.systemPrompt,

@@ -261,6 +261,19 @@ describe('durable native Responses turns', () => {
     expect(changedRequest.model).toBe('other-model');
     expect(changedRequest).not.toHaveProperty('reasoning');
   });
+  it('retains a changed thinking effort for a field-less internal follow-up', async () => {
+    const instance = runner();
+    instance.prepare('message-high', 'first', {
+      model: 'test-model',
+      reasoningEffort: 'high',
+    });
+    await collect(instance.run('first', undefined, 'message-high'));
+    instance.prepare('message-closeout', 'second');
+    await collect(instance.run('second', undefined, 'message-closeout'));
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).reasoning).toEqual({ effort: 'high' });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).reasoning).toEqual({ effort: 'high' });
+  });
   it('never replays an uncertain side effect after interruption', async () => {
     fetchMock.mockResolvedValueOnce(response(true));
     const execute = vi.fn().mockImplementation(async () => {
