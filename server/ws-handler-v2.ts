@@ -624,7 +624,7 @@ export function handleSendV2(
                 msg.contextBlocks,
                 msg.clientMsgId,
                 msg.accountId ? msg.model : undefined,
-                msg.reasoningEffort,
+                msg.accountId ? msg.reasoningEffort : undefined,
               )
             )
               throw new Error('Session is not accepting input. Please retry.');
@@ -808,8 +808,8 @@ export function handleInterruptV2(
           msg.images,
           msg.contextBlocks,
           msg.clientMsgId,
-          msg.model,
-          msg.reasoningEffort,
+          msg.accountId ? msg.model : undefined,
+          msg.accountId ? msg.reasoningEffort : undefined,
         );
         log.info('interrupt', { connectionId, sessionId: msg.sessionId });
         return;

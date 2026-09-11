@@ -2785,6 +2785,7 @@ describe('handleInterruptV2 forwarding', () => {
         sessionId: 'sess-model',
         prompt: 'change model',
         clientMsgId: 'i-model',
+        accountId: 'openai-personal',
         model: 'claude-opus-4-6',
       },
       ctx,
@@ -2797,6 +2798,45 @@ describe('handleInterruptV2 forwarding', () => {
       undefined,
       'i-model',
       'claude-opus-4-6',
+      undefined,
+    );
+  });
+
+  it('ignores stale picker fields on an active interrupt without an account identity', () => {
+    (interruptChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-legacy', session: {} });
+    sessionReg.isAttached.mockReturnValue(true);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleInterruptV2(
+      'c1',
+      transport,
+      {
+        type: 'interrupt',
+        sessionId: 'sess-legacy',
+        prompt: 'legacy interrupt',
+        clientMsgId: 'i-legacy',
+        model: 'claude-opus-4-6',
+        reasoningEffort: 'high',
+      },
+      ctx,
+    );
+
+    expect(interruptChat).toHaveBeenCalledWith(
+      'c1:sess-legacy',
+      'legacy interrupt',
+      undefined,
+      undefined,
+      'i-legacy',
+      undefined,
       undefined,
     );
   });
