@@ -39,6 +39,7 @@ export interface SymposiumOrchestratorDeps {
   store: EventStore;
   executors: Record<string, SymposiumSeatExecutor>;
   idFactory?: () => string;
+  claimIdFactory?: () => string;
   now?: () => number;
 }
 
@@ -46,6 +47,7 @@ export class SymposiumOrchestrator {
   private readonly store: EventStore;
   private readonly executors: Record<string, SymposiumSeatExecutor>;
   private readonly idFactory: () => string;
+  private readonly claimIdFactory: () => string;
   private readonly now: () => number;
   private readonly running = new Map<string, Promise<SymposiumDeliveryRecord>>();
   private readonly abortControllers = new Map<string, AbortController>();
@@ -54,6 +56,7 @@ export class SymposiumOrchestrator {
     this.store = deps.store;
     this.executors = deps.executors;
     this.idFactory = deps.idFactory ?? randomUUID;
+    this.claimIdFactory = deps.claimIdFactory ?? randomUUID;
     this.now = deps.now ?? Date.now;
   }
 
@@ -290,7 +293,6 @@ export class SymposiumOrchestrator {
     this.abortControllers.set(deliveryId, abortController);
     delivery = this.store.getSymposiumDelivery(deliveryId)!;
     for (const recipient of delivery.recipients) {
-      if (!this.store.claimSymposiumRecipient(deliveryId, recipient.seatId)) continue;
       let currentConfig: SymposiumConfig;
       try {
         currentConfig = this.requireDirectedManualConfig(delivery.sessionId);
@@ -326,7 +328,17 @@ export class SymposiumOrchestrator {
         break;
       }
       const bindingKey = seatBindingKey(seat);
-      const thread = this.store.getSymposiumSeatThread(delivery.sessionId, seat.id, bindingKey);
+      const claim = this.store.claimSymposiumRecipientExecution({
+        sessionId: delivery.sessionId,
+        deliveryId,
+        seatId: seat.id,
+        bindingKey,
+        recipientIdempotencyKey: recipient.idempotencyKey,
+        claimToken: this.claimIdFactory(),
+        claimedAt: this.now(),
+      });
+      if (!claim) break;
+      const thread = claim.thread;
       try {
         if (abortController.signal.aborted) return this.store.getSymposiumDelivery(deliveryId)!;
         const result = await executor.execute({
@@ -351,6 +363,7 @@ export class SymposiumOrchestrator {
           resultContent: result.content,
           costUsd: result.costUsd ?? 0,
           updatedAt: timestamp,
+          claimToken: claim.claimToken,
         });
       } catch (error) {
         const latest = this.store.getSymposiumDelivery(deliveryId)!;
@@ -360,6 +373,7 @@ export class SymposiumOrchestrator {
           seatId: seat.id,
           error: error instanceof Error ? error.message : String(error),
           updatedAt: this.now(),
+          claimToken: claim.claimToken,
         });
         break;
       }

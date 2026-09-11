@@ -142,6 +142,10 @@ function createOrchestrator() {
       let value = 0;
       return () => `delivery-${++value}`;
     })(),
+    claimIdFactory: (() => {
+      let value = 0;
+      return () => `claim-${++value}`;
+    })(),
     now: () => 1_700_000_000_000,
   });
 }
@@ -520,6 +524,13 @@ describe('SymposiumOrchestrator', () => {
   it('marks crash-interrupted attempts for explicit recovery and reuses their execution key', async () => {
     admit('builder');
     admit('reviewer');
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => (release = resolve));
+    const execute = reviewer.execute.bind(reviewer);
+    reviewer.execute = vi.fn(async (input: SymposiumSeatExecution) => {
+      if (reviewer.calls.length === 0) await waiting;
+      return execute(input);
+    });
     const staged = orchestrator.stageDelivery({
       sessionId: 'chat',
       sourceSeatId: 'builder',
@@ -532,12 +543,8 @@ describe('SymposiumOrchestrator', () => {
       action: 'approve',
       idempotencyKey: 'approve-recovery',
     });
-    store.claimSymposiumDelivery(staged.deliveryId);
-    store.claimSymposiumRecipient(staged.deliveryId, 'reviewer');
-    store.close();
-
-    store = openStore();
-    orchestrator = createOrchestrator();
+    const interrupted = orchestrator.deliver(staged.deliveryId);
+    await vi.waitFor(() => expect(reviewer.execute).toHaveBeenCalledTimes(1));
     expect(orchestrator.recover()).toEqual([
       expect.objectContaining({ deliveryId: staged.deliveryId, status: 'recovery_required' }),
     ]);
@@ -547,10 +554,19 @@ describe('SymposiumOrchestrator', () => {
       reason: 'Resume after restart',
       idempotencyKey: 'retry-recovery',
     });
+    release();
+    await expect(interrupted).resolves.toMatchObject({ status: 'ready' });
+    expect(store.getSymposiumSeatThreads('chat')).toEqual([]);
     const recovered = await orchestrator.deliver(staged.deliveryId);
 
     expect(recovered.status).toBe('delivered');
-    expect(reviewer.calls[0].idempotencyKey).toBe('delivery:delivery-1:seat:reviewer');
+    expect(reviewer.calls.map((call) => call.idempotencyKey)).toEqual([
+      'delivery:delivery-1:seat:reviewer',
+      'delivery:delivery-1:seat:reviewer',
+    ]);
+    expect(store.getSymposiumSeatThreads('chat')).toEqual([
+      expect.objectContaining({ seatId: 'reviewer', providerThreadId: 'thread-reviewer' }),
+    ]);
   });
 
   it('enforces the persisted turn limit before dispatch', async () => {
@@ -703,6 +719,66 @@ describe('SymposiumOrchestrator', () => {
       expect(reviewer.calls).toHaveLength(1);
       release();
       await firstRun;
+    } finally {
+      release();
+      secondStore.close();
+    }
+  });
+
+  it('serializes concurrent deliveries through one durable seat thread', async () => {
+    admit('builder');
+    admit('reviewer');
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => (release = resolve));
+    reviewer.execute = vi.fn(async (input: SymposiumSeatExecution) => {
+      reviewer.calls.push(input);
+      if (reviewer.calls.length === 1) await waiting;
+      return {
+        providerThreadId: input.providerThreadId ?? 'thread-reviewer',
+        content: `${input.content} complete`,
+        costUsd: 0,
+      };
+    });
+    const deliveries = ['first', 'second'].map((content) => {
+      const staged = orchestrator.stageDelivery({
+        sessionId: 'chat',
+        sourceSeatId: 'builder',
+        recipientSeatIds: ['reviewer'],
+        originalContent: content,
+        idempotencyKey: `stage-seat-claim-${content}`,
+      });
+      orchestrator.intervene({
+        deliveryId: staged.deliveryId,
+        action: 'approve',
+        idempotencyKey: `approve-seat-claim-${content}`,
+      });
+      return staged;
+    });
+    const secondStore = new EventStore(dbPath);
+    const secondOrchestrator = new SymposiumOrchestrator({
+      store: secondStore,
+      executors: { builder, reviewer },
+      claimIdFactory: () => 'claim-second-orchestrator',
+    });
+    try {
+      const firstRun = orchestrator.deliver(deliveries[0].deliveryId);
+      await vi.waitFor(() => expect(reviewer.calls).toHaveLength(1));
+
+      await expect(secondOrchestrator.deliver(deliveries[1].deliveryId)).resolves.toMatchObject({
+        status: 'ready',
+      });
+      expect(reviewer.calls).toHaveLength(1);
+
+      release();
+      await expect(firstRun).resolves.toMatchObject({ status: 'delivered' });
+      await expect(secondOrchestrator.deliver(deliveries[1].deliveryId)).resolves.toMatchObject({
+        status: 'delivered',
+      });
+      expect(reviewer.calls).toHaveLength(2);
+      expect(reviewer.calls[1].providerThreadId).toBe('thread-reviewer');
+      expect(store.getSymposiumSeatThreads('chat')).toEqual([
+        expect.objectContaining({ seatId: 'reviewer', providerThreadId: 'thread-reviewer' }),
+      ]);
     } finally {
       release();
       secondStore.close();

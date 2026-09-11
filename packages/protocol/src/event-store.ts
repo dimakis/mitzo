@@ -576,6 +576,20 @@ export class EventStore {
           updated_at INTEGER NOT NULL,
           PRIMARY KEY (session_id, seat_id, binding_key)
         );
+
+        CREATE TABLE IF NOT EXISTS symposium_seat_execution_claims (
+          session_id TEXT NOT NULL,
+          seat_id TEXT NOT NULL,
+          binding_key TEXT NOT NULL,
+          delivery_id TEXT NOT NULL,
+          recipient_idempotency_key TEXT NOT NULL,
+          claim_token TEXT NOT NULL UNIQUE,
+          claimed_at INTEGER NOT NULL,
+          PRIMARY KEY (session_id, seat_id, binding_key),
+          FOREIGN KEY (delivery_id) REFERENCES symposium_deliveries(delivery_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_symposium_seat_execution_claims_delivery
+          ON symposium_seat_execution_claims (delivery_id);
       `);
     })();
   }
@@ -1097,13 +1111,82 @@ export class EventStore {
     }).immediate();
   }
 
-  claimSymposiumRecipient(deliveryId: string, seatId: string): boolean {
-    const result = this.db!.prepare(
-      `UPDATE symposium_delivery_recipients SET status = 'executing',
-        updated_at = unixepoch('now', 'subsec') * 1000
-       WHERE delivery_id = ? AND seat_id = ? AND status = 'pending'`,
-    ).run(deliveryId, seatId);
-    return result.changes === 1;
+  claimSymposiumRecipientExecution(input: {
+    sessionId: string;
+    deliveryId: string;
+    seatId: string;
+    bindingKey: string;
+    recipientIdempotencyKey: string;
+    claimToken: string;
+    claimedAt: number;
+  }): { claimToken: string; thread: SymposiumSeatThreadRecord | undefined } | undefined {
+    return this.db!.transaction(() => {
+      const recipient = this.db!.prepare(
+        `SELECT r.status AS recipient_status, r.idempotency_key, d.status AS delivery_status,
+          d.session_id
+         FROM symposium_delivery_recipients r
+         JOIN symposium_deliveries d ON d.delivery_id = r.delivery_id
+         WHERE r.delivery_id = ? AND r.seat_id = ?`,
+      ).get(input.deliveryId, input.seatId) as
+        | {
+            recipient_status: string;
+            idempotency_key: string;
+            delivery_status: string;
+            session_id: string;
+          }
+        | undefined;
+      if (
+        !recipient ||
+        recipient.session_id !== input.sessionId ||
+        recipient.delivery_status !== 'delivering' ||
+        recipient.recipient_status !== 'pending' ||
+        recipient.idempotency_key !== input.recipientIdempotencyKey
+      ) {
+        return undefined;
+      }
+
+      const inserted = this.db!.prepare(
+        `INSERT OR IGNORE INTO symposium_seat_execution_claims (
+          session_id, seat_id, binding_key, delivery_id,
+          recipient_idempotency_key, claim_token, claimed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        input.sessionId,
+        input.seatId,
+        input.bindingKey,
+        input.deliveryId,
+        input.recipientIdempotencyKey,
+        input.claimToken,
+        input.claimedAt,
+      );
+      if (inserted.changes !== 1) {
+        this.db!.prepare(
+          `UPDATE symposium_deliveries SET status = 'ready', updated_at = ?
+           WHERE delivery_id = ? AND status = 'delivering'
+             AND NOT EXISTS (
+               SELECT 1 FROM symposium_delivery_recipients
+               WHERE delivery_id = ? AND status = 'executing'
+             )`,
+        ).run(input.claimedAt, input.deliveryId, input.deliveryId);
+        return undefined;
+      }
+
+      const claimed = this.db!.prepare(
+        `UPDATE symposium_delivery_recipients SET status = 'executing', updated_at = ?
+         WHERE delivery_id = ? AND seat_id = ? AND status = 'pending'
+           AND idempotency_key = ?`,
+      ).run(input.claimedAt, input.deliveryId, input.seatId, input.recipientIdempotencyKey);
+      if (claimed.changes !== 1) {
+        this.db!.prepare(`DELETE FROM symposium_seat_execution_claims WHERE claim_token = ?`).run(
+          input.claimToken,
+        );
+        return undefined;
+      }
+      return {
+        claimToken: input.claimToken,
+        thread: this.getSymposiumSeatThread(input.sessionId, input.seatId, input.bindingKey),
+      };
+    }).immediate();
   }
 
   completeSymposiumRecipient(input: {
@@ -1117,6 +1200,7 @@ export class EventStore {
     resultContent: string;
     costUsd: number;
     updatedAt: number;
+    claimToken: string;
   }): SymposiumDeliveryRecord {
     return this.db!.transaction(() => {
       const delivery = this.db!.prepare(
@@ -1129,6 +1213,12 @@ export class EventStore {
       ) {
         throw new Error('Symposium completion does not match its delivery configuration');
       }
+      const claim = this.db!.prepare(
+        `SELECT 1 FROM symposium_seat_execution_claims
+         WHERE session_id = ? AND seat_id = ? AND binding_key = ?
+           AND delivery_id = ? AND claim_token = ?`,
+      ).get(input.sessionId, input.seatId, input.bindingKey, input.deliveryId, input.claimToken);
+      if (!claim) return this.getSymposiumDelivery(input.deliveryId)!;
       const result = this.db!.prepare(
         `UPDATE symposium_delivery_recipients SET status = 'delivered',
           provider_thread_id = ?, result_content = ?, cost_usd = ?, error = NULL, updated_at = ?
@@ -1171,6 +1261,9 @@ export class EventStore {
             input.updatedAt,
           );
         }
+        this.db!.prepare(`DELETE FROM symposium_seat_execution_claims WHERE claim_token = ?`).run(
+          input.claimToken,
+        );
         const remaining = this.db!.prepare(
           `SELECT 1 FROM symposium_delivery_recipients
            WHERE delivery_id = ? AND status != 'delivered' LIMIT 1`,
@@ -1191,13 +1284,32 @@ export class EventStore {
     seatId: string;
     error: string;
     updatedAt: number;
+    claimToken?: string;
   }): SymposiumDeliveryRecord {
     return this.db!.transaction(() => {
+      if (input.claimToken) {
+        const claim = this.db!.prepare(
+          `SELECT 1 FROM symposium_seat_execution_claims
+           WHERE delivery_id = ? AND seat_id = ? AND claim_token = ?`,
+        ).get(input.deliveryId, input.seatId, input.claimToken);
+        if (!claim) return this.getSymposiumDelivery(input.deliveryId)!;
+      }
       const result = this.db!.prepare(
         `UPDATE symposium_delivery_recipients SET status = 'failed', error = ?, updated_at = ?
-         WHERE delivery_id = ? AND seat_id = ? AND status = 'executing'`,
-      ).run(input.error, input.updatedAt, input.deliveryId, input.seatId);
+         WHERE delivery_id = ? AND seat_id = ? AND status = ?`,
+      ).run(
+        input.error,
+        input.updatedAt,
+        input.deliveryId,
+        input.seatId,
+        input.claimToken ? 'executing' : 'pending',
+      );
       if (result.changes === 1) {
+        if (input.claimToken) {
+          this.db!.prepare(`DELETE FROM symposium_seat_execution_claims WHERE claim_token = ?`).run(
+            input.claimToken,
+          );
+        }
         this.db!.prepare(
           `UPDATE symposium_deliveries SET status = 'failed', updated_at = ?
            WHERE delivery_id = ? AND status = 'delivering'`,
@@ -1244,6 +1356,9 @@ export class EventStore {
         `UPDATE symposium_delivery_recipients SET status = 'cancelled', updated_at = ?
          WHERE delivery_id = ? AND status != 'delivered'`,
       ).run(input.cancelledAt, input.deliveryId);
+      this.db!.prepare(`DELETE FROM symposium_seat_execution_claims WHERE delivery_id = ?`).run(
+        input.deliveryId,
+      );
       return this.getSymposiumDelivery(input.deliveryId)!;
     }).immediate();
   }
@@ -1263,6 +1378,9 @@ export class EventStore {
           `UPDATE symposium_deliveries SET status = 'recovery_required', updated_at = ?
            WHERE delivery_id = ? AND status = 'delivering'`,
         ).run(recoveredAt, row.delivery_id);
+        this.db!.prepare(`DELETE FROM symposium_seat_execution_claims WHERE delivery_id = ?`).run(
+          row.delivery_id,
+        );
       }
       return rows.map((row) => this.getSymposiumDelivery(row.delivery_id)!);
     }).immediate();
