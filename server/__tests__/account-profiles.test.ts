@@ -111,15 +111,21 @@ describe('saved selection policy', () => {
     ).toThrow(/new task/i);
     expect(resolveAccountSelection({}, null, true)).toBeUndefined();
   });
-  it('rejects an explicit account or model switch in a bound conversation', async () => {
+  it('keeps the account bound while allowing a validated model switch', async () => {
     const { resolveAccountSelection } = await import('../account-profiles.js');
-    const binding = new AccountProfiles([profile]).resolve('work', 'claude-sonnet-4-6');
+    const profiles = new AccountProfiles([
+      { ...profile, models: [...profile.models, { id: 'other', label: 'Other' }] },
+    ]);
+    const binding = profiles.resolve('work', 'claude-sonnet-4-6');
     expect(() => resolveAccountSelection({ accountId: 'other' }, binding, true)).toThrow(
       /original account/i,
     );
+    expect(
+      resolveAccountSelection({ accountId: 'work', model: 'other' }, binding, true, profiles),
+    ).toEqual(binding);
     expect(() =>
-      resolveAccountSelection({ accountId: 'work', model: 'other' }, binding, true),
-    ).toThrow(/original account/i);
+      resolveAccountSelection({ accountId: 'work', model: 'missing' }, binding, true, profiles),
+    ).toThrow(/model/i);
   });
 });
 
@@ -130,7 +136,14 @@ describe('work OpenAI API profile', () => {
     provider: 'openai',
     credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
     sandboxProvider: 'openai-work',
-    models: [{ id: 'test-model', label: 'Test model' }],
+    models: [
+      {
+        id: 'test-model',
+        label: 'Test model',
+        reasoningEfforts: ['low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium',
+      },
+    ],
   };
   it('publishes API billing without exposing its secret-store reference', () => {
     const profiles = new AccountProfiles([api]);
@@ -140,6 +153,7 @@ describe('work OpenAI API profile', () => {
       provider: 'openai',
       billing: 'openai-api',
       capabilities: { images: false },
+      models: api.models,
     });
     expect(JSON.stringify(profiles.catalog())).not.toContain('keychain');
     expect(() => profiles.sdkEnv(binding, {})).toThrow('native');
@@ -154,6 +168,26 @@ describe('work OpenAI API profile', () => {
     const unbound: Record<string, unknown> = { ...api };
     delete unbound.sandboxProvider;
     expect(() => new AccountProfiles([unbound])).not.toThrow();
+  });
+
+  it('validates live native model and thinking changes against the bound catalog', () => {
+    const profiles = new AccountProfiles([
+      {
+        ...api,
+        models: [
+          ...api.models,
+          { id: 'other-model', label: 'Other model', reasoningEfforts: ['low'] },
+        ],
+      },
+    ]);
+    const binding = profiles.resolve('work-api', 'test-model');
+    expect(() => profiles.validateModelSelection(binding, 'other-model', 'low')).not.toThrow();
+    expect(() => profiles.validateModelSelection(binding, 'missing-model', 'low')).toThrow(
+      /model/i,
+    );
+    expect(() => profiles.validateModelSelection(binding, 'other-model', 'high')).toThrow(
+      /thinking/i,
+    );
   });
 });
 

@@ -81,6 +81,7 @@ describe('durable native Responses turns', () => {
     executeTool = vi
       .fn()
       .mockResolvedValue({ type: 'tool_result', tool_use_id: 'call-1', content: 'written' }),
+    selection: { selectedModel?: string; reasoningEffort?: string | null } = {},
   ) {
     return new NativeResponsesRunner({
       conversationId: 'app-id',
@@ -90,6 +91,7 @@ describe('durable native Responses turns', () => {
       maxTokens: 100,
       store,
       executeTool,
+      ...selection,
     });
   }
   it('runs and resumes Gemini tool turns with the same durable native tool loop', async () => {
@@ -217,6 +219,60 @@ describe('durable native Responses turns', () => {
     await collect(instance.run('durable follow-up', undefined, 'message-1'));
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(store.load('app-id', binding)?.status).toBe('idle');
+  });
+  it('applies a changed model and thinking effort without losing the conversation', async () => {
+    const instance = runner();
+    await collect(instance.run('first'));
+    instance.prepare('message-2', 'second', {
+      model: 'other-model',
+      reasoningEffort: 'high',
+    });
+    await collect(instance.run('second', undefined, 'message-2'));
+
+    const request = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(request.model).toBe('other-model');
+    expect(request.reasoning).toEqual({ effort: 'high' });
+    expect(request.input).toContainEqual(expect.objectContaining({ role: 'assistant' }));
+  });
+  it('clears a prior thinking override when the model default is selected', async () => {
+    const instance = runner();
+    instance.prepare('message-high', 'first', {
+      model: 'test-model',
+      reasoningEffort: 'high',
+    });
+    await collect(instance.run('first', undefined, 'message-high'));
+    instance.prepare('message-default', 'second', {
+      model: 'test-model',
+      reasoningEffort: null,
+    });
+    await collect(instance.run('second', undefined, 'message-default'));
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).reasoning).toEqual({ effort: 'high' });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).not.toHaveProperty('reasoning');
+  });
+  it('clears the prior thinking override when a changed model omits thinking options', async () => {
+    const instance = runner(undefined, { reasoningEffort: 'high' });
+    await collect(instance.run('first'));
+    instance.prepare('message-other-model', 'second', { model: 'other-model' });
+    await collect(instance.run('second', undefined, 'message-other-model'));
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).reasoning).toEqual({ effort: 'high' });
+    const changedRequest = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(changedRequest.model).toBe('other-model');
+    expect(changedRequest).not.toHaveProperty('reasoning');
+  });
+  it('retains a changed thinking effort for a field-less internal follow-up', async () => {
+    const instance = runner();
+    instance.prepare('message-high', 'first', {
+      model: 'test-model',
+      reasoningEffort: 'high',
+    });
+    await collect(instance.run('first', undefined, 'message-high'));
+    instance.prepare('message-closeout', 'second');
+    await collect(instance.run('second', undefined, 'message-closeout'));
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).reasoning).toEqual({ effort: 'high' });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).reasoning).toEqual({ effort: 'high' });
   });
   it('never replays an uncertain side effect after interruption', async () => {
     fetchMock.mockResolvedValueOnce(response(true));

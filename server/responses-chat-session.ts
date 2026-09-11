@@ -36,6 +36,8 @@ interface Options {
   conversationId: string;
   binding: AccountBinding;
   apiKey?: string;
+  selectedModel?: string;
+  reasoningEffort?: string | null;
   gemini?: GeminiOptions;
   session: ManagedSession;
   registry: SessionRegistry;
@@ -90,6 +92,8 @@ export async function openResponsesChat(options: Options) {
       HOST_TOOL_INSTRUCTIONS +
       (startup.context ? `\n\n${startup.context}` : ''),
     maxTokens: 8192,
+    selectedModel: options.selectedModel,
+    reasoningEffort: options.reasoningEffort ?? undefined,
     tools: [...nativeToolDefinitions, ...mcp.definitions],
     executeTool: async (block, signal) => {
       const result = await hooks.executeTool(

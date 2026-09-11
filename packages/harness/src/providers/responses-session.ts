@@ -237,6 +237,9 @@ export class ResponsesSession implements ModelSession {
           stream: true,
           store: false,
           include: ['reasoning.encrypted_content'],
+          ...(this.config.reasoningEffort
+            ? { reasoning: { effort: this.config.reasoningEffort } }
+            : {}),
           input,
           tools: this.config.tools?.length
             ? this.config.tools.map((tool) => ({

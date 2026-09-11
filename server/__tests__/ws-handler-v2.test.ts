@@ -2463,6 +2463,50 @@ describe('handleSendV2 state-based routing', () => {
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 
+  it('rejects an active model change from a different account identity', () => {
+    (sendToChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-bound', session: {} });
+    sessionReg.isAttached.mockReturnValue(true);
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({
+      accountBinding: {
+        accountId: 'personal',
+        provider: 'openai',
+        model: 'gpt-test',
+        profileRevision: 'revision',
+      },
+    });
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleSendV2(
+      'c1',
+      transport,
+      {
+        type: 'send',
+        sessionId: 'sess-bound',
+        prompt: 'change model',
+        clientMsgId: 'wrong-account',
+        accountId: 'work',
+        model: 'gpt-other',
+      },
+      ctx,
+    );
+
+    expect(sendToChat).not.toHaveBeenCalled();
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({ type: 'error', error: expect.stringMatching(/original account/i) }),
+    );
+  });
+
   it('reattaches own detached session when state is DETACHED', () => {
     (sendToChat as ReturnType<typeof vi.fn>).mockClear();
     (reattachChat as ReturnType<typeof vi.fn>).mockClear();
@@ -2771,8 +2815,13 @@ describe('handleInterruptV2 forwarding', () => {
     sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-model', session: {} });
     sessionReg.isAttached.mockReturnValue(true);
 
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({
+      accountBinding: { accountId: 'openai-personal' },
+    });
     const ctx = createContext({
       sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
     });
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
@@ -2785,6 +2834,7 @@ describe('handleInterruptV2 forwarding', () => {
         sessionId: 'sess-model',
         prompt: 'change model',
         clientMsgId: 'i-model',
+        accountId: 'openai-personal',
         model: 'claude-opus-4-6',
       },
       ctx,
@@ -2797,6 +2847,83 @@ describe('handleInterruptV2 forwarding', () => {
       undefined,
       'i-model',
       'claude-opus-4-6',
+      undefined,
+    );
+  });
+
+  it('rejects picker fields on an active interrupt from a different account identity', () => {
+    (interruptChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-bound', session: {} });
+    sessionReg.isAttached.mockReturnValue(true);
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({
+      accountBinding: { accountId: 'personal' },
+    });
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleInterruptV2(
+      'c1',
+      transport,
+      {
+        type: 'interrupt',
+        sessionId: 'sess-bound',
+        prompt: 'change model',
+        clientMsgId: 'wrong-account-interrupt',
+        accountId: 'work',
+        model: 'gpt-other',
+      },
+      ctx,
+    );
+
+    expect(interruptChat).not.toHaveBeenCalled();
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({ type: 'error', error: expect.stringMatching(/original account/i) }),
+    );
+  });
+
+  it('ignores stale picker fields on an active interrupt without an account identity', () => {
+    (interruptChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-legacy', session: {} });
+    sessionReg.isAttached.mockReturnValue(true);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleInterruptV2(
+      'c1',
+      transport,
+      {
+        type: 'interrupt',
+        sessionId: 'sess-legacy',
+        prompt: 'legacy interrupt',
+        clientMsgId: 'i-legacy',
+        model: 'claude-opus-4-6',
+        reasoningEffort: 'high',
+      },
+      ctx,
+    );
+
+    expect(interruptChat).toHaveBeenCalledWith(
+      'c1:sess-legacy',
+      'legacy interrupt',
+      undefined,
+      undefined,
+      'i-legacy',
+      undefined,
       undefined,
     );
   });
@@ -2838,7 +2965,7 @@ describe('handleInterruptV2 forwarding', () => {
     );
   });
 
-  it('forwards msg.model to startChat when session is idle', () => {
+  it('forwards the bound account identity and model to startChat when session is idle', () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
 
     const sessionReg = mockSessionRegistry();
@@ -2858,6 +2985,7 @@ describe('handleInterruptV2 forwarding', () => {
         sessionId: 'sess-resume',
         prompt: 'urgent',
         clientMsgId: 'i-resume',
+        accountId: 'work-api',
         model: 'claude-opus-4-8',
       },
       ctx,
@@ -2867,7 +2995,11 @@ describe('handleInterruptV2 forwarding', () => {
       transport,
       'c2:sess-resume',
       'urgent',
-      expect.objectContaining({ resume: 'sess-resume', model: 'claude-opus-4-8' }),
+      expect.objectContaining({
+        resume: 'sess-resume',
+        accountId: 'work-api',
+        model: 'claude-opus-4-8',
+      }),
     );
   });
 

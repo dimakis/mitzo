@@ -8,7 +8,7 @@ const CommandInput = z
     id: z.string().min(1).max(200),
     prompt: z.string().min(1).max(1_000_000),
     model: z.string().min(1).optional(),
-    reasoningEffort: z.string().min(1).max(32).optional(),
+    reasoningEffort: z.string().min(1).max(32).nullable().optional(),
     images: z
       .array(
         z

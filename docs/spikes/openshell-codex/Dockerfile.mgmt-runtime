@@ -1,5 +1,12 @@
 ARG OPENSHELL_BASE_IMAGE
 FROM ${OPENSHELL_BASE_IMAGE}
+ARG OPENSHELL_BASE_IMAGE
+ARG MITZO_SOURCE_COMMIT
+ARG MGMT_SOURCE_COMMIT
+
+LABEL io.mitzo.openshell.base-image="${OPENSHELL_BASE_IMAGE}" \
+      io.mitzo.source-commit="${MITZO_SOURCE_COMMIT}" \
+      io.mitzo.mgmt-source-commit="${MGMT_SOURCE_COMMIT}"
 
 USER root
 RUN npm install --global @openai/codex@0.153.4 \
@@ -13,9 +20,10 @@ RUN cd /opt/mgmt-deps \
     && UV_PROJECT_ENVIRONMENT=/opt/mgmt-venv uv sync --frozen --no-dev --no-install-project
 COPY run-mitzo-app-server /sandbox/run-mitzo-app-server
 COPY run-mitzo-subscription-app-server /sandbox/run-mitzo-subscription-app-server
+COPY initialize-mitzo-workspace /sandbox/initialize-mitzo-workspace
 COPY compile-mgmt-context.mjs /sandbox/compile-mgmt-context.mjs
 COPY contexgin /usr/lib/contexgin
-RUN chmod 0755 /sandbox/run-mitzo-app-server /sandbox/run-mitzo-subscription-app-server /sandbox/compile-mgmt-context.mjs \
+RUN chmod 0755 /sandbox/run-mitzo-app-server /sandbox/run-mitzo-subscription-app-server /sandbox/initialize-mitzo-workspace /sandbox/compile-mgmt-context.mjs \
     && chmod -R a+rX /usr/lib/contexgin \
     && chown sandbox:sandbox /sandbox/run-mitzo-app-server /sandbox/run-mitzo-subscription-app-server
 ENV PATH="/opt/mgmt-venv/bin:${PATH}"

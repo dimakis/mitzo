@@ -148,6 +148,20 @@ describe('EventStore', () => {
       expect(session!.summary).toBe('Updated');
     });
 
+    it('persists the conversation model picker independently of its account binding', () => {
+      store.upsertSession({
+        sessionId: 'picker',
+        selectedModel: 'gpt-5.6-terra',
+        reasoningEffort: 'high',
+      });
+      store.upsertSession({ sessionId: 'picker', selectedModel: 'gpt-6-astra' });
+
+      expect(store.getSession('picker')).toMatchObject({
+        selectedModel: 'gpt-6-astra',
+        reasoningEffort: 'high',
+      });
+    });
+
     it('persists goalId on insert (not just update)', () => {
       store.upsertSession({ sessionId: 'sess-1', summary: 'Test', goalId: 'goal-on-insert' });
 

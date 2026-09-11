@@ -192,8 +192,8 @@ export class CodexConversation {
     if (!this.binding) return [];
     return this.opts.store.commands(this.opts.conversationId, this.binding);
   }
-  validateModel(model: string, reasoningEffort?: string) {
-    if (this.opts.validateModel) this.opts.validateModel(model, reasoningEffort);
+  validateModel(model: string, reasoningEffort?: string | null) {
+    if (this.opts.validateModel) this.opts.validateModel(model, reasoningEffort ?? undefined);
     else if (model !== this.opts.profile.model) throw new Error('Model unavailable');
   }
   enqueue(input: CodexCommandInput) {
@@ -202,13 +202,21 @@ export class CodexConversation {
     if (input.allowedTools)
       throw new Error('Codex execution does not yet support restricted skill tool ceilings');
     const commands = this.queue();
-    const model =
-      input.model ??
+    const previousModel =
       commands.find((c) => c.id === input.id)?.model ??
       commands.at(-1)?.model ??
       this.binding!.model;
-    this.validateModel(model, input.reasoningEffort);
-    this.opts.store.enqueue(this.opts.conversationId, this.binding!, { ...input, model });
+    const model = input.model ?? previousModel;
+    const reasoningEffort =
+      input.model && input.model !== previousModel && input.reasoningEffort === undefined
+        ? null
+        : input.reasoningEffort;
+    this.validateModel(model, reasoningEffort);
+    this.opts.store.enqueue(this.opts.conversationId, this.binding!, {
+      ...input,
+      model,
+      reasoningEffort,
+    });
     this.opts.onQueueChange?.();
   }
   async send(input: CodexCommandInput) {

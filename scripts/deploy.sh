@@ -11,6 +11,20 @@ npm run build:server
 echo "Building frontend..."
 npm run build
 
+# Production validation inspects the pinned runtime image, so Podman must be
+# available before the preflight runs.
+if ! podman machine inspect --format '{{.State}}' 2>/dev/null | grep -q Running; then
+  if ! podman machine inspect 2>/dev/null >/dev/null; then
+    echo "Initializing podman machine..."
+    podman machine init
+  fi
+  echo "Starting podman machine..."
+  podman machine start
+fi
+
+echo "Validating OpenShell production bundle..."
+NODE_ENV=production node scripts/verify-openshell-production.mjs .env
+
 # Generate launchd plist from template (replaces __MITZO_HOME__ placeholder)
 echo "Installing launchd plist..."
 sed "s|__MITZO_HOME__|${MITZO_HOME}|g" com.mitzo.server.plist > "$PLIST_DEST"
@@ -20,16 +34,6 @@ PODMAN_PLIST_DEST="$HOME/Library/LaunchAgents/com.mitzo.podman-machine.plist"
 sed "s|__MITZO_HOME__|${MITZO_HOME}|g" infra/com.mitzo.podman-machine.plist > "$PODMAN_PLIST_DEST"
 launchctl bootout "gui/$(id -u)/com.mitzo.podman-machine" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PODMAN_PLIST_DEST"
-
-# Ensure podman machine exists and is running (safe to race with launchd plist — podman uses lock files).
-if ! podman machine inspect --format '{{.State}}' 2>/dev/null | grep -q Running; then
-  if ! podman machine inspect 2>/dev/null >/dev/null; then
-    echo "Initializing podman machine..."
-    podman machine init
-  fi
-  echo "Starting podman machine..."
-  podman machine start
-fi
 
 echo "Ensuring observability stack is running..."
 docker compose up -d

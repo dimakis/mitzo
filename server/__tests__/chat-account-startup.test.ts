@@ -156,6 +156,68 @@ it.each([false, true])(
   },
 );
 
+it('rejects a cold resume when its persisted Anthropic model left the account catalog', async () => {
+  vi.resetModules();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-stale-anthropic-model-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  const chat = await import('../chat.js');
+  const { query } = await import('@anthropic-ai/claude-agent-sdk');
+  vi.mocked(query).mockClear();
+  const profile = {
+    id: 'work',
+    label: 'Work',
+    provider: 'anthropic-vertex' as const,
+    projectId: 'test-project',
+    region: 'us-east5',
+    credentialRef: '/test/adc.json',
+  };
+  const oldProfiles = new AccountProfiles([
+    {
+      ...profile,
+      models: [
+        { id: 'claude-sonnet-4-6', label: 'Sonnet' },
+        { id: 'claude-opus-4-6', label: 'Opus' },
+      ],
+    },
+  ]);
+  const currentProfiles = new AccountProfiles([
+    { ...profile, models: [{ id: 'claude-sonnet-4-6', label: 'Sonnet' }] },
+  ]);
+  const sessionId = 'aaaaaaaa-bbbb-4ccc-8ddd-ffffffffffff';
+  chat.eventStore.upsertSession({
+    sessionId,
+    cwd: root,
+    accountBinding: oldProfiles.resolve('work', 'claude-sonnet-4-6'),
+    selectedModel: 'claude-opus-4-6',
+  });
+  const sent: Record<string, unknown>[] = [];
+
+  try {
+    await chat.startChat(
+      { send: (message) => sent.push(message), isOpen: () => true },
+      'stale-anthropic-model',
+      'continue',
+      {
+        resume: sessionId,
+        cwd: root,
+        isolation: false,
+        accountProfiles: currentProfiles,
+      },
+    );
+    expect(query).not.toHaveBeenCalled();
+    expect(sent).toContainEqual(
+      expect.objectContaining({
+        type: 'error',
+        error: expect.stringContaining('Model is unavailable'),
+      }),
+    );
+  } finally {
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 it.each(['cold', 'zombie-downgrade', 'zombie-aba', 'zombie-unchanged'] as const)(
   'uses the latest acknowledged permission after delayed account verification (%s)',
   async (scenario) => {

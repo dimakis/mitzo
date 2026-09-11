@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "gateway": {
+    "version": "0.0.116-mitzo.2",
+    "driver": "podman",
+    "driverVersion": "0.0.116-mitzo.2",
+    "requiredGlobalSettings": {
+      "providers_v2_enabled": true
+    }
+  },
+  "runtime": {
+    "image": "localhost/mitzo-mgmt-runtime:release-387c13ed-20260911",
+    "digest": "sha256:8e5e6f59bb89e2238cf8763d6ab143762d27b2d23edd7c5a9bab6f9373bb3c07",
+    "mitzoSourceCommit": "387c13ed7245230b70eac12759d0aa8cc07f31d0",
+    "mgmtSourceCommit": "c1413c0091075f3d3552993cb1a5468747217e64",
+    "baseImage": "ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e",
+    "requiredBinaries": ["/usr/bin/codex", "/usr/bin/gws", "/usr/bin/gh"]
+  },
+  "policy": {
+    "sha256": "ad533acbc5838d0e9f8a6dc9b0d20a1e9214a7706a2db4ae0d8c71c6f24e0a20"
+  },
+  "serviceProviders": [
+    {
+      "name": "google-workspace",
+      "type": "mitzo-google-workspace-spike",
+      "credentialKeys": ["GOOGLE_WORKSPACE_CLI_TOKEN"]
+    },
+    {
+      "name": "github",
+      "type": "github",
+      "credentialKeys": ["GITHUB_TOKEN"]
+    }
+  ],
+  "defaults": {
+    "workspace": "default",
+    "webSearch": "disabled"
+  }
+}

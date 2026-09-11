@@ -1,0 +1,28 @@
+#!/bin/sh
+set -eu
+
+workspace="${1:?workspace path is required}"
+workspace_root="${MITZO_WORKSPACE_ROOT:-/sandbox/workspaces}"
+workspace_root="$(realpath "$workspace_root")"
+workspace="$(realpath "$workspace")"
+case "$workspace" in
+  "$workspace_root"/*) ;;
+  *)
+    echo "workspace must be inside $workspace_root" >&2
+    exit 2
+    ;;
+esac
+
+if git -C "$workspace" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  exit 0
+fi
+
+# OpenShell upload deliberately does not carry host Git administration data.
+# Initialize a portable, remote-free baseline only after the filtered seed is
+# inside its conversation sandbox.
+git -C "$workspace" init -q
+git -C "$workspace" config user.name 'Mitzo Sandbox'
+git -C "$workspace" config user.email 'sandbox@mitzo.invalid'
+git -C "$workspace" add --all
+git -C "$workspace" -c commit.gpgsign=false commit --allow-empty -q \
+  -m 'chore: seed isolated MGMT workspace'

@@ -4,6 +4,89 @@ Status: in progress on isolated branch `codex/openshell-live-acceptance` at
 `deeb5371dfd9aeb3b391861ab52d8ad43f62619e`. Production remains unchanged at
 `f8479f20542ffaa1b4b90ef12d0e6dce55ff7b35`.
 
+## Shared acceptance update — 2026-09-11
+
+The shared core lifecycle passed against PR #487 head `742c1836` plus the
+follow-up fixes on `codex/openshell-rollout-after-487`. Production and retained
+gateway resources remained unchanged.
+
+- Runtime image: `localhost/mitzo-mgmt-runtime:acceptance-pr487-r2-20260911`,
+  image ID `2ed8ae74552f5e49ebdf28dd9ef254788653c242217e1ead76371e13e2fa85eb`.
+- Fresh sandbox: `mitzo-156f388d3dde8`; conversation label
+  `156f388d3dde8312194b66e1e9d69d28beb3db4d799a08d2394813cddd00f30`.
+- Public SSE session: `9caf8108-fb28-4e3d-b368-eabadc622a55`. The initial
+  work-API turn completed in 6.4 seconds, reached its first tool at 5.36 seconds,
+  emitted the normal tool lifecycle, and created the exact acceptance marker.
+- The MGMT seed landed directly at `/sandbox/workspaces/mgmt`, with no nested
+  MGMT directory. The runtime created a remote-free portable Git baseline; the
+  model then committed the marker as `d3b3e02` and left the worktree clean.
+- A user stop interrupted a harmless 30-second command. Live acceptance exposed
+  and fixed missing terminal delivery after `SessionRegistry.abort()`; after the
+  fix the client received terminal state 9 ms after the stop response.
+- The controller stayed running while the fresh sandbox moved to `Stopped`.
+  Sending the next turn automatically returned that same sandbox to `Ready` and
+  preserved the exact marker, Git commit, and clean worktree.
+- Server build, targeted lint, shell syntax checks, focused tests, and the full
+  suite passed: 281 files, 3,974 tests passed, 10 skipped.
+
+The production rollout subsequently completed with the canonical service
+provider names and the published OpenShell compatibility release. The current
+state and bounded service-provider checks are recorded below; the earlier
+acceptance notes remain as historical evidence of the pre-rollout state.
+
+## Production service-provider acceptance update — 2026-09-11
+
+- At `2026-09-11T13:38:20Z`, the production gateway reported the canonical
+  encrypted providers `github` (type `github`, one credential key) and
+  `google-workspace` (type `mitzo-google-workspace-spike`, one credential key).
+  The legacy `mitzo-github-spike` name was not used by the production sandbox.
+- Production sandbox `mitzo-5248c677c0f2b` had both canonical providers
+  attached. Its effective policy included the GitHub read-only endpoints and
+  the Google Workspace Drive, Docs, and Calendar endpoints declared by the
+  reviewed profiles.
+- Through the canonical `github` provider, `gh api user` completed and its
+  response was reduced inside the sandbox to the assertion that a non-empty
+  authenticated login was present. No identity or response data crossed the
+  sandbox boundary.
+- The current `google-workspace` grant is not limited to the earlier
+  `drive.readonly` consent. A bounded `calendar.calendarList.list` request with
+  `maxResults=1` and `fields=items(id)` succeeded. A Drive query selected one
+  Google Doc ID entirely inside the sandbox, and a bounded
+  `docs.documents.get` request with `fields=documentId` also succeeded. These
+  calls prove the deployed grant includes the profile's Calendar and Docs
+  read-only scopes; no ID, name, document content, or credential material
+  crossed the sandbox boundary.
+- All response files were temporary to the sandbox and deleted before the
+  checks exited. The checks emitted only `CALENDAR_SCOPE_OK`, `DOCS_SCOPE_OK`,
+  and `GITHUB_CANONICAL_AUTH_OK`.
+
+## Google Workspace acceptance update — 2026-09-11
+
+- Created a replacement Desktop OAuth client in project `882086682959` and
+  initially completed an attended login restricted to `drive.readonly`. The
+  previous local client and encrypted GWS credentials were retained as
+  timestamped backups; no token, secret, Drive ID, name, or content was printed.
+  The production update above supersedes this initial scope record and proves
+  the current grant has the later Docs and Calendar read-only scopes.
+- Registered the canonical `google-workspace` provider with credential key
+  `GOOGLE_WORKSPACE_CLI_TOKEN` and gateway-owned OAuth refresh material. The
+  provider reports encrypted credential storage.
+- Enabled the OpenShell 0.0.116 gateway-global
+  `providers_v2_enabled=true` setting so attached provider profiles contribute
+  their endpoints and binaries to effective sandbox policy.
+- Corrected the profile to declare `drive.readonly`, terminate and inspect TLS,
+  and allow `/usr/bin/node`, which is the actual network process behind the
+  packaged `/usr/bin/gws` launcher.
+- Fresh retained sandbox `gws-0911-0140` reached `Ready`. Its composed policy
+  contained only the Google REST endpoint at `www.googleapis.com:443` with
+  read-only enforcement and the reviewed GWS runtime binaries.
+- Inside that sandbox, `Drive files.list` ran with `pageSize=1` and
+  `fields=files(id)` and returned count `1`. The response was held in a
+  mode-0600 temporary file, reduced to a count inside the sandbox, and deleted;
+  no item data crossed the sandbox boundary.
+- A harmless GET to unapproved `example.com` returned HTTP 403, satisfying the
+  paired out-of-policy denial control.
+
 Personal-subscription acceptance completed on the isolated
 `codex/openshell-personal-subscription` branch on 2026-09-10. This does not
 promote an image, deploy a controller, or satisfy the unrelated service-provider

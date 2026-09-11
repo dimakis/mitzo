@@ -1,12 +1,14 @@
 id: mitzo-google-workspace-spike
-display_name: Mitzo Google Workspace Spike
-description: Disposable delegated Google Workspace read provider
+resource_version: 5
+display_name: Mitzo Google Workspace
+description: Delegated read-only Drive, Docs, and Calendar provider
 category: data
 inference_capable: false
 credentials:
   - name: access_token
     description: Short-lived Google Workspace access token
-    env_vars: [GWS_ACCESS_TOKEN]
+    # gws 0.18.1 consumes a pre-obtained access token from this exact variable.
+    env_vars: [GOOGLE_WORKSPACE_CLI_TOKEN]
     required: true
     auth_style: bearer
     header_name: authorization
@@ -14,7 +16,9 @@ credentials:
       strategy: oauth2_refresh_token
       token_url: https://oauth2.googleapis.com/token
       scopes:
-        - https://www.googleapis.com/auth/drive
+        - https://www.googleapis.com/auth/drive.readonly
+        - https://www.googleapis.com/auth/documents.readonly
+        - https://www.googleapis.com/auth/calendar.readonly
       refresh_before_seconds: 300
       max_lifetime_seconds: 3600
       material:
@@ -27,7 +31,16 @@ endpoints:
     protocol: rest
     access: read-only
     enforcement: enforce
+    tls: terminate
+  - host: docs.googleapis.com
+    port: 443
+    protocol: rest
+    access: read-only
+    enforcement: enforce
+    tls: terminate
 binaries:
   - /usr/bin/gws
+  # The packaged gws launcher executes the CLI through Node.
+  - /usr/bin/node
   - /usr/bin/curl
   - /usr/local/bin/curl

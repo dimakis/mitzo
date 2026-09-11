@@ -232,11 +232,45 @@ it('offers model-specific thinking choices and resets them when changing model',
     model: 'gpt-a',
     reasoningEffort: 'low',
   });
+  fireEvent.change(thinking, { target: { value: '' } });
+  expect(onChange).toHaveBeenLastCalledWith({
+    accountId: 'personal',
+    model: 'gpt-a',
+    reasoningEffort: null,
+  });
   fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'gpt-b' } });
   expect(onChange).toHaveBeenLastCalledWith({
     accountId: 'personal',
     model: 'gpt-b',
     reasoningEffort: 'medium',
+  });
+});
+it('preserves an explicit model-default thinking selection when hydrating a conversation', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      accountBinding: { accountId: 'personal', accountLabel: 'ChatGPT', model: 'gpt-a' },
+      modelSelection: {
+        model: 'gpt-a',
+        reasoningEffort: null,
+        models: [
+          {
+            id: 'gpt-a',
+            label: 'GPT A',
+            reasoningEfforts: ['low', 'high'],
+            defaultReasoningEffort: 'high',
+          },
+        ],
+      },
+    }),
+  } as Response);
+  const onChange = vi.fn();
+  render(<AccountModelPicker sessionId="saved" preferredModel="gpt-a" onChange={onChange} />);
+  expect(((await screen.findByLabelText('Thinking')) as HTMLSelectElement).value).toBe('');
+  expect(onChange).toHaveBeenLastCalledWith({
+    accountId: 'personal',
+    model: 'gpt-a',
+    reasoningEffort: null,
   });
 });
 it('refreshes on request while preserving the selected account and thinking level', async () => {

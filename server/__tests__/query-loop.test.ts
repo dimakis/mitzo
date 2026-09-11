@@ -112,6 +112,9 @@ function fakeRegistry(
     _setAttached: (v: boolean) => {
       attached = v;
     },
+    _drop: () => {
+      removed = true;
+    },
   } as unknown as SessionRegistry;
 }
 
@@ -349,6 +352,24 @@ describe('runQueryLoop', () => {
       (m: Record<string, unknown>) => m.type === 'session_end',
     );
     expect(sessionEnds).toHaveLength(1);
+  });
+
+  it('emits session_end when a resumed turn ends before a result', async () => {
+    const events: Record<string, unknown>[] = [
+      { type: 'assistant', message: { content: [] }, session_id: 'sess-resumed-abort' },
+      { type: 'result', session_id: 'sess-resumed-abort' },
+      {
+        type: 'stream_event',
+        event: { type: 'message_start', message: { id: 'msg-resumed-abort' } },
+      },
+    ];
+
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
+
+    const sessionEnds = transport.sent.filter(
+      (m: Record<string, unknown>) => m.type === 'session_end',
+    );
+    expect(sessionEnds).toHaveLength(2);
   });
 
   it('defers message_end until all blocks are closed', async () => {
@@ -1663,6 +1684,37 @@ describe('runQueryLoop', () => {
       expect(sessionMeta!.outputTokens).toBe(0);
       expect(sessionMeta!.numTurns).toBe(0);
       expect(sessionMeta!.totalCostUsd).toBe(0);
+    });
+
+    it('persists and delivers session_end after registry abort removes the session', async () => {
+      const store = new EventStore(':memory:');
+      const connRegistry = new ConnectionRegistry();
+      const v2Transport = fakeTransport();
+      connRegistry.register(clientId, v2Transport);
+      connRegistry.watch(clientId, 'sess-registry-abort');
+      connRegistry.setActive(clientId, 'sess-registry-abort');
+
+      const session = registry.get(clientId)!;
+      session.sessionId = 'sess-registry-abort';
+      store.upsertSession({ sessionId: 'sess-registry-abort', cwd: '/tmp' });
+
+      async function* stoppedStream() {
+        yield {
+          type: 'stream_event',
+          event: { type: 'message_start', message: { id: 'msg-registry-abort' } },
+        };
+        (registry as unknown as { _drop: () => void })._drop();
+        abortController.abort();
+      }
+
+      await runQueryLoop(stoppedStream(), clientId, registry, abortController, store, undefined, {
+        connRegistry,
+      });
+
+      expect(v2Transport.sent.some((event) => event.type === 'session_end')).toBe(true);
+      expect(
+        store.getEventsAfter('sess-registry-abort', 0).some((e) => e.type === 'session_end'),
+      ).toBe(true);
     });
 
     it('delivers events to a NEW connection after WS reconnect (old connection gone)', async () => {

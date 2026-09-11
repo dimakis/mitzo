@@ -322,6 +322,9 @@ export interface SessionMeta {
   /** Highest configuration revision ever applied; retained after deactivation. */
   symposiumRevision?: number;
   accountBinding?: AccountBinding | null;
+  /** Last picker values used by this conversation. Account routing remains immutable. */
+  selectedModel: string | null;
+  reasoningEffort: string | null;
   sessionId: string;
   summary: string | null;
   branch: string | null;

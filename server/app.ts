@@ -1360,9 +1360,18 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
         )
       : undefined;
   let modelSelection:
-    | { model: string; reasoningEffort?: string; models: Array<{ id: string; label: string }> }
+    | {
+        model: string;
+        reasoningEffort?: string | null;
+        models: Array<{
+          id: string;
+          label: string;
+          reasoningEfforts?: string[];
+          defaultReasoningEffort?: string;
+        }>;
+      }
     | undefined;
-  if (codexBacked && meta.accountBinding) {
+  if (meta.accountBinding) {
     try {
       const profiles = loadAccountProfiles();
       await profiles.refresh(req.query.refresh === '1');
@@ -1372,9 +1381,13 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
       const defaultModel = profile?.models[0];
       if (profile && defaultModel)
         modelSelection = {
-          model: codexQueue?.model ?? meta.accountBinding.model ?? defaultModel.id,
+          model:
+            meta.selectedModel ??
+            (meta.accountBinding.provider === 'openai-codex' ? codexQueue?.model : undefined) ??
+            meta.accountBinding.model ??
+            defaultModel.id,
           models: profile.models,
-          reasoningEffort: codexQueue?.reasoningEffort,
+          reasoningEffort: meta.reasoningEffort ?? codexQueue?.reasoningEffort ?? null,
         };
     } catch {
       // Keep metadata available when the optional account catalog is temporarily unreadable.
@@ -1400,12 +1413,8 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
           },
         }
       : {}),
-    ...(codexBacked
-      ? {
-          modelSelection,
-          codexQueue,
-        }
-      : {}),
+    ...(modelSelection ? { modelSelection } : {}),
+    ...(codexBacked ? { codexQueue } : {}),
     totalCostUsd: meta.totalCostUsd,
     numTurns: meta.numTurns,
   });

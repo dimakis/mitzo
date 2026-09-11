@@ -105,6 +105,8 @@ export interface ModelSessionConfig {
   tools?: ToolDefinition[];
   /** Enable extended thinking. */
   thinking?: { type: 'enabled'; budget_tokens: number };
+  /** Provider-native named reasoning level (for example OpenAI `high`). */
+  reasoningEffort?: string;
   /** Abort signal for cancellation. */
   signal?: AbortSignal;
 }

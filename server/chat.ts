@@ -809,7 +809,7 @@ export async function startChat(
     cwd?: string;
     model?: string;
     accountId?: string;
-    reasoningEffort?: string;
+    reasoningEffort?: string | null;
     accountProfiles?: AccountProfiles;
     extraTools?: string;
     skillAllowedTools?: string[];
@@ -845,7 +845,7 @@ async function _startChatInner(
     cwd?: string;
     model?: string;
     accountId?: string;
-    reasoningEffort?: string;
+    reasoningEffort?: string | null;
     accountProfiles?: AccountProfiles;
     extraTools?: string;
     skillAllowedTools?: string[];
@@ -868,9 +868,8 @@ async function _startChatInner(
   let gemini: GeminiOptions | undefined;
   let accountEnv: Record<string, string> | undefined;
   try {
-    const storedBinding = options.resume
-      ? eventStore.getSession(options.resume)?.accountBinding
-      : null;
+    const storedMeta = options.resume ? eventStore.getSession(options.resume) : undefined;
+    const storedBinding = storedMeta?.accountBinding;
     const profiles =
       options.accountProfiles ??
       (options.accountId || storedBinding ? loadAccountProfiles() : undefined);
@@ -888,11 +887,23 @@ async function _startChatInner(
         );
       options = {
         ...options,
-        model:
-          accountBinding.provider === 'openai-codex' && options.accountId
-            ? (options.model ?? accountBinding.model)
-            : accountBinding.model,
+        model: options.accountId
+          ? (options.model ?? storedMeta?.selectedModel ?? accountBinding.model)
+          : (storedMeta?.selectedModel ?? accountBinding.model),
+        reasoningEffort: options.accountId
+          ? options.reasoningEffort !== undefined
+            ? options.reasoningEffort
+            : options.model && options.model !== (storedMeta?.selectedModel ?? accountBinding.model)
+              ? null
+              : storedMeta?.reasoningEffort
+          : storedMeta?.reasoningEffort,
       };
+      if (
+        accountBinding.provider === 'openai' ||
+        accountBinding.provider === 'google-vertex' ||
+        accountBinding.provider === 'anthropic-vertex'
+      )
+        profiles!.validateModelSelection(accountBinding, options.model!, options.reasoningEffort);
       if (accountBinding.provider === 'openai-codex') {
         if (options.skillAllowedTools)
           throw new Error('Codex restricted skill tool ceilings are not yet supported');
@@ -1085,6 +1096,8 @@ async function _startChatInner(
       mode,
       initialPrompt: fullPrompt,
       ...(accountBinding ? { accountBinding } : {}),
+      selectedModel: options.model ?? accountBinding?.model ?? null,
+      reasoningEffort: options.reasoningEffort ?? null,
     });
   }
 
@@ -1139,6 +1152,10 @@ async function _startChatInner(
       ...(options.telosTaskId ? { telosTaskId: options.telosTaskId } : {}),
       ...(existingMeta ? { updatedAt: existingMeta.updatedAt } : {}),
       agentName,
+      ...(options.model ? { selectedModel: options.model } : {}),
+      ...(options.reasoningEffort !== undefined
+        ? { reasoningEffort: options.reasoningEffort || null }
+        : {}),
     });
   }
 
@@ -1273,6 +1290,8 @@ async function _startChatInner(
         cwd,
         mode: session.mode,
         agentName,
+        selectedModel: options.model ?? accountBinding?.model ?? null,
+        reasoningEffort: options.reasoningEffort ?? null,
       });
     }
     let q: QueryInstance;
@@ -1339,6 +1358,8 @@ async function _startChatInner(
         binding: accountBinding!,
         apiKey,
         gemini,
+        selectedModel: options.model,
+        reasoningEffort: options.reasoningEffort,
         session,
         registry,
         input: inputQueue,
@@ -1567,6 +1588,22 @@ function imagePreviews(images?: Array<{ data: string; mediaType: string }>): str
   return images?.map((image) => `data:${image.mediaType};base64,${image.data}`);
 }
 
+function validateNativeModelSelection(
+  sessionId: string,
+  model?: string,
+  reasoningEffort?: string | null,
+): void {
+  if (!model && reasoningEffort === undefined) return;
+  const meta = eventStore.getSession(sessionId);
+  const binding = meta?.accountBinding;
+  if (!binding) throw new Error('Bound account metadata is unavailable');
+  loadAccountProfiles().validateModelSelection(
+    binding,
+    model ?? meta.selectedModel ?? binding.model,
+    reasoningEffort,
+  );
+}
+
 /** Push a follow-up message into a running session. */
 export function sendToChat(
   clientId: string,
@@ -1575,13 +1612,22 @@ export function sendToChat(
   contextBlocks?: string[],
   clientMsgId?: string,
   model?: string,
-  reasoningEffort?: string,
+  reasoningEffort?: string | null,
 ): boolean {
   return withSpan('chat.send', { 'chat.clientId': clientId }, () => {
     const session = registry.get(clientId);
     if (!session?.inputQueue) return false;
     const codex = getCodexRuntime(session);
     const responses = getResponsesRuntime(session);
+    if (!codex && !responses && model && model !== session.model) {
+      send(session.transport, {
+        type: 'error',
+        sessionId: session.sessionId,
+        error:
+          'Changing models in an active Anthropic session is not supported. Start a new task to use the selected model.',
+      });
+      return false;
+    }
     if (codex && session.activeSkillPolicy) {
       send(session.transport, {
         type: 'error',
@@ -1598,6 +1644,8 @@ export function sendToChat(
     );
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-send`;
     const previews = imagePreviews(images);
+    const selectionReasoningEffort =
+      model && model !== session.model && reasoningEffort === undefined ? null : reasoningEffort;
     if (responses && session.sessionId && eventStore.hasUserMessage(session.sessionId, messageId))
       return true;
     if (codex) {
@@ -1607,7 +1655,7 @@ export function sendToChat(
           id: messageId,
           prompt: fullPrompt,
           images,
-          reasoningEffort,
+          reasoningEffort: selectionReasoningEffort,
           ...(model ? { model } : {}),
         });
         if (model) session.model = model;
@@ -1623,7 +1671,15 @@ export function sendToChat(
     }
     if (responses) {
       try {
-        responses.prepare(messageId, fullPrompt);
+        if (!session.sessionId) throw new Error('Bound session metadata is unavailable');
+        validateNativeModelSelection(session.sessionId, model, selectionReasoningEffort);
+        responses.prepare(messageId, fullPrompt, {
+          ...(model ? { model } : {}),
+          ...(selectionReasoningEffort !== undefined
+            ? { reasoningEffort: selectionReasoningEffort }
+            : {}),
+        });
+        if (model) session.model = model;
       } catch {
         send(session.transport, {
           type: 'error',
@@ -1634,6 +1690,15 @@ export function sendToChat(
       }
     }
     if (session.sessionId) {
+      if (model || selectionReasoningEffort !== undefined) {
+        eventStore.upsertSession({
+          sessionId: session.sessionId,
+          ...(model ? { selectedModel: model } : {}),
+          ...(selectionReasoningEffort !== undefined
+            ? { reasoningEffort: selectionReasoningEffort || null }
+            : {}),
+        });
+      }
       const isDup = storeAndEchoIfNew(
         session.sessionId,
         messageId,
@@ -1688,12 +1753,22 @@ export async function interruptChat(
   contextBlocks?: string[],
   clientMsgId?: string,
   model?: string,
-  reasoningEffort?: string,
+  reasoningEffort?: string | null,
 ): Promise<boolean> {
   return withSpanAsync('chat.interrupt', { 'chat.clientId': clientId }, async () => {
     const session = registry.get(clientId);
     if (!session?.queryInstance || !session?.inputQueue) return false;
     const codex = getCodexRuntime(session);
+    const responses = getResponsesRuntime(session);
+    if (!codex && !responses && model && model !== session.model) {
+      send(session.transport, {
+        type: 'error',
+        sessionId: session.sessionId,
+        error:
+          'Changing models in an active Anthropic session is not supported. Start a new task to use the selected model.',
+      });
+      return false;
+    }
     if (codex) {
       if (session.activeSkillPolicy) {
         send(session.transport, {
@@ -1715,7 +1790,26 @@ export async function interruptChat(
         reasoningEffort,
       );
     }
+    if (responses) {
+      await session.queryInstance.interrupt();
+      return sendToChat(
+        clientId,
+        prompt,
+        images,
+        contextBlocks,
+        clientMsgId,
+        model,
+        reasoningEffort,
+      );
+    }
     if (model) session.model = model;
+    if (session.sessionId && (model || reasoningEffort !== undefined)) {
+      eventStore.upsertSession({
+        sessionId: session.sessionId,
+        ...(model ? { selectedModel: model } : {}),
+        ...(reasoningEffort !== undefined ? { reasoningEffort: reasoningEffort || null } : {}),
+      });
+    }
     const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-interrupt`;
     const previews = imagePreviews(images);

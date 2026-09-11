@@ -12,13 +12,18 @@ import { NativeResponsesStore, type NativeResponsesState } from './native-respon
 import { createLogger } from './logger.js';
 const log = createLogger('native-responses');
 
-interface NativeResponsesOptions extends Omit<ModelSessionConfig, 'model' | 'signal' | 'thinking'> {
+interface NativeResponsesOptions extends Omit<
+  ModelSessionConfig,
+  'model' | 'signal' | 'thinking' | 'reasoningEffort'
+> {
   conversationId: string;
   binding: AccountBinding;
   apiKey?: string;
   gemini?: GeminiOptions;
   store: NativeResponsesStore;
   maxTurns?: number;
+  selectedModel?: string;
+  reasoningEffort?: string | null;
   executeTool: (block: ToolUseBlock, signal: AbortSignal) => Promise<ToolResultBlock>;
 }
 
@@ -52,8 +57,17 @@ function recoverToolResults(state: NativeResponsesState) {
  */
 export class NativeResponsesRunner {
   private active?: AbortController;
-  private prepared = new Map<string, { prompt: string; state: NativeResponsesState }>();
+  private prepared = new Map<
+    string,
+    {
+      prompt: string;
+      state: NativeResponsesState;
+      selection?: { model?: string; reasoningEffort?: string | null };
+    }
+  >();
   private idleWaiters: (() => void)[] = [];
+  private selectedModel: string;
+  private reasoningEffort?: string | null;
   constructor(private options: NativeResponsesOptions) {
     if (options.binding.provider === 'openai') {
       if (!options.apiKey?.trim() || options.gemini) throw new Error('OpenAI API key is required');
@@ -66,6 +80,8 @@ export class NativeResponsesRunner {
         throw new Error('Explicit Google Vertex account is required');
     } else throw new Error('Native runtime requires an explicit API account');
     if (!options.conversationId) throw new Error('Application conversation ID is required');
+    this.selectedModel = options.selectedModel ?? options.binding.model;
+    this.reasoningEffort = options.reasoningEffort;
     if (
       options.maxTurns !== undefined &&
       (!Number.isInteger(options.maxTurns) || options.maxTurns < 1)
@@ -94,14 +110,18 @@ export class NativeResponsesRunner {
     return new Promise<void>((resolve) => this.idleWaiters.push(resolve));
   }
   /** Durably claim a follow-up before the public transcript acknowledges it. */
-  prepare(messageId: string, prompt: string) {
+  prepare(
+    messageId: string,
+    prompt: string,
+    selection?: { model?: string; reasoningEffort?: string | null },
+  ) {
     if (this.active || this.prepared.size)
       throw new Error('Native Responses conversation already running');
     const state = this.options.store.begin(this.options.conversationId, this.options.binding);
     recoverToolResults(state);
     state.history.push({ role: 'user', content: prompt });
     this.options.store.save(this.options.conversationId, this.options.binding, state);
-    this.prepared.set(messageId, { prompt, state });
+    this.prepared.set(messageId, { prompt, state, selection });
   }
   // Lazy generator: merely constructing it starts no work and holds no lease.
   // At first next(), both guards run synchronously before any await/yield.
@@ -126,19 +146,38 @@ export class NativeResponsesRunner {
         state.history.push({ role: 'user', content: prompt });
         save();
       }
+      const previousModel = this.selectedModel;
+      const selectedModel = prepared?.selection?.model ?? previousModel;
+      const checkpoint =
+        state.checkpoint && state.checkpoint.model !== selectedModel
+          ? {
+              ...state.checkpoint,
+              model: selectedModel,
+              input: state.checkpoint.input.filter((item) => item.type !== 'reasoning'),
+            }
+          : state.checkpoint;
+      const selectedReasoningEffort =
+        prepared?.selection && 'reasoningEffort' in prepared.selection
+          ? prepared.selection.reasoningEffort
+          : prepared?.selection?.model && prepared.selection.model !== previousModel
+            ? null
+            : this.reasoningEffort;
+      this.selectedModel = selectedModel;
+      this.reasoningEffort = selectedReasoningEffort;
       const config = {
-        model: opts.binding.model,
+        model: selectedModel,
         systemPrompt: opts.systemPrompt,
         maxTokens: opts.maxTokens,
         tools: opts.tools,
+        reasoningEffort: selectedReasoningEffort ?? undefined,
         signal: abort.signal,
       };
       const session = opts.gemini
-        ? new GeminiSession(config, { ...opts.gemini, checkpoint: state.checkpoint })
+        ? new GeminiSession(config, { ...opts.gemini, checkpoint })
         : new ResponsesSession(config, {
             accountId: opts.binding.accountId,
             apiKey: opts.apiKey!,
-            checkpoint: state.checkpoint,
+            checkpoint,
           });
       for await (const event of runAgenticLoop(session, state.history, {
         sessionId: opts.conversationId,
