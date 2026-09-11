@@ -169,6 +169,26 @@ describe('work OpenAI API profile', () => {
     delete unbound.sandboxProvider;
     expect(() => new AccountProfiles([unbound])).not.toThrow();
   });
+
+  it('validates live native model and thinking changes against the bound catalog', () => {
+    const profiles = new AccountProfiles([
+      {
+        ...api,
+        models: [
+          ...api.models,
+          { id: 'other-model', label: 'Other model', reasoningEfforts: ['low'] },
+        ],
+      },
+    ]);
+    const binding = profiles.resolve('work-api', 'test-model');
+    expect(() => profiles.validateModelSelection(binding, 'other-model', 'low')).not.toThrow();
+    expect(() => profiles.validateModelSelection(binding, 'missing-model', 'low')).toThrow(
+      /model/i,
+    );
+    expect(() => profiles.validateModelSelection(binding, 'other-model', 'high')).toThrow(
+      /thinking/i,
+    );
+  });
 });
 
 describe('brokered ChatGPT subscription profile', () => {

@@ -759,15 +759,16 @@ describe('sendMessage — session expired recovery', () => {
 });
 
 describe('interruptMessage', () => {
-  it('includes model from opts when provided', () => {
+  it('includes the bound account and model from opts when provided', () => {
     const store = createReadyStore();
     store.getState().sendMessage('first');
     lastWs.simulateMessage({ type: 'session_id', sessionId: 'sess-int' });
 
-    store.getState().interruptMessage('urgent', { model: 'claude-opus-4-6' });
+    store.getState().interruptMessage('urgent', { accountId: 'work', model: 'claude-opus-4-6' });
 
     const interrupts = lastWs.parsedSent().filter((m) => m.type === 'interrupt');
     expect(interrupts).toHaveLength(1);
+    expect(interrupts[0].accountId).toBe('work');
     expect(interrupts[0].model).toBe('claude-opus-4-6');
   });
 

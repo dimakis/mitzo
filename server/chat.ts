@@ -1574,6 +1574,22 @@ function imagePreviews(images?: Array<{ data: string; mediaType: string }>): str
   return images?.map((image) => `data:${image.mediaType};base64,${image.data}`);
 }
 
+function validateNativeModelSelection(
+  sessionId: string,
+  model?: string,
+  reasoningEffort?: string | null,
+): void {
+  if (!model && reasoningEffort === undefined) return;
+  const meta = eventStore.getSession(sessionId);
+  const binding = meta?.accountBinding;
+  if (!binding) throw new Error('Bound account metadata is unavailable');
+  loadAccountProfiles().validateModelSelection(
+    binding,
+    model ?? meta.selectedModel ?? binding.model,
+    reasoningEffort,
+  );
+}
+
 /** Push a follow-up message into a running session. */
 export function sendToChat(
   clientId: string,
@@ -1630,6 +1646,8 @@ export function sendToChat(
     }
     if (responses) {
       try {
+        if (!session.sessionId) throw new Error('Bound session metadata is unavailable');
+        validateNativeModelSelection(session.sessionId, model, reasoningEffort);
         responses.prepare(messageId, fullPrompt, {
           ...(model ? { model } : {}),
           ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),

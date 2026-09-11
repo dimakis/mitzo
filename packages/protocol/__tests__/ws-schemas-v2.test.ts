@@ -134,6 +134,17 @@ describe('v2 send', () => {
 });
 
 describe('v2 interrupt / stop / permission_response / set_mode', () => {
+  it('accepts the bound account identity on an interrupt', () => {
+    const r = V2InterruptMessage.safeParse({
+      type: 'interrupt',
+      sessionId: 'sess-1',
+      prompt: 'change course',
+      clientMsgId: 'i-1',
+      accountId: 'work',
+      model: 'model-b',
+    });
+    expect(r.success).toBe(true);
+  });
   it('accepts interrupt with sessionId', () => {
     const r = V2InterruptMessage.safeParse({
       type: 'interrupt',

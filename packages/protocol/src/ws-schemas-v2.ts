@@ -101,6 +101,7 @@ export const V2InterruptMessage = z.object({
   sessionId: z.string().min(1),
   prompt: z.string().min(1),
   clientMsgId: z.string().min(1),
+  accountId: z.string().min(1).optional(),
   model: z.string().optional(),
   reasoningEffort: z.string().min(1).max(32).nullable().optional(),
   images: z.array(ImageSchema).optional(),

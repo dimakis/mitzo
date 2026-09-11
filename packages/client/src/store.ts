@@ -389,6 +389,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       };
       const model = opts?.model ?? get().config.modelId;
       if (model) msg.model = model;
+      if (opts?.accountId) msg.accountId = opts.accountId;
       if (opts?.reasoningEffort !== undefined) msg.reasoningEffort = opts.reasoningEffort;
       if (opts?.images?.length) {
         msg.images = opts.images.map((img) => ({ data: img.data, mediaType: img.mediaType }));

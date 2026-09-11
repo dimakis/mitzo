@@ -247,6 +247,25 @@ export class AccountProfiles {
     };
   }
 
+  validateModelSelection(
+    binding: AccountBinding,
+    model: string,
+    reasoningEffort?: string | null,
+  ): void {
+    const current = this.resolve(binding.accountId, model);
+    if (
+      current.provider !== binding.provider ||
+      current.profileRevision !== binding.profileRevision
+    )
+      throw new Error('Account configuration changed');
+    if (!reasoningEffort) return;
+    const entry = this.catalog()
+      .find((account) => account.id === binding.accountId)
+      ?.models.find((candidate) => candidate.id === model);
+    if (!entry?.reasoningEfforts?.includes(reasoningEffort))
+      throw new Error('Thinking level unavailable for this model');
+  }
+
   resume(binding: AccountBinding): AccountBinding {
     const current = this.resolve(
       binding.accountId,
