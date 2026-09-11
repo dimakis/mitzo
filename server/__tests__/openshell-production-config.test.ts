@@ -89,4 +89,21 @@ describe('OpenShell production bundle validation', () => {
     expect(profile).toContain('protocol: rest');
     expect(profile).not.toContain('protocol: websocket');
   });
+
+  it('keeps sandbox-native Google Workspace reads within the requested data services', () => {
+    const profile = readFileSync(
+      new URL(
+        '../../docs/spikes/openshell-codex/google-workspace-spike-profile.yaml',
+        import.meta.url,
+      ),
+      'utf8',
+    );
+    for (const scope of ['drive.readonly', 'documents.readonly', 'calendar.readonly'])
+      expect(profile).toContain(scope);
+    for (const host of ['www.googleapis.com', 'docs.googleapis.com'])
+      expect(profile).toContain(`host: ${host}`);
+    expect(profile).not.toContain('gmail.readonly');
+    expect(profile).not.toContain('gmail.googleapis.com');
+    expect(profile).not.toContain('access: read-write');
+  });
 });

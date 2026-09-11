@@ -27,6 +27,9 @@ production service-provider contract attaches Google Workspace and GitHub to
 new sandboxes, while their provider profiles remain the independent network and
 credential policy boundary. The built-in GitHub profile is intentionally
 read-only; authenticated mutations require a separate Mitzo-approved executor.
+The Google Workspace profile follows the same split: sandbox-native Drive,
+Docs, and Calendar reads are available, while creates, updates, sends, and
+deletes remain unavailable until routed through structured approval tools.
 
 The OpenShell gateway is not placed inside `docker-compose.yml`: it owns the
 Podman sandbox lifecycle and its mTLS/control-plane state. The existing Compose
@@ -78,6 +81,39 @@ runs the preflight, and only then restarts Mitzo. Existing sandboxes are retaine
 the rollback must not delete them. If provider-profile policy composition itself
 must be rolled back, disable OpenShell routing in Mitzo first, then remove the
 gateway-global `providers_v2_enabled` setting.
+
+## Gateway state, backup, and upgrades
+
+Treat the gateway database, its credential-encryption key, client trust state,
+Podman machine storage, and the release lock as one recoverable set. On the
+Homebrew macOS installation used for production, the relevant paths are:
+
+- `~/.local/state/openshell/gateway/openshell.db`
+- `~/.local/state/openshell/gateway/credentials/`
+- `~/.local/state/openshell/homebrew/tls/`
+- `~/.config/openshell/`
+- `~/.config/containers/podman/machine/applehv/`
+- `~/.local/share/containers/podman/machine/applehv/podman-machine-default-arm64.raw`
+
+The SQLite database currently uses delete journaling. A release backup must be
+a cold snapshot: quiesce Mitzo, stop the OpenShell launch service, stop the
+Podman machine, copy the paths above plus this stack lock and the active account
+profile, and then restart the old stack. Validate the copied database with
+`PRAGMA integrity_check` before declaring the snapshot usable. The Podman raw
+disk contains retained sandbox workspaces and locally built images; a database-
+only backup does not preserve them.
+
+The backup contains the key that decrypts provider credentials and therefore
+has the security value of the credentials themselves. Store it only on
+encrypted storage with owner-only permissions. Never commit it, upload it as a
+CI artifact, or print provider material into a logical inventory.
+
+For an upgrade, preserve the old Homebrew gateway binary/version, Podman driver
+version, runtime image, seed, account profile, policy, and cold snapshot. Upgrade
+the gateway and driver as a matched pair, run the production preflight, and only
+then resume Mitzo. If startup or validation fails, stop the new processes and
+restore the complete matched snapshot before starting the old binaries. Never
+run an older gateway against a database that a newer gateway may have migrated.
 
 ## Current limitation
 
