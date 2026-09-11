@@ -203,7 +203,6 @@ export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
     imageLabels['io.mitzo.openshell.base-image'] === manifest.runtime.baseImage,
     'runtime image base provenance does not match the stack lock',
   );
-
   console.log(`OPENSHELL_PRODUCTION_GATEWAY=${gatewayInfo.version}`);
   console.log(
     `OPENSHELL_PRODUCTION_DRIVER=${manifest.gateway.driver}@${manifest.gateway.driverVersion}`,
