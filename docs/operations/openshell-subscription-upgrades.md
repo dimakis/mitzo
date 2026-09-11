@@ -24,24 +24,27 @@ complete rollout.
 The reviewed patch series originated at NVIDIA/OpenShell issue
 [#2740](https://github.com/NVIDIA/OpenShell/issues/2740). The production-ready
 OpenShell 0.0.116 port is published in
-[`dimakis/OpenShell`](https://github.com/dimakis/OpenShell) as immutable tag
+[`dimakis/OpenShell`](https://github.com/dimakis/OpenShell) as release tag
 `v0.0.116-mitzo.1`, commit
 `226dfbcd450710ccd6b4e6dc9109deede04bd130`, with maintenance branch
 `codex/mitzo-oauth-v0.0.116`. Its historical review lineage is
 [saariuslystoned/OpenShell PR #1](https://github.com/saariuslystoned/OpenShell/pull/1)
 at `f8cbf77623559149e91c63385992e2acb9e8bda0`, followed by accepted fixes through
-`820ccdcee2d871921c01cba1dfaf5d8e42c72d5e`. A production build must use the
-immutable tag for its exact upstream release; none of these hashes is a
+`820ccdcee2d871921c01cba1dfaf5d8e42c72d5e`. The approved immutable source
+identity is the full 0.0.116 port commit above. The tag is a convenience name
+and must resolve to that commit before use; none of these hashes is a
 version-agnostic patch.
 
 ## Upgrade procedure
 
 1. Record the current CLI, gateway, compute driver/supervisor, runtime image,
    provider profile, and patch commit. Capture metadata only—never auth data.
-2. Build the patch on the exact target OpenShell release in an isolated state
-   directory. If the release removed managed inference routing or
-   `inference.local`, treat the work as an architecture migration and obtain a
-   fresh review.
+2. Fetch the tag, resolve its peeled commit with
+   `git rev-parse 'v0.0.116-mitzo.1^{commit}'`, and require the exact full commit
+   recorded above before building. Build in an isolated state directory. For a
+   later release, record its new full reviewed commit and immutable image digest
+   first. If it removed managed inference routing or `inference.local`, treat
+   the work as an architecture migration and obtain a fresh review.
 3. Run formatting, unit/integration tests, and isolated gateway acceptance.
 4. Back up production configuration and prepare the previous executable/image
    as a rollback. Do not transplant the isolated credential database.
