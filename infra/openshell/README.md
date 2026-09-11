@@ -28,8 +28,11 @@ new sandboxes, while their provider profiles remain the independent network and
 credential policy boundary. The built-in GitHub profile is intentionally
 read-only; authenticated mutations require a separate Mitzo-approved executor.
 The Google Workspace profile follows the same split: sandbox-native Drive,
-Docs, and Calendar reads are available, while creates, updates, sends, and
-deletes remain unavailable until routed through structured approval tools.
+Docs, Calendar, Gmail, and Sheets reads are available, while creates, updates,
+sends, and deletes remain unavailable until routed through structured approval
+tools. Gmail and Sheets use their dedicated API hosts; allowing only
+`www.googleapis.com` does not make those services reachable through the
+OpenShell tunnel.
 
 The OpenShell gateway is not placed inside `docker-compose.yml`: it owns the
 Podman sandbox lifecycle and its mTLS/control-plane state. The existing Compose
