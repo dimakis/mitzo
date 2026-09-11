@@ -29,19 +29,45 @@ gateway resources remained unchanged.
 - Server build, targeted lint, shell syntax checks, focused tests, and the full
   suite passed: 281 files, 3,974 tests passed, 10 skipped.
 
-Rollout is not yet authorized. Google Workspace provider-name alignment and the
-bounded Drive proof are complete as recorded below. GitHub remains named
-`mitzo-github-spike`, while the reviewed runtime configuration accepts the
-canonical service role `github`; that provider-name alignment must be reviewed
-rather than bypassed. The OpenShell subscription compatibility build also
-remains a reviewed commit series rather than a published supported release.
+The production rollout subsequently completed with the canonical service
+provider names and the published OpenShell compatibility release. The current
+state and bounded service-provider checks are recorded below; the earlier
+acceptance notes remain as historical evidence of the pre-rollout state.
+
+## Production service-provider acceptance update — 2026-09-11
+
+- At `2026-09-11T13:38:20Z`, the production gateway reported the canonical
+  encrypted providers `github` (type `github`, one credential key) and
+  `google-workspace` (type `mitzo-google-workspace-spike`, one credential key).
+  The legacy `mitzo-github-spike` name was not used by the production sandbox.
+- Production sandbox `mitzo-5248c677c0f2b` had both canonical providers
+  attached. Its effective policy included the GitHub read-only endpoints and
+  the Google Workspace Drive, Docs, and Calendar endpoints declared by the
+  reviewed profiles.
+- Through the canonical `github` provider, `gh api user` completed and its
+  response was reduced inside the sandbox to the assertion that a non-empty
+  authenticated login was present. No identity or response data crossed the
+  sandbox boundary.
+- The current `google-workspace` grant is not limited to the earlier
+  `drive.readonly` consent. A bounded `calendar.calendarList.list` request with
+  `maxResults=1` and `fields=items(id)` succeeded. A Drive query selected one
+  Google Doc ID entirely inside the sandbox, and a bounded
+  `docs.documents.get` request with `fields=documentId` also succeeded. These
+  calls prove the deployed grant includes the profile's Calendar and Docs
+  read-only scopes; no ID, name, document content, or credential material
+  crossed the sandbox boundary.
+- All response files were temporary to the sandbox and deleted before the
+  checks exited. The checks emitted only `CALENDAR_SCOPE_OK`, `DOCS_SCOPE_OK`,
+  and `GITHUB_CANONICAL_AUTH_OK`.
 
 ## Google Workspace acceptance update — 2026-09-11
 
 - Created a replacement Desktop OAuth client in project `882086682959` and
-  completed an attended login restricted to `drive.readonly`. The previous
-  local client and encrypted GWS credentials were retained as timestamped
-  backups; no token, secret, Drive ID, name, or content was printed.
+  initially completed an attended login restricted to `drive.readonly`. The
+  previous local client and encrypted GWS credentials were retained as
+  timestamped backups; no token, secret, Drive ID, name, or content was printed.
+  The production update above supersedes this initial scope record and proves
+  the current grant has the later Docs and Calendar read-only scopes.
 - Registered the canonical `google-workspace` provider with credential key
   `GOOGLE_WORKSPACE_CLI_TOKEN` and gateway-owned OAuth refresh material. The
   provider reports encrypted credential storage.
