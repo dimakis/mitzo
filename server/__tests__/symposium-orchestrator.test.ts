@@ -561,6 +561,20 @@ describe('SymposiumOrchestrator', () => {
     expect(cancelled.recipients[0].status).toBe('cancelled');
     expect(reviewer.cancellations).toEqual(['delivery:delivery-1:seat:reviewer']);
     expect(store.getSymposiumSeatThreads('chat')).toEqual([]);
+    await expect(
+      orchestrator.cancel({
+        deliveryId: staged.deliveryId,
+        reason: 'Director stopped review',
+        idempotencyKey: 'cancel-1',
+      }),
+    ).resolves.toEqual(cancelled);
+    await expect(
+      orchestrator.cancel({
+        deliveryId: staged.deliveryId,
+        reason: 'A conflicting reason',
+        idempotencyKey: 'cancel-1',
+      }),
+    ).rejects.toThrow('idempotency key was reused with a different reason');
   });
 
   it('returns the durable cancellation when optional provider cleanup rejects', async () => {

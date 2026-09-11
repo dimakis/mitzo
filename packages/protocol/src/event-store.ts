@@ -1349,14 +1349,24 @@ export class EventStore {
   }): SymposiumDeliveryRecord {
     return this.db!.transaction(() => {
       const row = this.db!.prepare(
-        `SELECT status, cancellation_idempotency_key
+        `SELECT status, cancellation_reason, cancellation_idempotency_key
          FROM symposium_deliveries WHERE delivery_id = ?`,
       ).get(input.deliveryId) as
-        { status: string; cancellation_idempotency_key: string | null } | undefined;
+        {
+          status: string;
+          cancellation_reason: string | null;
+          cancellation_idempotency_key: string | null;
+        }
+        | undefined;
       if (!row) throw new Error('Unknown Symposium delivery');
       if (row.cancellation_idempotency_key) {
         if (row.cancellation_idempotency_key !== input.idempotencyKey) {
           throw new Error('Symposium delivery was already cancelled with another request');
+        }
+        if (row.cancellation_reason !== input.reason) {
+          throw new Error(
+            'Symposium cancellation idempotency key was reused with a different reason',
+          );
         }
         return this.getSymposiumDelivery(input.deliveryId)!;
       }
