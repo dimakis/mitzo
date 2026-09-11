@@ -101,13 +101,16 @@ export function ChatView() {
   }, []);
 
   const awaitingNewSession = useRef(false);
+  const resetFailedDraftOnMount = useRef(
+    !sessionId && !activeSessionId && !messages.running && messages.messages.length > 0,
+  );
 
   // Sync route param → store session
   useEffect(() => {
     awaitingNewSession.current = !sessionId && !activeSessionId;
     if (sessionId && sessionId !== activeSessionId) {
       storeSwitchSession(sessionId);
-    } else if (!sessionId && activeSessionId) {
+    } else if (!sessionId && (activeSessionId || resetFailedDraftOnMount.current)) {
       // Keep the guard false for this render: the URL-sync effect below still
       // sees the stale active ID and must not navigate back to it. The render
       // after newSession clears the store arms the guard for the replacement ID.

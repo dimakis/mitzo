@@ -335,6 +335,7 @@ it('routes API accounts through OpenShell in production without resolving host c
   vi.stubEnv('REPO_PATH', root);
   vi.stubEnv('NODE_ENV', 'production');
   vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_OPENAI_API_ENABLED', '1');
   vi.stubEnv('MITZO_OPENSHELL_WORKDIR', '/sandbox/workspaces/wrong-legacy-override');
   const hostFetch = vi.fn().mockResolvedValue(new Response('{}'));
   vi.stubGlobal('fetch', hostFetch);
@@ -448,7 +449,7 @@ it('routes an explicitly broker-bound ChatGPT subscription without reading a hos
   }
 });
 
-it('fails closed for unsupported account providers when OpenShell is enabled', async () => {
+it('keeps Vertex on its native route when OpenShell is enabled', async () => {
   vi.resetModules();
   vi.clearAllMocks();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-openshell-unsupported-'));
@@ -467,24 +468,62 @@ it('fails closed for unsupported account providers when OpenShell is enabled', a
       models: [{ id: 'gemini-test', label: 'Gemini test' }],
     },
   ]);
-  const send = vi.fn();
+  vi.mocked(openResponsesChat).mockRejectedValue(new Error('stop after native routing'));
   try {
-    await chat.startChat({ send, isOpen: () => true }, 'unsupported', 'hello', {
+    await chat.startChat({ send: () => {}, isOpen: () => true }, 'vertex-native', 'hello', {
       cwd: root,
       isolation: false,
       accountId: 'vertex',
       model: 'gemini-test',
       accountProfiles: profiles,
     });
-    expect(send).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'error',
-        error: expect.stringContaining('does not yet support google-vertex'),
-      }),
-    );
-    expect(openResponsesChat).not.toHaveBeenCalled();
+    expect(openResponsesChat).toHaveBeenCalledOnce();
+    expect(vi.mocked(openResponsesChat).mock.calls[0][0].gemini).toMatchObject({
+      accountId: 'vertex',
+      projectId: 'synthetic',
+      region: 'global',
+    });
     expect(openCodexChat).not.toHaveBeenCalled();
     expect(query).not.toHaveBeenCalled();
+  } finally {
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('can bypass OpenShell for API accounts during a proxy incident', async () => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-openshell-api-bypass-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_OPENAI_API_ENABLED', '0');
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')));
+  const chat = await import('../chat.js');
+  const profiles = new AccountProfiles([
+    {
+      id: 'work-api',
+      label: 'Work',
+      provider: 'openai',
+      credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
+      sandboxProvider: 'openai-work',
+      models: [{ id: 'test', label: 'Test' }],
+    },
+  ]);
+  vi.mocked(openResponsesChat).mockRejectedValue(new Error('stop after native routing'));
+  try {
+    await chat.startChat({ send: () => {}, isOpen: () => true }, 'api-native', 'hello', {
+      cwd: root,
+      isolation: false,
+      accountId: 'work-api',
+      model: 'test',
+      accountProfiles: profiles,
+    });
+    expect(credentials.resolve).toHaveBeenCalledOnce();
+    expect(openResponsesChat).toHaveBeenCalledOnce();
+    expect(vi.mocked(openResponsesChat).mock.calls[0][0].apiKey).toBe('private-work-key');
+    expect(openCodexChat).not.toHaveBeenCalled();
   } finally {
     chat.eventStore.close();
     await rm(root, { recursive: true, force: true });

@@ -189,6 +189,28 @@ describe('work OpenAI API profile', () => {
       /thinking/i,
     );
   });
+
+  it('does not advertise or accept Nano while API sessions require tools', () => {
+    const profiles = new AccountProfiles([
+      {
+        ...api,
+        models: [
+          { id: 'gpt-5.4-nano', label: 'GPT-5.4 Nano' },
+          { id: 'gpt-5.4-mini', label: 'GPT-5.4 Mini' },
+        ],
+      },
+    ]);
+    expect(profiles.catalog()[0].models.map((model) => model.id)).toEqual(['gpt-5.4-mini']);
+    expect(() => profiles.resolve('work-api', 'gpt-5.4-nano')).toThrow(/model/i);
+  });
+
+  it('omits a Nano-only API profile without invalidating other accounts', () => {
+    const profiles = new AccountProfiles([
+      { ...api, models: [{ id: 'gpt-5.4-nano', label: 'GPT-5.4 Nano' }] },
+      profile,
+    ]);
+    expect(profiles.catalog().map((account) => account.id)).toEqual(['work']);
+  });
 });
 
 describe('brokered ChatGPT subscription profile', () => {

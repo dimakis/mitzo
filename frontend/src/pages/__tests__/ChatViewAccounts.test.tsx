@@ -128,6 +128,30 @@ it('keeps a new chat route clear of the previous session and adopts the new ID',
   expect(store.getState().sessions.active).toBe('new-session');
 });
 
+it('clears a failed unassigned turn when a fresh chat route opens', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => [] } as Response);
+  const store = createTestStore();
+  store.getState().dispatchMessages({
+    type: 'USER_SEND',
+    text: 'failed prompt',
+    clientMsgId: 'failed-message',
+  });
+  store.getState().dispatchMessages({ type: 'ERROR', error: 'startup failed' });
+  expect(store.getState().messages.messages).not.toHaveLength(0);
+  render(
+    <MitzoStoreProvider value={store}>
+      <MemoryRouter initialEntries={['/chat']}>
+        <Routes>
+          <Route path="/chat/:sessionId?" element={<ChatView />} />
+        </Routes>
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+  await waitFor(() => expect(store.getState().messages.messages).toHaveLength(0));
+  expect(store.getState().messages.running).toBe(false);
+  expect(store.getState().modeChangeReady).toBe(true);
+});
+
 it('keeps mobile account and permission controls in one collapsible workspace section', async () => {
   localStorage.removeItem('mitzo-workspace-controls-expanded');
   vi.mocked(apiFetch).mockResolvedValue({
