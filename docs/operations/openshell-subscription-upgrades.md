@@ -47,7 +47,15 @@ version-agnostic patch.
    as a rollback. Do not transplant the isolated credential database.
 5. Deploy matched CLI/gateway/supervisor components. Reauthorize the provider
    through attended gateway login if necessary.
-6. Run all smoke tests below. Roll back on any failure.
+6. After login or reauthorization, read only the provider object ID from the
+   gateway's redacted provider metadata and the refresh generation ID from its
+   safe refresh-status output. Atomically update the matching Mitzo account
+   profile's `sandboxProviderId` and `sandboxGrantId`, keep `credentialRef`
+   absent, reload Mitzo, and verify both bindings before allowing a new chat.
+   Never copy token material or the gateway credential database. Because this
+   changes the account profile revision, start a new task rather than silently
+   rebinding an existing one.
+7. Run all smoke tests below. Roll back on any failure.
 
 ## Mandatory smoke tests
 
