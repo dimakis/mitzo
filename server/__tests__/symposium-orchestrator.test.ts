@@ -478,6 +478,48 @@ describe('SymposiumOrchestrator', () => {
     ]);
   });
 
+  it('retries a failed second recipient without re-executing the delivered first recipient', async () => {
+    admit('builder');
+    admit('reviewer');
+    let reviewerCalls = 0;
+    reviewer.execute = vi.fn(async (input: SymposiumSeatExecution) => {
+      reviewer.calls.push(input);
+      reviewerCalls += 1;
+      if (reviewerCalls === 1) throw new Error('temporary reviewer failure');
+      return { providerThreadId: 'thread-reviewer', content: 'review recovered', costUsd: 0 };
+    });
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: null,
+      recipientSeatIds: ['builder', 'reviewer'],
+      originalContent: 'review together',
+      idempotencyKey: 'stage-partial-retry',
+    });
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-partial-retry',
+    });
+
+    expect(await orchestrator.deliver(staged.deliveryId)).toMatchObject({
+      status: 'failed',
+      recipients: [
+        expect.objectContaining({ seatId: 'builder', status: 'delivered' }),
+        expect.objectContaining({ seatId: 'reviewer', status: 'failed' }),
+      ],
+    });
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'retry',
+      idempotencyKey: 'retry-partial-retry',
+    });
+
+    expect(await orchestrator.deliver(staged.deliveryId)).toMatchObject({ status: 'delivered' });
+    expect(builder.calls).toHaveLength(1);
+    expect(reviewer.calls).toHaveLength(2);
+    expect(reviewer.calls[0].idempotencyKey).toBe(reviewer.calls[1].idempotencyKey);
+  });
+
   it('persists cancellation and aborts an in-flight injected executor', async () => {
     admit('builder');
     admit('reviewer');

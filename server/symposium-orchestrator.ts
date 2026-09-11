@@ -293,6 +293,7 @@ export class SymposiumOrchestrator {
     this.abortControllers.set(deliveryId, abortController);
     delivery = this.store.getSymposiumDelivery(deliveryId)!;
     for (const recipient of delivery.recipients) {
+      if (recipient.status !== 'pending') continue;
       let currentConfig: SymposiumConfig;
       try {
         currentConfig = this.requireDirectedManualConfig(delivery.sessionId);
