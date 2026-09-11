@@ -893,7 +893,9 @@ async function _startChatInner(
         reasoningEffort: options.accountId
           ? options.reasoningEffort !== undefined
             ? options.reasoningEffort
-            : storedMeta?.reasoningEffort
+            : options.model && options.model !== (storedMeta?.selectedModel ?? accountBinding.model)
+              ? null
+              : storedMeta?.reasoningEffort
           : storedMeta?.reasoningEffort,
       };
       if (

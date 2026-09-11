@@ -273,6 +273,61 @@ it('restores the persisted native model and reasoning level on a field-less cold
   }
 });
 
+it('clears persisted reasoning when a cold resume explicitly changes native models', async () => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-api-resume-model-switch-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')));
+  const chat = await import('../chat.js');
+  const profiles = new AccountProfiles([
+    {
+      id: 'work-api',
+      label: 'Work',
+      provider: 'openai',
+      credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
+      models: [
+        { id: 'reasoning-model', label: 'Reasoning', reasoningEfforts: ['high'] },
+        { id: 'plain-model', label: 'Plain' },
+      ],
+    },
+  ]);
+  const sessionId = 'persisted-native-model-switch';
+  chat.eventStore.upsertSession({
+    sessionId,
+    cwd: root,
+    mode: 'agent',
+    accountBinding: profiles.resolve('work-api', 'reasoning-model'),
+    selectedModel: 'reasoning-model',
+    reasoningEffort: 'high',
+  });
+  vi.mocked(openResponsesChat).mockRejectedValue(new Error('stop after selection capture'));
+  try {
+    await chat.startChat(
+      { send: () => {}, isOpen: () => true },
+      'resume-model-switch',
+      'continue',
+      {
+        resume: sessionId,
+        cwd: root,
+        isolation: false,
+        accountId: 'work-api',
+        model: 'plain-model',
+        accountProfiles: profiles,
+      },
+    );
+    expect(openResponsesChat).toHaveBeenCalledOnce();
+    expect(vi.mocked(openResponsesChat).mock.calls[0][0]).toMatchObject({
+      selectedModel: 'plain-model',
+      reasoningEffort: null,
+    });
+  } finally {
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 it('routes API accounts through OpenShell in production without resolving host credentials', async () => {
   vi.resetModules();
   vi.clearAllMocks();
