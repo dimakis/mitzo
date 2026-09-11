@@ -106,4 +106,12 @@ describe('OpenShell production bundle validation', () => {
     expect(profile).not.toContain('gmail.googleapis.com');
     expect(profile).not.toContain('access: read-write');
   });
+
+  it('starts the Podman machine before OpenShell production preflight', () => {
+    const deploy = readFileSync(new URL('../../scripts/deploy.sh', import.meta.url), 'utf8');
+    const readiness = deploy.indexOf("podman machine inspect --format '{{.State}}'");
+    const preflight = deploy.indexOf('node scripts/verify-openshell-production.mjs');
+    expect(readiness).toBeGreaterThan(-1);
+    expect(preflight).toBeGreaterThan(readiness);
+  });
 });
