@@ -40,7 +40,10 @@ different filesystem trust domains.
 - `google-workspace-spike-profile.yaml`: delegated-refresh profile that injects
   the gateway placeholder through GWS 0.18.1's supported
   `GOOGLE_WORKSPACE_CLI_TOKEN` environment variable. Credential values remain
-  gateway-owned and are not copied into the sandbox filesystem.
+  gateway-owned and are not copied into the sandbox filesystem. The profile
+  also permits `/usr/bin/node` because the packaged `gws` launcher executes its
+  network client through Node. Provider-profile policy composition requires the
+  gateway-global `providers_v2_enabled=true` setting in OpenShell 0.0.116.
 - `app-server-live-turn-probe.mjs`: real model/tool-loop marker probe. The
   built-in WebSocket route remains blocked; the custom inspected HTTPS provider passes.
 - `mitzo-transport-live-probe.ts`: drives a live turn through Mitzo's app-server
@@ -52,6 +55,13 @@ different filesystem trust domains.
   digest and rejects `latest`/`dev` output tags. Because MGMT's checked-in lock
   currently predates a declared dependency, resolution occurs only in the
   disposable build context; the host checkout is not rewritten.
+
+Prefer a small set of immutable, versioned runtime images over a custom image
+per conversation. Put common management dependencies such as GWS, GitHub CLI,
+Git, Node, Python, and JSON tooling in the shared management image; select
+credentials and network capabilities independently by attaching only the
+providers required for each sandbox.
+
 - `synthetic-secret-probe.mjs`: presence-only placeholder/canary boundary probe.
 - `run-disposable.sh`: creates a no-credential sandbox, performs harmless
   filesystem/network boundary checks, then deletes the sandbox on exit.
