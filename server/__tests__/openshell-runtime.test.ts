@@ -12,6 +12,7 @@ const config = {
   policy: '/config/policy.yaml',
   seed: '/seed/mgmt',
   serviceProviders: ['google-workspace', 'github'],
+  grantableServiceProviders: ['google-workspace'],
   workspace: 'mitzo',
   gateway: 'local',
   gatewayInsecure: false,
@@ -123,6 +124,65 @@ describe('OpenShell runtime lifecycle', () => {
     }).ensure('conversation', new AbortController().signal);
     expect(stopped.mock.calls[1][0]).toContain('start');
     expect(stopped.mock.calls.flat().flat()).not.toContain('create');
+  });
+
+  it('attaches an explicitly grantable provider to the owned conversation sandbox', async () => {
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce(ready())
+      .mockResolvedValueOnce('{}')
+      .mockResolvedValueOnce(ready());
+    const manager = new OpenShellRuntimeManager(config, run);
+    const sandboxName = sandboxNameForConversation('conversation');
+    await expect(
+      manager.grantServiceProvider(
+        'conversation',
+        {
+          sandboxName,
+          workdir: config.workdir,
+          appServerCommand: '/sandbox/run-mitzo-app-server',
+          cli: config.cli,
+          gateway: config.gateway,
+          workspace: config.workspace,
+          gatewayInsecure: false,
+        },
+        'google-workspace',
+        new AbortController().signal,
+      ),
+    ).resolves.toBeUndefined();
+    expect(run.mock.calls[1][0]).toEqual([
+      'sandbox',
+      '--gateway',
+      'local',
+      '--workspace',
+      'mitzo',
+      'provider',
+      'attach',
+      sandboxName,
+      'google-workspace',
+    ]);
+  });
+
+  it('rejects unconfigured provider grants before calling OpenShell', async () => {
+    const run = vi.fn();
+    const manager = new OpenShellRuntimeManager(config, run);
+    await expect(
+      manager.grantServiceProvider(
+        'conversation',
+        {
+          sandboxName: 'sandbox',
+          workdir: config.workdir,
+          appServerCommand: '/sandbox/run-mitzo-app-server',
+          cli: config.cli,
+          gateway: config.gateway,
+          workspace: config.workspace,
+          gatewayInsecure: false,
+        },
+        'unreviewed-provider',
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('not grantable');
+    expect(run).not.toHaveBeenCalled();
   });
 
   it('reuses a retained legacy sandbox with its original name and ownership label', async () => {
@@ -254,8 +314,12 @@ describe('OpenShell runtime lifecycle', () => {
         MITZO_OPENSHELL_POLICY: '/policy',
         MITZO_OPENSHELL_SEED: '/seed',
         MITZO_OPENSHELL_SERVICE_PROVIDERS: 'google-workspace,github',
+        MITZO_OPENSHELL_GRANTABLE_SERVICE_PROVIDERS: 'google-workspace',
       }),
-    ).toMatchObject({ serviceProviders: ['google-workspace', 'github'] });
+    ).toMatchObject({
+      serviceProviders: ['google-workspace', 'github'],
+      grantableServiceProviders: ['google-workspace'],
+    });
     expect(
       openShellRuntimeConfig({
         MITZO_OPENSHELL_ENABLED: '1',

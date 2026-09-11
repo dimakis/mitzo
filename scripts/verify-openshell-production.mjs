@@ -65,12 +65,23 @@ export function validateStaticConfig(config, manifest) {
     'web-search mode does not match the stack lock',
   );
   const configuredProviders = splitProviders(required(config, 'MITZO_OPENSHELL_SERVICE_PROVIDERS'));
-  invariant(
-    JSON.stringify(configuredProviders) ===
-      JSON.stringify(manifest.serviceProviders.map((provider) => provider.name)),
-    'service providers do not match the ordered stack lock',
+  const grantableProviders = splitProviders(
+    required(config, 'MITZO_OPENSHELL_GRANTABLE_SERVICE_PROVIDERS'),
   );
-  return { enabled: true, image, configuredProviders };
+  invariant(
+    JSON.stringify(configuredProviders) === JSON.stringify(manifest.providerPolicy.automatic),
+    'automatic service providers do not match the ordered stack lock',
+  );
+  invariant(
+    JSON.stringify(grantableProviders) === JSON.stringify(manifest.providerPolicy.grantable),
+    'grantable service providers do not match the ordered stack lock',
+  );
+  const inventory = new Set(manifest.serviceProviders.map((provider) => provider.name));
+  invariant(
+    [...configuredProviders, ...grantableProviders].every((provider) => inventory.has(provider)),
+    'provider policy references an unpinned service provider',
+  );
+  return { enabled: true, image, configuredProviders, grantableProviders };
 }
 
 function run(command, args) {
@@ -212,6 +223,9 @@ export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
   );
   console.log(`OPENSHELL_PRODUCTION_IMAGE=${manifest.runtime.image}`);
   console.log(`OPENSHELL_PRODUCTION_PROVIDERS=${staticResult.configuredProviders.join(',')}`);
+  console.log(
+    `OPENSHELL_PRODUCTION_GRANTABLE_PROVIDERS=${staticResult.grantableProviders.join(',')}`,
+  );
   console.log('OPENSHELL_PRODUCTION_PREFLIGHT=pass');
 }
 

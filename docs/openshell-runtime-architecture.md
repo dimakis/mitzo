@@ -62,6 +62,9 @@ Automatic routing is opt-in until live acceptance completes:
 - `MITZO_OPENSHELL_POLICY=<absolute policy path>`
 - `MITZO_OPENSHELL_SEED=<absolute prepared seed directory>`
 - `MITZO_OPENSHELL_SERVICE_PROVIDERS=<comma-separated reviewed service providers>`;
+- `MITZO_OPENSHELL_GRANTABLE_SERVICE_PROVIDERS=<comma-separated reviewed providers>`
+  advertises providers that may be attached to one retained conversation sandbox
+  through a Mitzo approval card. It changes sandbox capability, not OAuth consent;
   currently `google-workspace` and `github` are accepted.
 - `MITZO_OPENSHELL_WEB_SEARCH=live` explicitly enables native live search;
   omitted or `disabled` fails closed.

@@ -65,6 +65,7 @@ export interface OpenShellRuntimeConfig {
   policy: string;
   seed: string;
   serviceProviders: string[];
+  grantableServiceProviders: string[];
   workspace: string;
   gateway: string;
   gatewayEndpoint?: string;
@@ -144,6 +145,16 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
     if (!SERVICE_PROVIDERS.has(provider))
       throw new Error(`OpenShell provider is not an allowed service provider: ${provider}`);
   }
+  const grantableServiceProviders = (env.MITZO_OPENSHELL_GRANTABLE_SERVICE_PROVIDERS || '')
+    .split(',')
+    .filter(Boolean)
+    .map((value) => identifier(value, 'grantable service provider'));
+  for (const provider of grantableServiceProviders) {
+    if (!SERVICE_PROVIDERS.has(provider))
+      throw new Error(
+        `OpenShell provider is not an allowed grantable service provider: ${provider}`,
+      );
+  }
   const webSearch = env.MITZO_OPENSHELL_WEB_SEARCH || 'disabled';
   if (webSearch !== 'disabled' && webSearch !== 'live')
     throw new Error('Invalid OpenShell web search mode');
@@ -163,6 +174,7 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
     policy,
     seed,
     serviceProviders,
+    grantableServiceProviders,
     workspace: identifier(env.OPENSHELL_WORKSPACE || 'default', 'workspace'),
     gateway: identifier(env.OPENSHELL_GATEWAY || 'openshell', 'gateway'),
     ...(gatewayEndpoint ? { gatewayEndpoint } : {}),
@@ -414,6 +426,43 @@ export class OpenShellRuntimeManager {
       ...(this.config.gatewayEndpoint ? { gatewayEndpoint: this.config.gatewayEndpoint } : {}),
       gatewayInsecure: this.config.gatewayInsecure,
     };
+  }
+
+  async grantServiceProvider(
+    conversationId: string,
+    runtime: OpenShellRuntime,
+    provider: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (!this.config.grantableServiceProviders.includes(provider))
+      throw new Error('OpenShell service provider is not grantable');
+    const conversationHash = createHash('sha256').update(conversationId).digest('hex');
+    const currentName = sandboxNameForConversation(conversationId, this.config.sandboxIdLength);
+    const legacyName = legacySandboxNameForConversation(conversationHash);
+    const owner =
+      runtime.sandboxName === currentName ? conversationHash.slice(0, 63) : conversationHash;
+    if (runtime.sandboxName !== currentName && runtime.sandboxName !== legacyName)
+      throw new Error('OpenShell sandbox does not belong to this conversation');
+    const sandbox = await this.get(runtime.sandboxName, signal);
+    if (!sandbox || sandbox.phase !== 'Ready')
+      throw new Error(`OpenShell sandbox ${runtime.sandboxName} is not Ready`);
+    if (sandbox.labels?.['mitzo.conversation'] !== owner)
+      throw new Error(`OpenShell sandbox ${runtime.sandboxName} is not owned by this conversation`);
+    if (sandbox.labels?.['mitzo.account_provider'] !== this.config.account.provider)
+      throw new Error(
+        `OpenShell sandbox ${runtime.sandboxName} has another account provider binding`,
+      );
+    try {
+      await this.run(
+        ['sandbox', ...this.base(), 'provider', 'attach', runtime.sandboxName, provider],
+        signal,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      if (!/already attached|conflict|409/i.test(message))
+        throw new Error('OpenShell service provider grant failed', { cause: error });
+    }
+    await this.waitForReady(runtime.sandboxName, owner, signal);
   }
 
   async compileContext(runtime: OpenShellRuntime, signal: AbortSignal) {

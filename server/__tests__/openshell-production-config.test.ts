@@ -9,12 +9,14 @@ const manifest = {
   runtime: { image: 'localhost/mitzo:release-1' },
   defaults: { workspace: 'default', webSearch: 'disabled' },
   serviceProviders: [{ name: 'google-workspace' }, { name: 'github' }],
+  providerPolicy: { automatic: ['github'], grantable: ['google-workspace'] },
 };
 
 const config = {
   MITZO_OPENSHELL_ENABLED: '1',
   MITZO_OPENSHELL_IMAGE: 'localhost/mitzo:release-1',
-  MITZO_OPENSHELL_SERVICE_PROVIDERS: 'google-workspace,github',
+  MITZO_OPENSHELL_SERVICE_PROVIDERS: 'github',
+  MITZO_OPENSHELL_GRANTABLE_SERVICE_PROVIDERS: 'google-workspace',
   MITZO_OPENSHELL_WEB_SEARCH: 'disabled',
   OPENSHELL_WORKSPACE: 'default',
 };
@@ -24,7 +26,8 @@ describe('OpenShell production bundle validation', () => {
     expect(validateStaticConfig(config, manifest)).toEqual({
       enabled: true,
       image: 'localhost/mitzo:release-1',
-      configuredProviders: ['google-workspace', 'github'],
+      configuredProviders: ['github'],
+      grantableProviders: ['google-workspace'],
     });
   });
 
@@ -48,6 +51,10 @@ describe('OpenShell production bundle validation', () => {
       },
       { name: 'github', type: 'github', credentialKeys: ['GITHUB_TOKEN'] },
     ]);
+    expect(lock.providerPolicy).toEqual({
+      automatic: ['github'],
+      grantable: ['google-workspace'],
+    });
   });
 
   it.each(['localhost/mitzo', 'localhost/mitzo:latest', 'localhost/mitzo:dev'])(
