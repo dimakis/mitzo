@@ -12,8 +12,10 @@ import { NativeResponsesStore, type NativeResponsesState } from './native-respon
 import { createLogger } from './logger.js';
 const log = createLogger('native-responses');
 
-interface NativeResponsesOptions
-  extends Omit<ModelSessionConfig, 'model' | 'signal' | 'thinking' | 'reasoningEffort'> {
+interface NativeResponsesOptions extends Omit<
+  ModelSessionConfig,
+  'model' | 'signal' | 'thinking' | 'reasoningEffort'
+> {
   conversationId: string;
   binding: AccountBinding;
   apiKey?: string;

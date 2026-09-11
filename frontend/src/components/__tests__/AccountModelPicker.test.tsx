@@ -266,7 +266,7 @@ it('preserves an explicit model-default thinking selection when hydrating a conv
   } as Response);
   const onChange = vi.fn();
   render(<AccountModelPicker sessionId="saved" preferredModel="gpt-a" onChange={onChange} />);
-  expect((await screen.findByLabelText('Thinking') as HTMLSelectElement).value).toBe('');
+  expect(((await screen.findByLabelText('Thinking')) as HTMLSelectElement).value).toBe('');
   expect(onChange).toHaveBeenLastCalledWith({
     accountId: 'personal',
     model: 'gpt-a',
