@@ -41,6 +41,7 @@ import {
   waitForCodexRuntime,
   waitForCodexRuntimeBySessionId,
 } from '../codex-chat-session.js';
+import { OpenShellRuntimeManager } from '../openshell-runtime.js';
 function options(abortController: AbortController) {
   return {
     session: { cwd: '/tmp', abortController },
@@ -170,6 +171,81 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
   await expect(chat.setPermissionMode?.('agent')).resolves.toBeUndefined();
   await expect(chat.setPermissionMode?.('ask')).rejects.toThrow('Ask mode');
   vi.unstubAllEnvs();
+});
+
+it('advertises reviewed per-chat provider grants to a managed OpenShell runtime', async () => {
+  vi.clearAllMocks();
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_IMAGE', 'mitzo-runtime:1');
+  vi.stubEnv('MITZO_OPENSHELL_POLICY', '/config/policy.yaml');
+  vi.stubEnv('MITZO_OPENSHELL_SEED', '/seed/mgmt');
+  vi.stubEnv('MITZO_OPENSHELL_GRANTABLE_SERVICE_PROVIDERS', 'google-workspace');
+  const ensure = vi.spyOn(OpenShellRuntimeManager.prototype, 'ensure').mockResolvedValue({
+    sandboxName: 'mitzo-runtime',
+    workdir: '/sandbox/workspaces/mgmt',
+    appServerCommand: '/sandbox/run-mitzo-app-server',
+    cli: 'openshell',
+    gateway: 'openshell',
+    workspace: 'default',
+    gatewayInsecure: false,
+  });
+  const compile = vi.spyOn(OpenShellRuntimeManager.prototype, 'compileContext').mockResolvedValue({
+    type: 'boot_context',
+    scope: 'sandbox',
+    sourceCount: 0,
+    tokenCount: 0,
+    tokenBudget: 12000,
+    sources: [],
+    included: [],
+    trimmed: [],
+    fullMarkdown: '',
+  });
+  const abortController = new AbortController();
+  const session = { cwd: '/tmp', mode: 'agent', abortController };
+  const registry = {
+    findBySessionId: vi.fn(() => ({ clientId: 'client', session })),
+  };
+  try {
+    await openCodexChat({
+      ...options(abortController),
+      conversationId: 'conversation',
+      binding: {
+        accountId: 'work',
+        provider: 'openai',
+        model: 'test-model',
+        profileRevision: '1',
+      },
+      profile: {
+        accountId: 'work',
+        accountLabel: 'Work',
+        planType: 'api',
+        provider: 'openai',
+        model: 'test-model',
+        sandboxProvider: 'openai-work',
+      },
+      session,
+      registry,
+      prompt: 'Grant Google Workspace access',
+      messageId: 'message',
+      systemPrompt: 'base prompt',
+      env: {},
+    } as Parameters<typeof openCodexChat>[0]);
+    expect(mocks.conversationOptions?.tools).toEqual([
+      expect.objectContaining({
+        name: 'GrantIntegrationAccess',
+        input_schema: expect.objectContaining({
+          properties: expect.objectContaining({
+            provider: expect.objectContaining({ enum: ['google-workspace'] }),
+          }),
+        }),
+      }),
+    ]);
+    expect(mocks.conversationOptions?.systemPrompt).toContain('GrantIntegrationAccess');
+  } finally {
+    ensure.mockRestore();
+    compile.mockRestore();
+    vi.unstubAllEnvs();
+  }
 });
 
 it('rejects the legacy shared-sandbox seam in production', async () => {
