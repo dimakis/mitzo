@@ -23,9 +23,11 @@ profiles, or deployment configuration:
    records before deploying it.
 5. Preserve the provider contract: name `mitzo-personal-subscription`, type
    `openai-codex-oauth`, workspace `default`, and no Mitzo `credentialRef`.
-6. Never print, copy, commit, or migrate raw OAuth tokens, authorization JSON,
-   headers, or credential databases. Reauthorize through the gateway when a new
-   trust domain is required.
+6. Never print, commit, transmit, or migrate raw OAuth tokens, authorization
+   JSON, headers, or credential databases. A same-host compatibility test may
+   use one owner-only temporary database-and-key copy solely as described in the
+   operator runbook; delete it immediately after the decode check. Reauthorize
+   through the gateway when a new trust domain is required.
 7. Use a rollback-capable deployment and pass every smoke test in the operator
    checklist before declaring the upgrade complete.
 

@@ -52,10 +52,16 @@ field at 25. Its matched local supervisor build has digest
    later release, record its new full reviewed commit and immutable image digest
    first. If it removed managed inference routing or `inference.local`, treat
    the work as an architecture migration and obtain a fresh review.
-3. Run formatting, unit/integration tests, and isolated gateway acceptance.
-   Start the candidate gateway against an owner-only disposable copy of the
-   production state and verify every existing provider refresh status decodes.
-   Never treat protobuf field renumbering as a migration strategy.
+3. Run formatting, unit/integration tests, and isolated gateway acceptance. For
+   persisted-wire compatibility only, an authorized operator may make one
+   same-host, owner-only (`0700` directory and `0600` files), online-consistent
+   temporary copy of the database and matching encryption key. Start the
+   candidate gateway against that copy, read only redacted refresh-status
+   output, and verify every existing provider record decodes. Never inspect,
+   print, commit, transmit, reuse, or deploy the copy; stop the candidate and
+   delete the copy immediately after the check. This narrow verification
+   exception is not credential migration. Never treat protobuf field
+   renumbering as a migration strategy.
 4. Back up production configuration and prepare the previous executable/image
    as a rollback. Do not transplant the isolated credential database.
 5. Deploy matched CLI/gateway/supervisor components. Reauthorize the provider
