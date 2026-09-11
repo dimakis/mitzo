@@ -882,7 +882,7 @@ async function _startChatInner(
         openShellAvailable &&
         (accountBinding.provider === 'openai-codex' ||
           (accountBinding.provider === 'openai' &&
-            process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED !== '0'));
+            process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED === '1'));
       options = {
         ...options,
         model: options.accountId

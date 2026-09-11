@@ -335,6 +335,7 @@ it('routes API accounts through OpenShell in production without resolving host c
   vi.stubEnv('REPO_PATH', root);
   vi.stubEnv('NODE_ENV', 'production');
   vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_OPENAI_API_ENABLED', '1');
   vi.stubEnv('MITZO_OPENSHELL_WORKDIR', '/sandbox/workspaces/wrong-legacy-override');
   const hostFetch = vi.fn().mockResolvedValue(new Response('{}'));
   vi.stubGlobal('fetch', hostFetch);
