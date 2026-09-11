@@ -1352,11 +1352,11 @@ export class EventStore {
         `SELECT status, cancellation_reason, cancellation_idempotency_key
          FROM symposium_deliveries WHERE delivery_id = ?`,
       ).get(input.deliveryId) as
-        {
-          status: string;
-          cancellation_reason: string | null;
-          cancellation_idempotency_key: string | null;
-        }
+        | {
+            status: string;
+            cancellation_reason: string | null;
+            cancellation_idempotency_key: string | null;
+          }
         | undefined;
       if (!row) throw new Error('Unknown Symposium delivery');
       if (row.cancellation_idempotency_key) {
