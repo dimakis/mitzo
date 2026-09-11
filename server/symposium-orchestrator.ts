@@ -353,6 +353,7 @@ export class SymposiumOrchestrator {
         sessionId: delivery.sessionId,
         deliveryId,
         seatId: seat.id,
+        expectedConfigRevision: currentConfig.revision,
         bindingKey,
         recipientIdempotencyKey: recipient.idempotencyKey,
         claimToken: this.claimIdFactory(),

@@ -1137,6 +1137,7 @@ export class EventStore {
     sessionId: string;
     deliveryId: string;
     seatId: string;
+    expectedConfigRevision: number;
     bindingKey: string;
     recipientIdempotencyKey: string;
     claimToken: string;
@@ -1164,6 +1165,36 @@ export class EventStore {
         recipient.recipient_status !== 'pending' ||
         recipient.idempotency_key !== input.recipientIdempotencyKey
       ) {
+        return undefined;
+      }
+
+      let boundaryError: string | undefined;
+      try {
+        const config = this.getActiveSymposiumConfig(input.sessionId);
+        if (config.revision !== input.expectedConfigRevision) {
+          boundaryError = 'Delivery configuration revision is stale';
+        } else {
+          const admission = this.getLatestSymposiumAdmission(
+            input.sessionId,
+            input.seatId,
+            input.expectedConfigRevision,
+          );
+          if (admission?.decision !== 'admitted') {
+            boundaryError = `Provider for Symposium seat ${input.seatId} is not admitted`;
+          }
+        }
+      } catch (error) {
+        boundaryError = error instanceof Error ? error.message : String(error);
+      }
+      if (boundaryError) {
+        this.db!.prepare(
+          `UPDATE symposium_delivery_recipients SET status = 'failed', error = ?, updated_at = ?
+           WHERE delivery_id = ? AND seat_id = ? AND status = 'pending'`,
+        ).run(boundaryError, input.claimedAt, input.deliveryId, input.seatId);
+        this.db!.prepare(
+          `UPDATE symposium_deliveries SET status = 'failed', updated_at = ?
+           WHERE delivery_id = ? AND status = 'delivering'`,
+        ).run(input.claimedAt, input.deliveryId);
         return undefined;
       }
 

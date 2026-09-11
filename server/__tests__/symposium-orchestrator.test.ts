@@ -922,6 +922,97 @@ describe('SymposiumOrchestrator', () => {
     expect(reviewer.calls).toHaveLength(0);
   });
 
+  it('atomically rejects a provider refusal recorded between validation and execution claim', async () => {
+    admit('builder');
+    admit('reviewer');
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: 'builder',
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'review this',
+      idempotencyKey: 'stage-admission-claim-race',
+    });
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-admission-claim-race',
+    });
+    const concurrentStore = new EventStore(dbPath);
+    const concurrentOrchestrator = new SymposiumOrchestrator({
+      store: concurrentStore,
+      executors: { builder, reviewer },
+      now: () => 1_700_000_000_001,
+    });
+    const claim = store.claimSymposiumRecipientExecution.bind(store);
+    const claimSpy = vi
+      .spyOn(store, 'claimSymposiumRecipientExecution')
+      .mockImplementation((input) => {
+        concurrentOrchestrator.recordProviderAdmission({
+          sessionId: 'chat',
+          seatId: 'reviewer',
+          decision: 'refused',
+          reason: 'Director withdrew admission',
+          idempotencyKey: 'refuse-during-claim',
+        });
+        return claim(input);
+      });
+    try {
+      await expect(orchestrator.deliver(staged.deliveryId)).resolves.toMatchObject({
+        status: 'failed',
+        recipients: [
+          expect.objectContaining({
+            status: 'failed',
+            error: 'Provider for Symposium seat reviewer is not admitted',
+          }),
+        ],
+      });
+      expect(reviewer.calls).toHaveLength(0);
+    } finally {
+      claimSpy.mockRestore();
+      concurrentStore.close();
+    }
+  });
+
+  it('atomically rejects a config change recorded between validation and execution claim', async () => {
+    admit('builder');
+    admit('reviewer');
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: 'builder',
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'review this',
+      idempotencyKey: 'stage-config-claim-race',
+    });
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-config-claim-race',
+    });
+    const concurrentStore = new EventStore(dbPath);
+    const claim = store.claimSymposiumRecipientExecution.bind(store);
+    const claimSpy = vi
+      .spyOn(store, 'claimSymposiumRecipientExecution')
+      .mockImplementation((input) => {
+        concurrentStore.setSymposiumConfig('chat', { ...config, revision: 4 });
+        return claim(input);
+      });
+    try {
+      await expect(orchestrator.deliver(staged.deliveryId)).resolves.toMatchObject({
+        status: 'failed',
+        recipients: [
+          expect.objectContaining({
+            status: 'failed',
+            error: 'Delivery configuration revision is stale',
+          }),
+        ],
+      });
+      expect(reviewer.calls).toHaveLength(0);
+    } finally {
+      claimSpy.mockRestore();
+      concurrentStore.close();
+    }
+  });
+
   it('records a stale configuration failure before dispatch so intervention remains possible', async () => {
     admit('builder');
     admit('reviewer');
