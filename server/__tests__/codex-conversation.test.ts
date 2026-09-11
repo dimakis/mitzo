@@ -491,12 +491,20 @@ it('marks failed provider turns as errors and pauses the queue', async () => {
   await c.send({ id: 'failed', prompt: 'hello' });
   callbacks.onNotification('turn/completed', {
     threadId: 'provider-thread',
-    turn: { id: 'turn-1', status: 'failed' },
+    turn: {
+      id: 'turn-1',
+      status: 'failed',
+      error: { message: "Tool 'tool_search' is not supported with this model." },
+    },
   });
   expect(events).toContainEqual(
     expect.objectContaining({ type: 'result', session_id: 'app', is_error: true }),
   );
-  expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'Codex turn failed' }));
+  expect(onError).toHaveBeenCalledWith(
+    expect.objectContaining({
+      message: "Codex turn failed: Tool 'tool_search' is not supported with this model.",
+    }),
+  );
   expect(c.isPaused()).toBe(true);
 });
 

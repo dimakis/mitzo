@@ -93,9 +93,11 @@ function supportedModels(
   provider: z.infer<typeof Profile>['provider'],
   models: z.infer<typeof CatalogModel>[],
 ) {
-  // API sessions always expose tools. Nano currently rejects requests that
-  // include tool_search, so advertising it makes the default profile fail.
-  return provider === 'openai' ? models.filter((model) => model.id !== 'gpt-5.4-nano') : models;
+  // API sessions always expose tools. Nano models reject requests that include
+  // tool_search, so reject both current and dated aliases before execution.
+  return provider === 'openai'
+    ? models.filter((model) => !/(?:^|-)nano(?:$|-)/i.test(model.id))
+    : models;
 }
 
 /** Account configuration is server-owned; invocation adapters remain harness-owned. */

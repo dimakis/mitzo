@@ -196,12 +196,15 @@ describe('work OpenAI API profile', () => {
         ...api,
         models: [
           { id: 'gpt-5.4-nano', label: 'GPT-5.4 Nano' },
+          { id: 'gpt-5.4-nano-2026-09-01', label: 'GPT-5.4 Nano dated' },
           { id: 'gpt-5.4-mini', label: 'GPT-5.4 Mini' },
         ],
       },
     ]);
     expect(profiles.catalog()[0].models.map((model) => model.id)).toEqual(['gpt-5.4-mini']);
     expect(() => profiles.resolve('work-api', 'gpt-5.4-nano')).toThrow(/model/i);
+    const persisted = profiles.resolve('work-api', 'gpt-5.4-mini');
+    expect(() => profiles.resume({ ...persisted, model: 'gpt-5.4-nano' })).toThrow(/model/i);
   });
 
   it('omits a Nano-only API profile without invalidating other accounts', () => {

@@ -389,7 +389,13 @@ export class CodexConversation {
   }
   private notification(method: string, params: ObjectValue) {
     if (this.closed || params.threadId !== this.threadId) return;
-    const turn = z.object({ id: z.string(), status: z.string().optional() }).safeParse(params.turn);
+    const turn = z
+      .object({
+        id: z.string(),
+        status: z.string().optional(),
+        error: z.object({ message: z.string().optional() }).optional().nullable(),
+      })
+      .safeParse(params.turn);
     if (method === 'turn/started' && turn.success && this.active) {
       if (this.active.turnId && this.active.turnId !== turn.data.id) {
         this.close();
@@ -464,7 +470,12 @@ export class CodexConversation {
       this.active = undefined;
       this.paused ||= status !== 'completed';
       this.mapper?.notification(method, params);
-      if (status === 'failed') this.opts.onError?.(new Error('Codex turn failed'));
+      if (status === 'failed') {
+        const detail = turn.data.error?.message?.trim();
+        this.opts.onError?.(
+          new Error(detail ? `Codex turn failed: ${detail}` : 'Codex turn failed'),
+        );
+      }
       this.opts.onQueueChange?.();
       // Completion can arrive before turn/start resolves. Wait for that request to settle.
       Promise.resolve(this.pumping)
