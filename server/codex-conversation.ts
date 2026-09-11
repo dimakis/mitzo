@@ -202,13 +202,21 @@ export class CodexConversation {
     if (input.allowedTools)
       throw new Error('Codex execution does not yet support restricted skill tool ceilings');
     const commands = this.queue();
-    const model =
-      input.model ??
+    const previousModel =
       commands.find((c) => c.id === input.id)?.model ??
       commands.at(-1)?.model ??
       this.binding!.model;
-    this.validateModel(model, input.reasoningEffort);
-    this.opts.store.enqueue(this.opts.conversationId, this.binding!, { ...input, model });
+    const model = input.model ?? previousModel;
+    const reasoningEffort =
+      input.model && input.model !== previousModel && input.reasoningEffort === undefined
+        ? null
+        : input.reasoningEffort;
+    this.validateModel(model, reasoningEffort);
+    this.opts.store.enqueue(this.opts.conversationId, this.binding!, {
+      ...input,
+      model,
+      reasoningEffort,
+    });
     this.opts.onQueueChange?.();
   }
   async send(input: CodexCommandInput) {

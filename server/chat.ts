@@ -1629,10 +1629,8 @@ export function sendToChat(
     );
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-send`;
     const previews = imagePreviews(images);
-    const nativeReasoningEffort =
-      responses && model && model !== session.model && reasoningEffort === undefined
-        ? null
-        : reasoningEffort;
+    const selectionReasoningEffort =
+      model && model !== session.model && reasoningEffort === undefined ? null : reasoningEffort;
     if (responses && session.sessionId && eventStore.hasUserMessage(session.sessionId, messageId))
       return true;
     if (codex) {
@@ -1642,7 +1640,7 @@ export function sendToChat(
           id: messageId,
           prompt: fullPrompt,
           images,
-          reasoningEffort,
+          reasoningEffort: selectionReasoningEffort,
           ...(model ? { model } : {}),
         });
         if (model) session.model = model;
@@ -1659,11 +1657,11 @@ export function sendToChat(
     if (responses) {
       try {
         if (!session.sessionId) throw new Error('Bound session metadata is unavailable');
-        validateNativeModelSelection(session.sessionId, model, nativeReasoningEffort);
+        validateNativeModelSelection(session.sessionId, model, selectionReasoningEffort);
         responses.prepare(messageId, fullPrompt, {
           ...(model ? { model } : {}),
-          ...(nativeReasoningEffort !== undefined
-            ? { reasoningEffort: nativeReasoningEffort }
+          ...(selectionReasoningEffort !== undefined
+            ? { reasoningEffort: selectionReasoningEffort }
             : {}),
         });
         if (model) session.model = model;
@@ -1677,13 +1675,12 @@ export function sendToChat(
       }
     }
     if (session.sessionId) {
-      const persistedReasoningEffort = responses ? nativeReasoningEffort : reasoningEffort;
-      if (model || persistedReasoningEffort !== undefined) {
+      if (model || selectionReasoningEffort !== undefined) {
         eventStore.upsertSession({
           sessionId: session.sessionId,
           ...(model ? { selectedModel: model } : {}),
-          ...(persistedReasoningEffort !== undefined
-            ? { reasoningEffort: persistedReasoningEffort || null }
+          ...(selectionReasoningEffort !== undefined
+            ? { reasoningEffort: selectionReasoningEffort || null }
             : {}),
         });
       }

@@ -633,6 +633,14 @@ it('persists an explicit model-default reset and omits the Codex effort override
   expect(c.queue().at(-1)?.reasoningEffort).toBeNull();
   expect(requests.find((r) => r.method === 'turn/start')?.params).not.toHaveProperty('effort');
 });
+it('clears a stale thinking override when switching to a model without an effort selection', async () => {
+  const { c } = await setup();
+  await c.send({ id: 'effort', prompt: 'Think carefully', reasoningEffort: 'high' });
+  await c.send({ id: 'other-model', prompt: 'Switch models', model: 'other-model' });
+
+  expect(c.queue().at(-1)?.model).toBe('other-model');
+  expect(c.queue().at(-1)?.reasoningEffort).toBeNull();
+});
 it('sends attached images as native image input and retains them for recovery', async () => {
   const { c, requests } = await setup();
   const images = [{ data: 'aGVsbG8=', mediaType: 'image/png' }];
