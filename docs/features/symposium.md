@@ -52,14 +52,38 @@ artifacts and effective provider/tool policy. If the user or organisational poli
 does not accept that sharing, the additional seat cannot join that Symposium;
 brokered multi-sandbox federation is outside v1.
 
-## Next implementation slice (test-first)
+## Phase 2 control plane
 
-Phase 2 (`b0d963167545a7a7`): build the orchestrator with injected seat execution,
-explicit delivery history, directed/round-robin turns, turn/cost limits, and manual
-approve/edit/replace/drop. Preserve original and delivered content plus director
-interventions. Test cancellation and retry behavior before connecting providers.
+Phase 2 (`b0d963167545a7a7`) adds a deterministic directed/manual state machine with
+an injected `SymposiumSeatExecutor` boundary. No production provider or OpenShell
+implementation is selected here. Tests use fake executors whose stable execution
+keys model the idempotency contract required of a later adapter.
 
-Then integrate provider execution and websocket controls (Phase 3), followed by
+Mitzo's SQLite event database now owns the durable control-plane record:
+
+- every admit/refuse decision identifies the seat, provider, account, model,
+  configuration revision, and the one shared isolation-domain revision;
+- a staged delivery retains its original content, selected recipients, immutable
+  source/target grant provenance, and the approved, edited, or replaced content;
+- approve, edit, replace, drop, and retry interventions remain as append-only
+  history even though the delivery row exposes the latest state;
+- an append-only recipient-attempt ledger retains stable execution idempotency
+  keys, results, cost, errors, and provider-thread IDs across retries;
+- provider conversations are reused only for the same account/profile/grant and
+  isolation binding. A grant or binding revision starts a new thread;
+- cancellation is persisted before in-process abort/cancel signals are issued;
+- server startup changes in-flight work to `recovery_required`. An explicit retry
+  uses the original execution key so an idempotent executor can reconcile an
+  ambiguous provider outcome without silently starting a second turn; and
+- turn admission is reserved transactionally against the append-only attempt count,
+  so failed attempts and concurrent dispatch cannot exceed the configured cap.
+
+The orchestrator fails closed for draft/stale configurations, unadmitted providers,
+unsupported scheduling modes, changed grants, and missing executors. Both seats
+remain inside the single Symposium trust domain established by Phase 1; this change
+does not introduce per-seat sandboxes or brokered federation.
+
+Next, integrate provider execution and websocket controls (Phase 3), followed by
 seat-attributed rich rendering and controls in the existing ChatView (Phases 4–6).
 The old Phase 6 separate-session creation wording is superseded by add/remove seat
 within a chat. Review findings, delta review, profile catalog, context selection,
