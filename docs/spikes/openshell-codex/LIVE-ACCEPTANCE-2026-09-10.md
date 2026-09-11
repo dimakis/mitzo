@@ -29,14 +29,37 @@ gateway resources remained unchanged.
 - Server build, targeted lint, shell syntax checks, focused tests, and the full
   suite passed: 281 files, 3,974 tests passed, 10 skipped.
 
-Rollout is not yet authorized. The existing Google Workspace provider has zero
-credential keys after its prior refresh returned `invalid_grant`; a fresh
-attended login is required before the bounded Drive read can run. Existing
-gateway providers are also named `mitzo-gws-spike` and `mitzo-github-spike`,
-while the reviewed runtime configuration accepts the canonical service roles
-`google-workspace` and `github`; provider-name alignment must be reviewed rather
-than bypassed. The OpenShell subscription compatibility build also remains a
-reviewed commit series rather than a published supported release.
+Rollout is not yet authorized. Google Workspace provider-name alignment and the
+bounded Drive proof are complete as recorded below. GitHub remains named
+`mitzo-github-spike`, while the reviewed runtime configuration accepts the
+canonical service role `github`; that provider-name alignment must be reviewed
+rather than bypassed. The OpenShell subscription compatibility build also
+remains a reviewed commit series rather than a published supported release.
+
+## Google Workspace acceptance update — 2026-09-11
+
+- Created a replacement Desktop OAuth client in project `882086682959` and
+  completed an attended login restricted to `drive.readonly`. The previous
+  local client and encrypted GWS credentials were retained as timestamped
+  backups; no token, secret, Drive ID, name, or content was printed.
+- Registered the canonical `google-workspace` provider with credential key
+  `GOOGLE_WORKSPACE_CLI_TOKEN` and gateway-owned OAuth refresh material. The
+  provider reports encrypted credential storage.
+- Enabled the OpenShell 0.0.116 gateway-global
+  `providers_v2_enabled=true` setting so attached provider profiles contribute
+  their endpoints and binaries to effective sandbox policy.
+- Corrected the profile to declare `drive.readonly`, terminate and inspect TLS,
+  and allow `/usr/bin/node`, which is the actual network process behind the
+  packaged `/usr/bin/gws` launcher.
+- Fresh retained sandbox `gws-0911-0140` reached `Ready`. Its composed policy
+  contained only the Google REST endpoint at `www.googleapis.com:443` with
+  read-only enforcement and the reviewed GWS runtime binaries.
+- Inside that sandbox, `Drive files.list` ran with `pageSize=1` and
+  `fields=files(id)` and returned count `1`. The response was held in a
+  mode-0600 temporary file, reduced to a count inside the sandbox, and deleted;
+  no item data crossed the sandbox boundary.
+- A harmless GET to unapproved `example.com` returned HTTP 403, satisfying the
+  paired out-of-policy denial control.
 
 Personal-subscription acceptance completed on the isolated
 `codex/openshell-personal-subscription` branch on 2026-09-10. This does not
