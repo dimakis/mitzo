@@ -1111,6 +1111,28 @@ export class EventStore {
     }).immediate();
   }
 
+  failSymposiumDeliveryBeforeDispatch(input: {
+    deliveryId: string;
+    error: string;
+    updatedAt: number;
+  }): SymposiumDeliveryRecord {
+    return this.db!.transaction(() => {
+      const failed = this.db!.prepare(
+        `UPDATE symposium_deliveries SET status = 'failed', updated_at = ?
+         WHERE delivery_id = ? AND status = 'ready'`,
+      ).run(input.updatedAt, input.deliveryId);
+      if (failed.changes === 1) {
+        this.db!.prepare(
+          `UPDATE symposium_delivery_recipients SET status = 'failed', error = ?, updated_at = ?
+           WHERE delivery_id = ? AND status = 'pending'`,
+        ).run(input.error, input.updatedAt, input.deliveryId);
+      }
+      const delivery = this.getSymposiumDelivery(input.deliveryId);
+      if (!delivery) throw new Error('Unknown Symposium delivery');
+      return delivery;
+    }).immediate();
+  }
+
   claimSymposiumRecipientExecution(input: {
     sessionId: string;
     deliveryId: string;

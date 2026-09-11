@@ -864,6 +864,42 @@ describe('SymposiumOrchestrator', () => {
     expect(reviewer.calls).toHaveLength(0);
   });
 
+  it('records a stale configuration failure before dispatch so intervention remains possible', async () => {
+    admit('builder');
+    admit('reviewer');
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: 'builder',
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'approved under revision 3',
+      idempotencyKey: 'stage-stale-before-dispatch',
+    });
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-stale-before-dispatch',
+    });
+    store.setSymposiumConfig('chat', { ...config, revision: 4 });
+
+    expect(await orchestrator.deliver(staged.deliveryId)).toMatchObject({
+      status: 'failed',
+      recipients: [
+        expect.objectContaining({
+          status: 'failed',
+          error: 'Delivery configuration revision is stale',
+        }),
+      ],
+    });
+    expect(reviewer.calls).toHaveLength(0);
+    expect(
+      orchestrator.intervene({
+        deliveryId: staged.deliveryId,
+        action: 'retry',
+        idempotencyKey: 'retry-stale-before-dispatch',
+      }).status,
+    ).toBe('ready');
+  });
+
   it('allows distinct seat providers to return the same opaque thread id', async () => {
     admit('builder');
     admit('reviewer');

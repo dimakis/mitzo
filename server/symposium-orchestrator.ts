@@ -281,9 +281,18 @@ export class SymposiumOrchestrator {
     let delivery = this.store.getSymposiumDelivery(deliveryId);
     if (!delivery) throw new Error('Unknown Symposium delivery');
     if (delivery.status !== 'ready') return delivery;
-    const config = this.requireDirectedManualConfig(delivery.sessionId);
-    if (config.revision !== delivery.configRevision) {
-      throw new Error('Delivery configuration revision is stale');
+    let config: SymposiumConfig;
+    try {
+      config = this.requireDirectedManualConfig(delivery.sessionId);
+      if (config.revision !== delivery.configRevision) {
+        throw new Error('Delivery configuration revision is stale');
+      }
+    } catch (error) {
+      return this.store.failSymposiumDeliveryBeforeDispatch({
+        deliveryId,
+        error: error instanceof Error ? error.message : String(error),
+        updatedAt: this.now(),
+      });
     }
     if (!this.store.claimSymposiumDelivery(deliveryId, config.turnRules.maxTurns)) {
       return this.store.getSymposiumDelivery(deliveryId)!;
