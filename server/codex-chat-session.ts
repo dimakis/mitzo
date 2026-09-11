@@ -24,6 +24,7 @@ import {
   OpenShellRuntimeManager,
   openShellCodexRuntimeConfig,
   openShellRuntimeConfig,
+  type OpenShellAccountRoute,
   type OpenShellBootContext,
 } from './openshell-runtime.js';
 
@@ -115,6 +116,22 @@ interface Options {
   onDemandCreate?: NativeToolOptions['onDemandCreate'];
   onBootContext?: (context: OpenShellBootContext) => void;
 }
+
+export function selectedOpenShellAccountRoute(
+  options: Pick<Options, 'binding' | 'model' | 'profile'>,
+): OpenShellAccountRoute {
+  const model = options.model ?? options.binding.model;
+  const provider = options.profile.sandboxProvider!;
+  if (options.profile.planType === 'api') return { kind: 'api', provider, model };
+  return {
+    kind: 'chatgpt-subscription',
+    provider,
+    providerType: options.profile.sandboxProviderType!,
+    providerId: options.profile.sandboxProviderId!,
+    grantId: options.profile.sandboxGrantId!,
+    model,
+  };
+}
 /** Shared chat adapter. Execution remains gated by the account catalog and unsupported capabilities fail explicitly. */
 export async function openCodexChat(options: Options) {
   const configuredRuntime = openShellRuntimeConfig(process.env);
@@ -141,16 +158,7 @@ export async function openCodexChat(options: Options) {
   const runtimeManager = configuredRuntime
     ? new OpenShellRuntimeManager({
         ...configuredRuntime,
-        account: brokeredSubscription
-          ? {
-              kind: 'chatgpt-subscription',
-              provider: accountProvider!,
-              providerType: options.profile.sandboxProviderType!,
-              providerId: options.profile.sandboxProviderId!,
-              grantId: options.profile.sandboxGrantId!,
-              model: options.binding.model,
-            }
-          : { kind: 'api', provider: accountProvider!, model: options.binding.model },
+        account: selectedOpenShellAccountRoute(options),
       })
     : undefined;
   const managedOpenShell = runtimeManager

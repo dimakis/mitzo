@@ -37,6 +37,7 @@ vi.mock('../codex-private-path.js', async (importOriginal) => ({
 }));
 import {
   openCodexChat,
+  selectedOpenShellAccountRoute,
   waitForCodexRuntime,
   waitForCodexRuntimeBySessionId,
 } from '../codex-chat-session.js';
@@ -47,6 +48,32 @@ function options(abortController: AbortController) {
     profile: { planType: 'api', credentialRef: '/test/login' },
   } as Parameters<typeof openCodexChat>[0];
 }
+it('routes the selected model when provisioning an OpenShell subscription', () => {
+  expect(
+    selectedOpenShellAccountRoute({
+      binding: {
+        accountId: 'personal',
+        accountLabel: 'Personal ChatGPT',
+        provider: 'openai-codex',
+        model: 'bound-model',
+        profileRevision: 'revision',
+      },
+      model: 'selected-model',
+      profile: {
+        accountId: 'personal',
+        accountLabel: 'Personal ChatGPT',
+        credentialRef: '/test/login',
+        email: 'test@example.invalid',
+        planType: 'pro',
+        sandboxProvider: 'personal-chatgpt',
+        sandboxProviderType: 'openai-codex-oauth',
+        sandboxProviderId: 'provider-id',
+        sandboxGrantId: 'grant-id',
+        model: 'bound-model',
+      },
+    }),
+  ).toMatchObject({ kind: 'chatgpt-subscription', model: 'selected-model' });
+});
 it('does not open MCP processes if private storage is unavailable', async () => {
   mocks.store.mockImplementationOnce(() => {
     throw new Error('storage unavailable');
