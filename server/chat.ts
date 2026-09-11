@@ -140,7 +140,16 @@ function initEventStore(): EventStore {
   const mitzoDir = join(repoPath, '.mitzo');
   mkdirSync(mitzoDir, { recursive: true });
   const dbPath = join(mitzoDir, 'events.db');
-  return new EventStore(dbPath);
+  const store = new EventStore(dbPath);
+  const recover = Reflect.get(store, 'recoverSymposiumDeliveries') as
+    EventStore['recoverSymposiumDeliveries'] | undefined;
+  const recovered = recover?.call(store, Date.now()) ?? [];
+  if (recovered.length > 0) {
+    log.warn('recovered interrupted Symposium deliveries during startup', {
+      deliveryIds: recovered.map((delivery) => delivery.deliveryId),
+    });
+  }
+  return store;
 }
 
 export const eventStore = initEventStore();
@@ -800,7 +809,7 @@ export async function startChat(
     cwd?: string;
     model?: string;
     accountId?: string;
-    reasoningEffort?: string;
+    reasoningEffort?: string | null;
     accountProfiles?: AccountProfiles;
     extraTools?: string;
     skillAllowedTools?: string[];
@@ -836,7 +845,7 @@ async function _startChatInner(
     cwd?: string;
     model?: string;
     accountId?: string;
-    reasoningEffort?: string;
+    reasoningEffort?: string | null;
     accountProfiles?: AccountProfiles;
     extraTools?: string;
     skillAllowedTools?: string[];
@@ -1573,7 +1582,7 @@ export function sendToChat(
   contextBlocks?: string[],
   clientMsgId?: string,
   model?: string,
-  reasoningEffort?: string,
+  reasoningEffort?: string | null,
 ): boolean {
   return withSpan('chat.send', { 'chat.clientId': clientId }, () => {
     const session = registry.get(clientId);
@@ -1621,11 +1630,10 @@ export function sendToChat(
     }
     if (responses) {
       try {
-        responses.prepare(
-          messageId,
-          fullPrompt,
-          model ? { model, ...(reasoningEffort ? { reasoningEffort } : {}) } : undefined,
-        );
+        responses.prepare(messageId, fullPrompt, {
+          ...(model ? { model } : {}),
+          ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
+        });
         if (model) session.model = model;
       } catch {
         send(session.transport, {
@@ -1698,7 +1706,7 @@ export async function interruptChat(
   contextBlocks?: string[],
   clientMsgId?: string,
   model?: string,
-  reasoningEffort?: string,
+  reasoningEffort?: string | null,
 ): Promise<boolean> {
   return withSpanAsync('chat.interrupt', { 'chat.clientId': clientId }, async () => {
     const session = registry.get(clientId);

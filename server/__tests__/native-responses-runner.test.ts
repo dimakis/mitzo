@@ -232,6 +232,22 @@ describe('durable native Responses turns', () => {
     expect(request.reasoning).toEqual({ effort: 'high' });
     expect(request.input).toContainEqual(expect.objectContaining({ role: 'assistant' }));
   });
+  it('clears a prior thinking override when the model default is selected', async () => {
+    const instance = runner();
+    instance.prepare('message-high', 'first', {
+      model: 'test-model',
+      reasoningEffort: 'high',
+    });
+    await collect(instance.run('first', undefined, 'message-high'));
+    instance.prepare('message-default', 'second', {
+      model: 'test-model',
+      reasoningEffort: null,
+    });
+    await collect(instance.run('second', undefined, 'message-default'));
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).reasoning).toEqual({ effort: 'high' });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).not.toHaveProperty('reasoning');
+  });
   it('never replays an uncertain side effect after interruption', async () => {
     fetchMock.mockResolvedValueOnce(response(true));
     const execute = vi.fn().mockImplementation(async () => {

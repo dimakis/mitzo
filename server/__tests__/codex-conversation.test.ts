@@ -627,6 +627,12 @@ it('persists the selected reasoning effort and sends it to Codex', async () => {
   expect(c.queue()[0].reasoningEffort).toBe('high');
   expect(requests.find((r) => r.method === 'turn/start')?.params.effort).toBe('high');
 });
+it('persists an explicit model-default reset and omits the Codex effort override', async () => {
+  const { c, requests } = await setup();
+  await c.send({ id: 'default', prompt: 'Use the model default', reasoningEffort: null });
+  expect(c.queue().at(-1)?.reasoningEffort).toBeNull();
+  expect(requests.find((r) => r.method === 'turn/start')?.params).not.toHaveProperty('effort');
+});
 it('sends attached images as native image input and retains them for recovery', async () => {
   const { c, requests } = await setup();
   const images = [{ data: 'aGVsbG8=', mediaType: 'image/png' }];

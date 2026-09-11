@@ -98,6 +98,17 @@ describe('v2 send', () => {
     expect(r.success).toBe(true);
   });
 
+  it('accepts an explicit null reasoning effort to restore the model default', () => {
+    const r = V2SendMessage.safeParse({
+      type: 'send',
+      sessionId: 'sess-1',
+      prompt: 'hello',
+      clientMsgId: 'u-1',
+      reasoningEffort: null,
+    });
+    expect(r.success).toBe(true);
+  });
+
   it('rejects send without sessionId field', () => {
     const r = V2SendMessage.safeParse({
       type: 'send',

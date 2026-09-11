@@ -1480,6 +1480,18 @@ describe('account selection', () => {
       reasoningEffort: 'high',
     });
   });
+
+  it('sends an explicit null when thinking is reset to the model default', () => {
+    const store = createReadyStore();
+    store
+      .getState()
+      .sendMessage('hello', { accountId: 'work', model: 'sonnet', reasoningEffort: null });
+    expect(lastWs.parsedSent().find((m) => m.type === 'send')).toMatchObject({
+      accountId: 'work',
+      model: 'sonnet',
+      reasoningEffort: null,
+    });
+  });
 });
 
 describe('delivery status', () => {

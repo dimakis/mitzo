@@ -106,7 +106,7 @@ interface Options {
   registry: SessionRegistry;
   prompt: string;
   model?: string;
-  reasoningEffort?: string;
+  reasoningEffort?: string | null;
   images?: Array<{ data: string; mediaType: string }>;
   messageId: string;
   systemPrompt: string;
