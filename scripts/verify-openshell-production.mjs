@@ -204,15 +204,7 @@ export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
     'runtime image base provenance does not match the stack lock',
   );
   for (const binary of manifest.runtime.requiredBinaries ?? []) {
-    run(podman, [
-      'run',
-      '--rm',
-      '--entrypoint',
-      '/usr/bin/test',
-      staticResult.image,
-      '-x',
-      binary,
-    ]);
+    run(podman, ['run', '--rm', '--entrypoint', '/usr/bin/test', staticResult.image, '-x', binary]);
   }
 
   console.log(`OPENSHELL_PRODUCTION_GATEWAY=${gatewayInfo.version}`);
