@@ -25,8 +25,8 @@ The reviewed patch series originated at NVIDIA/OpenShell issue
 [#2740](https://github.com/NVIDIA/OpenShell/issues/2740). The production-ready
 OpenShell 0.0.116 port is published in
 [`dimakis/OpenShell`](https://github.com/dimakis/OpenShell) as release tag
-`v0.0.116-mitzo.1`, commit
-`226dfbcd450710ccd6b4e6dc9109deede04bd130`, with maintenance branch
+`v0.0.116-mitzo.2`, commit
+`b4c459f92446167afcb0a2dcf7d9fa6c8945e59c`, with maintenance branch
 `codex/mitzo-oauth-v0.0.116`. Its historical review lineage is
 [saariuslystoned/OpenShell PR #1](https://github.com/saariuslystoned/OpenShell/pull/1)
 at `f8cbf77623559149e91c63385992e2acb9e8bda0`, followed by accepted fixes through
@@ -35,17 +35,27 @@ identity is the full 0.0.116 port commit above. The tag is a convenience name
 and must resolve to that commit before use; none of these hashes is a
 version-agnostic patch.
 
+`v0.0.116-mitzo.2` supersedes `v0.0.116-mitzo.1`. The first port shifted
+upstream persisted refresh-state protobuf fields 18-24 when it inserted the new
+grant-generation field. Existing production refresh records then failed to
+decode. The replacement restores the upstream wire layout and allocates the new
+field at 25. Its matched local supervisor build has digest
+`sha256:bd93ca4bc313c47699d44ba2c62480474f7f590a77409385cc5ef553ae7b8350`.
+
 ## Upgrade procedure
 
 1. Record the current CLI, gateway, compute driver/supervisor, runtime image,
    provider profile, and patch commit. Capture metadata only—never auth data.
 2. Fetch the tag, resolve its peeled commit with
-   `git rev-parse 'v0.0.116-mitzo.1^{commit}'`, and require the exact full commit
+   `git rev-parse 'v0.0.116-mitzo.2^{commit}'`, and require the exact full commit
    recorded above before building. Build in an isolated state directory. For a
    later release, record its new full reviewed commit and immutable image digest
    first. If it removed managed inference routing or `inference.local`, treat
    the work as an architecture migration and obtain a fresh review.
 3. Run formatting, unit/integration tests, and isolated gateway acceptance.
+   Start the candidate gateway against an owner-only disposable copy of the
+   production state and verify every existing provider refresh status decodes.
+   Never treat protobuf field renumbering as a migration strategy.
 4. Back up production configuration and prepare the previous executable/image
    as a rollback. Do not transplant the isolated credential database.
 5. Deploy matched CLI/gateway/supervisor components. Reauthorize the provider
