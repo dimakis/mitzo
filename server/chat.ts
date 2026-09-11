@@ -1613,6 +1613,15 @@ export function sendToChat(
     if (!session?.inputQueue) return false;
     const codex = getCodexRuntime(session);
     const responses = getResponsesRuntime(session);
+    if (!codex && !responses && model && model !== session.model) {
+      send(session.transport, {
+        type: 'error',
+        sessionId: session.sessionId,
+        error:
+          'Changing models in an active Anthropic session is not supported. Start a new task to use the selected model.',
+      });
+      return false;
+    }
     if (codex && session.activeSkillPolicy) {
       send(session.transport, {
         type: 'error',
@@ -1745,6 +1754,15 @@ export async function interruptChat(
     if (!session?.queryInstance || !session?.inputQueue) return false;
     const codex = getCodexRuntime(session);
     const responses = getResponsesRuntime(session);
+    if (!codex && !responses && model && model !== session.model) {
+      send(session.transport, {
+        type: 'error',
+        sessionId: session.sessionId,
+        error:
+          'Changing models in an active Anthropic session is not supported. Start a new task to use the selected model.',
+      });
+      return false;
+    }
     if (codex) {
       if (session.activeSkillPolicy) {
         send(session.transport, {

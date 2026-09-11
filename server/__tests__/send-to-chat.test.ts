@@ -214,6 +214,44 @@ describe('sendToChat emits user_message via transport', () => {
     expect(userMsgs[0]).not.toHaveProperty('sessionId');
     expect(pushSpy).toHaveBeenCalledTimes(1);
   });
+
+  it('rejects an active Anthropic model switch without persisting or sending the message', () => {
+    const transport = mockTransport();
+    const pushSpy = vi.fn();
+    const sessionId = `sess-anthropic-model-${Date.now()}`;
+    registry.register(CLIENT_ID, {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+
+    const session = registry.get(CLIENT_ID)!;
+    session.sessionId = sessionId;
+    session.model = 'claude-sonnet-4-6';
+    session.inputQueue = { push: pushSpy, close: vi.fn() };
+    eventStore.upsertSession({ sessionId, selectedModel: session.model });
+
+    expect(
+      sendToChat(
+        CLIENT_ID,
+        'Use the other model',
+        undefined,
+        undefined,
+        'user-anthropic-model',
+        'claude-opus-4-6',
+      ),
+    ).toBe(false);
+    expect(pushSpy).not.toHaveBeenCalled();
+    expect(eventStore.getSession(sessionId)?.selectedModel).toBe('claude-sonnet-4-6');
+    expect(transport._sent).toContainEqual(
+      expect.objectContaining({
+        type: 'error',
+        error: expect.stringContaining('Start a new task'),
+      }),
+    );
+    expect(transport._sent.some((message) => message.type === 'user_message')).toBe(false);
+  });
 });
 
 describe('interruptChat emits user_message via transport', () => {
@@ -356,5 +394,44 @@ describe('interruptChat emits user_message via transport', () => {
     expect(stopTaskSpy).toHaveBeenCalledWith('task-abc');
     expect(stopTaskSpy).toHaveBeenCalledWith('task-def');
     expect(interruptSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an active Anthropic model switch before interrupting or persisting it', async () => {
+    const transport = mockTransport();
+    const pushSpy = vi.fn();
+    const interruptSpy = vi.fn().mockResolvedValue(undefined);
+    const sessionId = `sess-anthropic-interrupt-model-${Date.now()}`;
+    registry.register(CLIENT_ID, {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+
+    const session = registry.get(CLIENT_ID)!;
+    session.sessionId = sessionId;
+    session.model = 'claude-sonnet-4-6';
+    session.inputQueue = { push: pushSpy, close: vi.fn() };
+    session.queryInstance = {
+      interrupt: interruptSpy,
+      close: vi.fn(),
+      stopTask: vi.fn().mockResolvedValue(undefined),
+    };
+    eventStore.upsertSession({ sessionId, selectedModel: session.model });
+
+    expect(
+      await interruptChat(
+        CLIENT_ID,
+        'Interrupt with the other model',
+        undefined,
+        undefined,
+        'user-anthropic-interrupt-model',
+        'claude-opus-4-6',
+      ),
+    ).toBe(false);
+    expect(interruptSpy).not.toHaveBeenCalled();
+    expect(pushSpy).not.toHaveBeenCalled();
+    expect(eventStore.getSession(sessionId)?.selectedModel).toBe('claude-sonnet-4-6');
+    expect(transport._sent.some((message) => message.type === 'user_message')).toBe(false);
   });
 });
