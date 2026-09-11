@@ -1,3 +1,6 @@
+import type { AccountBinding } from './account-binding.js';
+import type { SessionType, SymposiumProvenance } from './symposium.js';
+export type { AccountBinding } from './account-binding.js';
 // Unified protocol types — single source of truth for both server and frontends.
 // Previously duplicated between server/session-registry.ts, server/tool-summary.ts,
 // server/event-store.ts, and frontend/src/types/chat.ts.
@@ -292,6 +295,10 @@ export interface EventStoreLogger {
 }
 
 export interface StoredEvent {
+  /** Absent for ordinary chat and director events. */
+  seatId?: string;
+  /** Validated immutable execution context for seat-attributed Symposium events. */
+  symposiumProvenance?: SymposiumProvenance;
   seq: number;
   sessionId: string;
   type: string;
@@ -307,15 +314,13 @@ export interface SessionSearchResult {
   updatedAt: number;
 }
 
-export interface AccountBinding {
-  accountId: string;
-  accountLabel: string;
-  provider: string;
-  model: string;
-  profileRevision: string;
-}
-
 export interface SessionMeta {
+  /** Persisted mode; adding/removing seats retains the session identity. */
+  sessionType?: SessionType;
+  /** Serialized SymposiumConfig; null when the capability is inactive. */
+  symposiumConfig?: string | null;
+  /** Highest configuration revision ever applied; retained after deactivation. */
+  symposiumRevision?: number;
   accountBinding?: AccountBinding | null;
   sessionId: string;
   summary: string | null;
