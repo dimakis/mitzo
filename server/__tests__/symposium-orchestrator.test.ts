@@ -563,6 +563,50 @@ describe('SymposiumOrchestrator', () => {
     expect(store.getSymposiumSeatThreads('chat')).toEqual([]);
   });
 
+  it('returns the durable cancellation when optional provider cleanup rejects', async () => {
+    admit('builder');
+    admit('reviewer');
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => (release = resolve));
+    reviewer.execute = vi.fn(async (input: SymposiumSeatExecution) => {
+      reviewer.calls.push(input);
+      await waiting;
+      return { providerThreadId: 'late-thread', content: 'late', costUsd: 0 };
+    });
+    reviewer.cancel = vi.fn(async () => {
+      throw new Error('provider cleanup unavailable');
+    });
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: 'builder',
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'draft',
+      idempotencyKey: 'stage-cancel-cleanup-failure',
+    });
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-cancel-cleanup-failure',
+    });
+
+    const running = orchestrator.deliver(staged.deliveryId);
+    await vi.waitFor(() => expect(reviewer.calls).toHaveLength(1));
+    const cancelled = await orchestrator.cancel({
+      deliveryId: staged.deliveryId,
+      reason: 'Director stopped review',
+      idempotencyKey: 'cancel-cleanup-failure',
+    });
+    release();
+    await running;
+
+    expect(cancelled).toMatchObject({
+      status: 'cancelled',
+      cancellationIdempotencyKey: 'cancel-cleanup-failure',
+    });
+    expect(reviewer.cancel).toHaveBeenCalledOnce();
+    expect(store.getSymposiumDelivery(staged.deliveryId)).toMatchObject({ status: 'cancelled' });
+  });
+
   it('marks crash-interrupted attempts for explicit recovery and reuses their execution key', async () => {
     admit('builder');
     admit('reviewer');

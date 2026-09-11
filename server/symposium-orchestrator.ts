@@ -9,6 +9,9 @@ import type {
 } from '@mitzo/protocol';
 import { randomUUID } from 'node:crypto';
 import type { EventStore } from './event-store.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('symposium-orchestrator');
 
 /** Narrow provider boundary. Phase 2 deliberately supplies only fakes.
  * Implementations must reconcile repeated idempotency keys to one provider turn.
@@ -264,10 +267,18 @@ export class SymposiumOrchestrator {
         .map(async (recipient) => {
           const executor = this.executors[recipient.seatId];
           if (!executor?.cancel) return;
-          await executor.cancel({
-            providerThreadId: recipient.providerThreadId ?? undefined,
-            idempotencyKey: recipient.idempotencyKey,
-          });
+          try {
+            await executor.cancel({
+              providerThreadId: recipient.providerThreadId ?? undefined,
+              idempotencyKey: recipient.idempotencyKey,
+            });
+          } catch (error) {
+            log.warn('provider cancellation cleanup failed after durable cancellation', {
+              deliveryId: input.deliveryId,
+              seatId: recipient.seatId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
         }),
     );
     return cancelled;
