@@ -89,6 +89,15 @@ const Profile = z.discriminatedUnion('provider', [
   ApiProfile,
 ]);
 
+function supportedModels(
+  provider: z.infer<typeof Profile>['provider'],
+  models: z.infer<typeof CatalogModel>[],
+) {
+  // API sessions always expose tools. Nano currently rejects requests that
+  // include tool_search, so advertising it makes the default profile fail.
+  return provider === 'openai' ? models.filter((model) => model.id !== 'gpt-5.4-nano') : models;
+}
+
 /** Account configuration is server-owned; invocation adapters remain harness-owned. */
 export class AccountProfiles {
   private profiles: z.infer<typeof Profile>[];
@@ -133,10 +142,12 @@ export class AccountProfiles {
               : provider === 'openai'
                 ? 'openai-api'
                 : 'google-cloud',
-          models:
+          models: supportedModels(
+            provider,
             provider === 'anthropic-vertex'
               ? profile.models
               : (discovered?.models ?? profile.models),
+          ),
           modelDiscovery: { updatedAt: discovered?.updatedAt, stale: !!discovered?.error },
           capabilities: {
             streaming: provider !== 'google-vertex',
@@ -206,14 +217,13 @@ export class AccountProfiles {
       throw new Error('Account is unavailable. Select a configured account for a new task.');
     if (profile.provider === 'openai-codex' && !this.options.codexEnabled)
       throw new Error('Codex execution is not enabled; development acceptance is required');
-    if (
-      !model ||
-      !(
-        configured || profile.provider === 'anthropic-vertex'
-          ? profile.models
-          : (cachedModels(JSON.stringify(profile))?.models ?? profile.models)
-      ).some((m) => m.id === model)
-    ) {
+    const selectableModels = supportedModels(
+      profile.provider,
+      configured || profile.provider === 'anthropic-vertex'
+        ? profile.models
+        : (cachedModels(JSON.stringify(profile))?.models ?? profile.models),
+    );
+    if (!model || !selectableModels.some((m) => m.id === model)) {
       throw new Error('Model is unavailable for this account. Select a model from its catalog.');
     }
     // Bind routing identity, not presentation or the mutable model allowlist.

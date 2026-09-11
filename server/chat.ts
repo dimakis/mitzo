@@ -860,8 +860,9 @@ async function _startChatInner(
     agentName?: string;
   },
 ) {
-  const openShellRequested =
+  const openShellAvailable =
     process.env.MITZO_OPENSHELL_ENABLED === '1' || !!process.env.MITZO_OPENSHELL_SANDBOX_NAME;
+  let openShellRequested = false;
   let accountBinding;
   let codexProfile: CodexAccountProfile | undefined;
   let apiKey: string | undefined;
@@ -874,17 +875,14 @@ async function _startChatInner(
       options.accountProfiles ??
       (options.accountId || storedBinding ? loadAccountProfiles() : undefined);
     accountBinding = resolveAccountSelection(options, storedBinding, !!options.resume, profiles);
-    if (!accountBinding && openShellRequested)
+    if (!accountBinding && openShellAvailable)
       throw new Error('OpenShell execution requires an explicit account selection');
     if (accountBinding) {
-      if (
-        openShellRequested &&
-        accountBinding.provider !== 'openai' &&
-        accountBinding.provider !== 'openai-codex'
-      )
-        throw new Error(
-          `OpenShell execution does not yet support ${accountBinding.provider} accounts`,
-        );
+      openShellRequested =
+        openShellAvailable &&
+        (accountBinding.provider === 'openai-codex' ||
+          (accountBinding.provider === 'openai' &&
+            process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED !== '0'));
       options = {
         ...options,
         model: options.accountId

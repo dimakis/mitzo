@@ -329,12 +329,12 @@ export async function openCodexChat(options: Options) {
       };
       if (options.session.transport?.isOpen()) options.session.transport.send(message);
     },
-    onError: () => {
+    onError: (error) => {
       if (options.session.transport?.isOpen())
         options.session.transport.send({
           type: 'error',
           sessionId: options.conversationId,
-          error: 'Codex turn failed. Inspect queued work before retrying.',
+          error: `Codex turn failed: ${error.message}`,
         });
     },
   });

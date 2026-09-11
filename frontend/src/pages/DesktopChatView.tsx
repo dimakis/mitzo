@@ -86,13 +86,16 @@ export function DesktopChatView() {
   }, []);
 
   const awaitingNewSession = useRef(false);
+  const resetFailedDraftOnMount = useRef(
+    !sessionId && !activeSessionId && !messages.running && messages.messages.length > 0,
+  );
 
   // Sync route param → store session
   useEffect(() => {
     awaitingNewSession.current = !sessionId && !activeSessionId;
     if (sessionId && sessionId !== activeSessionId) {
       storeSwitchSession(sessionId);
-    } else if (!sessionId && activeSessionId) {
+    } else if (!sessionId && (activeSessionId || resetFailedDraftOnMount.current)) {
       storeNewSession();
     }
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
