@@ -208,6 +208,23 @@ export interface SymposiumDeliveryRecipient {
   updatedAt: number;
 }
 
+/** Append-only evidence for each provider execution claim, including retries and recovery. */
+export interface SymposiumRecipientAttemptRecord {
+  attemptId: number;
+  deliveryId: string;
+  seatId: string;
+  attemptNumber: number;
+  idempotencyKey: string;
+  status: Exclude<SymposiumRecipientStatus, 'pending'>;
+  providerThreadId: string | null;
+  resultContent: string | null;
+  costUsd: number;
+  error: string | null;
+  startedAt: number;
+  completedAt: number | null;
+  updatedAt: number;
+}
+
 /** One directed/manual message, preserving the pre- and post-intervention forms. */
 export interface SymposiumDeliveryRecord {
   deliveryId: string;

@@ -67,16 +67,16 @@ Mitzo's SQLite event database now owns the durable control-plane record:
   source/target grant provenance, and the approved, edited, or replaced content;
 - approve, edit, replace, drop, and retry interventions remain as append-only
   history even though the delivery row exposes the latest state;
-- recipient attempts retain stable execution idempotency keys, results, cost,
-  errors, and provider-thread IDs;
+- an append-only recipient-attempt ledger retains stable execution idempotency
+  keys, results, cost, errors, and provider-thread IDs across retries;
 - provider conversations are reused only for the same account/profile/grant and
   isolation binding. A grant or binding revision starts a new thread;
 - cancellation is persisted before in-process abort/cancel signals are issued;
-- a restart changes in-flight work to `recovery_required`. An explicit retry uses
-  the original execution key so an idempotent executor can reconcile an ambiguous
-  provider outcome without silently starting a second turn; and
-- turn admission is reserved transactionally, so concurrent dispatch cannot exceed
-  the configured cap.
+- server startup changes in-flight work to `recovery_required`. An explicit retry
+  uses the original execution key so an idempotent executor can reconcile an
+  ambiguous provider outcome without silently starting a second turn; and
+- turn admission is reserved transactionally against the append-only attempt count,
+  so failed attempts and concurrent dispatch cannot exceed the configured cap.
 
 The orchestrator fails closed for draft/stale configurations, unadmitted providers,
 unsupported scheduling modes, changed grants, and missing executors. Both seats

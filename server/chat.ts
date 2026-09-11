@@ -140,7 +140,16 @@ function initEventStore(): EventStore {
   const mitzoDir = join(repoPath, '.mitzo');
   mkdirSync(mitzoDir, { recursive: true });
   const dbPath = join(mitzoDir, 'events.db');
-  return new EventStore(dbPath);
+  const store = new EventStore(dbPath);
+  const recover = Reflect.get(store, 'recoverSymposiumDeliveries') as
+    EventStore['recoverSymposiumDeliveries'] | undefined;
+  const recovered = recover?.call(store, Date.now()) ?? [];
+  if (recovered.length > 0) {
+    log.warn('recovered interrupted Symposium deliveries during startup', {
+      deliveryIds: recovered.map((delivery) => delivery.deliveryId),
+    });
+  }
+  return store;
 }
 
 export const eventStore = initEventStore();

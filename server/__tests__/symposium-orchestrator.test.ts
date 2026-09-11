@@ -478,6 +478,21 @@ describe('SymposiumOrchestrator', () => {
       'delivery:delivery-1:seat:reviewer',
       'delivery:delivery-1:seat:reviewer',
     ]);
+    expect(store.getSymposiumRecipientAttempts(staged.deliveryId, 'reviewer')).toMatchObject([
+      {
+        attemptNumber: 1,
+        idempotencyKey: 'delivery:delivery-1:seat:reviewer',
+        status: 'failed',
+        error: 'temporary provider failure',
+      },
+      {
+        attemptNumber: 2,
+        idempotencyKey: 'delivery:delivery-1:seat:reviewer',
+        status: 'delivered',
+        resultContent: 'recovered',
+        costUsd: 0,
+      },
+    ]);
   });
 
   it('retries a failed second recipient without re-executing the delivered first recipient', async () => {
@@ -704,6 +719,9 @@ describe('SymposiumOrchestrator', () => {
     expect(orchestrator.recover()).toEqual([
       expect.objectContaining({ deliveryId: staged.deliveryId, status: 'recovery_required' }),
     ]);
+    expect(store.getSymposiumRecipientAttempts(staged.deliveryId, 'reviewer')).toMatchObject([
+      { attemptNumber: 1, status: 'recovery_required' },
+    ]);
     orchestrator.intervene({
       deliveryId: staged.deliveryId,
       action: 'retry',
@@ -723,6 +741,60 @@ describe('SymposiumOrchestrator', () => {
     expect(store.getSymposiumSeatThreads('chat')).toEqual([
       expect.objectContaining({ seatId: 'reviewer', providerThreadId: 'thread-reviewer' }),
     ]);
+    expect(store.getSymposiumRecipientAttempts(staged.deliveryId, 'reviewer')).toMatchObject([
+      { attemptNumber: 1, status: 'recovery_required' },
+      { attemptNumber: 2, status: 'delivered', resultContent: 'reviewer: draft' },
+    ]);
+  });
+
+  it('counts failed provider attempts against the durable turn cap', async () => {
+    store.setSymposiumConfig('chat', {
+      ...config,
+      revision: 4,
+      turnRules: { mode: 'directed', maxTurns: 1 },
+    });
+    orchestrator.recordProviderAdmission({
+      sessionId: 'chat',
+      seatId: 'builder',
+      decision: 'admitted',
+      idempotencyKey: 'admit-builder-failed-cap',
+    });
+    orchestrator.recordProviderAdmission({
+      sessionId: 'chat',
+      seatId: 'reviewer',
+      decision: 'admitted',
+      idempotencyKey: 'admit-reviewer-failed-cap',
+    });
+    reviewer.execute = vi.fn(async (input: SymposiumSeatExecution) => {
+      reviewer.calls.push(input);
+      throw new Error('permanent provider failure');
+    });
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: 'builder',
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'one allowed attempt',
+      idempotencyKey: 'stage-failed-cap',
+    });
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-failed-cap',
+    });
+
+    await expect(orchestrator.deliver(staged.deliveryId)).resolves.toMatchObject({
+      status: 'failed',
+    });
+    expect(store.getSymposiumRecipientAttempts(staged.deliveryId, 'reviewer')).toMatchObject([
+      { attemptNumber: 1, status: 'failed', error: 'permanent provider failure' },
+    ]);
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'retry',
+      idempotencyKey: 'retry-failed-cap',
+    });
+    await expect(orchestrator.deliver(staged.deliveryId)).rejects.toThrow('turn limit');
+    expect(reviewer.calls).toHaveLength(1);
   });
 
   it('enforces the persisted turn limit before dispatch', async () => {

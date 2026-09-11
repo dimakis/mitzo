@@ -16,6 +16,7 @@ import type {
   SymposiumConfig,
   SymposiumDeliveryRecord,
   SymposiumDeliveryRecipient,
+  SymposiumRecipientAttemptRecord,
   SymposiumIntervention,
   SymposiumInterventionRecord,
   SymposiumProvenance,
@@ -590,6 +591,28 @@ export class EventStore {
         );
         CREATE INDEX IF NOT EXISTS idx_symposium_seat_execution_claims_delivery
           ON symposium_seat_execution_claims (delivery_id);
+
+        CREATE TABLE IF NOT EXISTS symposium_recipient_attempts (
+          attempt_id INTEGER PRIMARY KEY AUTOINCREMENT,
+          delivery_id TEXT NOT NULL,
+          seat_id TEXT NOT NULL,
+          attempt_number INTEGER NOT NULL,
+          idempotency_key TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN (
+            'executing', 'delivered', 'failed', 'cancelled', 'recovery_required'
+          )),
+          provider_thread_id TEXT,
+          result_content TEXT,
+          cost_usd REAL NOT NULL DEFAULT 0,
+          error TEXT,
+          started_at INTEGER NOT NULL,
+          completed_at INTEGER,
+          updated_at INTEGER NOT NULL,
+          UNIQUE (delivery_id, seat_id, attempt_number),
+          FOREIGN KEY (delivery_id) REFERENCES symposium_deliveries(delivery_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_symposium_recipient_attempts_delivery
+          ON symposium_recipient_attempts (delivery_id, seat_id, attempt_number);
       `);
     })();
   }
@@ -1091,10 +1114,15 @@ export class EventStore {
       if (delivery.status !== 'ready') return false;
       if (maxTurns !== undefined) {
         const reserved = this.db!.prepare(
-          `SELECT count(*) AS count FROM symposium_delivery_recipients r
-           JOIN symposium_deliveries d ON d.delivery_id = r.delivery_id
-           WHERE d.session_id = ? AND (d.status = 'delivering' OR r.status = 'delivered')`,
-        ).get(delivery.sessionId) as { count: number };
+          `SELECT
+             (SELECT count(*) FROM symposium_recipient_attempts a
+              JOIN symposium_deliveries attempted ON attempted.delivery_id = a.delivery_id
+              WHERE attempted.session_id = ?) +
+             (SELECT count(*) FROM symposium_delivery_recipients r
+              JOIN symposium_deliveries active ON active.delivery_id = r.delivery_id
+              WHERE active.session_id = ? AND active.status = 'delivering'
+                AND r.status = 'pending') AS count`,
+        ).get(delivery.sessionId, delivery.sessionId) as { count: number };
         const requested = delivery.recipients.filter(
           (recipient) => recipient.status === 'pending',
         ).length;
@@ -1243,6 +1271,23 @@ export class EventStore {
         );
         return undefined;
       }
+      this.db!.prepare(
+        `INSERT INTO symposium_recipient_attempts (
+          delivery_id, seat_id, attempt_number, idempotency_key, status,
+          provider_thread_id, started_at, updated_at
+        )
+        SELECT ?, ?, COALESCE(MAX(attempt_number), 0) + 1, ?, 'executing', ?, ?, ?
+        FROM symposium_recipient_attempts WHERE delivery_id = ? AND seat_id = ?`,
+      ).run(
+        input.deliveryId,
+        input.seatId,
+        input.recipientIdempotencyKey,
+        thread?.providerThreadId ?? null,
+        input.claimedAt,
+        input.claimedAt,
+        input.deliveryId,
+        input.seatId,
+      );
       return {
         claimToken: input.claimToken,
         thread,
@@ -1293,6 +1338,23 @@ export class EventStore {
         input.seatId,
       );
       if (result.changes === 1) {
+        const attempt = this.db!.prepare(
+          `UPDATE symposium_recipient_attempts SET status = 'delivered',
+            provider_thread_id = ?, result_content = ?, cost_usd = ?, error = NULL,
+            completed_at = ?, updated_at = ?
+           WHERE delivery_id = ? AND seat_id = ? AND status = 'executing'`,
+        ).run(
+          input.providerThreadId,
+          input.resultContent,
+          input.costUsd,
+          input.updatedAt,
+          input.updatedAt,
+          input.deliveryId,
+          input.seatId,
+        );
+        if (attempt.changes !== 1) {
+          throw new Error('Symposium recipient execution attempt is missing');
+        }
         const existingThread = this.getSymposiumSeatThread(
           input.sessionId,
           input.seatId,
@@ -1367,6 +1429,11 @@ export class EventStore {
       );
       if (result.changes === 1) {
         if (input.claimToken) {
+          this.db!.prepare(
+            `UPDATE symposium_recipient_attempts SET status = 'failed', error = ?,
+              completed_at = ?, updated_at = ?
+             WHERE delivery_id = ? AND seat_id = ? AND status = 'executing'`,
+          ).run(input.error, input.updatedAt, input.updatedAt, input.deliveryId, input.seatId);
           this.db!.prepare(`DELETE FROM symposium_seat_execution_claims WHERE claim_token = ?`).run(
             input.claimToken,
           );
@@ -1424,6 +1491,11 @@ export class EventStore {
         input.deliveryId,
       );
       this.db!.prepare(
+        `UPDATE symposium_recipient_attempts SET status = 'cancelled', completed_at = ?,
+          updated_at = ?
+         WHERE delivery_id = ? AND status = 'executing'`,
+      ).run(input.cancelledAt, input.cancelledAt, input.deliveryId);
+      this.db!.prepare(
         `UPDATE symposium_delivery_recipients SET status = 'cancelled', updated_at = ?
          WHERE delivery_id = ? AND status != 'delivered'`,
       ).run(input.cancelledAt, input.deliveryId);
@@ -1442,6 +1514,11 @@ export class EventStore {
       ).all() as Array<{ delivery_id: string }>;
       for (const row of rows) {
         this.db!.prepare(
+          `UPDATE symposium_recipient_attempts SET status = 'recovery_required',
+            completed_at = ?, updated_at = ?
+           WHERE delivery_id = ? AND status = 'executing'`,
+        ).run(recoveredAt, recoveredAt, row.delivery_id);
+        this.db!.prepare(
           `UPDATE symposium_delivery_recipients SET status = 'recovery_required', updated_at = ?
            WHERE delivery_id = ? AND status = 'executing'`,
         ).run(recoveredAt, row.delivery_id);
@@ -1455,6 +1532,22 @@ export class EventStore {
       }
       return rows.map((row) => this.getSymposiumDelivery(row.delivery_id)!);
     }).immediate();
+  }
+
+  getSymposiumRecipientAttempts(
+    deliveryId: string,
+    seatId?: string,
+  ): SymposiumRecipientAttemptRecord[] {
+    const rows = seatId
+      ? (this.db!.prepare(
+          `SELECT * FROM symposium_recipient_attempts
+           WHERE delivery_id = ? AND seat_id = ? ORDER BY attempt_number`,
+        ).all(deliveryId, seatId) as Record<string, unknown>[])
+      : (this.db!.prepare(
+          `SELECT * FROM symposium_recipient_attempts
+           WHERE delivery_id = ? ORDER BY seat_id, attempt_number`,
+        ).all(deliveryId) as Record<string, unknown>[]);
+    return rows.map(rowToSymposiumRecipientAttempt);
   }
 
   getSymposiumSeatThread(
@@ -1908,6 +2001,26 @@ function rowToSymposiumRecipient(row: Record<string, unknown>): SymposiumDeliver
     resultContent: (row.result_content as string | null) ?? null,
     costUsd: (row.cost_usd as number) ?? 0,
     error: (row.error as string | null) ?? null,
+    updatedAt: row.updated_at as number,
+  };
+}
+
+function rowToSymposiumRecipientAttempt(
+  row: Record<string, unknown>,
+): SymposiumRecipientAttemptRecord {
+  return {
+    attemptId: row.attempt_id as number,
+    deliveryId: row.delivery_id as string,
+    seatId: row.seat_id as string,
+    attemptNumber: row.attempt_number as number,
+    idempotencyKey: row.idempotency_key as string,
+    status: row.status as SymposiumRecipientAttemptRecord['status'],
+    providerThreadId: (row.provider_thread_id as string | null) ?? null,
+    resultContent: (row.result_content as string | null) ?? null,
+    costUsd: row.cost_usd as number,
+    error: (row.error as string | null) ?? null,
+    startedAt: row.started_at as number,
+    completedAt: (row.completed_at as number | null) ?? null,
     updatedAt: row.updated_at as number,
   };
 }

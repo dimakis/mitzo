@@ -153,6 +153,7 @@ export type {
   SymposiumDeliveryStatus,
   SymposiumRecipientStatus,
   SymposiumDeliveryRecipient,
+  SymposiumRecipientAttemptRecord,
   SymposiumDeliveryRecord,
   SymposiumInterventionRecord,
   SymposiumSeatThreadRecord,
