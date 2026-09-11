@@ -1224,11 +1224,19 @@ export class EventStore {
         return undefined;
       }
 
+      const thread = this.getSymposiumSeatThread(input.sessionId, input.seatId, input.bindingKey);
       const claimed = this.db!.prepare(
-        `UPDATE symposium_delivery_recipients SET status = 'executing', updated_at = ?
+        `UPDATE symposium_delivery_recipients
+         SET status = 'executing', provider_thread_id = ?, updated_at = ?
          WHERE delivery_id = ? AND seat_id = ? AND status = 'pending'
            AND idempotency_key = ?`,
-      ).run(input.claimedAt, input.deliveryId, input.seatId, input.recipientIdempotencyKey);
+      ).run(
+        thread?.providerThreadId ?? null,
+        input.claimedAt,
+        input.deliveryId,
+        input.seatId,
+        input.recipientIdempotencyKey,
+      );
       if (claimed.changes !== 1) {
         this.db!.prepare(`DELETE FROM symposium_seat_execution_claims WHERE claim_token = ?`).run(
           input.claimToken,
@@ -1237,7 +1245,7 @@ export class EventStore {
       }
       return {
         claimToken: input.claimToken,
-        thread: this.getSymposiumSeatThread(input.sessionId, input.seatId, input.bindingKey),
+        thread,
       };
     }).immediate();
   }

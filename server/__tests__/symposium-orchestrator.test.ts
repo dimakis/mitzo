@@ -91,6 +91,7 @@ const config: SymposiumConfig = {
 class FakeExecutor implements SymposiumSeatExecutor {
   calls: SymposiumSeatExecution[] = [];
   cancellations: string[] = [];
+  cancellationThreadIds: Array<string | undefined> = [];
   private threadCount = 0;
   private results = new Map<
     string,
@@ -115,6 +116,7 @@ class FakeExecutor implements SymposiumSeatExecutor {
 
   async cancel(input: { providerThreadId?: string; idempotencyKey: string }) {
     this.cancellations.push(input.idempotencyKey);
+    this.cancellationThreadIds.push(input.providerThreadId);
   }
 }
 
@@ -619,6 +621,60 @@ describe('SymposiumOrchestrator', () => {
     });
     expect(reviewer.cancel).toHaveBeenCalledOnce();
     expect(store.getSymposiumDelivery(staged.deliveryId)).toMatchObject({ status: 'cancelled' });
+  });
+
+  it('passes a reused durable provider thread to in-flight cancellation cleanup', async () => {
+    admit('builder');
+    admit('reviewer');
+    const first = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: 'builder',
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'first review',
+      idempotencyKey: 'stage-cancel-reused-thread-first',
+    });
+    orchestrator.intervene({
+      deliveryId: first.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-cancel-reused-thread-first',
+    });
+    await orchestrator.deliver(first.deliveryId);
+
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => (release = resolve));
+    reviewer.execute = vi.fn(async (input: SymposiumSeatExecution) => {
+      reviewer.calls.push(input);
+      await waiting;
+      return {
+        providerThreadId: input.providerThreadId!,
+        content: 'late',
+        costUsd: 0,
+      };
+    });
+    const second = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: 'builder',
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'second review',
+      idempotencyKey: 'stage-cancel-reused-thread-second',
+    });
+    orchestrator.intervene({
+      deliveryId: second.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-cancel-reused-thread-second',
+    });
+
+    const running = orchestrator.deliver(second.deliveryId);
+    await vi.waitFor(() => expect(reviewer.calls).toHaveLength(2));
+    await orchestrator.cancel({
+      deliveryId: second.deliveryId,
+      idempotencyKey: 'cancel-reused-thread',
+    });
+    release();
+    await running;
+
+    expect(reviewer.calls[1].providerThreadId).toBe('thread-reviewer');
+    expect(reviewer.cancellationThreadIds).toEqual(['thread-reviewer']);
   });
 
   it('marks crash-interrupted attempts for explicit recovery and reuses their execution key', async () => {
