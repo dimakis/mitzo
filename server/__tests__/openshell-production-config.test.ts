@@ -118,12 +118,20 @@ describe('OpenShell production bundle validation', () => {
       ),
       'utf8',
     );
-    for (const scope of ['drive.readonly', 'documents.readonly', 'calendar.readonly'])
+    for (const scope of [
+      'drive.readonly',
+      'documents.readonly',
+      'calendar.readonly',
+      'gmail.readonly',
+    ])
       expect(profile).toContain(scope);
-    for (const host of ['www.googleapis.com', 'docs.googleapis.com'])
+    for (const host of [
+      'www.googleapis.com',
+      'docs.googleapis.com',
+      'gmail.googleapis.com',
+      'sheets.googleapis.com',
+    ])
       expect(profile).toContain(`host: ${host}`);
-    expect(profile).not.toContain('gmail.readonly');
-    expect(profile).not.toContain('gmail.googleapis.com');
     expect(profile).not.toContain('access: read-write');
   });
 

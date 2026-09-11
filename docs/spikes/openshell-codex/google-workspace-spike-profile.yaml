@@ -1,7 +1,7 @@
 id: mitzo-google-workspace-spike
-resource_version: 5
+resource_version: 6
 display_name: Mitzo Google Workspace
-description: Delegated read-only Drive, Docs, and Calendar provider
+description: Delegated read-only Drive, Docs, Calendar, Gmail, and Sheets provider
 category: data
 inference_capable: false
 credentials:
@@ -19,6 +19,7 @@ credentials:
         - https://www.googleapis.com/auth/drive.readonly
         - https://www.googleapis.com/auth/documents.readonly
         - https://www.googleapis.com/auth/calendar.readonly
+        - https://www.googleapis.com/auth/gmail.readonly
       refresh_before_seconds: 300
       max_lifetime_seconds: 3600
       material:
@@ -33,6 +34,18 @@ endpoints:
     enforcement: enforce
     tls: terminate
   - host: docs.googleapis.com
+    port: 443
+    protocol: rest
+    access: read-only
+    enforcement: enforce
+    tls: terminate
+  - host: gmail.googleapis.com
+    port: 443
+    protocol: rest
+    access: read-only
+    enforcement: enforce
+    tls: terminate
+  - host: sheets.googleapis.com
     port: 443
     protocol: rest
     access: read-only
