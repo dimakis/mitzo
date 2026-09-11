@@ -58,8 +58,10 @@ version-agnostic patch.
 3. Provider metadata exactly matches the name, type, and workspace above.
 4. The brokered `inference.local` path completes a real model/tool turn from a
    credential-free sandbox and returns a unique marker.
-5. A direct, non-brokered credential attempt is denied for the expected policy
-   reason; DNS, TLS, or generic connectivity failures do not count.
+5. From a credential-free unbound sandbox, a direct/non-brokered route request
+   is denied for the expected policy reason. Do not obtain, copy, or submit a
+   raw OAuth credential for this probe; DNS, TLS, or generic connectivity
+   failures do not count.
 6. A normal Mitzo subscription chat completes over SSE and returns its unique
    marker after a service restart.
 7. Logs and captured artifacts contain no token, auth JSON, authorization
