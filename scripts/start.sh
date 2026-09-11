@@ -1,5 +1,9 @@
 #!/bin/bash
+set -euo pipefail
 cd "$(dirname "$0")/.."
+
+export NODE_ENV="${NODE_ENV:-production}"
+node scripts/verify-openshell-production.mjs .env
 
 LOGDIR="logs"
 mkdir -p "$LOGDIR"

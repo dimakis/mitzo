@@ -1,5 +1,12 @@
 ARG OPENSHELL_BASE_IMAGE
 FROM ${OPENSHELL_BASE_IMAGE}
+ARG OPENSHELL_BASE_IMAGE
+ARG MITZO_SOURCE_COMMIT
+ARG MGMT_SOURCE_COMMIT
+
+LABEL io.mitzo.openshell.base-image="${OPENSHELL_BASE_IMAGE}" \
+      io.mitzo.source-commit="${MITZO_SOURCE_COMMIT}" \
+      io.mitzo.mgmt-source-commit="${MGMT_SOURCE_COMMIT}"
 
 USER root
 RUN npm install --global @openai/codex@0.153.4 \

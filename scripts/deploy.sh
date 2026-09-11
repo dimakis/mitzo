@@ -11,6 +11,9 @@ npm run build:server
 echo "Building frontend..."
 npm run build
 
+echo "Validating OpenShell production bundle..."
+NODE_ENV=production node scripts/verify-openshell-production.mjs .env
+
 # Generate launchd plist from template (replaces __MITZO_HOME__ placeholder)
 echo "Installing launchd plist..."
 sed "s|__MITZO_HOME__|${MITZO_HOME}|g" com.mitzo.server.plist > "$PLIST_DEST"
