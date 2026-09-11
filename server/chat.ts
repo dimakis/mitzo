@@ -1629,6 +1629,10 @@ export function sendToChat(
     );
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-send`;
     const previews = imagePreviews(images);
+    const nativeReasoningEffort =
+      responses && model && model !== session.model && reasoningEffort === undefined
+        ? null
+        : reasoningEffort;
     if (responses && session.sessionId && eventStore.hasUserMessage(session.sessionId, messageId))
       return true;
     if (codex) {
@@ -1655,10 +1659,12 @@ export function sendToChat(
     if (responses) {
       try {
         if (!session.sessionId) throw new Error('Bound session metadata is unavailable');
-        validateNativeModelSelection(session.sessionId, model, reasoningEffort);
+        validateNativeModelSelection(session.sessionId, model, nativeReasoningEffort);
         responses.prepare(messageId, fullPrompt, {
           ...(model ? { model } : {}),
-          ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
+          ...(nativeReasoningEffort !== undefined
+            ? { reasoningEffort: nativeReasoningEffort }
+            : {}),
         });
         if (model) session.model = model;
       } catch {
@@ -1671,11 +1677,14 @@ export function sendToChat(
       }
     }
     if (session.sessionId) {
-      if (model || reasoningEffort !== undefined) {
+      const persistedReasoningEffort = responses ? nativeReasoningEffort : reasoningEffort;
+      if (model || persistedReasoningEffort !== undefined) {
         eventStore.upsertSession({
           sessionId: session.sessionId,
           ...(model ? { selectedModel: model } : {}),
-          ...(reasoningEffort !== undefined ? { reasoningEffort: reasoningEffort || null } : {}),
+          ...(persistedReasoningEffort !== undefined
+            ? { reasoningEffort: persistedReasoningEffort || null }
+            : {}),
         });
       }
       const isDup = storeAndEchoIfNew(

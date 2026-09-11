@@ -142,7 +142,8 @@ export class NativeResponsesRunner {
         state.history.push({ role: 'user', content: prompt });
         save();
       }
-      const selectedModel = prepared?.selection?.model ?? opts.selectedModel ?? opts.binding.model;
+      const previousModel = state.checkpoint?.model ?? opts.selectedModel ?? opts.binding.model;
+      const selectedModel = prepared?.selection?.model ?? previousModel;
       const checkpoint =
         state.checkpoint && state.checkpoint.model !== selectedModel
           ? {
@@ -154,7 +155,9 @@ export class NativeResponsesRunner {
       const selectedReasoningEffort =
         prepared?.selection && 'reasoningEffort' in prepared.selection
           ? prepared.selection.reasoningEffort
-          : opts.reasoningEffort;
+          : prepared?.selection?.model && prepared.selection.model !== previousModel
+            ? null
+            : opts.reasoningEffort;
       const config = {
         model: selectedModel,
         systemPrompt: opts.systemPrompt,
