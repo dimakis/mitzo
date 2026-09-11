@@ -868,9 +868,8 @@ async function _startChatInner(
   let gemini: GeminiOptions | undefined;
   let accountEnv: Record<string, string> | undefined;
   try {
-    const storedBinding = options.resume
-      ? eventStore.getSession(options.resume)?.accountBinding
-      : null;
+    const storedMeta = options.resume ? eventStore.getSession(options.resume) : undefined;
+    const storedBinding = storedMeta?.accountBinding;
     const profiles =
       options.accountProfiles ??
       (options.accountId || storedBinding ? loadAccountProfiles() : undefined);
@@ -888,7 +887,14 @@ async function _startChatInner(
         );
       options = {
         ...options,
-        model: options.accountId ? (options.model ?? accountBinding.model) : accountBinding.model,
+        model: options.accountId
+          ? (options.model ?? storedMeta?.selectedModel ?? accountBinding.model)
+          : (storedMeta?.selectedModel ?? accountBinding.model),
+        reasoningEffort: options.accountId
+          ? options.reasoningEffort !== undefined
+            ? options.reasoningEffort
+            : storedMeta?.reasoningEffort
+          : storedMeta?.reasoningEffort,
       };
       if (accountBinding.provider === 'openai' || accountBinding.provider === 'google-vertex')
         profiles!.validateModelSelection(accountBinding, options.model!, options.reasoningEffort);

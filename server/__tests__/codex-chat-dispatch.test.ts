@@ -225,6 +225,54 @@ it('rejects an unsupported initial native reasoning level before opening the pro
   }
 });
 
+it('restores the persisted native model and reasoning level on a field-less cold resume', async () => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-api-resume-selection-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')));
+  const chat = await import('../chat.js');
+  const profiles = new AccountProfiles([
+    {
+      id: 'work-api',
+      label: 'Work',
+      provider: 'openai',
+      credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
+      models: [
+        { id: 'original', label: 'Original', reasoningEfforts: ['low'] },
+        { id: 'selected', label: 'Selected', reasoningEfforts: ['high'] },
+      ],
+    },
+  ]);
+  const sessionId = 'persisted-native-selection';
+  chat.eventStore.upsertSession({
+    sessionId,
+    cwd: root,
+    mode: 'agent',
+    accountBinding: profiles.resolve('work-api', 'original'),
+    selectedModel: 'selected',
+    reasoningEffort: 'high',
+  });
+  vi.mocked(openResponsesChat).mockRejectedValue(new Error('stop after selection capture'));
+  try {
+    await chat.startChat({ send: () => {}, isOpen: () => true }, 'resume-selection', 'continue', {
+      resume: sessionId,
+      cwd: root,
+      isolation: false,
+      accountProfiles: profiles,
+    });
+    expect(openResponsesChat).toHaveBeenCalledOnce();
+    expect(vi.mocked(openResponsesChat).mock.calls[0][0]).toMatchObject({
+      selectedModel: 'selected',
+      reasoningEffort: 'high',
+    });
+  } finally {
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 it('routes API accounts through OpenShell in production without resolving host credentials', async () => {
   vi.resetModules();
   vi.clearAllMocks();
