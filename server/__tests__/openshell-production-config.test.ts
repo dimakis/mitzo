@@ -130,6 +130,7 @@ describe('OpenShell production bundle validation', () => {
       'documents.readonly',
       'calendar.readonly',
       'gmail.readonly',
+      'spreadsheets.readonly',
     ])
       expect(profile).toContain(scope);
     for (const host of [
