@@ -46,8 +46,15 @@ export class OpenShellLifecycleObservability {
         signal,
       );
       const rows = JSON.parse(output) as Array<Record<string, unknown>>;
-      const usageBytes = rows.reduce((sum, row) => sum + (bytes(row.RawSize) ?? 0), 0);
-      const reclaimableBytes = rows.reduce((sum, row) => sum + (bytes(row.RawReclaimable) ?? 0), 0);
+      if (!Array.isArray(rows)) throw new Error('Podman usage response is not an array');
+      const parsed = rows.map((row) => ({
+        usage: bytes(row.RawSize),
+        reclaimable: bytes(row.RawReclaimable),
+      }));
+      if (parsed.some((row) => row.usage === undefined || row.reclaimable === undefined))
+        throw new Error('Podman usage response is missing raw byte fields');
+      const usageBytes = parsed.reduce((sum, row) => sum + row.usage!, 0);
+      const reclaimableBytes = parsed.reduce((sum, row) => sum + row.reclaimable!, 0);
       return { available: true, usageBytes, reclaimableBytes };
     } catch {
       return { available: false };

@@ -21,6 +21,13 @@ it('collects read-only Podman usage and reports unavailable collection', async (
     log: { warn: vi.fn(), info: vi.fn() },
   });
   await expect(bad.collect(new AbortController().signal)).resolves.toEqual({ available: false });
+  const malformed = new OpenShellLifecycleObservability({
+    run: vi.fn().mockResolvedValue(JSON.stringify([{ RawSize: 'unknown' }])),
+    log: { warn: vi.fn(), info: vi.fn() },
+  });
+  await expect(malformed.collect(new AbortController().signal)).resolves.toEqual({
+    available: false,
+  });
 });
 it('deduplicates threshold alerts and emits recovery', () => {
   const log = { warn: vi.fn(), info: vi.fn() };

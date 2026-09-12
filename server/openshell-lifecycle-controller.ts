@@ -38,6 +38,24 @@ let configured:
     }
   | undefined;
 
+/** Read-only, provider-scoped physical sandbox inventory for telemetry. */
+export async function openShellLifecyclePhaseCounts(signal: AbortSignal) {
+  if (!configured) throw new Error('OpenShell lifecycle controller is unavailable');
+  const seen = new Set<string>();
+  const counts: Record<string, number> = {};
+  for (const record of configured.store.list()) {
+    if (!record.identity) continue;
+    const manager = managerFor(record);
+    for (const sandbox of await manager.inventory(signal)) {
+      const key = sandbox.id ?? sandbox.name;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      counts[sandbox.phase] = (counts[sandbox.phase] ?? 0) + 1;
+    }
+  }
+  return counts;
+}
+
 function route(identity: OpenShellLifecycleIdentity): OpenShellAccountRoute {
   if (identity.route.kind === 'api') return identity.route;
   if (identity.route.providerType !== 'openai-codex-oauth')
