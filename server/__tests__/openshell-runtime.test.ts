@@ -131,14 +131,16 @@ describe('OpenShell runtime lifecycle', () => {
     const run = vi
       .fn()
       .mockResolvedValueOnce(ready())
+      .mockResolvedValueOnce('0')
       .mockResolvedValueOnce('{}')
-      .mockResolvedValueOnce(ready());
+      .mockResolvedValueOnce(ready())
+      .mockResolvedValueOnce('{}');
     await new OpenShellRuntimeManager(
       { ...config, serviceProviders: ['github'], grantableServiceProviders: ['google-workspace'] },
       run,
     ).ensure('conversation', new AbortController().signal);
 
-    expect(run.mock.calls[1][0]).toEqual([
+    expect(run.mock.calls.find(([args]) => args.includes('detach'))?.[0]).toEqual([
       'sandbox',
       '--gateway',
       'local',
@@ -151,9 +153,13 @@ describe('OpenShell runtime lifecycle', () => {
     ]);
   });
 
-  it('preserves a granted provider when a migrated chat reconnects', async () => {
+  it('preserves a migrated chat grant across a server restart', async () => {
+    let migrated = false;
     const run = vi.fn(async (args: readonly string[]) => {
       if (args.includes('get')) return ready();
+      const script = args.at(-1) ?? '';
+      if (script.includes('existsSync')) return migrated ? '1' : '0';
+      if (script.includes('writeFileSync')) migrated = true;
       return '{}';
     });
     const migratedConfig = {
@@ -165,7 +171,7 @@ describe('OpenShell runtime lifecycle', () => {
     const signal = new AbortController().signal;
     const runtime = await manager.ensure('conversation', signal);
     await manager.grantServiceProvider('conversation', runtime, 'google-workspace', signal);
-    await manager.ensure('conversation', signal);
+    await new OpenShellRuntimeManager(migratedConfig, run).ensure('conversation', signal);
 
     const commands = run.mock.calls.map(([args]) => args as readonly string[]);
     expect(

@@ -79,6 +79,7 @@ export interface OpenShellRuntimeConfig {
 const SERVICE_PROVIDERS = new Set(['google-workspace', 'github']);
 const PROVIDER_POLICY_LABEL = 'mitzo.provider_policy';
 const PROVIDER_POLICY_VERSION = 'grant-v1';
+const PROVIDER_POLICY_MARKER = '/sandbox/.mitzo/provider-policy-grant-v1';
 
 export interface BoundOpenShellRuntimeConfig extends OpenShellRuntimeConfig {
   account: OpenShellAccountRoute;
@@ -224,7 +225,6 @@ function legacySandboxNameForConversation(conversationHash: string) {
 export class OpenShellRuntimeManager {
   private run: Run;
   private runSsh: Run;
-  private reconciledLegacySandbox?: string;
 
   constructor(
     private config: BoundOpenShellRuntimeConfig,
@@ -363,6 +363,53 @@ export class OpenShellRuntimeManager {
     if (changed) await this.waitForReady(name, owner, signal);
   }
 
+  private grantOnlyProviders() {
+    return this.config.grantableServiceProviders.filter(
+      (provider) =>
+        provider !== this.config.account.provider &&
+        !this.config.serviceProviders.includes(provider),
+    );
+  }
+
+  private async hasProviderPolicyMarker(name: string, signal: AbortSignal): Promise<boolean> {
+    const script = `process.stdout.write(require('node:fs').existsSync(${JSON.stringify(PROVIDER_POLICY_MARKER)})?'1':'0')`;
+    const output = await this.run(
+      [
+        'sandbox',
+        ...this.base(),
+        'exec',
+        '--name',
+        name,
+        '--no-tty',
+        '--',
+        '/usr/bin/node',
+        '-e',
+        script,
+      ],
+      signal,
+    );
+    return output.trim() === '1';
+  }
+
+  private async writeProviderPolicyMarker(name: string, signal: AbortSignal): Promise<void> {
+    const script = `const fs=require('node:fs');fs.mkdirSync(${JSON.stringify('/sandbox/.mitzo')},{recursive:true});fs.writeFileSync(${JSON.stringify(PROVIDER_POLICY_MARKER)},'')`;
+    await this.run(
+      [
+        'sandbox',
+        ...this.base(),
+        'exec',
+        '--name',
+        name,
+        '--no-tty',
+        '--',
+        '/usr/bin/node',
+        '-e',
+        script,
+      ],
+      signal,
+    );
+  }
+
   async ensure(conversationId: string, signal: AbortSignal): Promise<OpenShellRuntime> {
     await this.verifyAccountProvider(signal);
     const accountProvider = this.config.account.provider;
@@ -445,10 +492,11 @@ export class OpenShellRuntimeManager {
       sandbox.phase === 'Ready' &&
       sandbox.labels?.['mitzo.conversation'] === owner &&
       sandbox.labels?.[PROVIDER_POLICY_LABEL] !== PROVIDER_POLICY_VERSION &&
-      this.reconciledLegacySandbox !== name
+      this.grantOnlyProviders().length > 0 &&
+      !(await this.hasProviderPolicyMarker(name, signal))
     ) {
       await this.revokeGrantOnlyProviders(name, owner, signal);
-      this.reconciledLegacySandbox = name;
+      await this.writeProviderPolicyMarker(name, signal);
     }
     if (!sandbox || sandbox.phase !== 'Ready')
       throw new Error(`OpenShell sandbox ${name} is ${sandbox?.phase ?? 'unavailable'}`);
