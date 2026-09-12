@@ -1,9 +1,11 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { isAbsolute } from 'node:path';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import type { McpServerConfig } from './mcp-config.js';
 import { openShellSshProcessSpec } from './codex-app-server-client.js';
+import { codexPrivateDirectory } from './codex-private-path.js';
 
 const Sandbox = z.object({
   name: z.string(),
@@ -79,7 +81,28 @@ export interface OpenShellRuntimeConfig {
 const SERVICE_PROVIDERS = new Set(['google-workspace', 'github']);
 const PROVIDER_POLICY_LABEL = 'mitzo.provider_policy';
 const PROVIDER_POLICY_VERSION = 'grant-v1';
-const PROVIDER_POLICY_MARKER = '/sandbox/.mitzo/provider-policy-grant-v1';
+
+interface ProviderPolicyState {
+  has(sandboxName: string): boolean;
+  mark(sandboxName: string): void;
+}
+
+class FileProviderPolicyState implements ProviderPolicyState {
+  private root = join(codexPrivateDirectory(), 'openshell-provider-policy');
+
+  private path(sandboxName: string) {
+    return join(this.root, `${identifier(sandboxName, 'sandbox')}-${PROVIDER_POLICY_VERSION}`);
+  }
+
+  has(sandboxName: string) {
+    return existsSync(this.path(sandboxName));
+  }
+
+  mark(sandboxName: string) {
+    mkdirSync(this.root, { recursive: true, mode: 0o700 });
+    writeFileSync(this.path(sandboxName), '', { mode: 0o600 });
+  }
+}
 
 export interface BoundOpenShellRuntimeConfig extends OpenShellRuntimeConfig {
   account: OpenShellAccountRoute;
@@ -234,6 +257,7 @@ export class OpenShellRuntimeManager {
       timeoutMs: 30_000,
     },
     runSsh?: Run,
+    private providerPolicyState: ProviderPolicyState = new FileProviderPolicyState(),
   ) {
     this.run = run ?? ((args, signal) => command(config.cli, args, signal));
     this.runSsh = runSsh ?? ((args, signal) => command('ssh', args, signal));
@@ -376,45 +400,6 @@ export class OpenShellRuntimeManager {
     );
   }
 
-  private async hasProviderPolicyMarker(name: string, signal: AbortSignal): Promise<boolean> {
-    const script = `process.stdout.write(require('node:fs').existsSync(${JSON.stringify(PROVIDER_POLICY_MARKER)})?'1':'0')`;
-    const output = await this.run(
-      [
-        'sandbox',
-        ...this.base(),
-        'exec',
-        '--name',
-        name,
-        '--no-tty',
-        '--',
-        '/usr/bin/node',
-        '-e',
-        script,
-      ],
-      signal,
-    );
-    return output.trim() === '1';
-  }
-
-  private async writeProviderPolicyMarker(name: string, signal: AbortSignal): Promise<void> {
-    const script = `const fs=require('node:fs');fs.mkdirSync(${JSON.stringify('/sandbox/.mitzo')},{recursive:true});fs.writeFileSync(${JSON.stringify(PROVIDER_POLICY_MARKER)},'')`;
-    await this.run(
-      [
-        'sandbox',
-        ...this.base(),
-        'exec',
-        '--name',
-        name,
-        '--no-tty',
-        '--',
-        '/usr/bin/node',
-        '-e',
-        script,
-      ],
-      signal,
-    );
-  }
-
   async ensure(conversationId: string, signal: AbortSignal): Promise<OpenShellRuntime> {
     await this.verifyAccountProvider(signal);
     const accountProvider = this.config.account.provider;
@@ -501,10 +486,10 @@ export class OpenShellRuntimeManager {
       if (
         sandbox.labels?.[PROVIDER_POLICY_LABEL] !== PROVIDER_POLICY_VERSION &&
         this.grantOnlyProviders().length > 0 &&
-        !(await this.hasProviderPolicyMarker(name, signal))
+        !this.providerPolicyState.has(name)
       ) {
         await this.detachProviders(name, owner, this.grantOnlyProviders(), signal);
-        await this.writeProviderPolicyMarker(name, signal);
+        this.providerPolicyState.mark(name);
       }
     }
     if (!sandbox || sandbox.phase !== 'Ready')

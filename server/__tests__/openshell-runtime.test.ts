@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   OpenShellRuntimeManager,
   openShellCodexRuntimeConfig,
@@ -128,38 +131,57 @@ describe('OpenShell runtime lifecycle', () => {
   });
 
   it('revokes grant-only providers from a retained pre-change sandbox', async () => {
+    const privateRoot = mkdtempSync(join(tmpdir(), 'mitzo-provider-policy-'));
+    vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', privateRoot);
     const run = vi
       .fn()
       .mockResolvedValueOnce(ready())
-      .mockResolvedValueOnce('0')
       .mockResolvedValueOnce('{}')
-      .mockResolvedValueOnce(ready())
-      .mockResolvedValueOnce('{}');
-    await new OpenShellRuntimeManager(
-      { ...config, serviceProviders: ['github'], grantableServiceProviders: ['google-workspace'] },
-      run,
-    ).ensure('conversation', new AbortController().signal);
+      .mockResolvedValueOnce(ready());
+    try {
+      await new OpenShellRuntimeManager(
+        {
+          ...config,
+          serviceProviders: ['github'],
+          grantableServiceProviders: ['google-workspace'],
+        },
+        run,
+      ).ensure('conversation', new AbortController().signal);
 
-    expect(run.mock.calls.find(([args]) => args.includes('detach'))?.[0]).toEqual([
-      'sandbox',
-      '--gateway',
-      'local',
-      '--workspace',
-      'mitzo',
-      'provider',
-      'detach',
-      sandboxNameForConversation('conversation'),
-      'google-workspace',
-    ]);
+      expect(run.mock.calls.find(([args]) => args.includes('detach'))?.[0]).toEqual([
+        'sandbox',
+        '--gateway',
+        'local',
+        '--workspace',
+        'mitzo',
+        'provider',
+        'detach',
+        sandboxNameForConversation('conversation'),
+        'google-workspace',
+      ]);
+      expect(
+        existsSync(
+          join(
+            privateRoot,
+            'openshell-provider-policy',
+            `${sandboxNameForConversation('conversation')}-grant-v1`,
+          ),
+        ),
+      ).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(privateRoot, { recursive: true, force: true });
+    }
   });
 
   it('preserves a migrated chat grant across a server restart', async () => {
-    let migrated = false;
+    const migrated = new Set<string>();
+    const policyState = {
+      has: vi.fn((name: string) => migrated.has(name)),
+      mark: vi.fn((name: string) => migrated.add(name)),
+    };
     const run = vi.fn(async (args: readonly string[]) => {
       if (args.includes('get')) return ready();
-      const script = args.at(-1) ?? '';
-      if (script.includes('existsSync')) return migrated ? '1' : '0';
-      if (script.includes('writeFileSync')) migrated = true;
       return '{}';
     });
     const migratedConfig = {
@@ -167,11 +189,23 @@ describe('OpenShell runtime lifecycle', () => {
       serviceProviders: ['github'],
       grantableServiceProviders: ['google-workspace'],
     };
-    const manager = new OpenShellRuntimeManager(migratedConfig, run);
+    const manager = new OpenShellRuntimeManager(
+      migratedConfig,
+      run,
+      undefined,
+      undefined,
+      policyState,
+    );
     const signal = new AbortController().signal;
     const runtime = await manager.ensure('conversation', signal);
     await manager.grantServiceProvider('conversation', runtime, 'google-workspace', signal);
-    await new OpenShellRuntimeManager(migratedConfig, run).ensure('conversation', signal);
+    await new OpenShellRuntimeManager(
+      migratedConfig,
+      run,
+      undefined,
+      undefined,
+      policyState,
+    ).ensure('conversation', signal);
 
     const commands = run.mock.calls.map(([args]) => args as readonly string[]);
     expect(
