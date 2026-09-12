@@ -190,6 +190,17 @@ export class OpenShellLifecycleService {
       });
     return { token, expiresAt, record, action, blockers };
   }
+  /** Only for audit attribution; it reveals no capability beyond a token the
+   * caller already holds and does not consume or validate the preview. */
+  auditTarget(token: string) {
+    const preview = this.previews.get(token);
+    if (!preview) return undefined;
+    return {
+      conversationId: preview.conversationId,
+      sandboxId: preview.sandboxId,
+      generation: preview.generation,
+    };
+  }
   async confirm(token: string, signal: AbortSignal) {
     const preview = this.previews.get(token);
     if (!preview) throw new Error('OpenShell lifecycle preview is expired or already used');

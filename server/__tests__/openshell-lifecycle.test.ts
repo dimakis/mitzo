@@ -138,6 +138,37 @@ it('persists records across restart and uses a generation CAS for mutations', ()
   reopened.close();
 });
 
+it('keeps a durable append-only operator action audit without changing lifecycle state', () => {
+  const store = setup();
+  store.upsert(record());
+  store.appendAudit({
+    at: 123,
+    actor: 'session:operator',
+    conversationId: 'conversation',
+    sandboxId: 'physical-1',
+    generation: 1,
+    action: 'preview',
+    outcome: 'blocked',
+    error: 'inventory_unavailable',
+  });
+  store.appendAudit({
+    at: 124,
+    actor: 'session:operator',
+    conversationId: 'conversation',
+    sandboxId: 'physical-1',
+    generation: 1,
+    action: 'consent',
+    outcome: 'confirmed',
+    error: null,
+  });
+  expect(store.listAudit()).toMatchObject([
+    { at: 124, action: 'consent', outcome: 'confirmed' },
+    { at: 123, action: 'preview', outcome: 'blocked', error: 'inventory_unavailable' },
+  ]);
+  expect(store.get('conversation')).toMatchObject({ generation: 1, phase: 'stopped' });
+  store.close();
+});
+
 it('does not lose explicit failure state during startup reconciliation', () => {
   const store = setup();
   store.upsert(record({ phase: 'deleting' }));

@@ -8,15 +8,23 @@ import {
   openShellRuntimeConfig,
   sandboxNameForConversation,
 } from '../openshell-runtime.js';
+import {
+  OpenShellCapacityAdmission,
+  OpenShellCapacityCollector,
+  configureOpenShellCapacityAdmission,
+  openShellCapacityPolicy,
+} from '../openshell-capacity.js';
 
 let privateRoot: string;
 beforeEach(() => {
   privateRoot = mkdtempSync(join(tmpdir(), 'mitzo-provider-policy-'));
   vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', privateRoot);
+  configureOpenShellCapacityAdmission(undefined);
 });
 afterEach(() => {
   vi.unstubAllEnvs();
   rmSync(privateRoot, { recursive: true, force: true });
+  configureOpenShellCapacityAdmission(undefined);
 });
 
 const config = {
@@ -82,6 +90,36 @@ describe('OpenShell runtime lifecycle', () => {
     expect(create).not.toContain('--inference-provider');
     expect(create).not.toContain('--inference-model');
     expect(create).not.toContain('auto-providers');
+  });
+
+  it('checks capacity only immediately before a new physical sandbox create', async () => {
+    configureOpenShellCapacityAdmission(
+      new OpenShellCapacityAdmission(
+        new OpenShellCapacityCollector('/', {
+          podman: async () => '[]',
+          filesystem: async () =>
+            'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vm 100 99 1 99% /',
+        }),
+        openShellCapacityPolicy({}),
+      ),
+    );
+    const missing = vi.fn().mockRejectedValue(new Error('sandbox not found'));
+    await expect(
+      new OpenShellRuntimeManager(config, missing).ensure(
+        'conversation',
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('hard stop');
+    expect(missing.mock.calls.flat().flat()).not.toContain('create');
+
+    const retained = vi.fn().mockResolvedValue(ready());
+    await expect(
+      new OpenShellRuntimeManager(config, retained).ensure(
+        'conversation',
+        new AbortController().signal,
+      ),
+    ).resolves.toMatchObject({ sandboxName: expect.any(String) });
+    expect(retained.mock.calls.flat().flat()).not.toContain('create');
   });
 
   it('waits through asynchronous creation phases until the sandbox is Ready', async () => {

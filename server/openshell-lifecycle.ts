@@ -66,6 +66,17 @@ export interface OpenShellLifecycleIdentity {
         model: string;
       };
 }
+export interface OpenShellLifecycleAuditEntry {
+  id: number;
+  at: number;
+  actor: string;
+  conversationId: string;
+  sandboxId: string | null;
+  generation: number | null;
+  action: 'preview' | 'confirm' | 'consent';
+  outcome: 'allowed' | 'blocked' | 'confirmed' | 'failed';
+  error: string | null;
+}
 
 export interface OpenShellLifecyclePolicy {
   idleMs: number;
@@ -196,6 +207,11 @@ export class OpenShellLifecycleStore {
       generation INTEGER NOT NULL, last_activity_at REAL, idle_since REAL, stopped_at REAL,
       checkpoint TEXT, failure TEXT, stopped_resource_version TEXT, identity TEXT, retention_consent INTEGER NOT NULL DEFAULT 0
     )`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS openshell_lifecycle_audit (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, actor TEXT NOT NULL,
+      conversation_id TEXT NOT NULL, sandbox_id TEXT, generation INTEGER, action TEXT NOT NULL,
+      outcome TEXT NOT NULL, error TEXT
+    )`);
     const columns = this.db
       .prepare("SELECT name FROM pragma_table_info('openshell_lifecycle')")
       .all() as Array<{ name: string }>;
@@ -223,6 +239,20 @@ export class OpenShellLifecycleStore {
   }
   list(): OpenShellLifecycleRecord[] {
     return (this.db.prepare('SELECT * FROM openshell_lifecycle').all() as Row[]).map(fromRow);
+  }
+  appendAudit(entry: Omit<OpenShellLifecycleAuditEntry, 'id'>) {
+    this.db
+      .prepare(
+        'INSERT INTO openshell_lifecycle_audit (at,actor,conversation_id,sandbox_id,generation,action,outcome,error) VALUES (@at,@actor,@conversationId,@sandboxId,@generation,@action,@outcome,@error)',
+      )
+      .run(entry);
+  }
+  listAudit(limit = 200): OpenShellLifecycleAuditEntry[] {
+    return this.db
+      .prepare(
+        'SELECT id,at,actor,conversation_id AS conversationId,sandbox_id AS sandboxId,generation,action,outcome,error FROM openshell_lifecycle_audit ORDER BY id DESC LIMIT ?',
+      )
+      .all(Math.max(1, Math.min(limit, 500))) as OpenShellLifecycleAuditEntry[];
   }
   upsert(record: OpenShellLifecycleRecord) {
     const existing = this.get(record.conversationId);

@@ -12,6 +12,7 @@ import {
   sharedOpenShellLifecycleCoordinator,
   openShellLifecycleEnabled,
   openShellLifecyclePolicy,
+  type OpenShellLifecycleAuditEntry,
   type OpenShellLifecycleIdentity,
   type OpenShellLifecycleRecord,
 } from './openshell-lifecycle.js';
@@ -45,6 +46,29 @@ let configured:
     }
   | undefined;
 const log = createLogger('openshell-lifecycle');
+
+function sanitizeLifecycleError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message
+    .replace(/(?:\/[^\s:]+)+/g, '<path>')
+    .replace(/https?:\/\/[^\s]+/g, '<endpoint>')
+    .slice(0, 180);
+}
+
+export function openShellLifecycleCapability(record: OpenShellLifecycleRecord) {
+  const route = record.identity?.route;
+  // New providers must explicitly supply an adapter; inventory alone never
+  // implies a checkpoint or lifecycle action is safe.
+  const supported =
+    (record.identity?.provider === 'openai' || record.identity?.provider === 'openai-codex') &&
+    (route?.kind === 'api' ||
+      (route?.kind === 'chatgpt-subscription' && route.providerType === 'openai-codex-oauth'));
+  return {
+    runtime: Boolean(route),
+    checkpoint: supported ? 'supported' : 'unsupported',
+    lifecycleActions: supported ? 'supported' : 'unsupported',
+  } as const;
+}
 
 /** Keeps arbitrary protocol conversation IDs from influencing local paths. */
 export function checkpointDirectoryForConversation(
@@ -93,6 +117,126 @@ function managerForProvider(provider: string) {
     ...configured.config,
     account: { kind: 'api', provider, model: 'lifecycle-telemetry' },
   });
+}
+
+/** Returns physical inventory without ever treating an unreachable provider as
+ * an empty list. Each route is queried independently because credentials are
+ * provider-scoped. */
+export async function openShellLifecycleInventory(signal: AbortSignal) {
+  if (!configured)
+    return {
+      available: false,
+      partial: false,
+      collectedAt: Date.now(),
+      sandboxes: [],
+      scopes: [{ status: 'unavailable', error: 'OpenShell lifecycle controller is unavailable' }],
+    };
+  const records = configured.store.list();
+  const byPhysicalId = new Map(
+    records
+      .filter((record) => record.physicalSandboxId)
+      .map((record) => [record.physicalSandboxId!, record]),
+  );
+  const groups = new Map<string, OpenShellLifecycleRecord>();
+  const seen = new Set<string>();
+  const sandboxes: Array<ReturnType<typeof lifecycleInventoryRow>> = [];
+  const scopes: Array<Record<string, string>> = [];
+  for (const record of records) {
+    if (!record.identity) {
+      sandboxes.push(lifecycleInventoryRow(record, undefined, 'unavailable'));
+      seen.add(record.physicalSandboxId ?? record.sandboxName);
+    } else if (!groups.has(JSON.stringify(record.identity.route))) {
+      groups.set(JSON.stringify(record.identity.route), record);
+    }
+  }
+  for (const routeRecord of groups.values()) {
+    const routeKey = JSON.stringify(routeRecord.identity!.route);
+    try {
+      const physical = await managerFor(routeRecord).inventory(signal);
+      scopes.push({
+        provider: routeRecord.identity!.route.provider,
+        workspace: routeRecord.workspace,
+        status: 'available',
+      });
+      for (const sandbox of physical) {
+        const key = sandbox.id ?? `${routeRecord.workspace}:${sandbox.name}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const record = sandbox.id
+          ? byPhysicalId.get(sandbox.id)
+          : records.find(
+              (item) =>
+                item.workspace === routeRecord.workspace && item.sandboxName === sandbox.name,
+            );
+        sandboxes.push(lifecycleInventoryRow(record, sandbox, record ? 'verified' : 'orphaned'));
+      }
+    } catch (error) {
+      scopes.push({
+        provider: routeRecord.identity!.route.provider,
+        workspace: routeRecord.workspace,
+        status: 'unavailable',
+        error: sanitizeLifecycleError(error),
+      });
+      for (const record of records.filter(
+        (item) => item.identity && JSON.stringify(item.identity.route) === routeKey,
+      )) {
+        const key = record.physicalSandboxId ?? record.sandboxName;
+        if (!seen.has(key)) {
+          seen.add(key);
+          sandboxes.push(lifecycleInventoryRow(record, undefined, 'unavailable'));
+        }
+      }
+    }
+  }
+  for (const record of records) {
+    const key = record.physicalSandboxId ?? record.sandboxName;
+    if (!seen.has(key)) sandboxes.push(lifecycleInventoryRow(record, undefined, 'missing'));
+  }
+  return {
+    available: scopes.some((scope) => scope.status === 'available'),
+    partial: scopes.some((scope) => scope.status === 'unavailable'),
+    collectedAt: Date.now(),
+    sandboxes,
+    scopes,
+  };
+}
+
+function lifecycleInventoryRow(
+  record: OpenShellLifecycleRecord | undefined,
+  sandbox: { id?: string; name: string; phase: string; workspace?: string } | undefined,
+  status: 'verified' | 'orphaned' | 'unavailable' | 'missing',
+) {
+  const now = Date.now();
+  return {
+    status,
+    name: sandbox?.name ?? record?.sandboxName ?? 'unknown',
+    physicalId: sandbox?.id ?? record?.physicalSandboxId ?? null,
+    provider: record?.identity?.route.provider ?? record?.accountProvider ?? 'unknown',
+    conversationId: record?.conversationId ?? null,
+    workspace: sandbox?.workspace ?? record?.workspace ?? null,
+    runtimePhase: sandbox?.phase ?? null,
+    lifecyclePhase: record?.phase ?? null,
+    generation: record?.generation ?? null,
+    activityAgeMs: record?.lastActivityAt ? Math.max(0, now - record.lastActivityAt) : null,
+    idleAgeMs: record?.idleSince ? Math.max(0, now - record.idleSince) : null,
+    checkpoint: record?.checkpoint
+      ? { status: 'present', digest: record.checkpoint.digest, version: record.checkpoint.version }
+      : { status: 'absent' },
+    retentionConsent: record?.retentionConsent ?? false,
+    preservationBlockers:
+      status === 'unavailable' || status === 'missing' ? ['inventory_unavailable'] : [],
+    lastFailure: record?.failure ? sanitizeLifecycleError(record.failure) : null,
+    capabilities: record
+      ? openShellLifecycleCapability(record)
+      : { runtime: true, checkpoint: 'unsupported', lifecycleActions: 'unsupported' },
+  };
+}
+
+export function recordOpenShellLifecycleAudit(entry: Omit<OpenShellLifecycleAuditEntry, 'id'>) {
+  configured?.store.appendAudit(entry);
+}
+export function openShellLifecycleAudit(limit?: number) {
+  return configured?.store.listAudit(limit) ?? [];
 }
 
 function route(identity: OpenShellLifecycleIdentity): OpenShellAccountRoute {

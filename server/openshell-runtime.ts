@@ -7,6 +7,7 @@ import { z } from 'zod';
 import type { McpServerConfig } from './mcp-config.js';
 import { openShellSshProcessSpec } from './codex-app-server-client.js';
 import { codexPrivateDirectory } from './codex-private-path.js';
+import { admitOpenShellSandboxCreate } from './openshell-capacity.js';
 
 // OpenShell gateways prior to the current API contract encode resource_version
 // as a JSON number. Normalize that legacy representation at the boundary so
@@ -672,6 +673,9 @@ export class OpenShellRuntimeManager {
     if (sandbox) await this.verifyManagedConnections(name, signal);
     else await this.config.verifyConnections?.(name, signal);
     if (!sandbox) {
+      // This is intentionally immediately before the only physical-create command.
+      // Reattach/start paths above stay available during a capacity hard stop.
+      await admitOpenShellSandboxCreate(signal);
       created = true;
       const args = [
         'sandbox',

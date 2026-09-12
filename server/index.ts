@@ -82,6 +82,12 @@ import {
   initializeOpenShellLifecycle,
   openShellLifecyclePhaseCounts,
 } from './openshell-lifecycle-controller.js';
+import {
+  OpenShellCapacityAdmission,
+  OpenShellCapacityCollector,
+  configureOpenShellCapacityAdmission,
+  openShellCapacityPolicy,
+} from './openshell-capacity.js';
 import { openShellRuntimeConfig } from './openshell-runtime.js';
 import { openShellLifecycleEnabled } from './openshell-lifecycle.js';
 import {
@@ -179,6 +185,14 @@ setConnectionRegistry(connRegistry);
 // task and queue readers exist. It is still inert unless OpenShell is enabled.
 const configuredOpenShellRuntime = openShellRuntimeConfig(process.env);
 const lifecycleEnabled = configuredOpenShellRuntime && openShellLifecycleEnabled(process.env);
+configureOpenShellCapacityAdmission(
+  configuredOpenShellRuntime
+    ? new OpenShellCapacityAdmission(
+        new OpenShellCapacityCollector(process.env.MITZO_OPENSHELL_CAPACITY_PATH),
+        openShellCapacityPolicy(process.env),
+      )
+    : undefined,
+);
 const lifecycleObservability = lifecycleEnabled
   ? new OpenShellLifecycleObservability({
       ...openShellLifecycleObservabilityThresholds(process.env),

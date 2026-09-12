@@ -7,6 +7,7 @@ import { openShellRuntimeConfig, OpenShellRuntimeManager } from '../openshell-ru
 import {
   checkpointDirectoryForConversation,
   initializeOpenShellLifecycle,
+  openShellLifecycleCapability,
   openShellLifecyclePhaseCounts,
   registerOpenShellLifecycle,
   registerOpenShellLifecycleProvisional,
@@ -562,4 +563,59 @@ it('counts configured recordless providers once while retaining partial inventor
     vi.unstubAllEnvs();
     rmSync(directory, { recursive: true, force: true });
   }
+it('fails closed for Vertex lifecycle/checkpoint capabilities until an adapter exists', () => {
+  const common = {
+    conversationId: 'c',
+    workspace: 'w',
+    gateway: 'g',
+    gatewayEndpoint: null,
+    sandboxName: 's',
+    physicalSandboxId: 'id',
+    accountProvider: 'provider',
+    phase: 'retained' as const,
+    generation: 1,
+    lastActivityAt: 1,
+    idleSince: null,
+    stoppedAt: null,
+    checkpoint: null,
+  };
+  expect(
+    openShellLifecycleCapability({
+      ...common,
+      identity: {
+        threadId: 't',
+        accountId: 'a',
+        provider: 'google-vertex',
+        model: 'm',
+        profileRevision: 'r',
+        image: 'i',
+        policyDigest: 'p',
+        runtimeScope: 'w',
+        route: { kind: 'api', provider: 'future-vertex', model: 'm' },
+      },
+    }),
+  ).toMatchObject({ checkpoint: 'unsupported', lifecycleActions: 'unsupported' });
+  expect(
+    openShellLifecycleCapability({
+      ...common,
+      identity: {
+        threadId: 't',
+        accountId: 'a',
+        provider: 'openai-codex',
+        model: 'm',
+        profileRevision: 'r',
+        image: 'i',
+        policyDigest: 'p',
+        runtimeScope: 'w',
+        route: {
+          kind: 'chatgpt-subscription',
+          provider: 'openai',
+          providerType: 'openai-codex-oauth',
+          providerId: 'p',
+          grantId: 'g',
+          model: 'm',
+        },
+      },
+    }),
+  ).toMatchObject({ checkpoint: 'supported', lifecycleActions: 'supported' });
 });
