@@ -81,6 +81,7 @@ export interface OpenShellRuntimeConfig {
 const SERVICE_PROVIDERS = new Set(['google-workspace', 'github']);
 const PROVIDER_POLICY_LABEL = 'mitzo.provider_policy';
 const PROVIDER_POLICY_VERSION = 'state-v2';
+const PROVIDER_POLICY_QUEUES = new Map<string, Promise<void>>();
 
 function providerPolicyFingerprint(serviceProviders: string[]) {
   return `${PROVIDER_POLICY_VERSION}-${[...new Set(serviceProviders)].sort().join('.') || 'none'}`;
@@ -281,7 +282,6 @@ function legacySandboxNameForConversation(conversationHash: string) {
 export class OpenShellRuntimeManager {
   private run: Run;
   private runSsh: Run;
-  private providerPolicyQueues = new Map<string, Promise<void>>();
 
   constructor(
     private config: BoundOpenShellRuntimeConfig,
@@ -328,21 +328,21 @@ export class OpenShellRuntimeManager {
     signal: AbortSignal,
     operation: () => Promise<T>,
   ): Promise<T> {
-    const previous = this.providerPolicyQueues.get(sandboxName) ?? Promise.resolve();
+    const previous = PROVIDER_POLICY_QUEUES.get(sandboxName) ?? Promise.resolve();
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
     const tail = previous.catch(() => undefined).then(() => gate);
-    this.providerPolicyQueues.set(sandboxName, tail);
+    PROVIDER_POLICY_QUEUES.set(sandboxName, tail);
     await previous.catch(() => undefined);
     try {
       signal.throwIfAborted();
       return await operation();
     } finally {
       release();
-      if (this.providerPolicyQueues.get(sandboxName) === tail)
-        this.providerPolicyQueues.delete(sandboxName);
+      if (PROVIDER_POLICY_QUEUES.get(sandboxName) === tail)
+        PROVIDER_POLICY_QUEUES.delete(sandboxName);
     }
   }
 

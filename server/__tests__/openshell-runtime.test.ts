@@ -354,12 +354,20 @@ describe('OpenShell runtime lifecycle', () => {
       }
       return '{}';
     });
-    const manager = new OpenShellRuntimeManager(
-      {
-        ...config,
-        serviceProviders: [],
-        grantableServiceProviders: ['google-workspace', 'github'],
-      },
+    const grantConfig = {
+      ...config,
+      serviceProviders: [],
+      grantableServiceProviders: ['google-workspace', 'github'],
+    };
+    const googleManager = new OpenShellRuntimeManager(
+      grantConfig,
+      run,
+      undefined,
+      undefined,
+      policyState,
+    );
+    const githubManager = new OpenShellRuntimeManager(
+      grantConfig,
       run,
       undefined,
       undefined,
@@ -375,13 +383,18 @@ describe('OpenShell runtime lifecycle', () => {
       gatewayInsecure: false,
     };
     const signal = new AbortController().signal;
-    const googleGrant = manager.grantServiceProvider(
+    const googleGrant = googleManager.grantServiceProvider(
       'conversation',
       runtime,
       'google-workspace',
       signal,
     );
-    const githubGrant = manager.grantServiceProvider('conversation', runtime, 'github', signal);
+    const githubGrant = githubManager.grantServiceProvider(
+      'conversation',
+      runtime,
+      'github',
+      signal,
+    );
 
     await vi.waitFor(() => expect(attachCalls).toEqual(['google-workspace']));
     releaseFirstAttach();
@@ -414,7 +427,20 @@ describe('OpenShell runtime lifecycle', () => {
       if (args.includes('attach') && args.at(-1) === 'google-workspace') await attach;
       return '{}';
     });
-    const manager = new OpenShellRuntimeManager(config, run, undefined, undefined, policyState);
+    const grantManager = new OpenShellRuntimeManager(
+      config,
+      run,
+      undefined,
+      undefined,
+      policyState,
+    );
+    const reconnectManager = new OpenShellRuntimeManager(
+      config,
+      run,
+      undefined,
+      undefined,
+      policyState,
+    );
     const runtime = {
       sandboxName: sandboxNameForConversation('conversation'),
       workdir: config.workdir,
@@ -425,9 +451,14 @@ describe('OpenShell runtime lifecycle', () => {
       gatewayInsecure: false,
     };
     const signal = new AbortController().signal;
-    const grant = manager.grantServiceProvider('conversation', runtime, 'google-workspace', signal);
+    const grant = grantManager.grantServiceProvider(
+      'conversation',
+      runtime,
+      'google-workspace',
+      signal,
+    );
     await vi.waitFor(() => expect(commands.some((args) => args.includes('attach'))).toBe(true));
-    const reconnect = manager.ensure('conversation', signal);
+    const reconnect = reconnectManager.ensure('conversation', signal);
 
     releaseAttach();
     await Promise.all([grant, reconnect]);
