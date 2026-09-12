@@ -145,7 +145,9 @@ export class ConnectionsService {
   private async quarantine(c: Connection) {
     const pending = this.hasQuarantine(c.id) ? this.current(c.id) : this.store.startQuarantine(c);
     try {
-      await this.drain(pending, AbortSignal.timeout(30_000));
+      // Podman stop/delete can take its 45-second default timeout. Quarantine
+      // must wait long enough to remove retained sandbox access durably.
+      await this.drain(pending, AbortSignal.timeout(90_000));
       this.store.finishQuarantine(pending.id);
     } catch {
       // The persisted operation is retried by reconcile with an independent signal.
@@ -204,7 +206,9 @@ export class ConnectionsService {
       /* Cleanup still runs independently of probe failure or cancellation. */
     }
     try {
-      await this.gateway.deleteSandbox(sandboxName, AbortSignal.timeout(30_000));
+      // Cleanup is independent of the caller's deadline and must cover Podman's
+      // 45-second default stop/delete timeout.
+      await this.gateway.deleteSandbox(sandboxName, AbortSignal.timeout(90_000));
       this.store.finishProbe(op.id);
     } catch {
       this.store.probeCleanupPending(op.id);
@@ -221,7 +225,7 @@ export class ConnectionsService {
   private async cleanupConnection(c: Connection) {
     for (const op of this.store.pendingProbes().filter((x) => x.connectionId === c.id)) {
       try {
-        await this.gateway.deleteSandbox(op.sandboxName, AbortSignal.timeout(30_000));
+        await this.gateway.deleteSandbox(op.sandboxName, AbortSignal.timeout(90_000));
         this.store.finishProbe(op.id);
       } catch {
         this.store.probeCleanupPending(op.id);
@@ -452,7 +456,7 @@ export class ConnectionsService {
             op.workspace !== (this.options.workspace ?? 'default')
           )
             throw new Error('Gateway binding changed');
-          await this.gateway.deleteSandbox(op.sandboxName, AbortSignal.timeout(30_000));
+          await this.gateway.deleteSandbox(op.sandboxName, AbortSignal.timeout(90_000));
           this.store.finishProbe(op.id);
         } catch {
           this.store.probeCleanupPending(op.id);

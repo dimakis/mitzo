@@ -135,11 +135,14 @@ describe('Connections lifecycle regressions', () => {
     const aborted = new AbortController();
     aborted.abort();
     x.gateway.deleteSandbox.mockResolvedValue(undefined);
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
     await x.service.reconcile(aborted.signal);
     expect(x.gateway.deleteSandbox).toHaveBeenCalledWith(
       op.sandboxName,
       expect.objectContaining({ aborted: false }),
     );
+    expect(timeout).toHaveBeenCalledWith(90_000);
+    timeout.mockRestore();
     expect(x.store.pendingProbes()).toEqual([]);
     x.store.close();
     rmSync(x.dir, { recursive: true, force: true });
