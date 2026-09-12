@@ -29,6 +29,7 @@ export interface OpenShellLifecycleRecord {
   sandboxName: string;
   physicalSandboxId: string | null;
   accountProvider: string;
+  ownerClientId?: string | null;
   phase: OpenShellLifecyclePhase;
   generation: number;
   lastActivityAt: number | null;
@@ -112,6 +113,7 @@ interface Row {
   sandbox_name: string;
   physical_sandbox_id: string | null;
   account_provider: string;
+  owner_client_id?: string | null;
   phase: OpenShellLifecyclePhase;
   generation: number;
   last_activity_at: number | null;
@@ -132,6 +134,7 @@ function fromRow(row: Row): OpenShellLifecycleRecord {
     sandboxName: row.sandbox_name,
     physicalSandboxId: row.physical_sandbox_id,
     accountProvider: row.account_provider,
+    ownerClientId: row.owner_client_id ?? null,
     phase: row.phase,
     generation: row.generation,
     lastActivityAt: row.last_activity_at,
@@ -156,7 +159,7 @@ export class OpenShellLifecycleStore {
     this.db.exec(`CREATE TABLE IF NOT EXISTS openshell_lifecycle (
       conversation_id TEXT PRIMARY KEY, workspace TEXT NOT NULL, gateway TEXT NOT NULL,
       gateway_endpoint TEXT, sandbox_name TEXT NOT NULL, physical_sandbox_id TEXT,
-      account_provider TEXT NOT NULL, phase TEXT NOT NULL,
+      account_provider TEXT NOT NULL, owner_client_id TEXT, phase TEXT NOT NULL,
       generation INTEGER NOT NULL, last_activity_at REAL, idle_since REAL, stopped_at REAL,
       checkpoint TEXT, failure TEXT, stopped_resource_version TEXT, identity TEXT, retention_consent INTEGER NOT NULL DEFAULT 0
     )`);
@@ -168,12 +171,16 @@ export class OpenShellLifecycleStore {
       this.db.exec('ALTER TABLE openshell_lifecycle ADD COLUMN gateway_endpoint TEXT');
     if (!names.has('physical_sandbox_id'))
       this.db.exec('ALTER TABLE openshell_lifecycle ADD COLUMN physical_sandbox_id TEXT');
+    if (!names.has('owner_client_id'))
+      this.db.exec('ALTER TABLE openshell_lifecycle ADD COLUMN owner_client_id TEXT');
     if (!names.has('stopped_resource_version'))
       this.db.exec('ALTER TABLE openshell_lifecycle ADD COLUMN stopped_resource_version TEXT');
     if (!names.has('identity'))
       this.db.exec('ALTER TABLE openshell_lifecycle ADD COLUMN identity TEXT');
     if (!names.has('retention_consent'))
-      this.db.exec('ALTER TABLE openshell_lifecycle ADD COLUMN retention_consent INTEGER NOT NULL DEFAULT 0');
+      this.db.exec(
+        'ALTER TABLE openshell_lifecycle ADD COLUMN retention_consent INTEGER NOT NULL DEFAULT 0',
+      );
   }
   get(conversationId: string): OpenShellLifecycleRecord | null {
     const row = this.db
@@ -194,16 +201,17 @@ export class OpenShellLifecycleStore {
     const changed = this.db
       .prepare(
         `INSERT INTO openshell_lifecycle
-        (conversation_id,workspace,gateway,gateway_endpoint,sandbox_name,physical_sandbox_id,account_provider,phase,generation,last_activity_at,idle_since,stopped_at,checkpoint,failure,stopped_resource_version,identity,retention_consent)
-        VALUES (@conversationId,@workspace,@gateway,@gatewayEndpoint,@sandboxName,@physicalSandboxId,@accountProvider,@phase,@generation,@lastActivityAt,@idleSince,@stoppedAt,@checkpoint,@failure,@stoppedResourceVersion,@identity,@retentionConsent)
+        (conversation_id,workspace,gateway,gateway_endpoint,sandbox_name,physical_sandbox_id,account_provider,owner_client_id,phase,generation,last_activity_at,idle_since,stopped_at,checkpoint,failure,stopped_resource_version,identity,retention_consent)
+        VALUES (@conversationId,@workspace,@gateway,@gatewayEndpoint,@sandboxName,@physicalSandboxId,@accountProvider,@ownerClientId,@phase,@generation,@lastActivityAt,@idleSince,@stoppedAt,@checkpoint,@failure,@stoppedResourceVersion,@identity,@retentionConsent)
         ON CONFLICT(conversation_id) DO UPDATE SET workspace=excluded.workspace,gateway=excluded.gateway,sandbox_name=excluded.sandbox_name,
-        gateway_endpoint=excluded.gateway_endpoint,physical_sandbox_id=excluded.physical_sandbox_id,account_provider=excluded.account_provider,phase=excluded.phase,generation=excluded.generation,last_activity_at=excluded.last_activity_at,
+        gateway_endpoint=excluded.gateway_endpoint,physical_sandbox_id=excluded.physical_sandbox_id,account_provider=excluded.account_provider,owner_client_id=excluded.owner_client_id,phase=excluded.phase,generation=excluded.generation,last_activity_at=excluded.last_activity_at,
         idle_since=excluded.idle_since,stopped_at=excluded.stopped_at,checkpoint=excluded.checkpoint,failure=excluded.failure,stopped_resource_version=excluded.stopped_resource_version,identity=excluded.identity,retention_consent=excluded.retention_consent`,
       )
       .run({
         ...record,
         checkpoint: record.checkpoint ? JSON.stringify(record.checkpoint) : null,
         failure: record.failure ?? null,
+        ownerClientId: record.ownerClientId ?? null,
         stoppedResourceVersion: record.stoppedResourceVersion ?? null,
         identity: record.identity ? JSON.stringify(record.identity) : null,
         retentionConsent: record.retentionConsent ? 1 : 0,

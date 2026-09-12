@@ -3,7 +3,10 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AccountBinding } from '@mitzo/protocol';
 import { codexPrivateDirectory } from './codex-private-path.js';
-import { OpenShellCheckpointTransport, type CheckpointIdentity } from './openshell-checkpoint-transport.js';
+import {
+  OpenShellCheckpointTransport,
+  type CheckpointIdentity,
+} from './openshell-checkpoint-transport.js';
 import {
   OpenShellLifecycleStore,
   openShellLifecyclePolicy,
@@ -14,7 +17,6 @@ import { createOpenShellLifecycleProductionAdapter } from './openshell-lifecycle
 import { OpenShellLifecycleService } from './openshell-lifecycle-service.js';
 import {
   OpenShellRuntimeManager,
-  type BoundOpenShellRuntimeConfig,
   type OpenShellAccountRoute,
   type OpenShellRuntime,
   type OpenShellRuntimeConfig,
@@ -84,14 +86,22 @@ function runtimeFor(record: OpenShellLifecycleRecord): OpenShellRuntime {
   };
 }
 
-function checkpointIdentity(record: OpenShellLifecycleRecord, resourceVersion: string): CheckpointIdentity {
+function checkpointIdentity(
+  record: OpenShellLifecycleRecord,
+  resourceVersion: string,
+): CheckpointIdentity {
   const identity = record.identity;
   if (!identity || !record.physicalSandboxId)
     throw new Error('OpenShell lifecycle identity is unavailable');
   return {
     conversation: record.conversationId,
     thread: identity.threadId,
-    binding: JSON.stringify([identity.accountId, identity.provider, identity.model, identity.profileRevision]),
+    binding: JSON.stringify([
+      identity.accountId,
+      identity.provider,
+      identity.model,
+      identity.profileRevision,
+    ]),
     image: identity.image,
     policy: identity.policyDigest,
     sandboxId: record.physicalSandboxId,
@@ -139,15 +149,18 @@ export function initializeOpenShellLifecycle(
       return managerFor(record).inspect(record.conversationId, record.physicalSandboxId, signal);
     },
     stop: (record, signal) => {
-      if (!record.physicalSandboxId) return Promise.reject(new Error('OpenShell sandbox identity missing'));
+      if (!record.physicalSandboxId)
+        return Promise.reject(new Error('OpenShell sandbox identity missing'));
       return managerFor(record).stop(record.conversationId, record.physicalSandboxId, signal);
     },
     delete: (record, signal) => {
-      if (!record.physicalSandboxId) return Promise.reject(new Error('OpenShell sandbox identity missing'));
+      if (!record.physicalSandboxId)
+        return Promise.reject(new Error('OpenShell sandbox identity missing'));
       return managerFor(record).delete(record.conversationId, record.physicalSandboxId, signal);
     },
     checkpoint: async (record, sandbox, signal) => {
-      if (!sandbox.resourceVersion) throw new Error('OpenShell sandbox resource version is unavailable');
+      if (!sandbox.resourceVersion)
+        throw new Error('OpenShell sandbox resource version is unavailable');
       const transport = new OpenShellCheckpointTransport(runtimeFor(record));
       const result = await transport.capture(
         join(directory, 'openshell-checkpoints', record.conversationId, String(record.generation)),
@@ -175,7 +188,11 @@ export function initializeOpenShellLifecycle(
     },
     consent: (record) => !!record.retentionConsent,
   });
-  const service = new OpenShellLifecycleService(store, openShellLifecyclePolicy(process.env), adapter);
+  const service = new OpenShellLifecycleService(
+    store,
+    openShellLifecyclePolicy(process.env),
+    adapter,
+  );
   configured.service = service;
   return { service, store, policy: openShellLifecyclePolicy(process.env) };
 }
@@ -186,38 +203,40 @@ export function registerOpenShellLifecycle(
   binding: AccountBinding,
   account: OpenShellAccountRoute,
   threadId: string,
+  ownerClientId?: string,
 ) {
   if (!configured) return;
   if (!runtime.sandboxId) return;
   const existing = configured.store.get(conversationId);
   const now = Date.now();
   configured.store.upsert({
-      conversationId,
-      workspace: configured!.config.workspace,
-      gateway: configured!.config.gateway,
-      gatewayEndpoint: configured!.config.gatewayEndpoint ?? null,
-      sandboxName: runtime.sandboxName,
-      physicalSandboxId: runtime.sandboxId,
-      accountProvider: account.provider,
-      phase: 'retained',
-      generation: (existing?.generation ?? 0) + 1,
-      lastActivityAt: now,
-      idleSince: null,
-      stoppedAt: null,
-      checkpoint: existing?.checkpoint ?? null,
-      retentionConsent: existing?.retentionConsent ?? false,
-      identity: {
-        threadId,
-        accountId: binding.accountId,
-        provider: binding.provider,
-        model: binding.model,
-        profileRevision: binding.profileRevision,
-        image: configured!.config.image,
-        policyDigest: configured!.policyDigest,
-        runtimeScope: configured!.config.workspace,
-        route: account,
-      },
-    });
+    conversationId,
+    workspace: configured!.config.workspace,
+    gateway: configured!.config.gateway,
+    gatewayEndpoint: configured!.config.gatewayEndpoint ?? null,
+    sandboxName: runtime.sandboxName,
+    physicalSandboxId: runtime.sandboxId,
+    accountProvider: account.provider,
+    ownerClientId: ownerClientId ?? existing?.ownerClientId ?? null,
+    phase: 'retained',
+    generation: (existing?.generation ?? 0) + 1,
+    lastActivityAt: now,
+    idleSince: null,
+    stoppedAt: null,
+    checkpoint: existing?.checkpoint ?? null,
+    retentionConsent: existing?.retentionConsent ?? false,
+    identity: {
+      threadId,
+      accountId: binding.accountId,
+      provider: binding.provider,
+      model: binding.model,
+      profileRevision: binding.profileRevision,
+      image: configured!.config.image,
+      policyDigest: configured!.policyDigest,
+      runtimeScope: configured!.config.workspace,
+      route: account,
+    },
+  });
 }
 
 /** A deleted/replaced sandbox may only be brought back from its verified

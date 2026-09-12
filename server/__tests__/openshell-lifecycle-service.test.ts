@@ -118,7 +118,7 @@ it('automatically checkpoints and stops only an idle retained conversation with 
 });
 
 it('deletes a retained stopped record after restart only when its checkpoint and consent remain valid', async () => {
-  const { service, store, adapters } = setup('stopped');
+  const { store, adapters } = setup('stopped');
   // Simulate a server restart: the durable row, not an in-memory preview,
   // determines retention eligibility.
   store.close();
@@ -139,9 +139,7 @@ it('serializes concurrent confirmation and rejects the stale second action', asy
   const { service, adapters } = setup('stopped');
   const preview = await service.preview('c', AbortSignal.timeout(100));
   let release!: () => void;
-  adapters.delete.mockImplementationOnce(
-    () => new Promise<void>((resolve) => (release = resolve)),
-  );
+  adapters.delete.mockImplementationOnce(() => new Promise<void>((resolve) => (release = resolve)));
   const first = service.confirm(preview.token, AbortSignal.timeout(100));
   await vi.waitFor(() => expect(adapters.delete).toHaveBeenCalledOnce());
   const second = service.confirm(preview.token, AbortSignal.timeout(100));

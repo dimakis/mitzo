@@ -51,5 +51,7 @@ it('resolves Task Board client ownership to its durable conversation and blocks 
     taskStore: { getTree: () => [{ sessionId: 'client-7', status: 'pending', children: [] }] },
     eventStore: { getSession: () => undefined },
   }).protect(record, AbortSignal.timeout(10));
-  expect(protection.blockers).toEqual(expect.arrayContaining(['task_board', 'inventory_unavailable']));
+  expect(protection.blockers).toEqual(
+    expect.arrayContaining(['task_board', 'inventory_unavailable']),
+  );
 });

@@ -677,11 +677,9 @@ app.get('/api/openshell/lifecycle/:conversationId/preview', async (req, res) => 
       ),
     );
   } catch (error) {
-    res
-      .status(409)
-      .json({
-        error: error instanceof Error ? error.message : 'OpenShell lifecycle preview failed',
-      });
+    res.status(409).json({
+      error: error instanceof Error ? error.message : 'OpenShell lifecycle preview failed',
+    });
   }
 });
 app.post('/api/openshell/lifecycle/confirm', async (req, res) => {
@@ -699,11 +697,9 @@ app.post('/api/openshell/lifecycle/confirm', async (req, res) => {
       action: await openShellLifecycleService.confirm(token, AbortSignal.timeout(120_000)),
     });
   } catch (error) {
-    res
-      .status(409)
-      .json({
-        error: error instanceof Error ? error.message : 'OpenShell lifecycle confirmation failed',
-      });
+    res.status(409).json({
+      error: error instanceof Error ? error.message : 'OpenShell lifecycle confirmation failed',
+    });
   }
 });
 app.post('/api/openshell/lifecycle/:conversationId/retention-consent', (req, res) => {
@@ -719,7 +715,9 @@ app.post('/api/openshell/lifecycle/:conversationId/retention-consent', (req, res
     openShellLifecycleService.setRetentionConsent(req.params.conversationId, req.body.enabled);
     res.json({ enabled: req.body.enabled });
   } catch (error) {
-    res.status(409).json({ error: error instanceof Error ? error.message : 'Retention consent failed' });
+    res
+      .status(409)
+      .json({ error: error instanceof Error ? error.message : 'Retention consent failed' });
   }
 });
 
