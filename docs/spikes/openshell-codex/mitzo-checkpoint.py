@@ -84,6 +84,17 @@ def ancestors(proc_root):
    out.add(current)
   except (FileNotFoundError,PermissionError): break
  return out
+def pinned_login_shell(proc_root, pid, values, own_uid):
+ # The OpenShell image keeps one login shell as a direct child of its pinned
+ # supervisor. It is bootstrap plumbing, not a provider writer. Do not widen
+ # this exemption: an exact command line and direct PID-1 parent are required.
+ if not pid1_supervisor(proc_root,'1'): return False
+ if values.get('Name','').strip() != 'bash' or values.get('PPid','').strip() != '1': return False
+ if values.get('Uid','').split()[:1] != [own_uid]: return False
+ try:
+  command=open(os.path.join(proc_root,pid,'cmdline'),'rb').read()
+  return command == b'/bin/bash\0-l\0'
+ except (FileNotFoundError,PermissionError): return False
 def quiescent(provider_root, workspace_root, proc_root='/proc'):
  # The lifecycle coordinator owns shutdown.  This only proves that shutdown
  # completed; it never kills an unowned process to make capture possible.
@@ -93,6 +104,7 @@ def quiescent(provider_root, workspace_root, proc_root='/proc'):
   if not pid.isdigit() or int(pid)==os.getpid(): continue
   try:
    values=dict(line.split(':',1) for line in open(os.path.join(proc_root,pid,'status')).read().splitlines() if ':' in line)
+   if pinned_login_shell(proc_root,pid,values,own_uid): continue
    if values.get('Uid','').split()[:1]==[own_uid] and pid not in allowed: fail('agent execution process is still running')
    command=open(os.path.join(proc_root,pid,'cmdline'),'rb').read().replace(b'\0',b' ').decode(errors='ignore')
    if 'app-server' in command or 'run-mitzo-app-server' in command: fail('provider writer is still running')

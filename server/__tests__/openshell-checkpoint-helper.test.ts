@@ -250,6 +250,91 @@ it('fails closed for remaining execution processes but exempts only the pinned r
     '--policy',
     'policy',
   ]);
+  mkdirSync(join(proc, '2'), { recursive: true });
+  writeFileSync(
+    join(proc, '2/status'),
+    `Name:\tbash\nUid:\t${process.getuid?.() ?? 998}\t998\t998\t998\nPPid:\t1\n`,
+  );
+  writeFileSync(join(proc, '2/cmdline'), '/bin/bash\0-l\0');
+  run([
+    'capture',
+    '--source',
+    from,
+    '--output',
+    join(root(), 'bootstrap-shell-safe.tar'),
+    '--require-quiescent',
+    '--proc-root',
+    proc,
+    '--conversation',
+    'c',
+    '--thread',
+    'thread',
+    '--binding',
+    'binding',
+    '--image',
+    'image',
+    '--policy',
+    'policy',
+  ]);
+  rmSync(join(proc, '2'), { recursive: true, force: true });
+  mkdirSync(join(proc, '2'), { recursive: true });
+  writeFileSync(
+    join(proc, '2/status'),
+    `Name:\tbash\nUid:\t${process.getuid?.() ?? 998}\t998\t998\t998\nPPid:\t1\n`,
+  );
+  writeFileSync(join(proc, '2/cmdline'), '/bin/bash\0-c\0sleep 60\0');
+  expect(() =>
+    run([
+      'capture',
+      '--source',
+      from,
+      '--output',
+      join(root(), 'lookalike-command-blocked.tar'),
+      '--require-quiescent',
+      '--proc-root',
+      proc,
+      '--conversation',
+      'c',
+      '--thread',
+      'thread',
+      '--binding',
+      'binding',
+      '--image',
+      'image',
+      '--policy',
+      'policy',
+    ]),
+  ).toThrow(/execution process/);
+  rmSync(join(proc, '2'), { recursive: true, force: true });
+  mkdirSync(join(proc, '2'), { recursive: true });
+  writeFileSync(
+    join(proc, '2/status'),
+    `Name:\tbash\nUid:\t${process.getuid?.() ?? 998}\t998\t998\t998\nPPid:\t9\n`,
+  );
+  writeFileSync(join(proc, '2/cmdline'), '/bin/bash\0-l\0');
+  expect(() =>
+    run([
+      'capture',
+      '--source',
+      from,
+      '--output',
+      join(root(), 'lookalike-parent-blocked.tar'),
+      '--require-quiescent',
+      '--proc-root',
+      proc,
+      '--conversation',
+      'c',
+      '--thread',
+      'thread',
+      '--binding',
+      'binding',
+      '--image',
+      'image',
+      '--policy',
+      'policy',
+    ]),
+  ).toThrow(/execution process/);
+  rmSync(join(proc, '2'), { recursive: true, force: true });
   mkdirSync(join(proc, '999'), { recursive: true });
   writeFileSync(
     join(proc, '999/status'),
