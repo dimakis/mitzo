@@ -45,8 +45,10 @@ function helper(
     return [
       '/sandbox/mitzo-checkpoint.py',
       'capture',
-      '--source',
-      '/sandbox',
+      '--provider-root',
+      '/sandbox/.codex',
+      '--workspace-root',
+      '/sandbox/workspaces/mgmt',
       '--output',
       archive,
       ...common,
@@ -56,7 +58,9 @@ function helper(
     action,
     '--input',
     archive,
-    ...(action === 'restore' ? ['--destination', '/sandbox'] : []),
+    ...(action === 'restore'
+      ? ['--provider-root', '/sandbox/.codex', '--workspace-root', '/sandbox/workspaces/mgmt']
+      : []),
     ...common,
   ];
 }
@@ -72,8 +76,9 @@ export class OpenShellCheckpointTransport {
   }
   async capture(destinationDir: string, identity: CheckpointIdentity, signal: AbortSignal) {
     mkdirSync(destinationDir, { recursive: true, mode: 0o700 });
-    const remote = `/tmp/mitzo-${createHash('sha256').update(identity.conversation).digest('hex')}.tar`;
-    const local = join(destinationDir, `${identity.conversation}.tar`);
+    const name = `mitzo-${createHash('sha256').update(identity.conversation).digest('hex')}.tar`;
+    const remote = `/tmp/${name}`;
+    const local = join(destinationDir, name);
     await this.ssh(helper('capture', remote, identity), signal);
     await this.run(
       this.runtime.cli,
@@ -104,7 +109,8 @@ export class OpenShellCheckpointTransport {
     return local;
   }
   async restore(archive: string, identity: CheckpointIdentity, signal: AbortSignal) {
-    const remote = `/tmp/mitzo-${createHash('sha256').update(identity.conversation).digest('hex')}.tar`;
+    const name = `mitzo-${createHash('sha256').update(identity.conversation).digest('hex')}.tar`;
+    const remote = `/tmp/${name}`;
     await this.run(
       this.runtime.cli,
       [

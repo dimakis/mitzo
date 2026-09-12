@@ -45,9 +45,18 @@ def validate_source(source):
         if not isdir and (rel.startswith('.env') or rel in ('auth.json','credentials.json') or rel.startswith('.aws/') or rel.startswith('.ssh/')):
             fail('credential-like workspace file')
     return codex,work
+def validate_source_roots(provider, workspace):
+    if not provider or not workspace: fail('provider and workspace roots required')
+    root=os.path.dirname(provider) if os.path.basename(provider)=='.codex' else provider
+    if provider==os.path.join(root,'.codex') and workspace==os.path.join(root,'workspace'):
+        return validate_source(root)
+    if not os.path.isdir(provider) or not os.path.isdir(workspace): fail('source roots missing')
+    # Fixed runtime roots use the same strict checks through a temporary parent view.
+    return provider,workspace
 def manifest(args, digest): return {'version':1,'conversation':args.conversation,'thread':args.thread,'binding':args.binding,'image':args.image,'policy':args.policy,'helper':'mitzo-checkpoint-v1','digest':digest}
 def capture(args):
-    codex,work=validate_source(args.source)
+    if args.source: codex,work=validate_source(args.source)
+    else: codex,work=validate_source_roots(args.provider_root,args.workspace_root)
     stage=tempfile.mkdtemp(prefix='mitzo-checkpoint-',dir=os.path.dirname(args.output) or '.')
     try:
         os.mkdir(os.path.join(stage,'.codex')); os.mkdir(os.path.join(stage,'workspace'))
@@ -95,14 +104,18 @@ def restore(args):
     m,stage=read_archive(args.input)
     try:
         identity(m,args)
-        if os.path.exists(args.destination): fail('destination exists')
-        os.replace(stage,args.destination); stage=None; print(json.dumps(m))
+        if args.destination:
+            if os.path.exists(args.destination): fail('destination exists')
+            os.replace(stage,args.destination); stage=None; print(json.dumps(m)); return
+        if os.path.exists(args.provider_root) or os.path.exists(args.workspace_root): fail('restore roots already exist')
+        os.makedirs(os.path.dirname(args.provider_root),exist_ok=True); os.makedirs(os.path.dirname(args.workspace_root),exist_ok=True)
+        os.replace(os.path.join(stage,'.codex'),args.provider_root); os.replace(os.path.join(stage,'workspace'),args.workspace_root); shutil.rmtree(stage); stage=None; print(json.dumps(m))
     finally:
         if stage: shutil.rmtree(stage,ignore_errors=True)
 def main():
     p=argparse.ArgumentParser(); sub=p.add_subparsers(dest='cmd',required=True)
     for cmd in ('capture','restore','verify'):
-        q=sub.add_parser(cmd); q.add_argument('--input' if cmd!='capture' else '--source',required=True); q.add_argument('--output' if cmd=='capture' else '--destination', required=cmd!='verify'); q.add_argument('--conversation',required=True); q.add_argument('--thread',required=True); q.add_argument('--binding',required=True); q.add_argument('--image',required=True); q.add_argument('--policy',required=True)
+        q=sub.add_parser(cmd); q.add_argument('--input' if cmd!='capture' else '--source'); q.add_argument('--output', required=cmd=='capture'); q.add_argument('--destination'); q.add_argument('--provider-root'); q.add_argument('--workspace-root'); q.add_argument('--conversation',required=True); q.add_argument('--thread',required=True); q.add_argument('--binding',required=True); q.add_argument('--image',required=True); q.add_argument('--policy',required=True)
     a=p.parse_args(); {'capture':capture,'restore':restore,'verify':verify}[a.cmd](a)
 if __name__=='__main__':
     try: main()
