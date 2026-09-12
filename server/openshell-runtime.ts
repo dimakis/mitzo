@@ -19,6 +19,9 @@ const ResourceVersion = z.union([
 const Sandbox = z.object({
   id: z.string().min(1).optional(),
   resource_version: ResourceVersion.optional(),
+  // OpenShell increments resource_version for read-only status observations.
+  // revision is the stable lifecycle fence for an already-stopped sandbox.
+  revision: ResourceVersion.optional(),
   name: z.string(),
   phase: z.enum(['Ready', 'Stopped', 'Pending', 'Creating', 'Starting', 'Error']),
   workspace: z.string().optional(),
@@ -406,9 +409,10 @@ export class OpenShellRuntimeManager {
   async inspect(conversationId: string, physicalId: string, signal: AbortSignal) {
     const sandbox = await this.ownedSandbox(conversationId, physicalId, signal);
     if (!sandbox.id) throw new Error('OpenShell sandbox has no physical identity');
+    const stoppedVersion = sandbox.revision ?? sandbox.resource_version;
     return {
       id: sandbox.id,
-      ...(sandbox.resource_version ? { resourceVersion: sandbox.resource_version } : {}),
+      ...(stoppedVersion ? { resourceVersion: stoppedVersion } : {}),
       phase: sandbox.phase,
     };
   }

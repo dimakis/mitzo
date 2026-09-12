@@ -155,6 +155,19 @@ describe('OpenShell runtime lifecycle', () => {
     expect(runtime).toMatchObject({ sandboxId: 'sandbox-id', resourceVersion: '9' });
   });
 
+  it('uses the stable gateway revision when inspecting a stopped lifecycle fence', async () => {
+    const sandbox = JSON.parse(ready('Stopped'));
+    sandbox.id = 'sandbox-id';
+    sandbox.resource_version = 19;
+    sandbox.revision = 1;
+    const inspected = await new OpenShellRuntimeManager(
+      config,
+      vi.fn().mockResolvedValue(JSON.stringify(sandbox)),
+    ).inspect('conversation', 'sandbox-id', new AbortController().signal);
+
+    expect(inspected).toEqual({ id: 'sandbox-id', phase: 'Stopped', resourceVersion: '1' });
+  });
+
   it('revokes grant-only providers from a retained pre-change sandbox', async () => {
     const legacyPolicyReady = ready('Ready', 'grant-v1');
     const run = vi
