@@ -27,6 +27,7 @@ import {
   type OpenShellAccountRoute,
   type OpenShellBootContext,
 } from './openshell-runtime.js';
+import { getConnectionsRuntime } from './connections-runtime.js';
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
 let privateStore: CodexConversationStore | undefined;
@@ -135,6 +136,9 @@ export function selectedOpenShellAccountRoute(
 /** Shared chat adapter. Execution remains gated by the account catalog and unsupported capabilities fail explicitly. */
 export async function openCodexChat(options: Options) {
   const configuredRuntime = openShellRuntimeConfig(process.env);
+  const managedConnection = getConnectionsRuntime()?.service.resolveForAccount(
+    options.binding.accountId,
+  );
   const openShellName = process.env.MITZO_OPENSHELL_SANDBOX_NAME;
   if (openShellName && process.env.NODE_ENV === 'production')
     throw new Error('Legacy shared OpenShell sandboxes are disabled in production.');
@@ -158,6 +162,9 @@ export async function openCodexChat(options: Options) {
   const runtimeManager = configuredRuntime
     ? new OpenShellRuntimeManager({
         ...configuredRuntime,
+        serviceProviders: managedConnection
+          ? [...configuredRuntime.serviceProviders, managedConnection.gatewayProviderName]
+          : configuredRuntime.serviceProviders,
         account: selectedOpenShellAccountRoute(options),
       })
     : undefined;
@@ -172,10 +179,20 @@ export async function openCodexChat(options: Options) {
           workdir: process.env.MITZO_OPENSHELL_WORKDIR || '/sandbox/workspaces/mgmt',
         }
       : undefined);
+  const connectedOpenShell =
+    openShell && managedConnection
+      ? {
+          ...openShell,
+          connectionEnv: {
+            JIRA_URL: 'https://redhat.atlassian.net' as const,
+            JIRA_EMAIL: managedConnection.submittedEmail,
+          },
+        }
+      : openShell;
   const signal = options.session.abortController.signal;
   signal.throwIfAborted();
   const privateStorage = store();
-  const hookRuntime = openShell
+  const hookRuntime = connectedOpenShell
     ? undefined
     : createNativeHooks(options.session.cwd!, options.conversationId, options.env, {
         trustProjectHooks: process.env.MITZO_TRUST_PROJECT_HOOKS === '1',
@@ -197,7 +214,7 @@ export async function openCodexChat(options: Options) {
     dispose();
     throw error;
   }
-  const mcp = openShell
+  const mcp = connectedOpenShell
     ? {
         definitions: [],
         displayName: (name: string) => name,
@@ -238,7 +255,7 @@ export async function openCodexChat(options: Options) {
     store: privateStorage,
     systemPrompt:
       options.systemPrompt +
-      (openShell
+      (connectedOpenShell
         ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again.\n`
         : HOST_TOOL_INSTRUCTIONS) +
       (startup.context ? `\n\n${startup.context}` : ''),
@@ -255,11 +272,11 @@ export async function openCodexChat(options: Options) {
     validateModel: (model, reasoningEffort) => {
       loadAccountProfiles().validateModel(options.binding, model, reasoningEffort);
     },
-    tools: openShell ? [] : [...nativeToolDefinitions, ...mcp.definitions],
+    tools: connectedOpenShell ? [] : [...nativeToolDefinitions, ...mcp.definitions],
     displayToolName: mcp.displayName,
     createClient: (callbacks) =>
-      openShell
-        ? CodexAppServerClient.launchOpenShell(openShell, process.env, callbacks)
+      connectedOpenShell
+        ? CodexAppServerClient.launchOpenShell(connectedOpenShell, process.env, callbacks)
         : CodexAppServerClient.launch(options.profile.credentialRef!, process.env, callbacks),
     ...(openShell
       ? {
