@@ -3,6 +3,7 @@ import { PassThrough } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   CodexAppServerClient,
+  type OpenShellCodexOptions,
   codexEnvironment,
   openShellCodexProcessSpec,
   terminateOpenShellProcess,
@@ -259,17 +260,36 @@ describe('Codex app-server transport', () => {
     const spec = openShellCodexProcessSpec({
       sandboxName: 'safe',
       workdir: '/sandbox/workspaces/mgmt',
-      connectionEnv: { JIRA_URL: 'https://redhat.atlassian.net', JIRA_EMAIL: 'person@example.com' },
+      connectionEnv: {
+        JIRA_URL: 'https://api.atlassian.com/ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432',
+        JIRA_EMAIL: 'person@example.com',
+      },
     });
     expect(spec.args.at(-1)).toBe(
-      "env JIRA_URL='https://redhat.atlassian.net' JIRA_EMAIL='person@example.com' /sandbox/run-mitzo-app-server",
+      "env JIRA_URL='https://api.atlassian.com/ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432' JIRA_EMAIL='person@example.com' /sandbox/run-mitzo-app-server",
     );
     const quoted = openShellCodexProcessSpec({
       sandboxName: 'safe',
       workdir: '/sandbox/workspaces/mgmt',
-      connectionEnv: { JIRA_URL: 'https://redhat.atlassian.net', JIRA_EMAIL: '`id`@example.com' },
+      connectionEnv: {
+        JIRA_URL: 'https://api.atlassian.com/ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432',
+        JIRA_EMAIL: '`id`@example.com',
+      },
     });
     expect(quoted.args.at(-1)).toContain("JIRA_EMAIL='`id`@example.com'");
+  });
+
+  it('rejects a different tenant in managed Jira context', () => {
+    expect(() =>
+      openShellCodexProcessSpec({
+        sandboxName: 'safe',
+        workdir: '/sandbox/workspaces/mgmt',
+        connectionEnv: {
+          JIRA_URL: 'https://api.atlassian.com/ex/jira/other-tenant',
+          JIRA_EMAIL: 'person@example.com',
+        } as unknown as OpenShellCodexOptions['connectionEnv'],
+      }),
+    ).toThrow('Invalid managed Jira connection environment');
   });
 
   it('terminates the SSH proxy process group on close', () => {
