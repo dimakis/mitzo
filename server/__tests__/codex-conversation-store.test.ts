@@ -95,6 +95,19 @@ it('durably pauses same-process replacement without requiring startup recovery',
   expect(() => s.claimNext('c', binding)).toThrow('recovery');
   s.close();
 });
+it('exposes raw queued, running, and recovery state for lifecycle protection', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'one', prompt: 'active' });
+  s.enqueue('c', binding, { id: 'two', prompt: 'queued' });
+  s.claimNext('c', binding);
+  expect(s.lifecycleQueue('c', binding)).toEqual({ queued: 1, running: 1, recovery: false });
+  s.pauseForRecovery('c', binding, 'one');
+  expect(s.lifecycleQueue('c', binding)).toEqual({ queued: 1, running: 0, recovery: true });
+  expect(() => s.lifecycleQueue('missing', binding)).toThrow('binding');
+  s.close();
+});
 it('does not require recovery after cleanly completed work', () => {
   const { path } = setup();
   const s = new CodexConversationStore(path);
