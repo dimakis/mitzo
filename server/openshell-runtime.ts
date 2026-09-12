@@ -339,18 +339,14 @@ export class OpenShellRuntimeManager {
     throw new Error(`OpenShell sandbox ${name} did not become Ready (last phase: ${phase})`);
   }
 
-  private async revokeGrantOnlyProviders(
+  private async detachProviders(
     name: string,
     owner: string,
+    providers: string[],
     signal: AbortSignal,
   ): Promise<void> {
     let changed = false;
-    for (const provider of this.config.grantableServiceProviders) {
-      if (
-        provider === this.config.account.provider ||
-        this.config.serviceProviders.includes(provider)
-      )
-        continue;
+    for (const provider of providers) {
       try {
         await this.run(['sandbox', ...this.base(), 'provider', 'detach', name, provider], signal);
         changed = true;
@@ -368,6 +364,15 @@ export class OpenShellRuntimeManager {
       (provider) =>
         provider !== this.config.account.provider &&
         !this.config.serviceProviders.includes(provider),
+    );
+  }
+
+  private revokedServiceProviders() {
+    return [...SERVICE_PROVIDERS].filter(
+      (provider) =>
+        provider !== this.config.account.provider &&
+        !this.config.serviceProviders.includes(provider) &&
+        !this.config.grantableServiceProviders.includes(provider),
     );
   }
 
@@ -490,13 +495,17 @@ export class OpenShellRuntimeManager {
       retained &&
       sandbox &&
       sandbox.phase === 'Ready' &&
-      sandbox.labels?.['mitzo.conversation'] === owner &&
-      sandbox.labels?.[PROVIDER_POLICY_LABEL] !== PROVIDER_POLICY_VERSION &&
-      this.grantOnlyProviders().length > 0 &&
-      !(await this.hasProviderPolicyMarker(name, signal))
+      sandbox.labels?.['mitzo.conversation'] === owner
     ) {
-      await this.revokeGrantOnlyProviders(name, owner, signal);
-      await this.writeProviderPolicyMarker(name, signal);
+      await this.detachProviders(name, owner, this.revokedServiceProviders(), signal);
+      if (
+        sandbox.labels?.[PROVIDER_POLICY_LABEL] !== PROVIDER_POLICY_VERSION &&
+        this.grantOnlyProviders().length > 0 &&
+        !(await this.hasProviderPolicyMarker(name, signal))
+      ) {
+        await this.detachProviders(name, owner, this.grantOnlyProviders(), signal);
+        await this.writeProviderPolicyMarker(name, signal);
+      }
     }
     if (!sandbox || sandbox.phase !== 'Ready')
       throw new Error(`OpenShell sandbox ${name} is ${sandbox?.phase ?? 'unavailable'}`);

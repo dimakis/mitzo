@@ -182,6 +182,30 @@ describe('OpenShell runtime lifecycle', () => {
     ).toHaveLength(1);
   });
 
+  it('revokes a durable grant removed from administrator policy', async () => {
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce(ready())
+      .mockResolvedValueOnce('{}')
+      .mockResolvedValueOnce(ready());
+    await new OpenShellRuntimeManager(
+      { ...config, serviceProviders: ['github'], grantableServiceProviders: [] },
+      run,
+    ).ensure('conversation', new AbortController().signal);
+
+    expect(run.mock.calls.find(([args]) => args.includes('detach'))?.[0]).toEqual([
+      'sandbox',
+      '--gateway',
+      'local',
+      '--workspace',
+      'mitzo',
+      'provider',
+      'detach',
+      sandboxNameForConversation('conversation'),
+      'google-workspace',
+    ]);
+  });
+
   it('attaches an explicitly grantable provider to the owned conversation sandbox', async () => {
     const run = vi
       .fn()

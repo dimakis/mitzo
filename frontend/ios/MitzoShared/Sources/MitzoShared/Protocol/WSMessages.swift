@@ -216,6 +216,11 @@ public enum PermissionDecision: String, Codable, Sendable {
     case deny
 }
 
+public enum ApprovalScope: String, Codable, Sendable {
+    case session
+    case conversation
+}
+
 // MARK: - Server → Client Messages
 
 public enum ServerMessage: Codable, Sendable {
@@ -528,6 +533,7 @@ public struct PermissionRequestParams: Codable, Sendable {
     public let displayName: String?
     public let decisionReason: String?
     public let tier: ToolTier?
+    public let approvalScope: ApprovalScope?
 }
 
 public struct ToolResultParams: Codable, Sendable {
