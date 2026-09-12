@@ -797,7 +797,107 @@
     bottom: calc(49px + env(safe-area-inset-bottom));
   }
 
+  /* Two compact rows: conversation navigation, then the workspace disclosure. */
+  .workspace-chat .conversation-heading {
+    min-height: 44px;
+    gap: 8px;
+    padding: 2px 12px;
+  }
+  .workspace-chat .conversation-heading h1 {
+    font-size: 15px;
+  }
+  .workspace-chat .conversation-heading a,
+  .workspace-chat .conversation-heading button {
+    min-height: 44px;
+    padding: 4px 0;
+  }
+  .workspace-chat .workspace-controls-toggle {
+    min-height: 44px;
+    gap: 8px;
+    padding: 4px 12px;
+  }
+  .workspace-chat .workspace-controls .desktop-chat-header {
+    padding: 6px 12px 10px;
+  }
+  .workspace-chat .chat-account-bar {
+    padding: 8px 12px;
+  }
+  .workspace-chat .mobile-session-context {
+    padding: 0 12px 8px;
+  }
+
+  /* Keep normal conversation text readable while fitting more of the turn in view. */
+  .workspace-chat .chat-messages {
+    gap: 8px;
+    padding: 12px;
+  }
+  .workspace-chat .msg-bubble {
+    padding: 0.55rem 0.7rem;
+    line-height: 1.45;
+  }
+  .workspace-chat .msg-bubble--assistant :is(p, ul, ol) {
+    margin-bottom: 0.4em;
+  }
+  .workspace-chat .msg-bubble--assistant li {
+    margin-bottom: 0.12em;
+  }
+  .workspace-chat .tool-group-header {
+    padding: 0.3rem 0.45rem;
+  }
+
+  /* The idle composer is one dense row; richer/running states can wrap naturally. */
   .workspace-chat .chat-input {
+    gap: 0.2rem;
+    padding: 0.35rem 0.5rem;
     padding-bottom: 0.5rem;
+  }
+  .workspace-chat .chat-input-row {
+    flex-direction: row;
+    align-items: center;
+    min-width: 0;
+    gap: 4px;
+    padding: 1px 2px 1px 8px;
+    border-radius: 14px;
+  }
+  .workspace-chat .chat-input-field {
+    min-height: 2.25rem;
+    padding: 0.25rem 0;
+  }
+  .workspace-chat .composer-toolbar {
+    min-width: 0;
+    flex: 0 1 auto;
+    flex-wrap: nowrap;
+    gap: 4px;
+  }
+  .workspace-chat .chat-input-command-strip {
+    flex: 0 1 auto;
+    flex-wrap: nowrap;
+    gap: 2px;
+  }
+  .workspace-chat .chat-input-command-label {
+    display: none;
+  }
+  .workspace-chat .chat-input-btn--skills {
+    width: 40px;
+    min-width: 40px;
+    padding: 0;
+  }
+  .workspace-chat .token-bar {
+    max-width: 4.5rem;
+    margin-left: 0;
+    overflow: hidden;
+    padding: 0.1rem 0.3rem;
+  }
+  .workspace-chat .composer-actions {
+    gap: 2px;
+  }
+  .workspace-chat .chat-input--compact :is(.chat-input-btn, .mic-btn) {
+    border-radius: 9px;
+  }
+
+  /* Preserve labels and safe-area support while trimming excess tab-bar height. */
+  .workspace-tabs .workspace-nav-link {
+    min-height: 44px;
+    padding: 3px 0;
   }
 }

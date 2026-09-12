@@ -54,4 +54,14 @@ describe('MobileShell navigation', () => {
     );
     expect(styles).toMatch(/\.workspace-chat \.chat-input\s*\{[^}]*padding-bottom:\s*0\.5rem;/s);
   });
+
+  it('keeps mobile workspace layout compact without introducing horizontal overflow rules', () => {
+    const styles = readFileSync(
+      resolve(process.cwd(), 'frontend/src/styles/workspace-chat.css'),
+      'utf8',
+    );
+    expect(styles).toMatch(/@media \(max-width: 767px\)/);
+    expect(styles).toMatch(/\.workspace-chat \.chat-input-row\s*\{[^}]*min-width:\s*0/s);
+    expect(styles).toMatch(/\.chat-input-command-label\s*\{\s*display:\s*none;/s);
+  });
 });

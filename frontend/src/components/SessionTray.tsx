@@ -81,7 +81,11 @@ export function SessionTray({
   onRemoveImage,
 }: Props) {
   const contentId = useId();
+  const outputsContentId = useId();
+  const sourcesContentId = useId();
   const [snap, setSnap] = useState<TraySnap>('peek');
+  const [outputsExpanded, setOutputsExpanded] = useState(false);
+  const [sourcesExpanded, setSourcesExpanded] = useState(false);
   const [dragOffset, setDragOffset] = useState(0);
   const pointerStart = useRef<number | null>(null);
   const suppressClick = useRef(false);
@@ -93,7 +97,9 @@ export function SessionTray({
     () => mergeSessionResources(finishedResources, currentResources),
     [finishedResources, currentResources],
   );
-  const resourceCount = resources.sources.length + resources.outputs.length + draftImages.length;
+  const outputsCount = resources.outputs.length;
+  const sourcesCount = resources.sources.length + draftImages.length;
+  const resourceCount = sourcesCount + outputsCount;
   const pendingAttachmentCount = draftImages.length + selectedContextBlocks.length;
   const isOpen = snap !== 'peek';
 
@@ -131,6 +137,7 @@ export function SessionTray({
     <>
       {isOpen && (
         <button
+          type="button"
           className="session-tray-backdrop"
           aria-label="Dismiss session tray"
           onClick={() => setSnap('peek')}
@@ -143,6 +150,7 @@ export function SessionTray({
         style={{ '--session-tray-drag': `${dragOffset}px` } as CSSProperties}
       >
         <button
+          type="button"
           className="session-tray-handle"
           aria-label={isOpen ? 'Close session tray' : 'Open session tray'}
           aria-expanded={isOpen}
@@ -186,6 +194,7 @@ export function SessionTray({
           {isOpen && (
             <div className="session-tray-size-controls">
               <button
+                type="button"
                 onClick={() => setSnap(snap === 'full' ? 'half' : 'full')}
                 aria-label={snap === 'full' ? 'Reduce session tray' : 'Expand session tray'}
               >
@@ -196,23 +205,58 @@ export function SessionTray({
           <div className="session-tray-columns">
             <section className="session-tray-section">
               <div className="session-tray-section-header">
-                <h2>Outputs</h2>
+                <h2>
+                  <button
+                    type="button"
+                    className="session-tray-section-toggle"
+                    aria-label={`Outputs ${outputsCount}`}
+                    aria-expanded={outputsExpanded}
+                    aria-controls={outputsContentId}
+                    onClick={() => setOutputsExpanded((expanded) => !expanded)}
+                  >
+                    <span>Outputs</span>
+                    <span className="session-tray-section-count">{outputsCount}</span>
+                    <span className="session-tray-section-chevron" aria-hidden="true">
+                      {outputsExpanded ? '▾' : '▸'}
+                    </span>
+                  </button>
+                </h2>
               </div>
-              {resources.outputs.length > 0 ? (
-                <div className="session-tray-resources">
-                  {resources.outputs.map((resource) => (
-                    <ResourceRow key={resource.id} resource={resource} />
-                  ))}
+              {outputsExpanded && (
+                <div id={outputsContentId}>
+                  {resources.outputs.length > 0 ? (
+                    <div className="session-tray-resources">
+                      {resources.outputs.map((resource) => (
+                        <ResourceRow key={resource.id} resource={resource} />
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="session-tray-empty">Generated files and previews will appear here</p>
+                  )}
                 </div>
-              ) : (
-                <p className="session-tray-empty">Generated files and previews will appear here</p>
               )}
             </section>
 
             <section className="session-tray-section">
               <div className="session-tray-section-header">
-                <h2>Sources</h2>
+                <h2>
+                  <button
+                    type="button"
+                    className="session-tray-section-toggle"
+                    aria-label={`Sources ${sourcesCount}`}
+                    aria-expanded={sourcesExpanded}
+                    aria-controls={sourcesContentId}
+                    onClick={() => setSourcesExpanded((expanded) => !expanded)}
+                  >
+                    <span>Sources</span>
+                    <span className="session-tray-section-count">{sourcesCount}</span>
+                    <span className="session-tray-section-chevron" aria-hidden="true">
+                      {sourcesExpanded ? '▾' : '▸'}
+                    </span>
+                  </button>
+                </h2>
                 <button
+                  type="button"
                   className="session-tray-add"
                   aria-label="Add source"
                   disabled={draftImages.length >= MAX_IMAGE_ATTACHMENTS}
@@ -221,29 +265,34 @@ export function SessionTray({
                   +
                 </button>
               </div>
-              <div className="session-tray-resources">
-                {draftImages.map((image, index) => (
-                  <div className="session-tray-resource" key={keyForDraftImage(image)}>
-                    <img className="session-tray-thumb" src={image.preview} alt="" />
-                    <span className="session-tray-resource-label">Pasted image {index + 1}</span>
-                    <button
-                      className="session-tray-remove"
-                      aria-label={`Remove pasted image ${index + 1}`}
-                      onClick={() => onRemoveImage(index)}
-                    >
-                      ×
-                    </button>
+              {sourcesExpanded && (
+                <div id={sourcesContentId}>
+                  <div className="session-tray-resources">
+                    {draftImages.map((image, index) => (
+                      <div className="session-tray-resource" key={keyForDraftImage(image)}>
+                        <img className="session-tray-thumb" src={image.preview} alt="" />
+                        <span className="session-tray-resource-label">Pasted image {index + 1}</span>
+                        <button
+                          type="button"
+                          className="session-tray-remove"
+                          aria-label={`Remove pasted image ${index + 1}`}
+                          onClick={() => onRemoveImage(index)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                    {resources.sources.map((resource) => (
+                      <ResourceRow key={resource.id} resource={resource} />
+                    ))}
                   </div>
-                ))}
-                {resources.sources.map((resource) => (
-                  <ResourceRow key={resource.id} resource={resource} />
-                ))}
-              </div>
 
-              {(bootContext || sessionContext) && (
-                <SessionBanner bootContext={bootContext} sessionContext={sessionContext} />
+                  {(bootContext || sessionContext) && (
+                    <SessionBanner bootContext={bootContext} sessionContext={sessionContext} />
+                  )}
+                  <ContextPanel selected={selectedContextBlocks} onToggle={onToggleContextBlock} />
+                </div>
               )}
-              <ContextPanel selected={selectedContextBlocks} onToggle={onToggleContextBlock} />
             </section>
           </div>
         </div>
