@@ -65,6 +65,7 @@ describe('connections router', () => {
     });
     const service = {
       createAndProvision: vi.fn(),
+      retry: vi.fn(),
       test: vi.fn().mockResolvedValue(connection),
       rotate: vi.fn().mockResolvedValue(connection),
       setAssignments: vi.fn((_id, revision) => {
@@ -162,6 +163,30 @@ describe('connections router', () => {
       .set('x-browser', 'yes')
       .send({ csrf, revision: connection.revision + 1, accountIds: ['work'] });
     expect(stale.status).toBe(409);
+    const retryable = store.transition(
+      connection.id,
+      connection.revision,
+      { status: 'needs_attention', errorCode: 'PROVISION_FAILED' },
+      { operation: 'provision', outcome: 'failed', actor: 'operator' },
+    );
+    service.retry.mockResolvedValue(retryable);
+    const retried = await request(app)
+      .post(`/api/connections/${connection.id}/retry`)
+      .set('x-browser', 'yes')
+      .send({ csrf, revision: retryable.revision, token: 'SENTINEL_RETRY' });
+    expect(retried.status).toBe(200);
+    expect(JSON.stringify(retried.body)).not.toContain('SENTINEL_RETRY');
+    expect(service.retry).toHaveBeenCalledWith(
+      connection.id,
+      retryable.revision,
+      'SENTINEL_RETRY',
+      expect.anything(),
+    );
+    const oversized = await request(app)
+      .post('/api/connections/reauthorize')
+      .set('x-browser', 'yes')
+      .send({ passphrase: 'x'.repeat(3_000) });
+    expect(oversized.status).toBe(413);
     const expired = await request(app)
       .post('/api/connections/reauthorize')
       .set('x-browser', 'yes')

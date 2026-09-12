@@ -242,6 +242,27 @@ export function createConnectionsRouter(options: {
       return error(res, value, 'Connection rotation failed');
     }
   });
+  router.post('/:id/retry', mutate, unsafe, express.json({ limit: '8kb' }), async (req, res) => {
+    const parsed = ConnectionRotateBody.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid retry request' });
+    if (!requireCapability(res, parsed.data.csrf)) return;
+    const c = options.store.get(connectionId(req));
+    if (!c || c.ownerId !== OWNER) return missing(res);
+    try {
+      return res.json({
+        connection: publicConnection(
+          await options.service.retry(
+            c.id,
+            parsed.data.revision,
+            parsed.data.token,
+            AbortSignal.timeout(120_000),
+          ),
+        ),
+      });
+    } catch (value) {
+      return error(res, value, 'Connection verification failed');
+    }
+  });
   router.put(
     '/:id/assignments',
     mutate,

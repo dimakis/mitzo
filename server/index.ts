@@ -129,11 +129,7 @@ function configureConnectionsRuntime(): void {
     }
     const runtime = createConnectionsRuntime({
       directory: join(BASE_REPO, '.mitzo'),
-      eligibleAccountIds: () =>
-        loadAccountProfiles()
-          .catalog()
-          .filter((account) => account.provider === 'openai-codex' || account.provider === 'openai')
-          .map((account) => account.id),
+      eligibleAccountIds: () => loadAccountProfiles().connectionEligibleIds(),
       cli: openShell.cli,
       workspace: openShell.workspace,
       gateway: openShell.gateway,
@@ -145,7 +141,15 @@ function configureConnectionsRuntime(): void {
       probePolicy,
     });
     setAppConnectionsRuntime(runtime);
-    void runtime.service.reconcile(AbortSignal.timeout(30_000));
+    const reconcile = () => {
+      void runtime.service.reconcile(AbortSignal.timeout(30_000)).catch((error) => {
+        log.warn('Connections reconciliation pending', {
+          error: error instanceof Error ? error.message : 'unknown',
+        });
+      });
+    };
+    reconcile();
+    setInterval(reconcile, 30_000).unref();
   } catch (error) {
     log.error('Connections disabled: invalid server configuration', {
       error: error instanceof Error ? error.message : 'unknown',
