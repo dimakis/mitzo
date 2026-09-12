@@ -328,6 +328,69 @@ describe('OpenShell runtime lifecycle', () => {
     ]);
   });
 
+  it('serializes concurrent grants so durable provider state cannot be overwritten', async () => {
+    let record = { automatic: [] as string[], granted: [] as string[] };
+    const policyState = {
+      read: vi.fn(() => ({
+        ...record,
+        automatic: [...record.automatic],
+        granted: [...record.granted],
+      })),
+      write: vi.fn((_name: string, next: typeof record) => {
+        record = next;
+      }),
+    };
+    let releaseFirstAttach!: () => void;
+    const firstAttach = new Promise<void>((resolve) => {
+      releaseFirstAttach = resolve;
+    });
+    const attachCalls: string[] = [];
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('get')) return ready();
+      if (args.includes('attach')) {
+        const provider = args.at(-1)!;
+        attachCalls.push(provider);
+        if (provider === 'google-workspace') await firstAttach;
+      }
+      return '{}';
+    });
+    const manager = new OpenShellRuntimeManager(
+      {
+        ...config,
+        serviceProviders: [],
+        grantableServiceProviders: ['google-workspace', 'github'],
+      },
+      run,
+      undefined,
+      undefined,
+      policyState,
+    );
+    const runtime = {
+      sandboxName: sandboxNameForConversation('conversation'),
+      workdir: config.workdir,
+      appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+      cli: config.cli,
+      gateway: config.gateway,
+      workspace: config.workspace,
+      gatewayInsecure: false,
+    };
+    const signal = new AbortController().signal;
+    const googleGrant = manager.grantServiceProvider(
+      'conversation',
+      runtime,
+      'google-workspace',
+      signal,
+    );
+    const githubGrant = manager.grantServiceProvider('conversation', runtime, 'github', signal);
+
+    await vi.waitFor(() => expect(attachCalls).toEqual(['google-workspace']));
+    releaseFirstAttach();
+    await Promise.all([googleGrant, githubGrant]);
+
+    expect(attachCalls).toEqual(['google-workspace', 'github']);
+    expect(record).toEqual({ automatic: [], granted: ['google-workspace', 'github'] });
+  });
+
   it('rejects unconfigured provider grants before calling OpenShell', async () => {
     const run = vi.fn();
     const manager = new OpenShellRuntimeManager(config, run);

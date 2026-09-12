@@ -274,6 +274,7 @@ function legacySandboxNameForConversation(conversationHash: string) {
 export class OpenShellRuntimeManager {
   private run: Run;
   private runSsh: Run;
+  private providerGrantQueues = new Map<string, Promise<void>>();
 
   constructor(
     private config: BoundOpenShellRuntimeConfig,
@@ -312,6 +313,29 @@ export class OpenShellRuntimeManager {
       const message = error instanceof Error ? error.message : '';
       if (/not found|404|does not exist/i.test(message)) return undefined;
       throw error;
+    }
+  }
+
+  private async serializeProviderGrant<T>(
+    sandboxName: string,
+    signal: AbortSignal,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.providerGrantQueues.get(sandboxName) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.catch(() => undefined).then(() => gate);
+    this.providerGrantQueues.set(sandboxName, tail);
+    await previous.catch(() => undefined);
+    try {
+      signal.throwIfAborted();
+      return await operation();
+    } finally {
+      release();
+      if (this.providerGrantQueues.get(sandboxName) === tail)
+        this.providerGrantQueues.delete(sandboxName);
     }
   }
 
@@ -549,37 +573,41 @@ export class OpenShellRuntimeManager {
   ): Promise<void> {
     if (!this.config.grantableServiceProviders.includes(provider))
       throw new Error('OpenShell service provider is not grantable');
-    const conversationHash = createHash('sha256').update(conversationId).digest('hex');
-    const currentName = sandboxNameForConversation(conversationId, this.config.sandboxIdLength);
-    const legacyName = legacySandboxNameForConversation(conversationHash);
-    const owner =
-      runtime.sandboxName === currentName ? conversationHash.slice(0, 63) : conversationHash;
-    if (runtime.sandboxName !== currentName && runtime.sandboxName !== legacyName)
-      throw new Error('OpenShell sandbox does not belong to this conversation');
-    const sandbox = await this.get(runtime.sandboxName, signal);
-    if (!sandbox || sandbox.phase !== 'Ready')
-      throw new Error(`OpenShell sandbox ${runtime.sandboxName} is not Ready`);
-    if (sandbox.labels?.['mitzo.conversation'] !== owner)
-      throw new Error(`OpenShell sandbox ${runtime.sandboxName} is not owned by this conversation`);
-    if (sandbox.labels?.['mitzo.account_provider'] !== this.config.account.provider)
-      throw new Error(
-        `OpenShell sandbox ${runtime.sandboxName} has another account provider binding`,
-      );
-    try {
-      await this.run(
-        ['sandbox', ...this.base(), 'provider', 'attach', runtime.sandboxName, provider],
-        signal,
-      );
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '';
-      if (!/already attached|conflict|409/i.test(message))
-        throw new Error('OpenShell service provider grant failed', { cause: error });
-    }
-    await this.waitForReady(runtime.sandboxName, owner, signal);
-    const previous = this.providerPolicyState.read(runtime.sandboxName);
-    this.providerPolicyState.write(runtime.sandboxName, {
-      automatic: previous?.automatic ?? [...new Set(this.config.serviceProviders)],
-      granted: [...new Set([...(previous?.granted ?? []), provider])],
+    return this.serializeProviderGrant(runtime.sandboxName, signal, async () => {
+      const conversationHash = createHash('sha256').update(conversationId).digest('hex');
+      const currentName = sandboxNameForConversation(conversationId, this.config.sandboxIdLength);
+      const legacyName = legacySandboxNameForConversation(conversationHash);
+      const owner =
+        runtime.sandboxName === currentName ? conversationHash.slice(0, 63) : conversationHash;
+      if (runtime.sandboxName !== currentName && runtime.sandboxName !== legacyName)
+        throw new Error('OpenShell sandbox does not belong to this conversation');
+      const sandbox = await this.get(runtime.sandboxName, signal);
+      if (!sandbox || sandbox.phase !== 'Ready')
+        throw new Error(`OpenShell sandbox ${runtime.sandboxName} is not Ready`);
+      if (sandbox.labels?.['mitzo.conversation'] !== owner)
+        throw new Error(
+          `OpenShell sandbox ${runtime.sandboxName} is not owned by this conversation`,
+        );
+      if (sandbox.labels?.['mitzo.account_provider'] !== this.config.account.provider)
+        throw new Error(
+          `OpenShell sandbox ${runtime.sandboxName} has another account provider binding`,
+        );
+      try {
+        await this.run(
+          ['sandbox', ...this.base(), 'provider', 'attach', runtime.sandboxName, provider],
+          signal,
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '';
+        if (!/already attached|conflict|409/i.test(message))
+          throw new Error('OpenShell service provider grant failed', { cause: error });
+      }
+      await this.waitForReady(runtime.sandboxName, owner, signal);
+      const previous = this.providerPolicyState.read(runtime.sandboxName);
+      this.providerPolicyState.write(runtime.sandboxName, {
+        automatic: previous?.automatic ?? [...new Set(this.config.serviceProviders)],
+        granted: [...new Set([...(previous?.granted ?? []), provider])],
+      });
     });
   }
 
