@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { OpenShellConnectionGateway, parseProviderAttachments } from '../connections-gateway.js';
+import {
+  OpenShellConnectionGateway,
+  parseProviderAttachments,
+  validateJiraProfileYaml,
+} from '../connections-gateway.js';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 const signal = new AbortController().signal;
@@ -28,21 +32,61 @@ describe('OpenShellConnectionGateway', () => {
     expect(profile).toContain('tls: terminate');
     expect(profile).not.toContain('credential_keys:');
     expect(profile).not.toContain('inspect_tls:');
+    expect(() => validateJiraProfileYaml(profile)).not.toThrow();
+  });
+  it('rejects endpoint, TLS, credential, inference, and binary policy drift', () => {
+    const profile = readFileSync(
+      resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'),
+      'utf8',
+    );
+    for (const replacement of [
+      ['host: redhat.atlassian.net', 'host: evil.example'],
+      ['port: 443', 'port: 8443'],
+      ['access: read-only', 'access: read-write'],
+      ['enforcement: enforce', 'enforcement: audit'],
+      ['tls: terminate', 'tls: passthrough'],
+      ['inference_capable: false', 'inference_capable: true'],
+      ['env_vars: [JIRA_API_TOKEN]', 'env_vars: [JIRA_TOKEN]'],
+      ['  - /usr/local/bin/curl', '  - /bin/sh'],
+    ]) {
+      expect(() =>
+        validateJiraProfileYaml(profile.replace(replacement[0], replacement[1])),
+      ).toThrow('differs');
+    }
   });
   it('lints and imports only the server-supplied reviewed profile when absent', async () => {
     const runner = vi
       .fn()
       .mockResolvedValueOnce('')
       .mockResolvedValueOnce('[]')
-      .mockRejectedValueOnce(new Error('missing'))
-      .mockResolvedValueOnce('');
+      .mockResolvedValueOnce('[]')
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce(
+        readFileSync(resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'), 'utf8'),
+      );
     const gateway = new OpenShellConnectionGateway(runner, {
       workspace: 'default',
-      profilePath: '/reviewed/jira.yaml',
+      profilePath: resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'),
     });
     await gateway.verifyCompatibility(signal);
-    expect(runner.mock.calls[0][0]).toContain('/reviewed/jira.yaml');
-    expect(runner.mock.calls.at(-1)![0]).toContain('import');
+    expect(runner.mock.calls[0][0]).toContain(
+      resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'),
+    );
+    expect(runner.mock.calls.some((call) => (call[0] as string[]).includes('import'))).toBe(true);
+  });
+  it('does not import when an existing profile cannot be exported', async () => {
+    const runner = vi
+      .fn()
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce('[]')
+      .mockResolvedValueOnce(JSON.stringify([{ id: 'jira-readonly' }]))
+      .mockRejectedValueOnce(new Error('gateway export unavailable'));
+    const gateway = new OpenShellConnectionGateway(runner, {
+      workspace: 'default',
+      profilePath: resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'),
+    });
+    await expect(gateway.verifyCompatibility(signal)).rejects.toThrow('Gateway command failed');
+    expect(runner.mock.calls.flatMap((call) => call[0])).not.toContain('import');
   });
   it('uses a key-only credential and never exposes a token in argv or parsed DTOs', async () => {
     const secret = 'SENTINEL_DO_NOT_LEAK';

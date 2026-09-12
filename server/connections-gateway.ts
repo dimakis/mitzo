@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { load } from 'js-yaml';
 import { z } from 'zod';
 
 export const JIRA_ENDPOINT = 'https://redhat.atlassian.net';
@@ -10,6 +12,58 @@ const Provider = z.object({
   type: z.string().min(1),
   credential_keys: z.array(z.string()).optional(),
 });
+const JiraProfile = z
+  .object({
+    id: z.literal('jira-readonly'),
+    resource_version: z.literal(1),
+    display_name: z.string().min(1),
+    description: z.string().min(1),
+    category: z.literal('data'),
+    inference_capable: z.literal(false),
+    credentials: z
+      .array(
+        z
+          .object({
+            name: z.literal('api_token'),
+            description: z.string().min(1),
+            env_vars: z.tuple([z.literal('JIRA_API_TOKEN')]),
+            required: z.literal(true),
+            auth_style: z.literal('basic'),
+            header_name: z.literal('authorization'),
+          })
+          .strict(),
+      )
+      .length(1),
+    endpoints: z
+      .array(
+        z
+          .object({
+            host: z.literal('redhat.atlassian.net'),
+            port: z.literal(443),
+            protocol: z.literal('rest'),
+            access: z.literal('read-only'),
+            enforcement: z.literal('enforce'),
+            tls: z.literal('terminate'),
+          })
+          .strict(),
+      )
+      .length(1),
+    binaries: z
+      .array(z.enum(['/usr/bin/python3', '/usr/bin/curl', '/usr/local/bin/curl']))
+      .length(3)
+      .refine((value) => new Set(value).size === 3, 'Jira profile binaries must be unique'),
+  })
+  .strict();
+const ProfileList = z.array(z.object({ id: z.string().min(1) }).passthrough());
+
+/** The profile is a security policy, so approximate matches are unsafe. */
+export function validateJiraProfileYaml(value: string): void {
+  try {
+    JiraProfile.parse(load(value));
+  } catch {
+    throw new Error('Reviewed Jira profile differs from required policy');
+  }
+}
 export interface CommandRunner {
   (
     args: readonly string[],
@@ -114,6 +168,17 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
   }
   async verifyCompatibility(signal: AbortSignal) {
     if (!this.options.profilePath) throw new Error('Reviewed Jira profile path is required');
+    // Validate the exact reviewed source before asking the gateway to accept it.
+    try {
+      validateJiraProfileYaml(readFileSync(this.options.profilePath, 'utf8'));
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === 'Reviewed Jira profile differs from required policy'
+      )
+        throw error;
+      throw new Error('Reviewed Jira profile cannot be read', { cause: error });
+    }
     await this.run(
       [
         'provider',
@@ -141,32 +206,16 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
       ],
       signal,
     );
-    try {
-      const exported = await this.run(
-        [
-          'provider',
-          '--workspace',
-          this.options.workspace,
-          'profile',
-          'export',
-          JIRA_TEMPLATE_ID,
-          '-o',
-          'yaml',
-        ],
-        signal,
-      );
-      if (
-        !/id:\s*jira-readonly\b/.test(exported) ||
-        !/access:\s*read-only\b/.test(exported) ||
-        !/host:\s*redhat\.atlassian\.net\b/.test(exported)
-      )
-        throw new Error('Reviewed Jira profile differs from required policy');
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        error.message === 'Reviewed Jira profile differs from required policy'
-      )
-        throw error;
+    const profileList = ProfileList.safeParse(
+      JSON.parse(
+        await this.run(
+          ['provider', '--workspace', this.options.workspace, 'profile', 'list', '-o', 'json'],
+          signal,
+        ),
+      ),
+    );
+    if (!profileList.success) throw new Error('Gateway returned invalid provider profile metadata');
+    if (!profileList.data.some((profile) => profile.id === JIRA_TEMPLATE_ID)) {
       await this.run(
         [
           'provider',
@@ -180,6 +229,21 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
         signal,
       );
     }
+    // Import only follows a positive missing-profile result. Export failures are never a reason to import.
+    const exported = await this.run(
+      [
+        'provider',
+        '--workspace',
+        this.options.workspace,
+        'profile',
+        'export',
+        JIRA_TEMPLATE_ID,
+        '-o',
+        'yaml',
+      ],
+      signal,
+    );
+    validateJiraProfileYaml(exported);
   }
   async provision(input: { name: string; token: string }, signal: AbortSignal) {
     const name = safeName(input.name);
