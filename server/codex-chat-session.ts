@@ -273,6 +273,9 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
       (connectedOpenShell
         ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again.\n`
         : HOST_TOOL_INSTRUCTIONS) +
+      (managedConnection
+        ? '\nThis sandbox has verified read-only Jira access to https://redhat.atlassian.net. Use /usr/bin/python3 or curl with JIRA_URL, JIRA_EMAIL, and the gateway-managed JIRA_API_TOKEN placeholder for Basic authorization. Never print credential values. Writes are denied by the gateway policy.\n'
+        : '') +
       (startup.context ? `\n\n${startup.context}` : ''),
     beforeComplete: async (signal) => {
       await hooks?.run('Stop', { stop_hook_active: false }, signal);
