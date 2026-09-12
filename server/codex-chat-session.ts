@@ -32,6 +32,7 @@ import {
   registerOpenShellLifecycle,
   restoreOpenShellLifecycleIfNeeded,
   touchOpenShellLifecycle,
+  markOpenShellLifecycleIdle,
 } from './openshell-lifecycle-controller.js';
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
@@ -103,6 +104,11 @@ export function readCodexQueue(
   } catch {
     return { paused: true, connected: false, queued: 0, interrupted: 0 };
   }
+}
+/** Authoritative lifecycle snapshot. Errors deliberately escape to the caller,
+ * where they become a preservation blocker. */
+export function readCodexLifecycleQueue(conversationId: string, binding: AccountBinding) {
+  return store().lifecycleQueue(conversationId, binding);
 }
 interface Options {
   resume?: boolean;
@@ -211,7 +217,14 @@ export async function openCodexChat(options: Options) {
   let startup: { context?: string };
   try {
     if (runtimeManager) {
-      await restoreOpenShellLifecycleIfNeeded(options.conversationId, managedOpenShell!, signal);
+      await restoreOpenShellLifecycleIfNeeded(
+        options.conversationId,
+        managedOpenShell!,
+        signal,
+        options.binding,
+        selectedOpenShellAccountRoute(options),
+        !!options.resume,
+      );
       const context = await runtimeManager.compileContext(managedOpenShell!, signal);
       options.onBootContext?.(context);
       startup = { context: context.fullMarkdown };
@@ -304,7 +317,10 @@ export async function openCodexChat(options: Options) {
         }
       : {}),
     emit: (event) => events.push(event),
-    onClosed: finish,
+    onClosed: () => {
+      if (runtimeManager) markOpenShellLifecycleIdle(options.conversationId);
+      finish();
+    },
     requestUserInput: async (params, signal) => {
       const owner = options.registry.findBySessionId(options.conversationId);
       if (!owner) throw new Error('Codex session unavailable');

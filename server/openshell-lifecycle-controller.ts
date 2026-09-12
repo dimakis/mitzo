@@ -173,6 +173,7 @@ export function initializeOpenShellLifecycle(
       );
       return manifest.digest === record.checkpoint.digest && manifest.sandboxId === sandbox.id;
     },
+    consent: (record) => !!record.retentionConsent,
   });
   const service = new OpenShellLifecycleService(store, openShellLifecyclePolicy(process.env), adapter);
   configured.service = service;
@@ -204,6 +205,7 @@ export function registerOpenShellLifecycle(
       idleSince: null,
       stoppedAt: null,
       checkpoint: existing?.checkpoint ?? null,
+      retentionConsent: existing?.retentionConsent ?? false,
       identity: {
         threadId,
         accountId: binding.accountId,
@@ -226,10 +228,29 @@ export async function restoreOpenShellLifecycleIfNeeded(
   conversationId: string,
   runtime: OpenShellRuntime,
   signal: AbortSignal,
+  binding?: AccountBinding,
+  account?: OpenShellAccountRoute,
+  requireExistingRecord = false,
 ) {
   if (!configured) return;
   const record = configured.store.get(conversationId);
-  if (!record) return;
+  if (!record) {
+    if (requireExistingRecord && runtime.created)
+      throw new Error('OpenShell existing conversation has no verified recovery record');
+    return;
+  }
+  if (
+    !record.identity ||
+    (binding &&
+      (record.identity.accountId !== binding.accountId ||
+        record.identity.provider !== binding.provider ||
+        record.identity.model !== binding.model ||
+        record.identity.profileRevision !== binding.profileRevision)) ||
+    (account && JSON.stringify(record.identity.route) !== JSON.stringify(account))
+  )
+    throw new Error('OpenShell lifecycle account binding changed');
+  // Validates current runtime image, policy content, gateway, and provider route.
+  managerFor(record);
   const replaced = record.physicalSandboxId !== runtime.sandboxId;
   if (record.phase !== 'deleted' && !replaced) return;
   if (!record.checkpoint || !record.identity || !record.checkpoint.sourceResourceVersion)
@@ -280,5 +301,20 @@ export function touchOpenShellLifecycle(conversationId: string) {
     generation: record.generation + 1,
     lastActivityAt: Date.now(),
     idleSince: null,
+  });
+}
+
+/** Transport close alone is not eligibility; it only begins idle accounting.
+ * The service still rechecks queue, Task Board, registry, and physical state. */
+export function markOpenShellLifecycleIdle(conversationId: string) {
+  if (!configured) return;
+  const record = configured.store.get(conversationId);
+  if (!record || record.phase !== 'retained') return;
+  const now = Date.now();
+  configured.store.upsert({
+    ...record,
+    generation: record.generation + 1,
+    lastActivityAt: now,
+    idleSince: now,
   });
 }

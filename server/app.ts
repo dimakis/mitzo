@@ -674,6 +674,22 @@ app.post('/api/openshell/lifecycle/confirm', async (req, res) => {
       });
   }
 });
+app.post('/api/openshell/lifecycle/:conversationId/retention-consent', (req, res) => {
+  if (!openShellLifecycleService) {
+    res.status(503).json({ error: 'OpenShell lifecycle service is unavailable' });
+    return;
+  }
+  if (typeof req.body?.enabled !== 'boolean') {
+    res.status(400).json({ error: 'Retention consent enabled must be a boolean' });
+    return;
+  }
+  try {
+    openShellLifecycleService.setRetentionConsent(req.params.conversationId, req.body.enabled);
+    res.json({ enabled: req.body.enabled });
+  } catch (error) {
+    res.status(409).json({ error: error instanceof Error ? error.message : 'Retention consent failed' });
+  }
+});
 
 // --- SSE Event Bus ---
 
