@@ -118,6 +118,17 @@ export class CodexConversationStore {
         .all(id) as { input: string; status: CodexCommand['status'] }[]
     ).map((row) => ({ ...CommandInput.parse(JSON.parse(row.input)), status: row.status }));
   }
+  /** Lifecycle callers must use this raw snapshot rather than the UI-oriented
+   * queue summary, which intentionally degrades errors to an empty result. */
+  lifecycleQueue(id: string, b: AccountBinding) {
+    const conversation = this.read(id, b);
+    const commands = this.commands(id, b);
+    return {
+      queued: commands.filter((command) => command.status === 'queued').length,
+      running: commands.filter((command) => command.status === 'running').length,
+      recovery: !!conversation.recovery,
+    };
+  }
   claimNext(id: string, b: AccountBinding): CodexCommand | undefined {
     return this.db.transaction(() => {
       if (this.read(id, b).recovery)

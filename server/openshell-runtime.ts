@@ -8,10 +8,14 @@ import { openShellSshProcessSpec } from './codex-app-server-client.js';
 import { codexPrivateDirectory } from './codex-private-path.js';
 
 const Sandbox = z.object({
+  id: z.string().min(1).optional(),
+  resource_version: z.string().min(1).optional(),
   name: z.string(),
   phase: z.enum(['Ready', 'Stopped', 'Pending', 'Creating', 'Starting', 'Error']),
+  workspace: z.string().optional(),
   labels: z.record(z.string(), z.string()).optional(),
 });
+const SandboxList = z.array(Sandbox);
 const Provider = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -52,6 +56,10 @@ export type OpenShellBootContext = z.infer<typeof BootContext>;
 
 export interface OpenShellRuntime {
   sandboxName: string;
+  /** Immutable provider resource ID observed after ensure. */
+  sandboxId?: string;
+  resourceVersion?: string;
+  created?: boolean;
   workdir: string;
   appServerCommand: '/sandbox/run-mitzo-app-server' | '/sandbox/run-mitzo-subscription-app-server';
   cli: string;
@@ -346,6 +354,86 @@ export class OpenShellRuntimeManager {
     }
   }
 
+  /** Read-only inventory scoped to sandboxes carrying this runtime's provider label. */
+  async inventory(signal: AbortSignal) {
+    const sandboxes: z.infer<typeof Sandbox>[] = [];
+    const limit = 100;
+    for (let offset = 0; ; offset += limit) {
+      const page = SandboxList.parse(
+        JSON.parse(
+          await this.run(
+            [
+              'sandbox',
+              ...this.base(),
+              'list',
+              '--output',
+              'json',
+              '--limit',
+              String(limit),
+              '--offset',
+              String(offset),
+            ],
+            signal,
+          ),
+        ),
+      );
+      sandboxes.push(...page);
+      if (page.length < limit) break;
+    }
+    return sandboxes.filter(
+      (sandbox) =>
+        sandbox.labels?.['mitzo.conversation'] &&
+        sandbox.labels?.['mitzo.account_provider'] === this.config.account.provider &&
+        (!sandbox.workspace || sandbox.workspace === this.config.workspace),
+    );
+  }
+
+  /** Read the current physical sandbox for a lifecycle record.  This keeps
+   * lifecycle callers from reconstructing CLI arguments or trusting a name
+   * without re-checking its ownership labels. */
+  async inspect(conversationId: string, physicalId: string, signal: AbortSignal) {
+    const sandbox = await this.ownedSandbox(conversationId, physicalId, signal);
+    if (!sandbox.id) throw new Error('OpenShell sandbox has no physical identity');
+    return {
+      id: sandbox.id,
+      ...(sandbox.resource_version ? { resourceVersion: sandbox.resource_version } : {}),
+      phase: sandbox.phase,
+    };
+  }
+
+  private async ownedSandbox(conversationId: string, physicalId: string, signal: AbortSignal) {
+    const hash = createHash('sha256').update(conversationId).digest('hex');
+    const current = await this.get(
+      sandboxNameForConversation(conversationId, this.config.sandboxIdLength),
+      signal,
+    );
+    const sandbox = current ?? (await this.get(legacySandboxNameForConversation(hash), signal));
+    const expectedOwner = current ? hash.slice(0, 63) : hash;
+    if (!sandbox) throw new Error('OpenShell sandbox is unavailable');
+    if (sandbox.id !== physicalId) throw new Error('OpenShell sandbox identity changed');
+    if (sandbox.labels?.['mitzo.conversation'] !== expectedOwner)
+      throw new Error('OpenShell sandbox is not owned by this conversation');
+    if (sandbox.labels?.['mitzo.account_provider'] !== this.config.account.provider)
+      throw new Error('OpenShell sandbox has another account provider binding');
+    return sandbox;
+  }
+
+  /** Stops only a current, owned Ready sandbox. Callers must fence policy separately. */
+  async stop(conversationId: string, physicalId: string, signal: AbortSignal) {
+    const sandbox = await this.ownedSandbox(conversationId, physicalId, signal);
+    if (sandbox.phase !== 'Ready')
+      throw new Error(`OpenShell sandbox is ${sandbox.phase}, not Ready`);
+    await this.run(['sandbox', ...this.base(), 'stop', sandbox.name], signal);
+  }
+
+  /** Deletes only a current, owned Stopped sandbox. This is intentionally not an automatic policy. */
+  async delete(conversationId: string, physicalId: string, signal: AbortSignal) {
+    const sandbox = await this.ownedSandbox(conversationId, physicalId, signal);
+    if (sandbox.phase !== 'Stopped')
+      throw new Error(`OpenShell sandbox is ${sandbox.phase}, not Stopped`);
+    await this.run(['sandbox', ...this.base(), 'delete', sandbox.name], signal);
+  }
+
   private delay(signal: AbortSignal) {
     signal.throwIfAborted();
     return new Promise<void>((resolve, reject) => {
@@ -461,6 +549,7 @@ export class OpenShellRuntimeManager {
     let name = currentName;
     let owner = currentOwner;
     let sandbox = await this.get(name, signal);
+    let created = false;
     if (!sandbox) {
       const legacyName = legacySandboxNameForConversation(conversationHash);
       const legacy = await this.get(legacyName, signal);
@@ -476,6 +565,7 @@ export class OpenShellRuntimeManager {
     if (sandbox && sandbox.labels?.['mitzo.account_provider'] !== accountProvider)
       throw new Error(`OpenShell sandbox ${name} has another account provider binding`);
     if (!sandbox) {
+      created = true;
       const args = [
         'sandbox',
         ...this.base(),
@@ -563,6 +653,9 @@ export class OpenShellRuntimeManager {
       throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
     return {
       sandboxName: name,
+      ...(sandbox.id ? { sandboxId: sandbox.id } : {}),
+      ...(sandbox.resource_version ? { resourceVersion: sandbox.resource_version } : {}),
+      ...(created ? { created: true } : {}),
       workdir: this.config.workdir,
       appServerCommand:
         this.config.account.kind === 'chatgpt-subscription'

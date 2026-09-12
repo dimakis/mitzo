@@ -108,6 +108,7 @@ import { SseRegistry } from '@mitzo/harness';
 import { SessionSseRegistry } from './session-sse-registry.js';
 import { isTransportConnectionOwnedBy } from './transport-auth-ownership.js';
 import { WorkloadStore, type WorkSignal, type TodoItemUpdateInput } from './workload-store.js';
+import type { OpenShellLifecycleService } from './openshell-lifecycle-service.js';
 
 const log = createLogger('server');
 
@@ -253,6 +254,12 @@ let templateStore: WorkflowTemplateStore | null = null;
 let signalProcessor: SignalProcessor | null = null;
 let overviewEmitter: SessionOverviewEmitter | null = null;
 let healthMonitor: { getSnapshot: () => unknown } | null = null;
+let openShellLifecycleService: OpenShellLifecycleService | null = null;
+
+/** Installed by server startup only after durable stores and protection readers are ready. */
+export function setOpenShellLifecycleService(service: OpenShellLifecycleService | null): void {
+  openShellLifecycleService = service;
+}
 
 export function setOrchestrator(o: TaskOrchestrator): void {
   orchestrator = o;
@@ -624,6 +631,63 @@ app.post('/api/auth/logout', async (req, res) => {
 });
 
 app.use('/api', authMiddleware);
+
+app.get('/api/openshell/lifecycle/:conversationId/preview', async (req, res) => {
+  if (!openShellLifecycleService) {
+    res.status(503).json({ error: 'OpenShell lifecycle service is unavailable' });
+    return;
+  }
+  try {
+    res.json(
+      await openShellLifecycleService.preview(
+        req.params.conversationId,
+        AbortSignal.timeout(120_000),
+      ),
+    );
+  } catch (error) {
+    res.status(409).json({
+      error: error instanceof Error ? error.message : 'OpenShell lifecycle preview failed',
+    });
+  }
+});
+app.post('/api/openshell/lifecycle/confirm', async (req, res) => {
+  if (!openShellLifecycleService) {
+    res.status(503).json({ error: 'OpenShell lifecycle service is unavailable' });
+    return;
+  }
+  const token = req.body?.token;
+  if (typeof token !== 'string' || !token) {
+    res.status(400).json({ error: 'Lifecycle preview token is required' });
+    return;
+  }
+  try {
+    res.json({
+      action: await openShellLifecycleService.confirm(token, AbortSignal.timeout(120_000)),
+    });
+  } catch (error) {
+    res.status(409).json({
+      error: error instanceof Error ? error.message : 'OpenShell lifecycle confirmation failed',
+    });
+  }
+});
+app.post('/api/openshell/lifecycle/:conversationId/retention-consent', (req, res) => {
+  if (!openShellLifecycleService) {
+    res.status(503).json({ error: 'OpenShell lifecycle service is unavailable' });
+    return;
+  }
+  if (typeof req.body?.enabled !== 'boolean') {
+    res.status(400).json({ error: 'Retention consent enabled must be a boolean' });
+    return;
+  }
+  try {
+    openShellLifecycleService.setRetentionConsent(req.params.conversationId, req.body.enabled);
+    res.json({ enabled: req.body.enabled });
+  } catch (error) {
+    res
+      .status(409)
+      .json({ error: error instanceof Error ? error.message : 'Retention consent failed' });
+  }
+});
 
 // --- SSE Event Bus ---
 

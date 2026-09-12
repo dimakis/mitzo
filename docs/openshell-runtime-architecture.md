@@ -49,9 +49,19 @@ administration paths. A new portable Git repository is initialized inside the se
 so normal edits, diffs, and local commits work without copying host `.git` state.
 The host-side baseline records the source commit and file hashes.
 
-Conversation/thread state and the sandbox workspace are durable independently.
-Destroy/recreate recovery and reviewed save-back require a future checkpoint format;
-they are intentionally not implied by stop/start recovery.
+Conversation/thread state and the sandbox workspace are checkpointed together before
+an operator-approved stop. The private, versioned archive is bound to the exact
+conversation, provider thread, account binding, policy/image identity, physical
+sandbox ID, and source resource version. A deleted or replaced sandbox is restored
+from that verified archive before Mitzo starts the app server and resumes its
+existing provider thread; a missing or invalid archive is a recoverable error, not
+a blank-thread fallback.
+
+The server persists lifecycle fencing records in its private Codex directory. On
+startup it marks interrupted lifecycle actions failed before accepting cleanup and
+runs one abortable, non-overlapping reconciler. A live session, queued/recovery
+work, Task Board ownership, Symposium configuration, unavailable event history, or
+unknown/transitional sandbox state blocks mutation.
 
 ## Configuration
 
@@ -80,7 +90,43 @@ host execution path only for non-OpenShell sessions.
 The legacy single-sandbox development variables remain only for preserved spike
 probes. Mitzo rejects that shared-sandbox seam when `NODE_ENV=production`.
 
-## Acceptance status
+Lifecycle cleanup is disabled by default. When enabled, its defaults are a 30-minute
+idle delay, five-minute reconciliation interval, and seven-day stopped retention
+(`MITZO_OPENSHELL_LIFECYCLE_ENABLED`, `MITZO_OPENSHELL_IDLE_MINUTES`,
+`MITZO_OPENSHELL_RECONCILE_MINUTES`, and `MITZO_OPENSHELL_RETENTION_DAYS`; retention
+cannot be configured below five days). Operators inspect a fenced action through
+`GET /api/openshell/lifecycle/:conversationId/preview` and execute its single-use,
+short-lived token through `POST /api/openshell/lifecycle/confirm`. Confirmation of
+a stop does not grant future deletion consent. An authenticated operator grants or
+revokes persisted retention consent with
+`POST /api/openshell/lifecycle/:conversationId/retention-consent` and JSON body
+`{ "enabled": true }` or `{ "enabled": false }`. A delete still requires that
+consent, a current verified checkpoint, and every lifecycle protection check.
+
+Optional usage alerts are disabled until configured. Set
+`MITZO_OPENSHELL_USAGE_THRESHOLD_BYTES` to a positive byte count and/or
+`MITZO_OPENSHELL_SANDBOX_THRESHOLD` to a positive sandbox count. Telemetry emits
+Pino lifecycle records and deduplicated threshold-crossing and recovery alerts.
+Podman `system df` reports usage and reclaimable bytes; it never reports filesystem
+free capacity.
+
+## Lifecycle operations
+
+Lifecycle cleanup is disabled by default. When enabled, a fully quiescent detached
+task may be stopped after 30 minutes; retention defaults to seven days and accepts
+no value below five days. Reconciliation runs every five minutes. Deletion requires
+authenticated persisted retention consent and a current verified checkpoint; active,
+queued, recovering, shared, Task Board-owned, or ambiguous tasks remain blocked.
+The checkpoint archive helper is packaged in the pinned runtime image and preserves
+supported Codex state plus the sandbox workspace. Operators can roll back by
+disabling lifecycle cleanup and restoring a verified archive before starting the
+provider app server.
+
+Any checkpoint, stop, or delete error durably marks that lifecycle row `failed` and
+excludes it from automatic cleanup. Recovery is deliberate: an operator resumes the
+conversation so its sandbox and checkpoint identity are revalidated, then a later
+explicit lifecycle preview may offer a new action. Failed rows are never retried
+blindly by the reconciler.
 
 Synthetic coverage proves deterministic create/reuse/start behavior, provider
 attachment, invalid-state failure, sandbox-scoped context compilation, credential
@@ -99,5 +145,5 @@ Still requiring separately authorized live acceptance:
 - stop/start during a normal SSE chat with automatic transport replacement;
 - production rollout and operational migration.
 
-Kubernetes/Kata, alternative agent harnesses, sandbox destroy/recreate checkpoints,
-and save-back remain explicitly deferred.
+Kubernetes/Kata, alternative agent harnesses, and save-back remain explicitly
+deferred. Live checkpoint round-trip acceptance remains separately authorized.

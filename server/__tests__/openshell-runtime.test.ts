@@ -568,9 +568,12 @@ describe('OpenShell runtime lifecycle', () => {
       .mockResolvedValueOnce('{}')
       .mockResolvedValueOnce(legacyReady);
 
-    await expect(
-      new OpenShellRuntimeManager(config, run).ensure('conversation', new AbortController().signal),
-    ).resolves.toMatchObject({ sandboxName: `mitzo-${legacyOwner.slice(0, 24)}` });
+    const runtime = await new OpenShellRuntimeManager(config, run).ensure(
+      'conversation',
+      new AbortController().signal,
+    );
+    expect(runtime).toMatchObject({ sandboxName: `mitzo-${legacyOwner.slice(0, 24)}` });
+    expect(runtime).not.toHaveProperty('created');
     expect(run).toHaveBeenCalledTimes(5);
     expect(run.mock.calls.flat().flat()).not.toContain('create');
   });
@@ -634,6 +637,75 @@ describe('OpenShell runtime lifecycle', () => {
     await expect(
       new OpenShellRuntimeManager(config, run).ensure('conversation', new AbortController().signal),
     ).rejects.toThrow('another account provider');
+  });
+
+  it('lists only verified conversation sandboxes and fences stop/delete by exact identity', async () => {
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce(
+        JSON.stringify([
+          {
+            id: 'physical-1',
+            name: 'mitzo-123',
+            phase: 'Stopped',
+            workspace: 'mitzo',
+            labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+          },
+          {
+            id: 'foreign',
+            name: 'other',
+            phase: 'Ready',
+            workspace: 'mitzo',
+            labels: { 'mitzo.conversation': 'other', 'mitzo.account_provider': 'openai-work' },
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          id: 'physical-1',
+          name: 'mitzo-123',
+          phase: 'Ready',
+          labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+        }),
+      )
+      .mockResolvedValueOnce('{}')
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          id: 'physical-1',
+          name: 'mitzo-123',
+          phase: 'Stopped',
+          labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+        }),
+      )
+      .mockResolvedValueOnce('{}');
+    const manager = new OpenShellRuntimeManager(config, run);
+    await expect(manager.inventory(new AbortController().signal)).resolves.toEqual([
+      expect.objectContaining({ id: 'physical-1', phase: 'Stopped' }),
+      expect.objectContaining({ id: 'foreign', phase: 'Ready' }),
+    ]);
+    await manager.stop('conversation', 'physical-1', new AbortController().signal);
+    await manager.delete('conversation', 'physical-1', new AbortController().signal);
+    expect(run.mock.calls[2][0]).toEqual(expect.arrayContaining(['stop', 'mitzo-123']));
+    expect(run.mock.calls[4][0]).toEqual(expect.arrayContaining(['delete', 'mitzo-123']));
+  });
+
+  it('refuses lifecycle mutation when the physical sandbox identity or phase changed', async () => {
+    const run = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        id: 'replacement',
+        name: 'mitzo-123',
+        phase: 'Stopped',
+        labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+      }),
+    );
+    await expect(
+      new OpenShellRuntimeManager(config, run).delete(
+        'conversation',
+        'physical-1',
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('identity changed');
+    expect(run.mock.calls.flat().flat()).not.toContain('delete');
   });
 
   it('compiles launch context against the exact sandbox workspace', async () => {

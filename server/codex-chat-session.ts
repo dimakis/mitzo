@@ -28,6 +28,13 @@ import {
   type OpenShellAccountRoute,
   type OpenShellBootContext,
 } from './openshell-runtime.js';
+import { sharedOpenShellLifecycleCoordinator } from './openshell-lifecycle.js';
+import {
+  registerOpenShellLifecycle,
+  restoreOpenShellLifecycleIfNeeded,
+  touchOpenShellLifecycle,
+  markOpenShellLifecycleIdle,
+} from './openshell-lifecycle-controller.js';
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
 const GRANT_INTEGRATION_TOOL = 'GrantIntegrationAccess';
@@ -127,6 +134,11 @@ export function readCodexQueue(
     return { paused: true, connected: false, queued: 0, interrupted: 0 };
   }
 }
+/** Authoritative lifecycle snapshot. Errors deliberately escape to the caller,
+ * where they become a preservation blocker. */
+export function readCodexLifecycleQueue(conversationId: string, binding: AccountBinding) {
+  return store().lifecycleQueue(conversationId, binding);
+}
 interface Options {
   resume?: boolean;
   conversationId: string;
@@ -190,9 +202,18 @@ export async function openCodexChat(options: Options) {
         account: selectedOpenShellAccountRoute(options),
       })
     : undefined;
-  const managedOpenShell = runtimeManager
-    ? await runtimeManager.ensure(options.conversationId, options.session.abortController.signal)
+  const startupReservation = runtimeManager
+    ? await sharedOpenShellLifecycleCoordinator.reserve(options.conversationId)
     : undefined;
+  let managedOpenShell;
+  try {
+    managedOpenShell = runtimeManager
+      ? await runtimeManager.ensure(options.conversationId, options.session.abortController.signal)
+      : undefined;
+  } catch (error) {
+    startupReservation?.();
+    throw error;
+  }
   const openShell =
     managedOpenShell ??
     (openShellName
@@ -204,8 +225,19 @@ export async function openCodexChat(options: Options) {
   const signal = options.session.abortController.signal;
   const grantableProviders = runtimeManager ? configuredRuntime!.grantableServiceProviders : [];
   const integrationTools = grantIntegrationTools(grantableProviders);
-  signal.throwIfAborted();
-  const privateStorage = store();
+  try {
+    signal.throwIfAborted();
+  } catch (error) {
+    startupReservation?.();
+    throw error;
+  }
+  let privateStorage: CodexConversationStore;
+  try {
+    privateStorage = store();
+  } catch (error) {
+    startupReservation?.();
+    throw error;
+  }
   const hookRuntime = openShell
     ? undefined
     : createNativeHooks(options.session.cwd!, options.conversationId, options.env, {
@@ -216,6 +248,14 @@ export async function openCodexChat(options: Options) {
   let startup: { context?: string };
   try {
     if (runtimeManager) {
+      await restoreOpenShellLifecycleIfNeeded(
+        options.conversationId,
+        managedOpenShell!,
+        signal,
+        options.binding,
+        selectedOpenShellAccountRoute(options),
+        !!options.resume,
+      );
       const context = await runtimeManager.compileContext(managedOpenShell!, signal);
       options.onBootContext?.(context);
       startup = { context: context.fullMarkdown };
@@ -226,6 +266,7 @@ export async function openCodexChat(options: Options) {
     }
   } catch (error) {
     dispose();
+    startupReservation?.();
     throw error;
   }
   const mcp = openShell
@@ -243,6 +284,7 @@ export async function openCodexChat(options: Options) {
         signal: options.session.abortController.signal,
       }).catch((error) => {
         dispose();
+        startupReservation?.();
         throw error;
       });
   const events = new AsyncQueue<Record<string, unknown>>();
@@ -279,7 +321,18 @@ export async function openCodexChat(options: Options) {
     ...(runtimeManager
       ? {
           beforeReconnect: async () => {
-            await runtimeManager.ensure(options.conversationId, signal);
+            await sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
+              const recovered = await runtimeManager.ensure(options.conversationId, signal);
+              await restoreOpenShellLifecycleIfNeeded(
+                options.conversationId,
+                recovered,
+                signal,
+                options.binding,
+                selectedOpenShellAccountRoute(options),
+                true,
+              );
+              Object.assign(managedOpenShell!, recovered);
+            });
           },
         }
       : {}),
@@ -304,7 +357,10 @@ export async function openCodexChat(options: Options) {
         }
       : {}),
     emit: (event) => events.push(event),
-    onClosed: finish,
+    onClosed: () => {
+      if (runtimeManager) markOpenShellLifecycleIdle(options.conversationId);
+      finish();
+    },
     requestUserInput: async (params, signal) => {
       const owner = options.registry.findBySessionId(options.conversationId);
       if (!owner) throw new Error('Codex session unavailable');
@@ -380,6 +436,9 @@ export async function openCodexChat(options: Options) {
       };
       if (options.session.transport?.isOpen()) options.session.transport.send(message);
     },
+    ...(runtimeManager
+      ? { onActivity: () => touchOpenShellLifecycle(options.conversationId) }
+      : {}),
     onError: (error) => {
       if (options.session.transport?.isOpen())
         options.session.transport.send({
@@ -398,6 +457,18 @@ export async function openCodexChat(options: Options) {
   try {
     signal.throwIfAborted();
     await runtime.initialize();
+    if (runtimeManager && managedOpenShell) {
+      const threadId = runtime.getThreadId();
+      if (!threadId) throw new Error('OpenShell provider thread was not initialized');
+      registerOpenShellLifecycle(
+        options.conversationId,
+        managedOpenShell,
+        options.binding,
+        selectedOpenShellAccountRoute(options),
+        threadId,
+        options.registry.findBySessionId(options.conversationId)?.clientId,
+      );
+    }
     signal.throwIfAborted();
     runtimes.set(options.session, runtime);
     await runtime.send({
@@ -410,6 +481,8 @@ export async function openCodexChat(options: Options) {
   } catch (error) {
     close();
     throw error;
+  } finally {
+    startupReservation?.();
   }
   return {
     [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](),
