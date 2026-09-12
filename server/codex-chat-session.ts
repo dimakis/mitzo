@@ -28,6 +28,11 @@ import {
   type OpenShellBootContext,
 } from './openshell-runtime.js';
 import { sharedOpenShellLifecycleCoordinator } from './openshell-lifecycle.js';
+import {
+  registerOpenShellLifecycle,
+  restoreOpenShellLifecycleIfNeeded,
+  touchOpenShellLifecycle,
+} from './openshell-lifecycle-controller.js';
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
 let privateStore: CodexConversationStore | undefined;
@@ -206,6 +211,7 @@ export async function openCodexChat(options: Options) {
   let startup: { context?: string };
   try {
     if (runtimeManager) {
+      await restoreOpenShellLifecycleIfNeeded(options.conversationId, managedOpenShell!, signal);
       const context = await runtimeManager.compileContext(managedOpenShell!, signal);
       options.onBootContext?.(context);
       startup = { context: context.fullMarkdown };
@@ -338,6 +344,7 @@ export async function openCodexChat(options: Options) {
       };
       if (options.session.transport?.isOpen()) options.session.transport.send(message);
     },
+    ...(runtimeManager ? { onActivity: () => touchOpenShellLifecycle(options.conversationId) } : {}),
     onError: (error) => {
       if (options.session.transport?.isOpen())
         options.session.transport.send({
@@ -356,6 +363,17 @@ export async function openCodexChat(options: Options) {
   try {
     signal.throwIfAborted();
     await runtime.initialize();
+    if (runtimeManager && managedOpenShell) {
+      const threadId = runtime.getThreadId();
+      if (!threadId) throw new Error('OpenShell provider thread was not initialized');
+      registerOpenShellLifecycle(
+        options.conversationId,
+        managedOpenShell,
+        options.binding,
+        selectedOpenShellAccountRoute(options),
+        threadId,
+      );
+    }
     signal.throwIfAborted();
     runtimes.set(options.session, runtime);
     await runtime.send({

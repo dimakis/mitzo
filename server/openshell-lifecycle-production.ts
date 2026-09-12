@@ -7,7 +7,7 @@ export interface LifecycleProductionDependencies {
     entries(): IterableIterator<[string, { sessionId?: string }]>;
   };
   eventStore: {
-    getSession(id: string): { symposiumConfig?: string | null; sessionType?: string } | undefined;
+    getSession(id: string): { symposiumConfig?: string | null; sessionType?: string } | undefined | null;
   };
   taskStore: {
     getTree(): Array<{ sessionId: string | null; status: string; children: unknown[] }>;
@@ -57,14 +57,25 @@ export function createOpenShellLifecycleProductionAdapter(
         if (deps.registry.findBySessionId(record.conversationId)) blockers.push('active_session');
         const q = deps.queue(record);
         if (q.recovery || q.queued || q.running) blockers.push('queued_work');
-        if (
-          flatten(deps.taskStore.getTree()).some(
-            (task) => task.sessionId === record.conversationId && !terminal.has(task.status),
-          )
-        )
+        // Task Board persists client IDs. Resolve those through the registry;
+        // direct conversation IDs remain supported for records written before
+        // the client/conversation split. An unresolvable non-terminal owner is
+        // ambiguous and therefore blocks mutation.
+        const clients = new Map<string, string | undefined>(
+          [...deps.registry.entries()].map(([clientId, session]) => [clientId, session.sessionId]),
+        );
+        if (flatten(deps.taskStore.getTree()).some((task) => {
+          if (terminal.has(task.status)) return false;
+          if (task.sessionId === record.conversationId) return true;
+          if (task.sessionId && clients.get(task.sessionId) === record.conversationId) return true;
+          return false;
+        }))
           blockers.push('task_board');
         const session = deps.eventStore.getSession(record.conversationId);
-        if (session?.sessionType === 'symposium' || session?.symposiumConfig)
+        // Missing event history means we cannot prove this is an ordinary,
+        // single-owner chat. Treat it as unavailable rather than an empty row.
+        if (!session) blockers.push('inventory_unavailable');
+        else if (session.sessionType === 'symposium' || session.symposiumConfig)
           blockers.push('symposium');
         return { blockers };
       } catch {

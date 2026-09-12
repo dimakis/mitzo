@@ -16,6 +16,9 @@ export interface OpenShellCheckpointRef {
   digest: string;
   version: number;
   sandboxId: string;
+  /** Ready resource version at capture time. It is deliberately distinct from
+   * the stopped marker used to authorize a later delete. */
+  sourceResourceVersion?: string;
 }
 
 export interface OpenShellLifecycleRecord {

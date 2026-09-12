@@ -54,6 +54,9 @@ export type OpenShellBootContext = z.infer<typeof BootContext>;
 
 export interface OpenShellRuntime {
   sandboxName: string;
+  /** Immutable provider resource ID observed after ensure. */
+  sandboxId?: string;
+  resourceVersion?: string;
   workdir: string;
   appServerCommand: '/sandbox/run-mitzo-app-server' | '/sandbox/run-mitzo-subscription-app-server';
   cli: string;
@@ -288,6 +291,19 @@ export class OpenShellRuntimeManager {
     );
   }
 
+  /** Read the current physical sandbox for a lifecycle record.  This keeps
+   * lifecycle callers from reconstructing CLI arguments or trusting a name
+   * without re-checking its ownership labels. */
+  async inspect(conversationId: string, physicalId: string, signal: AbortSignal) {
+    const sandbox = await this.ownedSandbox(conversationId, physicalId, signal);
+    if (!sandbox.id) throw new Error('OpenShell sandbox has no physical identity');
+    return {
+      id: sandbox.id,
+      ...(sandbox.resource_version ? { resourceVersion: sandbox.resource_version } : {}),
+      phase: sandbox.phase,
+    };
+  }
+
   private async ownedSandbox(conversationId: string, physicalId: string, signal: AbortSignal) {
     const hash = createHash('sha256').update(conversationId).digest('hex');
     const current = await this.get(
@@ -474,6 +490,8 @@ export class OpenShellRuntimeManager {
       throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
     return {
       sandboxName: name,
+      ...(sandbox.id ? { sandboxId: sandbox.id } : {}),
+      ...(sandbox.resource_version ? { resourceVersion: sandbox.resource_version } : {}),
       workdir: this.config.workdir,
       appServerCommand:
         this.config.account.kind === 'chatgpt-subscription'
