@@ -789,6 +789,16 @@ app.post('/api/openshell/lifecycle/confirm', operatorAuthMiddleware, async (req,
   }
   const token = req.body?.token;
   if (typeof token !== 'string' || !token) {
+    recordOpenShellLifecycleAudit({
+      at: Date.now(),
+      actor: lifecycleActor(res),
+      conversationId: 'unknown',
+      sandboxId: null,
+      generation: null,
+      action: 'confirm',
+      outcome: 'failed',
+      error: 'Lifecycle preview token is required',
+    });
     res.status(400).json({ error: 'Lifecycle preview token is required' });
     return;
   }
@@ -830,16 +840,36 @@ app.post(
       res.status(503).json({ error: 'OpenShell lifecycle service is unavailable' });
       return;
     }
-    if (typeof req.body?.enabled !== 'boolean') {
-      res.status(400).json({ error: 'Retention consent enabled must be a boolean' });
-      return;
-    }
     const conversationId = req.params.conversationId;
     if (typeof conversationId !== 'string') {
+      recordOpenShellLifecycleAudit({
+        at: Date.now(),
+        actor: lifecycleActor(res),
+        conversationId: 'unknown',
+        sandboxId: null,
+        generation: null,
+        action: 'consent',
+        outcome: 'failed',
+        error: 'Lifecycle conversation ID is required',
+      });
       res.status(400).json({ error: 'Lifecycle conversation ID is required' });
       return;
     }
     const before = openShellLifecycleRecord(conversationId);
+    if (typeof req.body?.enabled !== 'boolean') {
+      recordOpenShellLifecycleAudit({
+        at: Date.now(),
+        actor: lifecycleActor(res),
+        conversationId,
+        sandboxId: before?.physicalSandboxId ?? null,
+        generation: before?.generation ?? null,
+        action: 'consent',
+        outcome: 'failed',
+        error: 'Retention consent enabled must be a boolean',
+      });
+      res.status(400).json({ error: 'Retention consent enabled must be a boolean' });
+      return;
+    }
     try {
       await openShellLifecycleService.setRetentionConsent(conversationId, req.body.enabled);
       const after = openShellLifecycleRecord(conversationId) ?? before;

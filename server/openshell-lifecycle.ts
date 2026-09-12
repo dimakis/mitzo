@@ -90,6 +90,7 @@ const DAY = 24 * 60 * 60 * 1000;
 const MAX_TIMER_MS = 2 ** 31 - 1;
 const MINUTE = 60 * 1000;
 const MAX_RETENTION_DAYS = Math.floor(Number.MAX_SAFE_INTEGER / DAY);
+const MAX_AUDIT_ENTRIES = 500;
 function positiveInteger(value: string | undefined, fallback: number, label: string, minimum = 1) {
   if (value === undefined || value === '') return fallback;
   const parsed = Number(value);
@@ -241,18 +242,27 @@ export class OpenShellLifecycleStore {
     return (this.db.prepare('SELECT * FROM openshell_lifecycle').all() as Row[]).map(fromRow);
   }
   appendAudit(entry: Omit<OpenShellLifecycleAuditEntry, 'id'>) {
-    this.db
-      .prepare(
-        'INSERT INTO openshell_lifecycle_audit (at,actor,conversation_id,sandbox_id,generation,action,outcome,error) VALUES (@at,@actor,@conversationId,@sandboxId,@generation,@action,@outcome,@error)',
-      )
-      .run(entry);
+    // Keep the durable audit itself bounded, atomically with the append. The
+    // read limit below is a defense in depth measure, not the retention policy.
+    this.db.transaction(() => {
+      this.db
+        .prepare(
+          'INSERT INTO openshell_lifecycle_audit (at,actor,conversation_id,sandbox_id,generation,action,outcome,error) VALUES (@at,@actor,@conversationId,@sandboxId,@generation,@action,@outcome,@error)',
+        )
+        .run(entry);
+      this.db
+        .prepare(
+          'DELETE FROM openshell_lifecycle_audit WHERE id NOT IN (SELECT id FROM openshell_lifecycle_audit ORDER BY id DESC LIMIT ?)',
+        )
+        .run(MAX_AUDIT_ENTRIES);
+    })();
   }
   listAudit(limit = 200): OpenShellLifecycleAuditEntry[] {
     return this.db
       .prepare(
         'SELECT id,at,actor,conversation_id AS conversationId,sandbox_id AS sandboxId,generation,action,outcome,error FROM openshell_lifecycle_audit ORDER BY id DESC LIMIT ?',
       )
-      .all(Math.max(1, Math.min(limit, 500))) as OpenShellLifecycleAuditEntry[];
+      .all(Math.max(1, Math.min(limit, MAX_AUDIT_ENTRIES))) as OpenShellLifecycleAuditEntry[];
   }
   upsert(record: OpenShellLifecycleRecord) {
     const existing = this.get(record.conversationId);

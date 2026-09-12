@@ -169,6 +169,27 @@ it('keeps a durable append-only operator action audit without changing lifecycle
   store.close();
 });
 
+it('bounds durable audit storage while retaining the newest operator actions', () => {
+  const store = setup();
+  for (let at = 0; at <= 500; at++) {
+    store.appendAudit({
+      at,
+      actor: 'session:operator',
+      conversationId: 'conversation',
+      sandboxId: null,
+      generation: null,
+      action: 'confirm',
+      outcome: 'failed',
+      error: 'invalid token',
+    });
+  }
+  const entries = store.listAudit(500);
+  expect(entries).toHaveLength(500);
+  expect(entries[0]).toMatchObject({ at: 500 });
+  expect(entries.at(-1)).toMatchObject({ at: 1 });
+  store.close();
+});
+
 it('does not lose explicit failure state during startup reconciliation', () => {
   const store = setup();
   store.upsert(record({ phase: 'deleting' }));
