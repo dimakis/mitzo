@@ -31,6 +31,7 @@ export function ConnectionsView() {
   const [loadError, setLoadError] = useState('');
   const [message, setMessage] = useState('');
   const [csrf, setCsrf] = useState('');
+  const [csrfExpiresAt, setCsrfExpiresAt] = useState(0);
   const [passphrase, setPassphrase] = useState('');
   const [label, setLabel] = useState('Jira');
   const [email, setEmail] = useState('');
@@ -59,11 +60,18 @@ export function ConnectionsView() {
     [],
   );
   const requireReauthorization = () => {
-    if (csrf) return true;
+    if (csrf && csrfExpiresAt > Date.now()) return true;
+    setCsrf('');
+    setCsrfExpiresAt(0);
     setMessage('Reauthorize with your passphrase before changing Jira access.');
     return false;
   };
-  const run = async (name: string, action: () => Promise<unknown>, success: string) => {
+  const run = async (
+    name: string,
+    action: () => Promise<unknown>,
+    success: string,
+    onFailure?: (message: string) => void,
+  ) => {
     setBusy(name);
     setMessage('');
     try {
@@ -71,7 +79,10 @@ export function ConnectionsView() {
       setMessage(success);
       await refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'The request failed. Refresh and retry.');
+      const failure =
+        error instanceof Error ? error.message : 'The request failed. Refresh and retry.';
+      setMessage(failure);
+      onFailure?.(failure);
       await refresh();
     } finally {
       setBusy(null);
@@ -142,6 +153,7 @@ export function ConnectionsView() {
               async () => {
                 const next = await reauthorize(passphrase);
                 setCsrf(next.csrf);
+                setCsrfExpiresAt(next.expiresAt);
                 setPassphrase('');
               },
               'Reauthorization is active for five minutes.',
@@ -308,10 +320,17 @@ function ConnectionCard({
   onRotateOpen: () => void;
   onRotationToken: (value: string) => void;
   onRotateClose: () => void;
-  onAction: (name: string, action: () => Promise<unknown>, success: string) => Promise<void>;
+  onAction: (
+    name: string,
+    action: () => Promise<unknown>,
+    success: string,
+    onFailure?: (message: string) => void,
+  ) => Promise<void>;
   onAudit: (id: string) => Promise<void>;
 }) {
   const assigned = connection.desiredAccountIds;
+  const [removalOpen, setRemovalOpen] = useState(false);
+  const [removalError, setRemovalError] = useState('');
   return (
     <article className="workspace-record connections-record">
       <div>
@@ -387,18 +406,8 @@ function ConnectionCard({
           disabled={busy !== null}
           className="connections-danger"
           onClick={() => {
-            if (
-              !window.confirm(
-                'Remove this connection? Mitzo will revoke managed Jira access before removing it from this list.',
-              ) ||
-              !requireReauthorization()
-            )
-              return;
-            void onAction(
-              `delete:${connection.id}`,
-              () => deleteConnection({ id: connection.id, revision: connection.revision, csrf }),
-              'Connection removed from this list after managed access was revoked.',
-            );
+            setRemovalError('');
+            setRemovalOpen(true);
           }}
         >
           Remove connection
@@ -410,6 +419,37 @@ function ConnectionCard({
           Show audit
         </button>
       </div>
+      {removalOpen && (
+        <section className="connections-remove-confirm" aria-label={`Remove ${connection.label}`}>
+          <p>
+            Removing this connection revokes managed Jira access before it is removed from this
+            list. This does not revoke the upstream Jira token.
+          </p>
+          {removalError && <p role="alert">{removalError}</p>}
+          <button
+            className="connections-danger"
+            disabled={busy !== null}
+            onClick={() => {
+              if (!requireReauthorization()) {
+                setRemovalError('Reauthorize with your passphrase, then confirm removal.');
+                return;
+              }
+              setRemovalError('');
+              void onAction(
+                `delete:${connection.id}`,
+                () => deleteConnection({ id: connection.id, revision: connection.revision, csrf }),
+                'Connection removed from this list after managed access was revoked.',
+                setRemovalError,
+              );
+            }}
+          >
+            Confirm removal
+          </button>
+          <button type="button" disabled={busy !== null} onClick={() => setRemovalOpen(false)}>
+            Cancel
+          </button>
+        </section>
+      )}
       {rotateOpen && (
         <form
           className="connections-rotate"

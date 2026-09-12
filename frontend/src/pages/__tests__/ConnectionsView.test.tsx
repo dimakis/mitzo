@@ -151,22 +151,38 @@ describe('ConnectionsView', () => {
     await render();
     expect(button('Retry with token')).toBeTruthy();
   });
-  it('confirms and removes a connection through the revocation-backed delete action', async () => {
-    const confirm = vi.fn(() => true);
-    vi.stubGlobal('confirm', confirm);
+  it('uses inline confirmation before removing a connection through the revocation-backed action', async () => {
     await render();
     act(() => {
       fireEvent.change(input('Passphrase'), { target: { value: 'pass' } });
     });
     await act(async () => button('Reauthorize').click());
-    await act(async () => button('Remove connection').click());
-    expect(confirm).toHaveBeenCalledWith(
-      'Remove this connection? Mitzo will revoke managed Jira access before removing it from this list.',
-    );
+    act(() => button('Remove connection').click());
+    expect(container.textContent).toContain('Removing this connection revokes managed Jira access');
+    expect(connections.deleteConnection).not.toHaveBeenCalled();
+    await act(async () => button('Confirm removal').click());
     expect(connections.deleteConnection).toHaveBeenCalledWith({
       id: 'jira-1',
       revision: 2,
       csrf: 'c'.repeat(32),
     });
+  });
+  it('shows card-level reauthorization guidance instead of sending a stale removal capability', async () => {
+    vi.mocked(connections.reauthorize).mockResolvedValue({
+      csrf: 'c'.repeat(32),
+      expiresAt: Date.now() - 1,
+    });
+    vi.mocked(connections.deleteConnection).mockClear();
+    await render();
+    act(() => {
+      fireEvent.change(input('Passphrase'), { target: { value: 'pass' } });
+    });
+    await act(async () => button('Reauthorize').click());
+    act(() => button('Remove connection').click());
+    act(() => button('Confirm removal').click());
+    expect(container.textContent).toContain(
+      'Reauthorize with your passphrase, then confirm removal.',
+    );
+    expect(connections.deleteConnection).not.toHaveBeenCalled();
   });
 });

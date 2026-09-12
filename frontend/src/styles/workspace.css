@@ -393,6 +393,19 @@
 .connections-actions .connections-danger {
   color: #ffb4ab;
 }
+.connections-remove-confirm {
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 8px;
+}
+.connections-remove-confirm p {
+  margin: 0 0 10px;
+}
+.connections-remove-confirm button + button {
+  margin-left: 8px;
+}
 .connections-notice {
   padding: 12px;
   border: 1px solid var(--workspace-line);
