@@ -58,6 +58,20 @@ function grantIntegrationTools(providers: string[]) {
     },
   ];
 }
+
+/** Only transport safe, stable runtime diagnostics to the client. */
+export function publicCodexRuntimeError(error: Error): string {
+  const message = error.message;
+  if (
+    message ===
+      'OpenShell denied the provider request because its credential-bearing body could not be inspected.' ||
+    message === 'The provider stream disconnected before completion.' ||
+    message === 'The provider rejected the turn because its context is too large.' ||
+    message === 'The provider request timed out.'
+  )
+    return message;
+  return 'Codex turn failed. Inspect queued work before retrying.';
+}
 let privateStore: CodexConversationStore | undefined;
 function store() {
   if (!privateStore) {
@@ -385,7 +399,7 @@ export async function openCodexChat(options: Options) {
         options.session.transport.send({
           type: 'error',
           sessionId: options.conversationId,
-          error: `Codex turn failed: ${error.message}`,
+          error: publicCodexRuntimeError(error),
         });
     },
   });

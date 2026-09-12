@@ -1,11 +1,21 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const builder = resolve('docs/spikes/openshell-codex/build-mgmt-runtime.sh');
 const initializer = resolve('docs/spikes/openshell-codex/initialize-mitzo-workspace');
+const apiRunner = resolve('docs/spikes/openshell-codex/run-mitzo-app-server');
+const subscriptionRunner = resolve('docs/spikes/openshell-codex/run-mitzo-subscription-app-server');
 
 function rejectedBase(base: string): string {
   try {
@@ -20,6 +30,10 @@ function rejectedBase(base: string): string {
 }
 
 describe('OpenShell runtime image builder', () => {
+  it('disables Codex request compression in every OpenShell app-server launcher', () => {
+    for (const runner of [apiRunner, subscriptionRunner])
+      expect(readFileSync(runner, 'utf8')).toContain('features.enable_request_compression=false');
+  });
   it.each([
     'ghcr.io/nvidia/openshell-community/sandboxes/base:latest',
     'ghcr.io/nvidia/openshell-community/sandboxes/base:0.0.116',

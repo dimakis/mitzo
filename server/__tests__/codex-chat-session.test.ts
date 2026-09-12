@@ -42,11 +42,27 @@ vi.mock('@mitzo/harness', async (importOriginal) => ({
 }));
 import {
   openCodexChat,
+  publicCodexRuntimeError,
   selectedOpenShellAccountRoute,
   waitForCodexRuntime,
   waitForCodexRuntimeBySessionId,
 } from '../codex-chat-session.js';
 import { OpenShellRuntimeManager } from '../openshell-runtime.js';
+
+it('forwards only recognized sanitized Codex diagnostics', () => {
+  expect(
+    publicCodexRuntimeError(
+      new Error(
+        'OpenShell denied the provider request because its credential-bearing body could not be inspected.',
+      ),
+    ),
+  ).toBe(
+    'OpenShell denied the provider request because its credential-bearing body could not be inspected.',
+  );
+  expect(publicCodexRuntimeError(new Error('Bearer sk-secret at https://private.example'))).toBe(
+    'Codex turn failed. Inspect queued work before retrying.',
+  );
+});
 function options(abortController: AbortController) {
   return {
     session: { cwd: '/tmp', abortController },

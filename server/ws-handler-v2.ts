@@ -271,21 +271,12 @@ export function handleReconnect(
         // sees a reasonable cursor during replay instead of 0.
         ctx.connRegistry.resetCursor(connectionId, entry.sessionId, entry.lastSeq);
 
-        const events = ctx.eventStore.getEventsAfter(entry.sessionId, entry.lastSeq);
-        for (const evt of events) {
-          ctx.connRegistry.get(connectionId)?.transport.send({
-            ...evt.payload,
-            seq: evt.seq,
-          } as Record<string, unknown>);
-        }
-
-        // Reset cursor to last replayed seq — prevents duplicate delivery from
-        // periodic sync. If no events replayed, cursor stays at client's lastSeq.
-        const newCursor = events.length > 0 ? events[events.length - 1].seq : entry.lastSeq;
-        ctx.connRegistry.resetCursor(connectionId, entry.sessionId, newCursor);
-
-        // Cross-reference with the durable EventStore: state=ENDED in the store
-        // is ground truth that the query loop has finished (P1: use state, not is_active).
+        // Resolve ownership before replay. A suspended session deliberately
+        // remains in memory through the grace period, and its old transport
+        // can still look attached while the browser creates a new connection.
+        // Replaying to that new connection without taking it over leaves the
+        // old transport as the driver until the next user send, which can
+        // interleave an old error with the new input.
         const found = ctx.sessionRegistry.findBySessionId(entry.sessionId);
         const storeState = ctx.eventStore.getSessionState(entry.sessionId);
         let running = found ? ctx.sessionRegistry.isActive(found.clientId) : false;
@@ -299,6 +290,43 @@ export function handleReconnect(
           });
           ctx.sessionRegistry.remove(found!.clientId);
         }
+        const suspended = !!found && running && ctx.sessionRegistry.isSuspended(found.clientId);
+        if (suspended) {
+          const ownerConnection =
+            found!.session?.ownerConnectionId ?? getOwnerConnection(found!.clientId);
+          if (ownerConnection !== connectionId) {
+            const oldTransport = found!.session?.transport;
+            if (oldTransport?.isOpen())
+              oldTransport.send({ type: 'session_takeover', sessionId: entry.sessionId });
+            ctx.connRegistry.unwatch(ownerConnection, entry.sessionId);
+            denyPendingBySession(entry.sessionId);
+            const conn = ctx.connRegistry.get(connectionId);
+            if (conn) {
+              reattachChat(found!.clientId, conn.transport);
+              if (found!.session) found!.session.ownerConnectionId = connectionId;
+              log.info('took over suspended session on reconnect', {
+                connectionId,
+                sessionId: entry.sessionId,
+                oldOwner: ownerConnection,
+                clientId: found!.clientId,
+              });
+            }
+          }
+        }
+
+        const events = ctx.eventStore.getEventsAfter(entry.sessionId, entry.lastSeq);
+        for (const evt of events) {
+          ctx.connRegistry.get(connectionId)?.transport.send({
+            ...evt.payload,
+            seq: evt.seq,
+          } as Record<string, unknown>);
+        }
+
+        // Reset cursor to last replayed seq — prevents duplicate delivery from
+        // periodic sync. If no events replayed, cursor stays at client's lastSeq.
+        const newCursor = events.length > 0 ? events[events.length - 1].seq : entry.lastSeq;
+        ctx.connRegistry.resetCursor(connectionId, entry.sessionId, newCursor);
+
         if (found && running) {
           const ownerConnection =
             found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);

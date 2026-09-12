@@ -3590,6 +3590,35 @@ describe('handleSessionSuspend', () => {
 // ─── handleReconnect — suspend resume ───────────────────────────────────────
 
 describe('handleReconnect suspend resume', () => {
+  it('takes over a suspended session before replay when its old transport is still attached', () => {
+    const sessionReg = mockSessionRegistry();
+    const oldTransport = mockTransport();
+    const session = { sessionId: 'sess-1', ownerConnectionId: 'old-conn', transport: oldTransport };
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-conn:sess-1', session });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(true);
+    sessionReg.isSuspended.mockReturnValue(true);
+    sessionReg.resume.mockReturnValue([]);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('old-conn', oldTransport);
+    ctx.connRegistry.register('new-conn', transport);
+
+    handleReconnect(
+      'new-conn',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
+      ctx,
+    );
+
+    expect(reattachChat).toHaveBeenCalledWith('old-conn:sess-1', transport);
+    expect(session.ownerConnectionId).toBe('new-conn');
+    expect(oldTransport.sent).toContainEqual({ type: 'session_takeover', sessionId: 'sess-1' });
+    expect(sessionReg.resume).toHaveBeenCalledWith('old-conn:sess-1');
+  });
+
   it('replays buffered events for suspended sessions', () => {
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({
