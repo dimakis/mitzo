@@ -158,3 +158,48 @@ export class OpenShellLifecycleStore {
     this.db.close();
   }
 }
+
+/**
+ * Process-local admission fence. Durable generation state protects recovery after
+ * restart; this prevents a new send from racing an in-process idle action.
+ */
+export class OpenShellLifecycleCoordinator {
+  private tails = new Map<string, Promise<void>>();
+  private idle = new Map<string, { generation: number; timer: ReturnType<typeof setTimeout> }>();
+
+  private cancelIdle(conversationId: string) {
+    const scheduled = this.idle.get(conversationId);
+    if (!scheduled) return;
+    clearTimeout(scheduled.timer);
+    this.idle.delete(conversationId);
+  }
+
+  async admit<T>(conversationId: string, operation: () => Promise<T>): Promise<T> {
+    this.cancelIdle(conversationId);
+    const prior = this.tails.get(conversationId) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const tail = prior.catch(() => {}).then(() => gate);
+    this.tails.set(conversationId, tail);
+    await prior.catch(() => {});
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.tails.get(conversationId) === tail) this.tails.delete(conversationId);
+    }
+  }
+
+  scheduleIdle(conversationId: string, delayMs: number, operation: () => Promise<void>) {
+    this.cancelIdle(conversationId);
+    const generation = Date.now() + Math.random();
+    const timer = setTimeout(() => {
+      const current = this.idle.get(conversationId);
+      if (!current || current.generation !== generation) return;
+      this.idle.delete(conversationId);
+      void this.admit(conversationId, operation).catch(() => {});
+    }, delayMs);
+    timer.unref?.();
+    this.idle.set(conversationId, { generation, timer });
+  }
+}
