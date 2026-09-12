@@ -252,6 +252,15 @@ export class OpenShellLifecycleStore {
       .run(failure, conversationId, expectedGeneration, expectedPhase);
     return changed.changes ? this.get(conversationId) : null;
   }
+  /** A stopped archive that cannot be verified is unsafe to retry automatically. */
+  failStoppedCheckpoint(conversationId: string, expectedGeneration: number, failure: string) {
+    const changed = this.db
+      .prepare(
+        "UPDATE openshell_lifecycle SET phase='failed', failure=?, generation=generation+1 WHERE conversation_id=? AND generation=? AND phase='stopped'",
+      )
+      .run(failure, conversationId, expectedGeneration);
+    return changed.changes ? this.get(conversationId) : null;
+  }
   reconcileInterrupted() {
     this.db
       .prepare(

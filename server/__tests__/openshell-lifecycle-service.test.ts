@@ -212,6 +212,20 @@ it('durably fences a checkpoint when verification returns false', async () => {
   });
 });
 
+it('durably fences a stopped checkpoint when deletion verification returns false', async () => {
+  const { service, store, adapters } = setup('stopped');
+  adapters.verifyCheckpoint.mockResolvedValueOnce(false);
+  const preview = await service.preview('c', AbortSignal.timeout(100));
+  await expect(service.confirm(preview.token, AbortSignal.timeout(100))).rejects.toThrow(
+    'checkpoint is unavailable',
+  );
+  expect(store.get('c')).toMatchObject({
+    phase: 'failed',
+    failure: 'OpenShell checkpoint is unavailable',
+  });
+  expect(adapters.delete).not.toHaveBeenCalled();
+});
+
 it('fences a checkpoint after a protection recheck fails', async () => {
   const { service, store, adapters } = setup('retained');
   adapters.protect.mockResolvedValueOnce({ blockers: [] });

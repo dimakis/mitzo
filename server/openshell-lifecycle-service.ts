@@ -268,10 +268,26 @@ export class OpenShellLifecycleService {
       sandbox.phase !== 'Stopped' ||
       !this.policy.retentionEligible(record, this.now()) ||
       !record.checkpoint ||
-      !this.consented(record) ||
-      !(await this.adapters.verifyCheckpoint?.(record, sandbox, signal))
+      !this.consented(record)
     )
       throw new Error('OpenShell lifecycle preview is stale');
+    let checkpointVerified: boolean;
+    try {
+      checkpointVerified =
+        (await this.adapters.verifyCheckpoint?.(record, sandbox, signal)) === true;
+    } catch (error) {
+      this.store.failStoppedCheckpoint(
+        record.conversationId,
+        record.generation,
+        error instanceof Error ? error.message : 'OpenShell checkpoint is unavailable',
+      );
+      throw error;
+    }
+    if (!checkpointVerified) {
+      const error = new Error('OpenShell checkpoint is unavailable');
+      this.store.failStoppedCheckpoint(record.conversationId, record.generation, error.message);
+      throw error;
+    }
     const beforeDelete = await this.state(record, signal);
     if (
       !beforeDelete.sandbox ||
