@@ -179,7 +179,10 @@ export class OpenShellCheckpointTransport {
   async capture(destinationDir: string, identity: CheckpointIdentity, signal: AbortSignal) {
     mkdirSync(destinationDir, { recursive: true, mode: 0o700 });
     const name = `mitzo-${createHash('sha256').update(identity.conversation).digest('hex')}.tar`;
-    const remote = `/tmp/${name}`;
+    // OpenShell download/upload is deliberately restricted to /sandbox. Keep
+    // the transient archive outside both captured roots so it cannot recurse
+    // into the checkpoint or be restored as provider/workspace state.
+    const remote = `/sandbox/${name}`;
     const local = join(destinationDir, name);
     if (existsSync(local)) throw new Error('checkpoint destination already exists');
     const stage = join(destinationDir, `.${name}.${process.pid}.${crypto.randomUUID()}.stage`);
@@ -223,13 +226,13 @@ export class OpenShellCheckpointTransport {
     signal: AbortSignal,
   ) {
     const name = `mitzo-${createHash('sha256').update(identity.conversation).digest('hex')}.tar`;
-    const remote = `/tmp/${name}`;
+    const remote = `/sandbox/${name}`;
     const manifest = await this.verify(archive, identity, signal);
     if (manifest.digest !== expectedDigest)
       throw new Error('checkpoint digest does not match record');
     await this.run(
       this.runtime.cli,
-      [...this.base(), 'upload', this.runtime.sandboxName, archive, '/tmp', '--no-git-ignore'],
+      [...this.base(), 'upload', this.runtime.sandboxName, archive, '/sandbox', '--no-git-ignore'],
       signal,
     );
     await this.ssh([...helper('restore', remote, identity), '--replace-fresh-roots'], signal);

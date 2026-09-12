@@ -69,6 +69,8 @@ it('uses one hashed archive name, verifies before upload, and quotes SSH argumen
   const all = run.mock.calls.flatMap((call) => call[1] as string[]).join(' ');
   expect(all).toContain('--gateway-endpoint http://127.0.0.1:8000 --gateway-insecure');
   expect(all).toMatch(/mitzo-[a-f0-9]{64}\.tar/);
+  expect(all).toContain('/sandbox/mitzo-');
+  expect(all).not.toContain('/tmp/mitzo-');
   expect(all).not.toContain('a space;$(bad).tar');
   const verify = run.mock.calls.findIndex((call) => call[0] === 'python3');
   const upload = run.mock.calls.findIndex((call) => (call[1] as string[]).includes('upload'));
