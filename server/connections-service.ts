@@ -203,7 +203,8 @@ export class ConnectionsService {
   }
 
   async retry(id: string, revision: number, token: string, signal: AbortSignal) {
-    return this.provision(this.current(id, revision), token, signal);
+    const c = this.current(id, revision);
+    return c.identity ? this.rotate(id, revision, token, signal) : this.provision(c, token, signal);
   }
   private async cleanupConnection(c: Connection) {
     for (const op of this.store.pendingProbes().filter((x) => x.connectionId === c.id)) {

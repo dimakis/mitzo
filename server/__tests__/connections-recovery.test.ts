@@ -106,6 +106,23 @@ describe('durable connection recovery', () => {
     expect(x.store.candidates()).toEqual([]);
     expect(x.store.get(active.id)?.identity).toBe('same-account');
   });
+  it('routes a verified connection retry through identity-preserving rotation', async () => {
+    const x = setup();
+    const active = await x.service.provision(x.created, 'SECRET', AbortSignal.timeout(1000));
+    const failed = x.store.transition(
+      active.id,
+      active.revision,
+      { status: 'needs_attention', errorCode: 'ROTATION_FAILED' },
+      { operation: 'rotate', outcome: 'failed', actor: 'operator' },
+    );
+    await expect(
+      x.service.retry(failed.id, failed.revision, 'NEXT', AbortSignal.timeout(1000)),
+    ).resolves.toMatchObject({ status: 'active', identity: 'same-account' });
+    expect(x.gateway.rotate).toHaveBeenCalledWith(
+      { name: active.gatewayProviderName, token: 'NEXT' },
+      expect.anything(),
+    );
+  });
   it('uses an independent cleanup signal after probe timeout', async () => {
     const x = setup();
     const signal = AbortSignal.abort();
