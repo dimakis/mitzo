@@ -1762,6 +1762,23 @@ textarea:focus {
   }
 }
 
+/* Symposium seat attribution */
+.msg-bubble--symposium {
+  border-left: 3px solid transparent;
+  border-bottom-left-radius: 4px;
+}
+
+.msg-seat-badge {
+  display: inline-block;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: #fff;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+
 .msg-meta {
   font-size: var(--text-2xs);
   color: var(--text-dim);
