@@ -7,7 +7,10 @@ import {
   openShellLifecyclePolicy,
   type OpenShellLifecycleRecord,
 } from '../openshell-lifecycle.js';
-import { OpenShellLifecycleService } from '../openshell-lifecycle-service.js';
+import {
+  OpenShellLifecycleService,
+  type LifecycleAdapters,
+} from '../openshell-lifecycle-service.js';
 
 const roots: string[] = [];
 const DAY = 86_400_000;
@@ -60,7 +63,7 @@ function setup(phase: OpenShellLifecycleRecord['phase'] = 'stopped') {
       sandboxId: 'p',
     })),
     verifyCheckpoint: vi.fn(async () => true),
-    stop: vi.fn(async () => {
+    stop: vi.fn<LifecycleAdapters['stop']>(async () => {
       sandbox.phase = 'Stopped';
       sandbox.resourceVersion = 'stopped-v';
     }),

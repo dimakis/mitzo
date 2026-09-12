@@ -23,7 +23,11 @@ export interface LifecycleProductionDependencies {
     record: OpenShellLifecycleRecord,
     signal: AbortSignal,
   ): ReturnType<LifecycleAdapters['inspect']>;
-  stop(record: OpenShellLifecycleRecord, signal: AbortSignal): Promise<void>;
+  stop(
+    record: OpenShellLifecycleRecord,
+    signal: AbortSignal,
+    activityUnchanged?: () => boolean,
+  ): Promise<void>;
   delete(record: OpenShellLifecycleRecord, signal: AbortSignal): Promise<void>;
   checkpoint(
     record: OpenShellLifecycleRecord,
