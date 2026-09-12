@@ -64,6 +64,9 @@ function helper(
     ...common,
   ];
 }
+function quote(value: string) {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
 /** Scoped archive transport; caller must hold lifecycle reservation and quiesce writers. */
 export class OpenShellCheckpointTransport {
   constructor(
@@ -71,8 +74,25 @@ export class OpenShellCheckpointTransport {
     private run: Run = command,
   ) {}
   private ssh(args: string[], signal: AbortSignal) {
-    const spec = openShellSshProcessSpec(this.runtime, args.join(' '));
+    const spec = openShellSshProcessSpec(
+      this.runtime,
+      [args[0], ...args.slice(1).map(quote)].join(' '),
+    );
     return this.run(spec.command, spec.args, signal);
+  }
+  private base() {
+    return [
+      'sandbox',
+      ...(this.runtime.gatewayEndpoint
+        ? [
+            '--gateway-endpoint',
+            this.runtime.gatewayEndpoint,
+            ...(this.runtime.gatewayInsecure ? ['--gateway-insecure'] : []),
+          ]
+        : ['--gateway', this.runtime.gateway]),
+      '--workspace',
+      this.runtime.workspace,
+    ];
   }
   async capture(destinationDir: string, identity: CheckpointIdentity, signal: AbortSignal) {
     mkdirSync(destinationDir, { recursive: true, mode: 0o700 });
@@ -82,17 +102,7 @@ export class OpenShellCheckpointTransport {
     await this.ssh(helper('capture', remote, identity), signal);
     await this.run(
       this.runtime.cli,
-      [
-        'sandbox',
-        '--gateway',
-        this.runtime.gateway,
-        '--workspace',
-        this.runtime.workspace,
-        'download',
-        this.runtime.sandboxName,
-        remote,
-        local,
-      ],
+      [...this.base(), 'download', this.runtime.sandboxName, remote, local],
       signal,
     );
     await this.run(
@@ -112,19 +122,19 @@ export class OpenShellCheckpointTransport {
     const name = `mitzo-${createHash('sha256').update(identity.conversation).digest('hex')}.tar`;
     const remote = `/tmp/${name}`;
     await this.run(
-      this.runtime.cli,
+      'python3',
       [
-        'sandbox',
-        '--gateway',
-        this.runtime.gateway,
-        '--workspace',
-        this.runtime.workspace,
-        'upload',
-        this.runtime.sandboxName,
+        join(process.cwd(), 'docs/spikes/openshell-codex/mitzo-checkpoint.py'),
+        'verify',
+        '--input',
         archive,
-        '/tmp',
-        '--no-git-ignore',
+        ...helper('verify', remote, identity).slice(4),
       ],
+      signal,
+    );
+    await this.run(
+      this.runtime.cli,
+      [...this.base(), 'upload', this.runtime.sandboxName, archive, '/tmp', '--no-git-ignore'],
       signal,
     );
     await this.ssh(helper('restore', remote, identity), signal);
