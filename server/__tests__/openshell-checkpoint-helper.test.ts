@@ -55,7 +55,7 @@ function source(root: string) {
   mkdirSync(join(root, 'workspace/empty'), { recursive: true });
   writeFileSync(join(root, '.codex/state_5.sqlite'), 'state');
   writeFileSync(join(root, '.codex/installation_id'), 'install');
-  writeFileSync(join(root, '.codex/sessions/thread.jsonl'), '{"id":"thread"}');
+  writeFileSync(join(root, '.codex/sessions/rollout-thread.jsonl'), '{"id":"thread"}');
   writeFileSync(join(root, 'workspace/tool.sh'), '#!/bin/sh\necho ok\n');
   chmodSync(join(root, 'workspace/tool.sh'), 0o755);
   execFileSync('git', ['init', '-q'], { cwd: join(root, 'workspace') });
@@ -169,6 +169,11 @@ it('rejects auth state and corrupt archives', () => {
       'policy',
     ]),
   ).toThrow();
+});
+it('rejects a provider state without an exact thread rollout', () => {
+  const from = root(); source(from);
+  rmSync(join(from, '.codex/sessions/rollout-thread.jsonl'));
+  expect(() => run(['capture', '--source', from, '--output', join(root(), 'checkpoint.tar'), '--conversation', 'c', '--thread', 'thread', '--binding', 'binding', '--image', 'image', '--policy', 'policy'])).toThrow(/rollout/);
 });
 it('fails closed for remaining execution processes but exempts only the pinned root supervisor', () => {
   const from = root(); source(from);

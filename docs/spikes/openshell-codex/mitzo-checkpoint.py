@@ -50,6 +50,13 @@ def workspace(path):
  for rel,isdir,_ in entries(path):
   if rel!='.' and cred(rel): fail('credential-like workspace file')
 def source(p,w): provider(p); workspace(w); return p,w
+def resumable_rollout(provider_root, thread):
+ sessions=os.path.join(provider_root,'sessions')
+ if not os.path.isdir(sessions): fail('resumable thread rollout is missing')
+ for base,_,names in os.walk(sessions,followlinks=False):
+  for name in names:
+   if name.startswith('rollout-') and name.endswith('.jsonl') and thread in name: return
+ fail('resumable thread rollout is missing')
 def pid1_supervisor(proc_root, pid):
  # OpenShell's pinned root supervisor is not an agent writer.  This exemption
  # is deliberately exact: PID 1, all UID fields root, and its known Name.
@@ -99,6 +106,7 @@ def manifest(a,d):
 def capture(a):
  p,w=source(os.path.join(a.source,'.codex'),os.path.join(a.source,'workspace')) if a.source else source(a.provider_root,a.workspace_root); stage=tempfile.mkdtemp(prefix='mitzo-checkpoint-',dir=os.path.dirname(os.path.abspath(a.output))) ; tmp=a.output+'.tmp'
  try:
+  resumable_rollout(p,a.thread)
   if a.require_quiescent: quiescent(p,w,a.proc_root)
   os.mkdir(os.path.join(stage,'.codex'),0o700); os.mkdir(os.path.join(stage,'workspace'),0o700)
   for n in os.listdir(p):
@@ -166,6 +174,7 @@ def read_archive(path):
      if not f: fail('missing archive member')
      copy_member(f,target,x.size); os.chmod(target,x.mode)
    provider(os.path.join(stage,'.codex')); workspace(os.path.join(stage,'workspace'))
+   resumable_rollout(os.path.join(stage,'.codex'),m['thread'])
    if digest(stage,entries(stage))!=m['digest']: fail('digest mismatch')
    return m,stage
   except: shutil.rmtree(stage,ignore_errors=True); raise
