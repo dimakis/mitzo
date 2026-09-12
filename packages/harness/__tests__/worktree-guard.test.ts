@@ -122,6 +122,36 @@ describe('checkWorktreePolicy', () => {
       });
       expect(result).toBeNull();
     });
+
+    it('allows an absolute executable while still guarding its path arguments', async () => {
+      const executableOnly = await checkWorktreePolicy(session, 'Bash', {
+        command: '/opt/homebrew/bin/gws drive files list --params \'{"pageSize":1}\'',
+      });
+      const outsideArgument = await checkWorktreePolicy(session, 'Bash', {
+        command: '/usr/bin/git -C /Users/me/tools/mitzo status',
+      });
+
+      expect(executableOnly).toBeNull();
+      expect(outsideArgument).toContain('/Users/me/tools/mitzo');
+    });
+
+    it('denies an executable from an external repository', async () => {
+      const result = await checkWorktreePolicy(session, 'Bash', {
+        command: '/Users/me/tools/mitzo/scripts/mutate-main --force',
+      });
+
+      expect(result).toContain('/Users/me/tools/mitzo/scripts/mutate-main');
+      expect(result).toContain('outside session worktrees');
+    });
+
+    it('does not trust arbitrary Homebrew executables', async () => {
+      const result = await checkWorktreePolicy(session, 'Bash', {
+        command: '/opt/homebrew/bin/mutate-main --force',
+      });
+
+      expect(result).toContain('/opt/homebrew/bin/mutate-main');
+      expect(result).toContain('outside session worktrees');
+    });
   });
 
   describe('EditNotebook tool', () => {

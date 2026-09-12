@@ -14,7 +14,7 @@ struct PermissionBanner: View {
                 Image(systemName: tierIcon)
                     .foregroundStyle(tierColor)
                     .font(.caption2)
-                Text(request.displayName ?? request.toolName)
+                Text(request.title ?? request.displayName ?? request.toolName)
                     .font(.caption2)
                     .bold()
                     .lineLimit(1)
@@ -27,6 +27,13 @@ struct PermissionBanner: View {
                     .lineLimit(2)
             }
 
+            if request.approvalScope == .conversation {
+                Text("Persists across reconnects and restarts")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
             HStack(spacing: 12) {
                 Button(role: .destructive, action: onDeny) {
                     Text("Deny")
@@ -34,7 +41,7 @@ struct PermissionBanner: View {
                 }
 
                 Button(action: onAllow) {
-                    Text("Allow")
+                    Text(request.approvalScope == .conversation ? "Grant" : "Allow")
                         .font(.caption2)
                 }
                 .buttonStyle(.borderedProminent)

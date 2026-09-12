@@ -90,6 +90,7 @@ export function buildPermissionHandler(
       forcePrompt?: boolean;
       /** Allow a forced prompt to honor an explicit session-wide grant. */
       allowSessionGrant?: boolean;
+      approvalScope?: 'session' | 'conversation';
       /** Provider adapter supplies validated questions, preserving provider IDs. */
       questions?: UserQuestion[];
     },
@@ -215,6 +216,7 @@ export function buildPermissionHandler(
         description: opts.description,
         displayName: opts.displayName,
         tier,
+        approvalScope: opts.approvalScope,
         sessionId: session.sessionId,
         expiresAt: Date.now() + PERMISSION_TIMEOUT_MS,
         ...(questions ? { questions } : {}),

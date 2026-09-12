@@ -6,6 +6,7 @@ const log = createLogger('worktree-guard');
 const WRITE_TOOLS = new Set(['Write', 'Edit', 'StrReplace', 'EditNotebook', 'MultiEdit']);
 const SHELL_TOOLS = new Set(['Bash', 'Shell']);
 const PATH_FIELDS = ['file_path', 'path', 'target_notebook'];
+const TRUSTED_ABSOLUTE_EXECUTABLES = new Set(['/opt/homebrew/bin/gws', '/usr/bin/git']);
 
 const stats = { allowed: 0, denied: 0 };
 
@@ -47,6 +48,14 @@ function extractAbsolutePaths(command: string): string[] {
   while ((m = unquotedRe.exec(command)) !== null) {
     results.push(m[1]);
   }
+  const executableMatch = command
+    .trimStart()
+    .match(/^(?:["'](\/[^"']+)["']|(\/[\w/.@~-]+))(?:\s|$)/);
+  const executablePath = executableMatch?.[1] ?? executableMatch?.[2];
+  if (!executablePath) return results;
+  if (!TRUSTED_ABSOLUTE_EXECUTABLES.has(executablePath)) return results;
+  const executableIndex = results.indexOf(executablePath);
+  if (executableIndex >= 0) results.splice(executableIndex, 1);
   return results;
 }
 

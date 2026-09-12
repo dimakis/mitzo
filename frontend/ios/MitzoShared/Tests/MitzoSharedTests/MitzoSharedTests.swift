@@ -134,7 +134,7 @@ import Foundation
 
 @Test func testPermissionRequestDecoding() throws {
     let json = """
-    {"type":"permission_request","permId":"perm-abc","toolName":"Bash","toolInput":"npm test","displayName":"Run command","tier":"standard"}
+    {"type":"permission_request","permId":"perm-abc","toolName":"Bash","toolInput":"npm test","displayName":"Run command","tier":"standard","approvalScope":"conversation"}
     """.data(using: .utf8)!
 
     let msg = try JSONDecoder().decode(ServerMessage.self, from: json)
@@ -145,6 +145,7 @@ import Foundation
     #expect(params.permId == "perm-abc")
     #expect(params.toolName == "Bash")
     #expect(params.tier == .standard)
+    #expect(params.approvalScope == .conversation)
 }
 
 @Test func testToolResultDecoding() throws {
@@ -381,7 +382,7 @@ import Foundation
 
 @Test func testPermissionRequestRoundTrip() throws {
     let json = """
-    {"type":"permission_request","permId":"p1","toolName":"Bash","toolInput":"npm test","title":"Run command","description":"Execute npm test","displayName":"Shell","decisionReason":"elevated tier","tier":"elevated"}
+    {"type":"permission_request","permId":"p1","toolName":"Bash","toolInput":"npm test","title":"Run command","description":"Execute npm test","displayName":"Shell","decisionReason":"elevated tier","tier":"elevated","approvalScope":"conversation"}
     """.data(using: .utf8)!
 
     let original = try JSONDecoder().decode(ServerMessage.self, from: json)
@@ -397,6 +398,7 @@ import Foundation
     #expect(params.description == "Execute npm test")
     #expect(params.decisionReason == "elevated tier")
     #expect(params.tier == .elevated)
+    #expect(params.approvalScope == .conversation)
 }
 
 @Test func testModeChangedRoundTrip() throws {
