@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import {
   OpenShellLifecycleStore,
   OpenShellLifecycleCoordinator,
@@ -21,7 +21,9 @@ function record(overrides: Partial<OpenShellLifecycleRecord> = {}): OpenShellLif
     conversationId: 'conversation',
     workspace: 'default',
     gateway: 'openshell',
+    gatewayEndpoint: null,
     sandboxName: 'mitzo-123',
+    physicalSandboxId: 'physical-1',
     accountProvider: 'provider',
     phase: 'stopped',
     generation: 1,
@@ -35,6 +37,17 @@ function record(overrides: Partial<OpenShellLifecycleRecord> = {}): OpenShellLif
 afterEach(() => {
   for (const root of roots) rmSync(root, { recursive: true, force: true });
   roots.length = 0;
+});
+
+it('rejects timer values that overflow Node timers and does not overwrite a newer record', () => {
+  expect(() => openShellLifecyclePolicy({ MITZO_OPENSHELL_IDLE_MINUTES: '9999999999999' })).toThrow(
+    'idle',
+  );
+  const store = setup();
+  store.upsert(record({ generation: 2 }));
+  expect(() => store.upsert(record({ generation: 1, phase: 'deleted' }))).toThrow('newer');
+  expect(store.get('conversation')).toMatchObject({ generation: 2, phase: 'stopped' });
+  store.close();
 });
 
 it('defaults retention to seven days and permits a five-day minimum', () => {
@@ -109,4 +122,11 @@ it('cancels a scheduled idle action when new work is admitted', async () => {
   await coordinator.admit('conversation', async () => {});
   await new Promise((resolve) => setTimeout(resolve, 5));
   expect(called).toBe(false);
+});
+
+it('reports idle cleanup failure instead of swallowing it', async () => {
+  const failure = vi.fn();
+  const coordinator = new OpenShellLifecycleCoordinator({ onIdleError: failure });
+  coordinator.scheduleIdle('conversation', 0, () => Promise.reject(new Error('stop failed')));
+  await vi.waitFor(() => expect(failure).toHaveBeenCalledWith('conversation', expect.any(Error)));
 });
