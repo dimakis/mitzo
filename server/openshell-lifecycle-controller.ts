@@ -190,10 +190,15 @@ export function initializeOpenShellLifecycle(
         activityUnchanged,
       );
     },
-    delete: (record, signal) => {
+    delete: (record, signal, stateUnchanged) => {
       if (!record.physicalSandboxId)
         return Promise.reject(new Error('OpenShell sandbox identity missing'));
-      return managerFor(record).delete(record.conversationId, record.physicalSandboxId, signal);
+      return managerFor(record).delete(
+        record.conversationId,
+        record.physicalSandboxId,
+        signal,
+        stateUnchanged,
+      );
     },
     checkpoint: async (record, sandbox, signal) => {
       if (!sandbox.resourceVersion)
@@ -361,7 +366,8 @@ export function touchOpenShellLifecycle(conversationId: string) {
   sharedOpenShellLifecycleCoordinator.noteActivity(conversationId);
   const record = configured.store.get(conversationId);
   if (!record || record.phase === 'deleted' || record.phase === 'failed') return;
-  const resumable = record.phase === 'checkpointing' || record.phase === 'stopping';
+  const resumable =
+    record.phase === 'checkpointing' || record.phase === 'stopping' || record.phase === 'deleting';
   configured.store.upsert({
     ...record,
     ...(resumable ? { phase: 'retained' as const } : {}),

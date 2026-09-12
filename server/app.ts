@@ -702,7 +702,7 @@ app.post('/api/openshell/lifecycle/confirm', async (req, res) => {
     });
   }
 });
-app.post('/api/openshell/lifecycle/:conversationId/retention-consent', (req, res) => {
+app.post('/api/openshell/lifecycle/:conversationId/retention-consent', async (req, res) => {
   if (!openShellLifecycleService) {
     res.status(503).json({ error: 'OpenShell lifecycle service is unavailable' });
     return;
@@ -712,7 +712,10 @@ app.post('/api/openshell/lifecycle/:conversationId/retention-consent', (req, res
     return;
   }
   try {
-    openShellLifecycleService.setRetentionConsent(req.params.conversationId, req.body.enabled);
+    await openShellLifecycleService.setRetentionConsent(
+      req.params.conversationId,
+      req.body.enabled,
+    );
     res.json({ enabled: req.body.enabled });
   } catch (error) {
     res

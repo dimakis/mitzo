@@ -470,10 +470,17 @@ export class OpenShellRuntimeManager {
   }
 
   /** Deletes only a current, owned Stopped sandbox. This is intentionally not an automatic policy. */
-  async delete(conversationId: string, physicalId: string, signal: AbortSignal) {
+  async delete(
+    conversationId: string,
+    physicalId: string,
+    signal: AbortSignal,
+    stateUnchanged?: () => boolean,
+  ) {
     const sandbox = await this.ownedSandbox(conversationId, physicalId, signal);
     if (sandbox.phase !== 'Stopped')
       throw new Error(`OpenShell sandbox is ${sandbox.phase}, not Stopped`);
+    if (stateUnchanged && !stateUnchanged())
+      throw new Error('OpenShell lifecycle state changed before delete');
     await this.run(['sandbox', ...this.base(), 'delete', sandbox.name], signal);
   }
 

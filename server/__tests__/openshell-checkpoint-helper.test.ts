@@ -57,7 +57,7 @@ function source(root: string) {
   writeFileSync(join(root, '.codex/state_5.sqlite'), 'state');
   writeFileSync(join(root, '.codex/installation_id'), 'install');
   writeFileSync(
-    join(root, '.codex/sessions/rollout-thread.jsonl'),
+    join(root, '.codex/sessions/rollout-2026-09-12T00-00-00.jsonl'),
     '{"type":"session_meta","payload":{"id":"thread"}}\n',
   );
   writeFileSync(join(root, 'workspace/tool.sh'), '#!/bin/sh\necho ok\n');
@@ -121,6 +121,17 @@ it('captures and restores git, executable files, empty directories, and sqlite s
     'policy',
   ]);
   expect(readFileSync(join(to, 'workspace/untracked.txt'), 'utf8')).toBe('untracked');
+  expect(
+    execFileSync('git', ['config', '--local', 'user.name'], {
+      cwd: join(to, 'workspace'),
+      encoding: 'utf8',
+    }).trim(),
+  ).toBe('Mitzo Sandbox');
+  writeFileSync(join(to, 'workspace/post-restore.txt'), 'committed after restore');
+  execFileSync('git', ['add', 'post-restore.txt'], { cwd: join(to, 'workspace') });
+  execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-qm', 'post-restore'], {
+    cwd: join(to, 'workspace'),
+  });
   expect(
     execFileSync('git', ['rev-parse', 'HEAD'], { cwd: join(to, 'workspace'), encoding: 'utf8' }),
   ).toMatch(/[a-f0-9]{40}/);
@@ -224,7 +235,7 @@ it('rejects auth state and corrupt archives', () => {
 it('rejects a provider state without an exact thread rollout', () => {
   const from = root();
   source(from);
-  rmSync(join(from, '.codex/sessions/rollout-thread.jsonl'));
+  rmSync(join(from, '.codex/sessions/rollout-2026-09-12T00-00-00.jsonl'));
   expect(() =>
     run([
       'capture',
@@ -248,7 +259,7 @@ it('rejects a provider state without an exact thread rollout', () => {
 it('rejects empty, malformed, or mismatched rollout metadata', () => {
   const from = root();
   source(from);
-  const rollout = join(from, '.codex/sessions/rollout-thread.jsonl');
+  const rollout = join(from, '.codex/sessions/rollout-2026-09-12T00-00-00.jsonl');
   for (const header of ['', '{bad\n', '{"type":"session_meta","payload":{"id":"other"}}\n']) {
     writeFileSync(rollout, header);
     expect(() =>

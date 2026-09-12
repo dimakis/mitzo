@@ -51,7 +51,11 @@ export interface LifecycleAdapters {
     signal: AbortSignal,
     activityUnchanged?: () => boolean,
   ): Promise<void>;
-  delete(record: OpenShellLifecycleRecord, signal: AbortSignal): Promise<void>;
+  delete(
+    record: OpenShellLifecycleRecord,
+    signal: AbortSignal,
+    stateUnchanged?: () => boolean,
+  ): Promise<void>;
   now?(): number;
   /** Explicit persisted operator consent. It is never inferred from an env var. */
   consent?(record: OpenShellLifecycleRecord): boolean;
@@ -139,10 +143,16 @@ export class OpenShellLifecycleService {
     for (const [token, preview] of this.previews)
       if (preview.used || preview.expiresAt < now) this.previews.delete(token);
   }
-  setRetentionConsent(conversationId: string, consent: boolean) {
-    const record = this.store.get(conversationId);
-    if (!record) throw new Error('OpenShell lifecycle conversation is unavailable');
-    this.store.upsert({ ...record, generation: record.generation + 1, retentionConsent: consent });
+  async setRetentionConsent(conversationId: string, consent: boolean) {
+    return sharedOpenShellLifecycleCoordinator.admit(conversationId, async () => {
+      const record = this.store.get(conversationId);
+      if (!record) throw new Error('OpenShell lifecycle conversation is unavailable');
+      this.store.upsert({
+        ...record,
+        generation: record.generation + 1,
+        retentionConsent: consent,
+      });
+    });
   }
   /** Call exactly once during startup, before the reconciler accepts work. */
   recoverStartup() {
@@ -312,7 +322,19 @@ export class OpenShellLifecycleService {
     const deleting = this.store.transition(record.conversationId, record.generation, 'deleting');
     if (!deleting) throw new Error('OpenShell lifecycle generation changed');
     try {
-      await this.adapters.delete(deleting, signal);
+      const activityGeneration = sharedOpenShellLifecycleCoordinator.activityGeneration(
+        record.conversationId,
+      );
+      await this.adapters.delete(deleting, signal, () => {
+        const current = this.store.get(record.conversationId);
+        return (
+          current?.phase === 'deleting' &&
+          current.generation === deleting.generation &&
+          this.consented(current) &&
+          sharedOpenShellLifecycleCoordinator.activityGeneration(record.conversationId) ===
+            activityGeneration
+        );
+      });
       if (await this.adapters.inspect(deleting, signal))
         throw new Error('OpenShell delete could not be verified absent');
       const deletedRecord = {

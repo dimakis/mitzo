@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import {
   OpenShellLifecycleStore,
   openShellLifecyclePolicy,
+  sharedOpenShellLifecycleCoordinator,
   type OpenShellLifecycleRecord,
 } from '../openshell-lifecycle.js';
 import {
@@ -71,7 +72,7 @@ function setup(phase: OpenShellLifecycleRecord['phase'] = 'stopped') {
       sandbox.phase = 'Stopped';
       sandbox.resourceVersion = 'stopped-v';
     }),
-    delete: vi.fn(async () => removeSandbox()),
+    delete: vi.fn<LifecycleAdapters['delete']>(async () => removeSandbox()),
     now: () => 100 + 7 * DAY,
     consent: () => true,
     onReconcileError: undefined as
@@ -128,7 +129,7 @@ it('rechecks consent before a manual deletion', async () => {
 it('rejects a preview after persisted retention consent is revoked', async () => {
   const { service, adapters } = setup();
   const preview = await service.preview('c', AbortSignal.timeout(100));
-  service.setRetentionConsent('c', false);
+  await service.setRetentionConsent('c', false);
   await expect(service.confirm(preview.token, AbortSignal.timeout(100))).rejects.toThrow(
     'preview is stale',
   );
@@ -203,6 +204,41 @@ it('does not record deletion until the exact sandbox is absent', async () => {
   expect(store.get('c')).toMatchObject({
     phase: 'failed',
     failure: 'OpenShell delete could not be verified absent',
+  });
+});
+
+it('fences deletion when final activity or consent changes', async () => {
+  const { service, store, adapters } = setup('stopped');
+  let finalFence: (() => boolean) | undefined;
+  adapters.delete.mockImplementationOnce(async (_record, _signal, current) => {
+    finalFence = current;
+    adapters.consent = () => false;
+    if (!current?.()) throw new Error('OpenShell lifecycle state changed before delete');
+  });
+  const preview = await service.preview('c', AbortSignal.timeout(100));
+  await expect(service.confirm(preview.token, AbortSignal.timeout(100))).rejects.toThrow(
+    'state changed before delete',
+  );
+  expect(finalFence).toEqual(expect.any(Function));
+  expect(store.get('c')).toMatchObject({
+    phase: 'failed',
+    failure: 'OpenShell lifecycle state changed before delete',
+  });
+});
+
+it('fences deletion when activity is admitted after the deletion preflight', async () => {
+  const { service, store, adapters } = setup('stopped');
+  adapters.delete.mockImplementationOnce(async (_record, _signal, current) => {
+    sharedOpenShellLifecycleCoordinator.noteActivity('c');
+    if (!current?.()) throw new Error('OpenShell lifecycle state changed before delete');
+  });
+  const preview = await service.preview('c', AbortSignal.timeout(100));
+  await expect(service.confirm(preview.token, AbortSignal.timeout(100))).rejects.toThrow(
+    'state changed before delete',
+  );
+  expect(store.get('c')).toMatchObject({
+    phase: 'failed',
+    failure: 'OpenShell lifecycle state changed before delete',
   });
 });
 

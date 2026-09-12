@@ -6,6 +6,7 @@ FILES={'.sandbox_migration','goals_1.sqlite','goals_1.sqlite-wal','goals_1.sqlit
 DIRS={'sessions','archived_sessions','skills'}
 VOLATILE={'tmp','.tmp','thread-writer-locks','logs_2.sqlite','logs_2.sqlite-wal','logs_2.sqlite-shm','shell_snapshots'}
 MAX_FILES,MAX_BYTES,MAX_MANIFEST=100000,2*1024*1024*1024,65536
+SANDBOX_GIT_CONFIG=b'[user]\n\tname = Mitzo Sandbox\n\temail = mitzo-sandbox@localhost\n'
 def fail(s): raise ValueError(s)
 def lst(path):
  s=os.lstat(path)
@@ -58,7 +59,7 @@ def resumable_rollout(provider_root, thread):
  if not os.path.isdir(sessions): fail('resumable thread rollout is missing')
  for base,_,names in os.walk(sessions,followlinks=False):
   for name in names:
-   if name.startswith('rollout-') and name.endswith('.jsonl') and thread in name:
+   if name.startswith('rollout-') and name.endswith('.jsonl'):
     path=os.path.join(base,name)
     try:
      with open(path,'rb') as rollout:
@@ -214,11 +215,19 @@ def cleanup_backups(backups):
  for _,b in backups:
   try: shutil.rmtree(b)
   except OSError: pass
+def restore_git_identity(workspace):
+ git=os.path.join(workspace,'.git')
+ if not os.path.isdir(git): return
+ config=os.path.join(git,'config')
+ if os.path.lexists(config): fail('restored Git config is unsafe')
+ fd=os.open(config,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+ with os.fdopen(fd,'wb') as f: f.write(SANDBOX_GIT_CONFIG)
 def restore(a):
  stage_parent=os.path.commonpath((os.path.dirname(a.provider_root),os.path.dirname(a.workspace_root))) if a.replace_fresh_roots else None
  m,s=read_archive(a.input,stage_parent)
  try:
   identity(m,a)
+  restore_git_identity(os.path.join(s,'workspace'))
   if a.destination:
    if os.path.lexists(a.destination): fail('destination exists')
    os.replace(s,a.destination); s=None
