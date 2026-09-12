@@ -3047,8 +3047,14 @@ describe('handleInterruptV2 forwarding', () => {
       session: { model: 'claude-sonnet-4-6' },
     });
 
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({
+      accountBinding: { accountId: 'openai-personal' },
+    });
+
     const ctx = createContext({
       sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
     });
     const transport = mockTransport();
     ctx.connRegistry.register('c4', transport);
@@ -3072,6 +3078,9 @@ describe('handleInterruptV2 forwarding', () => {
       'override',
       expect.objectContaining({ resume: 'sess-precedence', model: 'claude-opus-4-8' }),
     );
+    expect(vi.mocked(startChat).mock.calls.at(-1)?.[3]).toMatchObject({
+      accountId: 'openai-personal',
+    });
   });
 
   it('does not watch or activate when session is not found', () => {

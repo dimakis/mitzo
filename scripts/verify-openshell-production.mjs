@@ -110,6 +110,15 @@ export function verifyAccountBindings(accounts, providers) {
   }
 }
 
+export function hasExactGlobalSetting(settings, key, value) {
+  const escapeRegExp = (input) => input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const settingPattern = new RegExp(
+    `^\\s*${escapeRegExp(key)}\\s*=\\s*${escapeRegExp(String(value))}\\s*(?:#.*)?$`,
+    'm',
+  );
+  return settingPattern.test(settings);
+}
+
 export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
   const envPath = resolve(argv[0] ?? resolve(repoRoot, '.env'));
   const fileConfig = existsSync(envPath) ? parse(readFileSync(envPath)) : {};
@@ -155,7 +164,7 @@ export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
   const settings = run(openshell, ['settings', 'get', '--global']);
   for (const [key, value] of Object.entries(manifest.gateway.requiredGlobalSettings)) {
     invariant(
-      settings.includes(`${key} = ${value}`),
+      hasExactGlobalSetting(settings, key, value),
       `required global setting ${key}=${value} is not active`,
     );
   }

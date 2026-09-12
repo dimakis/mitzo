@@ -86,7 +86,10 @@ export function buildPermissionHandler(
       displayName?: string;
       description?: string;
       decisionReason?: string;
+      /** Bypass mode/tier auto-approval for an exact action or policy gate. */
       forcePrompt?: boolean;
+      /** Allow a forced prompt to honor an explicit session-wide grant. */
+      allowSessionGrant?: boolean;
       /** Provider adapter supplies validated questions, preserving provider IDs. */
       questions?: UserQuestion[];
     },
@@ -144,7 +147,13 @@ export function buildPermissionHandler(
       return { behavior: 'allow', updatedInput: _toolInput };
     }
 
-    if (!questions && !opts.forcePrompt && isAllowListed(session.sessionAllowList, toolName)) {
+    // Exact-action and policy gates remain non-cacheable unless the caller
+    // explicitly declares that this forced prompt supports session-wide grants.
+    if (
+      !questions &&
+      (!opts.forcePrompt || opts.allowSessionGrant) &&
+      isAllowListed(session.sessionAllowList, toolName)
+    ) {
       return {
         behavior: 'allow',
         decisionClassification: 'user_permanent',

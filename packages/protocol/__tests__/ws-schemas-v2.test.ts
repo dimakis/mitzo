@@ -131,6 +131,18 @@ describe('v2 send', () => {
       expect(r.data.telosTaskId).toBe('abc123def456');
     }
   });
+
+  it('accepts null reasoning effort as an explicit model-default reset', () => {
+    expect(
+      V2SendMessage.safeParse({
+        type: 'send',
+        sessionId: 'sess-1',
+        prompt: 'hello',
+        clientMsgId: 'u-1',
+        reasoningEffort: null,
+      }).success,
+    ).toBe(true);
+  });
 });
 
 describe('v2 interrupt / stop / permission_response / set_mode', () => {
@@ -153,6 +165,18 @@ describe('v2 interrupt / stop / permission_response / set_mode', () => {
       clientMsgId: 'u-2',
     });
     expect(r.success).toBe(true);
+  });
+
+  it('accepts an interrupt with a model-default reasoning reset', () => {
+    expect(
+      V2InterruptMessage.safeParse({
+        type: 'interrupt',
+        sessionId: 'sess-1',
+        prompt: 'wait',
+        clientMsgId: 'u-2',
+        reasoningEffort: null,
+      }).success,
+    ).toBe(true);
   });
 
   it('accepts stop with sessionId', () => {

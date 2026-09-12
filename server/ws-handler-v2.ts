@@ -762,6 +762,7 @@ export function handleInterruptV2(
       if (!found) return;
 
       const activeClientId = found.clientId;
+      const storedAccountId = ctx.eventStore.getSession(msg.sessionId)?.accountBinding?.accountId;
       const storeState = ctx.eventStore.getSessionState(msg.sessionId);
 
       // Phase 2: detect state mismatches (observability only)
@@ -856,7 +857,7 @@ export function handleInterruptV2(
       ctx.connRegistry.setActive(connectionId, msg.sessionId);
       startChat(transport, sessionClientId, msg.prompt, {
         resume: msg.sessionId,
-        accountId: msg.accountId,
+        accountId: msg.accountId ?? storedAccountId,
         resumePermission: found.session?.mode
           ? {
               mode: effectivePermissionMode(found.session),

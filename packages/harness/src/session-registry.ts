@@ -19,6 +19,7 @@ export type {
   AgentDefinitionSource,
 } from '@mitzo/protocol';
 import type {
+  AccountBinding,
   MitzoMode,
   MessageSnapshot,
   AgentDefinitionSource,
@@ -38,6 +39,8 @@ export interface ManagedSession {
   branch?: string;
   /** Model used for this session's SDK query. */
   model?: string;
+  /** Immutable provider/account routing identity for validating live model changes. */
+  accountBinding?: AccountBinding;
   /** Session-scoped worktree identifier, shared across all repos. */
   wtId?: string;
   worktreePath?: string;
