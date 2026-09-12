@@ -266,4 +266,21 @@ describe('OpenShellConnectionGateway', () => {
     expect(exec.join(' ')).toContain('redirect denied');
     expect(exec.join(' ')).toContain('read(65537)');
   });
+  it('recovers an ambiguous create only for the owned ready probe sandbox', async () => {
+    const name = 'mzp-1234567890abcde';
+    const runner = vi.fn().mockImplementation((args: string[]) => {
+      if (args.includes('create')) return Promise.reject(new Error('timed out'));
+      if (args.includes('provider') && args.includes('list')) return Promise.resolve('NAME TYPE CREDENTIAL_KEYS CONFIG_KEYS\nmitzo-conn-12345678 jira 1 0');
+      if (args.includes('sandbox') && args.includes('list')) return Promise.resolve(JSON.stringify([{ name, phase: 'Ready', labels: { 'mitzo.connection_probe': '1' } }]));
+      if (args.includes('exec')) return Promise.resolve(JSON.stringify({ accountId: 'abc' }));
+      return Promise.resolve('');
+    });
+    const gateway = new OpenShellConnectionGateway(runner, { workspace: 'default', probeImage: 'approved:image', probePolicy: '/approved/policy.yaml' });
+    await expect(gateway.probe({ providerName: 'mitzo-conn-12345678', email: 'person@example.com', sandboxName: name }, signal)).resolves.toEqual({ identity: 'abc' });
+  });
+  it('rejects ambiguous create when the recovered sandbox is unowned', async () => {
+    const runner = vi.fn().mockImplementation((args: string[]) => args.includes('create') ? Promise.reject(new Error('timed out')) : Promise.resolve(JSON.stringify([{ name: 'mzp-1234567890abcde', phase: 'Ready', labels: {} }])));
+    const gateway = new OpenShellConnectionGateway(runner, { workspace: 'default', probeImage: 'approved:image', probePolicy: '/approved/policy.yaml' });
+    await expect(gateway.probe({ providerName: 'mitzo-conn-12345678', email: 'person@example.com', sandboxName: 'mzp-1234567890abcde' }, signal)).rejects.toThrow('Gateway identity probe failed');
+  });
 });

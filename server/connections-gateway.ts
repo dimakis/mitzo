@@ -464,7 +464,8 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
     const probe =
       "import base64,json,os,ssl,urllib.request;u=os.environ['JIRA_URL']+'/rest/api/3/myself';a=base64.b64encode((os.environ['JIRA_EMAIL']+':'+os.environ['JIRA_API_TOKEN']).encode()).decode();H=type('H',(urllib.request.HTTPRedirectHandler,),{'redirect_request':lambda s,*x:(_ for _ in ()).throw(RuntimeError('redirect denied'))});o=urllib.request.build_opener(H());r=urllib.request.Request(u,headers={'Authorization':'Basic '+a});x=o.open(r,timeout=10);b=x.read(65537);assert len(b)<=65536;d=json.loads(b);print(json.dumps({'accountId':d['accountId']},separators=(',',':')))";
     try {
-      const createOutput = await this.run(
+      let createOutput: string | undefined;
+      try { createOutput = await this.run(
         [
           'sandbox',
           '--workspace',
@@ -491,11 +492,15 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
           'json',
         ],
         signal,
-      );
-      const created = z
-        .object({ name: z.string().regex(ProbeSandboxName), phase: z.string() })
-        .parse(JSON.parse(createOutput));
-      if (created.name !== name) throw new Error('Probe sandbox identity mismatch');
+      ); } catch {
+        if (signal.aborted) throw new Error('Gateway identity probe failed');
+        const recovered = await this.sandbox(name, signal);
+        if (recovered?.name !== name || recovered.phase !== 'Ready' || recovered.labels['mitzo.connection_probe'] !== '1') throw new Error('Probe sandbox create failed');
+      }
+      if (createOutput) {
+        const created = z.object({ name: z.string().regex(ProbeSandboxName), phase: z.string() }).parse(JSON.parse(createOutput));
+        if (created.name !== name) throw new Error('Probe sandbox identity mismatch');
+      }
       let ready = false;
       for (let attempt = 0; attempt < 20; attempt++) {
         const sandbox = await this.sandbox(name, signal);
