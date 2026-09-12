@@ -47,6 +47,13 @@ function extractAbsolutePaths(command: string): string[] {
   while ((m = unquotedRe.exec(command)) !== null) {
     results.push(m[1]);
   }
+  const executableMatch = command
+    .trimStart()
+    .match(/^(?:["'](\/[^"']+)["']|(\/[\w/.@~-]+))(?:\s|$)/);
+  const executablePath = executableMatch?.[1] ?? executableMatch?.[2];
+  if (!executablePath) return results;
+  const executableIndex = results.indexOf(executablePath);
+  if (executableIndex >= 0) results.splice(executableIndex, 1);
   return results;
 }
 

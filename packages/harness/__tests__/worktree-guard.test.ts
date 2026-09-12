@@ -122,6 +122,18 @@ describe('checkWorktreePolicy', () => {
       });
       expect(result).toBeNull();
     });
+
+    it('allows an absolute executable while still guarding its path arguments', async () => {
+      const executableOnly = await checkWorktreePolicy(session, 'Bash', {
+        command: '/opt/homebrew/bin/gws drive files list --params \'{"pageSize":1}\'',
+      });
+      const outsideArgument = await checkWorktreePolicy(session, 'Bash', {
+        command: '/usr/bin/git -C /Users/me/tools/mitzo status',
+      });
+
+      expect(executableOnly).toBeNull();
+      expect(outsideArgument).toContain('/Users/me/tools/mitzo');
+    });
   });
 
   describe('EditNotebook tool', () => {
