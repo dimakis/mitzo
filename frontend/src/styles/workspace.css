@@ -350,10 +350,22 @@
   border: 1px solid var(--workspace-line);
   border-radius: 8px;
 }
-.connections-profiles label {
-  display: flex;
+.connections-profile-option {
+  display: inline-flex;
   gap: 8px;
   align-items: center;
+  justify-self: start;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.connections-profile-option input[type='checkbox'] {
+  flex: 0 0 16px;
+  width: 16px;
+  min-height: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
 }
 .connections-record {
   display: grid !important;

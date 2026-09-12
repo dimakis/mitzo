@@ -18,6 +18,12 @@ describe('OpenShellConnectionGateway', () => {
         'probe',
       ),
     ).toEqual(['mitzo-conn-12345678']);
+    expect(
+      parseProviderAttachments(
+        '\x1b[1mNAME\x1b[0m                  \x1b[1mTYPE\x1b[0m  \x1b[1mCREDENTIAL_KEYS\x1b[0m  \x1b[1mCONFIG_KEYS\x1b[0m\nmitzo-conn-12345678  jira  1                0',
+        'probe',
+      ),
+    ).toEqual(['mitzo-conn-12345678']);
     expect(() => parseProviderAttachments('[]', 'probe')).toThrow('invalid');
   });
   it('uses the reviewed OpenShell profile schema and never invented provider flags', () => {

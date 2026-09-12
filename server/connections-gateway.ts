@@ -112,8 +112,11 @@ export function parseProviderAttachments(output: string, sandbox: string): strin
   const text = output.trim();
   if (text === `No providers attached to sandbox ${sandbox}.`) return [];
   const lines = text.split(/\r?\n/);
+  // Pinned CLI formats table headings with SGR bold even when NO_COLOR=1.
+  // Strip SGR only from the header; data rows remain strict plain identifiers/counts.
+  const header = lines[0].replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g'), '');
   if (
-    lines[0].trim().split(/\s+/).join(' ') !== 'NAME TYPE CREDENTIAL_KEYS CONFIG_KEYS' ||
+    header.trim().split(/\s+/).join(' ') !== 'NAME TYPE CREDENTIAL_KEYS CONFIG_KEYS' ||
     lines.length < 2
   )
     throw new Error('Gateway attachment output is invalid');
