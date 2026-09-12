@@ -102,7 +102,7 @@ it('rejects an archive whose verified digest differs from the persisted checkpoi
     routeKind: 'api',
     routeProvider: 'openai',
   });
-  const run = vi.fn(async () => manifest);
+  const run = vi.fn(async (_command: string, _args: readonly string[]) => manifest);
   const transport = new OpenShellCheckpointTransport(
     {
       sandboxName: 'mitzo-x',
@@ -141,5 +141,5 @@ it('rejects an archive whose verified digest differs from the persisted checkpoi
       new AbortController().signal,
     ),
   ).rejects.toThrow('checkpoint digest does not match record');
-  expect(run.mock.calls.flatMap((call) => call[1] as string[])).not.toContain('upload');
+  expect(run.mock.calls.some(([, args]) => args.includes('upload'))).toBe(false);
 });
