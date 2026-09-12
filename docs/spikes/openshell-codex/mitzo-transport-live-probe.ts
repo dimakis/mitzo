@@ -20,13 +20,24 @@ const normalShape = new Set(
   (process.env.MITZO_OPENSHELL_NORMAL_SHAPE ?? '').split(',').filter(Boolean),
 );
 let threadId = '';
-let complete!: () => void;
-const finished = new Promise<void>((resolve) => (complete = resolve));
+let complete!: (error?: Error) => void;
+const finished = new Promise<void>((resolve, reject) => {
+  complete = (error) => (error ? reject(error) : resolve());
+});
 const client = CodexAppServerClient.launchOpenShell({ sandboxName, workdir }, process.env, {
   onNotification(method, params) {
     if (process.env.MITZO_OPENSHELL_TRACE_ITEMS === '1' && method.startsWith('item/'))
       console.log(JSON.stringify({ method, params }));
-    if (method === 'turn/completed' && params.threadId === threadId) complete();
+    if (method === 'turn/completed' && params.threadId === threadId) {
+      if (process.env.MITZO_OPENSHELL_TRACE_ITEMS === '1')
+        console.log(JSON.stringify({ method, params }));
+      const turn = params.turn as { status?: string; error?: { message?: string } } | undefined;
+      complete(
+        turn?.status === 'completed'
+          ? undefined
+          : new Error(turn?.error?.message || `OpenShell turn ${turn?.status || 'failed'}`),
+      );
+    }
   },
   async onRequest() {
     throw new Error('The live probe does not expose host tools');

@@ -140,6 +140,10 @@ it('routes a bound Codex account to its controller with context and canonical du
 it('routes API accounts through the referenced secret store without passing keys to child environments', async () => {
   vi.resetModules();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-api-dispatch-'));
+  await writeFile(
+    join(root, '.mitzo.json'),
+    JSON.stringify({ venvPaths: ['notebooks/.venv/bin'] }),
+  );
   vi.stubEnv('REPO_PATH', root);
   vi.stubEnv('WORKTREE_ENABLED', 'false');
   vi.stubEnv('OPENAI_API_KEY', 'inherited-wrong-key');
@@ -172,6 +176,7 @@ it('routes API accounts through the referenced secret store without passing keys
     const options = vi.mocked(openResponsesChat).mock.calls[0][0];
     expect(options.apiKey).toBe('private-work-key');
     expect(JSON.stringify(options.env)).not.toContain('key');
+    expect(options.env.PATH).toBe(`${join(root, 'notebooks/.venv/bin')}:${process.env.PATH}`);
     expect(options.conversationId).toBe('test-api-app');
     await expect(chat.renameSessionById('test-api-app', 'Work task')).resolves.toBeUndefined();
     expect(chat.eventStore.getSession('test-api-app')?.summary).toBe('Work task');
@@ -328,14 +333,13 @@ it('clears persisted reasoning when a cold resume explicitly changes native mode
   }
 });
 
-it('routes API accounts through OpenShell in production without resolving host credentials', async () => {
+it('routes API accounts through OpenShell by default without resolving host credentials', async () => {
   vi.resetModules();
   vi.clearAllMocks();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-openshell-api-dispatch-'));
   vi.stubEnv('REPO_PATH', root);
   vi.stubEnv('NODE_ENV', 'production');
   vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
-  vi.stubEnv('MITZO_OPENSHELL_OPENAI_API_ENABLED', '1');
   vi.stubEnv('MITZO_OPENSHELL_WORKDIR', '/sandbox/workspaces/wrong-legacy-override');
   const hostFetch = vi.fn().mockResolvedValue(new Response('{}'));
   vi.stubGlobal('fetch', hostFetch);
@@ -453,6 +457,10 @@ it('keeps Vertex on its native route when OpenShell is enabled', async () => {
   vi.resetModules();
   vi.clearAllMocks();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-openshell-unsupported-'));
+  await writeFile(
+    join(root, '.mitzo.json'),
+    JSON.stringify({ venvPaths: ['notebooks/.venv/bin'] }),
+  );
   vi.stubEnv('REPO_PATH', root);
   vi.stubEnv('WORKTREE_ENABLED', 'false');
   vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
@@ -483,6 +491,9 @@ it('keeps Vertex on its native route when OpenShell is enabled', async () => {
       projectId: 'synthetic',
       region: 'global',
     });
+    expect(vi.mocked(openResponsesChat).mock.calls[0][0].env.PATH).toBe(
+      `${join(root, 'notebooks/.venv/bin')}:${process.env.PATH}`,
+    );
     expect(openCodexChat).not.toHaveBeenCalled();
     expect(query).not.toHaveBeenCalled();
   } finally {

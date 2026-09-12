@@ -476,9 +476,7 @@ function sdkEnv(): Record<string, string> {
       : `--require=${IPV4_PRELOAD}`;
   }
 
-  const existingPath = env.PATH || '/usr/bin:/bin:/usr/local/bin';
-  const venvPaths = getRepoConfig().resolvedVenvPaths;
-  env.PATH = [...venvPaths, existingPath].join(':');
+  prependConfiguredVenvPaths(env);
 
   const sock = resolveSshAuthSock();
   if (sock) env.SSH_AUTH_SOCK = sock;
@@ -486,6 +484,26 @@ function sdkEnv(): Record<string, string> {
   delete env.AUTH_PASSPHRASE;
   delete env.AUTH_SECRET;
   delete env.NTFY_AUTH_TOKEN;
+  return env;
+}
+
+function restrictedChildEnv(): Record<string, string> {
+  return Object.fromEntries(
+    ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
+      process.env[key] ? [[key, process.env[key]!]] : [],
+    ),
+  );
+}
+
+function prependConfiguredVenvPaths(env: Record<string, string>): void {
+  const existingPath = env.PATH || '/usr/bin:/bin:/usr/local/bin';
+  env.PATH = [...getRepoConfig().resolvedVenvPaths, existingPath].join(':');
+}
+
+/** Keep native provider environments narrow while preserving configured project runtimes. */
+function nativeExecutionEnv(): Record<string, string> {
+  const env = restrictedChildEnv();
+  prependConfiguredVenvPaths(env);
   return env;
 }
 
@@ -882,7 +900,7 @@ async function _startChatInner(
         openShellAvailable &&
         (accountBinding.provider === 'openai-codex' ||
           (accountBinding.provider === 'openai' &&
-            process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED === '1'));
+            process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED !== '0'));
       options = {
         ...options,
         model: options.accountId
@@ -931,11 +949,7 @@ async function _startChatInner(
           }
         }
         accountEnv = openShellRequested
-          ? Object.fromEntries(
-              ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
-                process.env[key] ? [[key, process.env[key]!]] : [],
-              ),
-            )
+          ? restrictedChildEnv()
           : codexEnvironment(codexProfile.credentialRef!, process.env);
       } else if (accountBinding.provider === 'google-vertex') {
         if (options.images?.length)
@@ -956,11 +970,7 @@ async function _startChatInner(
           },
         };
         await gemini.getAccessToken();
-        accountEnv = Object.fromEntries(
-          ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
-            process.env[key] ? [[key, process.env[key]!]] : [],
-          ),
-        );
+        accountEnv = nativeExecutionEnv();
       } else if (accountBinding.provider === 'openai') {
         if (options.images?.length)
           throw new Error('OpenAI API image attachments are not yet supported');
@@ -978,11 +988,7 @@ async function _startChatInner(
             model: accountBinding.model,
           };
         } else apiKey = await credentials.resolve(profile.credentialRef);
-        accountEnv = Object.fromEntries(
-          ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
-            process.env[key] ? [[key, process.env[key]!]] : [],
-          ),
-        );
+        accountEnv = openShellRequested ? restrictedChildEnv() : nativeExecutionEnv();
       } else accountEnv = profiles!.sdkEnv(accountBinding, sdkEnv());
     }
   } catch (err: unknown) {

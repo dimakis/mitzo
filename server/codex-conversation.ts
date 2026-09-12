@@ -389,7 +389,13 @@ export class CodexConversation {
   }
   private notification(method: string, params: ObjectValue) {
     if (this.closed || params.threadId !== this.threadId) return;
-    const turn = z.object({ id: z.string(), status: z.string().optional() }).safeParse(params.turn);
+    const turn = z
+      .object({
+        id: z.string(),
+        status: z.string().optional(),
+        error: z.object({ message: z.string().optional() }).optional().nullable(),
+      })
+      .safeParse(params.turn);
     if (method === 'turn/started' && turn.success && this.active) {
       if (this.active.turnId && this.active.turnId !== turn.data.id) {
         this.close();
