@@ -6,6 +6,7 @@ import {
   type OpenShellCodexOptions,
   codexEnvironment,
   openShellCodexProcessSpec,
+  openShellSshProcessSpec,
   terminateOpenShellProcess,
 } from '../codex-app-server-client.js';
 
@@ -26,6 +27,13 @@ function processStub() {
 
 afterEach(() => vi.useRealTimers());
 describe('Codex app-server transport', () => {
+  it('rejects shell metacharacters in the legacy remote command API', () => {
+    const options = { sandboxName: 'mitzo-x', workdir: '/sandbox/workspaces/mgmt' };
+    expect(() => openShellSshProcessSpec(options, '/sandbox/tool;$(touch /tmp/pwned)')).toThrow(
+      'remote command',
+    );
+    expect(() => openShellSshProcessSpec(options, '/sandbox/tool --safe')).not.toThrow();
+  });
   it('blocks execution and auth mutations until a lifecycle policy bridge exists', async () => {
     const { child, sent, reply } = processStub();
     const client = new CodexAppServerClient(child);
