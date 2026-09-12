@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { join } from 'node:path';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { ConnectionStore, RevisionConflictError } from '../connections-store.js';
+import {
+  ConnectionStore,
+  ConnectionAssignmentConflictError,
+  RevisionConflictError,
+} from '../connections-store.js';
 
 describe('ConnectionStore', () => {
   let directory: string;
@@ -94,7 +98,7 @@ describe('ConnectionStore', () => {
     });
     expect(() =>
       store.setAssignments(second.id, second.revision, ['codex-work'], 'operator'),
-    ).toThrow(/already assigned/i);
+    ).toThrow(ConnectionAssignmentConflictError);
   });
 
   it('rejects activation of two independently provisioned Jira connections for one profile', () => {
@@ -121,7 +125,7 @@ describe('ConnectionStore', () => {
         { status: 'active' },
         { operation: 'activate', outcome: 'success', actor: 'operator' },
       ),
-    ).toThrow(/already assigned/i);
+    ).toThrow(ConnectionAssignmentConflictError);
   });
 
   it('preserves revoking work across a restart', () => {

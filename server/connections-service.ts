@@ -298,15 +298,16 @@ export class ConnectionsService {
             errorCode:
               error instanceof ConnectionProbeError
                 ? error.code
-                : typeof ConnectionAssignmentConflictError !== 'undefined' &&
-                    error instanceof ConnectionAssignmentConflictError
+                : error instanceof ConnectionAssignmentConflictError
                   ? 'ACCOUNT_ALREADY_ASSIGNED'
                   : 'PROVISION_FAILED',
           },
           'provision',
           'failed',
         );
-        throw new Error('Connection provisioning failed', { cause: error });
+        // Upstream failures may contain credential material; retain only the safe code.
+        // eslint-disable-next-line preserve-caught-error
+        throw new Error('Connection provisioning failed');
       }
     });
   }
@@ -333,11 +334,25 @@ export class ConnectionsService {
         );
       } catch (error) {
         await this.quarantine(this.current(id));
-        if (error instanceof ConnectionProbeError && !this.hasQuarantine(id)) {
+        if (
+          (error instanceof ConnectionProbeError ||
+            error instanceof ConnectionAssignmentConflictError) &&
+          !this.hasQuarantine(id)
+        ) {
           const quarantined = this.current(id);
-          this.change(quarantined, { errorCode: error.code }, 'test', 'failed');
+          this.change(
+            quarantined,
+            {
+              errorCode:
+                error instanceof ConnectionProbeError ? error.code : 'ACCOUNT_ALREADY_ASSIGNED',
+            },
+            'test',
+            'failed',
+          );
         }
-        throw new Error('Connection verification failed', { cause: error });
+        // Upstream failures may contain credential material; retain only the safe code.
+        // eslint-disable-next-line preserve-caught-error
+        throw new Error('Connection verification failed');
       }
     });
   }

@@ -551,7 +551,10 @@ except Exception:
           signal,
         );
       } catch {
-        if (signal.aborted) throw new Error('Gateway identity probe failed');
+        if (signal.aborted)
+          // Upstream failures may contain credential material; retain only the safe code.
+
+          throw new Error('Gateway identity probe failed');
         const recovered = await this.sandbox(name, signal);
         if (
           recovered?.name !== name ||
@@ -622,7 +625,9 @@ except Exception:
       };
     } catch (error) {
       if (error instanceof ConnectionProbeError) throw error;
-      throw new Error('Gateway identity probe failed', { cause: error });
+      // Upstream failures may contain credential material; retain only the safe code.
+      // eslint-disable-next-line preserve-caught-error
+      throw new Error('Gateway identity probe failed');
     } finally {
       /* service owns durable cleanup using an independent signal */
     }

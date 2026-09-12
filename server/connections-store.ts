@@ -44,6 +44,12 @@ export interface ProbeOperation {
   workspace: string;
   status: 'pending' | 'cleanup_pending';
 }
+export class ConnectionAssignmentConflictError extends Error {
+  constructor() {
+    super('An account is already assigned to this connection type');
+  }
+}
+
 export class RevisionConflictError extends Error {
   constructor() {
     super('Connection changed; refresh and try again.');
@@ -511,7 +517,7 @@ export class ConnectionStore {
         JSON.parse(item.desired_account_ids).some((account: string) => duplicate.has(account)),
       )
     )
-      throw new Error('An account is already assigned to this connection type');
+      throw new ConnectionAssignmentConflictError();
   }
   setAssignments(id: string, revision: number, accountIds: string[], actor: string) {
     const current = this.get(id);
