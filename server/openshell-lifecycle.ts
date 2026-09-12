@@ -236,3 +236,6 @@ export class OpenShellLifecycleCoordinator {
     this.idle.set(conversationId, { generation, timer });
   }
 }
+
+/** Server-wide fence used by OpenShell startup and reconnect paths. */
+export const sharedOpenShellLifecycleCoordinator = new OpenShellLifecycleCoordinator();

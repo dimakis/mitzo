@@ -27,6 +27,7 @@ import {
   type OpenShellAccountRoute,
   type OpenShellBootContext,
 } from './openshell-runtime.js';
+import { sharedOpenShellLifecycleCoordinator } from './openshell-lifecycle.js';
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
 let privateStore: CodexConversationStore | undefined;
@@ -162,7 +163,9 @@ export async function openCodexChat(options: Options) {
       })
     : undefined;
   const managedOpenShell = runtimeManager
-    ? await runtimeManager.ensure(options.conversationId, options.session.abortController.signal)
+    ? await sharedOpenShellLifecycleCoordinator.admit(options.conversationId, () =>
+        runtimeManager.ensure(options.conversationId, options.session.abortController.signal),
+      )
     : undefined;
   const openShell =
     managedOpenShell ??
@@ -248,7 +251,9 @@ export async function openCodexChat(options: Options) {
     ...(runtimeManager
       ? {
           beforeReconnect: async () => {
-            await runtimeManager.ensure(options.conversationId, signal);
+            await sharedOpenShellLifecycleCoordinator.admit(options.conversationId, () =>
+              runtimeManager.ensure(options.conversationId, signal),
+            );
           },
         }
       : {}),
