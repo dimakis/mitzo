@@ -60,6 +60,7 @@ export interface OpenShellRuntime {
   /** Immutable provider resource ID observed after ensure. */
   sandboxId?: string;
   resourceVersion?: string;
+  created?: boolean;
   workdir: string;
   appServerCommand: '/sandbox/run-mitzo-app-server' | '/sandbox/run-mitzo-subscription-app-server';
   cli: string;
@@ -566,6 +567,7 @@ export class OpenShellRuntimeManager {
     let name = currentName;
     let owner = currentOwner;
     let sandbox = await this.get(name, signal);
+    const created = !sandbox;
     if (!sandbox) {
       const legacyName = legacySandboxNameForConversation(conversationHash);
       const legacy = await this.get(legacyName, signal);
@@ -677,6 +679,7 @@ export class OpenShellRuntimeManager {
       sandboxName: name,
       ...(sandbox.id ? { sandboxId: sandbox.id } : {}),
       ...(sandbox.resource_version ? { resourceVersion: sandbox.resource_version } : {}),
+      ...(created ? { created: true } : {}),
       workdir: this.config.workdir,
       appServerCommand:
         this.config.account.kind === 'chatgpt-subscription'

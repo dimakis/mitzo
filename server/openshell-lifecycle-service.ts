@@ -4,6 +4,7 @@ import type {
   OpenShellLifecycleRecord,
   OpenShellLifecycleStore,
 } from './openshell-lifecycle.js';
+import { sharedOpenShellLifecycleCoordinator } from './openshell-lifecycle.js';
 
 /** The service deliberately knows no CLI flags. Runtime/checkpoint adapters are
  * injected so the policy remains testable and an unavailable control plane is a
@@ -108,6 +109,11 @@ export class OpenShellLifecycleService {
   private now() {
     return this.adapters.now?.() ?? Date.now();
   }
+  setRetentionConsent(conversationId: string, consent: boolean) {
+    const record = this.store.get(conversationId);
+    if (!record) throw new Error('OpenShell lifecycle conversation is unavailable');
+    this.store.upsert({ ...record, generation: record.generation + 1, retentionConsent: consent });
+  }
   /** Call exactly once during startup, before the reconciler accepts work. */
   recoverStartup() {
     this.store.reconcileInterrupted();
@@ -143,6 +149,13 @@ export class OpenShellLifecycleService {
     return { token, expiresAt, record, action, blockers };
   }
   async confirm(token: string, signal: AbortSignal) {
+    const preview = this.previews.get(token);
+    if (!preview) throw new Error('OpenShell lifecycle preview is expired or already used');
+    return sharedOpenShellLifecycleCoordinator.admit(preview.conversationId, () =>
+      this.confirmLocked(token, signal),
+    );
+  }
+  private async confirmLocked(token: string, signal: AbortSignal) {
     const preview = this.previews.get(token);
     if (!preview || preview.used || preview.expiresAt < this.now())
       throw new Error('OpenShell lifecycle preview is expired or already used');

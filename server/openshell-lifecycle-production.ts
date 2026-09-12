@@ -33,6 +33,7 @@ export interface LifecycleProductionDependencies {
     sandbox: NonNullable<Awaited<ReturnType<LifecycleAdapters['inspect']>>>,
     signal: AbortSignal,
   ): Promise<boolean>;
+  consent?(record: OpenShellLifecycleRecord): boolean;
 }
 const terminal = new Set(['done', 'skipped', 'failed']);
 function flatten(
@@ -50,6 +51,7 @@ export function createOpenShellLifecycleProductionAdapter(
     delete: deps.delete,
     checkpoint: deps.checkpoint,
     verifyCheckpoint: deps.verifyCheckpoint,
+    consent: deps.consent,
     async protect(record): Promise<{ blockers: LifecycleBlocker[] }> {
       try {
         if (!record.identity) return { blockers: ['ambiguous_ownership'] };

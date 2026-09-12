@@ -40,6 +40,8 @@ export interface OpenShellLifecycleRecord {
   failure?: string | null;
   /** Immutable non-secret compatibility identity. Missing metadata blocks lifecycle mutation. */
   identity?: OpenShellLifecycleIdentity | null;
+  /** Explicit operator consent for automated retention deletion. */
+  retentionConsent?: boolean;
 }
 export interface OpenShellLifecycleIdentity {
   threadId: string;
@@ -119,6 +121,7 @@ interface Row {
   checkpoint: string | null;
   failure: string | null;
   identity?: string | null;
+  retention_consent?: number;
 }
 function fromRow(row: Row): OpenShellLifecycleRecord {
   return {
@@ -138,6 +141,7 @@ function fromRow(row: Row): OpenShellLifecycleRecord {
     checkpoint: row.checkpoint ? (JSON.parse(row.checkpoint) as OpenShellCheckpointRef) : null,
     failure: row.failure,
     identity: row.identity ? (JSON.parse(row.identity) as OpenShellLifecycleIdentity) : null,
+    retentionConsent: !!row.retention_consent,
   };
 }
 
@@ -154,7 +158,7 @@ export class OpenShellLifecycleStore {
       gateway_endpoint TEXT, sandbox_name TEXT NOT NULL, physical_sandbox_id TEXT,
       account_provider TEXT NOT NULL, phase TEXT NOT NULL,
       generation INTEGER NOT NULL, last_activity_at REAL, idle_since REAL, stopped_at REAL,
-      checkpoint TEXT, failure TEXT, stopped_resource_version TEXT, identity TEXT
+      checkpoint TEXT, failure TEXT, stopped_resource_version TEXT, identity TEXT, retention_consent INTEGER NOT NULL DEFAULT 0
     )`);
     const columns = this.db
       .prepare("SELECT name FROM pragma_table_info('openshell_lifecycle')")
@@ -168,6 +172,8 @@ export class OpenShellLifecycleStore {
       this.db.exec('ALTER TABLE openshell_lifecycle ADD COLUMN stopped_resource_version TEXT');
     if (!names.has('identity'))
       this.db.exec('ALTER TABLE openshell_lifecycle ADD COLUMN identity TEXT');
+    if (!names.has('retention_consent'))
+      this.db.exec('ALTER TABLE openshell_lifecycle ADD COLUMN retention_consent INTEGER NOT NULL DEFAULT 0');
   }
   get(conversationId: string): OpenShellLifecycleRecord | null {
     const row = this.db
@@ -188,11 +194,11 @@ export class OpenShellLifecycleStore {
     const changed = this.db
       .prepare(
         `INSERT INTO openshell_lifecycle
-        (conversation_id,workspace,gateway,gateway_endpoint,sandbox_name,physical_sandbox_id,account_provider,phase,generation,last_activity_at,idle_since,stopped_at,checkpoint,failure,stopped_resource_version,identity)
-        VALUES (@conversationId,@workspace,@gateway,@gatewayEndpoint,@sandboxName,@physicalSandboxId,@accountProvider,@phase,@generation,@lastActivityAt,@idleSince,@stoppedAt,@checkpoint,@failure,@stoppedResourceVersion,@identity)
+        (conversation_id,workspace,gateway,gateway_endpoint,sandbox_name,physical_sandbox_id,account_provider,phase,generation,last_activity_at,idle_since,stopped_at,checkpoint,failure,stopped_resource_version,identity,retention_consent)
+        VALUES (@conversationId,@workspace,@gateway,@gatewayEndpoint,@sandboxName,@physicalSandboxId,@accountProvider,@phase,@generation,@lastActivityAt,@idleSince,@stoppedAt,@checkpoint,@failure,@stoppedResourceVersion,@identity,@retentionConsent)
         ON CONFLICT(conversation_id) DO UPDATE SET workspace=excluded.workspace,gateway=excluded.gateway,sandbox_name=excluded.sandbox_name,
         gateway_endpoint=excluded.gateway_endpoint,physical_sandbox_id=excluded.physical_sandbox_id,account_provider=excluded.account_provider,phase=excluded.phase,generation=excluded.generation,last_activity_at=excluded.last_activity_at,
-        idle_since=excluded.idle_since,stopped_at=excluded.stopped_at,checkpoint=excluded.checkpoint,failure=excluded.failure,stopped_resource_version=excluded.stopped_resource_version,identity=excluded.identity`,
+        idle_since=excluded.idle_since,stopped_at=excluded.stopped_at,checkpoint=excluded.checkpoint,failure=excluded.failure,stopped_resource_version=excluded.stopped_resource_version,identity=excluded.identity,retention_consent=excluded.retention_consent`,
       )
       .run({
         ...record,
@@ -200,6 +206,7 @@ export class OpenShellLifecycleStore {
         failure: record.failure ?? null,
         stoppedResourceVersion: record.stoppedResourceVersion ?? null,
         identity: record.identity ? JSON.stringify(record.identity) : null,
+        retentionConsent: record.retentionConsent ? 1 : 0,
       });
     if (!changed.changes) throw new Error('OpenShell lifecycle update failed');
   }
