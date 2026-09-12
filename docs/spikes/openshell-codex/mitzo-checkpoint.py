@@ -9,6 +9,7 @@ MAX_FILES, MAX_BYTES = 100000, 2*1024*1024*1024
 
 def fail(msg): raise ValueError(msg)
 def files(root):
+    if os.path.islink(root): fail('symlink blocked')
     out=[]
     for base, dirs, names in os.walk(root, followlinks=False):
         if os.path.islink(base): fail('symlink blocked')
@@ -40,6 +41,9 @@ def validate_source(source):
         if name in VOLATILE: continue
         if (os.path.isfile(full) and name in FILES) or (os.path.isdir(full) and name in DIRS): continue
         fail('unsupported provider state: '+name)
+    for rel, isdir, _ in files(work):
+        if not isdir and (rel.startswith('.env') or rel in ('auth.json','credentials.json') or rel.startswith('.aws/') or rel.startswith('.ssh/')):
+            fail('credential-like workspace file')
     return codex,work
 def manifest(args, digest): return {'version':1,'conversation':args.conversation,'thread':args.thread,'binding':args.binding,'image':args.image,'policy':args.policy,'helper':'mitzo-checkpoint-v1','digest':digest}
 def capture(args):
@@ -54,15 +58,20 @@ def capture(args):
         with tarfile.open(args.output+'.tmp','w') as tar:
             for rel,isdir,_ in entries: tar.add(os.path.join(stage,rel),arcname=rel,recursive=False)
             data=json.dumps(m,sort_keys=True).encode(); info=tarfile.TarInfo('manifest.json'); info.size=len(data); info.mode=0o600; tar.addfile(info,io.BytesIO(data))
-        os.replace(args.output+'.tmp',args.output); print(json.dumps(m))
+        os.chmod(args.output+'.tmp',0o600); os.replace(args.output+'.tmp',args.output); print(json.dumps(m))
     finally: shutil.rmtree(stage,ignore_errors=True)
 def read_archive(path):
     with tarfile.open(path,'r') as tar:
         members=tar.getmembers(); names=[m.name for m in members]
-        if len(names)!=len(set(names)) or 'manifest.json' not in names: fail('invalid archive')
+        if len(names)>MAX_FILES or len(names)!=len(set(names)) or 'manifest.json' not in names: fail('invalid archive')
+        total=0
         for m in members:
-            if m.name.startswith('/') or '..' in m.name.split('/') or m.islnk() or m.issym() or not (m.isdir() or m.isfile()): fail('unsafe archive member')
+            parts=m.name.split('/')
+            if m.name not in ('.','./') and (m.name.startswith('/') or '..' in parts or parts[0] not in ('.codex','workspace','manifest.json') or m.islnk() or m.issym() or not (m.isdir() or m.isfile()) or m.mode & ~0o777): fail('unsafe archive member')
+            total += m.size
+            if total>MAX_BYTES: fail('archive too large')
         raw=tar.extractfile('manifest.json').read(); m=json.loads(raw)
+        if len(raw)>65536 or m.get('version')!=1 or m.get('helper')!='mitzo-checkpoint-v1': fail('unsupported manifest')
         stage=tempfile.mkdtemp(prefix='mitzo-restore-')
         try:
             for member in members:
