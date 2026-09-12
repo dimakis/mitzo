@@ -35,6 +35,28 @@ export interface OpenShellLifecycleRecord {
   stoppedResourceVersion?: string | null;
   checkpoint: OpenShellCheckpointRef | null;
   failure?: string | null;
+  /** Immutable non-secret compatibility identity. Missing metadata blocks lifecycle mutation. */
+  identity?: OpenShellLifecycleIdentity | null;
+}
+export interface OpenShellLifecycleIdentity {
+  threadId: string;
+  accountId: string;
+  provider: string;
+  model: string;
+  profileRevision: string;
+  image: string;
+  policyDigest: string;
+  runtimeScope: string;
+  route:
+    | { kind: 'api'; provider: string; model: string }
+    | {
+        kind: 'chatgpt-subscription';
+        provider: string;
+        providerType: string;
+        providerId: string;
+        grantId: string;
+        model: string;
+      };
 }
 
 export interface OpenShellLifecyclePolicy {
@@ -93,6 +115,7 @@ interface Row {
   stopped_resource_version?: string | null;
   checkpoint: string | null;
   failure: string | null;
+  identity?: string | null;
 }
 function fromRow(row: Row): OpenShellLifecycleRecord {
   return {
@@ -111,6 +134,7 @@ function fromRow(row: Row): OpenShellLifecycleRecord {
     stoppedResourceVersion: row.stopped_resource_version ?? null,
     checkpoint: row.checkpoint ? (JSON.parse(row.checkpoint) as OpenShellCheckpointRef) : null,
     failure: row.failure,
+    identity: row.identity ? (JSON.parse(row.identity) as OpenShellLifecycleIdentity) : null,
   };
 }
 
@@ -127,7 +151,7 @@ export class OpenShellLifecycleStore {
       gateway_endpoint TEXT, sandbox_name TEXT NOT NULL, physical_sandbox_id TEXT,
       account_provider TEXT NOT NULL, phase TEXT NOT NULL,
       generation INTEGER NOT NULL, last_activity_at REAL, idle_since REAL, stopped_at REAL,
-      checkpoint TEXT, failure TEXT, stopped_resource_version TEXT
+      checkpoint TEXT, failure TEXT, stopped_resource_version TEXT, identity TEXT
     )`);
     const columns = this.db
       .prepare("SELECT name FROM pragma_table_info('openshell_lifecycle')")
@@ -139,6 +163,8 @@ export class OpenShellLifecycleStore {
       this.db.exec('ALTER TABLE openshell_lifecycle ADD COLUMN physical_sandbox_id TEXT');
     if (!names.has('stopped_resource_version'))
       this.db.exec('ALTER TABLE openshell_lifecycle ADD COLUMN stopped_resource_version TEXT');
+    if (!names.has('identity'))
+      this.db.exec('ALTER TABLE openshell_lifecycle ADD COLUMN identity TEXT');
   }
   get(conversationId: string): OpenShellLifecycleRecord | null {
     const row = this.db
@@ -159,17 +185,18 @@ export class OpenShellLifecycleStore {
     const changed = this.db
       .prepare(
         `INSERT INTO openshell_lifecycle
-        (conversation_id,workspace,gateway,gateway_endpoint,sandbox_name,physical_sandbox_id,account_provider,phase,generation,last_activity_at,idle_since,stopped_at,checkpoint,failure,stopped_resource_version)
-        VALUES (@conversationId,@workspace,@gateway,@gatewayEndpoint,@sandboxName,@physicalSandboxId,@accountProvider,@phase,@generation,@lastActivityAt,@idleSince,@stoppedAt,@checkpoint,@failure,@stoppedResourceVersion)
+        (conversation_id,workspace,gateway,gateway_endpoint,sandbox_name,physical_sandbox_id,account_provider,phase,generation,last_activity_at,idle_since,stopped_at,checkpoint,failure,stopped_resource_version,identity)
+        VALUES (@conversationId,@workspace,@gateway,@gatewayEndpoint,@sandboxName,@physicalSandboxId,@accountProvider,@phase,@generation,@lastActivityAt,@idleSince,@stoppedAt,@checkpoint,@failure,@stoppedResourceVersion,@identity)
         ON CONFLICT(conversation_id) DO UPDATE SET workspace=excluded.workspace,gateway=excluded.gateway,sandbox_name=excluded.sandbox_name,
         gateway_endpoint=excluded.gateway_endpoint,physical_sandbox_id=excluded.physical_sandbox_id,account_provider=excluded.account_provider,phase=excluded.phase,generation=excluded.generation,last_activity_at=excluded.last_activity_at,
-        idle_since=excluded.idle_since,stopped_at=excluded.stopped_at,checkpoint=excluded.checkpoint,failure=excluded.failure,stopped_resource_version=excluded.stopped_resource_version`,
+        idle_since=excluded.idle_since,stopped_at=excluded.stopped_at,checkpoint=excluded.checkpoint,failure=excluded.failure,stopped_resource_version=excluded.stopped_resource_version,identity=excluded.identity`,
       )
       .run({
         ...record,
         checkpoint: record.checkpoint ? JSON.stringify(record.checkpoint) : null,
         failure: record.failure ?? null,
         stoppedResourceVersion: record.stoppedResourceVersion ?? null,
+        identity: record.identity ? JSON.stringify(record.identity) : null,
       });
     if (!changed.changes) throw new Error('OpenShell lifecycle update failed');
   }

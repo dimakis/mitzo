@@ -33,6 +33,17 @@ function setup(phase: OpenShellLifecycleRecord['phase'] = 'stopped') {
       phase === 'stopped'
         ? { path: '/private/checkpoint', digest: 'd', version: 1, sandboxId: 'p' }
         : null,
+    identity: {
+      threadId: 't',
+      accountId: 'a',
+      provider: 'openai',
+      model: 'm',
+      profileRevision: '1',
+      image: 'i',
+      policyDigest: 'p',
+      runtimeScope: 'sandbox',
+      route: { kind: 'api', provider: 'provider', model: 'm' },
+    },
   });
   const sandbox = {
     id: 'p',
