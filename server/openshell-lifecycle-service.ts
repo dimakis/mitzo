@@ -107,6 +107,10 @@ export class OpenShellLifecycleService {
   private now() {
     return this.adapters.now?.() ?? Date.now();
   }
+  /** Call exactly once during startup, before the reconciler accepts work. */
+  recoverStartup() {
+    this.store.reconcileInterrupted();
+  }
   private async state(record: OpenShellLifecycleRecord, signal: AbortSignal) {
     const sandbox = await this.adapters.inspect(record, signal);
     const protection = await this.adapters.protect(record, signal);
@@ -168,9 +172,16 @@ export class OpenShellLifecycleService {
         });
         throw error;
       }
-      if (!checkpoint || !(await this.adapters.verifyCheckpoint?.(checkpointing, sandbox, signal)))
+      const checkpointed = checkpoint
+        ? this.store.saveCheckpoint(
+            checkpointing.conversationId,
+            checkpointing.generation,
+            checkpoint,
+          )
+        : null;
+      if (!checkpointed || !(await this.adapters.verifyCheckpoint?.(checkpointed, sandbox, signal)))
         throw new Error('OpenShell checkpoint is unavailable');
-      const afterCheckpoint = await this.state(checkpointing, signal);
+      const afterCheckpoint = await this.state(checkpointed, signal);
       if (
         !afterCheckpoint.sandbox ||
         afterCheckpoint.sandbox.id !== sandbox.id ||
@@ -179,7 +190,7 @@ export class OpenShellLifecycleService {
         throw new Error('OpenShell state changed while checkpointing');
       const stopping = this.store.transition(
         record.conversationId,
-        checkpointing.generation,
+        checkpointed.generation,
         'stopping',
       );
       if (!stopping) throw new Error('OpenShell lifecycle generation changed');
@@ -210,6 +221,13 @@ export class OpenShellLifecycleService {
       !(await this.adapters.verifyCheckpoint?.(record, sandbox, signal))
     )
       throw new Error('OpenShell lifecycle preview is stale');
+    const beforeDelete = await this.state(record, signal);
+    if (
+      !beforeDelete.sandbox ||
+      beforeDelete.sandbox.id !== preview.sandboxId ||
+      beforeDelete.blockers.length
+    )
+      throw new Error('OpenShell lifecycle preservation check failed');
     const deleting = this.store.transition(record.conversationId, record.generation, 'deleting');
     if (!deleting) throw new Error('OpenShell lifecycle generation changed');
     await this.adapters.delete(deleting, signal);
@@ -217,7 +235,6 @@ export class OpenShellLifecycleService {
     return 'deleted';
   }
   async reconcile(signal: AbortSignal) {
-    this.store.reconcileInterrupted();
     if (!this.policy.enabled) return [] as LifecyclePreview[];
     const previews: LifecyclePreview[] = [];
     for (const record of this.store.list()) {
