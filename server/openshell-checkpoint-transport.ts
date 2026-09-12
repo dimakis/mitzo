@@ -12,6 +12,14 @@ export interface CheckpointIdentity {
   binding: string;
   image: string;
   policy: string;
+  sandboxId?: string;
+  resourceVersion?: string;
+  accountProvider?: string;
+}
+export interface CheckpointManifest extends CheckpointIdentity {
+  version: 1;
+  digest: string;
+  helper: string;
 }
 const timeout = 120_000;
 function command(binary: string, args: readonly string[], signal: AbortSignal) {
@@ -117,6 +125,24 @@ export class OpenShellCheckpointTransport {
       signal,
     );
     return local;
+  }
+  async verify(
+    archive: string,
+    identity: CheckpointIdentity,
+    signal: AbortSignal,
+  ): Promise<CheckpointManifest> {
+    const output = await this.run(
+      'python3',
+      [
+        join(process.cwd(), 'docs/spikes/openshell-codex/mitzo-checkpoint.py'),
+        'verify',
+        '--input',
+        archive,
+        ...helper('verify', '/tmp/unused.tar', identity).slice(4),
+      ],
+      signal,
+    );
+    return JSON.parse(output) as CheckpointManifest;
   }
   async restore(archive: string, identity: CheckpointIdentity, signal: AbortSignal) {
     const name = `mitzo-${createHash('sha256').update(identity.conversation).digest('hex')}.tar`;
