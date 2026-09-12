@@ -198,7 +198,9 @@ describe('SessionTray', () => {
     render(
       <SessionTray
         {...props}
-        draftImages={[{ data: 'one', mediaType: 'image/png', preview: 'data:image/png;base64,one' }]}
+        draftImages={[
+          { data: 'one', mediaType: 'image/png', preview: 'data:image/png;base64,one' },
+        ]}
         onAddImages={onAdd}
       />,
     );

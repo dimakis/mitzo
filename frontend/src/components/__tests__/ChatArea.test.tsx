@@ -135,12 +135,28 @@ describe('ChatArea', () => {
   });
 
   it('routes finished ordinary tool calls through ToolGroup while progress tools remain direct', () => {
-    const messages: FinishedMessage[] = [{
-      messageId: 'a1', role: 'assistant', blocks: [
-        { blockId: 'ordinary', blockType: 'tool_use', content: '', toolId: 'ordinary', toolName: 'Read' },
-        { blockId: 'progress', blockType: 'tool_use', content: '', toolId: 'progress', toolName: 'TodoWrite' },
-      ],
-    }];
+    const messages: FinishedMessage[] = [
+      {
+        messageId: 'a1',
+        role: 'assistant',
+        blocks: [
+          {
+            blockId: 'ordinary',
+            blockType: 'tool_use',
+            content: '',
+            toolId: 'ordinary',
+            toolName: 'Read',
+          },
+          {
+            blockId: 'progress',
+            blockType: 'tool_use',
+            content: '',
+            toolId: 'progress',
+            toolName: 'TodoWrite',
+          },
+        ],
+      },
+    ];
     render(
       <ChatArea
         {...defaultProps}
@@ -156,8 +172,28 @@ describe('ChatArea', () => {
     const current = {
       messageId: 'stream-1',
       blocks: new Map<string, StreamingBlock>([
-        ['ordinary', { blockId: 'ordinary', blockType: 'tool_use', content: '', toolId: 'ordinary', toolName: 'Read', done: false }],
-        ['progress', { blockId: 'progress', blockType: 'tool_use', content: '', toolId: 'progress', toolName: 'TodoWrite', done: false }],
+        [
+          'ordinary',
+          {
+            blockId: 'ordinary',
+            blockType: 'tool_use',
+            content: '',
+            toolId: 'ordinary',
+            toolName: 'Read',
+            done: false,
+          },
+        ],
+        [
+          'progress',
+          {
+            blockId: 'progress',
+            blockType: 'tool_use',
+            content: '',
+            toolId: 'progress',
+            toolName: 'TodoWrite',
+            done: false,
+          },
+        ],
       ]),
       blockOrder: ['ordinary', 'progress'],
     };

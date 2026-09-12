@@ -231,7 +231,9 @@ export function SessionTray({
                       ))}
                     </div>
                   ) : (
-                    <p className="session-tray-empty">Generated files and previews will appear here</p>
+                    <p className="session-tray-empty">
+                      Generated files and previews will appear here
+                    </p>
                   )}
                 </div>
               )}
@@ -271,7 +273,9 @@ export function SessionTray({
                     {draftImages.map((image, index) => (
                       <div className="session-tray-resource" key={keyForDraftImage(image)}>
                         <img className="session-tray-thumb" src={image.preview} alt="" />
-                        <span className="session-tray-resource-label">Pasted image {index + 1}</span>
+                        <span className="session-tray-resource-label">
+                          Pasted image {index + 1}
+                        </span>
                         <button
                           type="button"
                           className="session-tray-remove"

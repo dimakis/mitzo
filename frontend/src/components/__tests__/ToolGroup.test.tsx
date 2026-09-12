@@ -57,16 +57,17 @@ describe('ToolGroup', () => {
 
     rerender(wrap(<ToolGroup tools={[makeTool('t1', true), makeTool('t2', true)]} />));
     expect(
-      screen.getByRole('button', { name: /2 tool calls/i }).getAttribute(
-        'aria-expanded',
-      ),
+      screen.getByRole('button', { name: /2 tool calls/i }).getAttribute('aria-expanded'),
     ).toBe('true');
   });
 
   it('preserves failed and image-only completion status in its summary dots', () => {
     const tools = [
       { ...makeTool('failed', true), toolError: true },
-      { ...makeTool('image', false), toolResultImages: [{ id: 'image-1', mediaType: 'image/png' }] },
+      {
+        ...makeTool('image', false),
+        toolResultImages: [{ id: 'image-1', mediaType: 'image/png' }],
+      },
     ];
     const { container } = render(wrap(<ToolGroup tools={tools} />));
     expect(screen.getByRole('button', { name: /2 tool calls · 1 failed/i })).toBeTruthy();

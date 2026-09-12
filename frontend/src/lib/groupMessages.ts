@@ -3,8 +3,7 @@ import type { FinishedBlock, StreamingBlock } from '../types/chat';
 export type ChatBlock = FinishedBlock | StreamingBlock;
 
 export type GroupedBlock<T extends ChatBlock = FinishedBlock> =
-  | { type: 'block'; block: T }
-  | { type: 'tool-group'; tools: T[]; key: string };
+  { type: 'block'; block: T } | { type: 'tool-group'; tools: T[]; key: string };
 
 /**
  * Group consecutive tool_use blocks into collapsible ToolGroups.
