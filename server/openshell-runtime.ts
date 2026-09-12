@@ -8,9 +8,17 @@ import type { McpServerConfig } from './mcp-config.js';
 import { openShellSshProcessSpec } from './codex-app-server-client.js';
 import { codexPrivateDirectory } from './codex-private-path.js';
 
+// OpenShell gateways prior to the current API contract encode resource_version
+// as a JSON number. Normalize that legacy representation at the boundary so
+// checkpoint identity and CLI arguments always retain the string form.
+const ResourceVersion = z.union([
+  z.string().min(1),
+  z.number().int().nonnegative().transform(String),
+]);
+
 const Sandbox = z.object({
   id: z.string().min(1).optional(),
-  resource_version: z.string().min(1).optional(),
+  resource_version: ResourceVersion.optional(),
   name: z.string(),
   phase: z.enum(['Ready', 'Stopped', 'Pending', 'Creating', 'Starting', 'Error']),
   workspace: z.string().optional(),
