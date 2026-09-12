@@ -46,6 +46,16 @@ function scrub(value: unknown) {
     .slice(0, 180);
 }
 
+function bytes(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  const match = String(value).match(/^([0-9]+(?:\.[0-9]+)?)\s*([KMGT]?)(?:i?B)?$/i);
+  if (!match) return undefined;
+  return (
+    Number(match[1]) *
+    ({ '': 1, K: 1024, M: 1024 ** 2, G: 1024 ** 3, T: 1024 ** 4 }[match[2].toUpperCase()] ?? 1)
+  );
+}
+
 const run = (binary: string, args: string[], signal: AbortSignal) =>
   new Promise<string>((resolve, reject) =>
     execFile(
@@ -82,20 +92,19 @@ export class OpenShellCapacityCollector {
         const rows = JSON.parse(podman.value) as unknown;
         if (!Array.isArray(rows) || !rows.every((row) => row && typeof row === 'object'))
           throw new Error('Podman capacity output was invalid');
-        const parse = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
         const metrics = rows.map((row) => {
           const values = row as Record<string, unknown>;
           return {
             usage:
-              parse(values.RawSize) ??
-              parse(values.rawSize) ??
-              parse(values.Size) ??
-              parse(values.size),
+              bytes(values.RawSize) ??
+              bytes(values.rawSize) ??
+              bytes(values.Size) ??
+              bytes(values.size),
             reclaimable:
-              parse(values.RawReclaimable) ??
-              parse(values.rawReclaimable) ??
-              parse(values.Reclaimable) ??
-              parse(values.reclaimable),
+              bytes(values.RawReclaimable) ??
+              bytes(values.rawReclaimable) ??
+              bytes(values.Reclaimable) ??
+              bytes(values.reclaimable),
           };
         });
         if (metrics.some((row) => row.usage === undefined || row.reclaimable === undefined))

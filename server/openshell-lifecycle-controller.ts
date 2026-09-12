@@ -238,6 +238,9 @@ export function recordOpenShellLifecycleAudit(entry: Omit<OpenShellLifecycleAudi
 export function openShellLifecycleAudit(limit?: number) {
   return configured?.store.listAudit(limit) ?? [];
 }
+export function openShellLifecycleRecord(conversationId: string) {
+  return configured?.store.get(conversationId) ?? null;
+}
 
 function route(identity: OpenShellLifecycleIdentity): OpenShellAccountRoute {
   if (identity.route.kind === 'api') return identity.route;
@@ -355,6 +358,8 @@ export function initializeOpenShellLifecycle(
   };
   const adapter = createOpenShellLifecycleProductionAdapter({
     ...sources,
+    lifecycleSupported: (record) =>
+      openShellLifecycleCapability(record).lifecycleActions === 'supported',
     inspect: async (record, signal) => {
       if (!record.physicalSandboxId) return undefined;
       return managerFor(record).inspect(record.conversationId, record.physicalSandboxId, signal);

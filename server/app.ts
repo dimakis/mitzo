@@ -124,6 +124,7 @@ import type { OpenShellLifecycleService } from './openshell-lifecycle-service.js
 import {
   openShellLifecycleAudit,
   openShellLifecycleInventory,
+  openShellLifecycleRecord,
   recordOpenShellLifecycleAudit,
 } from './openshell-lifecycle-controller.js';
 import { openShellCapacityStatus } from './openshell-capacity.js';
@@ -836,14 +837,16 @@ app.post(
       res.status(400).json({ error: 'Lifecycle conversation ID is required' });
       return;
     }
+    const before = openShellLifecycleRecord(conversationId);
     try {
       await openShellLifecycleService.setRetentionConsent(conversationId, req.body.enabled);
+      const after = openShellLifecycleRecord(conversationId) ?? before;
       recordOpenShellLifecycleAudit({
         at: Date.now(),
         actor: lifecycleActor(res),
         conversationId,
-        sandboxId: null,
-        generation: null,
+        sandboxId: after?.physicalSandboxId ?? null,
+        generation: after?.generation ?? null,
         action: 'consent',
         outcome: 'confirmed',
         error: null,
@@ -854,8 +857,8 @@ app.post(
         at: Date.now(),
         actor: lifecycleActor(res),
         conversationId,
-        sandboxId: null,
-        generation: null,
+        sandboxId: before?.physicalSandboxId ?? null,
+        generation: before?.generation ?? null,
         action: 'consent',
         outcome: 'failed',
         error: lifecycleError(error),

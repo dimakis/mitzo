@@ -10,13 +10,13 @@ const signal = () => new AbortController().signal;
 
 it('keeps Podman usage/reclaimable separate from authoritative filesystem free capacity', async () => {
   const collector = new OpenShellCapacityCollector('/', {
-    podman: async () => JSON.stringify([{ Size: 12, Reclaimable: 7 }]),
+    podman: async () => JSON.stringify([{ RawSize: '12.5MiB', RawReclaimable: '7KiB' }]),
     filesystem: async () =>
       'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vm 100 60 40 60% /',
   });
   await expect(collector.collect(signal())).resolves.toEqual({
     collectedAt: expect.any(Number),
-    podman: { available: true, usageBytes: 12, reclaimableBytes: 7 },
+    podman: { available: true, usageBytes: 12.5 * 1024 ** 2, reclaimableBytes: 7 * 1024 },
     filesystem: { available: true, totalBytes: 102400, freeBytes: 40960 },
   });
 });
