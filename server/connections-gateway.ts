@@ -39,6 +39,11 @@ export interface ConnectionGateway {
     signal: AbortSignal,
   ): Promise<{ identity: string }>;
   deleteSandbox(name: string, signal: AbortSignal): Promise<void>;
+  sandbox(
+    name: string,
+    signal: AbortSignal,
+  ): Promise<{ name: string; phase: string; labels: Record<string, string> } | undefined>;
+  sandboxProviders(name: string, signal: AbortSignal): Promise<string[]>;
 }
 /** Pinned CLI 0.0.116-mitzo.2 table parser. Unknown output must fail closed. */
 export function parseProviderAttachments(output: string, sandbox: string): string[] {
@@ -230,8 +235,62 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
       if (sandboxes.length < 100) return attached;
     }
   }
+  async sandbox(name: string, signal: AbortSignal) {
+    const all: Array<{ name: string; phase: string; labels?: Record<string, string> }> = [];
+    for (let offset = 0; ; offset += 100) {
+      const page = z
+        .array(
+          z.object({
+            name: z.string(),
+            phase: z.string(),
+            labels: z.record(z.string(), z.string()).optional(),
+          }),
+        )
+        .parse(
+          JSON.parse(
+            await this.run(
+              [
+                'sandbox',
+                '--workspace',
+                this.options.workspace,
+                'list',
+                '--limit',
+                '100',
+                '--offset',
+                String(offset),
+                '-o',
+                'json',
+              ],
+              signal,
+            ),
+          ),
+        );
+      all.push(...page);
+      if (page.length < 100) {
+        const value = all.find((item) => item.name === name);
+        return value
+          ? { name: value.name, phase: value.phase, labels: value.labels ?? {} }
+          : undefined;
+      }
+    }
+  }
+  async sandboxProviders(name: string, signal: AbortSignal) {
+    return parseProviderAttachments(
+      await this.run(
+        ['sandbox', '--workspace', this.options.workspace, 'provider', 'list', name],
+        signal,
+        { NO_COLOR: '1' },
+      ),
+      name,
+    );
+  }
   async stopSandbox(name: string, signal: AbortSignal) {
     await this.run(['sandbox', '--workspace', this.options.workspace, 'stop', name], signal);
+    for (let attempt = 0; attempt < 20; attempt++) {
+      if (await this.sandboxStopped(name, signal)) return;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error('Sandbox did not stop');
   }
   async sandboxStopped(name: string, signal: AbortSignal) {
     const result = z
@@ -291,6 +350,8 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
           this.options.probeImage,
           '--provider',
           safeName(input.providerName),
+          '--label',
+          'mitzo.connection_probe=1',
           '--env',
           `JIRA_URL=${JIRA_ENDPOINT}`,
           '--env',
@@ -303,8 +364,20 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
       const created = z
         .object({ name: z.string().regex(/^mitzo-probe-[a-f0-9]{16}$/), phase: z.string() })
         .parse(JSON.parse(createOutput));
-      if (created.name !== name || created.phase !== 'Ready')
-        throw new Error('Probe sandbox is not Ready');
+      if (created.name !== name) throw new Error('Probe sandbox identity mismatch');
+      let ready = false;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const sandbox = await this.sandbox(name, signal);
+        if (sandbox?.phase === 'Ready') {
+          ready = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (!ready) throw new Error('Probe sandbox is not Ready');
+      const attached = await this.sandboxProviders(name, signal);
+      if (attached.length !== 1 || attached[0] !== safeName(input.providerName))
+        throw new Error('Probe sandbox provider attachment mismatch');
       const output = await this.run(
         [
           'sandbox',
@@ -340,6 +413,8 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
     }
   }
   async deleteSandbox(name: string, signal: AbortSignal) {
+    if (!/^mitzo-probe-[a-f0-9]{16}$/.test(name)) throw new Error('Invalid managed probe sandbox');
     await this.run(['sandbox', '--workspace', this.options.workspace, 'delete', name], signal);
+    if (await this.sandbox(name, signal)) throw new Error('Probe sandbox remains present');
   }
 }

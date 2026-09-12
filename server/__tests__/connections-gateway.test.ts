@@ -62,11 +62,18 @@ describe('OpenShellConnectionGateway', () => {
     await expect(gateway.list(signal)).rejects.not.toThrow(secret);
   });
   it('uses separate detached create and fixed Python Basic-auth exec for identity probing', async () => {
+    let createdName = '';
     const runner = vi.fn().mockImplementation((args: string[]) => {
-      if (args.includes('create'))
+      if (args.includes('create')) {
+        createdName = args[args.indexOf('--name') + 1];
+        return Promise.resolve(JSON.stringify({ name: createdName, phase: 'Ready' }));
+      }
+      if (args.includes('provider') && args.includes('list'))
         return Promise.resolve(
-          JSON.stringify({ name: args[args.indexOf('--name') + 1], phase: 'Ready' }),
+          'NAME  TYPE  CREDENTIAL_KEYS  CONFIG_KEYS\nmitzo-conn-12345678  jira  1  0',
         );
+      if (args.includes('list') && args.includes('sandbox'))
+        return Promise.resolve(JSON.stringify([{ name: createdName, phase: 'Ready' }]));
       if (args.includes('exec')) return Promise.resolve(JSON.stringify({ accountId: 'abc' }));
       return Promise.resolve('');
     });
@@ -79,7 +86,9 @@ describe('OpenShellConnectionGateway', () => {
       gateway.probe({ providerName: 'mitzo-conn-12345678', email: 'person@example.com' }, signal),
     ).resolves.toEqual({ identity: 'abc' });
     const create = runner.mock.calls[0][0] as string[];
-    const exec = runner.mock.calls[1][0] as string[];
+    const exec = runner.mock.calls.find((call) =>
+      (call[0] as string[]).includes('exec'),
+    )![0] as string[];
     expect(create).toContain('--detach');
     expect(create).toContain('-o');
     expect(create).toContain('json');
