@@ -36,6 +36,9 @@ def digest(root,es):
  return h.hexdigest()
 def cred(rel):
  return any(x in ('.codex','.aws','.ssh','auth.json','credentials.json') or x.startswith('.env') or x.startswith('credential') for x in rel.split('/'))
+def excluded_workspace_config(rel):
+ parts=rel.split('/')
+ return parts[-1] in ('.npmrc','.pypirc','.netrc','.git-credentials') or any(a=='.git' and b in ('config','credentials') for a,b in zip(parts,parts[1:]))
 def provider(path):
  if not os.path.isdir(path): fail('provider state is missing')
  lst(path)
@@ -48,7 +51,7 @@ def provider(path):
 def workspace(path):
  if not os.path.isdir(path): fail('workspace is missing')
  for rel,isdir,_ in entries(path):
-  if rel!='.' and cred(rel): fail('credential-like workspace file')
+  if rel!='.' and cred(rel) and not excluded_workspace_config(rel): fail('credential-like workspace file')
 def source(p,w): provider(p); workspace(w); return p,w
 def resumable_rollout(provider_root, thread):
  sessions=os.path.join(provider_root,'sessions')
@@ -133,7 +136,9 @@ def capture(a):
    if n in FILES or n in DIRS:
     src,dst=os.path.join(p,n),os.path.join(stage,'.codex',n)
     shutil.copytree(src,dst,symlinks=True) if os.path.isdir(src) else shutil.copy2(src,dst)
-  shutil.copytree(w,os.path.join(stage,'workspace'),symlinks=True,dirs_exist_ok=True)
+  def ignore_workspace(base,names):
+   return [n for n in names if excluded_workspace_config(os.path.relpath(os.path.join(base,n),w))]
+  shutil.copytree(w,os.path.join(stage,'workspace'),symlinks=True,dirs_exist_ok=True,ignore=ignore_workspace)
   es=entries(stage); m=manifest(a,digest(stage,es)); fd=os.open(tmp,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
   with os.fdopen(fd,'wb') as raw,tarfile.open(fileobj=raw,mode='w') as tar:
    for rel,_,_ in es: tar.add(os.path.join(stage,rel),arcname=rel,recursive=False)
@@ -156,7 +161,7 @@ def validate_names(names):
    top=n.split('/')[1]
    if top in VOLATILE: fail('volatile provider state')
    if top not in FILES and top not in DIRS: fail('unsupported provider state: '+top)
-  if n.startswith('workspace/') and cred('/'.join(n.split('/')[1:])): fail('credential-like workspace file')
+  if n.startswith('workspace/') and (cred('/'.join(n.split('/')[1:])) or excluded_workspace_config('/'.join(n.split('/')[1:]))): fail('credential-like workspace file')
 def copy_member(src,target,size):
  done=0
  with src,open(target,'xb') as dst:
