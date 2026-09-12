@@ -71,12 +71,11 @@ describe('OpenShellConnectionGateway', () => {
       ).toThrow('differs');
     }
   });
-  it('lints and imports only the server-supplied reviewed profile when absent', async () => {
+  it('lints and imports the server-supplied reviewed profile only when absent', async () => {
     const runner = vi
       .fn()
+      .mockResolvedValueOnce('[]')
       .mockResolvedValueOnce('')
-      .mockResolvedValueOnce('[]')
-      .mockResolvedValueOnce('[]')
       .mockResolvedValueOnce('')
       .mockResolvedValueOnce(
         readFileSync(resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'), 'utf8'),
@@ -86,10 +85,7 @@ describe('OpenShellConnectionGateway', () => {
       profilePath: resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'),
     });
     await gateway.verifyCompatibility(signal);
-    expect(runner.mock.calls[0][0]).toContain(
-      resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'),
-    );
-    expect(runner.mock.calls[2]![0]).toEqual([
+    expect(runner.mock.calls[0]![0]).toEqual([
       'provider',
       '--workspace',
       'default',
@@ -97,13 +93,64 @@ describe('OpenShellConnectionGateway', () => {
       '-o',
       'json',
     ]);
-    expect(runner.mock.calls.some((call) => (call[0] as string[]).includes('import'))).toBe(true);
+    expect(runner.mock.calls[1]![0]).toEqual([
+      'provider',
+      '--workspace',
+      'default',
+      'profile',
+      'lint',
+      '--file',
+      resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'),
+    ]);
+    expect(runner.mock.calls[2]![0]).toEqual([
+      'provider',
+      '--workspace',
+      'default',
+      'profile',
+      'import',
+      '--file',
+      resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'),
+    ]);
+    expect(runner.mock.calls[3]![0]).toContain('export');
   });
-  it('does not import when an existing profile cannot be exported', async () => {
+  it('validates an existing profile without linting or importing it', async () => {
     const runner = vi
       .fn()
-      .mockResolvedValueOnce('')
-      .mockResolvedValueOnce('[]')
+      .mockResolvedValueOnce(JSON.stringify([{ id: 'jira-readonly' }]))
+      .mockResolvedValueOnce(
+        readFileSync(resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'), 'utf8'),
+      );
+    const gateway = new OpenShellConnectionGateway(runner, {
+      workspace: 'default',
+      profilePath: resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'),
+    });
+    await gateway.verifyCompatibility(signal);
+    expect(runner.mock.calls).toHaveLength(2);
+    expect(runner.mock.calls.flatMap((call) => call[0])).not.toContain('lint');
+    expect(runner.mock.calls.flatMap((call) => call[0])).not.toContain('import');
+    expect(runner.mock.calls[1]![0]).toContain('export');
+  });
+  it('fails closed when an existing profile differs from the reviewed policy', async () => {
+    const runner = vi
+      .fn()
+      .mockResolvedValueOnce(JSON.stringify([{ id: 'jira-readonly' }]))
+      .mockResolvedValueOnce(
+        readFileSync(resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'), 'utf8').replace(
+          'access: read-only',
+          'access: read-write',
+        ),
+      );
+    const gateway = new OpenShellConnectionGateway(runner, {
+      workspace: 'default',
+      profilePath: resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'),
+    });
+    await expect(gateway.verifyCompatibility(signal)).rejects.toThrow('differs');
+    expect(runner.mock.calls.flatMap((call) => call[0])).not.toContain('lint');
+    expect(runner.mock.calls.flatMap((call) => call[0])).not.toContain('import');
+  });
+  it('does not lint or import when an existing profile cannot be exported', async () => {
+    const runner = vi
+      .fn()
       .mockResolvedValueOnce(JSON.stringify([{ id: 'jira-readonly' }]))
       .mockRejectedValueOnce(new Error('gateway export unavailable'));
     const gateway = new OpenShellConnectionGateway(runner, {
@@ -111,7 +158,7 @@ describe('OpenShellConnectionGateway', () => {
       profilePath: resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'),
     });
     await expect(gateway.verifyCompatibility(signal)).rejects.toThrow('Gateway command failed');
-    expect(runner.mock.calls[2]![0]).toEqual([
+    expect(runner.mock.calls[0]![0]).toEqual([
       'provider',
       '--workspace',
       'default',
@@ -119,20 +166,17 @@ describe('OpenShellConnectionGateway', () => {
       '-o',
       'json',
     ]);
+    expect(runner.mock.calls.flatMap((call) => call[0])).not.toContain('lint');
     expect(runner.mock.calls.flatMap((call) => call[0])).not.toContain('import');
   });
   it('does not import when provider-profile listing is invalid or unknown', async () => {
-    const runner = vi
-      .fn()
-      .mockResolvedValueOnce('')
-      .mockResolvedValueOnce('[]')
-      .mockResolvedValueOnce('not-json');
+    const runner = vi.fn().mockResolvedValueOnce('not-json');
     const gateway = new OpenShellConnectionGateway(runner, {
       workspace: 'default',
       profilePath: resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'),
     });
     await expect(gateway.verifyCompatibility(signal)).rejects.toThrow();
-    expect(runner.mock.calls[2]![0]).toEqual([
+    expect(runner.mock.calls[0]![0]).toEqual([
       'provider',
       '--workspace',
       'default',
