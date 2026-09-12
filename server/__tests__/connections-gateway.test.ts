@@ -1,9 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
-import { OpenShellConnectionGateway } from '../connections-gateway.js';
+import { OpenShellConnectionGateway, parseProviderAttachments } from '../connections-gateway.js';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 const signal = new AbortController().signal;
 describe('OpenShellConnectionGateway', () => {
+  it('parses only the pinned attachment table and fails closed on unknown output', () => {
+    expect(parseProviderAttachments('No providers attached to sandbox probe.', 'probe')).toEqual(
+      [],
+    );
+    expect(
+      parseProviderAttachments(
+        'NAME TYPE CREDENTIAL_KEYS CONFIG_KEYS\nmitzo-conn-12345678 jira 1 0',
+        'probe',
+      ),
+    ).toEqual(['mitzo-conn-12345678']);
+    expect(() => parseProviderAttachments('[]', 'probe')).toThrow('invalid');
+  });
   it('uses the reviewed OpenShell profile schema and never invented provider flags', () => {
     const profile = readFileSync(
       resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'),

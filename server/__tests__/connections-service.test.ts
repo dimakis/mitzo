@@ -24,6 +24,10 @@ describe('ConnectionsService', () => {
       get: vi.fn(),
       list: vi.fn(),
       delete: vi.fn().mockRejectedValue(new Error('attached')),
+      attachments: vi.fn().mockResolvedValue([]),
+      stopSandbox: vi.fn(),
+      sandboxStopped: vi.fn().mockResolvedValue(true),
+      detach: vi.fn(),
     };
     const service = new ConnectionsService(store, gateway);
     await expect(service.provision(item, 'SENTINEL', new AbortController().signal)).rejects.toThrow(
@@ -34,6 +38,7 @@ describe('ConnectionsService', () => {
     gateway.delete.mockResolvedValue(undefined);
     await service.revoke(item.id, failed.revision, 'operator', new AbortController().signal);
     expect(store.get(item.id)?.status).toBe('revoked');
+    expect(gateway.attachments).toHaveBeenCalledTimes(2);
     store.close();
     rmSync(dir, { recursive: true, force: true });
   });

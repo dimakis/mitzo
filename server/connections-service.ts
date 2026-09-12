@@ -71,6 +71,15 @@ export class ConnectionsService {
               { operation: 'revoke', outcome: 'started', actor },
             );
       try {
+        const attached = await this.gateway.attachments(revoking.gatewayProviderName, signal);
+        for (const sandbox of attached) {
+          await this.gateway.stopSandbox(sandbox, signal);
+          if (!(await this.gateway.sandboxStopped(sandbox, signal)))
+            throw new Error('Sandbox did not stop');
+          await this.gateway.detach(sandbox, revoking.gatewayProviderName, signal);
+        }
+        if ((await this.gateway.attachments(revoking.gatewayProviderName, signal)).length)
+          throw new Error('Provider remains attached');
         await this.gateway.delete(revoking.gatewayProviderName, signal);
         return this.store.transition(
           id,
