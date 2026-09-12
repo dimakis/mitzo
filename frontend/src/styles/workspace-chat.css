@@ -17,9 +17,10 @@
   flex-shrink: 0;
 }
 .conversation-heading h1 {
-  font-size: 16px;
-  font-weight: 550;
-  letter-spacing: -0.025em;
+  font-size: 20px;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: -0.02em;
   margin: 0;
 }
 .conversation-heading a,
@@ -161,9 +162,9 @@
     padding: 24px 24px 14px;
   }
   .desktop-chat-center .conversation-heading h1 {
-    font-size: 28px;
-    margin-top: 6px;
-    font-weight: 500;
+    font-size: 20px;
+    margin: 0;
+    font-weight: 600;
   }
   .desktop-chat-center .chat-messages {
     padding: 28px max(24px, calc((100% - 860px) / 2));
@@ -727,10 +728,10 @@
   padding: 0 0 20px;
 }
 .conversation-library .session-list-header h1 {
-  margin: 8px 0;
-  font-size: 30px;
-  font-weight: 500;
-  letter-spacing: -0.035em;
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 .conversation-library .workspace-primary {
   min-height: 44px;
@@ -774,9 +775,6 @@
   }
 }
 @media (max-width: 420px) {
-  .conversation-library .session-list-header h1 {
-    font-size: 26px;
-  }
   .conversation-library .session-list-header-title {
     gap: 6px;
   }

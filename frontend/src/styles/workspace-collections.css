@@ -15,16 +15,6 @@
 .collection-heading {
   margin-bottom: 16px;
 }
-.collection-heading h1 {
-  margin: 8px 0;
-  font-size: 30px;
-  font-weight: 500;
-  letter-spacing: -0.035em;
-}
-.collection-heading p {
-  margin: 0;
-  line-height: 1.5;
-}
 .collection-page .page-header {
   flex-wrap: wrap;
   height: auto;

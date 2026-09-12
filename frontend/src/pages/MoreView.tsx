@@ -4,13 +4,13 @@ import { deleteCredentials } from '../lib/biometric';
 import { clearWatchToken } from '../lib/watch-auth';
 import { ServiceStatus } from '../components/ServiceStatus';
 import { logout } from '../lib/api-fetch';
+import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 export function MoreView() {
   const { preference, setTheme } = useTheme();
   const navigate = useNavigate();
   return (
     <main className="workspace-page">
-      <h1>More</h1>
-      <p className="workspace-muted">Your tools and preferences.</p>
+      <WorkspacePageHeading title="More" description="Your tools and preferences." />
       {[
         ['Calendar', '/calendar'],
         ['Agent taskboard', '/tasks'],

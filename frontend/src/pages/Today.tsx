@@ -5,6 +5,8 @@ import { useAttentionFeed } from '../hooks/useAttentionFeed';
 import { formatRelativeTime } from '../lib/formatTime';
 import { formatTokens } from '../lib/formatTokens';
 import { apiFetch } from '../lib/api-fetch';
+import { MitzoBrand } from '../components/MitzoBrand';
+import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 
 const TOKEN_PREFERENCE = 'mitzo-today-tokens';
 const BRIEFING_REFRESH_MS = 60_000;
@@ -82,18 +84,19 @@ export function Today() {
   return (
     <main className="workspace-page today-page">
       <header className="today-top">
-        <Link to="/" className="workspace-brand">
-          Mitzo<span aria-hidden="true">.</span>
-        </Link>
+        <MitzoBrand />
         <Link to="/sessions">Search chats</Link>
       </header>
-      <div className="today-heading">
-        <p className="workspace-eyebrow">
-          {now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
-        </p>
-        <h1>{heading}</h1>
-        <p className="workspace-muted">A clear place to pick up your day.</p>
-      </div>
+      <WorkspacePageHeading
+        className="today-heading"
+        eyebrow={now.toLocaleDateString(undefined, {
+          weekday: 'long',
+          month: 'long',
+          day: 'numeric',
+        })}
+        title={heading}
+        description="A clear place to pick up your day."
+      />
       <div className="today-grid">
         <div>
           <section className="today-brief" aria-labelledby="brief-title">

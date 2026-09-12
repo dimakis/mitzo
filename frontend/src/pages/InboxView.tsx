@@ -4,6 +4,7 @@ import { useMitzoStore } from '@mitzo/client/hooks';
 import { ProposalDetail } from '../components/ProposalDetail';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
+import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { apiFetch } from '../lib/api-fetch';
 import { buildInboxContext, buildInboxPrompt } from '../lib/inbox-utils';
 
@@ -258,13 +259,12 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
   return (
     <div className={`inbox-page${desktop ? ' collection-page proposals-desktop' : ''}`}>
       {desktop && (
-        <div className="collection-heading">
-          <p className="workspace-muted">PROPOSALS</p>
-          <h1>Ideas worth a closer look</h1>
-          <p className="workspace-muted">
-            Review suggestions from your agents and decide what comes next.
-          </p>
-        </div>
+        <WorkspacePageHeading
+          className="collection-heading"
+          eyebrow="Proposals"
+          title="Ideas worth a closer look"
+          description="Review suggestions from your agents and decide what comes next."
+        />
       )}
       <PageHeader title="Proposals" badge={items.length || undefined} />
 

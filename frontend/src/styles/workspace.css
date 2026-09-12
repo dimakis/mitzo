@@ -32,12 +32,23 @@
 .workspace-rail a {
   color: var(--workspace-accent);
 }
-.workspace-page h1 {
-  font-size: clamp(26px, 3.2vw, 38px);
+.workspace-page-heading {
+  margin: 0 0 24px;
+}
+.workspace-page-heading h1 {
+  font-size: clamp(28px, 3.2vw, 32px);
   font-weight: 500;
   letter-spacing: -0.035em;
-  line-height: 1.2;
-  margin: 8px 0 12px;
+  line-height: 1.15;
+  margin: 6px 0 8px;
+}
+.workspace-page-heading > p {
+  margin: 0;
+}
+.workspace-page-heading > .workspace-muted {
+  max-width: 62ch;
+  font-size: 14px;
+  line-height: 1.5;
 }
 .workspace-page h2 {
   font-size: 17px;
@@ -50,15 +61,6 @@
 .workspace-muted,
 .workspace-record small {
   color: var(--workspace-muted);
-}
-.workspace-brand {
-  font-size: 24px;
-  font-weight: 600;
-  letter-spacing: -0.7px;
-  color: var(--workspace-text) !important;
-}
-.workspace-brand span {
-  color: var(--workspace-accent);
 }
 .today-top,
 .workspace-section-heading,
@@ -326,7 +328,7 @@
   outline-offset: -2px;
 }
 @media (min-width: 768px) {
-  .today-top .workspace-brand {
+  .today-top .mitzo-brand {
     display: none;
   }
   .today-top {
@@ -386,9 +388,6 @@
   .workspace-rail--collapsed .workspace-rail-controls,
   .workspace-rail--collapsed .workspace-rail-heading {
     justify-content: center;
-  }
-  .workspace-rail--collapsed .workspace-brand {
-    font-size: 22px;
   }
   .workspace-rail--collapsed .workspace-nav-link {
     justify-content: center;

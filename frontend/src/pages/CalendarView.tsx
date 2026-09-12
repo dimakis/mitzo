@@ -3,6 +3,7 @@ import { useCalendarData, type CalendarEvent } from '../hooks/useCalendarData';
 import { EventCard } from '../components/EventCard';
 import { SprintBar } from '../components/SprintBar';
 import { PageHeader } from '../components/PageHeader';
+import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 
 function toLocalDate(isoStr: string): string {
   if (isoStr.includes('T')) {
@@ -125,11 +126,12 @@ export function CalendarView({ desktop = false }: { desktop?: boolean } = {}) {
   return (
     <div className={`cal-page${desktop ? ' collection-page calendar-desktop' : ''}`}>
       {desktop && (
-        <div className="collection-heading">
-          <p className="workspace-muted">CALENDAR</p>
-          <h1>Make room for what matters</h1>
-          <p className="workspace-muted">Your agenda, release milestones and meeting context.</p>
-        </div>
+        <WorkspacePageHeading
+          className="collection-heading"
+          eyebrow="Calendar"
+          title="Make room for what matters"
+          description="Your agenda, release milestones and meeting context."
+        />
       )}
       <PageHeader
         title="Calendar"

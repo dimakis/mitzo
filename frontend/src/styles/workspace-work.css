@@ -27,16 +27,6 @@
 .workspace-work-heading {
   margin-bottom: 24px;
 }
-.workspace-work-heading h1 {
-  font-size: 30px;
-  font-weight: 500;
-  letter-spacing: -0.035em;
-  margin: 8px 0;
-}
-.workspace-work-heading p {
-  margin: 0;
-  line-height: 1.5;
-}
 .workspace-work-panels {
   flex: 1;
   min-height: 0;
