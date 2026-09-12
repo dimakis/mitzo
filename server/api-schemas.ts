@@ -4,6 +4,27 @@ export const LoginBody = z.object({
   passphrase: z.string().min(1),
 });
 
+export const ConnectionReauthorizeBody = z
+  .object({ passphrase: z.string().min(1).max(1024) })
+  .strict();
+export const ConnectionCreateBody = z
+  .object({
+    label: z.string().trim().min(1).max(100),
+    email: z.string().email().max(320),
+    token: z.string().min(1).max(4096),
+    accountIds: z.array(z.string().regex(/^[A-Za-z0-9_-]+$/)).max(20),
+  })
+  .strict();
+export const ConnectionRevisionBody = z
+  .object({ revision: z.number().int().positive(), csrf: z.string().min(20).max(200) })
+  .strict();
+export const ConnectionAssignmentsBody = ConnectionRevisionBody.extend({
+  accountIds: z.array(z.string().regex(/^[A-Za-z0-9_-]+$/)).max(20),
+}).strict();
+export const ConnectionRotateBody = ConnectionRevisionBody.extend({
+  token: z.string().min(1).max(4096),
+}).strict();
+
 export const FileWriteBody = z.object({
   path: z.string().min(1),
   content: z.string(),

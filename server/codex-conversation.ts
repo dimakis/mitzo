@@ -38,6 +38,7 @@ interface Options {
   displayToolName?: (name: string) => string;
   beforeComplete?: (signal: AbortSignal) => Promise<void>;
   beforeReconnect?: () => Promise<void>;
+  reconnectGuard?: (work: () => Promise<void>) => Promise<void>;
   completionHookTimeoutMs?: number;
   runtimeCwd?: string;
   modelProvider?: string;
@@ -245,6 +246,10 @@ export class CodexConversation {
     await this.pump();
   }
   private async reconnect() {
+    if (this.opts.reconnectGuard) return this.opts.reconnectGuard(() => this.reconnectBound());
+    return this.reconnectBound();
+  }
+  private async reconnectBound() {
     if (!this.binding || !this.threadId) throw new Error('Codex recovery state is unavailable');
     await this.opts.beforeReconnect?.();
     const client = this.createClient();

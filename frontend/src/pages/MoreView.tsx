@@ -17,6 +17,7 @@ export function MoreView() {
         ['Files', '/files'],
         ['All attention', '/focus'],
         ['Chat history and quick actions', '/sessions'],
+        ['Connections', '/connections'],
       ].map(([label, to]) => (
         <Link className="workspace-record" key={to} to={to}>
           {label}

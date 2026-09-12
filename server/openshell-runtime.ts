@@ -1,3 +1,4 @@
+import { parseProviderAttachments } from './connections-gateway.js';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -133,6 +134,9 @@ class FileProviderPolicyState implements ProviderPolicyState {
 
 export interface BoundOpenShellRuntimeConfig extends OpenShellRuntimeConfig {
   account: OpenShellAccountRoute;
+  connectionAccountId?: string;
+  enforceConnectionAttachments?: boolean;
+  verifyConnections?: (name: string, signal: AbortSignal) => Promise<void>;
 }
 
 export type OpenShellAccountRoute =
@@ -420,6 +424,18 @@ export class OpenShellRuntimeManager {
     throw new Error(`OpenShell sandbox ${name} did not become Ready (last phase: ${phase})`);
   }
 
+  private async verifyManagedConnections(name: string, signal: AbortSignal) {
+    await this.config.verifyConnections?.(name, signal);
+    if (this.config.enforceConnectionAttachments) {
+      const actual = parseProviderAttachments(
+        await this.run(['sandbox', ...this.base(), 'provider', 'list', name], signal),
+        name,
+      ).filter((p) => p.startsWith('mitzo-conn-'));
+      const expected = this.config.serviceProviders.filter((p) => p.startsWith('mitzo-conn-'));
+      if (actual.length !== expected.length || actual.some((p) => !expected.includes(p)))
+        throw new Error('Connection permissions changed. Start a new conversation.');
+    }
+  }
   private async reconcileServiceProviders(
     name: string,
     owner: string,
@@ -454,7 +470,9 @@ export class OpenShellRuntimeManager {
   async ensure(conversationId: string, signal: AbortSignal): Promise<OpenShellRuntime> {
     await this.verifyAccountProvider(signal);
     const accountProvider = this.config.account.provider;
-    const policyFingerprint = providerPolicyFingerprint(this.config.serviceProviders);
+    const policyFingerprint = providerPolicyFingerprint(
+      this.config.serviceProviders.filter((p) => SERVICE_PROVIDERS.has(p)),
+    );
     const conversationHash = createHash('sha256').update(conversationId).digest('hex');
     const currentName = sandboxNameForConversation(conversationId, this.config.sandboxIdLength);
     const currentOwner = conversationHash.slice(0, 63);
@@ -475,6 +493,8 @@ export class OpenShellRuntimeManager {
       throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
     if (sandbox && sandbox.labels?.['mitzo.account_provider'] !== accountProvider)
       throw new Error(`OpenShell sandbox ${name} has another account provider binding`);
+    if (sandbox) await this.verifyManagedConnections(name, signal);
+    else await this.config.verifyConnections?.(name, signal);
     if (!sandbox) {
       const args = [
         'sandbox',
@@ -501,6 +521,8 @@ export class OpenShellRuntimeManager {
         '--output',
         'json',
       ];
+      if (this.config.connectionAccountId)
+        args.push('--label', `mitzo.connection_account=${this.config.connectionAccountId}`);
       if (this.config.createDetached) args.push('--detach');
       args.push('--provider', accountProvider);
       // The reviewed subscription compatibility CLI requires an explicit
@@ -528,9 +550,12 @@ export class OpenShellRuntimeManager {
     } else if (sandbox.phase !== 'Ready') {
       sandbox = await this.waitForReady(name, owner, signal);
     }
+    await this.verifyManagedConnections(name, signal);
     if (sandbox && sandbox.phase === 'Ready' && sandbox.labels?.['mitzo.conversation'] === owner) {
       await this.serializeProviderPolicy(name, signal, async () => {
-        const automatic = [...new Set(this.config.serviceProviders)];
+        const automatic = [
+          ...new Set(this.config.serviceProviders.filter((p) => SERVICE_PROVIDERS.has(p))),
+        ];
         const persisted = retained ? this.providerPolicyState.read(name) : undefined;
         const previous =
           persisted ??
@@ -615,7 +640,9 @@ export class OpenShellRuntimeManager {
       }
       const previous = this.providerPolicyState.read(runtime.sandboxName);
       this.providerPolicyState.write(runtime.sandboxName, {
-        automatic: previous?.automatic ?? [...new Set(this.config.serviceProviders)],
+        automatic: previous?.automatic ?? [
+          ...new Set(this.config.serviceProviders.filter((p) => SERVICE_PROVIDERS.has(p))),
+        ],
         granted: [...new Set([...(previous?.granted ?? []), provider])],
       });
       await this.waitForReady(runtime.sandboxName, owner, signal);

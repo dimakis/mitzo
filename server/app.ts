@@ -51,6 +51,11 @@ import {
 } from './worktree.js';
 import { DEFAULT_AGENT_NAME, GIT_BRANCH_TIMEOUT_MS } from './constants.js';
 import { isValidInternalToken } from './internal-token.js';
+import { createConnectionsRouter } from './connections-router.js';
+import {
+  setConnectionsRuntime as setActiveConnectionsRuntime,
+  type ConnectionsRuntime,
+} from './connections-runtime.js';
 import { getLocalCommit, isUpdateAvailable } from './git-version.js';
 import { resolvePending } from './permissions.js';
 import { createLogger } from './logger.js';
@@ -189,7 +194,7 @@ if (CORS_ALLOWED_ORIGINS.length > 0) {
     if (origin && CORS_ALLOWED_ORIGINS.includes(origin)) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     }
     if (req.method === 'OPTIONS') {
@@ -220,8 +225,35 @@ export const yapperWsProxy = createProxyMiddleware({
 app.use('/api/yapper', yapperHttpProxy);
 app.use('/api/yapper-ws', yapperWsProxy);
 
-app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
+
+// This protected route is deliberately ahead of the global 10MB JSON parser.
+// Its local parsers cap sensitive connection inputs at a few KiB. Runtime setup
+// is injected from index after explicit feature configuration; importing app
+// never creates a database or starts a gateway process.
+let connectionsRouter: express.Router | null = null;
+export function setConnectionsRuntime(runtime: ConnectionsRuntime | null): void {
+  setActiveConnectionsRuntime(runtime);
+  connectionsRouter = runtime
+    ? createConnectionsRouter({
+        store: runtime.store,
+        service: runtime.service,
+        eligibleAccounts: runtime.eligibleAccountIds,
+        gateway: runtime.gateway,
+        workspace: runtime.workspace,
+        legacyProviders: runtime.legacyProviders,
+      })
+    : null;
+}
+app.use('/api/connections', authMiddleware, (req, res, next) => {
+  if (!connectionsRouter)
+    return res.status(503).json({
+      error:
+        'Connections is not configured. Set MITZO_CONNECTIONS_ENABLED=1 with the reviewed OpenShell Jira profile before enabling it.',
+    });
+  return connectionsRouter(req, res, next);
+});
+app.use(express.json({ limit: '10mb' }));
 
 const loginLimiter = rateLimit({
   windowMs: 60_000,

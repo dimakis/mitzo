@@ -83,6 +83,11 @@ export async function login(passphrase: string): Promise<string | null> {
     .sign(SECRET);
 }
 
+/** Used only by narrowly scoped, recent-reauthorization flows. */
+export function verifyPassphrase(passphrase: string): boolean {
+  return passphrase === PASSPHRASE;
+}
+
 function isSessionRevoked(session: AuthSession): boolean {
   const revokedUntil = revokedSessions.get(session.id);
   if (revokedUntil === undefined) return false;

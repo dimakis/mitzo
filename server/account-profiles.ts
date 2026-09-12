@@ -199,6 +199,19 @@ export class AccountProfiles {
       .filter((account) => account.models.length > 0);
   }
 
+  /** Only profiles with an enabled sandbox binding can receive managed service credentials. */
+  connectionEligibleIds(): string[] {
+    const visible = new Set(this.catalog().map((account) => account.id));
+    return this.profiles
+      .filter(
+        (profile) =>
+          visible.has(profile.id) &&
+          (profile.provider === 'openai' || profile.provider === 'openai-codex') &&
+          !!profile.sandboxProvider,
+      )
+      .map((profile) => profile.id);
+  }
+
   /** Legacy requests use the server's Vertex route, not any other account's models. */
   legacyModels(projectId: string | undefined, region: string, credentialRef: string | undefined) {
     // Ambient ADC can resolve through several sources; do not guess a profile identity.

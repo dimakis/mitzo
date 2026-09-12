@@ -255,6 +255,23 @@ describe('Codex app-server transport', () => {
     ).toThrow(/workdir/i);
   });
 
+  it('permits only validated non-secret Jira context in the remote app-server command', () => {
+    const spec = openShellCodexProcessSpec({
+      sandboxName: 'safe',
+      workdir: '/sandbox/workspaces/mgmt',
+      connectionEnv: { JIRA_URL: 'https://redhat.atlassian.net', JIRA_EMAIL: 'person@example.com' },
+    });
+    expect(spec.args.at(-1)).toBe(
+      "env JIRA_URL='https://redhat.atlassian.net' JIRA_EMAIL='person@example.com' /sandbox/run-mitzo-app-server",
+    );
+    const quoted = openShellCodexProcessSpec({
+      sandboxName: 'safe',
+      workdir: '/sandbox/workspaces/mgmt',
+      connectionEnv: { JIRA_URL: 'https://redhat.atlassian.net', JIRA_EMAIL: '`id`@example.com' },
+    });
+    expect(quoted.args.at(-1)).toContain("JIRA_EMAIL='`id`@example.com'");
+  });
+
   it('terminates the SSH proxy process group on close', () => {
     const fallback = vi.fn();
     const killGroup = vi.fn();
