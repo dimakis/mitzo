@@ -1,0 +1,45 @@
+// Opt-in only: MITZO_REAL_CODEX_PROBE=1 node local-checkpoint-resume-probe.mjs
+// Starts no model turn and never reads the user's HOME or Codex state.
+import { spawn } from 'node:child_process';
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import readline from 'node:readline';
+
+if (process.env.MITZO_REAL_CODEX_PROBE !== '1') {
+  console.log('LOCAL_CODEX_CHECKPOINT_RESUME=skipped (set MITZO_REAL_CODEX_PROBE=1)');
+  process.exit(0);
+}
+const codex = process.env.CODEX_BIN ?? '/opt/homebrew/bin/codex';
+const helper = new URL('./mitzo-checkpoint.py', import.meta.url).pathname;
+const root = mkdtempSync(join(tmpdir(), 'mitzo-local-checkpoint-'));
+const home = join(root, 'home'); const codexHome = join(home, '.codex'); const workspace = join(root, 'workspaces', 'mgmt');
+mkdirSync(workspace, { recursive: true }); mkdirSync(codexHome, { recursive: true }); mkdirSync(join(root, 'tmp'), { recursive: true });
+const env = { PATH: process.env.PATH ?? '', HOME: home, CODEX_HOME: codexHome, TMPDIR: join(root, 'tmp'), NO_COLOR: '1' };
+const identity = ['--conversation','local-probe','--thread','THREAD','--binding','binding','--image','codex-0.153.4','--policy','policy','--sandbox-id','local','--resource-version','1','--account-provider','openai','--account-id','isolated','--provider','openai','--model','none','--profile-revision','0','--runtime-scope','local','--route-kind','api','--route-provider','openai'];
+function rpc(args, start) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(codex, ['app-server','--stdio'], { env, stdio: ['pipe','pipe','pipe'] }); let thread; let stderr=''; let done=false;
+    const finish=(error,value)=>{ if(done)return; done=true; child.stdin.end(); setTimeout(()=>child.kill(),1000).unref(); error?reject(error):resolve(value); };
+    const timeout=setTimeout(()=>finish(new Error('app-server timeout: '+stderr.slice(0,1000))),10000);
+    child.stderr.on('data',(v)=>stderr+=v); child.on('error',finish);
+    readline.createInterface({input:child.stdout}).on('line',(line)=>{ let m; try {m=JSON.parse(line);} catch{return;} if(m.error)return finish(new Error(m.error.message));
+      if(m.id===0) { child.stdin.write(JSON.stringify({method:'initialized',params:{}})+'\n'); child.stdin.write(JSON.stringify(start(thread))+'\n'); }
+      else if(m.id===1 && m.result?.thread?.id) { thread=m.result.thread.id; clearTimeout(timeout); finish(null,thread); }
+    });
+    child.stdin.write(JSON.stringify({method:'initialize',id:0,params:{clientInfo:{name:'mitzo-local-checkpoint',version:'1'},capabilities:{experimentalApi:true}}})+'\n');
+  });
+}
+function run(binary,args) { return new Promise((resolve,reject)=>{ const p=spawn(binary,args,{env,stdio:['ignore','pipe','pipe']});let out='',err='';p.stdout.on('data',x=>out+=x);p.stderr.on('data',x=>err+=x);p.on('close',c=>c===0?resolve(out):reject(new Error(err)));}); }
+try {
+  const thread = await rpc([], () => ({method:'thread/start',id:1,params:{cwd:workspace}}));
+  const providerEntries = existsSync(codexHome) ? readdirSync(codexHome).sort() : [];
+  const archive=join(root,'checkpoint.tar'); const actual=[...identity]; actual[actual.indexOf('THREAD')]=thread;
+  await run('python3',[helper,'capture','--provider-root',codexHome,'--workspace-root',workspace,'--output',archive,...actual]);
+  rmSync(codexHome,{recursive:true,force:true}); rmSync(workspace,{recursive:true,force:true}); mkdirSync(workspace,{recursive:true});
+  await run('python3',[helper,'restore','--input',archive,'--provider-root',codexHome,'--workspace-root',workspace,'--replace-fresh-roots',...actual]);
+  const resumed = await rpc([], () => ({method:'thread/resume',id:1,params:{threadId:thread}}));
+  if(resumed!==thread) throw new Error('thread/resume returned a different thread');
+  console.log(`LOCAL_CODEX_CHECKPOINT_RESUME=pass provider_entries=${providerEntries.join(',')}`);
+} catch (error) { console.error(`LOCAL_CODEX_CHECKPOINT_RESUME=fail ${error.message} provider_entries=${existsSync(codexHome) ? readdirSync(codexHome).sort().join(',') : 'removed'}`); process.exitCode=1; }
+finally { rmSync(root,{recursive:true,force:true,maxRetries:3,retryDelay:100}); }

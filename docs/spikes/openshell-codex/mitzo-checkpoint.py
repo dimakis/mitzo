@@ -50,22 +50,45 @@ def workspace(path):
  for rel,isdir,_ in entries(path):
   if rel!='.' and cred(rel): fail('credential-like workspace file')
 def source(p,w): provider(p); workspace(w); return p,w
-def quiescent(provider_root, workspace_root):
+def pid1_supervisor(proc_root, pid):
+ # OpenShell's pinned root supervisor is not an agent writer.  This exemption
+ # is deliberately exact: PID 1, all UID fields root, and its known Name.
+ if pid != '1': return False
+ try:
+  status=open(os.path.join(proc_root,pid,'status')).read().splitlines()
+  values=dict(line.split(':',1) for line in status if ':' in line)
+  return values.get('Name','').strip()=='openshell-sandb' and values.get('Uid','').split()==['0','0','0','0']
+ except (FileNotFoundError,PermissionError): return False
+def ancestors(proc_root):
+ out={str(os.getpid())}; current=str(os.getpid())
+ while current not in ('0','1'):
+  try:
+   values=dict(line.split(':',1) for line in open(os.path.join(proc_root,current,'status')).read().splitlines() if ':' in line)
+   current=values.get('PPid','').strip()
+   if not current: break
+   out.add(current)
+  except (FileNotFoundError,PermissionError): break
+ return out
+def quiescent(provider_root, workspace_root, proc_root='/proc'):
  # The lifecycle coordinator owns shutdown.  This only proves that shutdown
  # completed; it never kills an unowned process to make capture possible.
- if not os.path.isdir('/proc'): fail('cannot verify provider quiescence')
- for pid in os.listdir('/proc'):
+ if not os.path.isdir(proc_root): fail('cannot verify provider quiescence')
+ allowed=ancestors(proc_root); own_uid=str(os.getuid())
+ for pid in os.listdir(proc_root):
   if not pid.isdigit() or int(pid)==os.getpid(): continue
   try:
-   command=open('/proc/'+pid+'/cmdline','rb').read().replace(b'\0',b' ').decode(errors='ignore')
+   values=dict(line.split(':',1) for line in open(os.path.join(proc_root,pid,'status')).read().splitlines() if ':' in line)
+   if values.get('Uid','').split()[:1]==[own_uid] and pid not in allowed: fail('agent execution process is still running')
+   command=open(os.path.join(proc_root,pid,'cmdline'),'rb').read().replace(b'\0',b' ').decode(errors='ignore')
    if 'app-server' in command or 'run-mitzo-app-server' in command: fail('provider writer is still running')
-   for fd in os.listdir('/proc/'+pid+'/fd'):
+   for fd in os.listdir(os.path.join(proc_root,pid,'fd')):
     try:
-     target=os.readlink('/proc/'+pid+'/fd/'+fd)
+     target=os.readlink(os.path.join(proc_root,pid,'fd',fd))
      if target.startswith(provider_root+'/') or target.startswith(workspace_root+'/'): fail('sandbox writer is still open')
     except FileNotFoundError: pass
   except (FileNotFoundError,ProcessLookupError): continue
-  except PermissionError: fail('cannot verify provider quiescence')
+  except PermissionError:
+   if not pid1_supervisor(proc_root,pid): fail('cannot verify provider quiescence')
 def manifest(a,d):
  m={'version':1,'conversation':a.conversation,'thread':a.thread,'binding':a.binding,'image':a.image,'policy':a.policy,'sandboxId':a.sandbox_id,'resourceVersion':a.resource_version,'accountProvider':a.account_provider,'accountId':a.account_id,'provider':a.provider,'model':a.model,'profileRevision':a.profile_revision,'runtimeScope':a.runtime_scope,'routeKind':a.route_kind,'routeProvider':a.route_provider,'helper':'mitzo-checkpoint-v1','digest':d}
  if a.route_kind=='chatgpt-subscription':
@@ -76,7 +99,7 @@ def manifest(a,d):
 def capture(a):
  p,w=source(os.path.join(a.source,'.codex'),os.path.join(a.source,'workspace')) if a.source else source(a.provider_root,a.workspace_root); stage=tempfile.mkdtemp(prefix='mitzo-checkpoint-',dir=os.path.dirname(os.path.abspath(a.output))) ; tmp=a.output+'.tmp'
  try:
-  if a.require_quiescent: quiescent(p,w)
+  if a.require_quiescent: quiescent(p,w,a.proc_root)
   os.mkdir(os.path.join(stage,'.codex'),0o700); os.mkdir(os.path.join(stage,'workspace'),0o700)
   for n in os.listdir(p):
    if n in FILES or n in DIRS:
@@ -190,7 +213,7 @@ def restore(a):
 def main():
  p=argparse.ArgumentParser(); sub=p.add_subparsers(dest='cmd',required=True)
  for c in ('capture','restore','verify'):
-  q=sub.add_parser(c); q.add_argument('--input' if c!='capture' else '--source'); q.add_argument('--output',required=c=='capture'); q.add_argument('--destination'); q.add_argument('--provider-root'); q.add_argument('--workspace-root'); q.add_argument('--replace-fresh-roots',action='store_true'); q.add_argument('--require-quiescent',action='store_true'); q.add_argument('--conversation',required=True); q.add_argument('--thread',required=True); q.add_argument('--binding',required=True); q.add_argument('--image',required=True); q.add_argument('--policy',required=True); q.add_argument('--sandbox-id',required=True); q.add_argument('--resource-version',required=True); q.add_argument('--account-provider',required=True); q.add_argument('--account-id',required=True); q.add_argument('--provider',required=True); q.add_argument('--model',required=True); q.add_argument('--profile-revision',required=True); q.add_argument('--runtime-scope',required=True); q.add_argument('--route-kind',choices=('api','chatgpt-subscription'),required=True); q.add_argument('--route-provider',required=True); q.add_argument('--route-provider-type'); q.add_argument('--route-provider-id'); q.add_argument('--route-grant-id')
+  q=sub.add_parser(c); q.add_argument('--input' if c!='capture' else '--source'); q.add_argument('--output',required=c=='capture'); q.add_argument('--destination'); q.add_argument('--provider-root'); q.add_argument('--workspace-root'); q.add_argument('--replace-fresh-roots',action='store_true'); q.add_argument('--require-quiescent',action='store_true'); q.add_argument('--proc-root',default='/proc'); q.add_argument('--conversation',required=True); q.add_argument('--thread',required=True); q.add_argument('--binding',required=True); q.add_argument('--image',required=True); q.add_argument('--policy',required=True); q.add_argument('--sandbox-id',required=True); q.add_argument('--resource-version',required=True); q.add_argument('--account-provider',required=True); q.add_argument('--account-id',required=True); q.add_argument('--provider',required=True); q.add_argument('--model',required=True); q.add_argument('--profile-revision',required=True); q.add_argument('--runtime-scope',required=True); q.add_argument('--route-kind',choices=('api','chatgpt-subscription'),required=True); q.add_argument('--route-provider',required=True); q.add_argument('--route-provider-type'); q.add_argument('--route-provider-id'); q.add_argument('--route-grant-id')
  a=p.parse_args(); {'capture':capture,'restore':restore,'verify':verify}[a.cmd](a)
 if __name__=='__main__':
  try: main()
