@@ -12,6 +12,7 @@ import { saveTokenToWatch } from './lib/watch-auth';
 import { Login } from './pages/Login';
 import { Today } from './pages/Today';
 import { MoreView } from './pages/MoreView';
+import { ConnectionsView } from './pages/ConnectionsView';
 import { AttentionFeed } from './components/AttentionFeed';
 import { SessionList } from './pages/SessionList';
 import { ResponsiveChatView } from './components/ResponsiveChatView';
@@ -172,6 +173,16 @@ export function App() {
                   <ProtectedRoute>
                     <PageRoute>
                       <MoreView />
+                    </PageRoute>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/connections"
+                element={
+                  <ProtectedRoute>
+                    <PageRoute>
+                      <ConnectionsView />
                     </PageRoute>
                   </ProtectedRoute>
                 }
