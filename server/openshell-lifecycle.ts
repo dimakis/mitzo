@@ -181,6 +181,18 @@ export class OpenShellLifecycleStore {
       .run(phase, conversationId, expectedGeneration);
     return changed.changes ? this.get(conversationId) : null;
   }
+  saveCheckpoint(
+    conversationId: string,
+    expectedGeneration: number,
+    checkpoint: OpenShellCheckpointRef,
+  ) {
+    const changed = this.db
+      .prepare(
+        "UPDATE openshell_lifecycle SET checkpoint=?, generation=generation+1, failure=NULL WHERE conversation_id=? AND generation=? AND phase='checkpointing'",
+      )
+      .run(JSON.stringify(checkpoint), conversationId, expectedGeneration);
+    return changed.changes ? this.get(conversationId) : null;
+  }
   reconcileInterrupted() {
     this.db
       .prepare(
