@@ -68,7 +68,6 @@ function grantIntegrationTools(providers: string[]) {
     },
   ];
 }
-
 /** Only transport safe, stable runtime diagnostics to the client. */
 export function publicCodexRuntimeError(error: Error): string {
   const message = error.message;
@@ -396,6 +395,7 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
                 selectedOpenShellAccountRoute(options),
                 true,
               );
+              Object.assign(managedOpenShell!, recovered);
             });
           },
         }

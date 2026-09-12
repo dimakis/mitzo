@@ -97,14 +97,30 @@ idle delay, five-minute reconciliation interval, and seven-day stopped retention
 cannot be configured below five days). Operators inspect a fenced action through
 `GET /api/openshell/lifecycle/:conversationId/preview` and execute its single-use,
 short-lived token through `POST /api/openshell/lifecycle/confirm`. Confirmation of
-a stop does not grant future deletion consent; automated retention deletion remains
-inactive until a separate persisted consent source is installed.
+a stop does not grant future deletion consent. An authenticated operator grants or
+revokes persisted retention consent with
+`POST /api/openshell/lifecycle/:conversationId/retention-consent` and JSON body
+`{ "enabled": true }` or `{ "enabled": false }`. A delete still requires that
+consent, a current verified checkpoint, and every lifecycle protection check.
 
-## Acceptance status
+Optional usage alerts are disabled until configured. Set
+`MITZO_OPENSHELL_USAGE_THRESHOLD_BYTES` to a positive byte count and/or
+`MITZO_OPENSHELL_SANDBOX_THRESHOLD` to a positive sandbox count. Telemetry emits
+Pino lifecycle records and deduplicated threshold-crossing and recovery alerts.
+Podman `system df` reports usage and reclaimable bytes; it never reports filesystem
+free capacity.
 
 ## Lifecycle operations
 
-Lifecycle cleanup is disabled by default. When enabled, a fully quiescent detached task may be stopped after 30 minutes; retention defaults to seven days and accepts no value below five days. Reconciliation runs every five minutes. Deletion separately requires authenticated retention consent and a current verified checkpoint; active, queued, recovering, shared, Task Board-owned, or ambiguous tasks remain blocked. The checkpoint archive helper is packaged in the pinned runtime image and preserves supported Codex state plus the sandbox workspace. Operators can roll back by disabling lifecycle cleanup and restoring a verified archive before starting the provider app server. Podman `system df` telemetry is usage only, never filesystem-free capacity.
+Lifecycle cleanup is disabled by default. When enabled, a fully quiescent detached
+task may be stopped after 30 minutes; retention defaults to seven days and accepts
+no value below five days. Reconciliation runs every five minutes. Deletion requires
+authenticated persisted retention consent and a current verified checkpoint; active,
+queued, recovering, shared, Task Board-owned, or ambiguous tasks remain blocked.
+The checkpoint archive helper is packaged in the pinned runtime image and preserves
+supported Codex state plus the sandbox workspace. Operators can roll back by
+disabling lifecycle cleanup and restoring a verified archive before starting the
+provider app server.
 
 Synthetic coverage proves deterministic create/reuse/start behavior, provider
 attachment, invalid-state failure, sandbox-scoped context compilation, credential

@@ -568,9 +568,12 @@ describe('OpenShell runtime lifecycle', () => {
       .mockResolvedValueOnce('{}')
       .mockResolvedValueOnce(legacyReady);
 
-    await expect(
-      new OpenShellRuntimeManager(config, run).ensure('conversation', new AbortController().signal),
-    ).resolves.toMatchObject({ sandboxName: `mitzo-${legacyOwner.slice(0, 24)}` });
+    const runtime = await new OpenShellRuntimeManager(config, run).ensure(
+      'conversation',
+      new AbortController().signal,
+    );
+    expect(runtime).toMatchObject({ sandboxName: `mitzo-${legacyOwner.slice(0, 24)}` });
+    expect(runtime).not.toHaveProperty('created');
     expect(run).toHaveBeenCalledTimes(5);
     expect(run.mock.calls.flat().flat()).not.toContain('create');
   });

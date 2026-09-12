@@ -27,6 +27,7 @@ vi.mock('../codex-conversation.js', () => ({
       mocks.close.mockImplementation(options.onClosed);
     }
     initialize = mocks.initialize;
+    getThreadId = vi.fn(() => 'thread');
     close = mocks.close;
     send = mocks.send;
   },

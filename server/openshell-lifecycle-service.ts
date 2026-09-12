@@ -51,6 +51,10 @@ export interface LifecycleAdapters {
   now?(): number;
   /** Explicit persisted operator consent. It is never inferred from an env var. */
   consent?(record: OpenShellLifecycleRecord): boolean;
+  /** Called when an isolated reconciliation failure leaves a record fenced. */
+  onReconcileError?(record: OpenShellLifecycleRecord, error: unknown): void;
+  /** Called only after a stop or deletion has been durably recorded. */
+  onOutcome?(record: OpenShellLifecycleRecord, action: 'stopped' | 'deleted'): void;
 }
 export interface LifecyclePreview {
   token: string;
@@ -222,7 +226,7 @@ export class OpenShellLifecycleService {
         !stopped.resourceVersion
       )
         throw new Error('OpenShell stop could not be verified');
-      this.store.upsert({
+      const stoppedRecord = {
         ...stopping,
         phase: 'stopped',
         generation: stopping.generation + 1,
@@ -230,7 +234,9 @@ export class OpenShellLifecycleService {
         stoppedAt: this.now(),
         idleSince: stopping.idleSince ?? this.now(),
         stoppedResourceVersion: stopped.resourceVersion,
-      });
+      } as const;
+      this.store.upsert(stoppedRecord);
+      this.adapters.onOutcome?.(stoppedRecord, 'stopped');
       return 'stopped';
     }
     if (
@@ -250,7 +256,13 @@ export class OpenShellLifecycleService {
     const deleting = this.store.transition(record.conversationId, record.generation, 'deleting');
     if (!deleting) throw new Error('OpenShell lifecycle generation changed');
     await this.adapters.delete(deleting, signal);
-    this.store.upsert({ ...deleting, phase: 'deleted', generation: deleting.generation + 1 });
+    const deletedRecord = {
+      ...deleting,
+      phase: 'deleted',
+      generation: deleting.generation + 1,
+    } as const;
+    this.store.upsert(deletedRecord);
+    this.adapters.onOutcome?.(deletedRecord, 'deleted');
     return 'deleted';
   }
   async reconcile(signal: AbortSignal) {
@@ -268,9 +280,14 @@ export class OpenShellLifecycleService {
         const preview = await this.preview(record.conversationId, signal);
         previews.push(preview);
         if (preview.action !== 'none') await this.confirm(preview.token, signal);
-      } catch {
+      } catch (error) {
         // One failed sandbox must not prevent independent conversations from
         // being reconciled. The failed record remains fenced for inspection.
+        try {
+          this.adapters.onReconcileError?.(record, error);
+        } catch {
+          // Observability must not defeat per-record isolation.
+        }
       }
     }
     return previews;

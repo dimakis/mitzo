@@ -567,7 +567,7 @@ export class OpenShellRuntimeManager {
     let name = currentName;
     let owner = currentOwner;
     let sandbox = await this.get(name, signal);
-    const created = !sandbox;
+    let created = false;
     if (!sandbox) {
       const legacyName = legacySandboxNameForConversation(conversationHash);
       const legacy = await this.get(legacyName, signal);
@@ -585,6 +585,7 @@ export class OpenShellRuntimeManager {
     if (sandbox) await this.verifyManagedConnections(name, signal);
     else await this.config.verifyConnections?.(name, signal);
     if (!sandbox) {
+      created = true;
       const args = [
         'sandbox',
         ...this.base(),
