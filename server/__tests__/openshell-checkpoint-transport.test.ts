@@ -13,19 +13,19 @@ it('uses one hashed archive name, verifies before upload, and quotes SSH argumen
     helper: 'mitzo-checkpoint-v1',
     conversation: 'a space;$(bad)',
     thread: "thread's",
-    binding: 'binding',
+    binding: '["account","openai","model","revision"]',
     image: 'image',
     policy: 'policy',
     sandboxId: 'sandbox',
     resourceVersion: '1',
     accountProvider: 'account',
-    accountId: 'id',
+    accountId: "id@tenant:$(not-run)\nwith'quote",
     provider: 'openai',
     model: 'model',
     profileRevision: 'r1',
     runtimeScope: 'scope',
     routeKind: 'api',
-    routeProvider: 'openai',
+    routeProvider: 'openai/route;$(not-run)',
   });
   const run = vi.fn(async (_command: string, args: readonly string[]) => {
     if (args.includes('download')) writeFileSync(args.at(-1)!, 'mock');
@@ -48,19 +48,19 @@ it('uses one hashed archive name, verifies before upload, and quotes SSH argumen
   const identity = {
     conversation: 'a space;$(bad)',
     thread: "thread's",
-    binding: 'binding',
+    binding: '["account","openai","model","revision"]',
     image: 'image',
     policy: 'policy',
     sandboxId: 'sandbox',
     resourceVersion: '1',
     accountProvider: 'account',
-    accountId: 'id',
+    accountId: "id@tenant:$(not-run)\nwith'quote",
     provider: 'openai',
     model: 'model',
     profileRevision: 'r1',
     runtimeScope: 'scope',
     routeKind: 'api' as const,
-    routeProvider: 'openai',
+    routeProvider: 'openai/route;$(not-run)',
   };
   const destination = mkdtempSync(join(tmpdir(), 'checkpoint-transport-'));
   roots.push(destination);
@@ -74,5 +74,9 @@ it('uses one hashed archive name, verifies before upload, and quotes SSH argumen
   const upload = run.mock.calls.findIndex((call) => (call[1] as string[]).includes('upload'));
   expect(verify).toBeLessThan(upload);
   const ssh = run.mock.calls.find((call) => call[0] === 'ssh')![1] as string[];
-  expect(ssh.join(' ')).toContain("'thread'\\''s'");
+  const remote = ssh.at(-1)!;
+  expect(remote).toContain('\'["account","openai","model","revision"]\'');
+  expect(remote).toContain("'thread'\\''s'");
+  expect(remote).toContain("'id@tenant:$(not-run)\nwith'\\''quote'");
+  expect(remote).toContain("'openai/route;$(not-run)'");
 });

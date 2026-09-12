@@ -122,6 +122,12 @@ supported Codex state plus the sandbox workspace. Operators can roll back by
 disabling lifecycle cleanup and restoring a verified archive before starting the
 provider app server.
 
+Any checkpoint, stop, or delete error durably marks that lifecycle row `failed` and
+excludes it from automatic cleanup. Recovery is deliberate: an operator resumes the
+conversation so its sandbox and checkpoint identity are revalidated, then a later
+explicit lifecycle preview may offer a new action. Failed rows are never retried
+blindly by the reconciler.
+
 Synthetic coverage proves deterministic create/reuse/start behavior, provider
 attachment, invalid-state failure, sandbox-scoped context compilation, credential
 and host-metadata exclusion from the MGMT seed, portable Git commits, visible native

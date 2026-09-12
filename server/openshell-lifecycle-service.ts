@@ -113,6 +113,23 @@ export class OpenShellLifecycleService {
   private now() {
     return this.adapters.now?.() ?? Date.now();
   }
+  private consented(record: OpenShellLifecycleRecord) {
+    return this.adapters.consent?.(record) === true;
+  }
+  private markFailed(record: OpenShellLifecycleRecord, error: unknown) {
+    if (
+      record.phase !== 'checkpointing' &&
+      record.phase !== 'stopping' &&
+      record.phase !== 'deleting'
+    )
+      return;
+    this.store.fail(
+      record.conversationId,
+      record.generation,
+      record.phase,
+      error instanceof Error ? error.message : 'OpenShell lifecycle action failed',
+    );
+  }
   private prunePreviews() {
     const now = this.now();
     for (const [token, preview] of this.previews)
@@ -142,7 +159,7 @@ export class OpenShellLifecycleService {
         ? 'none'
         : record.phase === 'retained' && sandbox?.phase === 'Ready'
           ? 'stop'
-          : this.policy.retentionEligible(record, this.now())
+          : this.consented(record) && this.policy.retentionEligible(record, this.now())
             ? 'delete'
             : 'none';
     const token = randomUUID();
@@ -173,6 +190,8 @@ export class OpenShellLifecycleService {
     const record = this.store.get(preview.conversationId);
     if (!record || record.generation !== preview.generation)
       throw new Error('OpenShell lifecycle preview is stale');
+    if (preview.action === 'delete' && !this.consented(record))
+      throw new Error('OpenShell lifecycle consent is required');
     const { sandbox, blockers } = await this.state(record, signal);
     if (!sandbox || sandbox.id !== preview.sandboxId || blockers.length)
       throw new Error('OpenShell lifecycle preservation check failed');
@@ -184,65 +203,72 @@ export class OpenShellLifecycleService {
         'checkpointing',
       );
       if (!checkpointing) throw new Error('OpenShell lifecycle generation changed');
-      let checkpoint: OpenShellLifecycleRecord['checkpoint'];
+      let transient = checkpointing;
       try {
-        checkpoint = (await this.adapters.checkpoint?.(checkpointing, sandbox, signal)) ?? null;
+        const checkpoint =
+          (await this.adapters.checkpoint?.(checkpointing, sandbox, signal)) ?? null;
+        const checkpointed = checkpoint
+          ? this.store.saveCheckpoint(checkpointing.conversationId, checkpointing.generation, {
+              ...checkpoint,
+              sourceResourceVersion: sandbox.resourceVersion,
+            })
+          : null;
+        if (checkpointed) transient = checkpointed;
+        if (
+          !checkpointed ||
+          !(await this.adapters.verifyCheckpoint?.(checkpointed, sandbox, signal))
+        )
+          throw new Error('OpenShell checkpoint is unavailable');
+        const afterCheckpoint = await this.state(checkpointed, signal);
+        if (
+          !afterCheckpoint.sandbox ||
+          afterCheckpoint.sandbox.id !== sandbox.id ||
+          afterCheckpoint.blockers.length
+        )
+          throw new Error('OpenShell state changed while checkpointing');
+        const stopping = this.store.transition(
+          record.conversationId,
+          checkpointed.generation,
+          'stopping',
+        );
+        if (!stopping) throw new Error('OpenShell lifecycle generation changed');
+        transient = stopping;
+        try {
+          await this.adapters.stop({ ...stopping, checkpoint }, signal);
+          const stopped = await this.adapters.inspect(stopping, signal);
+          if (
+            !stopped ||
+            stopped.id !== stopping.physicalSandboxId ||
+            stopped.phase !== 'Stopped' ||
+            !stopped.resourceVersion
+          )
+            throw new Error('OpenShell stop could not be verified');
+          const stoppedRecord = {
+            ...stopping,
+            phase: 'stopped',
+            generation: stopping.generation + 1,
+            checkpoint: checkpointed.checkpoint,
+            stoppedAt: this.now(),
+            idleSince: stopping.idleSince ?? this.now(),
+            stoppedResourceVersion: stopped.resourceVersion,
+          } as const;
+          this.store.upsert(stoppedRecord);
+          this.adapters.onOutcome?.(stoppedRecord, 'stopped');
+          return 'stopped';
+        } catch (error) {
+          this.markFailed(stopping, error);
+          throw error;
+        }
       } catch (error) {
-        this.store.upsert({
-          ...checkpointing,
-          phase: 'failed',
-          generation: checkpointing.generation + 1,
-          failure: error instanceof Error ? error.message : 'checkpoint failed',
-        });
+        this.markFailed(transient, error);
         throw error;
       }
-      const checkpointed = checkpoint
-        ? this.store.saveCheckpoint(checkpointing.conversationId, checkpointing.generation, {
-            ...checkpoint,
-            sourceResourceVersion: sandbox.resourceVersion,
-          })
-        : null;
-      if (!checkpointed || !(await this.adapters.verifyCheckpoint?.(checkpointed, sandbox, signal)))
-        throw new Error('OpenShell checkpoint is unavailable');
-      const afterCheckpoint = await this.state(checkpointed, signal);
-      if (
-        !afterCheckpoint.sandbox ||
-        afterCheckpoint.sandbox.id !== sandbox.id ||
-        afterCheckpoint.blockers.length
-      )
-        throw new Error('OpenShell state changed while checkpointing');
-      const stopping = this.store.transition(
-        record.conversationId,
-        checkpointed.generation,
-        'stopping',
-      );
-      if (!stopping) throw new Error('OpenShell lifecycle generation changed');
-      await this.adapters.stop({ ...stopping, checkpoint }, signal);
-      const stopped = await this.adapters.inspect(stopping, signal);
-      if (
-        !stopped ||
-        stopped.id !== stopping.physicalSandboxId ||
-        stopped.phase !== 'Stopped' ||
-        !stopped.resourceVersion
-      )
-        throw new Error('OpenShell stop could not be verified');
-      const stoppedRecord = {
-        ...stopping,
-        phase: 'stopped',
-        generation: stopping.generation + 1,
-        checkpoint: checkpointed.checkpoint,
-        stoppedAt: this.now(),
-        idleSince: stopping.idleSince ?? this.now(),
-        stoppedResourceVersion: stopped.resourceVersion,
-      } as const;
-      this.store.upsert(stoppedRecord);
-      this.adapters.onOutcome?.(stoppedRecord, 'stopped');
-      return 'stopped';
     }
     if (
       sandbox.phase !== 'Stopped' ||
       !this.policy.retentionEligible(record, this.now()) ||
       !record.checkpoint ||
+      !this.consented(record) ||
       !(await this.adapters.verifyCheckpoint?.(record, sandbox, signal))
     )
       throw new Error('OpenShell lifecycle preview is stale');
@@ -250,20 +276,26 @@ export class OpenShellLifecycleService {
     if (
       !beforeDelete.sandbox ||
       beforeDelete.sandbox.id !== preview.sandboxId ||
-      beforeDelete.blockers.length
+      beforeDelete.blockers.length ||
+      !this.consented(record)
     )
       throw new Error('OpenShell lifecycle preservation check failed');
     const deleting = this.store.transition(record.conversationId, record.generation, 'deleting');
     if (!deleting) throw new Error('OpenShell lifecycle generation changed');
-    await this.adapters.delete(deleting, signal);
-    const deletedRecord = {
-      ...deleting,
-      phase: 'deleted',
-      generation: deleting.generation + 1,
-    } as const;
-    this.store.upsert(deletedRecord);
-    this.adapters.onOutcome?.(deletedRecord, 'deleted');
-    return 'deleted';
+    try {
+      await this.adapters.delete(deleting, signal);
+      const deletedRecord = {
+        ...deleting,
+        phase: 'deleted',
+        generation: deleting.generation + 1,
+      } as const;
+      this.store.upsert(deletedRecord);
+      this.adapters.onOutcome?.(deletedRecord, 'deleted');
+      return 'deleted';
+    } catch (error) {
+      this.markFailed(deleting, error);
+      throw error;
+    }
   }
   async reconcile(signal: AbortSignal) {
     if (!this.policy.enabled) return [] as LifecyclePreview[];
