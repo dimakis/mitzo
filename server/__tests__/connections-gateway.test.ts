@@ -61,4 +61,29 @@ describe('OpenShellConnectionGateway', () => {
     await expect(gateway.list(signal)).rejects.toThrow('Gateway command failed');
     await expect(gateway.list(signal)).rejects.not.toThrow(secret);
   });
+  it('uses separate detached create and fixed Python Basic-auth exec for identity probing', async () => {
+    const runner = vi
+      .fn()
+      .mockResolvedValueOnce(
+        JSON.stringify({ name: 'mitzo-probe-1234567890abcdef', phase: 'Ready' }),
+      )
+      .mockResolvedValueOnce(JSON.stringify({ accountId: 'abc', displayName: 'Person' }))
+      .mockResolvedValueOnce('');
+    const gateway = new OpenShellConnectionGateway(runner, {
+      workspace: 'default',
+      probeImage: 'approved:image',
+      probePolicy: '/approved/policy.yaml',
+    });
+    await expect(
+      gateway.probe({ providerName: 'mitzo-conn-12345678', email: 'person@example.com' }, signal),
+    ).resolves.toEqual({ identity: 'abc' });
+    const create = runner.mock.calls[0][0] as string[];
+    const exec = runner.mock.calls[1][0] as string[];
+    expect(create).toContain('--detach');
+    expect(create).toContain('-o');
+    expect(create).toContain('json');
+    expect(exec).toContain('exec');
+    expect(exec).toContain('/usr/bin/python3');
+    expect(exec.join(' ')).toContain("'Authorization':'Basic '");
+  });
 });

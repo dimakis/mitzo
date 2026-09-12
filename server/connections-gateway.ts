@@ -266,9 +266,9 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
       throw new Error('Gateway identity probe is invalid');
     const name = `mitzo-probe-${createHash('sha256').update(`${input.providerName}:${randomUUID()}`).digest('hex').slice(0, 16)}`;
     const probe =
-      'exec /usr/bin/curl --fail --silent --show-error --max-time 10 "$JIRA_URL/rest/api/3/myself"';
+      "import base64,json,os,ssl,urllib.request;u=os.environ['JIRA_URL']+'/rest/api/3/myself';a=base64.b64encode((os.environ['JIRA_EMAIL']+':'+os.environ['JIRA_API_TOKEN']).encode()).decode();r=urllib.request.Request(u,headers={'Authorization':'Basic '+a});x=urllib.request.urlopen(r,timeout=10,context=ssl.create_default_context());b=x.read(65536);d=json.loads(b);print(json.dumps({'accountId':d['accountId'],'displayName':d.get('displayName','')},separators=(',',':')))";
     try {
-      const output = await this.run(
+      const createOutput = await this.run(
         [
           'sandbox',
           '--workspace',
@@ -277,7 +277,7 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
           '--name',
           name,
           '--no-auto-providers',
-          '--no-keep',
+          '--detach',
           '--no-tty',
           '--policy',
           this.options.probePolicy,
@@ -289,21 +289,41 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
           `JIRA_URL=${JIRA_ENDPOINT}`,
           '--env',
           `JIRA_EMAIL=${input.email}`,
+          '-o',
+          'json',
+        ],
+        signal,
+      );
+      z.object({ name: z.string().regex(/^mitzo-probe-[a-f0-9]{16}$/), phase: z.string() }).parse(
+        JSON.parse(createOutput),
+      );
+      const output = await this.run(
+        [
+          'sandbox',
+          '--workspace',
+          this.options.workspace,
+          'exec',
+          '--name',
+          name,
+          '--no-tty',
+          '--timeout',
+          '15',
+          '--env',
+          `JIRA_URL=${JIRA_ENDPOINT}`,
+          '--env',
+          `JIRA_EMAIL=${input.email}`,
           '--',
-          'sh',
-          '-lc',
+          '/usr/bin/python3',
+          '-c',
           probe,
         ],
         signal,
       );
       const identity = z
-        .object({
-          displayName: z.string().min(1).optional(),
-          emailAddress: z.string().email().optional(),
-        })
+        .object({ accountId: z.string().min(1).max(128), displayName: z.string().max(256) })
         .parse(JSON.parse(output));
       return {
-        identity: identity.emailAddress ?? identity.displayName ?? 'verified Jira identity',
+        identity: identity.accountId,
       };
     } catch {
       throw new Error('Gateway identity probe failed');

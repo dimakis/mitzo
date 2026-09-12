@@ -30,17 +30,25 @@ export class ConnectionsService {
       if (!current || current.status === 'revoking' || current.status === 'revoked')
         throw new Error('Connection cannot be provisioned');
       try {
-        const provider = await this.gateway.provision(
-          { name: current.gatewayProviderName, token },
-          signal,
-        );
+        const provider = current.gatewayProviderId
+          ? await this.gateway.get(current.gatewayProviderName, signal)
+          : await this.gateway.provision({ name: current.gatewayProviderName, token }, signal);
+        if (!provider) throw new Error('Managed provider is unavailable');
+        const persisted = current.gatewayProviderId
+          ? current
+          : this.store.transition(
+              current.id,
+              current.revision,
+              { gatewayProviderId: provider.id },
+              { operation: 'provision', outcome: 'provider_created', actor: current.ownerId },
+            );
         const identity = await this.gateway.probe(
-          { providerName: current.gatewayProviderName, email: current.submittedEmail },
+          { providerName: persisted.gatewayProviderName, email: persisted.submittedEmail },
           signal,
         );
         return this.store.transition(
-          current.id,
-          current.revision,
+          persisted.id,
+          persisted.revision,
           {
             status: 'active',
             gatewayProviderId: provider.id,
