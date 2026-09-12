@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   send: vi.fn(),
   mcpClose: vi.fn(),
   connect: vi.fn(),
+  permissionHandler: vi.fn(),
   store: vi.fn(),
   conversationOptions: undefined as Record<string, unknown> | undefined,
 }));
@@ -35,12 +36,17 @@ vi.mock('../codex-private-path.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../codex-private-path.js')>()),
   codexPrivateDirectory: () => '/tmp',
 }));
+vi.mock('@mitzo/harness', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@mitzo/harness')>()),
+  buildPermissionHandler: () => mocks.permissionHandler,
+}));
 import {
   openCodexChat,
   selectedOpenShellAccountRoute,
   waitForCodexRuntime,
   waitForCodexRuntimeBySessionId,
 } from '../codex-chat-session.js';
+import { OpenShellRuntimeManager } from '../openshell-runtime.js';
 function options(abortController: AbortController) {
   return {
     session: { cwd: '/tmp', abortController },
@@ -170,6 +176,143 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
   await expect(chat.setPermissionMode?.('agent')).resolves.toBeUndefined();
   await expect(chat.setPermissionMode?.('ask')).rejects.toThrow('Ask mode');
   vi.unstubAllEnvs();
+});
+
+it('advertises reviewed per-chat provider grants to a managed OpenShell runtime', async () => {
+  vi.clearAllMocks();
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_IMAGE', 'mitzo-runtime:1');
+  vi.stubEnv('MITZO_OPENSHELL_POLICY', '/config/policy.yaml');
+  vi.stubEnv('MITZO_OPENSHELL_SEED', '/seed/mgmt');
+  vi.stubEnv('MITZO_OPENSHELL_GRANTABLE_SERVICE_PROVIDERS', 'google-workspace,github');
+  const ensure = vi.spyOn(OpenShellRuntimeManager.prototype, 'ensure').mockResolvedValue({
+    sandboxName: 'mitzo-runtime',
+    workdir: '/sandbox/workspaces/mgmt',
+    appServerCommand: '/sandbox/run-mitzo-app-server',
+    cli: 'openshell',
+    gateway: 'openshell',
+    workspace: 'default',
+    gatewayInsecure: false,
+  });
+  const compile = vi.spyOn(OpenShellRuntimeManager.prototype, 'compileContext').mockResolvedValue({
+    type: 'boot_context',
+    scope: 'sandbox',
+    sourceCount: 0,
+    tokenCount: 0,
+    tokenBudget: 12000,
+    sources: [],
+    included: [],
+    trimmed: [],
+    fullMarkdown: '',
+  });
+  const grant = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'grantServiceProvider')
+    .mockResolvedValue();
+  const abortController = new AbortController();
+  const baseOptions = options(abortController);
+  const session = baseOptions.session;
+  const registry = {
+    findBySessionId: vi.fn(() => ({ clientId: 'client', session })),
+  } as unknown as import('@mitzo/harness').SessionRegistry;
+  try {
+    await openCodexChat({
+      ...baseOptions,
+      conversationId: 'conversation',
+      binding: {
+        accountId: 'work',
+        accountLabel: 'Work',
+        provider: 'openai',
+        model: 'test-model',
+        profileRevision: '1',
+      },
+      profile: {
+        accountId: 'work',
+        accountLabel: 'Work',
+        email: 'work@example.com',
+        planType: 'api',
+        model: 'test-model',
+        sandboxProvider: 'openai-work',
+      },
+      session,
+      registry,
+      prompt: 'Grant Google Workspace access',
+      messageId: 'message',
+      systemPrompt: 'base prompt',
+      env: {},
+    });
+    expect(mocks.conversationOptions?.tools).toEqual([
+      expect.objectContaining({
+        name: 'GrantIntegrationAccess',
+        input_schema: expect.objectContaining({
+          properties: expect.objectContaining({
+            provider: expect.objectContaining({ enum: ['google-workspace', 'github'] }),
+          }),
+        }),
+      }),
+    ]);
+    expect(mocks.conversationOptions?.systemPrompt).toContain('GrantIntegrationAccess');
+    const executeTool = mocks.conversationOptions?.executeTool as (
+      name: string,
+      input: Record<string, unknown>,
+      signal: AbortSignal,
+    ) => Promise<{ content: string; isError: boolean }>;
+    const signal = new AbortController().signal;
+
+    await expect(
+      executeTool('GrantIntegrationAccess', { provider: 'unreviewed-provider' }, signal),
+    ).resolves.toMatchObject({ isError: true });
+    expect(mocks.permissionHandler).not.toHaveBeenCalled();
+
+    mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'deny', message: 'Denied' });
+    await expect(
+      executeTool('GrantIntegrationAccess', { provider: 'google-workspace' }, signal),
+    ).resolves.toMatchObject({ isError: true });
+    expect(grant).not.toHaveBeenCalled();
+
+    mocks.permissionHandler.mockResolvedValueOnce({
+      behavior: 'allow',
+      updatedInput: { provider: 'google-workspace' },
+    });
+    await expect(
+      executeTool('GrantIntegrationAccess', { provider: 'google-workspace' }, signal),
+    ).resolves.toMatchObject({ isError: false });
+    expect(grant).toHaveBeenCalledOnce();
+
+    mocks.permissionHandler.mockResolvedValueOnce({
+      behavior: 'allow',
+      updatedInput: { provider: 'github' },
+    });
+    await expect(
+      executeTool('GrantIntegrationAccess', { provider: 'google-workspace' }, signal),
+    ).resolves.toMatchObject({ isError: true });
+    expect(grant).toHaveBeenCalledOnce();
+    expect(mocks.permissionHandler).toHaveBeenCalledWith(
+      'GrantIntegrationAccess',
+      { provider: 'google-workspace' },
+      expect.objectContaining({
+        forcePrompt: true,
+        approvalScope: 'conversation',
+        title: 'Grant Google Workspace to this conversation?',
+        description: expect.stringContaining('across reconnects and Mitzo restarts'),
+      }),
+    );
+
+    mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'deny', message: 'Denied' });
+    await executeTool('GrantIntegrationAccess', { provider: 'github' }, signal);
+    expect(mocks.permissionHandler).toHaveBeenLastCalledWith(
+      'GrantIntegrationAccess',
+      { provider: 'github' },
+      expect.objectContaining({
+        title: 'Grant GitHub to this conversation?',
+        description: expect.stringContaining('reviewed GitHub provider'),
+      }),
+    );
+  } finally {
+    ensure.mockRestore();
+    compile.mockRestore();
+    grant.mockRestore();
+    vi.unstubAllEnvs();
+  }
 });
 
 it('rejects the legacy shared-sandbox seam in production', async () => {

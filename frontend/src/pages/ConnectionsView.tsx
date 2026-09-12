@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import {
   createConnection,
   getConnectionAudit,
@@ -91,14 +92,14 @@ export function ConnectionsView() {
   if (!data && !loadError)
     return (
       <main className="workspace-page">
-        <h1>Connections</h1>
+        <WorkspacePageHeading title="Connections" />
         <p>Loading connections…</p>
       </main>
     );
   if (!data)
     return (
       <main className="workspace-page">
-        <h1>Connections</h1>
+        <WorkspacePageHeading title="Connections" />
         <p role="alert">{loadError}</p>
         <button className="workspace-primary" onClick={() => void refresh()}>
           Retry
@@ -107,11 +108,10 @@ export function ConnectionsView() {
     );
   return (
     <main className="workspace-page connections-page">
-      <h1>Connections</h1>
-      <p className="workspace-muted">
-        Assignments apply to {data.appliesTo}. Adding a connection never expands a retained
-        conversation; removal and revocation reduce managed access immediately.
-      </p>
+      <WorkspacePageHeading
+        title="Connections"
+        description={`Assignments apply to ${data.appliesTo}. Adding a connection never expands a retained conversation; removal and revocation reduce managed access immediately.`}
+      />
       {message && (
         <p className="connections-notice" role="status">
           {message}

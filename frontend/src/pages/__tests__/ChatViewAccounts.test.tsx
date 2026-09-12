@@ -176,7 +176,8 @@ it('keeps mobile account and permission controls in one collapsible workspace se
   expect(screen.getByRole('button', { name: 'Agent' })).toBeTruthy();
 });
 
-it('shows mobile session details without expanding workspace settings', async () => {
+it('keeps mobile session details inside the expanded workspace controls', async () => {
+  localStorage.removeItem('mitzo-workspace-controls-expanded');
   vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => [] } as Response);
   const store = createTestStore();
   store.setState({
@@ -198,7 +199,9 @@ it('shows mobile session details without expanding workspace settings', async ()
       </MemoryRouter>
     </MitzoStoreProvider>,
   );
-  expect(screen.getByText('Isolated workspace')).toBeTruthy();
+  expect(screen.getByText('Isolated workspace').closest('[hidden]')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: /Workspace/ }));
+  expect(screen.getByText('Isolated workspace').closest('[hidden]')).toBeNull();
   const summary = screen.getByText('Session details');
   fireEvent.click(summary);
   expect(summary.closest('details')?.textContent).toContain('session/mobile');

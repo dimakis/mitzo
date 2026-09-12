@@ -212,11 +212,20 @@ export function ChatArea({
           );
         })}
 
-        {/* In-flight streaming turn — rendered inline, no grouping */}
+        {/* In-flight streaming turn uses the same compact grouping as finished turns. */}
         {current && (
           <div className="msg-turn msg-turn--streaming">
-            {current.blockOrder.map((blockId) => {
-              const block = current.blocks.get(blockId)!;
+            {groupBlocks(
+              current.blockOrder.flatMap((blockId) => {
+                const block = current.blocks.get(blockId);
+                return block ? [block] : [];
+              }),
+              progressToolIds,
+            ).map((item) => {
+              if (item.type === 'tool-group') {
+                return <ToolGroup key={item.key} tools={item.tools} />;
+              }
+              const block = item.block;
               if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
                 return <ThinkingBlock key={block.blockId} block={block} streaming />;
               }
@@ -245,6 +254,7 @@ export function ChatArea({
           description={permission.description}
           displayName={permission.displayName}
           tier={permission.tier}
+          approvalScope={permission.approvalScope}
           onRespond={onPermissionRespond}
         />
       )}

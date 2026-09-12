@@ -135,7 +135,7 @@ function configureConnectionsRuntime(): void {
       gateway: openShell.gateway,
       ...(openShell.gatewayEndpoint ? { gatewayEndpoint: openShell.gatewayEndpoint } : {}),
       gatewayInsecure: openShell.gatewayInsecure,
-      legacyProviders: openShell.serviceProviders,
+      legacyProviders: [...openShell.serviceProviders, ...openShell.grantableServiceProviders],
       profilePath,
       probeImage,
       probePolicy,

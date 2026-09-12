@@ -318,6 +318,7 @@ describe('permission events', () => {
         toolName: 'Bash',
         toolInput: 'rm -rf /',
         tier: 'elevated',
+        approvalScope: 'conversation',
       },
       makeState(),
       makeCallbacks(),
@@ -325,7 +326,12 @@ describe('permission events', () => {
     );
     expect(r.messagesActions[0]).toMatchObject({
       type: 'PERMISSION_REQUEST',
-      payload: { permId: 'p1', toolName: 'Bash', tier: 'elevated' },
+      payload: {
+        permId: 'p1',
+        toolName: 'Bash',
+        tier: 'elevated',
+        approvalScope: 'conversation',
+      },
     });
   });
 

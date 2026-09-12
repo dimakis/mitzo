@@ -7,6 +7,7 @@ import { WorkflowCreateForm } from '../components/WorkflowCreateForm';
 import { LoopControls } from '../components/LoopControls';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
+import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { useTaskBoard } from '../hooks/useTaskBoard';
 import type { Task, TaskStatus } from '../types/task';
 
@@ -101,11 +102,12 @@ export function TaskBoard({ desktop = false }: { desktop?: boolean } = {}) {
   return (
     <div className={`task-board-page${desktop ? ' task-board-desktop' : ''}`}>
       {desktop && (
-        <div className="agent-page-heading">
-          <p className="workspace-muted">AGENTS</p>
-          <h1>Work in motion</h1>
-          <p className="workspace-muted">Execution state, review decisions and recorded usage.</p>
-        </div>
+        <WorkspacePageHeading
+          className="agent-page-heading"
+          eyebrow="Agents"
+          title="Work in motion"
+          description="Execution state, review decisions and recorded usage."
+        />
       )}
       <PageHeader
         title={desktop ? 'Executions' : 'Tasks'}

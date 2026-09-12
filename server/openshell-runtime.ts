@@ -1,10 +1,12 @@
 import { parseProviderAttachments } from './connections-gateway.js';
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { isAbsolute } from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import type { McpServerConfig } from './mcp-config.js';
 import { openShellSshProcessSpec } from './codex-app-server-client.js';
+import { codexPrivateDirectory } from './codex-private-path.js';
 
 const Sandbox = z.object({
   name: z.string(),
@@ -66,6 +68,7 @@ export interface OpenShellRuntimeConfig {
   policy: string;
   seed: string;
   serviceProviders: string[];
+  grantableServiceProviders: string[];
   workspace: string;
   gateway: string;
   gatewayEndpoint?: string;
@@ -77,6 +80,57 @@ export interface OpenShellRuntimeConfig {
 }
 
 const SERVICE_PROVIDERS = new Set(['google-workspace', 'github']);
+const PROVIDER_POLICY_LABEL = 'mitzo.provider_policy';
+const PROVIDER_POLICY_VERSION = 'state-v2';
+const PROVIDER_POLICY_QUEUES = new Map<string, Promise<void>>();
+
+function providerPolicyFingerprint(serviceProviders: string[]) {
+  return `${PROVIDER_POLICY_VERSION}-${[...new Set(serviceProviders)].sort().join('.') || 'none'}`;
+}
+
+interface ProviderPolicyRecord {
+  automatic: string[];
+  granted: string[];
+}
+interface ProviderPolicyState {
+  read(sandboxName: string): ProviderPolicyRecord | undefined;
+  write(sandboxName: string, record: ProviderPolicyRecord): void;
+}
+
+class FileProviderPolicyState implements ProviderPolicyState {
+  private root = join(codexPrivateDirectory(), 'openshell-provider-policy');
+
+  private path(sandboxName: string) {
+    return join(this.root, `${identifier(sandboxName, 'sandbox')}.json`);
+  }
+
+  read(sandboxName: string) {
+    const path = this.path(sandboxName);
+    if (!existsSync(path)) return undefined;
+    const value = JSON.parse(readFileSync(path, 'utf8')) as Partial<ProviderPolicyRecord>;
+    if (
+      !Array.isArray(value.automatic) ||
+      !Array.isArray(value.granted) ||
+      ![...value.automatic, ...value.granted].every(
+        (provider) => typeof provider === 'string' && SERVICE_PROVIDERS.has(provider),
+      )
+    )
+      throw new Error('OpenShell provider policy state is invalid');
+    return { automatic: [...new Set(value.automatic)], granted: [...new Set(value.granted)] };
+  }
+
+  write(sandboxName: string, record: ProviderPolicyRecord) {
+    mkdirSync(this.root, { recursive: true, mode: 0o700 });
+    const path = this.path(sandboxName);
+    const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
+    try {
+      writeFileSync(temporary, JSON.stringify(record), { mode: 0o600 });
+      renameSync(temporary, path);
+    } finally {
+      rmSync(temporary, { force: true });
+    }
+  }
+}
 
 export interface BoundOpenShellRuntimeConfig extends OpenShellRuntimeConfig {
   account: OpenShellAccountRoute;
@@ -148,6 +202,23 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
     if (!SERVICE_PROVIDERS.has(provider))
       throw new Error(`OpenShell provider is not an allowed service provider: ${provider}`);
   }
+  const grantableServiceProviders = (env.MITZO_OPENSHELL_GRANTABLE_SERVICE_PROVIDERS || '')
+    .split(',')
+    .filter(Boolean)
+    .map((value) => identifier(value, 'grantable service provider'));
+  for (const provider of grantableServiceProviders) {
+    if (!SERVICE_PROVIDERS.has(provider))
+      throw new Error(
+        `OpenShell provider is not an allowed grantable service provider: ${provider}`,
+      );
+  }
+  const overlappingProvider = serviceProviders.find((provider) =>
+    grantableServiceProviders.includes(provider),
+  );
+  if (overlappingProvider)
+    throw new Error(
+      `OpenShell service provider cannot be both automatic and grantable: ${overlappingProvider}`,
+    );
   const webSearch = env.MITZO_OPENSHELL_WEB_SEARCH || 'disabled';
   if (webSearch !== 'disabled' && webSearch !== 'live')
     throw new Error('Invalid OpenShell web search mode');
@@ -167,6 +238,7 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
     policy,
     seed,
     serviceProviders,
+    grantableServiceProviders,
     workspace: identifier(env.OPENSHELL_WORKSPACE || 'default', 'workspace'),
     gateway: identifier(env.OPENSHELL_GATEWAY || 'openshell', 'gateway'),
     ...(gatewayEndpoint ? { gatewayEndpoint } : {}),
@@ -223,6 +295,7 @@ export class OpenShellRuntimeManager {
       timeoutMs: 30_000,
     },
     runSsh?: Run,
+    private providerPolicyState: ProviderPolicyState = new FileProviderPolicyState(),
   ) {
     this.run = run ?? ((args, signal) => command(config.cli, args, signal));
     this.runSsh = runSsh ?? ((args, signal) => command('ssh', args, signal));
@@ -251,6 +324,29 @@ export class OpenShellRuntimeManager {
       const message = error instanceof Error ? error.message : '';
       if (/not found|404|does not exist/i.test(message)) return undefined;
       throw error;
+    }
+  }
+
+  private async serializeProviderPolicy<T>(
+    sandboxName: string,
+    signal: AbortSignal,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const previous = PROVIDER_POLICY_QUEUES.get(sandboxName) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.catch(() => undefined).then(() => gate);
+    PROVIDER_POLICY_QUEUES.set(sandboxName, tail);
+    await previous.catch(() => undefined);
+    try {
+      signal.throwIfAborted();
+      return await operation();
+    } finally {
+      release();
+      if (PROVIDER_POLICY_QUEUES.get(sandboxName) === tail)
+        PROVIDER_POLICY_QUEUES.delete(sandboxName);
     }
   }
 
@@ -340,9 +436,43 @@ export class OpenShellRuntimeManager {
         throw new Error('Connection permissions changed. Start a new conversation.');
     }
   }
+  private async reconcileServiceProviders(
+    name: string,
+    owner: string,
+    attach: string[],
+    detach: string[],
+    signal: AbortSignal,
+  ): Promise<void> {
+    let changed = false;
+    for (const provider of attach) {
+      try {
+        await this.run(['sandbox', ...this.base(), 'provider', 'attach', name, provider], signal);
+        changed = true;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '';
+        if (!/already attached|conflict|409/i.test(message))
+          throw new Error('OpenShell service provider reconciliation failed', { cause: error });
+      }
+    }
+    for (const provider of detach) {
+      try {
+        await this.run(['sandbox', ...this.base(), 'provider', 'detach', name, provider], signal);
+        changed = true;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '';
+        if (!/not attached|not found|404|does not exist/i.test(message))
+          throw new Error('OpenShell service provider reconciliation failed', { cause: error });
+      }
+    }
+    if (changed) await this.waitForReady(name, owner, signal);
+  }
+
   async ensure(conversationId: string, signal: AbortSignal): Promise<OpenShellRuntime> {
     await this.verifyAccountProvider(signal);
     const accountProvider = this.config.account.provider;
+    const policyFingerprint = providerPolicyFingerprint(
+      this.config.serviceProviders.filter((p) => SERVICE_PROVIDERS.has(p)),
+    );
     const conversationHash = createHash('sha256').update(conversationId).digest('hex');
     const currentName = sandboxNameForConversation(conversationId, this.config.sandboxIdLength);
     const currentOwner = conversationHash.slice(0, 63);
@@ -358,6 +488,7 @@ export class OpenShellRuntimeManager {
         sandbox = legacy;
       }
     }
+    const retained = Boolean(sandbox);
     if (sandbox && sandbox.labels?.['mitzo.conversation'] !== owner)
       throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
     if (sandbox && sandbox.labels?.['mitzo.account_provider'] !== accountProvider)
@@ -384,6 +515,8 @@ export class OpenShellRuntimeManager {
         `mitzo.conversation=${owner}`,
         '--label',
         `mitzo.account_provider=${accountProvider}`,
+        '--label',
+        `${PROVIDER_POLICY_LABEL}=${policyFingerprint}`,
         '--no-auto-providers',
         '--output',
         'json',
@@ -418,6 +551,37 @@ export class OpenShellRuntimeManager {
       sandbox = await this.waitForReady(name, owner, signal);
     }
     await this.verifyManagedConnections(name, signal);
+    if (sandbox && sandbox.phase === 'Ready' && sandbox.labels?.['mitzo.conversation'] === owner) {
+      await this.serializeProviderPolicy(name, signal, async () => {
+        const automatic = [
+          ...new Set(this.config.serviceProviders.filter((p) => SERVICE_PROVIDERS.has(p))),
+        ];
+        const persisted = retained ? this.providerPolicyState.read(name) : undefined;
+        const previous =
+          persisted ??
+          (retained && sandbox.labels?.[PROVIDER_POLICY_LABEL] === policyFingerprint
+            ? { automatic, granted: [] }
+            : undefined);
+        const granted = (previous?.granted ?? []).filter((provider) =>
+          this.config.grantableServiceProviders.includes(provider),
+        );
+        const desired = new Set([this.config.account.provider, ...automatic, ...granted]);
+        const previouslyAttached = new Set([
+          ...(previous?.automatic ?? []),
+          ...(previous?.granted ?? []),
+        ]);
+        const attach = retained
+          ? automatic.filter((provider) => !previouslyAttached.has(provider))
+          : [];
+        const detach = retained
+          ? [...(previous ? previouslyAttached : SERVICE_PROVIDERS)].filter(
+              (provider) => !desired.has(provider),
+            )
+          : [];
+        await this.reconcileServiceProviders(name, owner, attach, detach, signal);
+        this.providerPolicyState.write(name, { automatic, granted });
+      });
+    }
     if (!sandbox || sandbox.phase !== 'Ready')
       throw new Error(`OpenShell sandbox ${name} is ${sandbox?.phase ?? 'unavailable'}`);
     if (sandbox.labels?.['mitzo.conversation'] !== owner)
@@ -435,6 +599,54 @@ export class OpenShellRuntimeManager {
       ...(this.config.gatewayEndpoint ? { gatewayEndpoint: this.config.gatewayEndpoint } : {}),
       gatewayInsecure: this.config.gatewayInsecure,
     };
+  }
+
+  async grantServiceProvider(
+    conversationId: string,
+    runtime: OpenShellRuntime,
+    provider: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (!this.config.grantableServiceProviders.includes(provider))
+      throw new Error('OpenShell service provider is not grantable');
+    return this.serializeProviderPolicy(runtime.sandboxName, signal, async () => {
+      const conversationHash = createHash('sha256').update(conversationId).digest('hex');
+      const currentName = sandboxNameForConversation(conversationId, this.config.sandboxIdLength);
+      const legacyName = legacySandboxNameForConversation(conversationHash);
+      const owner =
+        runtime.sandboxName === currentName ? conversationHash.slice(0, 63) : conversationHash;
+      if (runtime.sandboxName !== currentName && runtime.sandboxName !== legacyName)
+        throw new Error('OpenShell sandbox does not belong to this conversation');
+      const sandbox = await this.get(runtime.sandboxName, signal);
+      if (!sandbox || sandbox.phase !== 'Ready')
+        throw new Error(`OpenShell sandbox ${runtime.sandboxName} is not Ready`);
+      if (sandbox.labels?.['mitzo.conversation'] !== owner)
+        throw new Error(
+          `OpenShell sandbox ${runtime.sandboxName} is not owned by this conversation`,
+        );
+      if (sandbox.labels?.['mitzo.account_provider'] !== this.config.account.provider)
+        throw new Error(
+          `OpenShell sandbox ${runtime.sandboxName} has another account provider binding`,
+        );
+      try {
+        await this.run(
+          ['sandbox', ...this.base(), 'provider', 'attach', runtime.sandboxName, provider],
+          signal,
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '';
+        if (!/already attached|conflict|409/i.test(message))
+          throw new Error('OpenShell service provider grant failed', { cause: error });
+      }
+      const previous = this.providerPolicyState.read(runtime.sandboxName);
+      this.providerPolicyState.write(runtime.sandboxName, {
+        automatic: previous?.automatic ?? [
+          ...new Set(this.config.serviceProviders.filter((p) => SERVICE_PROVIDERS.has(p))),
+        ],
+        granted: [...new Set([...(previous?.granted ?? []), provider])],
+      });
+      await this.waitForReady(runtime.sandboxName, owner, signal);
+    });
   }
 
   async compileContext(runtime: OpenShellRuntime, signal: AbortSignal) {

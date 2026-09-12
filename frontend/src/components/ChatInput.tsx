@@ -403,7 +403,8 @@ export function ChatInput({
               aria-label="Commands"
               aria-expanded={showSlashPicker}
             >
-              <span aria-hidden="true">/</span> Commands
+              <span aria-hidden="true">/</span>
+              <span className="chat-input-command-label">Commands</span>
             </button>
             {useExternal && (
               <button

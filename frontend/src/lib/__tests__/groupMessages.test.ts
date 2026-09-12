@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { groupBlocks } from '../groupMessages';
-import { TOOL_GROUP_THRESHOLD } from '../constants';
 import type { FinishedBlock } from '../../types/chat';
 
 function toolBlock(id: string): FinishedBlock {
@@ -23,22 +22,19 @@ function thinkingBlock(id = 'th-1'): FinishedBlock {
 }
 
 describe('groupBlocks', () => {
-  it('keeps tool blocks below threshold as individual items', () => {
-    const blocks = [textBlock(), toolBlock('t1'), toolBlock('t2')];
-    const grouped = groupBlocks(blocks);
-    expect(grouped).toHaveLength(3);
-    expect(grouped.every((g) => g.type === 'block')).toBe(true);
-  });
-
-  it('groups tool blocks at or above threshold into a tool-group', () => {
-    const tools = Array.from({ length: TOOL_GROUP_THRESHOLD }, (_, i) => toolBlock(`t${i}`));
-    const blocks = [textBlock(), ...tools];
+  it('groups a single ordinary tool call', () => {
+    const blocks = [textBlock(), toolBlock('t1')];
     const grouped = groupBlocks(blocks);
     expect(grouped).toHaveLength(2);
+    expect(grouped[1]).toMatchObject({ type: 'tool-group', tools: [blocks[1]] });
+  });
+
+  it('groups every contiguous tool run independently', () => {
+    const blocks = [textBlock(), toolBlock('t1'), thinkingBlock(), toolBlock('t2')];
+    const grouped = groupBlocks(blocks);
+    expect(grouped).toHaveLength(4);
     expect(grouped[1].type).toBe('tool-group');
-    if (grouped[1].type === 'tool-group') {
-      expect(grouped[1].tools).toHaveLength(TOOL_GROUP_THRESHOLD);
-    }
+    expect(grouped[3].type).toBe('tool-group');
   });
 
   it('flushes separate tool batches independently', () => {
@@ -53,12 +49,11 @@ describe('groupBlocks', () => {
       textBlock('text-2'),
     ];
     const grouped = groupBlocks(blocks);
-    // first batch: 2 tools → individual; second batch: 3 tools → group
+    // Every batch, including short batches, is a disclosure group.
     const types = grouped.map((g) => g.type);
     expect(types).toEqual([
       'block', // text-1
-      'block', // t1
-      'block', // t2
+      'tool-group', // t1+t2
       'block', // thinking
       'tool-group', // t3+t4+t5
       'block', // text-2
@@ -114,11 +109,11 @@ describe('groupBlocks', () => {
     expect(grouped.every((g) => g.type === 'block')).toBe(true);
   });
 
-  it('trailing tool run below threshold stays individual', () => {
-    const blocks = [textBlock(), toolBlock('t1')];
+  it('groups a trailing short tool run', () => {
+    const blocks = [textBlock(), toolBlock('t1'), toolBlock('t2')];
     const grouped = groupBlocks(blocks);
     expect(grouped).toHaveLength(2);
-    expect(grouped.every((g) => g.type === 'block')).toBe(true);
+    expect(grouped[1].type).toBe('tool-group');
   });
 
   it('returns empty array for empty input', () => {

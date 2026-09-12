@@ -161,6 +161,24 @@ describe('PermissionBanner', () => {
     expect(screen.getByRole('button', { name: 'Allow for session' })).toBeTruthy();
   });
 
+  it('discloses durable conversation grants without session or once wording', () => {
+    const onRespond = vi.fn();
+    render(
+      <PermissionBanner
+        {...defaultProps}
+        toolName="GrantIntegrationAccess"
+        approvalScope="conversation"
+        onRespond={onRespond}
+      />,
+    );
+
+    expect(screen.getByText(/across reconnects and Mitzo restarts/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Allow Once' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Allow for session' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Grant to conversation' }));
+    expect(onRespond).toHaveBeenCalledWith('p1', 'once', 'GrantIntegrationAccess');
+  });
+
   it('accepts provider question IDs that match object prototype names', () => {
     const onRespond = vi.fn();
     render(

@@ -162,6 +162,7 @@ describe('connections runtime integration', () => {
 
   it('checks actual attachments before and after create and labels the sandbox account', async () => {
     const checks: string[] = [];
+    const policyState = { read: vi.fn(), write: vi.fn() };
     const owner = '8b34dbc2c05eb4d7e25d48efeace82456b16cee760bcae80c157f52a3c2e787';
     const ready = JSON.stringify({
       name: 'sandbox',
@@ -181,6 +182,7 @@ describe('connections runtime integration', () => {
         policy: '/config/policy.yaml',
         seed: '/seed/mgmt',
         serviceProviders: ['mitzo-conn-12345678'],
+        grantableServiceProviders: [],
         workspace: 'default',
         gateway: 'local',
         gatewayInsecure: false,
@@ -195,8 +197,15 @@ describe('connections runtime integration', () => {
         },
       },
       run,
+      undefined,
+      undefined,
+      policyState,
     ).ensure('conversation', AbortSignal.timeout(500));
     expect(checks).toHaveLength(2);
+    expect(policyState.write).toHaveBeenCalledWith(expect.any(String), {
+      automatic: [],
+      granted: [],
+    });
     const create = run.mock.calls[2][0] as string[];
     expect(create).toContain('mitzo.connection_account=work');
   });

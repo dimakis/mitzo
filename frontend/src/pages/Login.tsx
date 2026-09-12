@@ -17,6 +17,7 @@ import {
 } from '../lib/biometric';
 import { saveTokenToWatch } from '../lib/watch-auth';
 import { notifySuccess } from '../lib/haptics';
+import { MitzoBrand } from '../components/MitzoBrand';
 
 export function Login() {
   const [passphrase, setPassphrase] = useState('');
@@ -100,7 +101,8 @@ export function Login() {
   return (
     <div className="login-page">
       <form onSubmit={handleSubmit} className="login-form">
-        <h1>Mitzo</h1>
+        <MitzoBrand className="login-brand" />
+        <h1 className="sr-only">Sign in to Mitzo</h1>
         <input
           type="password"
           placeholder="Passphrase"

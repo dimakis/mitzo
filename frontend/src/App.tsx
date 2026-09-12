@@ -14,6 +14,7 @@ import { Today } from './pages/Today';
 import { MoreView } from './pages/MoreView';
 import { ConnectionsView } from './pages/ConnectionsView';
 import { AttentionFeed } from './components/AttentionFeed';
+import { WorkspacePageHeading } from './components/WorkspacePageHeading';
 import { SessionList } from './pages/SessionList';
 import { ResponsiveChatView } from './components/ResponsiveChatView';
 import { FileViewer } from './pages/FileViewer';
@@ -193,7 +194,10 @@ export function App() {
                   <ProtectedRoute>
                     <PageRoute>
                       <main className="workspace-page">
-                        <h1>Attention</h1>
+                        <WorkspacePageHeading
+                          title="Attention"
+                          description="The items that need a decision or a closer look."
+                        />
                         <AttentionFeed />
                       </main>
                     </PageRoute>

@@ -183,8 +183,38 @@ textarea:focus {
 .mitzo-logo img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  border-radius: 6px;
+  object-fit: contain;
+}
+
+.mitzo-logo img,
+.mitzo-brand img {
+  filter: invert(1);
+}
+
+[data-theme='light'] .mitzo-logo img,
+[data-theme='light'] .mitzo-brand img {
+  filter: none;
+}
+
+.mitzo-brand {
+  display: inline-flex;
+  align-items: center;
+  width: 96px;
+  height: 34px;
+  color: inherit;
+  flex-shrink: 0;
+}
+
+.mitzo-brand img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.mitzo-brand--compact {
+  width: 34px;
+  height: 34px;
 }
 
 .mitzo-logo:hover {
@@ -220,8 +250,10 @@ textarea:focus {
 
 .page-header h1 {
   flex: 1;
-  font-size: var(--text-lg);
+  font-size: 20px;
+  line-height: 1.2;
   font-weight: 600;
+  letter-spacing: -0.02em;
   margin: 0;
 }
 
@@ -399,6 +431,12 @@ textarea:focus {
   text-align: center;
 }
 
+.login-brand {
+  width: 112px;
+  height: 42px;
+  margin: 0 auto var(--space-1);
+}
+
 /* ===== Session List Page ===== */
 
 .session-list-page {
@@ -438,9 +476,11 @@ textarea:focus {
 }
 
 .session-list-header h1 {
-  font-size: var(--text-xl);
-  font-weight: 700;
+  font-size: 20px;
+  line-height: 1.2;
+  font-weight: 600;
   letter-spacing: -0.02em;
+  margin: 0;
 }
 
 .check-update-btn {
@@ -2212,6 +2252,13 @@ textarea:focus {
   background: rgba(255, 255, 255, 0.03);
 }
 
+.tool-pill-header:focus-visible,
+.tool-group-header:focus-visible,
+.session-tray-section-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .tool-pill-dot {
   width: 6px;
   height: 6px;
@@ -3039,6 +3086,10 @@ textarea:focus {
 
 .tool-group-header:active {
   background: rgba(255, 255, 255, 0.03);
+}
+
+.tool-group-header:hover {
+  background: var(--hover);
 }
 
 .tool-group-dots {
@@ -6527,10 +6578,44 @@ textarea:focus {
 
 .session-tray-section-header h2 {
   margin: 0;
-  color: var(--text-dim);
   font-size: var(--text-xs);
+  min-width: 0;
+}
+
+.session-tray-section-toggle {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.25rem;
+  border: 0;
+  border-radius: 0.3rem;
+  color: var(--text-dim);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
   font-weight: 600;
   letter-spacing: 0.015em;
+  text-align: left;
+}
+
+.session-tray-section-toggle:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.session-tray-section-count {
+  padding: 0.02rem 0.28rem;
+  border-radius: 999px;
+  background: var(--hover);
+  color: var(--text-dim);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.session-tray-section-chevron {
+  color: var(--text-dim);
+  font-size: 0.65rem;
 }
 
 .session-tray-add,

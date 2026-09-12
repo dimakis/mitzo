@@ -2,6 +2,7 @@ import { useParams } from 'react-router-dom';
 import { useIsDesktop } from '../hooks/useMediaQuery';
 import { TodoView } from './TodoView';
 import { TodoDetailView } from './TodoDetailView';
+import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 
 /** Keep the collection mounted as desktop selection changes, retaining filters and scroll. */
 export function TodoWorkspace() {
@@ -11,11 +12,12 @@ export function TodoWorkspace() {
 
   return (
     <main className="workspace-work">
-      <div className="workspace-work-heading">
-        <p className="workspace-muted">TELOS</p>
-        <h1>Work with purpose</h1>
-        <p className="workspace-muted">Choose a priority. Review its context and next step.</p>
-      </div>
+      <WorkspacePageHeading
+        className="workspace-work-heading"
+        eyebrow="Telos"
+        title="Work with purpose"
+        description="Choose a priority. Review its context and next step."
+      />
       <div className="workspace-work-panels">
         <section className="workspace-work-list" aria-label="Work items">
           <TodoView selectedId={id} />
