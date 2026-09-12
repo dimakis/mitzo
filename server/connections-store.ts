@@ -120,7 +120,7 @@ export class ConnectionStore {
     const db = this.database();
     const transaction = db.transaction(() => {
       db.prepare(
-        'INSERT INTO connections VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, 1, ?, NULL, NULL, NULL, ?, ?)',
+        'INSERT INTO connections (id, owner_id, template_id, template_version, label, endpoint, gateway_provider_name, gateway_provider_id, gateway, workspace, submitted_email, status, revision, desired_account_ids, identity, verified_at, error_code, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, 1, ?, NULL, NULL, NULL, ?, ?)',
       ).run(
         id,
         input.ownerId,

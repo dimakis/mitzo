@@ -57,8 +57,13 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
       workspace: 'default',
     },
   ) {}
-  private run(args: string[], signal: AbortSignal, env: Record<string, string> = {}) {
-    return this.runner(args, { env, signal, timeoutMs: this.options.timeoutMs ?? 15_000 });
+  private async run(args: string[], signal: AbortSignal, env: Record<string, string> = {}) {
+    try {
+      return await this.runner(args, { env, signal, timeoutMs: this.options.timeoutMs ?? 15_000 });
+    } catch {
+      // CLI output can include credential material; never forward it across this boundary.
+      throw new Error('Gateway command failed');
+    }
   }
   async verifyCompatibility(signal: AbortSignal) {
     await this.run(

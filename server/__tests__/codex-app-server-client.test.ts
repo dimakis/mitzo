@@ -262,15 +262,14 @@ describe('Codex app-server transport', () => {
       connectionEnv: { JIRA_URL: 'https://redhat.atlassian.net', JIRA_EMAIL: 'person@example.com' },
     });
     expect(spec.args.at(-1)).toBe(
-      'env JIRA_URL=https://redhat.atlassian.net JIRA_EMAIL=person@example.com /sandbox/run-mitzo-app-server',
+      "env JIRA_URL='https://redhat.atlassian.net' JIRA_EMAIL='person@example.com' /sandbox/run-mitzo-app-server",
     );
-    expect(() =>
-      openShellCodexProcessSpec({
-        sandboxName: 'safe',
-        workdir: '/sandbox/workspaces/mgmt',
-        connectionEnv: { JIRA_URL: 'https://redhat.atlassian.net', JIRA_EMAIL: 'x;id@example.com' },
-      }),
-    ).toThrow('Invalid managed Jira');
+    const quoted = openShellCodexProcessSpec({
+      sandboxName: 'safe',
+      workdir: '/sandbox/workspaces/mgmt',
+      connectionEnv: { JIRA_URL: 'https://redhat.atlassian.net', JIRA_EMAIL: '`id`@example.com' },
+    });
+    expect(quoted.args.at(-1)).toContain("JIRA_EMAIL='`id`@example.com'");
   });
 
   it('terminates the SSH proxy process group on close', () => {

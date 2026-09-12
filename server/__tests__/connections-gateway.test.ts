@@ -1,7 +1,22 @@
 import { describe, expect, it, vi } from 'vitest';
 import { OpenShellConnectionGateway } from '../connections-gateway.js';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 const signal = new AbortController().signal;
 describe('OpenShellConnectionGateway', () => {
+  it('uses the reviewed OpenShell profile schema and never invented provider flags', () => {
+    const profile = readFileSync(
+      resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'),
+      'utf8',
+    );
+    expect(profile).toContain('resource_version: 1');
+    expect(profile).toContain('env_vars: [JIRA_API_TOKEN]');
+    expect(profile).toContain('protocol: rest');
+    expect(profile).toContain('enforcement: enforce');
+    expect(profile).toContain('tls: terminate');
+    expect(profile).not.toContain('credential_keys:');
+    expect(profile).not.toContain('inspect_tls:');
+  });
   it('uses a key-only credential and never exposes a token in argv or parsed DTOs', async () => {
     const secret = 'SENTINEL_DO_NOT_LEAK';
     const runner = vi
@@ -27,5 +42,11 @@ describe('OpenShellConnectionGateway', () => {
     const runner = vi.fn().mockResolvedValueOnce(JSON.stringify(first)).mockResolvedValueOnce('[]');
     await expect(new OpenShellConnectionGateway(runner).list(signal)).resolves.toHaveLength(100);
     expect(runner.mock.calls[1][0]).toContain('100');
+  });
+  it('replaces untrusted CLI errors with a fixed safe code', async () => {
+    const secret = 'SENTINEL_DO_NOT_LEAK';
+    const gateway = new OpenShellConnectionGateway(vi.fn().mockRejectedValue(new Error(secret)));
+    await expect(gateway.list(signal)).rejects.toThrow('Gateway command failed');
+    await expect(gateway.list(signal)).rejects.not.toThrow(secret);
   });
 });

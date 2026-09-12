@@ -14,16 +14,14 @@ export class ConnectionsService {
     const next = new Promise<void>((resolve) => {
       release = resolve;
     });
-    this.locks.set(
-      id,
-      previous.then(() => next),
-    );
+    const queued = previous.then(() => next);
+    this.locks.set(id, queued);
     await previous;
     try {
       return await work();
     } finally {
       release();
-      if (this.locks.get(id) === next) this.locks.delete(id);
+      if (this.locks.get(id) === queued) this.locks.delete(id);
     }
   }
   async provision(connection: Connection, token: string, signal: AbortSignal) {

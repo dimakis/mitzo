@@ -120,8 +120,9 @@ function connectionCommand(options: OpenShellCodexOptions, command: string) {
     !/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+$/.test(JIRA_EMAIL)
   )
     throw new Error('Invalid managed Jira connection environment');
-  // Both values are non-secret and individually validated; this is the only approved remote shell form.
-  return `env JIRA_URL=${JIRA_URL} JIRA_EMAIL=${JIRA_EMAIL} ${command}`;
+  // Email syntax permits shell metacharacters, so quote each generated assignment.
+  const quote = (value: string) => `'${value.replaceAll("'", "'\"'\"'")}'`;
+  return `env JIRA_URL=${quote(JIRA_URL)} JIRA_EMAIL=${quote(JIRA_EMAIL)} ${command}`;
 }
 
 export function openShellCodexProcessSpec(
