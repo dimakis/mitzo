@@ -7,7 +7,7 @@ import { z } from 'zod';
 import type { McpServerConfig } from './mcp-config.js';
 import { openShellSshProcessSpec } from './codex-app-server-client.js';
 import { codexPrivateDirectory } from './codex-private-path.js';
-import { admitOpenShellSandboxCreate } from './openshell-capacity.js';
+import { reserveOpenShellSandboxCreate } from './openshell-capacity.js';
 
 // OpenShell gateways prior to the current API contract encode resource_version
 // as a JSON number. Normalize that legacy representation at the boundary so
@@ -675,7 +675,7 @@ export class OpenShellRuntimeManager {
     if (!sandbox) {
       // This is intentionally immediately before the only physical-create command.
       // Reattach/start paths above stay available during a capacity hard stop.
-      await admitOpenShellSandboxCreate(signal);
+      const releaseCapacity = await reserveOpenShellSandboxCreate(signal);
       created = true;
       const args = [
         'sandbox',
@@ -719,10 +719,14 @@ export class OpenShellRuntimeManager {
       }
       for (const provider of this.config.serviceProviders) args.push('--provider', provider);
       try {
-        await this.run(args, signal);
-      } catch (error) {
-        if (!/already exists|conflict|409/i.test(error instanceof Error ? error.message : ''))
-          throw error;
+        try {
+          await this.run(args, signal);
+        } catch (error) {
+          if (!/already exists|conflict|409/i.test(error instanceof Error ? error.message : ''))
+            throw error;
+        }
+      } finally {
+        releaseCapacity();
       }
       sandbox = await this.waitForReady(name, owner, signal);
     } else if (sandbox.phase === 'Stopped') {

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -120,6 +121,80 @@ describe('OpenShell runtime lifecycle', () => {
       ),
     ).resolves.toMatchObject({ sandboxName: expect.any(String) });
     expect(retained.mock.calls.flat().flat()).not.toContain('create');
+  });
+
+  it('keeps capacity admission reserved until each physical create command returns', async () => {
+    configureOpenShellCapacityAdmission(
+      new OpenShellCapacityAdmission(
+        new OpenShellCapacityCollector('/', {
+          podman: async () => '[]',
+          filesystem: async () =>
+            'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vm 100 50 50 50% /',
+        }),
+        openShellCapacityPolicy({}),
+      ),
+    );
+    const readyFor = (conversation: string) =>
+      JSON.stringify({
+        name: 'sandbox',
+        phase: 'Ready',
+        labels: {
+          'mitzo.conversation': createHash('sha256')
+            .update(conversation)
+            .digest('hex')
+            .slice(0, 63),
+          'mitzo.account_provider': 'openai-work',
+          'mitzo.provider_policy': 'state-v2-github',
+        },
+      });
+    let releaseFirst!: () => void;
+    let releaseSecond!: () => void;
+    const createFirst = vi.fn();
+    const createSecond = vi.fn();
+    const runner = (
+      conversation: string,
+      created: ReturnType<typeof vi.fn>,
+      waitForRelease: () => Promise<void>,
+    ) => {
+      let gets = 0;
+      return vi.fn(async (args: string[]) => {
+        if (args.includes('get')) {
+          gets++;
+          if (gets <= 2) throw new Error('sandbox not found');
+          return readyFor(conversation);
+        }
+        if (args.includes('create')) {
+          created();
+          await waitForRelease();
+        }
+        return '{}';
+      });
+    };
+    const firstRun = runner(
+      'first-conversation',
+      createFirst,
+      () => new Promise<void>((resolve) => (releaseFirst = resolve)),
+    );
+    const secondRun = runner(
+      'second-conversation',
+      createSecond,
+      () => new Promise<void>((resolve) => (releaseSecond = resolve)),
+    );
+    const first = new OpenShellRuntimeManager(config, firstRun).ensure(
+      'first-conversation',
+      new AbortController().signal,
+    );
+    await vi.waitFor(() => expect(createFirst).toHaveBeenCalledOnce());
+    const second = new OpenShellRuntimeManager(config, secondRun).ensure(
+      'second-conversation',
+      new AbortController().signal,
+    );
+    await Promise.resolve();
+    expect(createSecond).not.toHaveBeenCalled();
+    releaseFirst();
+    await vi.waitFor(() => expect(createSecond).toHaveBeenCalledOnce());
+    releaseSecond();
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
   });
 
   it('waits through asynchronous creation phases until the sandbox is Ready', async () => {

@@ -33,7 +33,11 @@ export function openShellCapacityPolicy(env: NodeJS.ProcessEnv): OpenShellCapaci
   const warningFreePercent = percentage(env, 'MITZO_OPENSHELL_CAPACITY_WARNING_FREE_PERCENT', 20);
   const hardFreePercent = percentage(env, 'MITZO_OPENSHELL_CAPACITY_HARD_FREE_PERCENT', 10);
   const recoverFreePercent = percentage(env, 'MITZO_OPENSHELL_CAPACITY_RECOVER_FREE_PERCENT', 15);
-  if (hardFreePercent >= warningFreePercent || recoverFreePercent <= hardFreePercent)
+  if (
+    hardFreePercent >= warningFreePercent ||
+    recoverFreePercent <= hardFreePercent ||
+    recoverFreePercent >= warningFreePercent
+  )
     throw new Error('OpenShell capacity thresholds must be warning > recovery > hard');
   return { warningFreePercent, hardFreePercent, recoverFreePercent };
 }
@@ -163,8 +167,11 @@ export class OpenShellCapacityAdmission {
       policy: this.policy,
     } as const;
   }
-  async admitNewSandbox(signal: AbortSignal) {
+  /** Acquire the global create reservation. The caller must retain it until
+   * the physical `sandbox create` invocation has returned. */
+  async reserveNewSandbox(signal: AbortSignal): Promise<() => void> {
     let release!: () => void;
+    let granted = false;
     const previous = this.tail;
     this.tail = new Promise<void>((resolve) => (release = resolve));
     await previous;
@@ -178,9 +185,17 @@ export class OpenShellCapacityAdmission {
         throw new OpenShellCapacityError(
           'OpenShell capacity hard stop is active; retry after free capacity recovers',
         );
+      granted = true;
+      return release;
     } finally {
-      release();
+      // A rejected admission must never hold up a later caller. A successful
+      // caller owns this release until it has issued the physical create.
+      if (!granted) release();
     }
+  }
+  async admitNewSandbox(signal: AbortSignal) {
+    const release = await this.reserveNewSandbox(signal);
+    release();
   }
 }
 
@@ -190,6 +205,9 @@ export function configureOpenShellCapacityAdmission(value: OpenShellCapacityAdmi
 }
 export function admitOpenShellSandboxCreate(signal: AbortSignal) {
   return admission?.admitNewSandbox(signal) ?? Promise.resolve();
+}
+export function reserveOpenShellSandboxCreate(signal: AbortSignal) {
+  return admission?.reserveNewSandbox(signal) ?? Promise.resolve(() => undefined);
 }
 export function openShellCapacityStatus(signal: AbortSignal) {
   return admission?.snapshot(signal);

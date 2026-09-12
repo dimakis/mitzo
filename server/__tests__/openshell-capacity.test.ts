@@ -57,6 +57,27 @@ it('holds the hard admission circuit until the recovery threshold and serializes
   ).resolves.toEqual([undefined, undefined]);
 });
 
+it('holds a successful capacity reservation until the physical create caller releases it', async () => {
+  const collector = new OpenShellCapacityCollector('/', {
+    podman: async () => '[]',
+    filesystem: async () =>
+      'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vm 10000 1 5000 1% /',
+  });
+  const admission = new OpenShellCapacityAdmission(collector, openShellCapacityPolicy({}));
+  const releaseFirst = await admission.reserveNewSandbox(signal());
+  let secondGranted = false;
+  const second = admission.reserveNewSandbox(signal()).then((release) => {
+    secondGranted = true;
+    return release;
+  });
+  await Promise.resolve();
+  expect(secondGranted).toBe(false);
+  releaseFirst();
+  const releaseSecond = await second;
+  expect(secondGranted).toBe(true);
+  releaseSecond();
+});
+
 it('fails closed on collection loss and validates ordered hysteresis thresholds', async () => {
   const collector = new OpenShellCapacityCollector('/', {
     podman: async () => '[]',
@@ -70,6 +91,13 @@ it('fails closed on collection loss and validates ordered hysteresis thresholds'
     openShellCapacityPolicy({
       MITZO_OPENSHELL_CAPACITY_WARNING_FREE_PERCENT: '10',
       MITZO_OPENSHELL_CAPACITY_HARD_FREE_PERCENT: '10',
+    }),
+  ).toThrow('thresholds');
+  expect(() =>
+    openShellCapacityPolicy({
+      MITZO_OPENSHELL_CAPACITY_WARNING_FREE_PERCENT: '20',
+      MITZO_OPENSHELL_CAPACITY_HARD_FREE_PERCENT: '10',
+      MITZO_OPENSHELL_CAPACITY_RECOVER_FREE_PERCENT: '20',
     }),
   ).toThrow('thresholds');
 });
