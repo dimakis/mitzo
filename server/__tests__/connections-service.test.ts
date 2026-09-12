@@ -28,6 +28,7 @@ describe('ConnectionsService', () => {
       stopSandbox: vi.fn(),
       sandboxStopped: vi.fn().mockResolvedValue(true),
       detach: vi.fn(),
+      probe: vi.fn(),
     };
     const service = new ConnectionsService(store, gateway);
     await expect(service.provision(item, 'SENTINEL', new AbortController().signal)).rejects.toThrow(

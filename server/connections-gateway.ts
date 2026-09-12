@@ -33,6 +33,10 @@ export interface ConnectionGateway {
   stopSandbox(name: string, signal: AbortSignal): Promise<void>;
   sandboxStopped(name: string, signal: AbortSignal): Promise<boolean>;
   detach(sandbox: string, providerName: string, signal: AbortSignal): Promise<void>;
+  probe(
+    input: { providerName: string; email: string },
+    signal: AbortSignal,
+  ): Promise<{ identity: string }>;
 }
 /** Pinned CLI 0.0.116-mitzo.2 table parser. Unknown output must fail closed. */
 export function parseProviderAttachments(output: string, sandbox: string): string[] {
@@ -236,5 +240,9 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
       ],
       signal,
     );
+  }
+  async probe(_input: { providerName: string; email: string }, _signal: AbortSignal) {
+    // Probe execution requires the reviewed disposable sandbox runner; do not substitute a host-side fetch.
+    throw new Error('Gateway identity probe is not configured');
   }
 }

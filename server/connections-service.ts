@@ -34,12 +34,17 @@ export class ConnectionsService {
           { name: current.gatewayProviderName, token },
           signal,
         );
+        const identity = await this.gateway.probe(
+          { providerName: current.gatewayProviderName, email: current.submittedEmail },
+          signal,
+        );
         return this.store.transition(
           current.id,
           current.revision,
           {
             status: 'active',
             gatewayProviderId: provider.id,
+            identity: identity.identity,
             verifiedAt: Date.now(),
             errorCode: null,
           },
