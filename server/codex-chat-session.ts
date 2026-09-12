@@ -261,8 +261,19 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
   const signal = options.session.abortController.signal;
   const grantableProviders = runtimeManager ? configuredRuntime!.grantableServiceProviders : [];
   const integrationTools = grantIntegrationTools(grantableProviders);
-  signal.throwIfAborted();
-  const privateStorage = store();
+  try {
+    signal.throwIfAborted();
+  } catch (error) {
+    startupReservation?.();
+    throw error;
+  }
+  let privateStorage: CodexConversationStore;
+  try {
+    privateStorage = store();
+  } catch (error) {
+    startupReservation?.();
+    throw error;
+  }
   const hookRuntime = connectedOpenShell
     ? undefined
     : createNativeHooks(options.session.cwd!, options.conversationId, options.env, {
@@ -283,6 +294,7 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
     }
   } catch (error) {
     dispose();
+    startupReservation?.();
     throw error;
   }
   const mcp = connectedOpenShell
@@ -300,6 +312,7 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
         signal: options.session.abortController.signal,
       }).catch((error) => {
         dispose();
+        startupReservation?.();
         throw error;
       });
   const events = new AsyncQueue<Record<string, unknown>>();
