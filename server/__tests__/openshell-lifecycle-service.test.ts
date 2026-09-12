@@ -133,8 +133,9 @@ it('rejects out-of-band stopped version changes before deletion', async () => {
   expect(preview.action).toBe('none');
   expect(preview.blockers).toContain('ambiguous_ownership');
 });
-it('automatically checkpoints and stops only an idle retained conversation with persisted consent', async () => {
+it('automatically checkpoints and stops an idle retained conversation without retention consent', async () => {
   const { service, store, sandbox, adapters } = setup('retained');
+  adapters.consent = () => false;
   const onOutcome = vi.fn();
   adapters.onOutcome = onOutcome;
   const previews = await service.reconcile(AbortSignal.timeout(100));

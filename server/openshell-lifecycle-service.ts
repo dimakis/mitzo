@@ -302,7 +302,9 @@ export class OpenShellLifecycleService {
     const previews: LifecyclePreview[] = [];
     for (const record of this.store.list()) {
       if (record.phase !== 'retained' && record.phase !== 'stopped') continue;
-      if (!this.adapters.consent?.(record)) continue;
+      // Retention consent authorizes destructive deletion only. Checkpointing
+      // and stopping an idle retained sandbox remain safe without it.
+      if (record.phase === 'stopped' && !this.consented(record)) continue;
       if (
         record.phase === 'retained' &&
         (!record.idleSince || this.now() < record.idleSince + this.policy.idleMs)
