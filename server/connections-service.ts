@@ -27,6 +27,80 @@ export class ConnectionsService {
   setAssignments(id: string, revision: number, accountIds: string[], actor = 'operator') {
     return this.store.setAssignments(id, revision, accountIds, actor);
   }
+  async createAndProvision(
+    input: Omit<
+      Connection,
+      | 'id'
+      | 'gatewayProviderId'
+      | 'status'
+      | 'revision'
+      | 'identity'
+      | 'verifiedAt'
+      | 'errorCode'
+      | 'createdAt'
+      | 'updatedAt'
+    >,
+    token: string,
+    signal: AbortSignal,
+  ) {
+    const connection = this.store.create(input);
+    return this.provision(connection, token, signal);
+  }
+  async test(id: string, revision: number, signal: AbortSignal) {
+    const connection = this.store.get(id);
+    if (!connection || connection.revision !== revision || !connection.gatewayProviderId)
+      throw new Error('Connection changed; refresh and try again.');
+    const identity = await this.gateway.probe(
+      { providerName: connection.gatewayProviderName, email: connection.submittedEmail },
+      signal,
+    );
+    return this.store.transition(
+      id,
+      revision,
+      { identity: identity.identity, verifiedAt: Date.now(), errorCode: null },
+      { operation: 'test', outcome: 'success', actor: connection.ownerId },
+    );
+  }
+  async rotate(id: string, revision: number, token: string, signal: AbortSignal) {
+    return this.serial(id, async () => {
+      const current = this.store.get(id);
+      if (!current || current.revision !== revision || current.status !== 'active')
+        throw new Error('Connection changed; refresh and try again.');
+      const rotating = this.store.transition(
+        id,
+        revision,
+        { status: 'rotating' },
+        { operation: 'rotate', outcome: 'started', actor: current.ownerId },
+      );
+      try {
+        await this.gateway.rotate({ name: rotating.gatewayProviderName, token }, signal);
+        const identity = await this.gateway.probe(
+          { providerName: rotating.gatewayProviderName, email: rotating.submittedEmail },
+          signal,
+        );
+        return this.store.transition(
+          id,
+          rotating.revision,
+          {
+            status: 'active',
+            identity: identity.identity,
+            verifiedAt: Date.now(),
+            errorCode: null,
+          },
+          { operation: 'rotate', outcome: 'success', actor: rotating.ownerId },
+        );
+      } catch {
+        const fresh = this.store.get(id)!;
+        this.store.transition(
+          id,
+          fresh.revision,
+          { status: 'needs_attention', errorCode: 'ROTATION_FAILED' },
+          { operation: 'rotate', outcome: 'failed', actor: fresh.ownerId },
+        );
+        throw new Error('Connection rotation failed');
+      }
+    });
+  }
   private async serial<T>(id: string, work: () => Promise<T>): Promise<T> {
     const previous = this.locks.get(id) ?? Promise.resolve();
     let release!: () => void;
