@@ -76,6 +76,10 @@ export function validateStaticConfig(config, manifest) {
     JSON.stringify(grantableProviders) === JSON.stringify(manifest.providerPolicy.grantable),
     'grantable service providers do not match the ordered stack lock',
   );
+  invariant(
+    !configuredProviders.some((provider) => grantableProviders.includes(provider)),
+    'automatic and grantable service provider policies overlap',
+  );
   const inventory = new Set(manifest.serviceProviders.map((provider) => provider.name));
   invariant(
     [...configuredProviders, ...grantableProviders].every((provider) => inventory.has(provider)),

@@ -24,7 +24,7 @@ const config = {
   image: 'mitzo-runtime:1',
   policy: '/config/policy.yaml',
   seed: '/seed/mgmt',
-  serviceProviders: ['google-workspace', 'github'],
+  serviceProviders: ['github'],
   grantableServiceProviders: ['google-workspace'],
   workspace: 'mitzo',
   gateway: 'local',
@@ -36,14 +36,14 @@ const config = {
   account: { kind: 'api' as const, provider: 'openai-work', model: 'test-model' },
 };
 const owner = '8b34dbc2c05eb4d7e25d48efeace82456b16cee760bcae80c157f52a3c2e787';
-const ready = (phase = 'Ready') =>
+const ready = (phase = 'Ready', providerPolicy = 'state-v2-github') =>
   JSON.stringify({
     name: 'sandbox',
     phase,
     labels: {
       'mitzo.conversation': owner,
       'mitzo.account_provider': 'openai-work',
-      'mitzo.provider_policy': 'state-v2-github.google-workspace',
+      'mitzo.provider_policy': providerPolicy,
     },
   });
 
@@ -69,14 +69,13 @@ describe('OpenShell runtime lifecycle', () => {
     const create = run.mock.calls[2][0] as string[];
     expect(create).toContain('create');
     expect(create).toContain('/seed/mgmt:/sandbox/workspaces');
-    expect(create.filter((value) => value === '--provider')).toHaveLength(3);
+    expect(create.filter((value) => value === '--provider')).toHaveLength(2);
     expect(create.filter((_, index) => create[index - 1] === '--provider')).toEqual([
       'openai-work',
-      'google-workspace',
       'github',
     ]);
     expect(create).toContain('mitzo.account_provider=openai-work');
-    expect(create).toContain('mitzo.provider_policy=state-v2-github.google-workspace');
+    expect(create).toContain('mitzo.provider_policy=state-v2-github');
     expect(
       create.find((value) => value.startsWith('mitzo.conversation='))?.split('=')[1],
     ).toHaveLength(63);
@@ -145,12 +144,13 @@ describe('OpenShell runtime lifecycle', () => {
   });
 
   it('revokes grant-only providers from a retained pre-change sandbox', async () => {
+    const legacyPolicyReady = ready('Ready', 'grant-v1');
     const run = vi
       .fn()
-      .mockResolvedValueOnce(ready())
+      .mockResolvedValueOnce(legacyPolicyReady)
       .mockResolvedValueOnce('{}')
       .mockResolvedValueOnce('{}')
-      .mockResolvedValueOnce(ready());
+      .mockResolvedValueOnce(legacyPolicyReady);
     await new OpenShellRuntimeManager(
       {
         ...config,
@@ -194,7 +194,7 @@ describe('OpenShell runtime lifecycle', () => {
       }),
     };
     const run = vi.fn(async (args: readonly string[]) => {
-      if (args.includes('get')) return ready();
+      if (args.includes('get')) return ready('Ready', 'grant-v1');
       return '{}';
     });
     const migratedConfig = {
@@ -391,6 +391,51 @@ describe('OpenShell runtime lifecycle', () => {
     expect(record).toEqual({ automatic: [], granted: ['google-workspace', 'github'] });
   });
 
+  it('serializes retained-sandbox reconciliation with an in-flight grant', async () => {
+    let record = { automatic: ['github'], granted: [] as string[] };
+    const policyState = {
+      read: vi.fn(() => ({
+        ...record,
+        automatic: [...record.automatic],
+        granted: [...record.granted],
+      })),
+      write: vi.fn((_name: string, next: typeof record) => {
+        record = next;
+      }),
+    };
+    let releaseAttach!: () => void;
+    const attach = new Promise<void>((resolve) => {
+      releaseAttach = resolve;
+    });
+    const commands: readonly string[][] = [];
+    const run = vi.fn(async (args: readonly string[]) => {
+      commands.push(args);
+      if (args.includes('get')) return ready();
+      if (args.includes('attach') && args.at(-1) === 'google-workspace') await attach;
+      return '{}';
+    });
+    const manager = new OpenShellRuntimeManager(config, run, undefined, undefined, policyState);
+    const runtime = {
+      sandboxName: sandboxNameForConversation('conversation'),
+      workdir: config.workdir,
+      appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+      cli: config.cli,
+      gateway: config.gateway,
+      workspace: config.workspace,
+      gatewayInsecure: false,
+    };
+    const signal = new AbortController().signal;
+    const grant = manager.grantServiceProvider('conversation', runtime, 'google-workspace', signal);
+    await vi.waitFor(() => expect(commands.some((args) => args.includes('attach'))).toBe(true));
+    const reconnect = manager.ensure('conversation', signal);
+
+    releaseAttach();
+    await Promise.all([grant, reconnect]);
+
+    expect(commands.some((args) => args.includes('detach'))).toBe(false);
+    expect(record).toEqual({ automatic: ['github'], granted: ['google-workspace'] });
+  });
+
   it('rejects unconfigured provider grants before calling OpenShell', async () => {
     const run = vi.fn();
     const manager = new OpenShellRuntimeManager(config, run);
@@ -543,13 +588,23 @@ describe('OpenShell runtime lifecycle', () => {
         MITZO_OPENSHELL_IMAGE: 'runtime:1',
         MITZO_OPENSHELL_POLICY: '/policy',
         MITZO_OPENSHELL_SEED: '/seed',
-        MITZO_OPENSHELL_SERVICE_PROVIDERS: 'google-workspace,github',
+        MITZO_OPENSHELL_SERVICE_PROVIDERS: 'github',
         MITZO_OPENSHELL_GRANTABLE_SERVICE_PROVIDERS: 'google-workspace',
       }),
     ).toMatchObject({
-      serviceProviders: ['google-workspace', 'github'],
+      serviceProviders: ['github'],
       grantableServiceProviders: ['google-workspace'],
     });
+    expect(() =>
+      openShellRuntimeConfig({
+        MITZO_OPENSHELL_ENABLED: '1',
+        MITZO_OPENSHELL_IMAGE: 'runtime:1',
+        MITZO_OPENSHELL_POLICY: '/policy',
+        MITZO_OPENSHELL_SEED: '/seed',
+        MITZO_OPENSHELL_SERVICE_PROVIDERS: 'google-workspace',
+        MITZO_OPENSHELL_GRANTABLE_SERVICE_PROVIDERS: 'google-workspace',
+      }),
+    ).toThrow('both automatic and grantable');
     expect(
       openShellRuntimeConfig({
         MITZO_OPENSHELL_ENABLED: '1',

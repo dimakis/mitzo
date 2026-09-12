@@ -51,6 +51,22 @@ describe('OpenShell production bundle validation', () => {
     });
   });
 
+  it('rejects overlapping automatic and grantable provider policies', () => {
+    const overlapping = {
+      ...manifest,
+      providerPolicy: { automatic: ['github'], grantable: ['github'] },
+    };
+    expect(() =>
+      validateStaticConfig(
+        {
+          ...config,
+          MITZO_OPENSHELL_GRANTABLE_SERVICE_PROVIDERS: 'github',
+        },
+        overlapping,
+      ),
+    ).toThrow('overlap');
+  });
+
   it('pins the production service-provider contract for GWS and GitHub CLI', () => {
     const lock = JSON.parse(
       readFileSync(

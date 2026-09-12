@@ -207,6 +207,13 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
         `OpenShell provider is not an allowed grantable service provider: ${provider}`,
       );
   }
+  const overlappingProvider = serviceProviders.find((provider) =>
+    grantableServiceProviders.includes(provider),
+  );
+  if (overlappingProvider)
+    throw new Error(
+      `OpenShell service provider cannot be both automatic and grantable: ${overlappingProvider}`,
+    );
   const webSearch = env.MITZO_OPENSHELL_WEB_SEARCH || 'disabled';
   if (webSearch !== 'disabled' && webSearch !== 'live')
     throw new Error('Invalid OpenShell web search mode');
@@ -274,7 +281,7 @@ function legacySandboxNameForConversation(conversationHash: string) {
 export class OpenShellRuntimeManager {
   private run: Run;
   private runSsh: Run;
-  private providerGrantQueues = new Map<string, Promise<void>>();
+  private providerPolicyQueues = new Map<string, Promise<void>>();
 
   constructor(
     private config: BoundOpenShellRuntimeConfig,
@@ -316,26 +323,26 @@ export class OpenShellRuntimeManager {
     }
   }
 
-  private async serializeProviderGrant<T>(
+  private async serializeProviderPolicy<T>(
     sandboxName: string,
     signal: AbortSignal,
     operation: () => Promise<T>,
   ): Promise<T> {
-    const previous = this.providerGrantQueues.get(sandboxName) ?? Promise.resolve();
+    const previous = this.providerPolicyQueues.get(sandboxName) ?? Promise.resolve();
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
     const tail = previous.catch(() => undefined).then(() => gate);
-    this.providerGrantQueues.set(sandboxName, tail);
+    this.providerPolicyQueues.set(sandboxName, tail);
     await previous.catch(() => undefined);
     try {
       signal.throwIfAborted();
       return await operation();
     } finally {
       release();
-      if (this.providerGrantQueues.get(sandboxName) === tail)
-        this.providerGrantQueues.delete(sandboxName);
+      if (this.providerPolicyQueues.get(sandboxName) === tail)
+        this.providerPolicyQueues.delete(sandboxName);
     }
   }
 
@@ -522,29 +529,33 @@ export class OpenShellRuntimeManager {
       sandbox = await this.waitForReady(name, owner, signal);
     }
     if (sandbox && sandbox.phase === 'Ready' && sandbox.labels?.['mitzo.conversation'] === owner) {
-      const automatic = [...new Set(this.config.serviceProviders)];
-      const persisted = retained ? this.providerPolicyState.read(name) : undefined;
-      const previous =
-        persisted ??
-        (retained && sandbox.labels?.[PROVIDER_POLICY_LABEL] === policyFingerprint
-          ? { automatic, granted: [] }
-          : undefined);
-      const granted = (previous?.granted ?? []).filter((provider) =>
-        this.config.grantableServiceProviders.includes(provider),
-      );
-      const desired = new Set([this.config.account.provider, ...automatic, ...granted]);
-      const previouslyAttached = new Set([
-        ...(previous?.automatic ?? []),
-        ...(previous?.granted ?? []),
-      ]);
-      const attach = retained
-        ? automatic.filter((provider) => !previouslyAttached.has(provider))
-        : [];
-      const detach = retained
-        ? [...SERVICE_PROVIDERS].filter((provider) => !desired.has(provider))
-        : [];
-      await this.reconcileServiceProviders(name, owner, attach, detach, signal);
-      this.providerPolicyState.write(name, { automatic, granted });
+      await this.serializeProviderPolicy(name, signal, async () => {
+        const automatic = [...new Set(this.config.serviceProviders)];
+        const persisted = retained ? this.providerPolicyState.read(name) : undefined;
+        const previous =
+          persisted ??
+          (retained && sandbox.labels?.[PROVIDER_POLICY_LABEL] === policyFingerprint
+            ? { automatic, granted: [] }
+            : undefined);
+        const granted = (previous?.granted ?? []).filter((provider) =>
+          this.config.grantableServiceProviders.includes(provider),
+        );
+        const desired = new Set([this.config.account.provider, ...automatic, ...granted]);
+        const previouslyAttached = new Set([
+          ...(previous?.automatic ?? []),
+          ...(previous?.granted ?? []),
+        ]);
+        const attach = retained
+          ? automatic.filter((provider) => !previouslyAttached.has(provider))
+          : [];
+        const detach = retained
+          ? [...(previous ? previouslyAttached : SERVICE_PROVIDERS)].filter(
+              (provider) => !desired.has(provider),
+            )
+          : [];
+        await this.reconcileServiceProviders(name, owner, attach, detach, signal);
+        this.providerPolicyState.write(name, { automatic, granted });
+      });
     }
     if (!sandbox || sandbox.phase !== 'Ready')
       throw new Error(`OpenShell sandbox ${name} is ${sandbox?.phase ?? 'unavailable'}`);
@@ -573,7 +584,7 @@ export class OpenShellRuntimeManager {
   ): Promise<void> {
     if (!this.config.grantableServiceProviders.includes(provider))
       throw new Error('OpenShell service provider is not grantable');
-    return this.serializeProviderGrant(runtime.sandboxName, signal, async () => {
+    return this.serializeProviderPolicy(runtime.sandboxName, signal, async () => {
       const conversationHash = createHash('sha256').update(conversationId).digest('hex');
       const currentName = sandboxNameForConversation(conversationId, this.config.sandboxIdLength);
       const legacyName = legacySandboxNameForConversation(conversationHash);
