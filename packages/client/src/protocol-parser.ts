@@ -384,6 +384,7 @@ export function parseServerMessage(
           description: msg.description as string | undefined,
           displayName: msg.displayName as string | undefined,
           tier: msg.tier as ToolTier | undefined,
+          approvalScope: msg.approvalScope as 'session' | 'conversation' | undefined,
         },
       });
       break;

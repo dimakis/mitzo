@@ -10,12 +10,14 @@ const manifest = {
   runtime: { image: 'localhost/mitzo:release-1' },
   defaults: { workspace: 'default', webSearch: 'disabled' },
   serviceProviders: [{ name: 'google-workspace' }, { name: 'github' }],
+  providerPolicy: { automatic: ['github'], grantable: ['google-workspace'] },
 };
 
 const config = {
   MITZO_OPENSHELL_ENABLED: '1',
   MITZO_OPENSHELL_IMAGE: 'localhost/mitzo:release-1',
-  MITZO_OPENSHELL_SERVICE_PROVIDERS: 'google-workspace,github',
+  MITZO_OPENSHELL_SERVICE_PROVIDERS: 'github',
+  MITZO_OPENSHELL_GRANTABLE_SERVICE_PROVIDERS: 'google-workspace',
   MITZO_OPENSHELL_WEB_SEARCH: 'disabled',
   OPENSHELL_WORKSPACE: 'default',
 };
@@ -44,8 +46,25 @@ describe('OpenShell production bundle validation', () => {
     expect(validateStaticConfig(config, manifest)).toEqual({
       enabled: true,
       image: 'localhost/mitzo:release-1',
-      configuredProviders: ['google-workspace', 'github'],
+      configuredProviders: ['github'],
+      grantableProviders: ['google-workspace'],
     });
+  });
+
+  it('rejects overlapping automatic and grantable provider policies', () => {
+    const overlapping = {
+      ...manifest,
+      providerPolicy: { automatic: ['github'], grantable: ['github'] },
+    };
+    expect(() =>
+      validateStaticConfig(
+        {
+          ...config,
+          MITZO_OPENSHELL_GRANTABLE_SERVICE_PROVIDERS: 'github',
+        },
+        overlapping,
+      ),
+    ).toThrow('overlap');
   });
 
   it('pins the production service-provider contract for GWS and GitHub CLI', () => {
@@ -68,6 +87,10 @@ describe('OpenShell production bundle validation', () => {
       },
       { name: 'github', type: 'github', credentialKeys: ['GITHUB_TOKEN'] },
     ]);
+    expect(lock.providerPolicy).toEqual({
+      automatic: ['github'],
+      grantable: ['google-workspace'],
+    });
   });
 
   it.each(['localhost/mitzo', 'localhost/mitzo:latest', 'localhost/mitzo:dev'])(
@@ -118,12 +141,21 @@ describe('OpenShell production bundle validation', () => {
       ),
       'utf8',
     );
-    for (const scope of ['drive.readonly', 'documents.readonly', 'calendar.readonly'])
+    for (const scope of [
+      'drive.readonly',
+      'documents.readonly',
+      'calendar.readonly',
+      'gmail.readonly',
+      'spreadsheets.readonly',
+    ])
       expect(profile).toContain(scope);
-    for (const host of ['www.googleapis.com', 'docs.googleapis.com'])
+    for (const host of [
+      'www.googleapis.com',
+      'docs.googleapis.com',
+      'gmail.googleapis.com',
+      'sheets.googleapis.com',
+    ])
       expect(profile).toContain(`host: ${host}`);
-    expect(profile).not.toContain('gmail.readonly');
-    expect(profile).not.toContain('gmail.googleapis.com');
     expect(profile).not.toContain('access: read-write');
   });
 

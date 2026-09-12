@@ -658,9 +658,13 @@ describe('respondToPermission', () => {
       toolName: 'Bash',
       toolInput: 'rm -rf /',
       tier: 'elevated',
+      approvalScope: 'conversation',
       sessionId: 'test-session',
     });
-    expect(store.getState().messages.permission).not.toBeNull();
+    expect(store.getState().messages.permission).toMatchObject({
+      permId: 'perm-1',
+      approvalScope: 'conversation',
+    });
 
     store.getState().respondToPermission('perm-1', 'once');
 
