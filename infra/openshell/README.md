@@ -1,5 +1,7 @@
 # Mitzo + OpenShell production bundle
 
+Lifecycle retention is opt-in. Idle stop defaults to 30 minutes, retention to seven days (five-day minimum), and reconciliation to five minutes. Automatic deletion also requires authenticated operator consent and a verified checkpoint; it is not enabled merely by retention configuration. Live sandbox cleanup remains separately untested; local Codex checkpoint round-trip coverage uses an isolated loopback provider.
+
 This directory is the non-secret release contract for the production-shaped
 Mitzo/OpenShell stack. It does not copy credentials into the repository or a
 sandbox.
