@@ -165,7 +165,7 @@ def copy_member(src,target,size):
    if done>size or done>MAX_BYTES: fail('archive member size changed')
    dst.write(c)
  if done!=size: fail('truncated archive member')
-def read_archive(path):
+def read_archive(path,stage_parent=None):
  with tarfile.open(path,'r') as tar:
   ms=tar.getmembers()
   if len(ms)>MAX_FILES: fail('too many archive members')
@@ -183,7 +183,7 @@ def read_archive(path):
   m=json.loads(raw); required={'version','conversation','thread','binding','image','policy','sandboxId','resourceVersion','accountProvider','accountId','provider','model','profileRevision','runtimeScope','routeKind','routeProvider','helper','digest'}; subscription={'routeProviderType','routeProviderId','routeGrantId'}
   if not isinstance(m,dict) or set(m) not in (required,required|subscription) or m['version']!=1 or m['helper']!='mitzo-checkpoint-v1' or not all(isinstance(m[x],str) and m[x] for x in required-{'version','helper'}): fail('unsupported manifest')
   if (m['routeKind']=='api' and set(m)&subscription) or (m['routeKind']=='chatgpt-subscription' and (set(m)&subscription)!=subscription) or m['routeKind'] not in ('api','chatgpt-subscription'): fail('unsupported route identity')
-  stage=tempfile.mkdtemp(prefix='mitzo-restore-')
+  stage=tempfile.mkdtemp(prefix='mitzo-restore-',dir=stage_parent)
   try:
    for x,n in zip(ms,names):
     if n=='manifest.json': continue
@@ -206,7 +206,8 @@ def verify(a):
  try: identity(m,a); print(json.dumps(m,sort_keys=True))
  finally: shutil.rmtree(s,ignore_errors=True)
 def restore(a):
- m,s=read_archive(a.input)
+ stage_parent=os.path.commonpath((os.path.dirname(a.provider_root),os.path.dirname(a.workspace_root))) if a.replace_fresh_roots else None
+ m,s=read_archive(a.input,stage_parent)
  try:
   identity(m,a)
   if a.destination:

@@ -129,6 +129,36 @@ it('captures and restores git, executable files, empty directories, and sqlite s
   const db = new Database(join(to, '.codex/queue_1.sqlite'));
   expect(db.prepare('SELECT v FROM t').get()).toEqual({ v: 'ok' });
   db.close();
+
+  const freshRoot = root();
+  const providerRoot = join(freshRoot, '.codex');
+  const workspaceRoot = join(freshRoot, 'nested', 'mgmt');
+  mkdirSync(providerRoot, { recursive: true });
+  mkdirSync(workspaceRoot, { recursive: true });
+  writeFileSync(join(providerRoot, 'installation_id'), 'fresh');
+  writeFileSync(join(workspaceRoot, 'fresh.txt'), 'fresh');
+  run([
+    'restore',
+    '--input',
+    archive,
+    '--provider-root',
+    providerRoot,
+    '--workspace-root',
+    workspaceRoot,
+    '--replace-fresh-roots',
+    '--conversation',
+    'c',
+    '--thread',
+    'thread',
+    '--binding',
+    'binding',
+    '--image',
+    'image',
+    '--policy',
+    'policy',
+  ]);
+  expect(readFileSync(join(workspaceRoot, 'untracked.txt'), 'utf8')).toBe('untracked');
+  expect(readFileSync(join(providerRoot, 'queue_1.sqlite')).length).toBeGreaterThan(0);
 });
 it('rejects auth state and corrupt archives', () => {
   const from = root(),
