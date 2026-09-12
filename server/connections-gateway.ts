@@ -541,7 +541,10 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
   async deleteSandbox(name: string, signal: AbortSignal) {
     if (!/^mitzo-probe-[a-f0-9]{16}$/.test(name)) throw new Error('Invalid managed probe sandbox');
     const sandbox = await this.sandbox(name, signal);
-    if (!sandbox || sandbox.labels['mitzo.connection_probe'] !== '1')
+    // A successful authoritative lookup proving absence means a failed create or prior cleanup
+    // has already reached the desired durable state. Lookup errors still propagate fail-closed.
+    if (!sandbox) return;
+    if (sandbox.labels['mitzo.connection_probe'] !== '1')
       throw new Error('Probe sandbox ownership cannot be verified');
     await this.run(['sandbox', '--workspace', this.options.workspace, 'delete', name], signal);
     if (await this.sandbox(name, signal)) throw new Error('Probe sandbox remains present');

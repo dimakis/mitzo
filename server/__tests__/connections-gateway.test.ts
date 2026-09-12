@@ -145,6 +145,14 @@ describe('OpenShellConnectionGateway', () => {
     ).rejects.toThrow('ownership');
     expect(probeRunner.mock.calls.flatMap((call) => call[0])).not.toContain('delete');
   });
+  it('treats an authoritatively absent probe sandbox as completed cleanup', async () => {
+    const name = 'mitzo-probe-1234567890abcdef';
+    const runner = vi.fn().mockResolvedValue(JSON.stringify([]));
+    await expect(
+      new OpenShellConnectionGateway(runner).deleteSandbox(name, signal),
+    ).resolves.toBeUndefined();
+    expect(runner.mock.calls.flatMap((call) => call[0])).not.toContain('delete');
+  });
   it('rejects a caller-supplied probe name before creating a sandbox', async () => {
     const gateway = new OpenShellConnectionGateway(vi.fn(), {
       workspace: 'default',

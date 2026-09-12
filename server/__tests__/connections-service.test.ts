@@ -4,7 +4,27 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { ConnectionStore } from '../connections-store.js';
 import { ConnectionsService } from '../connections-service.js';
+import { OpenShellConnectionGateway } from '../connections-gateway.js';
 describe('ConnectionsService', () => {
+  it('finishes durable probe cleanup when the gateway authoritatively reports an absent sandbox', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
+    const store = new ConnectionStore(join(dir, 'db'));
+    const item = store.create({
+      ownerId: 'operator',
+      templateId: 'jira-readonly',
+      templateVersion: 1,
+      label: 'Jira',
+      endpoint: 'https://redhat.atlassian.net',
+      gatewayProviderName: 'mitzo-conn-12345678',
+      desiredAccountIds: [],
+    });
+    store.startProbe(item, 'mitzo-probe-1234567890abcdef');
+    const gateway = new OpenShellConnectionGateway(vi.fn().mockResolvedValue('[]'));
+    await new ConnectionsService(store, gateway).reconcile(AbortSignal.timeout(500));
+    expect(store.pendingProbes()).toEqual([]);
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
   it('does not mark failed provisioning active and retries revoke after restart', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
     const store = new ConnectionStore(join(dir, 'db'));
