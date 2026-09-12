@@ -190,33 +190,6 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
         throw error;
       throw new Error('Reviewed Jira profile cannot be read', { cause: error });
     }
-    await this.run(
-      [
-        'provider',
-        '--workspace',
-        this.options.workspace,
-        'profile',
-        'lint',
-        '--file',
-        this.options.profilePath,
-      ],
-      signal,
-    );
-    await this.run(
-      [
-        'provider',
-        '--workspace',
-        this.options.workspace,
-        'list',
-        '--limit',
-        '1',
-        '--offset',
-        '0',
-        '-o',
-        'json',
-      ],
-      signal,
-    );
     const profileList = ProfileList.safeParse(
       JSON.parse(
         await this.run(
@@ -227,6 +200,18 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
     );
     if (!profileList.success) throw new Error('Gateway returned invalid provider profile metadata');
     if (!profileList.data.some((profile) => profile.id === JIRA_TEMPLATE_ID)) {
+      await this.run(
+        [
+          'provider',
+          '--workspace',
+          this.options.workspace,
+          'profile',
+          'lint',
+          '--file',
+          this.options.profilePath,
+        ],
+        signal,
+      );
       await this.run(
         [
           'provider',
