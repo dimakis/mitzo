@@ -1,6 +1,13 @@
 import { protectCodexProfileRoots } from './codex-private-path.js';
 import { cachedModels, CatalogModel, refreshModels, readCodexModels } from './model-catalog.js';
 import { CredentialReferenceSchema } from './credentials.js';
+import { CodexAppServerClient } from './codex-app-server-client.js';
+import { verifyCodexAccount } from './codex-account.js';
+import {
+  OpenShellRuntimeManager,
+  openShellRuntimeConfig,
+  type OpenShellAccountRoute,
+} from './openshell-runtime.js';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -88,6 +95,7 @@ const Profile = z.discriminatedUnion('provider', [
   CodexProfile,
   ApiProfile,
 ]);
+const MODEL_DISCOVERY_TIMEOUT_MS = 60_000;
 
 function supportedModels(
   provider: z.infer<typeof Profile>['provider'],
@@ -100,13 +108,43 @@ function supportedModels(
     : models;
 }
 
+function withDiscoveryDeadline<T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new Error('Model discovery timed out'));
+    signal.addEventListener('abort', onAbort, { once: true });
+    if (signal.aborted) {
+      signal.removeEventListener('abort', onAbort);
+      onAbort();
+      return;
+    }
+    let pending: Promise<T>;
+    try {
+      pending = operation();
+    } catch (error) {
+      signal.removeEventListener('abort', onAbort);
+      reject(error);
+      return;
+    }
+    pending.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
 /** Account configuration is server-owned; invocation adapters remain harness-owned. */
 export class AccountProfiles {
   private profiles: z.infer<typeof Profile>[];
 
   constructor(
     config: unknown,
-    private options: { codexEnabled?: boolean } = {},
+    private options: { codexEnabled?: boolean; modelDiscoveryTimeoutMs?: number } = {},
   ) {
     const parsed = z.array(Profile).safeParse(config);
     if (!parsed.success)
@@ -184,34 +222,107 @@ export class AccountProfiles {
           refreshModels(
             JSON.stringify(profile),
             async () => {
-              if (profile.provider === 'openai-codex') {
-                if (!profile.credentialRef) return profile.models;
-                const { CodexAppServerClient } = await import('./codex-app-server-client.js');
-                const { verifyCodexAccount } = await import('./codex-account.js');
-                const client = CodexAppServerClient.launch(profile.credentialRef);
-                try {
-                  await client.initialize();
-                  await verifyCodexAccount(client, {
-                    accountId: profile.id,
-                    accountLabel: profile.label,
-                    credentialRef: profile.credentialRef,
-                    email: profile.email,
-                    planType: profile.planType,
-                    workspaceId: profile.workspaceId,
-                    sandboxProvider: profile.sandboxProvider,
-                    model: profile.models[0].id,
-                  });
-                  return await readCodexModels(client);
-                } finally {
-                  client.close();
-                }
-              }
-              return profile.models;
+              if (profile.provider !== 'openai-codex') return profile.models;
+              return this.discoverCodexModels(profile);
             },
             force,
           ),
         ),
     );
+  }
+
+  /** Model discovery is deliberately account-scoped, not conversation-scoped.
+   * The named sandbox is reusable for the one-hour catalog cache and distinct
+   * from chat runtimes. OpenShell validates the selected provider/grant before
+   * it is created or reused; only that inference provider is attached. A route
+   * identity hash prevents a retained sandbox from blocking a rebinding under
+   * the same profile ID. It is retained by OpenShell beyond the one-hour catalog
+   * cache; provider/grant rotation produces a new retained sandbox and the old
+   * one remains subject to the established OpenShell sandbox lifecycle/cleanup. */
+  private async launchBrokeredModelDiscovery(
+    profile: Extract<z.infer<typeof Profile>, { provider: 'openai-codex' }>,
+    signal: AbortSignal,
+  ) {
+    const configuredRuntime = openShellRuntimeConfig(process.env);
+    if (!configuredRuntime)
+      throw new Error('OpenShell runtime configuration is required for brokered model discovery');
+    if (
+      !profile.sandboxProvider ||
+      !profile.sandboxProviderType ||
+      !profile.sandboxProviderId ||
+      !profile.sandboxGrantId
+    )
+      throw new Error('Brokered subscription binding is incomplete');
+    const account: OpenShellAccountRoute = {
+      kind: 'chatgpt-subscription',
+      provider: profile.sandboxProvider,
+      providerType: profile.sandboxProviderType,
+      providerId: profile.sandboxProviderId,
+      grantId: profile.sandboxGrantId,
+      model: profile.models[0].id,
+    };
+    const manager = new OpenShellRuntimeManager({
+      ...configuredRuntime,
+      // Model listing does not need host service providers or compiled context.
+      serviceProviders: [],
+      account,
+    });
+    const routeIdentity = createHash('sha256')
+      .update(
+        JSON.stringify([
+          profile.sandboxProvider,
+          profile.sandboxProviderType,
+          profile.sandboxProviderId,
+          profile.sandboxGrantId,
+        ]),
+      )
+      .digest('hex');
+    const runtime = await manager.ensure(`model-discovery:${profile.id}:${routeIdentity}`, signal);
+    return CodexAppServerClient.launchOpenShell(runtime);
+  }
+
+  private async discoverCodexModels(
+    profile: Extract<z.infer<typeof Profile>, { provider: 'openai-codex' }>,
+  ) {
+    const deadline = new AbortController();
+    const timeout = setTimeout(
+      () => deadline.abort(),
+      this.options.modelDiscoveryTimeoutMs ?? MODEL_DISCOVERY_TIMEOUT_MS,
+    );
+    let client:
+      | ReturnType<typeof CodexAppServerClient.launch>
+      | ReturnType<typeof CodexAppServerClient.launchOpenShell>
+      | undefined;
+    try {
+      client = profile.credentialRef
+        ? CodexAppServerClient.launch(profile.credentialRef)
+        : await this.launchBrokeredModelDiscovery(profile, deadline.signal);
+      await withDiscoveryDeadline(() => client!.initialize(), deadline.signal);
+      // Brokered account/read does not identify the configured host login.
+      // Its OpenShell provider/grant was verified before launch instead.
+      if (profile.credentialRef)
+        await withDiscoveryDeadline(
+          () =>
+            verifyCodexAccount(client!, {
+              accountId: profile.id,
+              accountLabel: profile.label,
+              credentialRef: profile.credentialRef,
+              email: profile.email,
+              planType: profile.planType,
+              workspaceId: profile.workspaceId,
+              sandboxProvider: profile.sandboxProvider,
+              model: profile.models[0].id,
+            }),
+          deadline.signal,
+        );
+      return await readCodexModels({
+        request: (method, params) =>
+          withDiscoveryDeadline(() => client!.request(method, params), deadline.signal),
+      });
+    } finally {
+      clearTimeout(timeout);
+      client?.close();
+    }
   }
 
   resolve(accountId: string, model?: string, configured = false): AccountBinding {
