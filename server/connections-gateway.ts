@@ -61,6 +61,8 @@ const JiraProfile = z
   })
   .strict();
 const ProfileList = z.array(z.object({ id: z.string().min(1) }).passthrough());
+const ProbeSandboxName = /^mzp-[a-f0-9]{15}$/;
+const CleanupProbeSandboxName = /^(?:mzp-[a-f0-9]{15}|mitzo-probe-[a-f0-9]{16})$/;
 
 /** The profile is a security policy, so approximate matches are unsafe. */
 export function validateJiraProfileYaml(value: string): void {
@@ -454,8 +456,8 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
       throw new Error('Gateway identity probe is invalid');
     const name =
       input.sandboxName ??
-      `mitzo-probe-${createHash('sha256').update(`${input.providerName}:${randomUUID()}`).digest('hex').slice(0, 16)}`;
-    if (!/^mitzo-probe-[a-f0-9]{16}$/.test(name)) throw new Error('Invalid managed probe sandbox');
+      `mzp-${createHash('sha256').update(`${input.providerName}:${randomUUID()}`).digest('hex').slice(0, 15)}`;
+    if (!ProbeSandboxName.test(name)) throw new Error('Invalid managed probe sandbox');
     const probe =
       "import base64,json,os,ssl,urllib.request;u=os.environ['JIRA_URL']+'/rest/api/3/myself';a=base64.b64encode((os.environ['JIRA_EMAIL']+':'+os.environ['JIRA_API_TOKEN']).encode()).decode();H=type('H',(urllib.request.HTTPRedirectHandler,),{'redirect_request':lambda s,*x:(_ for _ in ()).throw(RuntimeError('redirect denied'))});o=urllib.request.build_opener(H());r=urllib.request.Request(u,headers={'Authorization':'Basic '+a});x=o.open(r,timeout=10);b=x.read(65537);assert len(b)<=65536;d=json.loads(b);print(json.dumps({'accountId':d['accountId']},separators=(',',':')))";
     try {
@@ -488,7 +490,7 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
         signal,
       );
       const created = z
-        .object({ name: z.string().regex(/^mitzo-probe-[a-f0-9]{16}$/), phase: z.string() })
+        .object({ name: z.string().regex(ProbeSandboxName), phase: z.string() })
         .parse(JSON.parse(createOutput));
       if (created.name !== name) throw new Error('Probe sandbox identity mismatch');
       let ready = false;
@@ -539,7 +541,7 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
     }
   }
   async deleteSandbox(name: string, signal: AbortSignal) {
-    if (!/^mitzo-probe-[a-f0-9]{16}$/.test(name)) throw new Error('Invalid managed probe sandbox');
+    if (!CleanupProbeSandboxName.test(name)) throw new Error('Invalid managed probe sandbox');
     const sandbox = await this.sandbox(name, signal);
     // A successful authoritative lookup proving absence means a failed create or prior cleanup
     // has already reached the desired durable state. Lookup errors still propagate fail-closed.

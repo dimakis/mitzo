@@ -191,7 +191,7 @@ export class ConnectionsService {
     return this.provision(c, token, signal);
   }
   private async runProbe(c: Connection, signal: AbortSignal) {
-    const sandboxName = `mitzo-probe-${randomUUID().replaceAll('-', '').slice(0, 16)}`;
+    const sandboxName = `mzp-${randomUUID().replaceAll('-', '').slice(0, 15)}`;
     const op = this.store.startProbe(c, sandboxName);
     let result: { identity: string } | undefined;
     try {

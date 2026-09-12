@@ -54,6 +54,9 @@ describe('Connections lifecycle regressions', () => {
     ).rejects.toThrow();
     expect(x.store.get(x.connection.id)?.status).not.toBe('active');
     expect(x.store.pendingProbes()).toHaveLength(1);
+    const probeInput = x.gateway.probe.mock.calls[0]![0] as { sandboxName: string };
+    expect(probeInput.sandboxName).toMatch(/^mzp-[a-f0-9]{15}$/);
+    expect(probeInput.sandboxName).toHaveLength(19);
     x.store.close();
     rmSync(x.dir, { recursive: true, force: true });
   });

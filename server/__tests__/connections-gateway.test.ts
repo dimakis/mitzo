@@ -183,7 +183,7 @@ describe('OpenShellConnectionGateway', () => {
     expect(probeRunner.mock.calls.flatMap((call) => call[0])).not.toContain('delete');
   });
   it('treats an authoritatively absent probe sandbox as completed cleanup', async () => {
-    const name = 'mitzo-probe-1234567890abcdef';
+    const name = 'mzp-1234567890abcde';
     const runner = vi.fn().mockResolvedValue(JSON.stringify([]));
     await expect(
       new OpenShellConnectionGateway(runner).deleteSandbox(name, signal),
@@ -204,7 +204,7 @@ describe('OpenShellConnectionGateway', () => {
       ),
     ).rejects.toThrow();
   });
-  it('rejects a caller-supplied probe name before creating a sandbox', async () => {
+  it('rejects a caller-supplied legacy overlength probe name before creating a sandbox', async () => {
     const gateway = new OpenShellConnectionGateway(vi.fn(), {
       workspace: 'default',
       probeImage: 'approved:image',
@@ -215,7 +215,7 @@ describe('OpenShellConnectionGateway', () => {
         {
           providerName: 'mitzo-conn-12345678',
           email: 'person@example.com',
-          sandboxName: 'not-a-probe',
+          sandboxName: 'mitzo-probe-1234567890abcdef',
         },
         signal,
       ),
@@ -250,6 +250,8 @@ describe('OpenShellConnectionGateway', () => {
       (call[0] as string[]).includes('exec'),
     )![0] as string[];
     expect(create).toContain('--detach');
+    expect(createdName).toMatch(/^mzp-[a-f0-9]{15}$/);
+    expect(createdName).toHaveLength(19);
     expect(create).toContain('-o');
     expect(create).toContain('json');
     expect(exec).toContain('exec');
