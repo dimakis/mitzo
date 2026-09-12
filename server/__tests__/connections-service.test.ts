@@ -6,6 +6,67 @@ import { ConnectionStore } from '../connections-store.js';
 import { ConnectionsService } from '../connections-service.js';
 import { ConnectionProbeError, OpenShellConnectionGateway } from '../connections-gateway.js';
 describe('ConnectionsService', () => {
+  it('retains a typed probe error after rotation candidate cleanup', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
+    const store = new ConnectionStore(join(dir, 'db'));
+    const item = store.create({
+      ownerId: 'operator',
+      templateId: 'jira-readonly',
+      templateVersion: 1,
+      label: 'Jira',
+      endpoint: 'https://redhat.atlassian.net',
+      gatewayProviderName: 'mitzo-conn-12345678',
+      desiredAccountIds: [],
+      submittedEmail: 'person@example.test',
+    });
+    const active = store.transition(
+      item.id,
+      item.revision,
+      { status: 'active', gatewayProviderId: 'p1', identity: 'account', verifiedAt: Date.now() },
+      { operation: 'provision', outcome: 'success', actor: 'operator' },
+    );
+    const original = {
+      id: 'p1',
+      name: active.gatewayProviderName,
+      workspace: 'default',
+      type: 'jira-readonly',
+      credentialKeys: ['JIRA_API_TOKEN'],
+    };
+    const gateway = {
+      verifyCompatibility: vi.fn(),
+      provision: vi.fn(async ({ name }: { name: string }) => ({
+        ...original,
+        id: 'candidate',
+        name,
+      })),
+      rotate: vi.fn(),
+      get: vi.fn(async (name: string) =>
+        name === active.gatewayProviderName ? original : undefined,
+      ),
+      list: vi.fn(),
+      delete: vi.fn(),
+      attachments: vi.fn().mockResolvedValue([]),
+      stopSandbox: vi.fn(),
+      sandboxStopped: vi.fn().mockResolvedValue(true),
+      detach: vi.fn(),
+      probe: vi.fn().mockRejectedValue(new ConnectionProbeError('JIRA_PERMISSION_DENIED')),
+      deleteSandbox: vi.fn().mockResolvedValue(undefined),
+      sandbox: vi.fn(),
+      sandboxProviders: vi.fn(),
+    };
+    await expect(
+      new ConnectionsService(store, gateway as never).rotate(
+        active.id,
+        active.revision,
+        'token',
+        AbortSignal.timeout(500),
+      ),
+    ).rejects.toThrow('rotation failed');
+    expect(store.get(active.id)).toMatchObject({ errorCode: 'JIRA_PERMISSION_DENIED' });
+    expect(store.candidates()).toEqual([]);
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
   it('quarantines a typed probe failure, cleans it up, then records only its safe code', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
     const store = new ConnectionStore(join(dir, 'db'));
