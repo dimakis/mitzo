@@ -9,6 +9,24 @@ export class ConnectionsService {
     private readonly store: ConnectionStore,
     private readonly gateway: ConnectionGateway,
   ) {}
+  catalog(ownerId = 'operator') {
+    return this.store.list(ownerId);
+  }
+  resolveForAccount(accountId: string, ownerId = 'operator') {
+    return (
+      this.store
+        .list(ownerId)
+        .find(
+          (connection) =>
+            connection.status === 'active' &&
+            !!connection.verifiedAt &&
+            connection.desiredAccountIds.includes(accountId),
+        ) ?? null
+    );
+  }
+  setAssignments(id: string, revision: number, accountIds: string[], actor = 'operator') {
+    return this.store.setAssignments(id, revision, accountIds, actor);
+  }
   private async serial<T>(id: string, work: () => Promise<T>): Promise<T> {
     const previous = this.locks.get(id) ?? Promise.resolve();
     let release!: () => void;

@@ -272,7 +272,7 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
       input.sandboxName ??
       `mitzo-probe-${createHash('sha256').update(`${input.providerName}:${randomUUID()}`).digest('hex').slice(0, 16)}`;
     const probe =
-      "import base64,json,os,ssl,urllib.request;u=os.environ['JIRA_URL']+'/rest/api/3/myself';a=base64.b64encode((os.environ['JIRA_EMAIL']+':'+os.environ['JIRA_API_TOKEN']).encode()).decode();r=urllib.request.Request(u,headers={'Authorization':'Basic '+a});x=urllib.request.urlopen(r,timeout=10,context=ssl.create_default_context());b=x.read(65536);d=json.loads(b);print(json.dumps({'accountId':d['accountId'],'displayName':d.get('displayName','')},separators=(',',':')))";
+      "import base64,json,os,ssl,urllib.request;u=os.environ['JIRA_URL']+'/rest/api/3/myself';a=base64.b64encode((os.environ['JIRA_EMAIL']+':'+os.environ['JIRA_API_TOKEN']).encode()).decode();H=type('H',(urllib.request.HTTPRedirectHandler,),{'redirect_request':lambda s,*x:(_ for _ in ()).throw(RuntimeError('redirect denied'))});o=urllib.request.build_opener(H());r=urllib.request.Request(u,headers={'Authorization':'Basic '+a});x=o.open(r,timeout=10);b=x.read(65537);assert len(b)<=65536;d=json.loads(b);print(json.dumps({'accountId':d['accountId']},separators=(',',':')))";
     try {
       const createOutput = await this.run(
         [
@@ -300,9 +300,11 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
         ],
         signal,
       );
-      z.object({ name: z.string().regex(/^mitzo-probe-[a-f0-9]{16}$/), phase: z.string() }).parse(
-        JSON.parse(createOutput),
-      );
+      const created = z
+        .object({ name: z.string().regex(/^mitzo-probe-[a-f0-9]{16}$/), phase: z.string() })
+        .parse(JSON.parse(createOutput));
+      if (created.name !== name || created.phase !== 'Ready')
+        throw new Error('Probe sandbox is not Ready');
       const output = await this.run(
         [
           'sandbox',
@@ -326,7 +328,7 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
         signal,
       );
       const identity = z
-        .object({ accountId: z.string().min(1).max(128), displayName: z.string().max(256) })
+        .object({ accountId: z.string().min(1).max(128) })
         .parse(JSON.parse(output));
       return {
         identity: identity.accountId,
