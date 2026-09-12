@@ -320,18 +320,18 @@ export function ChatView() {
             </>
           )}
         </header>
+        {activeSessionId && (
+          <div className="mobile-session-context">
+            <StatusBar
+              connected={connected}
+              sessionId={activeSessionId}
+              branch={messages.branch || undefined}
+              isWorktree={messages.isWorktree}
+              wtId={messages.wtId || undefined}
+            />
+          </div>
+        )}
       </WorkspaceControls>
-      {activeSessionId && (
-        <div className="mobile-session-context">
-          <StatusBar
-            connected={connected}
-            sessionId={activeSessionId}
-            branch={messages.branch || undefined}
-            isWorktree={messages.isWorktree}
-            wtId={messages.wtId || undefined}
-          />
-        </div>
-      )}
       {(sendError || sendStatus) && (
         <div
           role={sendError ? 'alert' : 'status'}

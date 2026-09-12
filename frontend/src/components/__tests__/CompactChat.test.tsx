@@ -67,6 +67,12 @@ it('opens the named command picker without destroying a draft', () => {
   expect((input as HTMLTextAreaElement).value).toBe('Keep this draft');
 });
 
+it('keeps the command action named while allowing its desktop label to collapse on mobile', () => {
+  const { container } = render(<ChatInput onSend={() => true} onStop={vi.fn()} running={false} />);
+  expect(screen.getByRole('button', { name: 'Commands' })).toBeTruthy();
+  expect(container.querySelector('.chat-input-command-label')?.textContent).toBe('Commands');
+});
+
 it('labels the stop action and preserves its behavior', () => {
   const stop = vi.fn();
   render(<ChatInput onSend={() => true} onStop={stop} running />);

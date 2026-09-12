@@ -50,7 +50,13 @@ describe('ToolPill', () => {
     };
     render(wrap(<ToolPill block={block} />));
     expect(screen.queryByText('/a.txt')).toBeNull();
-    fireEvent.click(screen.getByRole('button'));
+    const toggle = screen.getByRole('button', { name: /Read/ });
+    expect(toggle.getAttribute('type')).toBe('button');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    const contentId = toggle.getAttribute('aria-controls');
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(document.getElementById(contentId!)).toBeTruthy();
     expect(screen.getByText('/a.txt')).toBeTruthy();
   });
 

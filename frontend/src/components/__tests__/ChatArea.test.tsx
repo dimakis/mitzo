@@ -23,7 +23,13 @@ vi.mock('../ToolPill', () => ({
 }));
 
 vi.mock('../ToolGroup', () => ({
-  ToolGroup: () => <div data-testid="tool-group" />,
+  ToolGroup: ({ tools }: { tools: Array<{ blockId: string }> }) => (
+    <div data-testid="tool-group">{tools.map((tool) => tool.blockId).join(',')}</div>
+  ),
+}));
+
+vi.mock('../ProgressWidget', () => ({
+  ProgressWidget: () => <div data-testid="progress-widget" />,
 }));
 
 vi.mock('../PermissionBanner', () => ({
@@ -126,6 +132,80 @@ describe('ChatArea', () => {
     ];
     render(<ChatArea {...defaultProps} messages={messages} />);
     expect(screen.getByTestId('thinking-block')).toBeTruthy();
+  });
+
+  it('routes finished ordinary tool calls through ToolGroup while progress tools remain direct', () => {
+    const messages: FinishedMessage[] = [
+      {
+        messageId: 'a1',
+        role: 'assistant',
+        blocks: [
+          {
+            blockId: 'ordinary',
+            blockType: 'tool_use',
+            content: '',
+            toolId: 'ordinary',
+            toolName: 'Read',
+          },
+          {
+            blockId: 'progress',
+            blockType: 'tool_use',
+            content: '',
+            toolId: 'progress',
+            toolName: 'TodoWrite',
+          },
+        ],
+      },
+    ];
+    render(
+      <ChatArea
+        {...defaultProps}
+        messages={messages}
+        progressByToolId={{ progress: { progressId: 'progress', items: [] } }}
+      />,
+    );
+    expect(screen.getByTestId('tool-group').textContent).toContain('ordinary');
+    expect(screen.getByTestId('progress-widget')).toBeTruthy();
+  });
+
+  it('routes streaming ordinary tool calls through ToolGroup while progress tools remain direct', () => {
+    const current = {
+      messageId: 'stream-1',
+      blocks: new Map<string, StreamingBlock>([
+        [
+          'ordinary',
+          {
+            blockId: 'ordinary',
+            blockType: 'tool_use',
+            content: '',
+            toolId: 'ordinary',
+            toolName: 'Read',
+            done: false,
+          },
+        ],
+        [
+          'progress',
+          {
+            blockId: 'progress',
+            blockType: 'tool_use',
+            content: '',
+            toolId: 'progress',
+            toolName: 'TodoWrite',
+            done: false,
+          },
+        ],
+      ]),
+      blockOrder: ['ordinary', 'progress'],
+    };
+    render(
+      <ChatArea
+        {...defaultProps}
+        current={current}
+        progressByToolId={{ progress: { progressId: 'progress', items: [] } }}
+      />,
+    );
+    expect(screen.getByTestId('tool-group').textContent).toContain('ordinary');
+    expect(screen.getByTestId('progress-widget')).toBeTruthy();
   });
 
   it('scrolls to bottom when messages appear for the first time (session restore)', async () => {

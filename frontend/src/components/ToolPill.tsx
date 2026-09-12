@@ -1,11 +1,12 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useId } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { StreamingBlock, FinishedBlock, RawToolInput } from '../types/chat';
+import { getToolStatus, type ToolBlock } from '../lib/tool-status';
 import { SubagentCard } from './SubagentCard';
 import { CodeBlock } from './CodeBlock';
 
 interface Props {
-  block: StreamingBlock | FinishedBlock;
+  block: ToolBlock;
 }
 
 function RawInputDetail({
@@ -131,9 +132,8 @@ export function ToolPill({ block }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
   const [expanded, setExpanded] = useState(false);
-  const done =
-    block.toolResult !== undefined || (block.toolResultImages && block.toolResultImages.length > 0);
-  const hasError = (block as StreamingBlock).toolError === true;
+  const detailId = useId();
+  const { done, hasError } = getToolStatus(block);
   const input = block.toolInput || '';
 
   const handlePopOut = useCallback(
@@ -150,7 +150,13 @@ export function ToolPill({ block }: Props) {
     <div
       className={`tool-pill ${done ? (hasError ? 'tool-pill--error' : 'tool-pill--done') : 'tool-pill--running'}`}
     >
-      <button className="tool-pill-header" onClick={() => setExpanded((e) => !e)}>
+      <button
+        type="button"
+        className="tool-pill-header"
+        onClick={() => setExpanded((e) => !e)}
+        aria-expanded={expanded}
+        aria-controls={detailId}
+      >
         <span
           className={`tool-pill-dot ${done ? (hasError ? 'tool-pill-dot--error' : 'tool-pill-dot--done') : 'tool-pill-dot--pending'}`}
         />
@@ -160,7 +166,7 @@ export function ToolPill({ block }: Props) {
         <span className="tool-pill-chevron">{expanded ? '▾' : '▸'}</span>
       </button>
       {expanded && (
-        <div className="tool-pill-detail">
+        <div id={detailId} className="tool-pill-detail">
           {block.rawInput ? (
             <RawInputDetail raw={block.rawInput} onPopOut={handlePopOut} />
           ) : (

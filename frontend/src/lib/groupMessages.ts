@@ -1,34 +1,30 @@
-import type { FinishedBlock } from '../types/chat';
-import { TOOL_GROUP_THRESHOLD } from './constants';
+import type { FinishedBlock, StreamingBlock } from '../types/chat';
 
-export type GroupedBlock =
-  | { type: 'block'; block: FinishedBlock }
-  | { type: 'tool-group'; tools: FinishedBlock[]; key: string };
+export type ChatBlock = FinishedBlock | StreamingBlock;
+
+export type GroupedBlock<T extends ChatBlock = FinishedBlock> =
+  { type: 'block'; block: T } | { type: 'tool-group'; tools: T[]; key: string };
 
 /**
  * Group consecutive tool_use blocks into collapsible ToolGroups.
  * Blocks whose toolId appears in `progressToolIds` are excluded from grouping
  * (they render as ProgressWidget and should always be visible).
  */
-export function groupBlocks(
-  blocks: FinishedBlock[],
+export function groupBlocks<T extends ChatBlock>(
+  blocks: T[],
   progressToolIds?: Set<string>,
-): GroupedBlock[] {
+): GroupedBlock<T>[] {
   if (!Array.isArray(blocks)) return [];
-  const result: GroupedBlock[] = [];
-  let toolBuffer: FinishedBlock[] = [];
+  const result: GroupedBlock<T>[] = [];
+  let toolBuffer: T[] = [];
 
   function flushTools() {
     if (toolBuffer.length === 0) return;
-    if (toolBuffer.length >= TOOL_GROUP_THRESHOLD) {
-      result.push({
-        type: 'tool-group',
-        tools: toolBuffer,
-        key: toolBuffer[0].blockId ?? `tg-${result.length}`,
-      });
-    } else {
-      for (const t of toolBuffer) result.push({ type: 'block', block: t });
-    }
+    result.push({
+      type: 'tool-group',
+      tools: toolBuffer,
+      key: toolBuffer[0].blockId ?? `tg-${result.length}`,
+    });
     toolBuffer = [];
   }
 
