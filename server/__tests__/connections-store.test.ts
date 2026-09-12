@@ -136,4 +136,25 @@ describe('ConnectionStore', () => {
     store = new ConnectionStore(join(directory, 'connections.db'));
     expect(store.incomplete().map((item) => item.status)).toEqual(['revoking']);
   });
+
+  it('archives only a revoked connection while retaining its audit record', () => {
+    const connection = create();
+    const revoked = store.transition(
+      connection.id,
+      connection.revision,
+      { status: 'revoked', desiredAccountIds: [], errorCode: null },
+      { operation: 'revoke', outcome: 'success', actor: 'operator' },
+    );
+    const archived = store.archive(revoked.id, revoked.revision, 'operator');
+    expect(archived.archivedAt).toEqual(expect.any(Number));
+    expect(store.list('operator')).toEqual([]);
+    expect(store.get(connection.id)?.archivedAt).toBe(archived.archivedAt);
+    expect(store.audit(connection.id).at(-1)).toMatchObject({
+      operation: 'archive',
+      outcome: 'success',
+    });
+    expect(() => store.archive(connection.id, archived.revision, 'operator')).toThrow(
+      /already archived/i,
+    );
+  });
 });

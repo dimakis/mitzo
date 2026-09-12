@@ -142,7 +142,9 @@ function configureConnectionsRuntime(): void {
     });
     setAppConnectionsRuntime(runtime);
     const reconcile = () => {
-      void runtime.service.reconcile(AbortSignal.timeout(30_000)).catch((error) => {
+      // Reconciliation can need Podman's 45-second stop/delete timeout while
+      // draining a quarantined sandbox, plus gateway polling overhead.
+      void runtime.service.reconcile(AbortSignal.timeout(120_000)).catch((error) => {
         log.warn('Connections reconciliation pending', {
           error: error instanceof Error ? error.message : 'unknown',
         });

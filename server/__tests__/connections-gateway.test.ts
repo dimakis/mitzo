@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   OpenShellConnectionGateway,
+  JIRA_API_ENDPOINT,
   parseProviderAttachments,
   validateJiraProfileYaml,
 } from '../connections-gateway.js';
@@ -57,14 +58,21 @@ describe('OpenShellConnectionGateway', () => {
       'utf8',
     );
     for (const replacement of [
-      ['host: redhat.atlassian.net', 'host: evil.example'],
+      ['host: api.atlassian.com', 'host: evil.example'],
       ['port: 443', 'port: 8443'],
-      ['access: read-only', 'access: read-write'],
       ['enforcement: enforce', 'enforcement: audit'],
       ['tls: terminate', 'tls: passthrough'],
       ['inference_capable: false', 'inference_capable: true'],
       ['env_vars: [JIRA_API_TOKEN]', 'env_vars: [JIRA_TOKEN]'],
       ['  - /usr/local/bin/curl', '  - /bin/sh'],
+      [
+        'method: GET, path: /ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api/2/**',
+        'method: POST, path: /ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api/2/**',
+      ],
+      [
+        '/ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api/3/**',
+        '/ex/jira/other-tenant/rest/api/3/**',
+      ],
     ]) {
       expect(() =>
         validateJiraProfileYaml(profile.replace(replacement[0], replacement[1])),
@@ -136,8 +144,8 @@ describe('OpenShellConnectionGateway', () => {
       .mockResolvedValueOnce(JSON.stringify([{ id: 'jira-readonly' }]))
       .mockResolvedValueOnce(
         readFileSync(resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'), 'utf8').replace(
-          'access: read-only',
-          'access: read-write',
+          'enforcement: enforce',
+          'enforcement: audit',
         ),
       );
     const gateway = new OpenShellConnectionGateway(runner, {
@@ -313,6 +321,8 @@ describe('OpenShellConnectionGateway', () => {
     expect(exec.join(' ')).toContain("'Authorization':'Basic '");
     expect(exec.join(' ')).toContain('redirect denied');
     expect(exec.join(' ')).toContain('read(65537)');
+    expect(create).toContain(`JIRA_URL=${JIRA_API_ENDPOINT}`);
+    expect(exec).toContain(`JIRA_URL=${JIRA_API_ENDPOINT}`);
   });
   it('recovers an ambiguous create only for the owned ready probe sandbox', async () => {
     const name = 'mzp-1234567890abcde';
@@ -406,4 +416,51 @@ describe('OpenShellConnectionGateway', () => {
       if (kind === 'aborted') expect(runner).toHaveBeenCalledTimes(1);
     },
   );
+  it('allows the pinned gateway stop grace period when deleting a probe', async () => {
+    const name = 'mzp-1234567890abcde';
+    const runner = vi
+      .fn()
+      .mockResolvedValueOnce(
+        JSON.stringify([{ name, phase: 'Ready', labels: { 'mitzo.connection_probe': '1' } }]),
+      )
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce('[]');
+    await new OpenShellConnectionGateway(runner).deleteSandbox(name, signal);
+    expect(runner.mock.calls[1][1].timeoutMs).toBe(90_000);
+  });
+  it('waits for authoritative absence after deletion acknowledges a stopping probe', async () => {
+    const name = 'mzp-1234567890abcde';
+    const owned = JSON.stringify([
+      { name, phase: 'Deleting', labels: { 'mitzo.connection_probe': '1' } },
+    ]);
+    const runner = vi
+      .fn()
+      .mockResolvedValueOnce(owned)
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce(owned)
+      .mockResolvedValueOnce('[]');
+    await expect(
+      new OpenShellConnectionGateway(runner).deleteSandbox(name, signal),
+    ).resolves.toBeUndefined();
+    expect(runner).toHaveBeenCalledTimes(4);
+  });
+  it('keeps checking asynchronous deletion beyond two seconds within the cleanup deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      const name = 'mzp-1234567890abcde';
+      const start = Date.now();
+      const owned = JSON.stringify([
+        { name, phase: 'Deleting', labels: { 'mitzo.connection_probe': '1' } },
+      ]);
+      const runner = vi.fn(async (args: readonly string[]) =>
+        args.includes('delete') ? '' : Date.now() - start >= 45_000 ? '[]' : owned,
+      );
+      const done = new OpenShellConnectionGateway(runner).deleteSandbox(name, signal);
+      const assertion = expect(done).resolves.toBeUndefined();
+      await vi.advanceTimersByTimeAsync(45_000);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

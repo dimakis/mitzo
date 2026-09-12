@@ -73,6 +73,7 @@ describe('connections router', () => {
         return connection;
       }),
       revoke: vi.fn().mockResolvedValue(connection),
+      archive: vi.fn().mockResolvedValue(undefined),
     };
     const app = express();
     app.use((req, res, next) => {
@@ -129,6 +130,27 @@ describe('connections router', () => {
       .set('x-browser', 'yes')
       .send({ passphrase: 'correct' });
     const csrf = authorization.body.csrf;
+    const removed = await request(app)
+      .delete(`/api/connections/${connection.id}`)
+      .set('x-browser', 'yes')
+      .send({ csrf, revision: connection.revision });
+    expect(removed.status).toBe(204);
+    expect(service.archive).toHaveBeenCalledWith(
+      connection.id,
+      connection.revision,
+      'operator',
+      expect.anything(),
+    );
+    service.archive.mockRejectedValueOnce(new Error('Connection revocation pending'));
+    const pendingRemoval = await request(app)
+      .delete(`/api/connections/${connection.id}`)
+      .set('x-browser', 'yes')
+      .send({ csrf, revision: connection.revision });
+    expect(pendingRemoval.status).toBe(422);
+    expect(pendingRemoval.body).toEqual({ error: 'Removal is pending; retry later.' });
+    expect(
+      (await request(app).get('/api/connections').set('x-browser', 'yes')).body.connections,
+    ).toHaveLength(1);
     const failedCreate = await request(app)
       .post('/api/connections')
       .set('x-browser', 'yes')

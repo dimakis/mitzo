@@ -319,6 +319,24 @@ export function createConnectionsRouter(options: {
       return error(res, value, 'Revocation is pending; retry later.');
     }
   });
+  router.delete('/:id', mutate, unsafe, express.json({ limit: '2kb' }), async (req, res) => {
+    const parsed = ConnectionRevisionBody.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid removal request' });
+    if (!requireCapability(res, parsed.data.csrf)) return;
+    const c = options.store.get(connectionId(req));
+    if (!c || c.ownerId !== OWNER || c.archivedAt) return missing(res);
+    try {
+      await options.service.archive(
+        c.id,
+        parsed.data.revision,
+        OWNER,
+        AbortSignal.timeout(120_000),
+      );
+      return res.status(204).end();
+    } catch (value) {
+      return error(res, value, 'Removal is pending; retry later.');
+    }
+  });
   // express.json() may expose parser details through a global error handler. Keep
   // connection bodies out of both responses and logs, including malformed secrets.
   router.use(

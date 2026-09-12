@@ -15,6 +15,7 @@ vi.mock('../../lib/connections-api', () => ({
   testConnection: vi.fn(),
   rotateConnection: vi.fn(),
   revokeConnection: vi.fn(),
+  deleteConnection: vi.fn(),
   retryConnection: vi.fn(),
   getConnectionAudit: vi.fn(),
 }));
@@ -60,6 +61,7 @@ beforeEach(() => {
   });
   vi.mocked(connections.createConnection).mockResolvedValue(catalog.connections[0]);
   vi.mocked(connections.testConnection).mockResolvedValue(catalog.connections[0]);
+  vi.mocked(connections.deleteConnection).mockResolvedValue(undefined);
 });
 afterEach(() => {
   act(() => root.unmount());
@@ -82,6 +84,9 @@ describe('ConnectionsView', () => {
     await render();
     expect(container.textContent).toContain('me@example.com');
     expect(container.textContent).toContain('new conversations only');
+    expect(container.textContent).toContain('External service connections');
+    expect(container.textContent).toContain('Add connection');
+    expect(container.textContent).toContain('Work profiles with access');
     expect(container.textContent).toContain('GitHub (operator-managed)');
     expect(
       Array.from(container.querySelectorAll('input[type="checkbox"]')).some((item) =>
@@ -96,7 +101,7 @@ describe('ConnectionsView', () => {
       fireEvent.change(input('Passphrase'), { target: { value: 'pass' } });
     });
     await act(async () => button('Reauthorize').click());
-    const formToken = input('Jira API token');
+    const formToken = input('Jira Cloud scoped API token');
     const email = container.querySelector('input[type="email"]') as HTMLInputElement;
     act(() => {
       fireEvent.change(email, { target: { value: 'me@example.com' } });
@@ -126,12 +131,14 @@ describe('ConnectionsView', () => {
   it('clears replacement tokens when the rotation form is dismissed', async () => {
     await render();
     act(() => button('Rotate token').click());
-    const token = input('Replacement Jira API token');
+    const token = input('Replacement Jira Cloud scoped API token');
     act(() => {
       fireEvent.change(token, { target: { value: 'replacement' } });
     });
     act(() => button('Cancel').click());
-    expect(container.querySelector('[aria-label="Replacement Jira API token"]')).toBeNull();
+    expect(
+      container.querySelector('[aria-label="Replacement Jira Cloud scoped API token"]'),
+    ).toBeNull();
     expect(container.textContent).not.toContain('replacement');
   });
   it('offers a true retry action for a failed initial provisioning', async () => {
@@ -143,5 +150,23 @@ describe('ConnectionsView', () => {
     });
     await render();
     expect(button('Retry with token')).toBeTruthy();
+  });
+  it('confirms and removes a connection through the revocation-backed delete action', async () => {
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal('confirm', confirm);
+    await render();
+    act(() => {
+      fireEvent.change(input('Passphrase'), { target: { value: 'pass' } });
+    });
+    await act(async () => button('Reauthorize').click());
+    await act(async () => button('Remove connection').click());
+    expect(confirm).toHaveBeenCalledWith(
+      'Remove this connection? Mitzo will revoke managed Jira access before removing it from this list.',
+    );
+    expect(connections.deleteConnection).toHaveBeenCalledWith({
+      id: 'jira-1',
+      revision: 2,
+      csrf: 'c'.repeat(32),
+    });
   });
 });
