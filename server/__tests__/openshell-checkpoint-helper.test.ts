@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import {
   chmodSync,
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -159,6 +160,19 @@ it('captures and restores git, executable files, empty directories, and sqlite s
   ]);
   expect(readFileSync(join(workspaceRoot, 'untracked.txt'), 'utf8')).toBe('untracked');
   expect(readFileSync(join(providerRoot, 'queue_1.sqlite')).length).toBeGreaterThan(0);
+});
+it('keeps a recoverable backup when post-restore cleanup fails', () => {
+  const backup = join(root(), '.codex.mitzo-pre-restore');
+  mkdirSync(backup);
+  execFileSync(
+    'python3',
+    [
+      '-c',
+      `import importlib.util\ns=importlib.util.spec_from_file_location('checkpoint','${helper}')\nm=importlib.util.module_from_spec(s); s.loader.exec_module(m)\nm.shutil.rmtree=lambda _: (_ for _ in ()).throw(OSError('cleanup failed'))\nm.cleanup_backups([('', '${backup}')])`,
+    ],
+    { encoding: 'utf8' },
+  );
+  expect(existsSync(backup)).toBe(true);
 });
 it('rejects auth state and corrupt archives', () => {
   const from = root(),

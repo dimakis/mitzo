@@ -53,8 +53,12 @@ function setup(phase: OpenShellLifecycleRecord['phase'] = 'stopped') {
     resourceVersion: phase === 'stopped' ? 'stopped-v' : 'ready-v',
     phase: phase === 'stopped' ? ('Stopped' as const) : ('Ready' as const),
   };
+  let absent = false;
+  const removeSandbox = () => {
+    absent = true;
+  };
   const adapters = {
-    inspect: vi.fn(async () => sandbox),
+    inspect: vi.fn(async () => (absent ? undefined : sandbox)),
     protect: vi.fn(async () => ({ blockers: [] })),
     checkpoint: vi.fn(async () => ({
       path: '/private/checkpoint',
@@ -67,7 +71,7 @@ function setup(phase: OpenShellLifecycleRecord['phase'] = 'stopped') {
       sandbox.phase = 'Stopped';
       sandbox.resourceVersion = 'stopped-v';
     }),
-    delete: vi.fn(async () => {}),
+    delete: vi.fn(async () => removeSandbox()),
     now: () => 100 + 7 * DAY,
     consent: () => true,
     onReconcileError: undefined as
@@ -78,6 +82,7 @@ function setup(phase: OpenShellLifecycleRecord['phase'] = 'stopped') {
   return {
     store,
     sandbox,
+    removeSandbox,
     adapters,
     service: new OpenShellLifecycleService(
       store,
@@ -174,17 +179,31 @@ it('deletes a retained stopped record after restart only when its checkpoint and
 });
 
 it('serializes concurrent confirmation and rejects the stale second action', async () => {
-  const { service, adapters } = setup('stopped');
+  const { service, adapters, removeSandbox } = setup('stopped');
   const preview = await service.preview('c', AbortSignal.timeout(100));
   let release!: () => void;
   adapters.delete.mockImplementationOnce(() => new Promise<void>((resolve) => (release = resolve)));
   const first = service.confirm(preview.token, AbortSignal.timeout(100));
   await vi.waitFor(() => expect(adapters.delete).toHaveBeenCalledOnce());
   const second = service.confirm(preview.token, AbortSignal.timeout(100));
+  removeSandbox();
   release();
   await expect(first).resolves.toBe('deleted');
   await expect(second).rejects.toThrow('expired or already used');
   expect(adapters.delete).toHaveBeenCalledOnce();
+});
+
+it('does not record deletion until the exact sandbox is absent', async () => {
+  const { service, store, adapters } = setup('stopped');
+  adapters.delete.mockImplementationOnce(async () => {});
+  const preview = await service.preview('c', AbortSignal.timeout(100));
+  await expect(service.confirm(preview.token, AbortSignal.timeout(100))).rejects.toThrow(
+    'delete could not be verified absent',
+  );
+  expect(store.get('c')).toMatchObject({
+    phase: 'failed',
+    failure: 'OpenShell delete could not be verified absent',
+  });
 });
 
 it.each([

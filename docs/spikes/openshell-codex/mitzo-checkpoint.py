@@ -205,6 +205,10 @@ def verify(a):
  m,s=read_archive(a.input)
  try: identity(m,a); print(json.dumps(m,sort_keys=True))
  finally: shutil.rmtree(s,ignore_errors=True)
+def cleanup_backups(backups):
+ for _,b in backups:
+  try: shutil.rmtree(b)
+  except OSError: pass
 def restore(a):
  stage_parent=os.path.commonpath((os.path.dirname(a.provider_root),os.path.dirname(a.workspace_root))) if a.replace_fresh_roots else None
  m,s=read_archive(a.input,stage_parent)
@@ -226,12 +230,14 @@ def restore(a):
       if os.path.lexists(b): fail('restore backup exists')
       os.rename(r,b); backups.append((r,b))
     os.rename(os.path.join(s,'.codex'),a.provider_root); os.rename(os.path.join(s,'workspace'),a.workspace_root)
-    for _,b in backups: shutil.rmtree(b)
    except:
     for r,b in reversed(backups):
      if os.path.exists(r): shutil.rmtree(r)
      if os.path.exists(b): os.rename(b,r)
     raise
+   # Cleanup is deliberately outside the rollback-sensitive section. A cleanup
+   # error leaves a recoverable backup but never removes a restored root.
+   cleanup_backups(backups)
    shutil.rmtree(s); s=None
   else:
    if os.path.lexists(a.provider_root) or os.path.lexists(a.workspace_root): fail('restore roots already exist')

@@ -313,6 +313,8 @@ export class OpenShellLifecycleService {
     if (!deleting) throw new Error('OpenShell lifecycle generation changed');
     try {
       await this.adapters.delete(deleting, signal);
+      if (await this.adapters.inspect(deleting, signal))
+        throw new Error('OpenShell delete could not be verified absent');
       const deletedRecord = {
         ...deleting,
         phase: 'deleted',
