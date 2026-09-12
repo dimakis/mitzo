@@ -82,6 +82,7 @@ function blockersFor(
     blockers.push('ambiguous_ownership');
   if (!record.lastActivityAt || !Number.isFinite(record.lastActivityAt))
     blockers.push('unknown_activity');
+  if (!record.identity) blockers.push('ambiguous_ownership');
   return [...new Set(blockers)];
 }
 
@@ -176,7 +177,10 @@ export class OpenShellLifecycleService {
         ? this.store.saveCheckpoint(
             checkpointing.conversationId,
             checkpointing.generation,
-            checkpoint,
+            {
+              ...checkpoint,
+              sourceResourceVersion: sandbox.resourceVersion,
+            },
           )
         : null;
       if (!checkpointed || !(await this.adapters.verifyCheckpoint?.(checkpointed, sandbox, signal)))
