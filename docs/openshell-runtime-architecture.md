@@ -99,6 +99,10 @@ inactive until a separate persisted consent source is installed.
 
 ## Acceptance status
 
+## Lifecycle operations
+
+Lifecycle cleanup is disabled by default. When enabled, a fully quiescent detached task may be stopped after 30 minutes; retention defaults to seven days and accepts no value below five days. Reconciliation runs every five minutes. Deletion separately requires authenticated retention consent and a current verified checkpoint; active, queued, recovering, shared, Task Board-owned, or ambiguous tasks remain blocked. The checkpoint archive helper is packaged in the pinned runtime image and preserves supported Codex state plus the sandbox workspace. Operators can roll back by disabling lifecycle cleanup and restoring a verified archive before starting the provider app server. Podman `system df` telemetry is usage only, never filesystem-free capacity.
+
 Synthetic coverage proves deterministic create/reuse/start behavior, provider
 attachment, invalid-state failure, sandbox-scoped context compilation, credential
 and host-metadata exclusion from the MGMT seed, portable Git commits, visible native
