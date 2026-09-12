@@ -49,7 +49,8 @@ export class ConnectionsService {
   }
   private current(id: string, revision?: number) {
     const c = this.store.get(id);
-    if (!c || c.ownerId !== 'operator') throw new Error('Connection not found');
+    if (!c || c.archivedAt !== null || c.ownerId !== 'operator')
+      throw new Error('Connection not found');
     if (revision !== undefined && c.revision !== revision) throw new RevisionConflictError();
     if (
       c.gateway !== (this.options.gateway ?? 'openshell') ||
@@ -424,6 +425,21 @@ export class ConnectionsService {
       const c = this.current(id, revision);
       if (actor !== c.ownerId) throw new Error('Connection owner mismatch');
       return this.revokeLocked(c, signal);
+    });
+  }
+  async archive(id: string, revision: number, actor: string, signal: AbortSignal) {
+    return this.serial(async () => {
+      const c = this.current(id, revision);
+      if (actor !== c.ownerId) throw new Error('Connection owner mismatch');
+      const revoked = await this.revokeLocked(c, signal);
+      if (
+        this.store.pendingProbes().some((op) => op.connectionId === id) ||
+        this.store.candidates().some((op) => op.connectionId === id) ||
+        this.store.pendingAssignments().some((op) => op.connectionId === id) ||
+        this.store.pendingQuarantines().some((op) => op.connectionId === id)
+      )
+        throw new Error('Connection cleanup is still pending');
+      return this.store.archive(revoked.id, revoked.revision, actor);
     });
   }
   async reconcile(signal: AbortSignal) {

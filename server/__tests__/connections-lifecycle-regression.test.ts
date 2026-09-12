@@ -47,6 +47,46 @@ function setup() {
 }
 
 describe('Connections lifecycle regressions', () => {
+  it('revokes managed access before archiving and cannot revive an archived connection', async () => {
+    const x = setup();
+    const active = x.store.transition(
+      x.connection.id,
+      1,
+      { status: 'active', verifiedAt: Date.now(), gatewayProviderId: 'provider-1' },
+      { operation: 'activate', outcome: 'success', actor: 'operator' },
+    );
+    x.gateway.get.mockResolvedValue({
+      id: 'provider-1',
+      name: active.gatewayProviderName,
+      workspace: 'default',
+      type: 'jira-readonly',
+      credentialKeys: ['JIRA_API_TOKEN'],
+    });
+    await expect(
+      x.service.archive(active.id, active.revision, 'operator', AbortSignal.timeout(500)),
+    ).resolves.toMatchObject({ status: 'revoked', archivedAt: expect.any(Number) });
+    expect(x.gateway.delete).toHaveBeenCalledWith(active.gatewayProviderName, expect.anything());
+    await expect(
+      x.service.test(active.id, active.revision + 2, AbortSignal.timeout(500)),
+    ).rejects.toThrow('not found');
+    x.store.close();
+    rmSync(x.dir, { recursive: true, force: true });
+  });
+  it('refuses archive while a durable cleanup operation remains', async () => {
+    const x = setup();
+    const revoked = x.store.transition(
+      x.connection.id,
+      1,
+      { status: 'revoked', desiredAccountIds: [] },
+      { operation: 'revoke', outcome: 'success', actor: 'operator' },
+    );
+    x.store.startProbe(revoked, 'mitzo-probe-1234567890abcdef');
+    await expect(
+      x.service.archive(revoked.id, revoked.revision, 'operator', AbortSignal.timeout(500)),
+    ).rejects.toThrow('cleanup');
+    x.store.close();
+    rmSync(x.dir, { recursive: true, force: true });
+  });
   it('does not activate a connection when probe cleanup is pending', async () => {
     const x = setup();
     await expect(
