@@ -1,4 +1,4 @@
-import { randomBytes, timingSafeEqual } from 'crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { homedir } from 'os';
@@ -30,6 +30,20 @@ export function loadOrCreateToken(tokenPath: string = TOKEN_PATH): string {
 }
 
 export const INTERNAL_TOKEN = loadOrCreateToken();
+
+/** Create a credential scoped to one inbound signal callback route. */
+export function createSignalCallbackToken(taskId: string): string {
+  return createHmac('sha256', INTERNAL_TOKEN).update(`signal-callback:${taskId}`).digest('hex');
+}
+
+/** Verify a task-scoped signal credential without exposing the global internal token. */
+export function isValidSignalCallbackToken(taskId: string, candidate: string | undefined): boolean {
+  if (!candidate || candidate.length !== TOKEN_LENGTH || !/^[0-9a-f]+$/i.test(candidate)) {
+    return false;
+  }
+  const expected = createSignalCallbackToken(taskId);
+  return timingSafeEqual(Buffer.from(candidate), Buffer.from(expected));
+}
 
 /** Constant-time check for internal token validity. */
 export function isValidInternalToken(candidate: string | string[] | undefined): boolean {

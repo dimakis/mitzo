@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { validateConfig, authMiddleware, registerAuthSession, revokeAuthSession } from '../auth.js';
-import { INTERNAL_TOKEN } from '../internal-token.js';
+import { createSignalCallbackToken, INTERNAL_TOKEN } from '../internal-token.js';
 import { SignJWT } from 'jose';
 
 describe('validateConfig', () => {
@@ -144,8 +144,11 @@ describe('authMiddleware — internal token', () => {
     headers: Record<string, string> = {},
     path = '/tasks',
     query: Record<string, unknown> = {},
+    method = 'GET',
   ) {
-    return { headers, path, query, cookies: {} } as unknown as Parameters<typeof authMiddleware>[0];
+    return { headers, path, query, method, cookies: {} } as unknown as Parameters<
+      typeof authMiddleware
+    >[0];
   }
 
   type MockResponse = Parameters<typeof authMiddleware>[1] & { statusCode: number };
@@ -204,6 +207,26 @@ describe('authMiddleware — internal token', () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(401);
+  });
+
+  it('allows only a matching task-scoped token on the signal callback route', () => {
+    const token = createSignalCallbackToken('task-1');
+    const validReq = mockReq({}, '/tasks/task-1/signal', { token }, 'POST');
+    const validRes = mockRes();
+    const validNext = vi.fn();
+
+    authMiddleware(validReq, validRes, validNext);
+
+    expect(validNext).toHaveBeenCalledOnce();
+
+    const wrongTaskReq = mockReq({}, '/tasks/task-2/signal', { token }, 'POST');
+    const wrongTaskRes = mockRes();
+    const wrongTaskNext = vi.fn();
+
+    authMiddleware(wrongTaskReq, wrongTaskRes, wrongTaskNext);
+
+    expect(wrongTaskNext).not.toHaveBeenCalled();
+    expect(wrongTaskRes.statusCode).toBe(401);
   });
 
   it('allows /auth/login without any auth', () => {

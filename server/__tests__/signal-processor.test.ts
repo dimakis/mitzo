@@ -3,7 +3,8 @@ import { join } from 'path';
 import { mkdirSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { TaskStore } from '../task-store.js';
-import { SignalProcessor } from '../signal-processor.js';
+import { checkGate, SignalProcessor } from '../signal-processor.js';
+import { isValidSignalCallbackToken } from '../internal-token.js';
 
 const TEST_DIR = join(tmpdir(), `mitzo-signal-test-${process.pid}`);
 
@@ -18,8 +19,8 @@ beforeEach(() => {
   processor = new SignalProcessor(store, onResolved);
 });
 
-afterEach(() => {
-  processor.unwatchAll();
+afterEach(async () => {
+  await processor.unwatchAll();
   store.close();
   try {
     rmSync(TEST_DIR, { recursive: true, force: true });
@@ -408,6 +409,79 @@ describe('SignalProcessor', () => {
         );
       });
 
+      const registration = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body)) as {
+        callback_url: string;
+      };
+      const callbackUrl = new URL(registration.callback_url);
+      expect(callbackUrl.pathname).toBe(`/api/tasks/${task.id}/signal`);
+      expect(isValidSignalCallbackToken(task.id, callbackUrl.searchParams.get('token')!)).toBe(
+        true,
+      );
+
+      fetchSpy.mockRestore();
+    });
+
+    it('deregisters Centaur callbacks when unwatching all tasks', async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Wait for Centaur review',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'centaur_review', pr_url: 'https://github.com/org/repo/pull/1' },
+      });
+      store.update(task.id, { status: 'active' });
+
+      processor.watch(task.id, task.gateConfig!);
+      processor.unwatchAll();
+
+      await vi.waitFor(() => {
+        expect(fetchSpy).toHaveBeenCalledWith(
+          `http://localhost:8642/api/signals/${task.id}`,
+          expect.objectContaining({ method: 'DELETE' }),
+        );
+      });
+    });
+
+    it('serializes unwatch and rewatch so the new registration wins', async () => {
+      const calls: string[] = [];
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+        calls.push(init?.method ?? 'GET');
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      });
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Wait for Centaur review',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'centaur_review', pr_url: 'https://github.com/org/repo/pull/1' },
+      });
+      store.update(task.id, { status: 'active' });
+
+      processor.watch(task.id, task.gateConfig!);
+      processor.unwatch(task.id);
+      processor.watch(task.id, task.gateConfig!);
+
+      await vi.waitFor(() => expect(calls).toEqual(['POST', 'DELETE', 'POST']));
+      expect(processor.isWatching(task.id)).toBe(true);
+      fetchSpy.mockRestore();
+    });
+
+    it('uses the configured Centaur base URL for polling fallback', async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(JSON.stringify({ status: 'not_found' }), { status: 200 }));
+
+      await checkGate(
+        { type: 'centaur_review', pr_url: 'https://github.com/org/repo/pull/1' },
+        'https://centaur.example.test',
+      );
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'https://centaur.example.test/api/reviews?pr=https%3A%2F%2Fgithub.com%2Forg%2Frepo%2Fpull%2F1',
+      );
       fetchSpy.mockRestore();
     });
 

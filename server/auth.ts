@@ -1,7 +1,7 @@
 import { SignJWT, jwtVerify } from 'jose';
 import type { Request, Response, NextFunction } from 'express';
 import { createHash, randomUUID } from 'node:crypto';
-import { isValidInternalToken } from './internal-token.js';
+import { isValidInternalToken, isValidSignalCallbackToken } from './internal-token.js';
 
 const INSECURE_PASSPHRASES = ['change-me', 'change-me-to-something-secure'];
 const INSECURE_SECRETS = [
@@ -150,6 +150,14 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
   // All /api/* routes are accessible with the internal token — this is
   // intentional to support task board, template, and loop endpoints.
   if (isValidInternalToken(req.headers['x-internal-token'])) {
+    return next();
+  }
+
+  // Centaur stores only this task-scoped callback URL. The HMAC cannot be used
+  // to access another task or any other authenticated API route.
+  const signalMatch = req.method === 'POST' ? req.path.match(/^\/tasks\/([^/]+)\/signal$/) : null;
+  const signalToken = typeof req.query.token === 'string' ? req.query.token : undefined;
+  if (signalMatch && isValidSignalCallbackToken(signalMatch[1], signalToken)) {
     return next();
   }
 
