@@ -78,7 +78,10 @@ import {
 } from './app.js';
 import { createConnectionsRuntime } from './connections-runtime.js';
 import { readCodexQueue } from './codex-chat-session.js';
-import { initializeOpenShellLifecycle } from './openshell-lifecycle-controller.js';
+import {
+  initializeOpenShellLifecycle,
+  openShellLifecyclePhaseCounts,
+} from './openshell-lifecycle-controller.js';
 import { openShellRuntimeConfig } from './openshell-runtime.js';
 import { OpenShellLifecycleObservability } from './openshell-lifecycle-observability.js';
 import { SkillWatcher } from './skill-watcher.js';
@@ -216,12 +219,7 @@ const lifecycleReconcile = () => {
           lifecycleObservability?.recordOutcome(preview.action === 'stop' ? 'stopped' : 'deleted');
       if (!lifecycleObservability) return;
       const metrics = await lifecycleObservability.collect(lifecycleAbort.signal);
-      metrics.phaseCounts = openShellLifecycle.store
-        .list()
-        .reduce<Record<string, number>>((counts, record) => {
-          counts[record.phase] = (counts[record.phase] ?? 0) + 1;
-          return counts;
-        }, {});
+      metrics.phaseCounts = await openShellLifecyclePhaseCounts(lifecycleAbort.signal);
       lifecycleObservability.observe(metrics);
     })
     .catch((error) => {
