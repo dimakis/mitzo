@@ -94,6 +94,75 @@ describe('durable connection recovery', () => {
     expect(x.store.get(active.id)).toMatchObject({ status: 'active', desiredAccountIds: [] });
     expect(x.attachments.get(active.gatewayProviderName)).toEqual([]);
   });
+  it('atomically clears an assignment operation after a crash that already made the connection active', async () => {
+    const x = setup();
+    const active = await x.service.provision(x.created, 'SECRET', AbortSignal.timeout(1000));
+    const pending = x.store.startAssignment(active, [], ['work']);
+    const afterDetach = x.store.transition(
+      pending.id,
+      pending.revision,
+      { status: 'active', desiredAccountIds: [], errorCode: null },
+      { operation: 'assign', outcome: 'success', actor: 'operator' },
+    );
+    expect(x.store.pendingAssignments()).toHaveLength(1);
+    const restarted = new ConnectionsService(x.store, x.gateway, {
+      eligibleAccountIds: () => ['work', 'personal'],
+    });
+    await restarted.reconcile(AbortSignal.timeout(1000));
+    expect(x.store.pendingAssignments()).toEqual([]);
+    expect(x.store.get(active.id)).toMatchObject({
+      status: 'active',
+      revision: afterDetach.revision,
+      desiredAccountIds: [],
+    });
+    expect(x.store.audit(active.id).at(-1)).toMatchObject({
+      operation: 'assign',
+      outcome: 'recovered',
+    });
+  });
+  it('quarantines retained access after any failed identity test and retries detachment on reconcile', async () => {
+    const x = setup();
+    const active = await x.service.provision(x.created, 'SECRET', AbortSignal.timeout(1000));
+    x.attachments.set(active.gatewayProviderName, ['retained']);
+    vi.mocked(x.gateway.probe).mockResolvedValueOnce({ identity: 'different-account' });
+    vi.mocked(x.gateway.detach).mockRejectedValueOnce(new Error('gateway unavailable'));
+    await expect(
+      x.service.test(active.id, active.revision, AbortSignal.timeout(1000)),
+    ).rejects.toThrow('verification failed');
+    const quarantined = x.store.get(active.id)!;
+    expect(quarantined).toMatchObject({
+      status: 'needs_attention',
+      errorCode: 'QUARANTINE_PENDING',
+      identity: 'same-account',
+    });
+    expect(x.store.pendingQuarantines()).toHaveLength(1);
+    await expect(
+      x.service.test(quarantined.id, quarantined.revision, AbortSignal.timeout(1000)),
+    ).rejects.toThrow('cannot be tested');
+    await expect(
+      x.service.rotate(quarantined.id, quarantined.revision, 'NEW', AbortSignal.timeout(1000)),
+    ).rejects.toThrow('cannot be rotated');
+    const restarted = new ConnectionsService(x.store, x.gateway, {
+      eligibleAccountIds: () => ['work', 'personal'],
+    });
+    await restarted.reconcile(AbortSignal.timeout(1000));
+    expect(x.store.pendingQuarantines()).toEqual([]);
+    expect(x.attachments.get(active.gatewayProviderName)).toEqual([]);
+    expect(x.store.get(active.id)).toMatchObject({
+      status: 'needs_attention',
+      identity: 'same-account',
+      errorCode: 'TEST_FAILED',
+    });
+  });
+  it('blocks a never-verified retry while failed-test quarantine remains pending', async () => {
+    const x = setup();
+    const pending = x.store.startQuarantine(x.created);
+    await expect(
+      x.service.retry(pending.id, pending.revision, 'NEW', AbortSignal.timeout(1000)),
+    ).rejects.toThrow('cannot be provisioned');
+    expect(x.gateway.provision).not.toHaveBeenCalled();
+    expect(x.store.pendingQuarantines()).toHaveLength(1);
+  });
   it('cleans a rejected identity candidate without changing the working credential', async () => {
     const x = setup();
     const active = await x.service.provision(x.created, 'SECRET', AbortSignal.timeout(1000));

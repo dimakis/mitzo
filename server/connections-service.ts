@@ -137,6 +137,19 @@ export class ConnectionsService {
     if (!removedAccounts && (await this.gateway.attachments(c.gatewayProviderName, signal)).length)
       throw new Error('Provider remains attached');
   }
+  private hasQuarantine(id: string) {
+    return this.store.pendingQuarantines().some((operation) => operation.connectionId === id);
+  }
+  /** Failed identity tests remove retained access before any retry can reactivate it. */
+  private async quarantine(c: Connection) {
+    const pending = this.hasQuarantine(c.id) ? this.current(c.id) : this.store.startQuarantine(c);
+    try {
+      await this.drain(pending, AbortSignal.timeout(30_000));
+      this.store.finishQuarantine(pending.id);
+    } catch {
+      // The persisted operation is retried by reconcile with an independent signal.
+    }
+  }
   async setAssignments(
     id: string,
     revision: number,
@@ -170,9 +183,7 @@ export class ConnectionsService {
   ) {
     await this.drain(c, signal, removed);
     this.validateAccounts(accountIds);
-    const updated = this.store.setAssignments(c.id, c.revision, accountIds, c.ownerId);
-    this.change(updated, { status: 'active', errorCode: null }, 'assign', 'success');
-    this.store.finishAssignment(c.id);
+    this.store.completeAssignment(c.id, accountIds, c.ownerId);
   }
   async createAndProvision(input: CreateInput, token: string, signal: AbortSignal) {
     this.validateAccounts(input.desiredAccountIds);
@@ -232,7 +243,8 @@ export class ConnectionsService {
       if (
         !['provisioning', 'needs_attention'].includes(c.status) ||
         c.identity ||
-        this.store.pendingAssignments().some((x) => x.connectionId === c.id)
+        this.store.pendingAssignments().some((x) => x.connectionId === c.id) ||
+        this.hasQuarantine(c.id)
       )
         throw new Error('Connection cannot be provisioned');
       try {
@@ -280,7 +292,8 @@ export class ConnectionsService {
       const c = this.current(id, revision);
       if (
         !['active', 'needs_attention'].includes(c.status) ||
-        this.store.pendingAssignments().some((x) => x.connectionId === id)
+        this.store.pendingAssignments().some((x) => x.connectionId === id) ||
+        this.hasQuarantine(id)
       )
         throw new Error('Connection cannot be tested');
       try {
@@ -296,12 +309,7 @@ export class ConnectionsService {
           'success',
         );
       } catch {
-        this.change(
-          this.current(id),
-          { status: 'needs_attention', errorCode: 'TEST_FAILED' },
-          'test',
-          'failed',
-        );
+        await this.quarantine(this.current(id));
         throw new Error('Connection verification failed');
       }
     });
@@ -311,7 +319,8 @@ export class ConnectionsService {
       let c = this.current(id, revision);
       if (
         !['active', 'needs_attention'].includes(c.status) ||
-        this.store.pendingAssignments().some((x) => x.connectionId === id)
+        this.store.pendingAssignments().some((x) => x.connectionId === id) ||
+        this.hasQuarantine(id)
       )
         throw new Error('Connection cannot be rotated');
       await this.cleanupConnection(c);
@@ -453,8 +462,21 @@ export class ConnectionsService {
       for (const op of this.store.pendingAssignments()) {
         try {
           const c = this.current(op.connectionId);
-          if (c.status === 'needs_attention' && c.errorCode === 'ASSIGNMENT_PENDING')
+          if (
+            c.status === 'active' &&
+            JSON.stringify(c.desiredAccountIds) === JSON.stringify(op.accountIds)
+          )
+            this.store.completeAssignment(c.id, op.accountIds, c.ownerId);
+          else if (c.status === 'needs_attention' && c.errorCode === 'ASSIGNMENT_PENDING')
             await this.completeAssignment(c, op.accountIds, op.removedIds, signal);
+        } catch {
+          /* durable retry */
+        }
+      }
+      for (const op of this.store.pendingQuarantines()) {
+        try {
+          const c = this.current(op.connectionId);
+          await this.quarantine(c);
         } catch {
           /* durable retry */
         }

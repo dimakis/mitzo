@@ -93,6 +93,7 @@ export class ConnectionStore {
       CREATE TABLE IF NOT EXISTS connection_audit (id TEXT PRIMARY KEY, connection_id TEXT NOT NULL REFERENCES connections(id), revision INTEGER NOT NULL, operation TEXT NOT NULL, outcome TEXT NOT NULL, actor TEXT NOT NULL, affected_refs TEXT NOT NULL, created_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS connection_probe_operations (id TEXT PRIMARY KEY, connection_id TEXT NOT NULL REFERENCES connections(id), provider_name TEXT NOT NULL, sandbox_name TEXT NOT NULL UNIQUE, gateway TEXT NOT NULL, workspace TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS connection_assignment_operations (connection_id TEXT PRIMARY KEY REFERENCES connections(id), account_ids TEXT NOT NULL, removed_ids TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS connection_quarantine_operations (connection_id TEXT PRIMARY KEY REFERENCES connections(id), baseline_identity TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS connection_candidates (name TEXT PRIMARY KEY, connection_id TEXT NOT NULL REFERENCES connections(id), provider_id TEXT, created_at INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS idx_connection_audit_connection ON connection_audit(connection_id, created_at);`);
     for (const statement of [
@@ -141,6 +142,111 @@ export class ConnectionStore {
     this.database()
       .prepare('DELETE FROM connection_assignment_operations WHERE connection_id=?')
       .run(id);
+  }
+  completeAssignment(id: string, accountIds: string[], actor: string) {
+    const db = this.database();
+    return db.transaction(() => {
+      const operation = db
+        .prepare('SELECT account_ids FROM connection_assignment_operations WHERE connection_id=?')
+        .get(id) as { account_ids: string } | undefined;
+      if (!operation) throw new Error('Assignment operation not found');
+      const current = this.get(id);
+      if (!current) throw new Error('Connection not found');
+      if (JSON.stringify(JSON.parse(operation.account_ids)) !== JSON.stringify(accountIds))
+        throw new Error('Assignment operation changed');
+      if (
+        current.status === 'active' &&
+        JSON.stringify(current.desiredAccountIds) === JSON.stringify(accountIds)
+      ) {
+        db.prepare('DELETE FROM connection_assignment_operations WHERE connection_id=?').run(id);
+        db.prepare('INSERT INTO connection_audit VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+          randomUUID(),
+          id,
+          current.revision,
+          'assign',
+          'recovered',
+          actor,
+          JSON.stringify(accountIds),
+          Date.now(),
+        );
+        return current;
+      }
+      if (current.status !== 'needs_attention' || current.errorCode !== 'ASSIGNMENT_PENDING')
+        throw new Error('Assignment operation is not pending');
+      this.assertNoAssignmentCollision(id, current.templateId, accountIds);
+      const now = Date.now();
+      const next = {
+        ...current,
+        desiredAccountIds: accountIds,
+        status: 'active' as const,
+        errorCode: null,
+        revision: current.revision + 1,
+        updatedAt: now,
+      };
+      db.prepare(
+        'UPDATE connections SET gateway_provider_id=?, status=?, revision=?, desired_account_ids=?, identity=?, verified_at=?, error_code=?, updated_at=? WHERE id=?',
+      ).run(
+        next.gatewayProviderId,
+        next.status,
+        next.revision,
+        JSON.stringify(next.desiredAccountIds),
+        next.identity,
+        next.verifiedAt,
+        next.errorCode,
+        next.updatedAt,
+        id,
+      );
+      db.prepare('INSERT INTO connection_audit VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+        randomUUID(),
+        id,
+        next.revision,
+        'assign',
+        'success',
+        actor,
+        JSON.stringify(accountIds),
+        now,
+      );
+      db.prepare('DELETE FROM connection_assignment_operations WHERE connection_id=?').run(id);
+      return this.get(id)!;
+    })();
+  }
+  startQuarantine(connection: Connection) {
+    return this.database().transaction(() => {
+      this.database()
+        .prepare('INSERT OR IGNORE INTO connection_quarantine_operations VALUES (?, ?)')
+        .run(connection.id, connection.identity ?? '');
+      return this.transition(
+        connection.id,
+        connection.revision,
+        { status: 'needs_attention', errorCode: 'QUARANTINE_PENDING' },
+        { operation: 'quarantine', outcome: 'started', actor: connection.ownerId },
+      );
+    })();
+  }
+  pendingQuarantines() {
+    return this.database()
+      .prepare(
+        'SELECT connection_id AS connectionId, baseline_identity AS baselineIdentity FROM connection_quarantine_operations',
+      )
+      .all() as Array<{ connectionId: string; baselineIdentity: string }>;
+  }
+  finishQuarantine(id: string) {
+    const db = this.database();
+    return db.transaction(() => {
+      const current = this.get(id);
+      if (!current) throw new Error('Connection not found');
+      const finished =
+        current.status === 'needs_attention' && current.errorCode === 'QUARANTINE_PENDING'
+          ? this.transition(
+              id,
+              current.revision,
+              { errorCode: 'TEST_FAILED' },
+              { operation: 'quarantine', outcome: 'detached', actor: current.ownerId },
+            )
+          : current;
+      db.prepare('DELETE FROM connection_quarantine_operations WHERE connection_id=?').run(id);
+      return finished;
+    })();
   }
   startCandidate(connectionId: string, name: string) {
     this.database()
