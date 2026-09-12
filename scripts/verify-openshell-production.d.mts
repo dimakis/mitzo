@@ -7,3 +7,9 @@ export function verifyAccountBindings(
   accounts: Array<Record<string, unknown>>,
   providers: Array<Record<string, unknown>>,
 ): void;
+
+export function hasExactGlobalSetting(
+  settings: string,
+  key: string,
+  value: string | number | boolean,
+): boolean;
