@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { fireEvent } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ConnectionsView } from '../ConnectionsView';
+import { connectionErrorMessage, ConnectionsView } from '../ConnectionsView';
 import * as connections from '../../lib/connections-api';
 import type { ConnectionsCatalog } from '../../types/connections';
 
@@ -80,6 +80,15 @@ const button = (text: string) =>
   ) as HTMLButtonElement;
 
 describe('ConnectionsView', () => {
+  it('maps sanitized Jira and account-assignment failures to recovery guidance', () => {
+    expect(connectionErrorMessage('JIRA_AUTH_REJECTED')).toContain('email matches');
+    expect(connectionErrorMessage('JIRA_PERMISSION_DENIED')).toContain('/myself');
+    expect(connectionErrorMessage('JIRA_HTTP_ERROR')).toContain('Retry');
+    expect(connectionErrorMessage('JIRA_NETWORK_FAILED')).toContain('Retry');
+    expect(connectionErrorMessage('ACCOUNT_ALREADY_ASSIGNED')).toContain(
+      'Remove the old connection',
+    );
+  });
   it('shows actual identity, eligible profiles, legacy services, and new-conversation scope', async () => {
     await render();
     expect(container.textContent).toContain('me@example.com');
@@ -151,22 +160,38 @@ describe('ConnectionsView', () => {
     await render();
     expect(button('Retry with token')).toBeTruthy();
   });
-  it('confirms and removes a connection through the revocation-backed delete action', async () => {
-    const confirm = vi.fn(() => true);
-    vi.stubGlobal('confirm', confirm);
+  it('uses inline confirmation before removing a connection through the revocation-backed action', async () => {
     await render();
     act(() => {
       fireEvent.change(input('Passphrase'), { target: { value: 'pass' } });
     });
     await act(async () => button('Reauthorize').click());
-    await act(async () => button('Remove connection').click());
-    expect(confirm).toHaveBeenCalledWith(
-      'Remove this connection? Mitzo will revoke managed Jira access before removing it from this list.',
-    );
+    act(() => button('Remove connection').click());
+    expect(container.textContent).toContain('Removing this connection revokes managed Jira access');
+    expect(connections.deleteConnection).not.toHaveBeenCalled();
+    await act(async () => button('Confirm removal').click());
     expect(connections.deleteConnection).toHaveBeenCalledWith({
       id: 'jira-1',
       revision: 2,
       csrf: 'c'.repeat(32),
     });
+  });
+  it('shows card-level reauthorization guidance instead of sending a stale removal capability', async () => {
+    vi.mocked(connections.reauthorize).mockResolvedValue({
+      csrf: 'c'.repeat(32),
+      expiresAt: Date.now() - 1,
+    });
+    vi.mocked(connections.deleteConnection).mockClear();
+    await render();
+    act(() => {
+      fireEvent.change(input('Passphrase'), { target: { value: 'pass' } });
+    });
+    await act(async () => button('Reauthorize').click());
+    act(() => button('Remove connection').click());
+    act(() => button('Confirm removal').click());
+    expect(container.textContent).toContain(
+      'Reauthorize with your passphrase, then confirm removal.',
+    );
+    expect(connections.deleteConnection).not.toHaveBeenCalled();
   });
 });

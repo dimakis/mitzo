@@ -463,4 +463,35 @@ describe('OpenShellConnectionGateway', () => {
       vi.useRealTimers();
     }
   });
+  it.each([
+    'JIRA_AUTH_REJECTED',
+    'JIRA_PERMISSION_DENIED',
+    'JIRA_HTTP_ERROR',
+    'JIRA_NETWORK_FAILED',
+    'untrusted-secret-text',
+  ])('only exposes allowlisted probe errors: %s', async (code) => {
+    const name = 'mzp-1234567890abcde';
+    const runner = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('create')) return JSON.stringify({ name, phase: 'Ready' });
+      if (args.includes('exec')) return JSON.stringify({ error: code });
+      if (args.includes('provider'))
+        return 'NAME TYPE CREDENTIAL_KEYS CONFIG_KEYS\nmitzo-conn-12345678 jira-readonly 1 0';
+      return JSON.stringify([{ name, phase: 'Ready', labels: { 'mitzo.connection_probe': '1' } }]);
+    });
+    const gateway = new OpenShellConnectionGateway(runner, {
+      workspace: 'default',
+      probeImage: 'image',
+      probePolicy: 'policy',
+    });
+    const promise = gateway.probe(
+      { providerName: 'mitzo-conn-12345678', email: 'person@example.com', sandboxName: name },
+      signal,
+    );
+    if (code.startsWith('JIRA_')) await expect(promise).rejects.toMatchObject({ code });
+    else {
+      const error = await promise.catch((error: unknown) => error);
+      expect(error).toMatchObject({ message: 'Gateway identity probe failed' });
+      expect(error).not.toHaveProperty('cause');
+    }
+  });
 });

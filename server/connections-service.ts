@@ -1,7 +1,13 @@
-import { ConnectionStore, RevisionConflictError, type Connection } from './connections-store.js';
+import {
+  ConnectionStore,
+  ConnectionAssignmentConflictError,
+  RevisionConflictError,
+  type Connection,
+} from './connections-store.js';
 import { randomUUID } from 'node:crypto';
 import {
   JIRA_TEMPLATE_ID,
+  ConnectionProbeError,
   type ConnectionGateway,
   type GatewayProvider,
 } from './connections-gateway.js';
@@ -197,12 +203,14 @@ export class ConnectionsService {
     const sandboxName = `mzp-${randomUUID().replaceAll('-', '').slice(0, 15)}`;
     const op = this.store.startProbe(c, sandboxName);
     let result: { identity: string } | undefined;
+    let failure: unknown;
     try {
       result = await this.gateway.probe(
         { providerName: c.gatewayProviderName, email: c.submittedEmail, sandboxName },
         signal,
       );
-    } catch {
+    } catch (error) {
+      failure = error;
       /* Cleanup still runs independently of probe failure or cancellation. */
     }
     try {
@@ -214,6 +222,7 @@ export class ConnectionsService {
       this.store.probeCleanupPending(op.id);
       throw new Error('Probe cleanup pending');
     }
+    if (failure instanceof ConnectionProbeError) throw failure;
     if (!result) throw new Error('Gateway identity probe failed');
     return result;
   }
@@ -281,13 +290,23 @@ export class ConnectionsService {
           'provision',
           'success',
         );
-      } catch {
+      } catch (error) {
         this.change(
           this.current(c.id),
-          { status: 'needs_attention', errorCode: 'PROVISION_FAILED' },
+          {
+            status: 'needs_attention',
+            errorCode:
+              error instanceof ConnectionProbeError
+                ? error.code
+                : error instanceof ConnectionAssignmentConflictError
+                  ? 'ACCOUNT_ALREADY_ASSIGNED'
+                  : 'PROVISION_FAILED',
+          },
           'provision',
           'failed',
         );
+        // Upstream failures may contain credential material; retain only the safe code.
+        // eslint-disable-next-line preserve-caught-error
         throw new Error('Connection provisioning failed');
       }
     });
@@ -313,8 +332,26 @@ export class ConnectionsService {
           'test',
           'success',
         );
-      } catch {
+      } catch (error) {
         await this.quarantine(this.current(id));
+        if (
+          (error instanceof ConnectionProbeError ||
+            error instanceof ConnectionAssignmentConflictError) &&
+          !this.hasQuarantine(id)
+        ) {
+          const quarantined = this.current(id);
+          this.change(
+            quarantined,
+            {
+              errorCode:
+                error instanceof ConnectionProbeError ? error.code : 'ACCOUNT_ALREADY_ASSIGNED',
+            },
+            'test',
+            'failed',
+          );
+        }
+        // Upstream failures may contain credential material; retain only the safe code.
+        // eslint-disable-next-line preserve-caught-error
         throw new Error('Connection verification failed');
       }
     });
@@ -365,17 +402,19 @@ export class ConnectionsService {
           'rotate',
           'success',
         );
-      } catch {
+      } catch (error) {
         const fresh = this.current(id);
         this.change(
           fresh,
           {
             status: swapped ? 'needs_attention' : c.status === 'rotating' ? 'active' : c.status,
-            errorCode: 'ROTATION_FAILED',
+            errorCode: error instanceof ConnectionProbeError ? error.code : 'ROTATION_FAILED',
           },
           'rotate',
           'failed',
         );
+        // Probe output may carry upstream details; retain only the typed safe code.
+        // eslint-disable-next-line preserve-caught-error
         throw new Error('Connection rotation failed');
       } finally {
         if (this.store.candidates().some((x) => x.name === name)) {

@@ -7,6 +7,13 @@ export const JIRA_ENDPOINT = 'https://redhat.atlassian.net';
 export const JIRA_API_ENDPOINT =
   'https://api.atlassian.com/ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432';
 export const JIRA_TEMPLATE_ID = 'jira-readonly';
+export type ConnectionProbeErrorCode =
+  'JIRA_AUTH_REJECTED' | 'JIRA_PERMISSION_DENIED' | 'JIRA_HTTP_ERROR' | 'JIRA_NETWORK_FAILED';
+export class ConnectionProbeError extends Error {
+  constructor(readonly code: ConnectionProbeErrorCode) {
+    super(code);
+  }
+}
 const Provider = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -503,8 +510,15 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
       input.sandboxName ??
       `mzp-${createHash('sha256').update(`${input.providerName}:${randomUUID()}`).digest('hex').slice(0, 15)}`;
     if (!ProbeSandboxName.test(name)) throw new Error('Invalid managed probe sandbox');
-    const probe =
-      "import base64,json,os,ssl,urllib.request;u=os.environ['JIRA_URL']+'/rest/api/3/myself';a=base64.b64encode((os.environ['JIRA_EMAIL']+':'+os.environ['JIRA_API_TOKEN']).encode()).decode();H=type('H',(urllib.request.HTTPRedirectHandler,),{'redirect_request':lambda s,*x:(_ for _ in ()).throw(RuntimeError('redirect denied'))});o=urllib.request.build_opener(H());r=urllib.request.Request(u,headers={'Authorization':'Basic '+a});x=o.open(r,timeout=10);b=x.read(65537);assert len(b)<=65536;d=json.loads(b);print(json.dumps({'accountId':d['accountId']},separators=(',',':')))";
+    const probe = `import base64,json,os,urllib.error,urllib.request
+u=os.environ['JIRA_URL']+'/rest/api/3/myself';a=base64.b64encode((os.environ['JIRA_EMAIL']+':'+os.environ['JIRA_API_TOKEN']).encode()).decode()
+H=type('H',(urllib.request.HTTPRedirectHandler,),{'redirect_request':lambda s,*x:(_ for _ in ()).throw(RuntimeError('redirect denied'))});o=urllib.request.build_opener(H());r=urllib.request.Request(u,headers={'Authorization':'Basic '+a})
+try:
+ x=o.open(r,timeout=10);b=x.read(65537);assert len(b)<=65536;d=json.loads(b);print(json.dumps({'accountId':d['accountId']},separators=(',',':')))
+except urllib.error.HTTPError as e:
+ print(json.dumps({'error': 'JIRA_AUTH_REJECTED' if e.code==401 else 'JIRA_PERMISSION_DENIED' if e.code==403 else 'JIRA_HTTP_ERROR'},separators=(',',':')))
+except Exception:
+ print(json.dumps({'error':'JIRA_NETWORK_FAILED'},separators=(',',':')))`;
     try {
       let createOutput: string | undefined;
       try {
@@ -537,7 +551,10 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
           signal,
         );
       } catch {
-        if (signal.aborted) throw new Error('Gateway identity probe failed');
+        if (signal.aborted)
+          // Upstream failures may contain credential material; retain only the safe code.
+
+          throw new Error('Gateway identity probe failed');
         const recovered = await this.sandbox(name, signal);
         if (
           recovered?.name !== name ||
@@ -588,12 +605,28 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
         signal,
       );
       const identity = z
-        .object({ accountId: z.string().min(1).max(128) })
+        .union([
+          z.object({ accountId: z.string().min(1).max(128) }).strict(),
+          z
+            .object({
+              error: z.enum([
+                'JIRA_AUTH_REJECTED',
+                'JIRA_PERMISSION_DENIED',
+                'JIRA_HTTP_ERROR',
+                'JIRA_NETWORK_FAILED',
+              ]),
+            })
+            .strict(),
+        ])
         .parse(JSON.parse(output));
+      if ('error' in identity) throw new ConnectionProbeError(identity.error);
       return {
         identity: identity.accountId,
       };
-    } catch {
+    } catch (error) {
+      if (error instanceof ConnectionProbeError) throw error;
+      // Upstream failures may contain credential material; retain only the safe code.
+      // eslint-disable-next-line preserve-caught-error
       throw new Error('Gateway identity probe failed');
     } finally {
       /* service owns durable cleanup using an independent signal */
