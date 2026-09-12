@@ -153,6 +153,20 @@ describe('OpenShellConnectionGateway', () => {
     ).resolves.toBeUndefined();
     expect(runner.mock.calls.flatMap((call) => call[0])).not.toContain('delete');
   });
+  it('does not treat a failed or malformed probe lookup as authoritative absence', async () => {
+    const name = 'mitzo-probe-1234567890abcdef';
+    await expect(
+      new OpenShellConnectionGateway(
+        vi.fn().mockRejectedValue(new Error('transport down')),
+      ).deleteSandbox(name, signal),
+    ).rejects.toThrow('Gateway command failed');
+    await expect(
+      new OpenShellConnectionGateway(vi.fn().mockResolvedValue('not-json')).deleteSandbox(
+        name,
+        signal,
+      ),
+    ).rejects.toThrow();
+  });
   it('rejects a caller-supplied probe name before creating a sandbox', async () => {
     const gateway = new OpenShellConnectionGateway(vi.fn(), {
       workspace: 'default',

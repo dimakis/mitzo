@@ -25,6 +25,88 @@ describe('ConnectionsService', () => {
     store.close();
     rmSync(dir, { recursive: true, force: true });
   });
+  it('keeps cleanup pending when probe existence cannot be authoritatively read', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
+    const store = new ConnectionStore(join(dir, 'db'));
+    const item = store.create({
+      ownerId: 'operator',
+      templateId: 'jira-readonly',
+      templateVersion: 1,
+      label: 'Jira',
+      endpoint: 'https://redhat.atlassian.net',
+      gatewayProviderName: 'mitzo-conn-12345678',
+      desiredAccountIds: [],
+    });
+    store.startProbe(item, 'mitzo-probe-1234567890abcdef');
+    const gateway = new OpenShellConnectionGateway(vi.fn().mockResolvedValue('not-json'));
+    await new ConnectionsService(store, gateway).reconcile(AbortSignal.timeout(500));
+    expect(store.pendingProbes()).toMatchObject([{ status: 'cleanup_pending' }]);
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  it('allows a retry after a failed provision when disposable probe cleanup sees absence', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
+    const store = new ConnectionStore(join(dir, 'db'));
+    const adapter = new OpenShellConnectionGateway(vi.fn().mockResolvedValue('[]'));
+    const gateway = {
+      verifyCompatibility: vi.fn(),
+      provision: vi.fn().mockResolvedValue({
+        id: 'provider-1',
+        name: 'mitzo-conn-12345678',
+        workspace: 'default',
+        type: 'jira-readonly',
+        credentialKeys: ['JIRA_API_TOKEN'],
+      }),
+      rotate: vi.fn(),
+      get: vi
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValue({
+          id: 'provider-1',
+          name: 'mitzo-conn-12345678',
+          workspace: 'default',
+          type: 'jira-readonly',
+          credentialKeys: ['JIRA_API_TOKEN'],
+        }),
+      list: vi.fn(),
+      delete: vi.fn(),
+      attachments: vi.fn(),
+      stopSandbox: vi.fn(),
+      sandboxStopped: vi.fn(),
+      detach: vi.fn(),
+      probe: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('probe failed'))
+        .mockResolvedValue({ identity: 'operator@example.test' }),
+      deleteSandbox: adapter.deleteSandbox.bind(adapter),
+      sandbox: vi.fn(),
+      sandboxProviders: vi.fn(),
+    };
+    const service = new ConnectionsService(store, gateway);
+    const input = {
+      ownerId: 'operator',
+      templateId: 'jira-readonly',
+      templateVersion: 1,
+      label: 'Jira',
+      endpoint: 'https://redhat.atlassian.net',
+      gatewayProviderName: 'mitzo-conn-12345678',
+      desiredAccountIds: [],
+      submittedEmail: 'operator@example.test',
+    };
+    await expect(
+      service.createAndProvision(input, 'first-token', AbortSignal.timeout(500)),
+    ).rejects.toThrow('provisioning failed');
+    const failed = store.list('operator')[0]!;
+    await expect(
+      service.retry(failed.id, failed.revision, 'second-token', AbortSignal.timeout(500)),
+    ).resolves.toMatchObject({ status: 'active', identity: 'operator@example.test' });
+    expect(gateway.rotate).toHaveBeenCalledWith(
+      { name: failed.gatewayProviderName, token: 'second-token' },
+      expect.anything(),
+    );
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
   it('does not mark failed provisioning active and retries revoke after restart', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
     const store = new ConnectionStore(join(dir, 'db'));
