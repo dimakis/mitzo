@@ -486,17 +486,25 @@ it('does not throw from a transport close callback when recovery persistence fai
   expect(onClosed).not.toHaveBeenCalled();
 });
 
-it('marks failed provider turns as errors and pauses the queue', async () => {
+it('marks failed provider turns as errors without exposing provider diagnostics', async () => {
   const { c, callbacks, events, onError } = await setup();
   await c.send({ id: 'failed', prompt: 'hello' });
   callbacks.onNotification('turn/completed', {
     threadId: 'provider-thread',
-    turn: { id: 'turn-1', status: 'failed' },
+    turn: {
+      id: 'turn-1',
+      status: 'failed',
+      error: { message: 'request failed for /private/credentials.json?token=secret' },
+    },
   });
   expect(events).toContainEqual(
     expect.objectContaining({ type: 'result', session_id: 'app', is_error: true }),
   );
-  expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'Codex turn failed' }));
+  expect(onError).toHaveBeenCalledWith(
+    expect.objectContaining({
+      message: 'Codex turn failed',
+    }),
+  );
   expect(c.isPaused()).toBe(true);
 });
 
@@ -626,6 +634,20 @@ it('persists the selected reasoning effort and sends it to Codex', async () => {
   await c.send({ id: 'effort', prompt: 'Think carefully', reasoningEffort: 'high' });
   expect(c.queue()[0].reasoningEffort).toBe('high');
   expect(requests.find((r) => r.method === 'turn/start')?.params.effort).toBe('high');
+});
+it('persists an explicit model-default reset and omits the Codex effort override', async () => {
+  const { c, requests } = await setup();
+  await c.send({ id: 'default', prompt: 'Use the model default', reasoningEffort: null });
+  expect(c.queue().at(-1)?.reasoningEffort).toBeNull();
+  expect(requests.find((r) => r.method === 'turn/start')?.params).not.toHaveProperty('effort');
+});
+it('clears a stale thinking override when switching to a model without an effort selection', async () => {
+  const { c } = await setup();
+  await c.send({ id: 'effort', prompt: 'Think carefully', reasoningEffort: 'high' });
+  await c.send({ id: 'other-model', prompt: 'Switch models', model: 'other-model' });
+
+  expect(c.queue().at(-1)?.model).toBe('other-model');
+  expect(c.queue().at(-1)?.reasoningEffort).toBeNull();
 });
 it('sends attached images as native image input and retains them for recovery', async () => {
   const { c, requests } = await setup();

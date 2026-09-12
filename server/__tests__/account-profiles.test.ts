@@ -170,13 +170,49 @@ describe('work OpenAI API profile', () => {
     expect(() => new AccountProfiles([unbound])).not.toThrow();
   });
 
-  it('validates model and thinking changes against the bound API account', () => {
-    const profiles = new AccountProfiles([api]);
+  it('validates live native model and thinking changes against the bound catalog', () => {
+    const profiles = new AccountProfiles([
+      {
+        ...api,
+        models: [
+          ...api.models,
+          { id: 'other-model', label: 'Other model', reasoningEfforts: ['low'] },
+        ],
+      },
+    ]);
     const binding = profiles.resolve('work-api', 'test-model');
-    expect(() => profiles.validateModel(binding, 'test-model', 'high')).not.toThrow();
-    expect(() => profiles.validateModel(binding, 'test-model', null)).not.toThrow();
-    expect(() => profiles.validateModel(binding, 'other-model')).toThrow(/model/i);
-    expect(() => profiles.validateModel(binding, 'test-model', 'ultra')).toThrow(/thinking/i);
+    expect(() => profiles.validateModelSelection(binding, 'other-model', 'low')).not.toThrow();
+    expect(() => profiles.validateModelSelection(binding, 'missing-model', 'low')).toThrow(
+      /model/i,
+    );
+    expect(() => profiles.validateModelSelection(binding, 'other-model', 'high')).toThrow(
+      /thinking/i,
+    );
+  });
+
+  it('does not advertise or accept Nano while API sessions require tools', () => {
+    const profiles = new AccountProfiles([
+      {
+        ...api,
+        models: [
+          { id: 'gpt-5.4-nano', label: 'GPT-5.4 Nano' },
+          { id: 'gpt-5.4-nano-2026-09-01', label: 'GPT-5.4 Nano dated' },
+          { id: 'gpt-5.4-mini', label: 'GPT-5.4 Mini' },
+        ],
+      },
+    ]);
+    expect(profiles.catalog()[0].models.map((model) => model.id)).toEqual(['gpt-5.4-mini']);
+    expect(() => profiles.resolve('work-api', 'gpt-5.4-nano')).toThrow(/model/i);
+    const persisted = profiles.resolve('work-api', 'gpt-5.4-mini');
+    expect(() => profiles.resume({ ...persisted, model: 'gpt-5.4-nano' })).toThrow(/model/i);
+  });
+
+  it('omits a Nano-only API profile without invalidating other accounts', () => {
+    const profiles = new AccountProfiles([
+      { ...api, models: [{ id: 'gpt-5.4-nano', label: 'GPT-5.4 Nano' }] },
+      profile,
+    ]);
+    expect(profiles.catalog().map((account) => account.id)).toEqual(['work']);
   });
 });
 

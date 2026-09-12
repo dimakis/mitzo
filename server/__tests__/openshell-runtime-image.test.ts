@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -89,4 +89,32 @@ describe('OpenShell runtime image builder', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it.each(['traversal', 'symlink'] as const)(
+    'rejects a %s path that resolves outside the configured workspace root',
+    (kind) => {
+      const root = mkdtempSync(join(tmpdir(), 'mitzo-sandbox-escape-'));
+      const workspaceRoot = join(root, 'sandbox', 'workspaces');
+      const outside = join(root, 'sandbox', 'other');
+      try {
+        mkdirSync(workspaceRoot, { recursive: true });
+        mkdirSync(outside, { recursive: true });
+        const candidate =
+          kind === 'traversal'
+            ? join(workspaceRoot, '..', 'other')
+            : join(workspaceRoot, 'outside-link');
+        if (kind === 'symlink') symlinkSync(outside, candidate);
+
+        expect(() =>
+          execFileSync(initializer, [candidate], {
+            env: { ...process.env, MITZO_WORKSPACE_ROOT: workspaceRoot },
+            stdio: ['ignore', 'pipe', 'pipe'],
+          }),
+        ).toThrow(/workspace must be inside/);
+        expect(existsSync(join(outside, '.git'))).toBe(false);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
 });

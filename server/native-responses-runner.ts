@@ -12,7 +12,10 @@ import { NativeResponsesStore, type NativeResponsesState } from './native-respon
 import { createLogger } from './logger.js';
 const log = createLogger('native-responses');
 
-interface NativeResponsesOptions extends Omit<ModelSessionConfig, 'model' | 'signal' | 'thinking'> {
+interface NativeResponsesOptions extends Omit<
+  ModelSessionConfig,
+  'model' | 'signal' | 'thinking' | 'reasoningEffort'
+> {
   conversationId: string;
   binding: AccountBinding;
   apiKey?: string;
@@ -20,7 +23,7 @@ interface NativeResponsesOptions extends Omit<ModelSessionConfig, 'model' | 'sig
   store: NativeResponsesStore;
   maxTurns?: number;
   selectedModel?: string;
-  reasoningEffort?: string;
+  reasoningEffort?: string | null;
   executeTool: (block: ToolUseBlock, signal: AbortSignal) => Promise<ToolResultBlock>;
 }
 
@@ -59,10 +62,12 @@ export class NativeResponsesRunner {
     {
       prompt: string;
       state: NativeResponsesState;
-      selection?: { model: string; reasoningEffort?: string | null };
+      selection?: { model?: string; reasoningEffort?: string | null };
     }
   >();
   private idleWaiters: (() => void)[] = [];
+  private selectedModel: string;
+  private reasoningEffort?: string | null;
   constructor(private options: NativeResponsesOptions) {
     if (options.binding.provider === 'openai') {
       if (!options.apiKey?.trim() || options.gemini) throw new Error('OpenAI API key is required');
@@ -75,6 +80,8 @@ export class NativeResponsesRunner {
         throw new Error('Explicit Google Vertex account is required');
     } else throw new Error('Native runtime requires an explicit API account');
     if (!options.conversationId) throw new Error('Application conversation ID is required');
+    this.selectedModel = options.selectedModel ?? options.binding.model;
+    this.reasoningEffort = options.reasoningEffort;
     if (
       options.maxTurns !== undefined &&
       (!Number.isInteger(options.maxTurns) || options.maxTurns < 1)
@@ -106,7 +113,7 @@ export class NativeResponsesRunner {
   prepare(
     messageId: string,
     prompt: string,
-    selection?: { model: string; reasoningEffort?: string | null },
+    selection?: { model?: string; reasoningEffort?: string | null },
   ) {
     if (this.active || this.prepared.size)
       throw new Error('Native Responses conversation already running');
@@ -139,7 +146,8 @@ export class NativeResponsesRunner {
         state.history.push({ role: 'user', content: prompt });
         save();
       }
-      const selectedModel = prepared?.selection?.model ?? opts.selectedModel ?? opts.binding.model;
+      const previousModel = this.selectedModel;
+      const selectedModel = prepared?.selection?.model ?? previousModel;
       const checkpoint =
         state.checkpoint && state.checkpoint.model !== selectedModel
           ? {
@@ -148,16 +156,20 @@ export class NativeResponsesRunner {
               input: state.checkpoint.input.filter((item) => item.type !== 'reasoning'),
             }
           : state.checkpoint;
-      const reasoningEffort =
-        prepared?.selection && Object.hasOwn(prepared.selection, 'reasoningEffort')
-          ? (prepared.selection.reasoningEffort ?? undefined)
-          : opts.reasoningEffort;
+      const selectedReasoningEffort =
+        prepared?.selection && 'reasoningEffort' in prepared.selection
+          ? prepared.selection.reasoningEffort
+          : prepared?.selection?.model && prepared.selection.model !== previousModel
+            ? null
+            : this.reasoningEffort;
+      this.selectedModel = selectedModel;
+      this.reasoningEffort = selectedReasoningEffort;
       const config = {
         model: selectedModel,
         systemPrompt: opts.systemPrompt,
         maxTokens: opts.maxTokens,
         tools: opts.tools,
-        reasoningEffort,
+        reasoningEffort: selectedReasoningEffort ?? undefined,
         signal: abort.signal,
       };
       const session = opts.gemini

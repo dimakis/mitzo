@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
+  hasExactGlobalSetting,
   validateStaticConfig,
   verifyAccountBindings,
 } from '../../scripts/verify-openshell-production.mjs';
@@ -20,6 +21,25 @@ const config = {
 };
 
 describe('OpenShell production bundle validation', () => {
+  it('matches only active global settings with exact values', () => {
+    expect(hasExactGlobalSetting('providers_v2_enabled = true', 'providers_v2_enabled', true)).toBe(
+      true,
+    );
+    expect(
+      hasExactGlobalSetting('# providers_v2_enabled = true', 'providers_v2_enabled', true),
+    ).toBe(false);
+    expect(
+      hasExactGlobalSetting('providers_v2_enabled = trueish', 'providers_v2_enabled', true),
+    ).toBe(false);
+    expect(
+      hasExactGlobalSetting(
+        '# providers_v2_enabled = true\nproviders_v2_enabled = false',
+        'providers_v2_enabled',
+        true,
+      ),
+    ).toBe(false);
+  });
+
   it('accepts a pinned image and exact provider ordering', () => {
     expect(validateStaticConfig(config, manifest)).toEqual({
       enabled: true,
@@ -105,5 +125,13 @@ describe('OpenShell production bundle validation', () => {
     expect(profile).not.toContain('gmail.readonly');
     expect(profile).not.toContain('gmail.googleapis.com');
     expect(profile).not.toContain('access: read-write');
+  });
+
+  it('starts the Podman machine before OpenShell production preflight', () => {
+    const deploy = readFileSync(new URL('../../scripts/deploy.sh', import.meta.url), 'utf8');
+    const readiness = deploy.indexOf("podman machine inspect --format '{{.State}}'");
+    const preflight = deploy.indexOf('node scripts/verify-openshell-production.mjs');
+    expect(readiness).toBeGreaterThan(-1);
+    expect(preflight).toBeGreaterThan(readiness);
   });
 });

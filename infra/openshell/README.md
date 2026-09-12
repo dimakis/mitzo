@@ -115,10 +115,13 @@ then resume Mitzo. If startup or validation fails, stop the new processes and
 restore the complete matched snapshot before starting the old binaries. Never
 run an older gateway against a database that a newer gateway may have migrated.
 
-## Current limitation
+## Current deployment
 
-The default gateway currently has the canonical, encrypted `google-workspace`
-provider and a working OpenAI API provider. The personal ChatGPT OAuth provider
-used for live acceptance was isolated from the default gateway. A production
-personal-subscription profile must not be enabled until that broker provider and
-its active grant are deliberately provisioned on the default gateway.
+The production gateway uses the matched OpenShell downstream release
+`v0.0.116-mitzo.2` for the CLI, gateway, and Podman driver. It has the canonical,
+encrypted `google-workspace` and `github` service providers plus the bound
+`mitzo-personal-subscription` OAuth provider. Preserve this downstream release
+and its protobuf compatibility invariant during upgrades; follow
+`docs/operations/openshell-subscription-upgrades.md` and the always-applied
+`.cursor/rules/openshell-subscription-upgrades.mdc` rule before changing any
+OpenShell component.

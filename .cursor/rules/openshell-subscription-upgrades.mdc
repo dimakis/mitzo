@@ -1,0 +1,35 @@
+---
+description: Preserve Mitzo personal-subscription support across OpenShell upgrades
+alwaysApply: true
+---
+
+# OpenShell subscription compatibility
+
+Mitzo personal ChatGPT support is a two-part contract: Mitzo PR #487 is the
+consumer, and the production OpenShell gateway must include the reviewed Codex
+OAuth broker patch. Stock OpenShell 0.0.116 does not provide that broker.
+
+Before changing the OpenShell CLI, gateway, supervisor, runtime image, provider
+profiles, or deployment configuration:
+
+1. Read `docs/operations/openshell-subscription-upgrades.md`.
+2. Identify the exact deployed CLI, gateway, supervisor, and runtime-image
+   builds. Never infer compatibility from the CLI version alone.
+3. Port/rebase the OAuth patch onto the intended OpenShell release and run its
+   unit/integration suite before touching production. Do not silently replace
+   the patched build with stock upstream.
+4. Preserve every upstream persisted protobuf field number. Prove that the new
+   gateway can decode a disposable copy of the current production refresh
+   records before deploying it.
+5. Preserve the provider contract: name `mitzo-personal-subscription`, type
+   `openai-codex-oauth`, workspace `default`, and no Mitzo `credentialRef`.
+6. Never print, commit, transmit, or migrate raw OAuth tokens, authorization
+   JSON, headers, or credential databases. A same-host compatibility test may
+   use one owner-only temporary database-and-key copy solely as described in the
+   operator runbook; delete it immediately after the decode check. Reauthorize
+   through the gateway when a new trust domain is required.
+7. Use a rollback-capable deployment and pass every smoke test in the operator
+   checklist before declaring the upgrade complete.
+
+If the target release removed managed inference routing or `inference.local`,
+stop: this is an architecture port, not a routine version bump.

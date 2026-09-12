@@ -98,6 +98,17 @@ describe('v2 send', () => {
     expect(r.success).toBe(true);
   });
 
+  it('accepts an explicit null reasoning effort to restore the model default', () => {
+    const r = V2SendMessage.safeParse({
+      type: 'send',
+      sessionId: 'sess-1',
+      prompt: 'hello',
+      clientMsgId: 'u-1',
+      reasoningEffort: null,
+    });
+    expect(r.success).toBe(true);
+  });
+
   it('rejects send without sessionId field', () => {
     const r = V2SendMessage.safeParse({
       type: 'send',
@@ -135,6 +146,17 @@ describe('v2 send', () => {
 });
 
 describe('v2 interrupt / stop / permission_response / set_mode', () => {
+  it('accepts the bound account identity on an interrupt', () => {
+    const r = V2InterruptMessage.safeParse({
+      type: 'interrupt',
+      sessionId: 'sess-1',
+      prompt: 'change course',
+      clientMsgId: 'i-1',
+      accountId: 'work',
+      model: 'model-b',
+    });
+    expect(r.success).toBe(true);
+  });
   it('accepts interrupt with sessionId', () => {
     const r = V2InterruptMessage.safeParse({
       type: 'interrupt',

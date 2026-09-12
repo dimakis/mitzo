@@ -3,10 +3,12 @@ set -eu
 
 workspace="${1:?workspace path is required}"
 workspace_root="${MITZO_WORKSPACE_ROOT:-/sandbox/workspaces}"
+workspace_root="$(realpath "$workspace_root")"
+workspace="$(realpath "$workspace")"
 case "$workspace" in
   "$workspace_root"/*) ;;
   *)
-    echo 'workspace must be inside /sandbox/workspaces' >&2
+    echo "workspace must be inside $workspace_root" >&2
     exit 2
     ;;
 esac

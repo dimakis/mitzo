@@ -140,6 +140,10 @@ it('routes a bound Codex account to its controller with context and canonical du
 it('routes API accounts through the referenced secret store without passing keys to child environments', async () => {
   vi.resetModules();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-api-dispatch-'));
+  await writeFile(
+    join(root, '.mitzo.json'),
+    JSON.stringify({ venvPaths: ['notebooks/.venv/bin'] }),
+  );
   vi.stubEnv('REPO_PATH', root);
   vi.stubEnv('WORKTREE_ENABLED', 'false');
   vi.stubEnv('OPENAI_API_KEY', 'inherited-wrong-key');
@@ -172,6 +176,7 @@ it('routes API accounts through the referenced secret store without passing keys
     const options = vi.mocked(openResponsesChat).mock.calls[0][0];
     expect(options.apiKey).toBe('private-work-key');
     expect(JSON.stringify(options.env)).not.toContain('key');
+    expect(options.env.PATH).toBe(`${join(root, 'notebooks/.venv/bin')}:${process.env.PATH}`);
     expect(options.conversationId).toBe('test-api-app');
     await expect(chat.renameSessionById('test-api-app', 'Work task')).resolves.toBeUndefined();
     expect(chat.eventStore.getSession('test-api-app')?.summary).toBe('Work task');
@@ -181,7 +186,154 @@ it('routes API accounts through the referenced secret store without passing keys
   }
 });
 
-it('routes API accounts through OpenShell in production without resolving host credentials', async () => {
+it('rejects an unsupported initial native reasoning level before opening the provider', async () => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-api-effort-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')));
+  const chat = await import('../chat.js');
+  const profiles = new AccountProfiles([
+    {
+      id: 'work-api',
+      label: 'Work',
+      provider: 'openai',
+      credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
+      models: [{ id: 'test', label: 'Test', reasoningEfforts: ['low'] }],
+    },
+  ]);
+  const events: Record<string, unknown>[] = [];
+  try {
+    await chat.startChat(
+      { send: (event) => events.push(event), isOpen: () => true },
+      'invalid-effort',
+      'hello',
+      {
+        cwd: root,
+        isolation: false,
+        accountId: 'work-api',
+        model: 'test',
+        reasoningEffort: 'high',
+        accountProfiles: profiles,
+        initialSessionId: 'invalid-effort-app',
+      },
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'error', error: expect.stringMatching(/thinking/i) }),
+    );
+    expect(credentials.resolve).not.toHaveBeenCalled();
+    expect(openResponsesChat).not.toHaveBeenCalled();
+  } finally {
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('restores the persisted native model and reasoning level on a field-less cold resume', async () => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-api-resume-selection-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')));
+  const chat = await import('../chat.js');
+  const profiles = new AccountProfiles([
+    {
+      id: 'work-api',
+      label: 'Work',
+      provider: 'openai',
+      credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
+      models: [
+        { id: 'original', label: 'Original', reasoningEfforts: ['low'] },
+        { id: 'selected', label: 'Selected', reasoningEfforts: ['high'] },
+      ],
+    },
+  ]);
+  const sessionId = 'persisted-native-selection';
+  chat.eventStore.upsertSession({
+    sessionId,
+    cwd: root,
+    mode: 'agent',
+    accountBinding: profiles.resolve('work-api', 'original'),
+    selectedModel: 'selected',
+    reasoningEffort: 'high',
+  });
+  vi.mocked(openResponsesChat).mockRejectedValue(new Error('stop after selection capture'));
+  try {
+    await chat.startChat({ send: () => {}, isOpen: () => true }, 'resume-selection', 'continue', {
+      resume: sessionId,
+      cwd: root,
+      isolation: false,
+      accountProfiles: profiles,
+    });
+    expect(openResponsesChat).toHaveBeenCalledOnce();
+    expect(vi.mocked(openResponsesChat).mock.calls[0][0]).toMatchObject({
+      selectedModel: 'selected',
+      reasoningEffort: 'high',
+    });
+  } finally {
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('clears persisted reasoning when a cold resume explicitly changes native models', async () => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-api-resume-model-switch-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')));
+  const chat = await import('../chat.js');
+  const profiles = new AccountProfiles([
+    {
+      id: 'work-api',
+      label: 'Work',
+      provider: 'openai',
+      credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
+      models: [
+        { id: 'reasoning-model', label: 'Reasoning', reasoningEfforts: ['high'] },
+        { id: 'plain-model', label: 'Plain' },
+      ],
+    },
+  ]);
+  const sessionId = 'persisted-native-model-switch';
+  chat.eventStore.upsertSession({
+    sessionId,
+    cwd: root,
+    mode: 'agent',
+    accountBinding: profiles.resolve('work-api', 'reasoning-model'),
+    selectedModel: 'reasoning-model',
+    reasoningEffort: 'high',
+  });
+  vi.mocked(openResponsesChat).mockRejectedValue(new Error('stop after selection capture'));
+  try {
+    await chat.startChat(
+      { send: () => {}, isOpen: () => true },
+      'resume-model-switch',
+      'continue',
+      {
+        resume: sessionId,
+        cwd: root,
+        isolation: false,
+        accountId: 'work-api',
+        model: 'plain-model',
+        accountProfiles: profiles,
+      },
+    );
+    expect(openResponsesChat).toHaveBeenCalledOnce();
+    expect(vi.mocked(openResponsesChat).mock.calls[0][0]).toMatchObject({
+      selectedModel: 'plain-model',
+      reasoningEffort: null,
+    });
+  } finally {
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('routes API accounts through OpenShell by default without resolving host credentials', async () => {
   vi.resetModules();
   vi.clearAllMocks();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-openshell-api-dispatch-'));
@@ -301,10 +453,14 @@ it('routes an explicitly broker-bound ChatGPT subscription without reading a hos
   }
 });
 
-it('fails closed for unsupported account providers when OpenShell is enabled', async () => {
+it('keeps Vertex on its native route when OpenShell is enabled', async () => {
   vi.resetModules();
   vi.clearAllMocks();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-openshell-unsupported-'));
+  await writeFile(
+    join(root, '.mitzo.json'),
+    JSON.stringify({ venvPaths: ['notebooks/.venv/bin'] }),
+  );
   vi.stubEnv('REPO_PATH', root);
   vi.stubEnv('WORKTREE_ENABLED', 'false');
   vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
@@ -320,24 +476,65 @@ it('fails closed for unsupported account providers when OpenShell is enabled', a
       models: [{ id: 'gemini-test', label: 'Gemini test' }],
     },
   ]);
-  const send = vi.fn();
+  vi.mocked(openResponsesChat).mockRejectedValue(new Error('stop after native routing'));
   try {
-    await chat.startChat({ send, isOpen: () => true }, 'unsupported', 'hello', {
+    await chat.startChat({ send: () => {}, isOpen: () => true }, 'vertex-native', 'hello', {
       cwd: root,
       isolation: false,
       accountId: 'vertex',
       model: 'gemini-test',
       accountProfiles: profiles,
     });
-    expect(send).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'error',
-        error: expect.stringContaining('does not yet support google-vertex'),
-      }),
+    expect(openResponsesChat).toHaveBeenCalledOnce();
+    expect(vi.mocked(openResponsesChat).mock.calls[0][0].gemini).toMatchObject({
+      accountId: 'vertex',
+      projectId: 'synthetic',
+      region: 'global',
+    });
+    expect(vi.mocked(openResponsesChat).mock.calls[0][0].env.PATH).toBe(
+      `${join(root, 'notebooks/.venv/bin')}:${process.env.PATH}`,
     );
-    expect(openResponsesChat).not.toHaveBeenCalled();
     expect(openCodexChat).not.toHaveBeenCalled();
     expect(query).not.toHaveBeenCalled();
+  } finally {
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('can bypass OpenShell for API accounts during a proxy incident', async () => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-openshell-api-bypass-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_OPENAI_API_ENABLED', '0');
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')));
+  const chat = await import('../chat.js');
+  const profiles = new AccountProfiles([
+    {
+      id: 'work-api',
+      label: 'Work',
+      provider: 'openai',
+      credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
+      sandboxProvider: 'openai-work',
+      models: [{ id: 'test', label: 'Test' }],
+    },
+  ]);
+  vi.mocked(openResponsesChat).mockRejectedValue(new Error('stop after native routing'));
+  try {
+    await chat.startChat({ send: () => {}, isOpen: () => true }, 'api-native', 'hello', {
+      cwd: root,
+      isolation: false,
+      accountId: 'work-api',
+      model: 'test',
+      accountProfiles: profiles,
+    });
+    expect(credentials.resolve).toHaveBeenCalledOnce();
+    expect(openResponsesChat).toHaveBeenCalledOnce();
+    expect(vi.mocked(openResponsesChat).mock.calls[0][0].apiKey).toBe('private-work-key');
+    expect(openCodexChat).not.toHaveBeenCalled();
   } finally {
     chat.eventStore.close();
     await rm(root, { recursive: true, force: true });

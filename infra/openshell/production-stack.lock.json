@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "gateway": {
-    "version": "0.0.116",
+    "version": "0.0.116-mitzo.2",
     "driver": "podman",
-    "driverVersion": "0.0.116",
+    "driverVersion": "0.0.116-mitzo.2",
     "requiredGlobalSettings": {
       "providers_v2_enabled": true
     }

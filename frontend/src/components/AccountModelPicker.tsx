@@ -39,7 +39,7 @@ const catalogSchema = z.array(
 
 function withThinking(selection: AccountSelection, account: Account): AccountSelection {
   const model = account.models.find((m) => m.id === selection.model);
-  if (selection.reasoningEffort === null) return { ...selection, reasoningEffort: null };
+  if (selection.reasoningEffort === null) return selection;
   const effort = model?.reasoningEfforts?.includes(selection.reasoningEffort ?? '')
     ? selection.reasoningEffort
     : model?.defaultReasoningEffort;
@@ -362,8 +362,7 @@ export function AccountModelPicker({
           value={selection.reasoningEffort ?? ''}
           onChange={(e) => {
             const next = { ...selection };
-            if (e.target.value) next.reasoningEffort = e.target.value;
-            else next.reasoningEffort = null;
+            next.reasoningEffort = e.target.value || null;
             setSelection(next);
             onChange(next);
           }}

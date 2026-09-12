@@ -114,6 +114,11 @@ vi.mock('../chat.js', () => {
   };
 });
 
+vi.mock('../codex-chat-session.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../codex-chat-session.js')>();
+  return { ...actual, readCodexQueue: vi.fn(actual.readCodexQueue) };
+});
+
 vi.mock('../permissions.js', () => ({
   resolvePending: vi.fn().mockReturnValue(true),
 }));
@@ -129,6 +134,7 @@ vi.mock('../git-version.js', () => ({
 }));
 
 import { hideSession, hideAllSessions, renameSessionById, eventStore } from '../chat.js';
+import { readCodexQueue } from '../codex-chat-session.js';
 import { resolvePending } from '../permissions.js';
 
 const overviewBroadcast = vi.fn();
@@ -1205,6 +1211,72 @@ describe('account catalog routes', () => {
         reasoningEffort: 'high',
         models: [{ id: 'sonnet', label: 'Sonnet' }],
       });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('hydrates legacy Codex reasoning from the queue while preserving an explicit reset', async () => {
+    const file = join(TEST_REPO, 'legacy-codex-picker-profiles.json');
+    writeFileSync(
+      file,
+      JSON.stringify([
+        {
+          id: 'work-api',
+          label: 'Work API',
+          provider: 'openai',
+          credentialRef: { provider: 'keychain', service: 'test', account: 'test' },
+          sandboxProvider: 'openai-test',
+          models: [{ id: 'gpt-test', label: 'GPT', reasoningEfforts: ['high'] }],
+        },
+      ]),
+    );
+    vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', file);
+    const binding = {
+      accountId: 'work-api',
+      accountLabel: 'Work API',
+      provider: 'openai' as const,
+      model: 'gpt-test',
+      profileRevision: 'revision',
+    };
+    const meta = {
+      sessionId: 'legacy-codex-picker',
+      cwd: '/sandbox/workspaces/mgmt',
+      accountBinding: binding,
+      selectedModel: null,
+      reasoningEffort: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+    } as ReturnType<typeof eventStore.getSession>;
+    vi.mocked(eventStore.getSession).mockReturnValueOnce(meta).mockReturnValueOnce(meta);
+    vi.mocked(readCodexQueue)
+      .mockReturnValueOnce({
+        model: 'gpt-test',
+        reasoningEffort: 'high',
+        paused: true,
+        connected: false,
+        queued: 0,
+        interrupted: 0,
+      })
+      .mockReturnValueOnce({
+        model: 'gpt-test',
+        reasoningEffort: null,
+        paused: true,
+        connected: false,
+        queued: 0,
+        interrupted: 0,
+      });
+    try {
+      const legacy = await request(app)
+        .get('/api/sessions/legacy-codex-picker/meta')
+        .set('Cookie', authCookie);
+      expect(legacy.body.modelSelection.reasoningEffort).toBe('high');
+
+      const reset = await request(app)
+        .get('/api/sessions/legacy-codex-picker/meta')
+        .set('Cookie', authCookie);
+      expect(reset.body.modelSelection.reasoningEffort).toBeNull();
     } finally {
       vi.unstubAllEnvs();
     }

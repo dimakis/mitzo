@@ -1,9 +1,8 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { eventStore, registry, sendToChat, interruptChat } from '../chat.js';
-import { AccountProfiles } from '../account-profiles.js';
 import type { SessionTransport } from '@mitzo/harness';
 
 function mockTransport(open = true): SessionTransport & { _sent: Record<string, unknown>[] } {
@@ -20,7 +19,6 @@ describe('sendToChat emits user_message via transport', () => {
   const tempDirs: string[] = [];
 
   afterEach(() => {
-    vi.unstubAllEnvs();
     registry.abort(CLIENT_ID);
     for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
@@ -216,16 +214,51 @@ describe('sendToChat emits user_message via transport', () => {
     expect(userMsgs[0]).not.toHaveProperty('sessionId');
     expect(pushSpy).toHaveBeenCalledTimes(1);
   });
+
+  it('rejects an active Anthropic model switch without persisting or sending the message', () => {
+    const transport = mockTransport();
+    const pushSpy = vi.fn();
+    const sessionId = `sess-anthropic-model-${Date.now()}`;
+    registry.register(CLIENT_ID, {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+
+    const session = registry.get(CLIENT_ID)!;
+    session.sessionId = sessionId;
+    session.model = 'claude-sonnet-4-6';
+    session.inputQueue = { push: pushSpy, close: vi.fn() };
+    eventStore.upsertSession({ sessionId, selectedModel: session.model });
+
+    expect(
+      sendToChat(
+        CLIENT_ID,
+        'Use the other model',
+        undefined,
+        undefined,
+        'user-anthropic-model',
+        'claude-opus-4-6',
+      ),
+    ).toBe(false);
+    expect(pushSpy).not.toHaveBeenCalled();
+    expect(eventStore.getSession(sessionId)?.selectedModel).toBe('claude-sonnet-4-6');
+    expect(transport._sent).toContainEqual(
+      expect.objectContaining({
+        type: 'error',
+        error: expect.stringContaining('Start a new task'),
+      }),
+    );
+    expect(transport._sent.some((message) => message.type === 'user_message')).toBe(false);
+  });
 });
 
 describe('interruptChat emits user_message via transport', () => {
   const CLIENT_ID = 'test-client-interrupt';
-  const tempDirs: string[] = [];
 
   afterEach(() => {
-    vi.unstubAllEnvs();
     registry.abort(CLIENT_ID);
-    for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
   it('sends a user_message event after persisting', async () => {
@@ -363,55 +396,42 @@ describe('interruptChat emits user_message via transport', () => {
     expect(interruptSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects an interrupt model outside the bound account catalog before stopping work', async () => {
+  it('rejects an active Anthropic model switch before interrupting or persisting it', async () => {
     const transport = mockTransport();
+    const pushSpy = vi.fn();
     const interruptSpy = vi.fn().mockResolvedValue(undefined);
-    const configDir = mkdtempSync(join(tmpdir(), 'mitzo-interrupt-model-'));
-    tempDirs.push(configDir);
-    const config = [
-      {
-        id: 'work-api',
-        label: 'Work API',
-        provider: 'openai',
-        credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
-        models: [{ id: 'allowed-model', label: 'Allowed' }],
-      },
-    ];
-    const profileFile = join(configDir, 'accounts.json');
-    writeFileSync(profileFile, JSON.stringify(config));
-    vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', profileFile);
-    const accountBinding = new AccountProfiles(config).resolve('work-api', 'allowed-model');
-
+    const sessionId = `sess-anthropic-interrupt-model-${Date.now()}`;
     registry.register(CLIENT_ID, {
       transport,
       abortController: new AbortController(),
       mode: 'agent',
       sessionAllowList: new Set(),
-      accountBinding,
-      model: 'allowed-model',
     });
+
     const session = registry.get(CLIENT_ID)!;
-    session.sessionId = 'sess-bound-interrupt';
-    session.inputQueue = { push: vi.fn(), close: vi.fn() };
+    session.sessionId = sessionId;
+    session.model = 'claude-sonnet-4-6';
+    session.inputQueue = { push: pushSpy, close: vi.fn() };
     session.queryInstance = {
       interrupt: interruptSpy,
       close: vi.fn(),
       stopTask: vi.fn().mockResolvedValue(undefined),
     };
+    eventStore.upsertSession({ sessionId, selectedModel: session.model });
 
     expect(
       await interruptChat(
         CLIENT_ID,
-        'switch model',
+        'Interrupt with the other model',
         undefined,
         undefined,
-        'interrupt-invalid-model',
-        'unapproved-model',
+        'user-anthropic-interrupt-model',
+        'claude-opus-4-6',
       ),
     ).toBe(false);
     expect(interruptSpy).not.toHaveBeenCalled();
-    expect(transport._sent).toContainEqual(
-      expect.objectContaining({ type: 'error', error: expect.stringMatching(/model/i) }),
-    );
+    expect(pushSpy).not.toHaveBeenCalled();
+    expect(eventStore.getSession(sessionId)?.selectedModel).toBe('claude-sonnet-4-6');
+    expect(transport._sent.some((message) => message.type === 'user_message')).toBe(false);
   });
 });

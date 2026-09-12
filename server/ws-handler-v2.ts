@@ -74,6 +74,18 @@ export interface V2HandlerContext {
   nativeCommands: NativeCommandRegistry;
 }
 
+function assertActiveAccountIdentity(
+  ctx: V2HandlerContext,
+  sessionId: string,
+  accountId: string,
+): void {
+  const boundAccountId = ctx.eventStore.getSession(sessionId)?.accountBinding?.accountId;
+  if (boundAccountId !== accountId)
+    throw new Error(
+      'This task is bound to its original account. Start a new task to change accounts.',
+    );
+}
+
 // ─── Hello handshake detection ───────────────────────────────────────────────
 
 /**
@@ -581,6 +593,7 @@ export function handleSendV2(
             storeState !== 'CLOSING' &&
             storeState !== null
           ) {
+            if (msg.accountId) assertActiveAccountIdentity(ctx, sessionId, msg.accountId);
             const ownerConnection =
               found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
             const isOwner = ownerConnection === connectionId;
@@ -624,7 +637,7 @@ export function handleSendV2(
                 msg.contextBlocks,
                 msg.clientMsgId,
                 msg.accountId ? msg.model : undefined,
-                msg.reasoningEffort,
+                msg.accountId ? msg.reasoningEffort : undefined,
               )
             )
               throw new Error('Session is not accepting input. Please retry.');
@@ -749,6 +762,7 @@ export function handleInterruptV2(
       if (!found) return;
 
       const activeClientId = found.clientId;
+      const storedAccountId = ctx.eventStore.getSession(msg.sessionId)?.accountBinding?.accountId;
       const storeState = ctx.eventStore.getSessionState(msg.sessionId);
 
       // Phase 2: detect state mismatches (observability only)
@@ -773,6 +787,18 @@ export function handleInterruptV2(
         storeState !== 'CLOSING' &&
         storeState !== null
       ) {
+        if (msg.accountId) {
+          try {
+            assertActiveAccountIdentity(ctx, msg.sessionId, msg.accountId);
+          } catch (error: unknown) {
+            transport.send({
+              type: 'error',
+              sessionId: msg.sessionId,
+              error: error instanceof Error ? error.message : 'Account binding mismatch',
+            });
+            return;
+          }
+        }
         const ownerConnection =
           found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
         const isOwner = ownerConnection === connectionId;
@@ -808,8 +834,8 @@ export function handleInterruptV2(
           msg.images,
           msg.contextBlocks,
           msg.clientMsgId,
-          msg.model,
-          msg.reasoningEffort,
+          msg.accountId ? msg.model : undefined,
+          msg.accountId ? msg.reasoningEffort : undefined,
         );
         log.info('interrupt', { connectionId, sessionId: msg.sessionId });
         return;
@@ -831,6 +857,7 @@ export function handleInterruptV2(
       ctx.connRegistry.setActive(connectionId, msg.sessionId);
       startChat(transport, sessionClientId, msg.prompt, {
         resume: msg.sessionId,
+        accountId: msg.accountId ?? storedAccountId,
         resumePermission: found.session?.mode
           ? {
               mode: effectivePermissionMode(found.session),

@@ -1,0 +1,98 @@
+# OpenShell personal-subscription upgrade contract
+
+Mitzo's personal ChatGPT path spans two separately deployed components. PR
+[#487](https://github.com/dimakis/mitzo/pull/487) added Mitzo's broker-binding
+enforcement and subscription runtime, but sign-in and token custody remain the
+responsibility of a patched OpenShell gateway. Installing Mitzo alone is not a
+complete rollout.
+
+## Required gateway behavior
+
+- The gateway exposes attended provider login for provider type
+  `openai-codex-oauth`.
+- The production provider is named `mitzo-personal-subscription` in workspace
+  `default`.
+- Refresh tokens stay gateway-owned; Mitzo stores only provider identity and
+  never a `credentialRef` for this account type.
+- Refresh status exposes safe operational metadata, including a non-secret
+  generation/authorization epoch, expiry, and actionable failure state.
+- A sandbox can call `https://inference.local/v1` without receiving credentials.
+  OpenShell injects the current access token and required account metadata only
+  on the bound upstream route.
+- Direct or unbound credential-bearing routes fail closed.
+
+The reviewed patch series originated at NVIDIA/OpenShell issue
+[#2740](https://github.com/NVIDIA/OpenShell/issues/2740). The production-ready
+OpenShell 0.0.116 port is published in
+[`dimakis/OpenShell`](https://github.com/dimakis/OpenShell) as release tag
+`v0.0.116-mitzo.2`, commit
+`b4c459f92446167afcb0a2dcf7d9fa6c8945e59c`, with maintenance branch
+`codex/mitzo-oauth-v0.0.116`. Its historical review lineage is
+[saariuslystoned/OpenShell PR #1](https://github.com/saariuslystoned/OpenShell/pull/1)
+at `f8cbf77623559149e91c63385992e2acb9e8bda0`, followed by accepted fixes through
+`820ccdcee2d871921c01cba1dfaf5d8e42c72d5e`. The approved immutable source
+identity is the full 0.0.116 port commit above. The tag is a convenience name
+and must resolve to that commit before use; none of these hashes is a
+version-agnostic patch.
+
+`v0.0.116-mitzo.2` supersedes `v0.0.116-mitzo.1`. The first port shifted
+upstream persisted refresh-state protobuf fields 18-24 when it inserted the new
+grant-generation field. Existing production refresh records then failed to
+decode. The replacement restores the upstream wire layout and allocates the new
+field at 25. Its matched local supervisor build has digest
+`sha256:bd93ca4bc313c47699d44ba2c62480474f7f590a77409385cc5ef553ae7b8350`.
+
+## Upgrade procedure
+
+1. Record the current CLI, gateway, compute driver/supervisor, runtime image,
+   provider profile, and patch commit. Capture metadata only—never auth data.
+2. Fetch the tag, resolve its peeled commit with
+   `git rev-parse 'v0.0.116-mitzo.2^{commit}'`, and require the exact full commit
+   recorded above before building. Build in an isolated state directory. For a
+   later release, record its new full reviewed commit and immutable image digest
+   first. If it removed managed inference routing or `inference.local`, treat
+   the work as an architecture migration and obtain a fresh review.
+3. Run formatting, unit/integration tests, and isolated gateway acceptance. For
+   persisted-wire compatibility only, an authorized operator may make one
+   same-host, owner-only (`0700` directory and `0600` files), online-consistent
+   temporary copy of the database and matching encryption key. Start the
+   candidate gateway against that copy, read only redacted refresh-status
+   output, and verify every existing provider record decodes. Never inspect,
+   print, commit, transmit, reuse, or deploy the copy; stop the candidate and
+   delete the copy immediately after the check. This narrow verification
+   exception is not credential migration. Never treat protobuf field
+   renumbering as a migration strategy.
+4. Back up production configuration and prepare the previous executable/image
+   as a rollback. Do not transplant the isolated credential database.
+5. Deploy matched CLI/gateway/supervisor components. Reauthorize the provider
+   through attended gateway login if necessary.
+6. After login or reauthorization, read only the provider object ID from the
+   gateway's redacted provider metadata and the refresh generation ID from its
+   safe refresh-status output. Atomically update the matching Mitzo account
+   profile's `sandboxProviderId` and `sandboxGrantId`, keep `credentialRef`
+   absent, reload Mitzo, and verify both bindings before allowing a new chat.
+   Never copy token material or the gateway credential database. Because this
+   changes the account profile revision, start a new task rather than silently
+   rebinding an existing one.
+7. Run all smoke tests below. Roll back on any failure.
+
+## Mandatory smoke tests
+
+1. Gateway health reports the expected patched build and matching compute
+   driver/supervisor version.
+2. Provider login is available and refresh status reports a live generation,
+   expiry, and no terminal recovery action.
+3. Provider metadata exactly matches the name, type, and workspace above.
+4. The brokered `inference.local` path completes a real model/tool turn from a
+   credential-free sandbox and returns a unique marker.
+5. From a credential-free unbound sandbox, a direct/non-brokered route request
+   is denied for the expected policy reason. Do not obtain, copy, or submit a
+   raw OAuth credential for this probe; DNS, TLS, or generic connectivity
+   failures do not count.
+6. A normal Mitzo subscription chat completes over SSE and returns its unique
+   marker after a service restart.
+7. Logs and captured artifacts contain no token, auth JSON, authorization
+   header, or credential database content.
+
+The isolated acceptance record that established this contract is maintained in
+the rollout workspace as `outputs/personal-subscription-acceptance.md`.

@@ -140,7 +140,16 @@ function initEventStore(): EventStore {
   const mitzoDir = join(repoPath, '.mitzo');
   mkdirSync(mitzoDir, { recursive: true });
   const dbPath = join(mitzoDir, 'events.db');
-  return new EventStore(dbPath);
+  const store = new EventStore(dbPath);
+  const recover = Reflect.get(store, 'recoverSymposiumDeliveries') as
+    EventStore['recoverSymposiumDeliveries'] | undefined;
+  const recovered = recover?.call(store, Date.now()) ?? [];
+  if (recovered.length > 0) {
+    log.warn('recovered interrupted Symposium deliveries during startup', {
+      deliveryIds: recovered.map((delivery) => delivery.deliveryId),
+    });
+  }
+  return store;
 }
 
 export const eventStore = initEventStore();
@@ -467,9 +476,7 @@ function sdkEnv(): Record<string, string> {
       : `--require=${IPV4_PRELOAD}`;
   }
 
-  const existingPath = env.PATH || '/usr/bin:/bin:/usr/local/bin';
-  const venvPaths = getRepoConfig().resolvedVenvPaths;
-  env.PATH = [...venvPaths, existingPath].join(':');
+  prependConfiguredVenvPaths(env);
 
   const sock = resolveSshAuthSock();
   if (sock) env.SSH_AUTH_SOCK = sock;
@@ -477,6 +484,26 @@ function sdkEnv(): Record<string, string> {
   delete env.AUTH_PASSPHRASE;
   delete env.AUTH_SECRET;
   delete env.NTFY_AUTH_TOKEN;
+  return env;
+}
+
+function restrictedChildEnv(): Record<string, string> {
+  return Object.fromEntries(
+    ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
+      process.env[key] ? [[key, process.env[key]!]] : [],
+    ),
+  );
+}
+
+function prependConfiguredVenvPaths(env: Record<string, string>): void {
+  const existingPath = env.PATH || '/usr/bin:/bin:/usr/local/bin';
+  env.PATH = [...getRepoConfig().resolvedVenvPaths, existingPath].join(':');
+}
+
+/** Keep native provider environments narrow while preserving configured project runtimes. */
+function nativeExecutionEnv(): Record<string, string> {
+  const env = restrictedChildEnv();
+  prependConfiguredVenvPaths(env);
   return env;
 }
 
@@ -851,36 +878,48 @@ async function _startChatInner(
     agentName?: string;
   },
 ) {
-  const openShellRequested =
+  const openShellAvailable =
     process.env.MITZO_OPENSHELL_ENABLED === '1' || !!process.env.MITZO_OPENSHELL_SANDBOX_NAME;
+  let openShellRequested = false;
   let accountBinding;
   let codexProfile: CodexAccountProfile | undefined;
   let apiKey: string | undefined;
   let gemini: GeminiOptions | undefined;
   let accountEnv: Record<string, string> | undefined;
   try {
-    const storedBinding = options.resume
-      ? eventStore.getSession(options.resume)?.accountBinding
-      : null;
+    const storedMeta = options.resume ? eventStore.getSession(options.resume) : undefined;
+    const storedBinding = storedMeta?.accountBinding;
     const profiles =
       options.accountProfiles ??
       (options.accountId || storedBinding ? loadAccountProfiles() : undefined);
     accountBinding = resolveAccountSelection(options, storedBinding, !!options.resume, profiles);
-    if (!accountBinding && openShellRequested)
+    if (!accountBinding && openShellAvailable)
       throw new Error('OpenShell execution requires an explicit account selection');
     if (accountBinding) {
-      if (
-        openShellRequested &&
-        accountBinding.provider !== 'openai' &&
-        accountBinding.provider !== 'openai-codex'
-      )
-        throw new Error(
-          `OpenShell execution does not yet support ${accountBinding.provider} accounts`,
-        );
+      openShellRequested =
+        openShellAvailable &&
+        (accountBinding.provider === 'openai-codex' ||
+          (accountBinding.provider === 'openai' &&
+            process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED !== '0'));
       options = {
         ...options,
-        model: options.accountId ? (options.model ?? accountBinding.model) : accountBinding.model,
+        model: options.accountId
+          ? (options.model ?? storedMeta?.selectedModel ?? accountBinding.model)
+          : (storedMeta?.selectedModel ?? accountBinding.model),
+        reasoningEffort: options.accountId
+          ? options.reasoningEffort !== undefined
+            ? options.reasoningEffort
+            : options.model && options.model !== (storedMeta?.selectedModel ?? accountBinding.model)
+              ? null
+              : storedMeta?.reasoningEffort
+          : storedMeta?.reasoningEffort,
       };
+      if (
+        accountBinding.provider === 'openai' ||
+        accountBinding.provider === 'google-vertex' ||
+        accountBinding.provider === 'anthropic-vertex'
+      )
+        profiles!.validateModelSelection(accountBinding, options.model!, options.reasoningEffort);
       if (accountBinding.provider === 'openai-codex') {
         if (options.skillAllowedTools)
           throw new Error('Codex restricted skill tool ceilings are not yet supported');
@@ -910,11 +949,7 @@ async function _startChatInner(
           }
         }
         accountEnv = openShellRequested
-          ? Object.fromEntries(
-              ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
-                process.env[key] ? [[key, process.env[key]!]] : [],
-              ),
-            )
+          ? restrictedChildEnv()
           : codexEnvironment(codexProfile.credentialRef!, process.env);
       } else if (accountBinding.provider === 'google-vertex') {
         if (options.images?.length)
@@ -935,11 +970,7 @@ async function _startChatInner(
           },
         };
         await gemini.getAccessToken();
-        accountEnv = Object.fromEntries(
-          ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
-            process.env[key] ? [[key, process.env[key]!]] : [],
-          ),
-        );
+        accountEnv = nativeExecutionEnv();
       } else if (accountBinding.provider === 'openai') {
         if (options.images?.length)
           throw new Error('OpenAI API image attachments are not yet supported');
@@ -957,11 +988,7 @@ async function _startChatInner(
             model: accountBinding.model,
           };
         } else apiKey = await credentials.resolve(profile.credentialRef);
-        accountEnv = Object.fromEntries(
-          ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
-            process.env[key] ? [[key, process.env[key]!]] : [],
-          ),
-        );
+        accountEnv = openShellRequested ? restrictedChildEnv() : nativeExecutionEnv();
       } else accountEnv = profiles!.sdkEnv(accountBinding, sdkEnv());
     }
   } catch (err: unknown) {
@@ -1085,7 +1112,6 @@ async function _startChatInner(
     cwd,
     wtId,
     sessionAllowList: new Set<string>(),
-    ...(accountBinding ? { accountBinding } : {}),
     worktreePath,
     agentName,
     // Set sessionId early so pre-assistant events are persisted (iOS reconnect).
@@ -1298,7 +1324,7 @@ async function _startChatInner(
         registry,
         prompt: fullPrompt,
         model: options.model,
-        reasoningEffort: options.reasoningEffort ?? undefined,
+        reasoningEffort: options.reasoningEffort,
         images: options.images,
         messageId,
         systemPrompt: systemPromptAppend,
@@ -1337,7 +1363,7 @@ async function _startChatInner(
         apiKey,
         gemini,
         selectedModel: options.model,
-        reasoningEffort: options.reasoningEffort ?? undefined,
+        reasoningEffort: options.reasoningEffort,
         session,
         registry,
         input: inputQueue,
@@ -1566,6 +1592,22 @@ function imagePreviews(images?: Array<{ data: string; mediaType: string }>): str
   return images?.map((image) => `data:${image.mediaType};base64,${image.data}`);
 }
 
+function validateNativeModelSelection(
+  sessionId: string,
+  model?: string,
+  reasoningEffort?: string | null,
+): void {
+  if (!model && reasoningEffort === undefined) return;
+  const meta = eventStore.getSession(sessionId);
+  const binding = meta?.accountBinding;
+  if (!binding) throw new Error('Bound account metadata is unavailable');
+  loadAccountProfiles().validateModelSelection(
+    binding,
+    model ?? meta.selectedModel ?? binding.model,
+    reasoningEffort,
+  );
+}
+
 /** Push a follow-up message into a running session. */
 export function sendToChat(
   clientId: string,
@@ -1581,6 +1623,15 @@ export function sendToChat(
     if (!session?.inputQueue) return false;
     const codex = getCodexRuntime(session);
     const responses = getResponsesRuntime(session);
+    if (!codex && !responses && model && model !== session.model) {
+      send(session.transport, {
+        type: 'error',
+        sessionId: session.sessionId,
+        error:
+          'Changing models in an active Anthropic session is not supported. Start a new task to use the selected model.',
+      });
+      return false;
+    }
     if (codex && session.activeSkillPolicy) {
       send(session.transport, {
         type: 'error',
@@ -1597,6 +1648,8 @@ export function sendToChat(
     );
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-send`;
     const previews = imagePreviews(images);
+    const selectionReasoningEffort =
+      model && model !== session.model && reasoningEffort === undefined ? null : reasoningEffort;
     if (responses && session.sessionId && eventStore.hasUserMessage(session.sessionId, messageId))
       return true;
     if (codex) {
@@ -1606,7 +1659,7 @@ export function sendToChat(
           id: messageId,
           prompt: fullPrompt,
           images,
-          reasoningEffort: reasoningEffort ?? undefined,
+          reasoningEffort: selectionReasoningEffort,
           ...(model ? { model } : {}),
         });
         if (model) session.model = model;
@@ -1621,33 +1674,15 @@ export function sendToChat(
       }
     }
     if (responses) {
-      const selectedModel = model ?? session.model ?? session.accountBinding?.model;
       try {
-        if ((model || reasoningEffort !== undefined) && session.accountBinding && selectedModel)
-          loadAccountProfiles().validateModel(
-            session.accountBinding,
-            selectedModel,
-            reasoningEffort,
-          );
-      } catch (error) {
-        send(session.transport, {
-          type: 'error',
-          sessionId: session.sessionId,
-          error: error instanceof Error ? error.message : 'Model selection is unavailable',
+        if (!session.sessionId) throw new Error('Bound session metadata is unavailable');
+        validateNativeModelSelection(session.sessionId, model, selectionReasoningEffort);
+        responses.prepare(messageId, fullPrompt, {
+          ...(model ? { model } : {}),
+          ...(selectionReasoningEffort !== undefined
+            ? { reasoningEffort: selectionReasoningEffort }
+            : {}),
         });
-        return false;
-      }
-      try {
-        responses.prepare(
-          messageId,
-          fullPrompt,
-          (model || reasoningEffort !== undefined) && selectedModel
-            ? {
-                model: selectedModel,
-                ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
-              }
-            : undefined,
-        );
         if (model) session.model = model;
       } catch {
         send(session.transport, {
@@ -1659,11 +1694,13 @@ export function sendToChat(
       }
     }
     if (session.sessionId) {
-      if (model || reasoningEffort !== undefined) {
+      if (model || selectionReasoningEffort !== undefined) {
         eventStore.upsertSession({
           sessionId: session.sessionId,
           ...(model ? { selectedModel: model } : {}),
-          ...(reasoningEffort !== undefined ? { reasoningEffort: reasoningEffort || null } : {}),
+          ...(selectionReasoningEffort !== undefined
+            ? { reasoningEffort: selectionReasoningEffort || null }
+            : {}),
         });
       }
       const isDup = storeAndEchoIfNew(
@@ -1727,21 +1764,14 @@ export async function interruptChat(
     if (!session?.queryInstance || !session?.inputQueue) return false;
     const codex = getCodexRuntime(session);
     const responses = getResponsesRuntime(session);
-    if ((model || reasoningEffort !== undefined) && session.accountBinding) {
-      try {
-        loadAccountProfiles().validateModel(
-          session.accountBinding,
-          model ?? session.model ?? session.accountBinding.model,
-          reasoningEffort,
-        );
-      } catch (error) {
-        send(session.transport, {
-          type: 'error',
-          sessionId: session.sessionId,
-          error: error instanceof Error ? error.message : 'Model selection is unavailable',
-        });
-        return false;
-      }
+    if (!codex && !responses && model && model !== session.model) {
+      send(session.transport, {
+        type: 'error',
+        sessionId: session.sessionId,
+        error:
+          'Changing models in an active Anthropic session is not supported. Start a new task to use the selected model.',
+      });
+      return false;
     }
     if (codex) {
       if (session.activeSkillPolicy) {
@@ -1752,7 +1782,7 @@ export async function interruptChat(
         });
         return false;
       }
-      if (model) codex.validateModel(model, reasoningEffort ?? undefined);
+      if (model) codex.validateModel(model, reasoningEffort);
       await codex.interrupt();
       return sendToChat(
         clientId,

@@ -89,6 +89,17 @@ const Profile = z.discriminatedUnion('provider', [
   ApiProfile,
 ]);
 
+function supportedModels(
+  provider: z.infer<typeof Profile>['provider'],
+  models: z.infer<typeof CatalogModel>[],
+) {
+  // API sessions always expose tools. Nano models reject requests that include
+  // tool_search, so reject both current and dated aliases before execution.
+  return provider === 'openai'
+    ? models.filter((model) => !/(?:^|-)nano(?:$|-)/i.test(model.id))
+    : models;
+}
+
 /** Account configuration is server-owned; invocation adapters remain harness-owned. */
 export class AccountProfiles {
   private profiles: z.infer<typeof Profile>[];
@@ -133,10 +144,12 @@ export class AccountProfiles {
               : provider === 'openai'
                 ? 'openai-api'
                 : 'google-cloud',
-          models:
+          models: supportedModels(
+            provider,
             provider === 'anthropic-vertex'
               ? profile.models
               : (discovered?.models ?? profile.models),
+          ),
           modelDiscovery: { updatedAt: discovered?.updatedAt, stale: !!discovered?.error },
           capabilities: {
             streaming: provider !== 'google-vertex',
@@ -144,7 +157,8 @@ export class AccountProfiles {
             images: provider === 'anthropic-vertex' || provider === 'openai-codex',
           },
         };
-      });
+      })
+      .filter((account) => account.models.length > 0);
   }
 
   /** Legacy requests use the server's Vertex route, not any other account's models. */
@@ -206,14 +220,13 @@ export class AccountProfiles {
       throw new Error('Account is unavailable. Select a configured account for a new task.');
     if (profile.provider === 'openai-codex' && !this.options.codexEnabled)
       throw new Error('Codex execution is not enabled; development acceptance is required');
-    if (
-      !model ||
-      !(
-        configured || profile.provider === 'anthropic-vertex'
-          ? profile.models
-          : (cachedModels(JSON.stringify(profile))?.models ?? profile.models)
-      ).some((m) => m.id === model)
-    ) {
+    const selectableModels = supportedModels(
+      profile.provider,
+      configured || profile.provider === 'anthropic-vertex'
+        ? profile.models
+        : (cachedModels(JSON.stringify(profile))?.models ?? profile.models),
+    );
+    if (!model || !selectableModels.some((m) => m.id === model)) {
       throw new Error('Model is unavailable for this account. Select a model from its catalog.');
     }
     // Bind routing identity, not presentation or the mutable model allowlist.
@@ -245,6 +258,25 @@ export class AccountProfiles {
       model,
       profileRevision,
     };
+  }
+
+  validateModelSelection(
+    binding: AccountBinding,
+    model: string,
+    reasoningEffort?: string | null,
+  ): void {
+    const current = this.resolve(binding.accountId, model);
+    if (
+      current.provider !== binding.provider ||
+      current.profileRevision !== binding.profileRevision
+    )
+      throw new Error('Account configuration changed');
+    if (!reasoningEffort) return;
+    const entry = this.catalog()
+      .find((account) => account.id === binding.accountId)
+      ?.models.find((candidate) => candidate.id === model);
+    if (!entry?.reasoningEfforts?.includes(reasoningEffort))
+      throw new Error('Thinking level unavailable for this model');
   }
 
   resume(binding: AccountBinding): AccountBinding {
