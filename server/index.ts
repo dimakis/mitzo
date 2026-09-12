@@ -120,8 +120,7 @@ const openShellLifecycle = initializeOpenShellLifecycle(openShellRuntimeConfig(p
   eventStore,
   taskStore,
   queue: (record) => {
-    if (!record.identity)
-      return { queued: 0, running: 0, recovery: true };
+    if (!record.identity) return { queued: 0, running: 0, recovery: true };
     const queue = readCodexQueue(
       record.conversationId,
       {
@@ -162,13 +161,12 @@ const lifecycleReconcile = () => {
           lifecycleObservability?.recordOutcome(preview.action === 'stop' ? 'stopped' : 'deleted');
       if (!lifecycleObservability) return;
       const metrics = await lifecycleObservability.collect(lifecycleAbort.signal);
-      metrics.phaseCounts = openShellLifecycle.store.list().reduce<Record<string, number>>(
-        (counts, record) => {
+      metrics.phaseCounts = openShellLifecycle.store
+        .list()
+        .reduce<Record<string, number>>((counts, record) => {
           counts[record.phase] = (counts[record.phase] ?? 0) + 1;
           return counts;
-        },
-        {},
-      );
+        }, {});
       lifecycleObservability.observe(metrics);
     })
     .catch((error) => {

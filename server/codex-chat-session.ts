@@ -290,9 +290,17 @@ export async function openCodexChat(options: Options) {
     ...(runtimeManager
       ? {
           beforeReconnect: async () => {
-            await sharedOpenShellLifecycleCoordinator.admit(options.conversationId, () =>
-              runtimeManager.ensure(options.conversationId, signal),
-            );
+            await sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
+              const recovered = await runtimeManager.ensure(options.conversationId, signal);
+              await restoreOpenShellLifecycleIfNeeded(
+                options.conversationId,
+                recovered,
+                signal,
+                options.binding,
+                selectedOpenShellAccountRoute(options),
+                true,
+              );
+            });
           },
         }
       : {}),
@@ -360,7 +368,9 @@ export async function openCodexChat(options: Options) {
       };
       if (options.session.transport?.isOpen()) options.session.transport.send(message);
     },
-    ...(runtimeManager ? { onActivity: () => touchOpenShellLifecycle(options.conversationId) } : {}),
+    ...(runtimeManager
+      ? { onActivity: () => touchOpenShellLifecycle(options.conversationId) }
+      : {}),
     onError: (error) => {
       if (options.session.transport?.isOpen())
         options.session.transport.send({
@@ -388,6 +398,7 @@ export async function openCodexChat(options: Options) {
         options.binding,
         selectedOpenShellAccountRoute(options),
         threadId,
+        options.registry.findBySessionId(options.conversationId)?.clientId,
       );
     }
     signal.throwIfAborted();

@@ -109,6 +109,11 @@ export class OpenShellLifecycleService {
   private now() {
     return this.adapters.now?.() ?? Date.now();
   }
+  private prunePreviews() {
+    const now = this.now();
+    for (const [token, preview] of this.previews)
+      if (preview.used || preview.expiresAt < now) this.previews.delete(token);
+  }
   setRetentionConsent(conversationId: string, consent: boolean) {
     const record = this.store.get(conversationId);
     if (!record) throw new Error('OpenShell lifecycle conversation is unavailable');
@@ -124,13 +129,14 @@ export class OpenShellLifecycleService {
     return { sandbox, blockers: blockersFor(record, sandbox, protection) };
   }
   async preview(conversationId: string, signal: AbortSignal): Promise<LifecyclePreview> {
+    this.prunePreviews();
     const record = this.store.get(conversationId);
     if (!record) throw new Error('OpenShell lifecycle record not found');
     const { sandbox, blockers } = await this.state(record, signal);
     const action: LifecyclePreview['action'] =
       !this.policy.enabled || blockers.length
         ? 'none'
-        : sandbox?.phase === 'Ready'
+        : record.phase === 'retained' && sandbox?.phase === 'Ready'
           ? 'stop'
           : this.policy.retentionEligible(record, this.now())
             ? 'delete'
@@ -187,14 +193,10 @@ export class OpenShellLifecycleService {
         throw error;
       }
       const checkpointed = checkpoint
-        ? this.store.saveCheckpoint(
-            checkpointing.conversationId,
-            checkpointing.generation,
-            {
-              ...checkpoint,
-              sourceResourceVersion: sandbox.resourceVersion,
-            },
-          )
+        ? this.store.saveCheckpoint(checkpointing.conversationId, checkpointing.generation, {
+            ...checkpoint,
+            sourceResourceVersion: sandbox.resourceVersion,
+          })
         : null;
       if (!checkpointed || !(await this.adapters.verifyCheckpoint?.(checkpointed, sandbox, signal)))
         throw new Error('OpenShell checkpoint is unavailable');
@@ -255,15 +257,21 @@ export class OpenShellLifecycleService {
     if (!this.policy.enabled) return [] as LifecyclePreview[];
     const previews: LifecyclePreview[] = [];
     for (const record of this.store.list()) {
+      if (record.phase !== 'retained' && record.phase !== 'stopped') continue;
       if (!this.adapters.consent?.(record)) continue;
       if (
         record.phase === 'retained' &&
         (!record.idleSince || this.now() < record.idleSince + this.policy.idleMs)
       )
         continue;
-      const preview = await this.preview(record.conversationId, signal);
-      previews.push(preview);
-      if (preview.action !== 'none') await this.confirm(preview.token, signal);
+      try {
+        const preview = await this.preview(record.conversationId, signal);
+        previews.push(preview);
+        if (preview.action !== 'none') await this.confirm(preview.token, signal);
+      } catch {
+        // One failed sandbox must not prevent independent conversations from
+        // being reconciled. The failed record remains fenced for inspection.
+      }
     }
     return previews;
   }

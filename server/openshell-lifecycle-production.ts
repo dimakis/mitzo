@@ -7,7 +7,9 @@ export interface LifecycleProductionDependencies {
     entries(): IterableIterator<[string, { sessionId?: string }]>;
   };
   eventStore: {
-    getSession(id: string): { symposiumConfig?: string | null; sessionType?: string } | undefined | null;
+    getSession(
+      id: string,
+    ): { symposiumConfig?: string | null; sessionType?: string } | undefined | null;
   };
   taskStore: {
     getTree(): Array<{ sessionId: string | null; status: string; children: unknown[] }>;
@@ -66,12 +68,20 @@ export function createOpenShellLifecycleProductionAdapter(
         const clients = new Map<string, string | undefined>(
           [...deps.registry.entries()].map(([clientId, session]) => [clientId, session.sessionId]),
         );
-        if (flatten(deps.taskStore.getTree()).some((task) => {
-          if (terminal.has(task.status)) return false;
-          if (task.sessionId === record.conversationId) return true;
-          if (task.sessionId && clients.get(task.sessionId) === record.conversationId) return true;
-          return false;
-        }))
+        if (
+          flatten(deps.taskStore.getTree()).some((task) => {
+            if (terminal.has(task.status)) return false;
+            if (task.sessionId === record.conversationId) return true;
+            if (task.sessionId && task.sessionId === record.ownerClientId) return true;
+            if (task.sessionId && clients.get(task.sessionId) === record.conversationId)
+              return true;
+            if (task.sessionId && !clients.has(task.sessionId)) {
+              blockers.push('ambiguous_ownership');
+              return false;
+            }
+            return false;
+          })
+        )
           blockers.push('task_board');
         const session = deps.eventStore.getSession(record.conversationId);
         // Missing event history means we cannot prove this is an ordinary,
