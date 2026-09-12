@@ -61,7 +61,7 @@ export function createConnectionsRuntime(options: {
         const signal = AbortSignal.any([run.signal, controller.signal]);
         const [command, ...rest] = args;
         if (!command) throw new Error('Gateway command is required');
-        const result = await exec(options.cli, [command, ...gatewayArgs, ...rest], {
+        const pending = exec(options.cli, [command, ...gatewayArgs, ...rest], {
           env: {
             PATH: process.env.PATH ?? '',
             HOME: process.env.HOME ?? '',
@@ -73,6 +73,10 @@ export function createConnectionsRuntime(options: {
           signal,
           maxBuffer: 128 * 1024,
         });
+        // openshell sandbox exec reads piped stdin to EOF before starting the
+        // remote command. execFile leaves it open unless we close it explicitly.
+        pending.child.stdin?.end();
+        const result = await pending;
         return result.stdout;
       } finally {
         clearTimeout(timer);
