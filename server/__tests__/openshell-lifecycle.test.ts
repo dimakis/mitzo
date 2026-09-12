@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import {
   OpenShellLifecycleStore,
+  OpenShellLifecycleCoordinator,
   openShellLifecyclePolicy,
   type OpenShellLifecycleRecord,
 } from '../openshell-lifecycle.js';
@@ -77,4 +78,35 @@ it('does not lose explicit failure state during startup reconciliation', () => {
     failure: 'interrupted lifecycle action',
   });
   store.close();
+});
+
+it('serializes admission for the same conversation without blocking other conversations', async () => {
+  const coordinator = new OpenShellLifecycleCoordinator();
+  const events: string[] = [];
+  let release!: () => void;
+  const first = coordinator.admit('one', async () => {
+    events.push('one:start');
+    await new Promise<void>((resolve) => (release = resolve));
+    events.push('one:end');
+  });
+  await Promise.resolve();
+  const second = coordinator.admit('one', async () => events.push('two'));
+  const other = coordinator.admit('other', async () => events.push('other'));
+  await other;
+  expect(events).toEqual(['one:start', 'other']);
+  release();
+  await Promise.all([first, second]);
+  expect(events).toEqual(['one:start', 'other', 'one:end', 'two']);
+});
+
+it('cancels a scheduled idle action when new work is admitted', async () => {
+  const coordinator = new OpenShellLifecycleCoordinator();
+  let called = false;
+  coordinator.scheduleIdle('conversation', 0, () => {
+    called = true;
+    return Promise.resolve();
+  });
+  await coordinator.admit('conversation', async () => {});
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  expect(called).toBe(false);
 });
