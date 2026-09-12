@@ -35,9 +35,10 @@ export interface ConnectionGateway {
   sandboxStopped(name: string, signal: AbortSignal): Promise<boolean>;
   detach(sandbox: string, providerName: string, signal: AbortSignal): Promise<void>;
   probe(
-    input: { providerName: string; email: string },
+    input: { providerName: string; email: string; sandboxName?: string },
     signal: AbortSignal,
   ): Promise<{ identity: string }>;
+  deleteSandbox(name: string, signal: AbortSignal): Promise<void>;
 }
 /** Pinned CLI 0.0.116-mitzo.2 table parser. Unknown output must fail closed. */
 export function parseProviderAttachments(output: string, sandbox: string): string[] {
@@ -259,12 +260,17 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
       signal,
     );
   }
-  async probe(input: { providerName: string; email: string }, signal: AbortSignal) {
+  async probe(
+    input: { providerName: string; email: string; sandboxName?: string },
+    signal: AbortSignal,
+  ) {
     if (!this.options.probeImage || !this.options.probePolicy)
       throw new Error('Gateway identity probe is not configured');
     if (!/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+$/.test(input.email))
       throw new Error('Gateway identity probe is invalid');
-    const name = `mitzo-probe-${createHash('sha256').update(`${input.providerName}:${randomUUID()}`).digest('hex').slice(0, 16)}`;
+    const name =
+      input.sandboxName ??
+      `mitzo-probe-${createHash('sha256').update(`${input.providerName}:${randomUUID()}`).digest('hex').slice(0, 16)}`;
     const probe =
       "import base64,json,os,ssl,urllib.request;u=os.environ['JIRA_URL']+'/rest/api/3/myself';a=base64.b64encode((os.environ['JIRA_EMAIL']+':'+os.environ['JIRA_API_TOKEN']).encode()).decode();r=urllib.request.Request(u,headers={'Authorization':'Basic '+a});x=urllib.request.urlopen(r,timeout=10,context=ssl.create_default_context());b=x.read(65536);d=json.loads(b);print(json.dumps({'accountId':d['accountId'],'displayName':d.get('displayName','')},separators=(',',':')))";
     try {
@@ -328,11 +334,10 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
     } catch {
       throw new Error('Gateway identity probe failed');
     } finally {
-      try {
-        await this.run(['sandbox', '--workspace', this.options.workspace, 'delete', name], signal);
-      } catch {
-        /* durable cleanup reconciliation owns leftovers */
-      }
+      /* service owns durable cleanup using an independent signal */
     }
+  }
+  async deleteSandbox(name: string, signal: AbortSignal) {
+    await this.run(['sandbox', '--workspace', this.options.workspace, 'delete', name], signal);
   }
 }

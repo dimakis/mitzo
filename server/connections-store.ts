@@ -34,6 +34,15 @@ export interface AuditEntry {
   affectedRefs: string[];
   createdAt: number;
 }
+export interface ProbeOperation {
+  id: string;
+  connectionId: string;
+  providerName: string;
+  sandboxName: string;
+  gateway: string;
+  workspace: string;
+  status: 'pending' | 'cleanup_pending';
+}
 export class RevisionConflictError extends Error {
   constructor() {
     super('Connection changed; refresh and try again.');
@@ -82,6 +91,7 @@ export class ConnectionStore {
     this.db
       .exec(`CREATE TABLE IF NOT EXISTS connections (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, template_id TEXT NOT NULL, template_version INTEGER NOT NULL, label TEXT NOT NULL, endpoint TEXT NOT NULL, gateway_provider_name TEXT NOT NULL UNIQUE, gateway_provider_id TEXT, gateway TEXT NOT NULL DEFAULT 'openshell', workspace TEXT NOT NULL DEFAULT 'default', submitted_email TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision > 0), desired_account_ids TEXT NOT NULL, identity TEXT, verified_at INTEGER, error_code TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS connection_audit (id TEXT PRIMARY KEY, connection_id TEXT NOT NULL REFERENCES connections(id), revision INTEGER NOT NULL, operation TEXT NOT NULL, outcome TEXT NOT NULL, actor TEXT NOT NULL, affected_refs TEXT NOT NULL, created_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS connection_probe_operations (id TEXT PRIMARY KEY, connection_id TEXT NOT NULL REFERENCES connections(id), provider_name TEXT NOT NULL, sandbox_name TEXT NOT NULL UNIQUE, gateway TEXT NOT NULL, workspace TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS idx_connection_audit_connection ON connection_audit(connection_id, created_at);`);
     for (const statement of [
       "ALTER TABLE connections ADD COLUMN gateway TEXT NOT NULL DEFAULT 'openshell'",
@@ -93,6 +103,54 @@ export class ConnectionStore {
       } catch {
         /* existing schema */
       }
+  }
+  startProbe(connection: Connection, sandboxName: string): ProbeOperation {
+    const id = randomUUID();
+    this.database()
+      .prepare('INSERT INTO connection_probe_operations VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(
+        id,
+        connection.id,
+        connection.gatewayProviderName,
+        sandboxName,
+        connection.gateway,
+        connection.workspace,
+        'pending',
+        Date.now(),
+      );
+    return {
+      id,
+      connectionId: connection.id,
+      providerName: connection.gatewayProviderName,
+      sandboxName,
+      gateway: connection.gateway,
+      workspace: connection.workspace,
+      status: 'pending',
+    };
+  }
+  pendingProbes(): ProbeOperation[] {
+    return this.database()
+      .prepare(
+        "SELECT * FROM connection_probe_operations WHERE status IN ('pending','cleanup_pending')",
+      )
+      .all()
+      .map((r: any) => ({
+        id: r.id,
+        connectionId: r.connection_id,
+        providerName: r.provider_name,
+        sandboxName: r.sandbox_name,
+        gateway: r.gateway,
+        workspace: r.workspace,
+        status: r.status,
+      }));
+  }
+  finishProbe(id: string) {
+    this.database().prepare('DELETE FROM connection_probe_operations WHERE id=?').run(id);
+  }
+  probeCleanupPending(id: string) {
+    this.database()
+      .prepare("UPDATE connection_probe_operations SET status='cleanup_pending' WHERE id=?")
+      .run(id);
   }
   close() {
     this.db?.close();

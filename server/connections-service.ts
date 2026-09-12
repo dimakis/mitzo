@@ -1,4 +1,5 @@
 import { ConnectionStore, type Connection } from './connections-store.js';
+import { createHash, randomUUID } from 'node:crypto';
 import type { ConnectionGateway } from './connections-gateway.js';
 
 /** Serializes lifecycle effects per connection; persisted state remains the recovery source after a restart. */
@@ -42,10 +43,23 @@ export class ConnectionsService {
               { gatewayProviderId: provider.id },
               { operation: 'provision', outcome: 'provider_created', actor: current.ownerId },
             );
+        const sandboxName = `mitzo-probe-${createHash('sha256').update(`${persisted.id}:${randomUUID()}`).digest('hex').slice(0, 16)}`;
+        const operation = this.store.startProbe(persisted, sandboxName);
         const identity = await this.gateway.probe(
-          { providerName: persisted.gatewayProviderName, email: persisted.submittedEmail },
+          {
+            providerName: persisted.gatewayProviderName,
+            email: persisted.submittedEmail,
+            sandboxName,
+          },
           signal,
         );
+        try {
+          await this.gateway.deleteSandbox(sandboxName, new AbortController().signal);
+          this.store.finishProbe(operation.id);
+        } catch {
+          this.store.probeCleanupPending(operation.id);
+          throw new Error('Probe cleanup pending');
+        }
         return this.store.transition(
           persisted.id,
           persisted.revision,
@@ -113,6 +127,14 @@ export class ConnectionsService {
     });
   }
   async reconcile(signal: AbortSignal) {
+    for (const probe of this.store.pendingProbes()) {
+      try {
+        await this.gateway.deleteSandbox(probe.sandboxName, new AbortController().signal);
+        this.store.finishProbe(probe.id);
+      } catch {
+        this.store.probeCleanupPending(probe.id);
+      }
+    }
     for (const connection of this.store.incomplete()) {
       if (connection.status === 'revoking') {
         try {
