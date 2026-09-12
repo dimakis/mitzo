@@ -860,6 +860,9 @@
     border-radius: 14px;
   }
   .workspace-chat .chat-input-field {
+    width: auto;
+    flex: 1 1 0;
+    min-width: 0;
     min-height: 2.25rem;
     padding: 0.25rem 0;
   }
@@ -893,6 +896,20 @@
   }
   .workspace-chat .chat-input--compact :is(.chat-input-btn, .mic-btn) {
     border-radius: 9px;
+  }
+
+  /* Keep controls reachable on the narrowest supported mobile screens. */
+  @media (max-width: 359px) {
+    .workspace-chat .chat-input-row {
+      flex-wrap: wrap;
+    }
+    .workspace-chat .chat-input-field {
+      flex-basis: 100%;
+    }
+    .workspace-chat .composer-toolbar {
+      flex: 1 1 100%;
+      justify-content: flex-end;
+    }
   }
 
   /* Preserve labels and safe-area support while trimming excess tab-bar height. */
