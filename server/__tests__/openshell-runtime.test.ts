@@ -126,6 +126,30 @@ describe('OpenShell runtime lifecycle', () => {
     expect(stopped.mock.calls.flat().flat()).not.toContain('create');
   });
 
+  it('revokes grant-only providers from a retained pre-change sandbox', async () => {
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce(ready())
+      .mockResolvedValueOnce('{}')
+      .mockResolvedValueOnce(ready());
+    await new OpenShellRuntimeManager(
+      { ...config, serviceProviders: ['github'], grantableServiceProviders: ['google-workspace'] },
+      run,
+    ).ensure('conversation', new AbortController().signal);
+
+    expect(run.mock.calls[1][0]).toEqual([
+      'sandbox',
+      '--gateway',
+      'local',
+      '--workspace',
+      'mitzo',
+      'provider',
+      'detach',
+      sandboxNameForConversation('conversation'),
+      'google-workspace',
+    ]);
+  });
+
   it('attaches an explicitly grantable provider to the owned conversation sandbox', async () => {
     const run = vi
       .fn()

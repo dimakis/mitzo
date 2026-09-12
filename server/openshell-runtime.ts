@@ -336,6 +336,30 @@ export class OpenShellRuntimeManager {
     throw new Error(`OpenShell sandbox ${name} did not become Ready (last phase: ${phase})`);
   }
 
+  private async revokeGrantOnlyProviders(
+    name: string,
+    owner: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    let changed = false;
+    for (const provider of this.config.grantableServiceProviders) {
+      if (
+        provider === this.config.account.provider ||
+        this.config.serviceProviders.includes(provider)
+      )
+        continue;
+      try {
+        await this.run(['sandbox', ...this.base(), 'provider', 'detach', name, provider], signal);
+        changed = true;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '';
+        if (!/not attached|not found|404|does not exist/i.test(message))
+          throw new Error('OpenShell service provider reconciliation failed', { cause: error });
+      }
+    }
+    if (changed) await this.waitForReady(name, owner, signal);
+  }
+
   async ensure(conversationId: string, signal: AbortSignal): Promise<OpenShellRuntime> {
     await this.verifyAccountProvider(signal);
     const accountProvider = this.config.account.provider;
@@ -354,6 +378,7 @@ export class OpenShellRuntimeManager {
         sandbox = legacy;
       }
     }
+    const retained = Boolean(sandbox);
     if (sandbox && sandbox.labels?.['mitzo.conversation'] !== owner)
       throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
     if (sandbox && sandbox.labels?.['mitzo.account_provider'] !== accountProvider)
@@ -409,6 +434,13 @@ export class OpenShellRuntimeManager {
     } else if (sandbox.phase !== 'Ready') {
       sandbox = await this.waitForReady(name, owner, signal);
     }
+    if (
+      retained &&
+      sandbox &&
+      sandbox.phase === 'Ready' &&
+      sandbox.labels?.['mitzo.conversation'] === owner
+    )
+      await this.revokeGrantOnlyProviders(name, owner, signal);
     if (!sandbox || sandbox.phase !== 'Ready')
       throw new Error(`OpenShell sandbox ${name} is ${sandbox?.phase ?? 'unavailable'}`);
     if (sandbox.labels?.['mitzo.conversation'] !== owner)
