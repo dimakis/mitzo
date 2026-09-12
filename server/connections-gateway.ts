@@ -556,11 +556,13 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
     if (!sandbox) return;
     if (sandbox.labels['mitzo.connection_probe'] !== '1')
       throw new Error('Probe sandbox ownership cannot be verified');
+    const deadline = Date.now() + (this.options.timeoutMs ?? 90_000);
     await this.run(['sandbox', '--workspace', this.options.workspace, 'delete', name], signal);
-    for (let attempt = 0; attempt < 20; attempt++) {
+    do {
+      signal.throwIfAborted();
       if (!(await this.sandbox(name, signal))) return;
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    } while (Date.now() < deadline);
     throw new Error('Probe sandbox remains present');
   }
 }

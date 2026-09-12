@@ -434,4 +434,23 @@ describe('OpenShellConnectionGateway', () => {
     ).resolves.toBeUndefined();
     expect(runner).toHaveBeenCalledTimes(4);
   });
+  it('keeps checking asynchronous deletion beyond two seconds within the cleanup deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      const name = 'mzp-1234567890abcde';
+      const start = Date.now();
+      const owned = JSON.stringify([
+        { name, phase: 'Deleting', labels: { 'mitzo.connection_probe': '1' } },
+      ]);
+      const runner = vi.fn(async (args: string[]) =>
+        args.includes('delete') ? '' : Date.now() - start >= 45_000 ? '[]' : owned,
+      );
+      const done = new OpenShellConnectionGateway(runner).deleteSandbox(name, signal);
+      const assertion = expect(done).resolves.toBeUndefined();
+      await vi.advanceTimersByTimeAsync(45_000);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
