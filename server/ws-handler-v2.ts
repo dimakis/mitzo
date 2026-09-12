@@ -290,8 +290,12 @@ export function handleReconnect(
           });
           ctx.sessionRegistry.remove(found!.clientId);
         }
-        const suspended = !!found && running && ctx.sessionRegistry.isSuspended(found.clientId);
-        if (suspended) {
+        const wasSuspended = !!found && running && ctx.sessionRegistry.isSuspended(found.clientId);
+        // SessionRegistry.reattach() clears suspend state and its buffer. Consume
+        // that transition before moving the transport so the later replay can
+        // report it, while EventStore remains the single delivery source.
+        let reconciledSuspendEvents = 0;
+        if (wasSuspended) {
           const ownerConnection =
             found!.session?.ownerConnectionId ?? getOwnerConnection(found!.clientId);
           if (ownerConnection !== connectionId) {
@@ -300,6 +304,13 @@ export function handleReconnect(
               oldTransport.send({ type: 'session_takeover', sessionId: entry.sessionId });
             ctx.connRegistry.unwatch(ownerConnection, entry.sessionId);
             denyPendingBySession(entry.sessionId);
+          }
+
+          // The durable event replay below covers the same events buffered
+          // during suspension. Do not send this transient buffer again.
+          reconciledSuspendEvents = ctx.sessionRegistry.resume(found!.clientId).length;
+
+          if (ownerConnection !== connectionId) {
             const conn = ctx.connRegistry.get(connectionId);
             if (conn) {
               reattachChat(found!.clientId, conn.transport);
@@ -347,26 +358,18 @@ export function handleReconnect(
           }
         }
 
-        // If the session was suspended, clear suspend state. Don't replay
-        // buffered events — they were already replayed from EventStore above
-        // (sendOrBuffer appends to both stores, so EventStore covers the
-        // suspend period). resume() just clears the suspend flag + buffer.
-        let suspendReplayed = 0;
-        if (found && running && ctx.sessionRegistry.isSuspended(found.clientId)) {
-          const buffered = ctx.sessionRegistry.resume(found.clientId);
-          suspendReplayed = buffered.length;
-
+        if (wasSuspended) {
           ctx.connRegistry.get(connectionId)?.transport.send({
             type: 'session_resumed',
             sessionId: entry.sessionId,
-            replayed: events.length + suspendReplayed,
+            replayed: events.length,
           });
 
           log.info('resumed suspended session', {
             connectionId,
             sessionId: entry.sessionId,
             eventsFromStore: events.length,
-            bufferedDuringSuspend: suspendReplayed,
+            reconciledBufferedEvents: reconciledSuspendEvents,
           });
         }
 
@@ -381,7 +384,7 @@ export function handleReconnect(
 
         summaries.push({
           sessionId: entry.sessionId,
-          replayed: events.length + suspendReplayed,
+          replayed: events.length,
         });
 
         // Re-send boot_context so pills reappear after reconnect.
@@ -393,7 +396,7 @@ export function handleReconnect(
           sessionId: entry.sessionId,
           lastSeq: entry.lastSeq,
           replayed: events.length,
-          suspendReplayed,
+          reconciledSuspendEvents,
         });
       }
 
