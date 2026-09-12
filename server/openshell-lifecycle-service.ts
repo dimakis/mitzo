@@ -224,7 +224,7 @@ export class OpenShellLifecycleService {
         ...stopping,
         phase: 'stopped',
         generation: stopping.generation + 1,
-        checkpoint,
+        checkpoint: checkpointed.checkpoint,
         stoppedAt: this.now(),
         idleSince: stopping.idleSince ?? this.now(),
         stoppedResourceVersion: stopped.resourceVersion,

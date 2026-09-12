@@ -80,6 +80,7 @@ import { createConnectionsRuntime } from './connections-runtime.js';
 import { readCodexQueue } from './codex-chat-session.js';
 import { initializeOpenShellLifecycle } from './openshell-lifecycle-controller.js';
 import { openShellRuntimeConfig } from './openshell-runtime.js';
+import { OpenShellLifecycleObservability } from './openshell-lifecycle-observability.js';
 import { SkillWatcher } from './skill-watcher.js';
 import { WorkflowTemplateStore, seedBuiltInTemplates } from './workflow-templates.js';
 import { localSignalCallbackBaseUrl, SignalProcessor } from './signal-processor.js';
@@ -195,6 +196,14 @@ const openShellLifecycle = initializeOpenShellLifecycle(openShellRuntimeConfig(p
   },
 });
 setOpenShellLifecycleService(openShellLifecycle?.service ?? null);
+const lifecycleObservability = openShellLifecycle
+  ? new OpenShellLifecycleObservability({
+      log: {
+        warn: (data, message) => log.warn(message, data as Record<string, unknown>),
+        info: (data, message) => log.info(message, data as Record<string, unknown>),
+      },
+    })
+  : undefined;
 const lifecycleAbort = new AbortController();
 let lifecycleReconciling = false;
 const lifecycleReconcile = () => {
@@ -202,11 +211,27 @@ const lifecycleReconcile = () => {
   lifecycleReconciling = true;
   void openShellLifecycle.service
     .reconcile(lifecycleAbort.signal)
-    .catch((error) =>
+    .then(async (previews) => {
+      for (const preview of previews)
+        if (preview.action === 'stop' || preview.action === 'delete')
+          lifecycleObservability?.recordOutcome(preview.action === 'stop' ? 'stopped' : 'deleted');
+      if (!lifecycleObservability) return;
+      const metrics = await lifecycleObservability.collect(lifecycleAbort.signal);
+      metrics.phaseCounts = openShellLifecycle.store.list().reduce<Record<string, number>>(
+        (counts, record) => {
+          counts[record.phase] = (counts[record.phase] ?? 0) + 1;
+          return counts;
+        },
+        {},
+      );
+      lifecycleObservability.observe(metrics);
+    })
+    .catch((error) => {
+      lifecycleObservability?.recordOutcome('reconcile_failed');
       log.error('OpenShell lifecycle reconciliation failed', {
         error: error instanceof Error ? error.message : String(error),
-      }),
-    )
+      });
+    })
     .finally(() => {
       lifecycleReconciling = false;
     });
