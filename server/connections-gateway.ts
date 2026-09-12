@@ -4,6 +4,8 @@ import { load } from 'js-yaml';
 import { z } from 'zod';
 
 export const JIRA_ENDPOINT = 'https://redhat.atlassian.net';
+export const JIRA_API_ENDPOINT =
+  'https://api.atlassian.com/ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432';
 export const JIRA_TEMPLATE_ID = 'jira-readonly';
 const Provider = z.object({
   id: z.string().min(1),
@@ -41,12 +43,61 @@ const JiraProfile = z
       .array(
         z
           .object({
-            host: z.literal('redhat.atlassian.net'),
+            host: z.literal('api.atlassian.com'),
             port: z.literal(443),
             protocol: z.literal('rest'),
-            access: z.literal('read-only'),
             enforcement: z.literal('enforce'),
             tls: z.literal('terminate'),
+            rules: z.tuple([
+              z
+                .object({
+                  allow: z
+                    .object({
+                      method: z.literal('GET'),
+                      path: z.literal(
+                        '/ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api/2/**',
+                      ),
+                    })
+                    .strict(),
+                })
+                .strict(),
+              z
+                .object({
+                  allow: z
+                    .object({
+                      method: z.literal('HEAD'),
+                      path: z.literal(
+                        '/ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api/2/**',
+                      ),
+                    })
+                    .strict(),
+                })
+                .strict(),
+              z
+                .object({
+                  allow: z
+                    .object({
+                      method: z.literal('GET'),
+                      path: z.literal(
+                        '/ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api/3/**',
+                      ),
+                    })
+                    .strict(),
+                })
+                .strict(),
+              z
+                .object({
+                  allow: z
+                    .object({
+                      method: z.literal('HEAD'),
+                      path: z.literal(
+                        '/ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api/3/**',
+                      ),
+                    })
+                    .strict(),
+                })
+                .strict(),
+            ]),
           })
           .strict(),
       )
@@ -477,7 +528,7 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
             '--label',
             'mitzo.connection_probe=1',
             '--env',
-            `JIRA_URL=${JIRA_ENDPOINT}`,
+            `JIRA_URL=${JIRA_API_ENDPOINT}`,
             '--env',
             `JIRA_EMAIL=${input.email}`,
             '-o',
@@ -526,7 +577,7 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
           '--timeout',
           '15',
           '--env',
-          `JIRA_URL=${JIRA_ENDPOINT}`,
+          `JIRA_URL=${JIRA_API_ENDPOINT}`,
           '--env',
           `JIRA_EMAIL=${input.email}`,
           '--',
