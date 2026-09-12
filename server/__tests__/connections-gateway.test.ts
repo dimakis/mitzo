@@ -33,6 +33,17 @@ describe('OpenShellConnectionGateway', () => {
     expect(profile).not.toContain('credential_keys:');
     expect(profile).not.toContain('inspect_tls:');
     expect(() => validateJiraProfileYaml(profile)).not.toThrow();
+    expect(() =>
+      validateJiraProfileYaml(
+        profile
+          .replace('resource_version: 1', 'resource_version: 2')
+          .replace(
+            '    header_name: authorization',
+            "    header_name: authorization\n    query_param: ''",
+          )
+          .replace('binaries:', 'source: imported\nscope: default\nbinaries:'),
+      ),
+    ).not.toThrow();
   });
   it('rejects endpoint, TLS, credential, inference, and binary policy drift', () => {
     const profile = readFileSync(
@@ -119,6 +130,37 @@ describe('OpenShellConnectionGateway', () => {
     const gateway = new OpenShellConnectionGateway(vi.fn().mockRejectedValue(new Error(secret)));
     await expect(gateway.list(signal)).rejects.toThrow('Gateway command failed');
     await expect(gateway.list(signal)).rejects.not.toThrow(secret);
+  });
+  it('confirms provider deletion and only deletes a labeled disposable probe sandbox', async () => {
+    const providerRunner = vi.fn().mockResolvedValueOnce('').mockResolvedValueOnce('[]');
+    await expect(
+      new OpenShellConnectionGateway(providerRunner).delete('mitzo-conn-12345678', signal),
+    ).resolves.toBeUndefined();
+    const name = 'mitzo-probe-1234567890abcdef';
+    const probeRunner = vi
+      .fn()
+      .mockResolvedValueOnce(JSON.stringify([{ name, phase: 'Ready', labels: {} }]));
+    await expect(
+      new OpenShellConnectionGateway(probeRunner).deleteSandbox(name, signal),
+    ).rejects.toThrow('ownership');
+    expect(probeRunner.mock.calls.flatMap((call) => call[0])).not.toContain('delete');
+  });
+  it('rejects a caller-supplied probe name before creating a sandbox', async () => {
+    const gateway = new OpenShellConnectionGateway(vi.fn(), {
+      workspace: 'default',
+      probeImage: 'approved:image',
+      probePolicy: '/approved/policy.yaml',
+    });
+    await expect(
+      gateway.probe(
+        {
+          providerName: 'mitzo-conn-12345678',
+          email: 'person@example.com',
+          sandboxName: 'not-a-probe',
+        },
+        signal,
+      ),
+    ).rejects.toThrow('Invalid managed probe sandbox');
   });
   it('uses separate detached create and fixed Python Basic-auth exec for identity probing', async () => {
     let createdName = '';

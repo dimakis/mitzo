@@ -15,7 +15,8 @@ const Provider = z.object({
 const JiraProfile = z
   .object({
     id: z.literal('jira-readonly'),
-    resource_version: z.literal(1),
+    // Gateway import may advance the durable resource version; policy semantics do not change.
+    resource_version: z.number().int().positive(),
     display_name: z.string().min(1),
     description: z.string().min(1),
     category: z.literal('data'),
@@ -30,6 +31,8 @@ const JiraProfile = z
             required: z.literal(true),
             auth_style: z.literal('basic'),
             header_name: z.literal('authorization'),
+            // OpenShell serializes its default rather than skipping this field.
+            query_param: z.literal('').optional(),
           })
           .strict(),
       )
@@ -52,6 +55,9 @@ const JiraProfile = z
       .array(z.enum(['/usr/bin/python3', '/usr/bin/curl', '/usr/local/bin/curl']))
       .length(3)
       .refine((value) => new Set(value).size === 3, 'Jira profile binaries must be unique'),
+    // Gateway metadata is not policy input, but must remain a bounded scalar projection.
+    source: z.string().max(256).optional(),
+    scope: z.string().max(256).optional(),
   })
   .strict();
 const ProfileList = z.array(z.object({ id: z.string().min(1) }).passthrough());
@@ -311,10 +317,12 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
     return (await this.list(signal)).find((item) => item.name === safeName(name));
   }
   async delete(name: string, signal: AbortSignal) {
+    const managedName = safeName(name);
     await this.run(
-      ['provider', '--workspace', this.options.workspace, 'delete', safeName(name)],
+      ['provider', '--workspace', this.options.workspace, 'delete', managedName],
       signal,
     );
+    if (await this.get(managedName, signal)) throw new Error('Managed provider remains present');
   }
   async attachments(providerName: string, signal: AbortSignal) {
     const attached: string[] = [];
@@ -447,6 +455,7 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
     const name =
       input.sandboxName ??
       `mitzo-probe-${createHash('sha256').update(`${input.providerName}:${randomUUID()}`).digest('hex').slice(0, 16)}`;
+    if (!/^mitzo-probe-[a-f0-9]{16}$/.test(name)) throw new Error('Invalid managed probe sandbox');
     const probe =
       "import base64,json,os,ssl,urllib.request;u=os.environ['JIRA_URL']+'/rest/api/3/myself';a=base64.b64encode((os.environ['JIRA_EMAIL']+':'+os.environ['JIRA_API_TOKEN']).encode()).decode();H=type('H',(urllib.request.HTTPRedirectHandler,),{'redirect_request':lambda s,*x:(_ for _ in ()).throw(RuntimeError('redirect denied'))});o=urllib.request.build_opener(H());r=urllib.request.Request(u,headers={'Authorization':'Basic '+a});x=o.open(r,timeout=10);b=x.read(65537);assert len(b)<=65536;d=json.loads(b);print(json.dumps({'accountId':d['accountId']},separators=(',',':')))";
     try {
@@ -531,6 +540,9 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
   }
   async deleteSandbox(name: string, signal: AbortSignal) {
     if (!/^mitzo-probe-[a-f0-9]{16}$/.test(name)) throw new Error('Invalid managed probe sandbox');
+    const sandbox = await this.sandbox(name, signal);
+    if (!sandbox || sandbox.labels['mitzo.connection_probe'] !== '1')
+      throw new Error('Probe sandbox ownership cannot be verified');
     await this.run(['sandbox', '--workspace', this.options.workspace, 'delete', name], signal);
     if (await this.sandbox(name, signal)) throw new Error('Probe sandbox remains present');
   }
