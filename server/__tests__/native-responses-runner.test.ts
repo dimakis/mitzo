@@ -232,6 +232,26 @@ describe('durable native Responses turns', () => {
     expect(request.reasoning).toEqual({ effort: 'high' });
     expect(request.input).toContainEqual(expect.objectContaining({ role: 'assistant' }));
   });
+  it('clears the configured thinking effort for a prepared turn', async () => {
+    const instance = new NativeResponsesRunner({
+      conversationId: 'app-id',
+      binding,
+      apiKey: 'test-only-credential',
+      systemPrompt: 'context',
+      maxTokens: 100,
+      reasoningEffort: 'high',
+      store,
+      executeTool: vi.fn(),
+    });
+    instance.prepare('message-default', 'use model default', {
+      model: 'test-model',
+      reasoningEffort: null,
+    });
+    await collect(instance.run('use model default', undefined, 'message-default'));
+
+    const request = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(request).not.toHaveProperty('reasoning');
+  });
   it('never replays an uncertain side effect after interruption', async () => {
     fetchMock.mockResolvedValueOnce(response(true));
     const execute = vi.fn().mockImplementation(async () => {

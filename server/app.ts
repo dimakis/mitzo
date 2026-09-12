@@ -1362,7 +1362,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
   let modelSelection:
     | {
         model: string;
-        reasoningEffort?: string;
+        reasoningEffort?: string | null;
         models: Array<{
           id: string;
           label: string;
@@ -1388,10 +1388,9 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
             defaultModel.id,
           models: profile.models,
           reasoningEffort:
-            meta.reasoningEffort ??
-            (meta.accountBinding.provider === 'openai-codex'
-              ? codexQueue?.reasoningEffort
-              : undefined),
+            meta.accountBinding.provider === 'openai-codex'
+              ? (meta.reasoningEffort ?? codexQueue?.reasoningEffort)
+              : meta.reasoningEffort,
         };
     } catch {
       // Keep metadata available when the optional account catalog is temporarily unreadable.

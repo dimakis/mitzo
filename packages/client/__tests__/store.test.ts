@@ -808,6 +808,19 @@ describe('interruptMessage', () => {
     expect(interrupts).toHaveLength(1);
     expect(interrupts[0].model).toBeUndefined();
   });
+
+  it('sends an explicit null thinking level during an interrupt', () => {
+    const store = createReadyStore();
+    store.getState().sendMessage('first');
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'sess-int-default' });
+
+    store.getState().interruptMessage('urgent', { model: 'gpt-5', reasoningEffort: null });
+
+    expect(lastWs.parsedSent().find((m) => m.type === 'interrupt')).toMatchObject({
+      model: 'gpt-5',
+      reasoningEffort: null,
+    });
+  });
 });
 
 describe('session isolation via sessionId filtering', () => {
@@ -1478,6 +1491,18 @@ describe('account selection', () => {
       accountId: 'work',
       model: 'sonnet',
       reasoningEffort: 'high',
+    });
+  });
+
+  it('sends an explicit null to restore the model-default thinking level', () => {
+    const store = createReadyStore();
+    store
+      .getState()
+      .sendMessage('hello', { accountId: 'work', model: 'sonnet', reasoningEffort: null });
+    expect(lastWs.parsedSent().find((m) => m.type === 'send')).toMatchObject({
+      accountId: 'work',
+      model: 'sonnet',
+      reasoningEffort: null,
     });
   });
 });

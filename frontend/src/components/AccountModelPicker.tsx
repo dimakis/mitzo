@@ -5,7 +5,7 @@ import { apiFetch } from '../lib/api-fetch';
 export interface AccountSelection {
   accountId?: string;
   model: string;
-  reasoningEffort?: string;
+  reasoningEffort?: string | null;
 }
 interface Account {
   id: string;
@@ -39,6 +39,7 @@ const catalogSchema = z.array(
 
 function withThinking(selection: AccountSelection, account: Account): AccountSelection {
   const model = account.models.find((m) => m.id === selection.model);
+  if (selection.reasoningEffort === null) return { ...selection, reasoningEffort: null };
   const effort = model?.reasoningEfforts?.includes(selection.reasoningEffort ?? '')
     ? selection.reasoningEffort
     : model?.defaultReasoningEffort;
@@ -134,7 +135,7 @@ export function AccountModelPicker({
             .object({
               model: z.string(),
               models: modelsSchema,
-              reasoningEffort: z.string().optional(),
+              reasoningEffort: z.string().nullable().optional(),
             })
             .safeParse(data.modelSelection);
           if (data.accountBinding && modelSelection.success) {
@@ -362,7 +363,7 @@ export function AccountModelPicker({
           onChange={(e) => {
             const next = { ...selection };
             if (e.target.value) next.reasoningEffort = e.target.value;
-            else delete next.reasoningEffort;
+            else next.reasoningEffort = null;
             setSelection(next);
             onChange(next);
           }}

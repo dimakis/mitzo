@@ -169,6 +169,15 @@ describe('work OpenAI API profile', () => {
     delete unbound.sandboxProvider;
     expect(() => new AccountProfiles([unbound])).not.toThrow();
   });
+
+  it('validates model and thinking changes against the bound API account', () => {
+    const profiles = new AccountProfiles([api]);
+    const binding = profiles.resolve('work-api', 'test-model');
+    expect(() => profiles.validateModel(binding, 'test-model', 'high')).not.toThrow();
+    expect(() => profiles.validateModel(binding, 'test-model', null)).not.toThrow();
+    expect(() => profiles.validateModel(binding, 'other-model')).toThrow(/model/i);
+    expect(() => profiles.validateModel(binding, 'test-model', 'ultra')).toThrow(/thinking/i);
+  });
 });
 
 describe('brokered ChatGPT subscription profile', () => {

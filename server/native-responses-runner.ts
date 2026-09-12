@@ -59,7 +59,7 @@ export class NativeResponsesRunner {
     {
       prompt: string;
       state: NativeResponsesState;
-      selection?: { model: string; reasoningEffort?: string };
+      selection?: { model: string; reasoningEffort?: string | null };
     }
   >();
   private idleWaiters: (() => void)[] = [];
@@ -106,7 +106,7 @@ export class NativeResponsesRunner {
   prepare(
     messageId: string,
     prompt: string,
-    selection?: { model: string; reasoningEffort?: string },
+    selection?: { model: string; reasoningEffort?: string | null },
   ) {
     if (this.active || this.prepared.size)
       throw new Error('Native Responses conversation already running');
@@ -148,12 +148,16 @@ export class NativeResponsesRunner {
               input: state.checkpoint.input.filter((item) => item.type !== 'reasoning'),
             }
           : state.checkpoint;
+      const reasoningEffort =
+        prepared?.selection && Object.hasOwn(prepared.selection, 'reasoningEffort')
+          ? (prepared.selection.reasoningEffort ?? undefined)
+          : opts.reasoningEffort;
       const config = {
         model: selectedModel,
         systemPrompt: opts.systemPrompt,
         maxTokens: opts.maxTokens,
         tools: opts.tools,
-        reasoningEffort: prepared?.selection?.reasoningEffort ?? opts.reasoningEffort,
+        reasoningEffort,
         signal: abort.signal,
       };
       const session = opts.gemini

@@ -263,6 +263,20 @@ export class AccountProfiles {
     return binding;
   }
 
+  validateModel(binding: AccountBinding, model: string, reasoningEffort?: string | null): void {
+    const entry = this.catalog()
+      .find((account) => account.id === binding.accountId)
+      ?.models.find((candidate) => candidate.id === model);
+    if (reasoningEffort && (!entry || !entry.reasoningEfforts?.includes(reasoningEffort)))
+      throw new Error('Thinking level unavailable for this model');
+    const current = this.resolve(binding.accountId, model);
+    if (
+      current.provider !== binding.provider ||
+      current.profileRevision !== binding.profileRevision
+    )
+      throw new Error('Account configuration changed');
+  }
+
   codexProfile(binding: AccountBinding): CodexAccountProfile {
     this.resume(binding);
     const profile = this.profiles.find((p) => p.id === binding.accountId);

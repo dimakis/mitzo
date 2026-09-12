@@ -245,23 +245,7 @@ export async function openCodexChat(options: Options) {
         }
       : {}),
     validateModel: (model, reasoningEffort) => {
-      const entry = loadAccountProfiles()
-        .catalog()
-        .find((a) => a.id === options.binding.accountId)
-        ?.models.find((m) => m.id === model);
-      if (
-        reasoningEffort &&
-        (!entry ||
-          !('reasoningEfforts' in entry) ||
-          !(entry.reasoningEfforts as string[] | undefined)?.includes(reasoningEffort))
-      )
-        throw new Error('Thinking level unavailable for this model');
-      const current = loadAccountProfiles().resolve(options.binding.accountId, model);
-      if (
-        current.provider !== options.binding.provider ||
-        current.profileRevision !== options.binding.profileRevision
-      )
-        throw new Error('Account configuration changed');
+      loadAccountProfiles().validateModel(options.binding, model, reasoningEffort);
     },
     tools: openShell ? [] : [...nativeToolDefinitions, ...mcp.definitions],
     displayToolName: mcp.displayName,

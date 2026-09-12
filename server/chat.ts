@@ -800,7 +800,7 @@ export async function startChat(
     cwd?: string;
     model?: string;
     accountId?: string;
-    reasoningEffort?: string;
+    reasoningEffort?: string | null;
     accountProfiles?: AccountProfiles;
     extraTools?: string;
     skillAllowedTools?: string[];
@@ -836,7 +836,7 @@ async function _startChatInner(
     cwd?: string;
     model?: string;
     accountId?: string;
-    reasoningEffort?: string;
+    reasoningEffort?: string | null;
     accountProfiles?: AccountProfiles;
     extraTools?: string;
     skillAllowedTools?: string[];
@@ -1085,6 +1085,7 @@ async function _startChatInner(
     cwd,
     wtId,
     sessionAllowList: new Set<string>(),
+    ...(accountBinding ? { accountBinding } : {}),
     worktreePath,
     agentName,
     // Set sessionId early so pre-assistant events are persisted (iOS reconnect).
@@ -1297,7 +1298,7 @@ async function _startChatInner(
         registry,
         prompt: fullPrompt,
         model: options.model,
-        reasoningEffort: options.reasoningEffort,
+        reasoningEffort: options.reasoningEffort ?? undefined,
         images: options.images,
         messageId,
         systemPrompt: systemPromptAppend,
@@ -1336,7 +1337,7 @@ async function _startChatInner(
         apiKey,
         gemini,
         selectedModel: options.model,
-        reasoningEffort: options.reasoningEffort,
+        reasoningEffort: options.reasoningEffort ?? undefined,
         session,
         registry,
         input: inputQueue,
@@ -1573,7 +1574,7 @@ export function sendToChat(
   contextBlocks?: string[],
   clientMsgId?: string,
   model?: string,
-  reasoningEffort?: string,
+  reasoningEffort?: string | null,
 ): boolean {
   return withSpan('chat.send', { 'chat.clientId': clientId }, () => {
     const session = registry.get(clientId);
@@ -1605,7 +1606,7 @@ export function sendToChat(
           id: messageId,
           prompt: fullPrompt,
           images,
-          reasoningEffort,
+          reasoningEffort: reasoningEffort ?? undefined,
           ...(model ? { model } : {}),
         });
         if (model) session.model = model;
@@ -1620,11 +1621,32 @@ export function sendToChat(
       }
     }
     if (responses) {
+      const selectedModel = model ?? session.model ?? session.accountBinding?.model;
+      try {
+        if ((model || reasoningEffort !== undefined) && session.accountBinding && selectedModel)
+          loadAccountProfiles().validateModel(
+            session.accountBinding,
+            selectedModel,
+            reasoningEffort,
+          );
+      } catch (error) {
+        send(session.transport, {
+          type: 'error',
+          sessionId: session.sessionId,
+          error: error instanceof Error ? error.message : 'Model selection is unavailable',
+        });
+        return false;
+      }
       try {
         responses.prepare(
           messageId,
           fullPrompt,
-          model ? { model, ...(reasoningEffort ? { reasoningEffort } : {}) } : undefined,
+          (model || reasoningEffort !== undefined) && selectedModel
+            ? {
+                model: selectedModel,
+                ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
+              }
+            : undefined,
         );
         if (model) session.model = model;
       } catch {
@@ -1698,13 +1720,29 @@ export async function interruptChat(
   contextBlocks?: string[],
   clientMsgId?: string,
   model?: string,
-  reasoningEffort?: string,
+  reasoningEffort?: string | null,
 ): Promise<boolean> {
   return withSpanAsync('chat.interrupt', { 'chat.clientId': clientId }, async () => {
     const session = registry.get(clientId);
     if (!session?.queryInstance || !session?.inputQueue) return false;
     const codex = getCodexRuntime(session);
     const responses = getResponsesRuntime(session);
+    if ((model || reasoningEffort !== undefined) && session.accountBinding) {
+      try {
+        loadAccountProfiles().validateModel(
+          session.accountBinding,
+          model ?? session.model ?? session.accountBinding.model,
+          reasoningEffort,
+        );
+      } catch (error) {
+        send(session.transport, {
+          type: 'error',
+          sessionId: session.sessionId,
+          error: error instanceof Error ? error.message : 'Model selection is unavailable',
+        });
+        return false;
+      }
+    }
     if (codex) {
       if (session.activeSkillPolicy) {
         send(session.transport, {
@@ -1714,7 +1752,7 @@ export async function interruptChat(
         });
         return false;
       }
-      if (model) codex.validateModel(model, reasoningEffort);
+      if (model) codex.validateModel(model, reasoningEffort ?? undefined);
       await codex.interrupt();
       return sendToChat(
         clientId,

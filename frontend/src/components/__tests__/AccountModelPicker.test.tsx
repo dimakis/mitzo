@@ -122,8 +122,9 @@ it('allows a bound Codex chat to select its next model without changing subscrip
       accountBinding: { accountId: 'personal', accountLabel: 'Personal', model: 'luna' },
       modelSelection: {
         model: 'luna',
+        reasoningEffort: null,
         models: [
-          { id: 'luna', label: 'Luna' },
+          { id: 'luna', label: 'Luna', reasoningEfforts: ['low', 'high'] },
           { id: 'terra', label: 'Terra' },
         ],
       },
@@ -133,6 +134,11 @@ it('allows a bound Codex chat to select its next model without changing subscrip
   render(<AccountModelPicker sessionId="saved" preferredModel="wrong" onChange={onChange} />);
   await screen.findByLabelText('Model');
   expect(screen.queryByLabelText('Account')).toBeNull();
+  expect(onChange).toHaveBeenLastCalledWith({
+    accountId: 'personal',
+    model: 'luna',
+    reasoningEffort: null,
+  });
   fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'terra' } });
   expect(onChange).toHaveBeenLastCalledWith({ accountId: 'personal', model: 'terra' });
 });
@@ -236,6 +242,7 @@ it('offers model-specific thinking choices and resets them when changing model',
   expect(onChange).toHaveBeenLastCalledWith({
     accountId: 'personal',
     model: 'gpt-a',
+    reasoningEffort: null,
   });
   fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'gpt-b' } });
   expect(onChange).toHaveBeenLastCalledWith({
