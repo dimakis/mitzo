@@ -1,0 +1,24 @@
+id: jira-readonly
+resource_version: 1
+display_name: Mitzo Jira read-only
+description: User-supplied Jira API token for an approved read-only endpoint
+category: data
+inference_capable: false
+credentials:
+  - name: api_token
+    description: Jira API token supplied at connection time
+    env_vars: [JIRA_API_TOKEN]
+    required: true
+    auth_style: basic
+    header_name: authorization
+endpoints:
+  - host: redhat.atlassian.net
+    port: 443
+    protocol: rest
+    access: read-only
+    enforcement: enforce
+    tls: terminate
+binaries:
+  - /usr/bin/python3
+  - /usr/bin/curl
+  - /usr/local/bin/curl

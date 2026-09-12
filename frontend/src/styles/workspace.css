@@ -323,6 +323,81 @@
 .workspace-rail .workspace-nav-link--active {
   color: var(--workspace-accent);
 }
+.connections-card {
+  border: 1px solid var(--workspace-line);
+  border-radius: var(--workspace-radius);
+  padding: 18px;
+}
+.connections-field {
+  display: grid;
+  gap: 6px;
+  margin: 14px 0;
+  font-size: 14px;
+}
+.connections-field input {
+  min-height: 42px;
+  padding: 9px 10px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 8px;
+  background: var(--workspace-bg);
+  color: var(--workspace-text);
+}
+.connections-profiles {
+  display: grid;
+  gap: 8px;
+  margin: 18px 0;
+  padding: 12px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 8px;
+}
+.connections-profiles label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.connections-record {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start !important;
+}
+.connections-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.connections-actions button,
+.connections-rotate button {
+  min-height: 38px;
+  padding: 7px 10px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 8px;
+  color: var(--workspace-text);
+  background: var(--workspace-panel);
+}
+.connections-actions button:disabled {
+  opacity: 0.55;
+}
+.connections-actions .connections-danger {
+  color: #ffb4ab;
+}
+.connections-notice {
+  padding: 12px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 8px;
+}
+.connections-audit {
+  width: 100%;
+  margin: 12px 0 0;
+  padding-left: 20px;
+  color: var(--workspace-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.connections-rotate {
+  width: 100%;
+  margin-top: 14px;
+}
 .task-node:target {
   outline: 2px solid var(--workspace-accent);
   outline-offset: -2px;
