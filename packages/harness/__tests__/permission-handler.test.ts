@@ -113,6 +113,76 @@ describe('buildPermissionHandler', () => {
     expect(result.decisionClassification).toBe('user_permanent');
   });
 
+  it('honors a session allow list when a tool forces its initial prompt', async () => {
+    const transport = fakeTransport();
+    registry.register('client-1', {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(['GitHubRead']),
+    });
+
+    const result = await buildPermissionHandler('client-1', registry)(
+      'GitHubRead',
+      { endpoint: '/repos/owner/repo/pulls/1' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-1',
+        forcePrompt: true,
+      },
+    );
+
+    expect(result).toMatchObject({
+      behavior: 'allow',
+      decisionClassification: 'user_permanent',
+    });
+    expect(transport.sent).toEqual([]);
+  });
+
+  it('retains a forced approval for later calls in the session', async () => {
+    const transport = fakeTransport();
+    const allowList = new Set<string>();
+    registry.register('client-1', {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: allowList,
+    });
+    const handler = buildPermissionHandler('client-1', registry);
+    const first = handler(
+      'GitHubRead',
+      { endpoint: '/repos/owner/repo/pulls/1' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-1',
+        forcePrompt: true,
+      },
+    );
+    await Promise.resolve();
+    resolvePending(transport.sent[0].permId as string, 'always');
+
+    expect(await first).toMatchObject({
+      behavior: 'allow',
+      decisionClassification: 'user_permanent',
+    });
+    expect(allowList).toContain('GitHubRead');
+
+    const second = await handler(
+      'GitHubRead',
+      { endpoint: '/repos/owner/repo/issues/2' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-2',
+        forcePrompt: true,
+      },
+    );
+    expect(second).toMatchObject({
+      behavior: 'allow',
+      decisionClassification: 'user_permanent',
+    });
+    expect(transport.sent.filter((event) => event.type === 'permission_request')).toHaveLength(1);
+  });
+
   it('sends permission_request for unknown tools and resolves on response', async () => {
     const transport = fakeTransport();
     registry.register('client-1', {

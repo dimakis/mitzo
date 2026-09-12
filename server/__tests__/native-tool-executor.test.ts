@@ -85,7 +85,7 @@ describe('native tool execution through session permissions', () => {
     expect(await allowed).toMatchObject({ is_error: false });
     expect(await readFile(join(root, 'worktree/approved'), 'utf8')).toBe('yes');
   });
-  it('requires an exact approval for authenticated GitHub reads without exposing credentials', async () => {
+  it('requires initial approval for authenticated GitHub reads without exposing credentials', async () => {
     registry.get('client')!.mode = 'ask';
     const pending = executor()(call('GitHubRead', { endpoint: '/user' }), abort.signal);
     await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
@@ -97,6 +97,23 @@ describe('native tool execution through session permissions', () => {
       undefined,
       undefined,
     );
+  });
+  it('retains an authenticated GitHub read approval for the session', async () => {
+    registry.get('client')!.mode = 'ask';
+    const execute = executor();
+    const first = execute(call('GitHubRead', { endpoint: '/user' }), abort.signal);
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'always');
+    expect(await first).toMatchObject({ is_error: false });
+
+    sent.length = 0;
+    const second = await execute(
+      call('GitHubRead', { endpoint: '/repos/owner/repo/pulls/1' }),
+      abort.signal,
+    );
+    expect(second).toMatchObject({ is_error: false });
+    expect(sent).toEqual([]);
+    expect(registry.get('client')!.sessionAllowList).toContain('GitHubRead');
   });
   it('rejects GitHub traversal before requesting approval', async () => {
     for (const endpoint of [

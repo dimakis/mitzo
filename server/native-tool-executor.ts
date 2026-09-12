@@ -73,7 +73,7 @@ const descriptions = {
     'Ask structured questions in Mitzo and wait for the user’s answers. Questions do not authorize tool execution.',
   Bash: 'Run a command in the session workspace using an OS sandbox. Use for tests, Git and directory creation. Network and credentials are unavailable; use a dedicated trusted integration for external services. Writes outside session roots and unavailable sandboxes fail explicitly.',
   GitHubRead:
-    'Perform one approved authenticated GitHub API GET through Mitzo. Credentials remain in the trusted host process and are never exposed to the command sandbox.',
+    'Perform an approved authenticated GitHub API GET through Mitzo. Credentials remain in the trusted host process and are never exposed to the command sandbox.',
   GitCommit:
     'Stage exactly the approved workspace files and create one local Git commit through Mitzo. Refuses an already-staged index and credential-like files.',
   Read: 'Read a UTF-8 file. Paths are relative to the session cwd unless absolute.',

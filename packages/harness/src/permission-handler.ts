@@ -86,6 +86,7 @@ export function buildPermissionHandler(
       displayName?: string;
       description?: string;
       decisionReason?: string;
+      /** Bypass mode/tier auto-approval; explicit session grants still apply. */
       forcePrompt?: boolean;
       /** Provider adapter supplies validated questions, preserving provider IDs. */
       questions?: UserQuestion[];
@@ -144,7 +145,10 @@ export function buildPermissionHandler(
       return { behavior: 'allow', updatedInput: _toolInput };
     }
 
-    if (!questions && !opts.forcePrompt && isAllowListed(session.sessionAllowList, toolName)) {
+    // forcePrompt bypasses mode/tier auto-approval so sensitive tools still ask on
+    // first use. It must not bypass a grant the user explicitly made for this
+    // session, otherwise "Allow for session" behaves like "Allow Once".
+    if (!questions && isAllowListed(session.sessionAllowList, toolName)) {
       return {
         behavior: 'allow',
         decisionClassification: 'user_permanent',
