@@ -50,10 +50,7 @@ export class ConnectionsService {
     const connection = this.store.get(id);
     if (!connection || connection.revision !== revision || !connection.gatewayProviderId)
       throw new Error('Connection changed; refresh and try again.');
-    const identity = await this.gateway.probe(
-      { providerName: connection.gatewayProviderName, email: connection.submittedEmail },
-      signal,
-    );
+    const identity = await this.serial(id, () => this.runProbe(connection, signal));
     return this.store.transition(
       id,
       revision,
@@ -74,10 +71,7 @@ export class ConnectionsService {
       );
       try {
         await this.gateway.rotate({ name: rotating.gatewayProviderName, token }, signal);
-        const identity = await this.gateway.probe(
-          { providerName: rotating.gatewayProviderName, email: rotating.submittedEmail },
-          signal,
-        );
+        const identity = await this.runProbe(rotating, signal);
         return this.store.transition(
           id,
           rotating.revision,
@@ -117,6 +111,27 @@ export class ConnectionsService {
       if (this.locks.get(id) === queued) this.locks.delete(id);
     }
   }
+  private async runProbe(connection: Connection, signal: AbortSignal) {
+    const sandboxName = `mitzo-probe-${createHash('sha256').update(`${connection.id}:${randomUUID()}`).digest('hex').slice(0, 16)}`;
+    const operation = this.store.startProbe(connection, sandboxName);
+    try {
+      return await this.gateway.probe(
+        {
+          providerName: connection.gatewayProviderName,
+          email: connection.submittedEmail,
+          sandboxName,
+        },
+        signal,
+      );
+    } finally {
+      try {
+        await this.gateway.deleteSandbox(sandboxName, AbortSignal.timeout(15_000));
+        this.store.finishProbe(operation.id);
+      } catch {
+        this.store.probeCleanupPending(operation.id);
+      }
+    }
+  }
   async provision(connection: Connection, token: string, signal: AbortSignal) {
     return this.serial(connection.id, async () => {
       const current = this.store.get(connection.id);
@@ -135,23 +150,7 @@ export class ConnectionsService {
               { gatewayProviderId: provider.id },
               { operation: 'provision', outcome: 'provider_created', actor: current.ownerId },
             );
-        const sandboxName = `mitzo-probe-${createHash('sha256').update(`${persisted.id}:${randomUUID()}`).digest('hex').slice(0, 16)}`;
-        const operation = this.store.startProbe(persisted, sandboxName);
-        const identity = await this.gateway.probe(
-          {
-            providerName: persisted.gatewayProviderName,
-            email: persisted.submittedEmail,
-            sandboxName,
-          },
-          signal,
-        );
-        try {
-          await this.gateway.deleteSandbox(sandboxName, new AbortController().signal);
-          this.store.finishProbe(operation.id);
-        } catch {
-          this.store.probeCleanupPending(operation.id);
-          throw new Error('Probe cleanup pending');
-        }
+        const identity = await this.runProbe(persisted, signal);
         return this.store.transition(
           persisted.id,
           persisted.revision,
