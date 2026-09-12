@@ -163,7 +163,7 @@ export function ConnectionsView() {
           <input value={label} maxLength={100} onChange={(event) => setLabel(event.target.value)} />
         </label>
         <label className="connections-field">
-          Jira email
+          Atlassian account email
           <input
             type="email"
             autoComplete="username"
@@ -172,15 +172,28 @@ export function ConnectionsView() {
           />
         </label>
         <label className="connections-field">
-          Jira API token
+          Jira Cloud scoped API token
           <input
-            aria-label="Jira API token"
+            aria-label="Jira Cloud scoped API token"
             type="password"
             autoComplete="off"
             value={token}
             onChange={(event) => setToken(event.target.value)}
           />
         </label>
+        <p className="workspace-muted">
+          Use a scoped Jira Cloud API token for <code>redhat.atlassian.net</code>. The email must
+          match the Atlassian account that created the token. Include the Jira read permission
+          needed for the <code>/myself</code> identity check; this connection does not request write
+          access.{' '}
+          <a
+            href="https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Atlassian token and scope guidance
+          </a>
+        </p>
         <fieldset className="connections-profiles">
           <legend>Eligible work profiles</legend>
           {data.eligibleAccounts.length ? (
@@ -429,9 +442,9 @@ function ConnectionCard({
           }}
         >
           <label className="connections-field">
-            Replacement Jira API token
+            Replacement Jira Cloud scoped API token
             <input
-              aria-label="Replacement Jira API token"
+              aria-label="Replacement Jira Cloud scoped API token"
               type="password"
               autoComplete="off"
               value={rotationToken}

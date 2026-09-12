@@ -101,7 +101,7 @@ describe('ConnectionsView', () => {
       fireEvent.change(input('Passphrase'), { target: { value: 'pass' } });
     });
     await act(async () => button('Reauthorize').click());
-    const formToken = input('Jira API token');
+    const formToken = input('Jira Cloud scoped API token');
     const email = container.querySelector('input[type="email"]') as HTMLInputElement;
     act(() => {
       fireEvent.change(email, { target: { value: 'me@example.com' } });
@@ -131,12 +131,14 @@ describe('ConnectionsView', () => {
   it('clears replacement tokens when the rotation form is dismissed', async () => {
     await render();
     act(() => button('Rotate token').click());
-    const token = input('Replacement Jira API token');
+    const token = input('Replacement Jira Cloud scoped API token');
     act(() => {
       fireEvent.change(token, { target: { value: 'replacement' } });
     });
     act(() => button('Cancel').click());
-    expect(container.querySelector('[aria-label="Replacement Jira API token"]')).toBeNull();
+    expect(
+      container.querySelector('[aria-label="Replacement Jira Cloud scoped API token"]'),
+    ).toBeNull();
     expect(container.textContent).not.toContain('replacement');
   });
   it('offers a true retry action for a failed initial provisioning', async () => {
