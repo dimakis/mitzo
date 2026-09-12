@@ -65,7 +65,7 @@ it('uses one hashed archive name, verifies before upload, and quotes SSH argumen
   const destination = mkdtempSync(join(tmpdir(), 'checkpoint-transport-'));
   roots.push(destination);
   await transport.capture(destination, identity, signal);
-  await transport.restore(join(destination, 'input.tar'), identity, signal);
+  await transport.restore(join(destination, 'input.tar'), identity, 'a'.repeat(64), signal);
   const all = run.mock.calls.flatMap((call) => call[1] as string[]).join(' ');
   expect(all).toContain('--gateway-endpoint http://127.0.0.1:8000 --gateway-insecure');
   expect(all).toMatch(/mitzo-[a-f0-9]{64}\.tar/);
@@ -79,4 +79,67 @@ it('uses one hashed archive name, verifies before upload, and quotes SSH argumen
   expect(remote).toContain("'thread'\\''s'");
   expect(remote).toContain("'id@tenant:$(not-run)\nwith'\\''quote'");
   expect(remote).toContain("'openai/route;$(not-run)'");
+});
+
+it('rejects an archive whose verified digest differs from the persisted checkpoint', async () => {
+  const manifest = JSON.stringify({
+    version: 1,
+    digest: 'a'.repeat(64),
+    helper: 'mitzo-checkpoint-v1',
+    conversation: 'conversation',
+    thread: 'thread',
+    binding: 'binding',
+    image: 'image',
+    policy: 'policy',
+    sandboxId: 'sandbox',
+    resourceVersion: '1',
+    accountProvider: 'account',
+    accountId: 'account',
+    provider: 'openai',
+    model: 'model',
+    profileRevision: 'r1',
+    runtimeScope: 'scope',
+    routeKind: 'api',
+    routeProvider: 'openai',
+  });
+  const run = vi.fn(async () => manifest);
+  const transport = new OpenShellCheckpointTransport(
+    {
+      sandboxName: 'mitzo-x',
+      workdir: '/sandbox/workspaces/mgmt',
+      appServerCommand: '/sandbox/run-mitzo-app-server',
+      cli: 'openshell',
+      gateway: 'g',
+      workspace: 'w',
+      gatewayInsecure: false,
+    },
+    run,
+  );
+  const identity = {
+    conversation: 'conversation',
+    thread: 'thread',
+    binding: 'binding',
+    image: 'image',
+    policy: 'policy',
+    sandboxId: 'sandbox',
+    resourceVersion: '1',
+    accountProvider: 'account',
+    accountId: 'account',
+    provider: 'openai',
+    model: 'model',
+    profileRevision: 'r1',
+    runtimeScope: 'scope',
+    routeKind: 'api' as const,
+    routeProvider: 'openai',
+  };
+
+  await expect(
+    transport.restore(
+      '/private/tmp/checkpoint.tar',
+      identity,
+      'b'.repeat(64),
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow('checkpoint digest does not match record');
+  expect(run.mock.calls.flatMap((call) => call[1] as string[])).not.toContain('upload');
 });

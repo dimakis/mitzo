@@ -216,14 +216,17 @@ export class OpenShellCheckpointTransport {
     );
     return validatedManifest(output, identity);
   }
-  async restore(archive: string, identity: CheckpointIdentity, signal: AbortSignal) {
+  async restore(
+    archive: string,
+    identity: CheckpointIdentity,
+    expectedDigest: string,
+    signal: AbortSignal,
+  ) {
     const name = `mitzo-${createHash('sha256').update(identity.conversation).digest('hex')}.tar`;
     const remote = `/tmp/${name}`;
-    await this.run(
-      'python3',
-      [helperPath, 'verify', '--input', archive, ...helper('verify', remote, identity).slice(4)],
-      signal,
-    );
+    const manifest = await this.verify(archive, identity, signal);
+    if (manifest.digest !== expectedDigest)
+      throw new Error('checkpoint digest does not match record');
     await this.run(
       this.runtime.cli,
       [...this.base(), 'upload', this.runtime.sandboxName, archive, '/tmp', '--no-git-ignore'],

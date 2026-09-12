@@ -318,6 +318,7 @@ export async function restoreOpenShellLifecycleIfNeeded(
     await new OpenShellCheckpointTransport(runtime).restore(
       record.checkpoint.path,
       checkpointIdentity(record, record.checkpoint.sourceResourceVersion),
+      record.checkpoint.digest,
       signal,
     );
     configured.store.upsert({
