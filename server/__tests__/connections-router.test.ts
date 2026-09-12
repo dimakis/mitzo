@@ -114,6 +114,15 @@ describe('connections router', () => {
           .send('not-json')
       ).status,
     ).toBe(415);
+    const malformed = await request(app)
+      .post('/api/connections/reauthorize')
+      .set('x-browser', 'yes')
+      .set('Content-Type', 'application/json')
+      .send('{"passphrase":"SENTINEL_MALFORMED"');
+    expect(malformed.status).toBe(400);
+    expect(malformed.headers['cache-control']).toBe('no-store');
+    expect(JSON.stringify(malformed.body)).toEqual('{"error":"Invalid JSON"}');
+    expect(JSON.stringify(malformed.body)).not.toContain('SENTINEL_MALFORMED');
 
     const authorization = await request(app)
       .post('/api/connections/reauthorize')

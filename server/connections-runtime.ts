@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { ConnectionStore } from './connections-store.js';
 import { ConnectionsService } from './connections-service.js';
 import { OpenShellConnectionGateway } from './connections-gateway.js';
@@ -40,6 +41,11 @@ export function createConnectionsRuntime(options: {
   mkdirSync(options.directory, { recursive: true, mode: 0o700 });
   const store = new ConnectionStore(join(options.directory, 'connections.db'));
   const gatewayName = options.gateway ?? 'openshell';
+  // An endpoint deployment may reuse an alias. Persist a one-way binding so a
+  // later alias change cannot silently resolve a connection against another gateway.
+  const gatewayBinding = options.gatewayEndpoint
+    ? `endpoint:${createHash('sha256').update(options.gatewayEndpoint).digest('hex')}`
+    : gatewayName;
   const gatewayArgs = options.gatewayEndpoint
     ? [
         '--gateway-endpoint',
@@ -82,12 +88,12 @@ export function createConnectionsRuntime(options: {
   return {
     store,
     service: new ConnectionsService(store, gateway, {
-      gateway: gatewayName,
+      gateway: gatewayBinding,
       workspace: options.workspace,
       eligibleAccountIds: options.eligibleAccountIds,
     }),
     eligibleAccountIds: options.eligibleAccountIds,
-    gateway: gatewayName,
+    gateway: gatewayBinding,
     workspace: options.workspace,
     legacyProviders: async () => {
       const configured = new Set(options.legacyProviders ?? []);

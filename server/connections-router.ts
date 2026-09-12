@@ -319,5 +319,22 @@ export function createConnectionsRouter(options: {
       return error(res, value, 'Revocation is pending; retry later.');
     }
   });
+  // express.json() may expose parser details through a global error handler. Keep
+  // connection bodies out of both responses and logs, including malformed secrets.
+  router.use(
+    (
+      parserError: { type?: string; status?: number },
+      _req: express.Request,
+      res: express.Response,
+      next: express.NextFunction,
+    ) => {
+      if (res.headersSent) return next(parserError);
+      if (parserError.type === 'entity.too.large' || parserError.status === 413)
+        return res.status(413).json({ error: 'Body too large' });
+      if (parserError.type === 'entity.parse.failed' || parserError.status === 400)
+        return res.status(400).json({ error: 'Invalid JSON' });
+      return next(parserError);
+    },
+  );
   return router;
 }
