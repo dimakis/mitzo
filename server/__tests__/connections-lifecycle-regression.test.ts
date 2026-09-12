@@ -19,15 +19,13 @@ function setup() {
   });
   const gateway = {
     verifyCompatibility: vi.fn(),
-    provision: vi
-      .fn()
-      .mockResolvedValue({
-        id: 'provider-1',
-        name: connection.gatewayProviderName,
-        workspace: 'default',
-        type: 'jira-readonly',
-        credentialKeys: ['JIRA_API_TOKEN'],
-      }),
+    provision: vi.fn().mockResolvedValue({
+      id: 'provider-1',
+      name: connection.gatewayProviderName,
+      workspace: 'default',
+      type: 'jira-readonly',
+      credentialKeys: ['JIRA_API_TOKEN'],
+    }),
     rotate: vi.fn(),
     get: vi.fn(),
     list: vi.fn(),
@@ -71,6 +69,35 @@ describe('Connections lifecycle regressions', () => {
     x.gateway.delete.mockResolvedValue(undefined);
     await x.service.revoke(active.id, active.revision, 'operator', new AbortController().signal);
     expect(x.service.resolveForAccount('work')).toBeNull();
+    x.store.close();
+    rmSync(x.dir, { recursive: true, force: true });
+  });
+  it('rejects a stale revoke revision even when revocation is already pending', async () => {
+    const x = setup();
+    const revoking = x.store.transition(
+      x.connection.id,
+      1,
+      { status: 'revoking', desiredAccountIds: [] },
+      { operation: 'revoke', outcome: 'started', actor: 'operator' },
+    );
+    await expect(
+      x.service.revoke(revoking.id, 1, 'operator', new AbortController().signal),
+    ).rejects.toThrow(/changed/i);
+    x.store.close();
+    rmSync(x.dir, { recursive: true, force: true });
+  });
+  it('retries persisted cleanup on restart using a fresh non-aborted signal', async () => {
+    const x = setup();
+    const op = x.store.startProbe(x.connection, 'mitzo-probe-1234567890abcdef');
+    const aborted = new AbortController();
+    aborted.abort();
+    x.gateway.deleteSandbox.mockResolvedValue(undefined);
+    await x.service.reconcile(aborted.signal);
+    expect(x.gateway.deleteSandbox).toHaveBeenCalledWith(
+      op.sandboxName,
+      expect.objectContaining({ aborted: false }),
+    );
+    expect(x.store.pendingProbes()).toEqual([]);
     x.store.close();
     rmSync(x.dir, { recursive: true, force: true });
   });
