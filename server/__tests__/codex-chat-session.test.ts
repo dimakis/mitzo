@@ -184,7 +184,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
   vi.stubEnv('MITZO_OPENSHELL_IMAGE', 'mitzo-runtime:1');
   vi.stubEnv('MITZO_OPENSHELL_POLICY', '/config/policy.yaml');
   vi.stubEnv('MITZO_OPENSHELL_SEED', '/seed/mgmt');
-  vi.stubEnv('MITZO_OPENSHELL_GRANTABLE_SERVICE_PROVIDERS', 'google-workspace');
+  vi.stubEnv('MITZO_OPENSHELL_GRANTABLE_SERVICE_PROVIDERS', 'google-workspace,github');
   const ensure = vi.spyOn(OpenShellRuntimeManager.prototype, 'ensure').mockResolvedValue({
     sandboxName: 'mitzo-runtime',
     workdir: '/sandbox/workspaces/mgmt',
@@ -245,7 +245,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
         name: 'GrantIntegrationAccess',
         input_schema: expect.objectContaining({
           properties: expect.objectContaining({
-            provider: expect.objectContaining({ enum: ['google-workspace'] }),
+            provider: expect.objectContaining({ enum: ['google-workspace', 'github'] }),
           }),
         }),
       }),
@@ -259,7 +259,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
     const signal = new AbortController().signal;
 
     await expect(
-      executeTool('GrantIntegrationAccess', { provider: 'github' }, signal),
+      executeTool('GrantIntegrationAccess', { provider: 'unreviewed-provider' }, signal),
     ).resolves.toMatchObject({ isError: true });
     expect(mocks.permissionHandler).not.toHaveBeenCalled();
 
@@ -294,6 +294,17 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
         approvalScope: 'conversation',
         title: 'Grant Google Workspace to this conversation?',
         description: expect.stringContaining('across reconnects and Mitzo restarts'),
+      }),
+    );
+
+    mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'deny', message: 'Denied' });
+    await executeTool('GrantIntegrationAccess', { provider: 'github' }, signal);
+    expect(mocks.permissionHandler).toHaveBeenLastCalledWith(
+      'GrantIntegrationAccess',
+      { provider: 'github' },
+      expect.objectContaining({
+        title: 'Grant GitHub to this conversation?',
+        description: expect.stringContaining('reviewed GitHub provider'),
       }),
     );
   } finally {

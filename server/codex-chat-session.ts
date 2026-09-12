@@ -31,6 +31,10 @@ import {
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
 const GRANT_INTEGRATION_TOOL = 'GrantIntegrationAccess';
+const INTEGRATION_PROVIDER_LABELS: Record<string, string> = {
+  'google-workspace': 'Google Workspace',
+  github: 'GitHub',
+};
 
 function grantIntegrationTools(providers: string[]) {
   if (!providers.length) return [];
@@ -311,6 +315,7 @@ export async function openCodexChat(options: Options) {
         const provider = typeof input.provider === 'string' ? input.provider : '';
         if (!grantableProviders.includes(provider))
           return { content: 'Integration provider is not grantable', isError: true };
+        const providerLabel = INTEGRATION_PROVIDER_LABELS[provider] ?? provider;
         const approvedInput = { provider };
         const owner = options.registry.findBySessionId(options.conversationId);
         if (!owner) throw new Error('Codex session unavailable');
@@ -321,9 +326,8 @@ export async function openCodexChat(options: Options) {
           toolUseID: randomUUID(),
           forcePrompt: true,
           approvalScope: 'conversation',
-          title: 'Grant Google Workspace to this conversation?',
-          description:
-            'This attaches the reviewed provider to the retained conversation sandbox across reconnects and Mitzo restarts, until the sandbox is deleted or access is revoked. It does not change Google OAuth consent.',
+          title: `Grant ${providerLabel} to this conversation?`,
+          description: `This attaches the reviewed ${providerLabel} provider to the retained conversation sandbox across reconnects and Mitzo restarts, until the sandbox is deleted or access is revoked. It does not request or change external account consent.`,
         });
         signal.throwIfAborted();
         if (decision.behavior !== 'allow') return { content: decision.message, isError: true };
