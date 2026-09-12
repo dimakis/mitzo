@@ -201,16 +201,18 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
     fullMarkdown: '',
   });
   const abortController = new AbortController();
-  const session = { cwd: '/tmp', mode: 'agent', abortController };
+  const baseOptions = options(abortController);
+  const session = baseOptions.session;
   const registry = {
     findBySessionId: vi.fn(() => ({ clientId: 'client', session })),
-  };
+  } as unknown as import('@mitzo/harness').SessionRegistry;
   try {
     await openCodexChat({
-      ...options(abortController),
+      ...baseOptions,
       conversationId: 'conversation',
       binding: {
         accountId: 'work',
+        accountLabel: 'Work',
         provider: 'openai',
         model: 'test-model',
         profileRevision: '1',
@@ -218,8 +220,8 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       profile: {
         accountId: 'work',
         accountLabel: 'Work',
+        email: 'work@example.com',
         planType: 'api',
-        provider: 'openai',
         model: 'test-model',
         sandboxProvider: 'openai-work',
       },
@@ -229,7 +231,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       messageId: 'message',
       systemPrompt: 'base prompt',
       env: {},
-    } as Parameters<typeof openCodexChat>[0]);
+    });
     expect(mocks.conversationOptions?.tools).toEqual([
       expect.objectContaining({
         name: 'GrantIntegrationAccess',
