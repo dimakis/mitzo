@@ -78,6 +78,64 @@ export function openShellSshProcessSpec(
     throw new Error('Invalid OpenShell gateway endpoint');
   if (!/^\/[A-Za-z0-9_./ '\\$();-]+$/.test(remoteCommand))
     throw new Error('Invalid OpenShell remote command');
+  return openShellSshProcessSpecTrusted(options, remoteCommand, base);
+}
+
+/** Builds a remote shell command from argv using POSIX single-quote escaping.
+ * This is reserved for internal calls that need to carry opaque identity data;
+ * unlike the legacy string API it accepts arbitrary non-NUL argument values. */
+export function openShellSshArgvProcessSpec(
+  options: OpenShellCodexOptions,
+  argv: readonly string[],
+  base: NodeJS.ProcessEnv = process.env,
+) {
+  if (!argv.length || argv.some((value) => !value || value.includes('\0')))
+    throw new Error('Invalid OpenShell remote argv');
+  return openShellSshProcessSpecTrusted(
+    options,
+    argv.map((value) => `'${value.replaceAll("'", "'\\''")}'`).join(' '),
+    base,
+  );
+}
+
+function openShellSshProcessSpecTrusted(
+  options: OpenShellCodexOptions,
+  remoteCommand: string,
+  base: NodeJS.ProcessEnv,
+) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(options.sandboxName))
+    throw new Error('Invalid OpenShell sandbox name');
+  const workdir = posix.resolve(options.workdir);
+  if (workdir === '/sandbox/workspaces' || !workdir.startsWith('/sandbox/workspaces/'))
+    throw new Error('OpenShell workdir must be inside /sandbox/workspaces');
+  const env: Record<string, string> = {};
+  for (const key of [
+    'PATH',
+    'HOME',
+    'TMPDIR',
+    'LANG',
+    'LC_ALL',
+    'OPENSHELL_GATEWAY',
+    'OPENSHELL_GATEWAY_ENDPOINT',
+    'OPENSHELL_GATEWAY_INSECURE',
+    'OPENSHELL_WORKSPACE',
+  ]) {
+    if (base[key]) env[key] = base[key]!;
+  }
+  const workspace = options.workspace || base.OPENSHELL_WORKSPACE || 'default';
+  const gateway = options.gateway || base.OPENSHELL_GATEWAY || 'openshell';
+  const cli = options.cli || 'openshell';
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(workspace))
+    throw new Error('Invalid OpenShell workspace name');
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(gateway))
+    throw new Error('Invalid OpenShell gateway name');
+  if ((cli !== 'openshell' && !isAbsolute(cli)) || !/^[A-Za-z0-9_./+-]+$/.test(cli))
+    throw new Error('Invalid OpenShell CLI path');
+  if (
+    options.gatewayEndpoint &&
+    !/^https?:\/\/[A-Za-z0-9.:[\]_-]+(?::\d+)?$/.test(options.gatewayEndpoint)
+  )
+    throw new Error('Invalid OpenShell gateway endpoint');
   const proxyCommand = options.gatewayEndpoint
     ? `${cli}${options.gatewayInsecure ? ' --gateway-insecure' : ''} ssh-proxy --server '${options.gatewayEndpoint}'`
     : `${cli} ssh-proxy --gateway-name ${gateway}`;

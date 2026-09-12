@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { OpenShellRuntime } from './openshell-runtime.js';
-import { openShellSshProcessSpec } from './codex-app-server-client.js';
+import { openShellSshArgvProcessSpec } from './codex-app-server-client.js';
 
 type Run = (command: string, args: readonly string[], signal: AbortSignal) => Promise<string>;
 export interface CheckpointIdentity {
@@ -111,9 +111,6 @@ function helper(
     ...common,
   ];
 }
-function quote(value: string) {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
 function validatedManifest(output: string, identity: CheckpointIdentity): CheckpointManifest {
   let value: unknown;
   try {
@@ -162,10 +159,7 @@ export class OpenShellCheckpointTransport {
     private run: Run = command,
   ) {}
   private ssh(args: string[], signal: AbortSignal) {
-    const spec = openShellSshProcessSpec(
-      this.runtime,
-      [args[0], ...args.slice(1).map(quote)].join(' '),
-    );
+    const spec = openShellSshArgvProcessSpec(this.runtime, args);
     return this.run(spec.command, spec.args, signal);
   }
   private base() {

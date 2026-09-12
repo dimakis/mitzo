@@ -238,6 +238,20 @@ export class OpenShellLifecycleStore {
       .run(JSON.stringify(checkpoint), conversationId, expectedGeneration);
     return changed.changes ? this.get(conversationId) : null;
   }
+  /** Fences a failed transient action without replacing a newer lifecycle row. */
+  fail(
+    conversationId: string,
+    expectedGeneration: number,
+    expectedPhase: Extract<OpenShellLifecyclePhase, 'checkpointing' | 'stopping' | 'deleting'>,
+    failure: string,
+  ) {
+    const changed = this.db
+      .prepare(
+        "UPDATE openshell_lifecycle SET phase='failed', failure=?, generation=generation+1 WHERE conversation_id=? AND generation=? AND phase=?",
+      )
+      .run(failure, conversationId, expectedGeneration, expectedPhase);
+    return changed.changes ? this.get(conversationId) : null;
+  }
   reconcileInterrupted() {
     this.db
       .prepare(

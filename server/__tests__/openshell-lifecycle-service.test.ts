@@ -101,14 +101,30 @@ it('reports a reconciled record failure while continuing independent records', a
     expect.objectContaining({ message: 'control plane down' }),
   );
 });
-it('requires a current identity and a single-use preview token', async () => {
-  const { service, adapters } = setup();
+it('allows a manual stop without granting retention consent', async () => {
+  const { service, adapters } = setup('retained');
   adapters.consent = () => false;
   const preview = await service.preview('c', AbortSignal.timeout(100));
-  await expect(service.confirm(preview.token, AbortSignal.timeout(100))).resolves.toBe('deleted');
+  expect(preview.action).toBe('stop');
+  await expect(service.confirm(preview.token, AbortSignal.timeout(100))).resolves.toBe('stopped');
+});
+it('rechecks consent before a manual deletion', async () => {
+  const { service, adapters } = setup();
+  const preview = await service.preview('c', AbortSignal.timeout(100));
+  adapters.consent = () => false;
   await expect(service.confirm(preview.token, AbortSignal.timeout(100))).rejects.toThrow(
-    'expired or already used',
+    'consent is required',
   );
+  expect(adapters.delete).not.toHaveBeenCalled();
+});
+it('rejects a preview after persisted retention consent is revoked', async () => {
+  const { service, adapters } = setup();
+  const preview = await service.preview('c', AbortSignal.timeout(100));
+  service.setRetentionConsent('c', false);
+  await expect(service.confirm(preview.token, AbortSignal.timeout(100))).rejects.toThrow(
+    'preview is stale',
+  );
+  expect(adapters.delete).not.toHaveBeenCalled();
 });
 it('rejects out-of-band stopped version changes before deletion', async () => {
   const { service, sandbox } = setup();
@@ -165,4 +181,58 @@ it('serializes concurrent confirmation and rejects the stale second action', asy
   await expect(first).resolves.toBe('deleted');
   await expect(second).rejects.toThrow('expired or already used');
   expect(adapters.delete).toHaveBeenCalledOnce();
+});
+
+it.each([
+  ['stop', 'retained', 'stop'],
+  ['delete', 'stopped', 'delete'],
+] as const)('durably fences a failed %s action', async (_name, phase, failingAdapter) => {
+  const { service, store, adapters } = setup(phase);
+  (adapters[failingAdapter] as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('failed'));
+  const preview = await service.preview('c', AbortSignal.timeout(100));
+  await expect(service.confirm(preview.token, AbortSignal.timeout(100))).rejects.toThrow('failed');
+  expect(store.get('c')).toMatchObject({
+    phase: 'failed',
+    failure: 'failed',
+    physicalSandboxId: 'p',
+  });
+});
+
+it('durably fences a checkpoint when verification returns false', async () => {
+  const { service, store, adapters } = setup('retained');
+  adapters.verifyCheckpoint.mockResolvedValueOnce(false);
+  const preview = await service.preview('c', AbortSignal.timeout(100));
+  await expect(service.confirm(preview.token, AbortSignal.timeout(100))).rejects.toThrow(
+    'checkpoint is unavailable',
+  );
+  expect(store.get('c')).toMatchObject({
+    phase: 'failed',
+    failure: 'OpenShell checkpoint is unavailable',
+  });
+});
+
+it('fences a checkpoint after a protection recheck fails', async () => {
+  const { service, store, adapters } = setup('retained');
+  adapters.protect.mockResolvedValueOnce({ blockers: [] });
+  adapters.protect.mockResolvedValueOnce({ blockers: [] });
+  adapters.protect.mockRejectedValueOnce(new Error('protection lost'));
+  const preview = await service.preview('c', AbortSignal.timeout(100));
+  await expect(service.confirm(preview.token, AbortSignal.timeout(100))).rejects.toThrow(
+    'protection lost',
+  );
+  expect(store.get('c')).toMatchObject({ phase: 'failed', failure: 'protection lost' });
+});
+
+it('never overwrites a newer lifecycle generation while fencing a failure', async () => {
+  const { service, store, adapters } = setup('retained');
+  adapters.checkpoint.mockImplementationOnce(async () => {
+    const current = store.get('c')!;
+    store.upsert({ ...current, phase: 'retained', generation: current.generation + 1 });
+    throw new Error('late failure');
+  });
+  const preview = await service.preview('c', AbortSignal.timeout(100));
+  await expect(service.confirm(preview.token, AbortSignal.timeout(100))).rejects.toThrow(
+    'late failure',
+  );
+  expect(store.get('c')).toMatchObject({ phase: 'retained', failure: null });
 });
