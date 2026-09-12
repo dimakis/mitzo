@@ -162,11 +162,18 @@ export async function openCodexChat(options: Options) {
         account: selectedOpenShellAccountRoute(options),
       })
     : undefined;
-  const managedOpenShell = runtimeManager
-    ? await sharedOpenShellLifecycleCoordinator.admit(options.conversationId, () =>
-        runtimeManager.ensure(options.conversationId, options.session.abortController.signal),
-      )
+  const startupReservation = runtimeManager
+    ? await sharedOpenShellLifecycleCoordinator.reserve(options.conversationId)
     : undefined;
+  let managedOpenShell;
+  try {
+    managedOpenShell = runtimeManager
+      ? await runtimeManager.ensure(options.conversationId, options.session.abortController.signal)
+      : undefined;
+  } catch (error) {
+    startupReservation?.();
+    throw error;
+  }
   const openShell =
     managedOpenShell ??
     (openShellName
@@ -348,6 +355,8 @@ export async function openCodexChat(options: Options) {
   } catch (error) {
     close();
     throw error;
+  } finally {
+    startupReservation?.();
   }
   return {
     [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](),

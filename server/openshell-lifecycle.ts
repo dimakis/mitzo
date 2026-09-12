@@ -202,7 +202,7 @@ export class OpenShellLifecycleCoordinator {
     this.idle.delete(conversationId);
   }
 
-  async admit<T>(conversationId: string, operation: () => Promise<T>): Promise<T> {
+  async reserve(conversationId: string): Promise<() => void> {
     this.cancelIdle(conversationId);
     const prior = this.tails.get(conversationId) ?? Promise.resolve();
     let release!: () => void;
@@ -210,11 +210,21 @@ export class OpenShellLifecycleCoordinator {
     const tail = prior.catch(() => {}).then(() => gate);
     this.tails.set(conversationId, tail);
     await prior.catch(() => {});
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      release();
+      if (this.tails.get(conversationId) === tail) this.tails.delete(conversationId);
+    };
+  }
+
+  async admit<T>(conversationId: string, operation: () => Promise<T>): Promise<T> {
+    const release = await this.reserve(conversationId);
     try {
       return await operation();
     } finally {
       release();
-      if (this.tails.get(conversationId) === tail) this.tails.delete(conversationId);
     }
   }
 
