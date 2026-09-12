@@ -1,8 +1,36 @@
-import { expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, expect, it, vi } from 'vitest';
 import { OpenShellCheckpointTransport } from '../openshell-checkpoint-transport.js';
 
+const roots: string[] = [];
+afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
 it('uses one hashed archive name, verifies before upload, and quotes SSH arguments', async () => {
-  const run = vi.fn().mockResolvedValue('{}');
+  const manifest = JSON.stringify({
+    version: 1,
+    digest: 'a'.repeat(64),
+    helper: 'mitzo-checkpoint-v1',
+    conversation: 'a space;$(bad)',
+    thread: "thread's",
+    binding: 'binding',
+    image: 'image',
+    policy: 'policy',
+    sandboxId: 'sandbox',
+    resourceVersion: '1',
+    accountProvider: 'account',
+    accountId: 'id',
+    provider: 'openai',
+    model: 'model',
+    profileRevision: 'r1',
+    runtimeScope: 'scope',
+    routeKind: 'api',
+    routeProvider: 'openai',
+  });
+  const run = vi.fn(async (_command: string, args: readonly string[]) => {
+    if (args.includes('download')) writeFileSync(args.at(-1)!, 'mock');
+    return manifest;
+  });
   const transport = new OpenShellCheckpointTransport(
     {
       sandboxName: 'mitzo-x',
@@ -23,9 +51,21 @@ it('uses one hashed archive name, verifies before upload, and quotes SSH argumen
     binding: 'binding',
     image: 'image',
     policy: 'policy',
+    sandboxId: 'sandbox',
+    resourceVersion: '1',
+    accountProvider: 'account',
+    accountId: 'id',
+    provider: 'openai',
+    model: 'model',
+    profileRevision: 'r1',
+    runtimeScope: 'scope',
+    routeKind: 'api' as const,
+    routeProvider: 'openai',
   };
-  await transport.capture('/private/tmp/checkpoints', identity, signal);
-  await transport.restore('/private/tmp/checkpoints/input.tar', identity, signal);
+  const destination = mkdtempSync(join(tmpdir(), 'checkpoint-transport-'));
+  roots.push(destination);
+  await transport.capture(destination, identity, signal);
+  await transport.restore(join(destination, 'input.tar'), identity, signal);
   const all = run.mock.calls.flatMap((call) => call[1] as string[]).join(' ');
   expect(all).toContain('--gateway-endpoint http://127.0.0.1:8000 --gateway-insecure');
   expect(all).toMatch(/mitzo-[a-f0-9]{64}\.tar/);
