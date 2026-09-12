@@ -1,6 +1,35 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { AccountProfiles, LEGACY_MODELS, resolveAccountSelection } from '../account-profiles.js';
 import { V2SendMessage } from '@mitzo/protocol';
+
+const brokerDiscovery = vi.hoisted(() => ({
+  ensure: vi.fn(),
+  initialize: vi.fn(),
+  request: vi.fn(),
+  close: vi.fn(),
+  runtimeConfig: vi.fn(),
+  managerConfigs: [] as unknown[],
+  launch: vi.fn(),
+  hostLaunch: vi.fn(),
+}));
+
+vi.mock('../openshell-runtime.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../openshell-runtime.js')>()),
+  openShellRuntimeConfig: brokerDiscovery.runtimeConfig,
+  OpenShellRuntimeManager: class {
+    constructor(config: unknown) {
+      brokerDiscovery.managerConfigs.push(config);
+    }
+    ensure = brokerDiscovery.ensure;
+  },
+}));
+vi.mock('../codex-app-server-client.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../codex-app-server-client.js')>()),
+  CodexAppServerClient: {
+    launchOpenShell: brokerDiscovery.launch,
+    launch: brokerDiscovery.hostLaunch,
+  },
+}));
 
 const profile = {
   id: 'work',
@@ -230,6 +259,54 @@ describe('brokered ChatGPT subscription profile', () => {
     models: [{ id: 'gpt-test', label: 'GPT test' }],
   };
 
+  const runtimeConfig = {
+    cli: 'openshell',
+    image: 'image',
+    policy: '/policy',
+    seed: '/seed',
+    serviceProviders: ['github'],
+    workspace: 'default',
+    gateway: 'openshell',
+    gatewayInsecure: false,
+    createDetached: true,
+    sandboxIdLength: 13,
+    workdir: '/sandbox/workspaces/mgmt',
+    webSearch: 'disabled' as const,
+  };
+  const discoveryPage = () => ({
+    data: [
+      {
+        model: 'gpt-5.6-sol',
+        displayName: 'Sol',
+        supportedReasoningEfforts: [{ reasoningEffort: 'low' }],
+        defaultReasoningEffort: 'low',
+      },
+      {
+        model: 'gpt-5.6-terra',
+        displayName: 'Terra',
+        supportedReasoningEfforts: [{ reasoningEffort: 'medium' }, { reasoningEffort: 'high' }],
+        defaultReasoningEffort: 'medium',
+      },
+    ],
+    nextCursor: null,
+  });
+  function prepareBrokeredTransport() {
+    vi.clearAllMocks();
+    brokerDiscovery.managerConfigs.length = 0;
+    brokerDiscovery.initialize.mockResolvedValue(undefined);
+    brokerDiscovery.runtimeConfig.mockReturnValue(runtimeConfig);
+    brokerDiscovery.ensure.mockResolvedValue({
+      sandboxName: 'model-discovery',
+      workdir: '/sandbox/workspaces/mgmt',
+      appServerCommand: '/sandbox/run-mitzo-subscription-app-server',
+    });
+    brokerDiscovery.launch.mockReturnValue({
+      initialize: brokerDiscovery.initialize,
+      request: brokerDiscovery.request,
+      close: brokerDiscovery.close,
+    });
+  }
+
   it('preserves subscription billing and binds only opaque broker identities', () => {
     const profiles = new AccountProfiles([subscription], { codexEnabled: true });
     const binding = profiles.resolve('personal', 'gpt-test');
@@ -276,6 +353,288 @@ describe('brokered ChatGPT subscription profile', () => {
           codexEnabled: true,
         }),
     ).toThrow('Invalid account profiles configuration');
+  });
+
+  it('discovers the brokered account catalog instead of treating the Sol seed as live', async () => {
+    vi.clearAllMocks();
+    brokerDiscovery.managerConfigs.length = 0;
+    brokerDiscovery.initialize.mockResolvedValue(undefined);
+    brokerDiscovery.runtimeConfig.mockReturnValue({
+      cli: 'openshell',
+      image: 'image',
+      policy: '/policy',
+      seed: '/seed',
+      serviceProviders: ['github'],
+      workspace: 'default',
+      gateway: 'openshell',
+      gatewayInsecure: false,
+      createDetached: true,
+      sandboxIdLength: 13,
+      workdir: '/sandbox/workspaces/mgmt',
+      webSearch: 'disabled',
+    });
+    brokerDiscovery.ensure.mockResolvedValue({
+      sandboxName: 'model-discovery',
+      workdir: '/sandbox/workspaces/mgmt',
+      appServerCommand: '/sandbox/run-mitzo-subscription-app-server',
+    });
+    brokerDiscovery.launch.mockReturnValue({
+      initialize: brokerDiscovery.initialize,
+      request: brokerDiscovery.request,
+      close: brokerDiscovery.close,
+    });
+    brokerDiscovery.request.mockImplementation(async (method: string) => {
+      if (method === 'model/list')
+        return {
+          data: [
+            {
+              model: 'gpt-5.6-sol',
+              displayName: 'Sol',
+              supportedReasoningEfforts: [{ reasoningEffort: 'low' }],
+              defaultReasoningEffort: 'low',
+            },
+            {
+              model: 'gpt-5.6-terra',
+              displayName: 'Terra',
+              supportedReasoningEfforts: [
+                { reasoningEffort: 'medium' },
+                { reasoningEffort: 'high' },
+              ],
+              defaultReasoningEffort: 'medium',
+            },
+          ],
+          nextCursor: null,
+        };
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const seeded = {
+      ...subscription,
+      id: 'brokered-discovery',
+      models: [{ id: 'gpt-5.6-sol', label: 'Sol' }],
+    };
+    const profiles = new AccountProfiles([seeded], { codexEnabled: true });
+
+    await profiles.refresh(true);
+
+    expect(profiles.catalog()[0]).toMatchObject({
+      models: [
+        { id: 'gpt-5.6-sol', reasoningEfforts: ['low'] },
+        { id: 'gpt-5.6-terra', reasoningEfforts: ['medium', 'high'] },
+      ],
+      modelDiscovery: { stale: false },
+    });
+    expect(profiles.resolve(seeded.id, 'gpt-5.6-terra')).toMatchObject({ model: 'gpt-5.6-terra' });
+    expect(brokerDiscovery.managerConfigs).toContainEqual(
+      expect.objectContaining({
+        serviceProviders: [],
+        account: expect.objectContaining({
+          kind: 'chatgpt-subscription',
+          provider: subscription.sandboxProvider,
+          providerId: subscription.sandboxProviderId,
+          grantId: subscription.sandboxGrantId,
+        }),
+      }),
+    );
+    expect(brokerDiscovery.request).not.toHaveBeenCalledWith('account/read', expect.anything());
+    expect(brokerDiscovery.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the configured seed as a stale fallback when broker discovery cannot start', async () => {
+    vi.clearAllMocks();
+    brokerDiscovery.managerConfigs.length = 0;
+    brokerDiscovery.runtimeConfig.mockReturnValue(undefined);
+    const seeded = {
+      ...subscription,
+      id: 'brokered-discovery-unavailable',
+      models: [{ id: 'gpt-5.6-sol', label: 'Sol' }],
+    };
+    const profiles = new AccountProfiles([seeded], { codexEnabled: true });
+
+    await profiles.refresh(true);
+
+    expect(profiles.catalog()[0]).toMatchObject({
+      models: seeded.models,
+      modelDiscovery: { stale: true },
+    });
+    expect(brokerDiscovery.launch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'initialization fails',
+      () => brokerDiscovery.initialize.mockRejectedValueOnce(new Error('offline')),
+    ],
+    [
+      'model listing rejects',
+      () => brokerDiscovery.request.mockRejectedValueOnce(new Error('offline')),
+    ],
+    [
+      'model listing is malformed',
+      () => brokerDiscovery.request.mockResolvedValueOnce({ data: [] }),
+    ],
+  ])(
+    'retains a stale last-known-good catalog and closes the client when %s',
+    async (_name, fail) => {
+      prepareBrokeredTransport();
+      brokerDiscovery.request.mockResolvedValue(discoveryPage());
+      const seeded = {
+        ...subscription,
+        id: `brokered-failure-${_name.replaceAll(' ', '-')}`,
+        models: [{ id: 'gpt-5.6-sol', label: 'Sol' }],
+      };
+      const profiles = new AccountProfiles([seeded], { codexEnabled: true });
+
+      await profiles.refresh(true);
+      fail();
+      await profiles.refresh(true);
+
+      expect(profiles.catalog()[0].models).toContainEqual(
+        expect.objectContaining({ id: 'gpt-5.6-terra' }),
+      );
+      expect(profiles.catalog()[0].modelDiscovery).toMatchObject({ stale: true });
+      expect(brokerDiscovery.close).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('does not launch a client when provider/grant validation fails and keeps stale data', async () => {
+    prepareBrokeredTransport();
+    brokerDiscovery.request.mockResolvedValue(discoveryPage());
+    const seeded = {
+      ...subscription,
+      id: 'brokered-provider-validation',
+      models: [{ id: 'gpt-5.6-sol', label: 'Sol' }],
+    };
+    const profiles = new AccountProfiles([seeded], { codexEnabled: true });
+
+    await profiles.refresh(true);
+    brokerDiscovery.ensure.mockRejectedValueOnce(new Error('provider grant mismatch'));
+    await profiles.refresh(true);
+
+    expect(brokerDiscovery.launch).toHaveBeenCalledTimes(1);
+    expect(brokerDiscovery.close).toHaveBeenCalledTimes(1);
+    expect(profiles.catalog()[0].models).toContainEqual(
+      expect.objectContaining({ id: 'gpt-5.6-terra' }),
+    );
+    expect(profiles.catalog()[0].modelDiscovery).toMatchObject({ stale: true });
+  });
+
+  it('uses a route-specific discovery identity when a profile ID is rebound', async () => {
+    prepareBrokeredTransport();
+    brokerDiscovery.request.mockResolvedValue(discoveryPage());
+    const first = {
+      ...subscription,
+      id: 'brokered-route-rebinding',
+      models: [{ id: 'gpt-5.6-sol', label: 'Sol' }],
+    };
+    await new AccountProfiles([first], { codexEnabled: true }).refresh(true);
+    const rebound = { ...first, sandboxProviderId: 'provider-object-2' };
+    await new AccountProfiles([rebound], { codexEnabled: true }).refresh(true);
+
+    expect(brokerDiscovery.ensure).toHaveBeenCalledTimes(2);
+    expect(brokerDiscovery.ensure.mock.calls[0][0]).not.toBe(
+      brokerDiscovery.ensure.mock.calls[1][0],
+    );
+  });
+
+  it('keeps host-login discovery verification and cleanup intact', async () => {
+    vi.clearAllMocks();
+    brokerDiscovery.initialize.mockResolvedValue(undefined);
+    const host = {
+      id: 'host-discovery',
+      label: subscription.label,
+      provider: subscription.provider,
+      email: subscription.email,
+      planType: subscription.planType,
+      models: subscription.models,
+      credentialRef: '/private/codex',
+    };
+    const client = {
+      initialize: brokerDiscovery.initialize,
+      request: brokerDiscovery.request,
+      close: brokerDiscovery.close,
+    };
+    brokerDiscovery.hostLaunch.mockReturnValue(client);
+    brokerDiscovery.request.mockImplementation(async (method: string) => {
+      if (method === 'account/read')
+        return { account: { type: 'chatgpt', email: host.email, planType: host.planType } };
+      if (method === 'model/list') return discoveryPage();
+      throw new Error(`Unexpected request: ${method}`);
+    });
+
+    await new AccountProfiles([host], { codexEnabled: true }).refresh(true);
+
+    expect(brokerDiscovery.hostLaunch).toHaveBeenCalledWith(host.credentialRef);
+    expect(brokerDiscovery.request).toHaveBeenCalledWith('account/read', { refreshToken: false });
+    expect(brokerDiscovery.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('enforces one total deadline through a pending model-list request', async () => {
+    vi.useFakeTimers();
+    try {
+      prepareBrokeredTransport();
+      brokerDiscovery.request.mockReturnValue(new Promise(() => {}));
+      const seeded = {
+        ...subscription,
+        id: 'brokered-total-deadline',
+        models: [{ id: 'gpt-5.6-sol', label: 'Sol' }],
+      };
+      const profiles = new AccountProfiles([seeded], {
+        codexEnabled: true,
+        modelDiscoveryTimeoutMs: 1,
+      });
+      const refresh = profiles.refresh(true);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await refresh;
+
+      expect(brokerDiscovery.close).toHaveBeenCalledTimes(1);
+      expect(profiles.catalog()[0]).toMatchObject({ modelDiscovery: { stale: true } });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not start initialization after provisioning reaches the deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      prepareBrokeredTransport();
+      brokerDiscovery.initialize.mockImplementationOnce(() =>
+        Promise.reject(new Error('late initialization rejection')),
+      );
+      brokerDiscovery.ensure.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            setTimeout(
+              () =>
+                resolve({
+                  sandboxName: 'model-discovery',
+                  workdir: '/sandbox/workspaces/mgmt',
+                  appServerCommand: '/sandbox/run-mitzo-subscription-app-server',
+                }),
+              1,
+            );
+          }),
+      );
+      const seeded = {
+        ...subscription,
+        id: 'brokered-deadline-boundary',
+        models: [{ id: 'gpt-5.6-sol', label: 'Sol' }],
+      };
+      const profiles = new AccountProfiles([seeded], {
+        codexEnabled: true,
+        modelDiscoveryTimeoutMs: 1,
+      });
+      const refresh = profiles.refresh(true);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await refresh;
+
+      expect(brokerDiscovery.initialize).not.toHaveBeenCalled();
+      expect(brokerDiscovery.close).toHaveBeenCalledTimes(1);
+      expect(profiles.catalog()[0]).toMatchObject({ modelDiscovery: { stale: true } });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
