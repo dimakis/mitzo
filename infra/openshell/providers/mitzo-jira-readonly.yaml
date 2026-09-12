@@ -1,0 +1,9 @@
+# Reviewed managed-provider template. OpenShell stores the token; Mitzo never persists it.
+id: jira-readonly
+credential_keys: [JIRA_API_TOKEN]
+endpoints:
+  - host: redhat.atlassian.net
+    port: 443
+    protocol: https
+    access: read-only
+    inspect_tls: true

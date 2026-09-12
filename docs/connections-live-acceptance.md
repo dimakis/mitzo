@@ -1,0 +1,3 @@
+# Connections live acceptance
+
+Use a non-production gateway and a user-owned Jira token. Set the token only in the browser consent form; do not pass it in an argv, URL or environment shared with the Mitzo server. Confirm `openshell --version` is the reviewed 0.0.116-mitzo.2 build, create a Jira connection, and verify `/rest/api/3/myself` from its disposable sandbox. Confirm the connection becomes active only after that probe, then revoke and confirm each attached managed sandbox is stopped, detached and the provider is absent. Finally revoke the upstream Jira token separately if that is desired.
