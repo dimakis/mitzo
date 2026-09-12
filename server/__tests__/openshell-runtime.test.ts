@@ -59,6 +59,7 @@ describe('OpenShell runtime lifecycle', () => {
       'github',
     ]);
     expect(create).toContain('mitzo.account_provider=openai-work');
+    expect(create).toContain('mitzo.provider_policy=grant-v1');
     expect(
       create.find((value) => value.startsWith('mitzo.conversation='))?.split('=')[1],
     ).toHaveLength(63);
@@ -148,6 +149,31 @@ describe('OpenShell runtime lifecycle', () => {
       sandboxNameForConversation('conversation'),
       'google-workspace',
     ]);
+  });
+
+  it('preserves a granted provider when a migrated chat reconnects', async () => {
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('get')) return ready();
+      return '{}';
+    });
+    const migratedConfig = {
+      ...config,
+      serviceProviders: ['github'],
+      grantableServiceProviders: ['google-workspace'],
+    };
+    const manager = new OpenShellRuntimeManager(migratedConfig, run);
+    const signal = new AbortController().signal;
+    const runtime = await manager.ensure('conversation', signal);
+    await manager.grantServiceProvider('conversation', runtime, 'google-workspace', signal);
+    await manager.ensure('conversation', signal);
+
+    const commands = run.mock.calls.map(([args]) => args as readonly string[]);
+    expect(
+      commands.filter((args) => args.includes('detach') && args.includes('google-workspace')),
+    ).toHaveLength(1);
+    expect(
+      commands.filter((args) => args.includes('attach') && args.includes('google-workspace')),
+    ).toHaveLength(1);
   });
 
   it('attaches an explicitly grantable provider to the owned conversation sandbox', async () => {

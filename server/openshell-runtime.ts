@@ -77,6 +77,8 @@ export interface OpenShellRuntimeConfig {
 }
 
 const SERVICE_PROVIDERS = new Set(['google-workspace', 'github']);
+const PROVIDER_POLICY_LABEL = 'mitzo.provider_policy';
+const PROVIDER_POLICY_VERSION = 'grant-v1';
 
 export interface BoundOpenShellRuntimeConfig extends OpenShellRuntimeConfig {
   account: OpenShellAccountRoute;
@@ -222,6 +224,7 @@ function legacySandboxNameForConversation(conversationHash: string) {
 export class OpenShellRuntimeManager {
   private run: Run;
   private runSsh: Run;
+  private reconciledLegacySandbox?: string;
 
   constructor(
     private config: BoundOpenShellRuntimeConfig,
@@ -403,6 +406,8 @@ export class OpenShellRuntimeManager {
         `mitzo.conversation=${owner}`,
         '--label',
         `mitzo.account_provider=${accountProvider}`,
+        '--label',
+        `${PROVIDER_POLICY_LABEL}=${PROVIDER_POLICY_VERSION}`,
         '--no-auto-providers',
         '--output',
         'json',
@@ -438,9 +443,13 @@ export class OpenShellRuntimeManager {
       retained &&
       sandbox &&
       sandbox.phase === 'Ready' &&
-      sandbox.labels?.['mitzo.conversation'] === owner
-    )
+      sandbox.labels?.['mitzo.conversation'] === owner &&
+      sandbox.labels?.[PROVIDER_POLICY_LABEL] !== PROVIDER_POLICY_VERSION &&
+      this.reconciledLegacySandbox !== name
+    ) {
       await this.revokeGrantOnlyProviders(name, owner, signal);
+      this.reconciledLegacySandbox = name;
+    }
     if (!sandbox || sandbox.phase !== 'Ready')
       throw new Error(`OpenShell sandbox ${name} is ${sandbox?.phase ?? 'unavailable'}`);
     if (sandbox.labels?.['mitzo.conversation'] !== owner)
