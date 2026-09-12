@@ -27,6 +27,7 @@ import {
   type OpenShellAccountRoute,
   type OpenShellBootContext,
 } from './openshell-runtime.js';
+import type { Connection } from './connections-store.js';
 import { getConnectionsRuntime } from './connections-runtime.js';
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
@@ -135,10 +136,18 @@ export function selectedOpenShellAccountRoute(
 }
 /** Shared chat adapter. Execution remains gated by the account catalog and unsupported capabilities fail explicitly. */
 export async function openCodexChat(options: Options) {
+  const service = getConnectionsRuntime()?.service;
+  if (service && openShellRuntimeConfig(process.env))
+    return service.withAccountRuntime(
+      options.binding.accountId,
+      (connection) => openCodexChatBound(options, connection),
+      options.session.abortController.signal,
+    );
+  return openCodexChatBound(options, null);
+}
+async function openCodexChatBound(options: Options, managedConnection: Connection | null) {
   const configuredRuntime = openShellRuntimeConfig(process.env);
-  const managedConnection = getConnectionsRuntime()?.service.resolveForAccount(
-    options.binding.accountId,
-  );
+  const connectionService = getConnectionsRuntime()?.service;
   const openShellName = process.env.MITZO_OPENSHELL_SANDBOX_NAME;
   if (openShellName && process.env.NODE_ENV === 'production')
     throw new Error('Legacy shared OpenShell sandboxes are disabled in production.');
@@ -166,6 +175,12 @@ export async function openCodexChat(options: Options) {
           ? [...configuredRuntime.serviceProviders, managedConnection.gatewayProviderName]
           : configuredRuntime.serviceProviders,
         account: selectedOpenShellAccountRoute(options),
+        connectionAccountId: options.binding.accountId,
+        enforceConnectionAttachments: !connectionService,
+        verifyConnections: connectionService
+          ? (name, signal) =>
+              connectionService.verifyRuntimeSandbox(name, managedConnection, signal)
+          : undefined,
       })
     : undefined;
   const managedOpenShell = runtimeManager
@@ -264,6 +279,21 @@ export async function openCodexChat(options: Options) {
     },
     ...(runtimeManager
       ? {
+          reconnectGuard: connectionService
+            ? (work: () => Promise<void>) =>
+                connectionService.withAccountRuntime(
+                  options.binding.accountId,
+                  async (current) => {
+                    if (
+                      current?.id !== managedConnection?.id ||
+                      current?.gatewayProviderId !== managedConnection?.gatewayProviderId
+                    )
+                      throw new Error('Connection permissions changed. Start a new conversation.');
+                    await work();
+                  },
+                  signal,
+                )
+            : undefined,
           beforeReconnect: async () => {
             await runtimeManager.ensure(options.conversationId, signal);
           },

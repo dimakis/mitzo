@@ -23,6 +23,8 @@ describe('ConnectionsService', () => {
       rotate: vi.fn(),
       get: vi.fn(),
       list: vi.fn(),
+      sandbox: vi.fn(),
+      sandboxProviders: vi.fn(),
       delete: vi.fn().mockRejectedValue(new Error('attached')),
       attachments: vi.fn().mockResolvedValue([]),
       stopSandbox: vi.fn(),
@@ -37,6 +39,13 @@ describe('ConnectionsService', () => {
     );
     expect(store.get(item.id)?.status).toBe('needs_attention');
     const failed = store.get(item.id)!;
+    gateway.get.mockResolvedValue({
+      id: 'provider-1',
+      name: item.gatewayProviderName,
+      workspace: 'default',
+      type: 'jira-readonly',
+      credentialKeys: ['JIRA_API_TOKEN'],
+    });
     gateway.delete.mockResolvedValue(undefined);
     await service.revoke(item.id, failed.revision, 'operator', new AbortController().signal);
     expect(store.get(item.id)?.status).toBe('revoked');

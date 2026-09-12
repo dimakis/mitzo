@@ -92,6 +92,8 @@ export class ConnectionStore {
       .exec(`CREATE TABLE IF NOT EXISTS connections (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, template_id TEXT NOT NULL, template_version INTEGER NOT NULL, label TEXT NOT NULL, endpoint TEXT NOT NULL, gateway_provider_name TEXT NOT NULL UNIQUE, gateway_provider_id TEXT, gateway TEXT NOT NULL DEFAULT 'openshell', workspace TEXT NOT NULL DEFAULT 'default', submitted_email TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision > 0), desired_account_ids TEXT NOT NULL, identity TEXT, verified_at INTEGER, error_code TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS connection_audit (id TEXT PRIMARY KEY, connection_id TEXT NOT NULL REFERENCES connections(id), revision INTEGER NOT NULL, operation TEXT NOT NULL, outcome TEXT NOT NULL, actor TEXT NOT NULL, affected_refs TEXT NOT NULL, created_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS connection_probe_operations (id TEXT PRIMARY KEY, connection_id TEXT NOT NULL REFERENCES connections(id), provider_name TEXT NOT NULL, sandbox_name TEXT NOT NULL UNIQUE, gateway TEXT NOT NULL, workspace TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS connection_assignment_operations (connection_id TEXT PRIMARY KEY REFERENCES connections(id), account_ids TEXT NOT NULL, removed_ids TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS connection_candidates (name TEXT PRIMARY KEY, connection_id TEXT NOT NULL REFERENCES connections(id), provider_id TEXT, created_at INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS idx_connection_audit_connection ON connection_audit(connection_id, created_at);`);
     for (const statement of [
       "ALTER TABLE connections ADD COLUMN gateway TEXT NOT NULL DEFAULT 'openshell'",
@@ -103,6 +105,62 @@ export class ConnectionStore {
       } catch {
         /* existing schema */
       }
+  }
+  startAssignment(connection: Connection, accountIds: string[], removedIds: string[]) {
+    return this.database().transaction(() => {
+      this.database()
+        .prepare('INSERT INTO connection_assignment_operations VALUES (?, ?, ?)')
+        .run(connection.id, JSON.stringify(accountIds), JSON.stringify(removedIds));
+      return this.transition(
+        connection.id,
+        connection.revision,
+        { status: 'needs_attention', errorCode: 'ASSIGNMENT_PENDING' },
+        {
+          operation: 'assign',
+          outcome: 'started',
+          actor: connection.ownerId,
+          affectedRefs: removedIds,
+        },
+      );
+    })();
+  }
+  pendingAssignments() {
+    return (
+      this.database().prepare('SELECT * FROM connection_assignment_operations').all() as Array<{
+        connection_id: string;
+        account_ids: string;
+        removed_ids: string;
+      }>
+    ).map((r) => ({
+      connectionId: r.connection_id,
+      accountIds: JSON.parse(r.account_ids) as string[],
+      removedIds: JSON.parse(r.removed_ids) as string[],
+    }));
+  }
+  finishAssignment(id: string) {
+    this.database()
+      .prepare('DELETE FROM connection_assignment_operations WHERE connection_id=?')
+      .run(id);
+  }
+  startCandidate(connectionId: string, name: string) {
+    this.database()
+      .prepare('INSERT INTO connection_candidates VALUES (?, ?, NULL, ?)')
+      .run(name, connectionId, Date.now());
+  }
+  bindCandidate(name: string, providerId: string) {
+    this.database()
+      .prepare('UPDATE connection_candidates SET provider_id=? WHERE name=?')
+      .run(providerId, name);
+  }
+  candidates() {
+    return this.database()
+      .prepare(
+        'SELECT name, connection_id AS connectionId, provider_id AS providerId FROM connection_candidates',
+      )
+      .all() as Array<{ name: string; connectionId: string; providerId: string | null }>;
+  }
+  finishCandidate(name: string) {
+    this.database().prepare('DELETE FROM connection_candidates WHERE name=?').run(name);
   }
   startProbe(connection: Connection, sandboxName: string): ProbeOperation {
     const id = randomUUID();
@@ -134,15 +192,18 @@ export class ConnectionStore {
         "SELECT * FROM connection_probe_operations WHERE status IN ('pending','cleanup_pending')",
       )
       .all()
-      .map((r: any) => ({
-        id: r.id,
-        connectionId: r.connection_id,
-        providerName: r.provider_name,
-        sandboxName: r.sandbox_name,
-        gateway: r.gateway,
-        workspace: r.workspace,
-        status: r.status,
-      }));
+      .map((value) => {
+        const r = value as Record<string, string>;
+        return {
+          id: r.id,
+          connectionId: r.connection_id,
+          providerName: r.provider_name,
+          sandboxName: r.sandbox_name,
+          gateway: r.gateway,
+          workspace: r.workspace,
+          status: r.status as ProbeOperation['status'],
+        };
+      });
   }
   finishProbe(id: string) {
     this.database().prepare('DELETE FROM connection_probe_operations WHERE id=?').run(id);
@@ -294,7 +355,7 @@ export class ConnectionStore {
     if (duplicate.size !== accountIds.length) throw new Error('Duplicate account assignment');
     const active = this.database()
       .prepare(
-        "SELECT id, desired_account_ids FROM connections WHERE id != ? AND template_id = ? AND status IN ('active','rotating','revoking')",
+        "SELECT id, desired_account_ids FROM connections WHERE id != ? AND template_id = ? AND status IN ('active','rotating','revoking','needs_attention')",
       )
       .all(id, templateId) as Array<{ id: string; desired_account_ids: string }>;
     if (
