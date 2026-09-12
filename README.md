@@ -2,88 +2,108 @@
 
 Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https://docs.anthropic.com/en/docs/claude-code/sdk), designed for mobile over [Tailscale](https://tailscale.com).
 
-<!-- ![Home Screen](docs/screenshots/home.png) -->
-<!-- ![Chat with Tools](docs/screenshots/chat-tools.png) -->
-
 ## Features
 
 - **Streaming chat** with thinking blocks, tool pills, and markdown
-- **Three modes** — Ask (read-only), Agent (file edits allowed), Auto (shell too). Switch mid-chat.
-- **Slash-command skills** — `/simplify`, `/risk-scan`, `/pr-review`, `/person`, `/review-response`, `/land-pr`, `/pr-shepherd`. Type `/` to browse.
-- **Voice** — push-to-talk input (STT) and auto-speak output (TTS) via [Yapper](https://github.com/dimakis/yapper). Graceful degradation when offline.
-- **MCP tools** — reads `~/.cursor/mcp.json`, passes servers to every session
-- **File browser** — view and edit repo files, switch between worktree roots
-- **Task board** — recursive multi-session task orchestration with spec mode, completion summaries, and verification hooks
-- **Worktree sandbox** — opt-in git worktree isolation per session, multi-repo support via `.mitzo.json`
-- **Session resilience** — phone sleeps, WS drops, session survives. Reattach on reconnect. Message snapshot recovery for iOS silent drops.
-- **iOS app** — native wrapper via Capacitor with push notifications and home-screen install
-- **Auto-rename sessions** — sessions get meaningful names via LLM summarization after every few prompts
-- **Quick actions** — one-tap commands via `.mitzo.json`
-- **Push notifications** — ntfy + Pushover (Apple Watch) when Claude needs approval
-- **Image attachments** — send photos/screenshots from your camera
-- **Session history** — resume past conversations, swipe to dismiss
+- **Three modes** -- Ask (read-only), Agent (file edits allowed), Auto (shell too). Switch mid-chat.
+- **Slash-command skills** -- `/simplify`, `/risk-scan`, `/pr-review`, `/person`, `/review-response`, `/land-pr`, `/pr-shepherd`. Type `/` to browse.
+- **Voice** -- push-to-talk input (STT) and auto-speak output (TTS) via [Yapper](https://github.com/dimakis/yapper). Graceful degradation when offline.
+- **MCP tools** -- reads `~/.cursor/mcp.json`, passes servers to every session
+- **File browser** -- view and edit repo files, switch between worktree roots
+- **Task board** -- recursive multi-session task orchestration with spec mode, completion summaries, and verification hooks
+- **Worktree sandbox** -- deterministic git worktree isolation per session, multi-repo support via `.mitzo.json`
+- **Session resilience** -- phone sleeps, WS drops, session survives. Reattach on reconnect. Message snapshot recovery for iOS silent drops.
+- **iOS app** -- native wrapper via Capacitor with push notifications and home-screen install
+- **Desktop mode** -- side-by-side chat + file viewer on wide screens
+- **Auto-rename sessions** -- sessions get meaningful names via LLM summarization after every few prompts
+- **Quick actions** -- one-tap commands via `.mitzo.json`
+- **Push notifications** -- ntfy + Pushover (Apple Watch) + APNs when Claude needs approval
+- **Image attachments** -- send photos/screenshots from your camera
+- **Session history** -- resume past conversations, search, swipe to dismiss
+- **Multi-model reasoning** -- deliberation and fusion orchestrators for collaborative multi-model reasoning
+- **Observability** -- OpenTelemetry tracing (Jaeger), structured logging (Pino/Loki/Grafana), experiment tracking (MLflow)
 
-## Quick start
+## Quick Start
 
 ```bash
 git clone https://github.com/dimakis/mitzo.git && cd mitzo
 npm install
 cp .env.example .env  # set AUTH_PASSPHRASE, AUTH_SECRET, REPO_PATH
 npm run build && npm start
-# http://localhost:3100
+# https://localhost:3100
 ```
 
-Access from your phone: install [Tailscale](https://tailscale.com/download) on server and phone, then open `http://<tailscale-ip>:3100`. No HTTPS needed — Tailscale encrypts via WireGuard.
+Access from your phone: install [Tailscale](https://tailscale.com/download) on server and phone, then open `https://<tailscale-ip>:3100`. Tailscale encrypts via WireGuard -- no public DNS, no port forwarding needed.
+
+See [docs/onboarding.md](docs/onboarding.md) for the full setup walkthrough including HTTPS certificates, iOS app, voice, push notifications, and observability.
 
 ## Architecture
 
 ```
-Phone (Tailscale) ──┬── HTTP: REST API
-                    └── WebSocket: v2 streaming protocol
-                        │
-                    Server (Node + TypeScript)
-                        │
-                        ├── query-loop: SDK events → v2 protocol
-                        ├── session-registry: detach/reattach/snapshot
-                        ├── MCP servers from Cursor config
-                        ├── git worktrees (opt-in)
-                        └── passphrase + JWT auth
+Phone / Laptop (Tailscale)
+    |
+    +-- HTTPS: REST API (Express)
+    +-- WSS: v2 streaming protocol
+        |
+    Your Mac (Node.js + TypeScript)
+        |
+        +-- Anthropic Agent SDK
+        |   +-- query-loop: SDK events -> v2 block protocol
+        +-- Session registry (detach/reattach/snapshot recovery)
+        +-- Connection registry (single multiplexed WS per client)
+        +-- Worktree manager (multi-repo git isolation)
+        +-- Task orchestrator (goal decomposition + DFS execution)
+        +-- Skill registry (bundled + user + repo scoped)
+        +-- MCP servers (from Cursor config)
+        +-- Hook bridge (project hooks -> SDK)
+        +-- Event store (SQLite, session replay + search)
+        +-- Push notifications (ntfy + Pushover + APNs)
+        +-- Passphrase + JWT auth
+        +-- Reasoning harness (deliberation + fusion orchestrators)
+
+    Observability (optional, podman)
+        +-- Jaeger (OTLP traces)
+        +-- Loki (log aggregation)
+        +-- Grafana (dashboards)
+        +-- MLflow (experiment tracking)
 ```
 
-The server translates raw SDK stream events into a v2 block lifecycle protocol (`block_start` → `block_delta` → `block_end`). Explicit turn boundaries (`message_start`/`message_end`), deferred finalization, and message snapshots for reconnect recovery. See [docs/design/message-protocol-v2.md](docs/design/message-protocol-v2.md).
+The server translates raw SDK stream events into a **v2 block lifecycle protocol** (`block_start` > `block_delta` > `block_end`). Sessions survive WebSocket disconnects -- when your phone reconnects, it reattaches and replays from a snapshot. See [docs/v2-protocol.md](docs/v2-protocol.md).
 
-### Packages (`packages/`) — npm workspace
+### Packages (`packages/`) -- npm workspace
 
 Mitzo uses an npm workspace with three internal packages shared between server and frontend:
 
-| Package           | Purpose                                                                                                                                                          |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@mitzo/protocol` | Core protocol types, Zod schemas (v2 WS messages, API schemas), tool summarization, event store definitions                                                      |
-| `@mitzo/harness`  | Session registry, connection registry, permission handler, worktree guard, tool tiers, skill policy, auto-rename, notifications, logger                          |
-| `@mitzo/client`   | Frontend state management: `MitzoConnection` (single multiplexed WS), Zustand store (`createMitzoStore`), v2 protocol parser, session switching, message reducer |
+| Package           | Purpose                                                                                                                                                                           |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@mitzo/protocol` | Core types, Zod schemas (v2 WS messages, API schemas), tool summarization, event store definitions, agent definition types, constants                                             |
+| `@mitzo/harness`  | Session registry, connection registry, permission handler, worktree guard, tool tiers, skill policy, auto-rename, notifications, reasoning orchestrators, model providers, logger |
+| `@mitzo/client`   | Frontend state management: `MitzoConnection` (single multiplexed WS), Zustand store with 12 state slices, v2 protocol parser, API client, SSE fallback transport, React hooks     |
+
+See [docs/packages.md](docs/packages.md) for the full package reference.
 
 ### Backend (`server/`)
 
-**Core** — Event streaming, session lifecycle, SDK integration
+**Core** -- Event streaming, session lifecycle, SDK integration
 
-| File                    | Purpose                                                                             |
-| ----------------------- | ----------------------------------------------------------------------------------- |
-| `query-loop.ts`         | SDK → v2 event translator. Deferred `message_end`, snapshot state, block lifecycle. |
-| `chat.ts`               | Agent SDK `query()`, prompt assembly, streaming-input queue, session restore API    |
-| `session-registry.ts`   | Session state: detach, reattach, rekey, TTL abort, snapshot storage                 |
-| `permission-handler.ts` | `canUseTool` callback — auto-allow by tier, prompt via WS + push notifications      |
-| `async-queue.ts`        | `AsyncIterable` queue for follow-up messages and interrupt                          |
+| File                    | Purpose                                                                              |
+| ----------------------- | ------------------------------------------------------------------------------------ |
+| `query-loop.ts`         | SDK -> v2 event translator. Deferred `message_end`, snapshot state, block lifecycle. |
+| `chat.ts`               | Agent SDK `query()`, prompt assembly, streaming-input queue, session restore API     |
+| `session-registry.ts`   | Session state: detach, reattach, rekey, TTL abort, snapshot storage                  |
+| `permission-handler.ts` | `canUseTool` callback -- auto-allow by tier, prompt via WS + push notifications      |
+| `async-queue.ts`        | `AsyncIterable` queue for follow-up messages and interrupt                           |
 
-**Skills** — Slash-command system
+**Skills** -- Slash-command system
 
-| File                 | Purpose                                                   |
-| -------------------- | --------------------------------------------------------- |
-| `skills.ts`          | Skill registry — scoped discovery, precedence, collisions |
-| `slash-commands.ts`  | Slash-command parsing and prompt expansion                |
-| `skill-policy.ts`    | Per-turn tool restriction from skill frontmatter          |
-| `native-commands.ts` | Built-in native commands (`/skills`)                      |
+| File                 | Purpose                                                    |
+| -------------------- | ---------------------------------------------------------- |
+| `skills.ts`          | Skill registry -- scoped discovery, precedence, collisions |
+| `slash-commands.ts`  | Slash-command parsing and prompt expansion                 |
+| `skill-policy.ts`    | Per-turn tool restriction from skill frontmatter           |
+| `native-commands.ts` | Built-in native commands (`/skills`)                       |
 
-**Task Board** — Multi-session orchestration
+**Task Board** -- Multi-session orchestration
 
 | File                   | Purpose                                                                                     |
 | ---------------------- | ------------------------------------------------------------------------------------------- |
@@ -120,65 +140,63 @@ Mitzo uses an npm workspace with three internal packages shared between server a
 
 **WebSocket & Transport**
 
-| File                | Purpose                                                            |
-| ------------------- | ------------------------------------------------------------------ |
-| `ws-handler-v2.ts`  | v2 WebSocket message dispatcher: hello handshake → session routing |
-| `ws-transport.ts`   | `SessionTransport` adapter wrapping WebSocket connections          |
-| `null-transport.ts` | Null transport for testing                                         |
-| `ws-schemas.ts`     | Zod schemas for WebSocket message validation                       |
+| File                | Purpose                                                             |
+| ------------------- | ------------------------------------------------------------------- |
+| `ws-handler-v2.ts`  | v2 WebSocket message dispatcher: hello handshake -> session routing |
+| `ws-transport.ts`   | `SessionTransport` adapter wrapping WebSocket connections           |
+| `null-transport.ts` | Null transport for testing                                          |
+| `ws-schemas.ts`     | Zod schemas for WebSocket message validation                        |
+
+**Chat REST Handler**
+
+| File                   | Purpose                                                                                       |
+| ---------------------- | --------------------------------------------------------------------------------------------- |
+| `chat-rest-handler.ts` | HTTP alternative to WebSocket: SSE stream + POST endpoints for send/stop/interrupt/permission |
 
 **Supporting**
 
-| File                    | Purpose                                           |
-| ----------------------- | ------------------------------------------------- |
-| `tool-tiers.ts`         | Risk classification + mode/tier auto-allow matrix |
-| `tool-summary.ts`       | Summarizes tool inputs for pill display           |
-| `permissions.ts`        | Request/response registry                         |
-| `content-blocks.ts`     | SDK content block parsing                         |
-| `event-store.ts`        | Persistent event store for session replay         |
-| `auto-rename.ts`        | LLM-based session auto-renaming                   |
-| `hook-bridge.ts`        | Project hooks → Agent SDK bridge                  |
-| `api-schemas.ts`        | Zod validation schemas for HTTP                   |
-| `mcp-config.ts`         | Loads Cursor MCP config                           |
-| `repo-config.ts`        | `.mitzo.json` reader                              |
-| `app.ts`                | Express app factory (testability via supertest)   |
-| `inbox.ts`              | Inbox integration endpoint                        |
-| `internal-token.ts`     | Internal token generation for inter-process auth  |
-| `auth.ts`               | Passphrase + JWT                                  |
-| `git-version.ts`        | Local/remote commit comparison                    |
-| `port-check.ts`         | Prevents duplicate server instances               |
-| `constants.ts`          | Server-wide constants                             |
-| `index.ts`              | Express app, HTTP server + WebSocket              |
-| `goal-client.ts`        | ContexGin Goal Registry client                    |
-| `progress-tracker.ts`   | Progress tracking utilities                       |
-| `prompt-compare.ts`     | Prompt comparison utilities                       |
-| `workflow-templates.ts` | Workflow templates                                |
-| `workload-store.ts`     | Workload persistence                              |
-| `session-overview.ts`   | Session overview API                              |
-| `signal-processor.ts`   | Signal processing utilities                       |
+| File                | Purpose                                           |
+| ------------------- | ------------------------------------------------- |
+| `tool-tiers.ts`     | Risk classification + mode/tier auto-allow matrix |
+| `tool-summary.ts`   | Summarizes tool inputs for pill display           |
+| `permissions.ts`    | Request/response registry                         |
+| `content-blocks.ts` | SDK content block parsing                         |
+| `event-store.ts`    | Persistent event store for session replay         |
+| `auto-rename.ts`    | LLM-based session auto-renaming                   |
+| `hook-bridge.ts`    | Project hooks -> Agent SDK bridge                 |
+| `api-schemas.ts`    | Zod validation schemas for HTTP                   |
+| `mcp-config.ts`     | Loads Cursor MCP config                           |
+| `repo-config.ts`    | `.mitzo.json` reader                              |
+| `app.ts`            | Express app factory (testability via supertest)   |
+| `auth.ts`           | Passphrase + JWT                                  |
+| `constants.ts`      | Server-wide constants and re-exports from harness |
+| `inbox.ts`          | Agent inbox item persistence and management       |
+| `internal-token.ts` | Internal token generation for inter-process auth  |
+| `goal-client.ts`    | ContexGin Goal Registry client                    |
+| `index.ts`          | Express app, HTTP server + WebSocket              |
 
-### Frontend (`frontend/`) — React 19 + Vite
+### Frontend (`frontend/`) -- React 19 + Vite
 
-React 19 + Vite. Ten pages (`Login`, `SessionList`, `ChatView`, `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`, `TaskBoard`), a `useReducer`-based message state machine (`useChatMessages`), module-level WebSocket pool with 500-message buffer, and components for thinking blocks, tool pills, tool groups, permission banners, and a slash-command picker. Capacitor wraps the frontend for iOS deployment via TestFlight.
+React 19 + Vite. Ten pages (`Login`, `SessionList`, `ChatView`, `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`, `TaskBoard`), a `useReducer`-based message state machine (`useChatMessages`), module-level WebSocket with sequence tracking and reconnect recovery, and components for thinking blocks, tool pills, tool groups, permission banners, and a slash-command picker. Capacitor wraps the frontend for iOS deployment via TestFlight.
 
 **Key Hooks:**
 
-- `useChatMessages` — v2 protocol message reducer (MESSAGE_START/BLOCK_START/BLOCK_DELTA/BLOCK_END/TOOL_RESULT/MESSAGE_END/SESSION_END/MESSAGE_SNAPSHOT/RESTORE)
-- `useTaskBoard` — task CRUD + loop control + WS subscriptions
-- `useVoice` — STT (push-to-talk) + TTS (auto-speak toggle, voice selection, sequential chunk playback)
-- `useFileNavigation` / `useFileEditor` — file browser and editing
-- `useSessionOverview` — session metadata and statistics
-- `useAutoSpeak` — auto-speak TTS preferences
-- `useServiceHealth` — health status for Yapper, ContexGin
+- `useChatMessages` -- v2 protocol message reducer (MESSAGE_START/BLOCK_START/BLOCK_DELTA/BLOCK_END/TOOL_RESULT/MESSAGE_END/SESSION_END/MESSAGE_SNAPSHOT/RESTORE)
+- `useTaskBoard` -- task CRUD + loop control + WS subscriptions
+- `useVoice` -- STT (push-to-talk) + TTS (auto-speak toggle, voice selection, sequential chunk playback)
+- `useFileNavigation` / `useFileEditor` -- file browser and editing
+- `useSessionOverview` -- session metadata and statistics
+- `useAutoSpeak` -- auto-speak TTS preferences
+- `useServiceHealth` -- health status for Yapper, ContexGin
 
 **Key Components:**
 
 - `MessageBubble` (UserBubble/TextBubble), `ThinkingBlock`, `ToolPill`, `ToolGroup`, `PermissionBanner`, `ChatInput`, `SlashPicker`
-- `TaskNode`, `TaskCreateForm`, `LoopControls`, `TaskSidebar` — task board UI
-- `VoiceSettings` — speaker toggle with pulse indicator, voice picker dropdown grouped by language
-- `SessionOverview` — session metadata card
-- `ContextPanel` — boot context viewer
-- `FileBrowserPanel` — file tree navigation
+- `TaskNode`, `TaskCreateForm`, `LoopControls`, `TaskSidebar` -- task board UI
+- `VoiceSettings` -- speaker toggle with pulse indicator, voice picker dropdown grouped by language
+- `SessionOverview` -- session metadata card
+- `ContextPanel` -- boot context viewer
+- `FileBrowserPanel` -- file tree navigation
 
 ## Environment
 
@@ -232,36 +250,95 @@ Drop this in your repo root to customize the home screen, enable multi-repo sess
       "extraTools": "Bash"
     }
   ],
-  "repos": [{ "name": "sibling-repo", "path": "../sibling-repo" }],
+  "repos": { "sibling-repo": "../sibling-repo" },
   "contextBlocks": {
     "Architecture": "/path/to/architecture.md"
   },
-  "venvPaths": [".venv/bin"]
+  "venvPaths": [".venv/bin"],
+  "toolTierOverrides": {
+    "mcp__jira__jira_search": "safe"
+  }
 }
 ```
 
-- **quickActions** — one-tap buttons on the home screen
-- **repos** — sibling repos for multi-repo worktree sessions (each gets its own isolated worktree)
-- **contextBlocks** — markdown files injected into every session as domain knowledge
-- **roots** — switchable repo roots in the file browser
-- **venvPaths** — Python venv paths added to `PATH`
+- **quickActions** -- one-tap buttons on the home screen
+- **repos** -- sibling repos for multi-repo worktree sessions (each gets its own isolated worktree)
+- **roots** -- switchable repo roots in the file browser
+- **contextBlocks** -- markdown files injected into every session as domain knowledge
+- **allowedPaths** -- additional directories Claude can access beyond `REPO_PATH`
+- **venvPaths** -- Python venv paths added to `PATH`
+- **toolTierOverrides** -- override default risk tier for any tool (`safe`, `standard`, `elevated`, `unknown`)
 
 See [docs/onboarding.md](docs/onboarding.md) for a full configuration walkthrough.
+
+## API
+
+Mitzo exposes a REST API and a WebSocket protocol for chat interaction:
+
+| Category    | Endpoints                                                     | Description                                                       |
+| ----------- | ------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Auth        | `POST /api/auth/login`, `logout`, `check`                     | Passphrase login, JWT cookies                                     |
+| Sessions    | `POST /api/sessions`, `GET`, `DELETE`, `PUT rename`, `search` | Session lifecycle and management                                  |
+| Chat (WS)   | `ws://host/ws/chat`                                           | v2 streaming protocol -- send, interrupt, stop, permissions, mode |
+| Chat (REST) | `GET /api/chat/events` (SSE) + POST endpoints                 | HTTP alternative to WebSocket                                     |
+| Tasks       | `GET/POST/PATCH/DELETE /api/tasks`, loop control              | Task board CRUD and orchestration                                 |
+| Files       | `GET /api/files/list`, `read`, `download`, `PUT write`        | File browser operations                                           |
+| Skills      | `GET /api/skills`                                             | Available skills registry                                         |
+| Config      | `GET /api/config`, `models`, `version`                        | Server configuration and metadata                                 |
+| Calendar    | `GET /api/calendar`                                           | Calendar events and sprints                                       |
+| Todos       | `GET/POST /api/todos`                                         | Todo items (Telos integration)                                    |
+| Inbox       | `GET/POST /api/inbox`                                         | Agent inbox items                                                 |
+| Workload    | `GET/PATCH/DELETE /api/workload/items`                        | Workload signal tracking                                          |
+| Events      | `GET /api/events` (SSE)                                       | Server-sent events for live updates                               |
+| Push        | `POST /api/push/register`                                     | Device token registration (APNs)                                  |
+
+See [docs/api-reference.md](docs/api-reference.md) for the complete reference with request/response schemas.
+
+## Documentation
+
+| Document                                       | Description                                                                |
+| ---------------------------------------------- | -------------------------------------------------------------------------- |
+| [Onboarding](docs/onboarding.md)               | Full setup walkthrough -- server, mobile, iOS app, voice, observability    |
+| [Architecture](docs/architecture.md)           | Deep dive into module structure, data flow, and design decisions           |
+| [API Reference](docs/api-reference.md)         | Complete REST API and WebSocket protocol reference                         |
+| [v2 Protocol](docs/v2-protocol.md)             | WebSocket streaming protocol -- message lifecycle, reconnection, subagents |
+| [Skills](docs/skills.md)                       | Skills system -- discovery, precedence, authoring custom skills            |
+| [Task Board](docs/task-board.md)               | Task orchestration -- goal decomposition, DFS execution, spec mode         |
+| [Session Isolation](docs/session-isolation.md) | Worktree isolation -- multi-repo, enforcement, cleanup, external hooks     |
+| [Packages](docs/packages.md)                   | npm workspace package reference -- protocol, harness, client               |
+
+### Design Documents
+
+Internal design documents live in `docs/design/`. These capture implementation decisions and are not user-facing:
+
+- `message-protocol-v2.md` -- v2 streaming protocol design
+- `global-task-board.md` -- task board architecture
+- `skills-system-v1-plan.md` -- skills system design
+- `session-isolation-overhaul.md` -- session isolation redesign
+- `session-state-machine.md` -- session state machine
+- `voice-integration.md` -- voice architecture
+- `tts-playback.md` -- TTS playback design
+- `streaming-input-session-control.md` -- streaming input
+- `otel-deep-instrumentation.md` -- observability roadmap
+- `context-blocks.md` -- context block injection
+- `token-visibility.md` -- token usage display
 
 ## Development
 
 ```bash
 npm run dev          # backend + frontend concurrently
-npm test             # vitest — full suite
+npm test             # vitest -- full suite
 npm run lint         # eslint
 npm run format:check # prettier
 ```
 
-Pre-commit: husky + lint-staged + commitlint (conventional commits). The hook also runs [gitleaks](https://github.com/gitleaks/gitleaks) if installed, scanning staged changes for secrets. gitleaks is **optional** — the hook skips it gracefully when not found. Install via `brew install gitleaks` (macOS) or see the [gitleaks docs](https://github.com/gitleaks/gitleaks#installing).
+Pre-commit: husky + lint-staged + commitlint (conventional commits). The hook also runs [gitleaks](https://github.com/gitleaks/gitleaks) if installed, scanning staged changes for secrets. gitleaks is optional -- the hook skips it gracefully when not found.
+
+**All work goes through branches and PRs.** A pre-commit hook rejects commits on `main`.
 
 ## Tech
 
-Node.js, Express, React 19, Vite, TypeScript, Claude Agent SDK, Vitest, ESLint, Prettier.
+Node.js, Express, React 19, Vite, TypeScript, Claude Agent SDK, Vitest, ESLint, Prettier, Capacitor (iOS), Zustand, Zod, Pino, OpenTelemetry, SQLite (better-sqlite3).
 
 ## Attribution
 
