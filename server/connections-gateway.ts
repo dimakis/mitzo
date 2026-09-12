@@ -99,6 +99,7 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
       timeoutMs?: number;
       probeImage?: string;
       probePolicy?: string;
+      profilePath?: string;
     } = {
       workspace: 'default',
     },
@@ -112,6 +113,19 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
     }
   }
   async verifyCompatibility(signal: AbortSignal) {
+    if (!this.options.profilePath) throw new Error('Reviewed Jira profile path is required');
+    await this.run(
+      [
+        'provider',
+        '--workspace',
+        this.options.workspace,
+        'profile',
+        'lint',
+        '--file',
+        this.options.profilePath,
+      ],
+      signal,
+    );
     await this.run(
       [
         'provider',
@@ -127,6 +141,45 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
       ],
       signal,
     );
+    try {
+      const exported = await this.run(
+        [
+          'provider',
+          '--workspace',
+          this.options.workspace,
+          'profile',
+          'export',
+          JIRA_TEMPLATE_ID,
+          '-o',
+          'yaml',
+        ],
+        signal,
+      );
+      if (
+        !/id:\s*jira-readonly\b/.test(exported) ||
+        !/access:\s*read-only\b/.test(exported) ||
+        !/host:\s*redhat\.atlassian\.net\b/.test(exported)
+      )
+        throw new Error('Reviewed Jira profile differs from required policy');
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === 'Reviewed Jira profile differs from required policy'
+      )
+        throw error;
+      await this.run(
+        [
+          'provider',
+          '--workspace',
+          this.options.workspace,
+          'profile',
+          'import',
+          '--file',
+          this.options.profilePath,
+        ],
+        signal,
+      );
+    }
   }
   async provision(input: { name: string; token: string }, signal: AbortSignal) {
     const name = safeName(input.name);

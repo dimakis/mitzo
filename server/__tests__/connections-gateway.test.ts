@@ -29,6 +29,21 @@ describe('OpenShellConnectionGateway', () => {
     expect(profile).not.toContain('credential_keys:');
     expect(profile).not.toContain('inspect_tls:');
   });
+  it('lints and imports only the server-supplied reviewed profile when absent', async () => {
+    const runner = vi
+      .fn()
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce('[]')
+      .mockRejectedValueOnce(new Error('missing'))
+      .mockResolvedValueOnce('');
+    const gateway = new OpenShellConnectionGateway(runner, {
+      workspace: 'default',
+      profilePath: '/reviewed/jira.yaml',
+    });
+    await gateway.verifyCompatibility(signal);
+    expect(runner.mock.calls[0][0]).toContain('/reviewed/jira.yaml');
+    expect(runner.mock.calls.at(-1)![0]).toContain('import');
+  });
   it('uses a key-only credential and never exposes a token in argv or parsed DTOs', async () => {
     const secret = 'SENTINEL_DO_NOT_LEAK';
     const runner = vi
