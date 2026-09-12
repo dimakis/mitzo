@@ -10,7 +10,7 @@ describe('OpenShellConnectionGateway', () => {
     );
     expect(
       parseProviderAttachments(
-        'NAME TYPE CREDENTIAL_KEYS CONFIG_KEYS\nmitzo-conn-12345678 jira 1 0',
+        'NAME                  TYPE  CREDENTIAL_KEYS  CONFIG_KEYS\nmitzo-conn-12345678  jira  1                0',
         'probe',
       ),
     ).toEqual(['mitzo-conn-12345678']);

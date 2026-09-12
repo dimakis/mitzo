@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 
 export const JIRA_ENDPOINT = 'https://redhat.atlassian.net';
@@ -43,14 +44,25 @@ export function parseProviderAttachments(output: string, sandbox: string): strin
   const text = output.trim();
   if (text === `No providers attached to sandbox ${sandbox}.`) return [];
   const lines = text.split(/\r?\n/);
-  if (lines[0] !== 'NAME TYPE CREDENTIAL_KEYS CONFIG_KEYS' || lines.length < 2)
+  if (
+    lines[0].trim().split(/\s+/).join(' ') !== 'NAME TYPE CREDENTIAL_KEYS CONFIG_KEYS' ||
+    lines.length < 2
+  )
     throw new Error('Gateway attachment output is invalid');
-  return lines.slice(1).map((line) => {
+  const names = lines.slice(1).map((line) => {
     const cells = line.trim().split(/\s+/);
-    if (cells.length !== 4 || !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(cells[0]))
+    if (
+      cells.length !== 4 ||
+      !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(cells[0]) ||
+      !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(cells[1]) ||
+      !/^\d+$/.test(cells[2]) ||
+      !/^\d+$/.test(cells[3])
+    )
       throw new Error('Gateway attachment output is invalid');
     return cells[0];
   });
+  if (new Set(names).size !== names.length) throw new Error('Gateway attachment output is invalid');
+  return names;
 }
 function safeName(name: string) {
   if (!/^mitzo-conn-[a-f0-9-]{8,64}$/.test(name)) throw new Error('Invalid managed provider name');
@@ -75,7 +87,13 @@ function safeOutput(value: string) {
 export class OpenShellConnectionGateway implements ConnectionGateway {
   constructor(
     private readonly runner: CommandRunner,
-    private readonly options: { workspace: string; providerType?: string; timeoutMs?: number } = {
+    private readonly options: {
+      workspace: string;
+      providerType?: string;
+      timeoutMs?: number;
+      probeImage?: string;
+      probePolicy?: string;
+    } = {
       workspace: 'default',
     },
   ) {}
@@ -241,8 +259,60 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
       signal,
     );
   }
-  async probe(_input: { providerName: string; email: string }, _signal: AbortSignal) {
-    // Probe execution requires the reviewed disposable sandbox runner; do not substitute a host-side fetch.
-    throw new Error('Gateway identity probe is not configured');
+  async probe(input: { providerName: string; email: string }, signal: AbortSignal) {
+    if (!this.options.probeImage || !this.options.probePolicy)
+      throw new Error('Gateway identity probe is not configured');
+    if (!/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+$/.test(input.email))
+      throw new Error('Gateway identity probe is invalid');
+    const name = `mitzo-probe-${createHash('sha256').update(`${input.providerName}:${randomUUID()}`).digest('hex').slice(0, 16)}`;
+    const probe =
+      'exec /usr/bin/curl --fail --silent --show-error --max-time 10 "$JIRA_URL/rest/api/3/myself"';
+    try {
+      const output = await this.run(
+        [
+          'sandbox',
+          '--workspace',
+          this.options.workspace,
+          'create',
+          '--name',
+          name,
+          '--no-auto-providers',
+          '--no-keep',
+          '--no-tty',
+          '--policy',
+          this.options.probePolicy,
+          '--from',
+          this.options.probeImage,
+          '--provider',
+          safeName(input.providerName),
+          '--env',
+          `JIRA_URL=${JIRA_ENDPOINT}`,
+          '--env',
+          `JIRA_EMAIL=${input.email}`,
+          '--',
+          'sh',
+          '-lc',
+          probe,
+        ],
+        signal,
+      );
+      const identity = z
+        .object({
+          displayName: z.string().min(1).optional(),
+          emailAddress: z.string().email().optional(),
+        })
+        .parse(JSON.parse(output));
+      return {
+        identity: identity.emailAddress ?? identity.displayName ?? 'verified Jira identity',
+      };
+    } catch {
+      throw new Error('Gateway identity probe failed');
+    } finally {
+      try {
+        await this.run(['sandbox', '--workspace', this.options.workspace, 'delete', name], signal);
+      } catch {
+        /* durable cleanup reconciliation owns leftovers */
+      }
+    }
   }
 }
