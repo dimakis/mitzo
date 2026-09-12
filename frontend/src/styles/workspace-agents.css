@@ -7,16 +7,6 @@
   background: var(--workspace-bg);
   color: var(--workspace-text);
 }
-.agent-page-heading h1 {
-  font-size: 30px;
-  font-weight: 500;
-  margin: 8px 0;
-  letter-spacing: -0.035em;
-}
-.agent-page-heading p {
-  margin: 0;
-  line-height: 1.5;
-}
 .task-board-desktop .page-header {
   flex-wrap: wrap;
   height: auto;

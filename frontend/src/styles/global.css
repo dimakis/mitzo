@@ -183,8 +183,38 @@ textarea:focus {
 .mitzo-logo img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  border-radius: 6px;
+  object-fit: contain;
+}
+
+.mitzo-logo img,
+.mitzo-brand img {
+  filter: invert(1);
+}
+
+[data-theme='light'] .mitzo-logo img,
+[data-theme='light'] .mitzo-brand img {
+  filter: none;
+}
+
+.mitzo-brand {
+  display: inline-flex;
+  align-items: center;
+  width: 96px;
+  height: 34px;
+  color: inherit;
+  flex-shrink: 0;
+}
+
+.mitzo-brand img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.mitzo-brand--compact {
+  width: 34px;
+  height: 34px;
 }
 
 .mitzo-logo:hover {
@@ -220,8 +250,10 @@ textarea:focus {
 
 .page-header h1 {
   flex: 1;
-  font-size: var(--text-lg);
+  font-size: 20px;
+  line-height: 1.2;
   font-weight: 600;
+  letter-spacing: -0.02em;
   margin: 0;
 }
 
@@ -399,6 +431,12 @@ textarea:focus {
   text-align: center;
 }
 
+.login-brand {
+  width: 112px;
+  height: 42px;
+  margin: 0 auto var(--space-1);
+}
+
 /* ===== Session List Page ===== */
 
 .session-list-page {
@@ -438,9 +476,11 @@ textarea:focus {
 }
 
 .session-list-header h1 {
-  font-size: var(--text-xl);
-  font-weight: 700;
+  font-size: 20px;
+  line-height: 1.2;
+  font-weight: 600;
   letter-spacing: -0.02em;
+  margin: 0;
 }
 
 .check-update-btn {

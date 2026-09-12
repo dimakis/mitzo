@@ -1,7 +1,7 @@
 import { useState, useCallback, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
 import { UiIcon } from './UiIcon';
 import { DesktopNav } from './DesktopNav';
+import { MitzoBrand } from './MitzoBrand';
 
 export interface DesktopShellProps {
   left?: ReactNode;
@@ -67,10 +67,7 @@ export function DesktopShell({
       <div className="desktop-body">
         <aside className={`workspace-rail${railCollapsed ? ' workspace-rail--collapsed' : ''}`}>
           <div className="workspace-rail-heading">
-            <Link to="/" className="workspace-brand" aria-label="Mitzo home">
-              {railCollapsed ? 'M' : 'Mitzo'}
-              <span aria-hidden="true">.</span>
-            </Link>
+            <MitzoBrand compact={railCollapsed} />
           </div>
           <div className="workspace-rail-controls">
             <button
