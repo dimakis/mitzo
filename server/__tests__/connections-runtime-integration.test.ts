@@ -44,12 +44,12 @@ function setup() {
     ),
     stopSandbox: vi.fn(async () => {}),
     sandboxStopped: vi.fn(async () => true),
-    detach: vi.fn(async (sandbox, name) =>
+    detach: vi.fn(async (sandbox, name) => {
       sandboxProviders.set(
         sandbox,
         (sandboxProviders.get(sandbox) ?? []).filter((item) => item !== name),
-      ),
-    ),
+      );
+    }),
     probe: vi.fn(async () => ({ identity: 'operator@example.test' })),
     deleteSandbox: vi.fn(async () => {}),
     sandbox: vi.fn(async (name) => sandboxes.get(name)),
@@ -106,7 +106,9 @@ describe('connections runtime integration', () => {
         AbortSignal.timeout(500),
       );
     });
-    expect(granted?.gatewayProviderName).toBe(connection.gatewayProviderName);
+    expect((granted as Connection | null)?.gatewayProviderName).toBe(
+      connection.gatewayProviderName,
+    );
 
     test.sandboxes.set('retained', { name: 'retained', phase: 'Ready', labels: {} });
     test.sandboxProviders.set('retained', []);
