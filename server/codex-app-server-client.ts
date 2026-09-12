@@ -76,7 +76,7 @@ export function openShellSshProcessSpec(
     !/^https?:\/\/[A-Za-z0-9.:[\]_-]+(?::\d+)?$/.test(options.gatewayEndpoint)
   )
     throw new Error('Invalid OpenShell gateway endpoint');
-  if (!/^\/[A-Za-z0-9_./ '\\$();-]+$/.test(remoteCommand))
+  if (!/^\/[A-Za-z0-9_./ -]+$/.test(remoteCommand))
     throw new Error('Invalid OpenShell remote command');
   return openShellSshProcessSpecTrusted(options, remoteCommand, base);
 }

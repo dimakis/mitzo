@@ -41,6 +41,16 @@ let configured:
   | undefined;
 const log = createLogger('openshell-lifecycle');
 
+/** Keeps arbitrary protocol conversation IDs from influencing local paths. */
+export function checkpointDirectoryForConversation(
+  privateDirectory: string,
+  conversationId: string,
+  generation: number,
+) {
+  const key = createHash('sha256').update(conversationId).digest('hex');
+  return join(privateDirectory, 'openshell-checkpoints', key, String(generation));
+}
+
 /** Read-only, provider-scoped physical sandbox inventory for telemetry. */
 export async function openShellLifecyclePhaseCounts(signal: AbortSignal) {
   if (!configured) throw new Error('OpenShell lifecycle controller is unavailable');
@@ -184,7 +194,7 @@ export function initializeOpenShellLifecycle(
         throw new Error('OpenShell sandbox resource version is unavailable');
       const transport = new OpenShellCheckpointTransport(runtimeFor(record));
       const result = await transport.capture(
-        join(directory, 'openshell-checkpoints', record.conversationId, String(record.generation)),
+        checkpointDirectoryForConversation(directory, record.conversationId, record.generation),
         checkpointIdentity(record, sandbox.resourceVersion),
         signal,
       );
