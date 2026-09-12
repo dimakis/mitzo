@@ -22,7 +22,9 @@ export interface OpenShellLifecycleRecord {
   conversationId: string;
   workspace: string;
   gateway: string;
+  gatewayEndpoint: string | null;
   sandboxName: string;
+  physicalSandboxId: string | null;
   accountProvider: string;
   phase: OpenShellLifecyclePhase;
   generation: number;
@@ -42,10 +44,12 @@ export interface OpenShellLifecyclePolicy {
 }
 
 const DAY = 24 * 60 * 60 * 1000;
+const MAX_TIMER_MS = 2 ** 31 - 1;
 function positiveNumber(value: string | undefined, fallback: number, label: string, minimum = 1) {
   if (value === undefined || value === '') return fallback;
   const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < minimum) throw new Error(`Invalid OpenShell ${label}`);
+  if (!Number.isFinite(parsed) || parsed < minimum || parsed * 60 * 1000 > MAX_TIMER_MS)
+    throw new Error(`Invalid OpenShell ${label}`);
   return parsed;
 }
 
@@ -75,7 +79,9 @@ interface Row {
   conversation_id: string;
   workspace: string;
   gateway: string;
+  gateway_endpoint: string | null;
   sandbox_name: string;
+  physical_sandbox_id: string | null;
   account_provider: string;
   phase: OpenShellLifecyclePhase;
   generation: number;
@@ -90,7 +96,9 @@ function fromRow(row: Row): OpenShellLifecycleRecord {
     conversationId: row.conversation_id,
     workspace: row.workspace,
     gateway: row.gateway,
+    gatewayEndpoint: row.gateway_endpoint,
     sandboxName: row.sandbox_name,
+    physicalSandboxId: row.physical_sandbox_id,
     accountProvider: row.account_provider,
     phase: row.phase,
     generation: row.generation,
@@ -112,10 +120,19 @@ export class OpenShellLifecycleStore {
     this.db.pragma('synchronous = FULL');
     this.db.exec(`CREATE TABLE IF NOT EXISTS openshell_lifecycle (
       conversation_id TEXT PRIMARY KEY, workspace TEXT NOT NULL, gateway TEXT NOT NULL,
-      sandbox_name TEXT NOT NULL, account_provider TEXT NOT NULL, phase TEXT NOT NULL,
+      gateway_endpoint TEXT, sandbox_name TEXT NOT NULL, physical_sandbox_id TEXT,
+      account_provider TEXT NOT NULL, phase TEXT NOT NULL,
       generation INTEGER NOT NULL, last_activity_at REAL, idle_since REAL, stopped_at REAL,
       checkpoint TEXT, failure TEXT
     )`);
+    const columns = this.db
+      .prepare("SELECT name FROM pragma_table_info('openshell_lifecycle')")
+      .all() as Array<{ name: string }>;
+    const names = new Set(columns.map((column) => column.name));
+    if (!names.has('gateway_endpoint'))
+      this.db.exec('ALTER TABLE openshell_lifecycle ADD COLUMN gateway_endpoint TEXT');
+    if (!names.has('physical_sandbox_id'))
+      this.db.exec('ALTER TABLE openshell_lifecycle ADD COLUMN physical_sandbox_id TEXT');
   }
   get(conversationId: string): OpenShellLifecycleRecord | null {
     const row = this.db
@@ -124,13 +141,19 @@ export class OpenShellLifecycleStore {
     return row ? fromRow(row) : null;
   }
   upsert(record: OpenShellLifecycleRecord) {
-    this.db
+    const existing = this.get(record.conversationId);
+    if (existing) {
+      if (existing.generation > record.generation)
+        throw new Error('OpenShell lifecycle has newer state');
+      if (existing.generation === record.generation) return;
+    }
+    const changed = this.db
       .prepare(
         `INSERT INTO openshell_lifecycle
-        (conversation_id,workspace,gateway,sandbox_name,account_provider,phase,generation,last_activity_at,idle_since,stopped_at,checkpoint,failure)
-        VALUES (@conversationId,@workspace,@gateway,@sandboxName,@accountProvider,@phase,@generation,@lastActivityAt,@idleSince,@stoppedAt,@checkpoint,@failure)
+        (conversation_id,workspace,gateway,gateway_endpoint,sandbox_name,physical_sandbox_id,account_provider,phase,generation,last_activity_at,idle_since,stopped_at,checkpoint,failure)
+        VALUES (@conversationId,@workspace,@gateway,@gatewayEndpoint,@sandboxName,@physicalSandboxId,@accountProvider,@phase,@generation,@lastActivityAt,@idleSince,@stoppedAt,@checkpoint,@failure)
         ON CONFLICT(conversation_id) DO UPDATE SET workspace=excluded.workspace,gateway=excluded.gateway,sandbox_name=excluded.sandbox_name,
-        account_provider=excluded.account_provider,phase=excluded.phase,generation=excluded.generation,last_activity_at=excluded.last_activity_at,
+        gateway_endpoint=excluded.gateway_endpoint,physical_sandbox_id=excluded.physical_sandbox_id,account_provider=excluded.account_provider,phase=excluded.phase,generation=excluded.generation,last_activity_at=excluded.last_activity_at,
         idle_since=excluded.idle_since,stopped_at=excluded.stopped_at,checkpoint=excluded.checkpoint,failure=excluded.failure`,
       )
       .run({
@@ -138,6 +161,7 @@ export class OpenShellLifecycleStore {
         checkpoint: record.checkpoint ? JSON.stringify(record.checkpoint) : null,
         failure: record.failure ?? null,
       });
+    if (!changed.changes) throw new Error('OpenShell lifecycle update failed');
   }
   transition(conversationId: string, expectedGeneration: number, phase: OpenShellLifecyclePhase) {
     const changed = this.db
@@ -166,6 +190,10 @@ export class OpenShellLifecycleStore {
 export class OpenShellLifecycleCoordinator {
   private tails = new Map<string, Promise<void>>();
   private idle = new Map<string, { generation: number; timer: ReturnType<typeof setTimeout> }>();
+
+  constructor(
+    private options: { onIdleError?: (conversationId: string, error: Error) => void } = {},
+  ) {}
 
   private cancelIdle(conversationId: string) {
     const scheduled = this.idle.get(conversationId);
@@ -197,7 +225,12 @@ export class OpenShellLifecycleCoordinator {
       const current = this.idle.get(conversationId);
       if (!current || current.generation !== generation) return;
       this.idle.delete(conversationId);
-      void this.admit(conversationId, operation).catch(() => {});
+      void this.admit(conversationId, operation).catch((error: unknown) =>
+        this.options.onIdleError?.(
+          conversationId,
+          error instanceof Error ? error : new Error('OpenShell idle action failed'),
+        ),
+      );
     }, delayMs);
     timer.unref?.();
     this.idle.set(conversationId, { generation, timer });

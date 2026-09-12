@@ -7,6 +7,7 @@ import { openShellSshProcessSpec } from './codex-app-server-client.js';
 
 const Sandbox = z.object({
   id: z.string().min(1).optional(),
+  resource_version: z.string().min(1).optional(),
   name: z.string(),
   phase: z.enum(['Ready', 'Stopped', 'Pending', 'Creating', 'Starting', 'Error']),
   workspace: z.string().optional(),
@@ -255,13 +256,35 @@ export class OpenShellRuntimeManager {
 
   /** Read-only inventory scoped to sandboxes carrying this runtime's provider label. */
   async inventory(signal: AbortSignal) {
-    const sandboxes = SandboxList.parse(
-      JSON.parse(await this.run(['sandbox', ...this.base(), 'list', '--output', 'json'], signal)),
-    );
+    const sandboxes: z.infer<typeof Sandbox>[] = [];
+    const limit = 100;
+    for (let offset = 0; ; offset += limit) {
+      const page = SandboxList.parse(
+        JSON.parse(
+          await this.run(
+            [
+              'sandbox',
+              ...this.base(),
+              'list',
+              '--output',
+              'json',
+              '--limit',
+              String(limit),
+              '--offset',
+              String(offset),
+            ],
+            signal,
+          ),
+        ),
+      );
+      sandboxes.push(...page);
+      if (page.length < limit) break;
+    }
     return sandboxes.filter(
       (sandbox) =>
         sandbox.labels?.['mitzo.conversation'] &&
-        sandbox.labels?.['mitzo.account_provider'] === this.config.account.provider,
+        sandbox.labels?.['mitzo.account_provider'] === this.config.account.provider &&
+        (!sandbox.workspace || sandbox.workspace === this.config.workspace),
     );
   }
 
