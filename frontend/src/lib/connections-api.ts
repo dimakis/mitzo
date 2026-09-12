@@ -45,6 +45,22 @@ export async function createConnection(input: {
     )
   ).connection;
 }
+export async function retryConnection(input: {
+  id: string;
+  revision: number;
+  token: string;
+  csrf: string;
+}): Promise<ManagedConnection> {
+  const { id, ...body } = input;
+  return (
+    await bodyOrError<{ connection: ManagedConnection }>(
+      await apiFetch(
+        `/api/connections/${encodeURIComponent(id)}/retry`,
+        json('POST', body, input.csrf),
+      ),
+    )
+  ).connection;
+}
 export async function updateAssignments(input: {
   id: string;
   revision: number;

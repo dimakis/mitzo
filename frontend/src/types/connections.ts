@@ -23,7 +23,7 @@ export interface ConnectionAuditEntry {
 
 export interface ConnectionsCatalog {
   connections: ManagedConnection[];
-  legacy: string[];
+  legacy: Array<{ id: string; label: string; management: string }>;
   eligibleAccounts: string[];
   appliesTo: string;
 }

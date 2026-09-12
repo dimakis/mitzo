@@ -15,6 +15,7 @@ vi.mock('../../lib/connections-api', () => ({
   testConnection: vi.fn(),
   rotateConnection: vi.fn(),
   revokeConnection: vi.fn(),
+  retryConnection: vi.fn(),
   getConnectionAudit: vi.fn(),
 }));
 
@@ -32,7 +33,10 @@ const catalog: ConnectionsCatalog = {
       errorCode: null,
     },
   ],
-  legacy: ['github', 'google-workspace'],
+  legacy: [
+    { id: 'github', label: 'GitHub', management: 'operator-managed' },
+    { id: 'google-workspace', label: 'Google Workspace', management: 'operator-managed' },
+  ],
   eligibleAccounts: ['work', 'native'],
   appliesTo: 'new conversations only',
 };
@@ -78,7 +82,7 @@ describe('ConnectionsView', () => {
     await render();
     expect(container.textContent).toContain('me@example.com');
     expect(container.textContent).toContain('new conversations only');
-    expect(container.textContent).toContain('github, google-workspace');
+    expect(container.textContent).toContain('GitHub (operator-managed)');
     expect(
       Array.from(container.querySelectorAll('input[type="checkbox"]')).some((item) =>
         item.parentElement?.textContent?.includes('work'),
@@ -128,5 +132,15 @@ describe('ConnectionsView', () => {
     act(() => button('Cancel').click());
     expect(container.querySelector('[aria-label="Replacement Jira API token"]')).toBeNull();
     expect(container.textContent).not.toContain('replacement');
+  });
+  it('offers a true retry action for a failed initial provisioning', async () => {
+    vi.mocked(connections.getConnections).mockResolvedValue({
+      ...catalog,
+      connections: [
+        { ...catalog.connections[0], status: 'needs_attention', errorCode: 'PROVISION_FAILED' },
+      ],
+    });
+    await render();
+    expect(button('Retry with token')).toBeTruthy();
   });
 });

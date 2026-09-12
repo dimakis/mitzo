@@ -4,6 +4,7 @@ import {
   getConnectionAudit,
   getConnections,
   reauthorize,
+  retryConnection,
   revokeConnection,
   rotateConnection,
   testConnection,
@@ -250,7 +251,11 @@ export function ConnectionsView() {
       </section>
       <section className="today-section">
         <h2>Operator-managed legacy services</h2>
-        <p>{data.legacy.length ? data.legacy.join(', ') : 'None reported.'}</p>
+        <p>
+          {data.legacy.length
+            ? data.legacy.map((service) => `${service.label} (${service.management})`).join(', ')
+            : 'None reported.'}
+        </p>
         <p className="workspace-muted">
           These providers are managed by the operator and are not migrated or changed here.
         </p>
@@ -344,7 +349,7 @@ function ConnectionCard({
           Test identity
         </button>
         <button disabled={busy !== null || connection.status === 'revoked'} onClick={onRotateOpen}>
-          Rotate token
+          {connection.status === 'needs_attention' ? 'Retry with token' : 'Rotate token'}
         </button>
         <button
           disabled={busy !== null || connection.status === 'revoked'}
@@ -379,13 +384,22 @@ function ConnectionCard({
             void onAction(
               `rotate:${connection.id}`,
               () =>
-                rotateConnection({
-                  id: connection.id,
-                  revision: connection.revision,
-                  token: credential,
-                  csrf,
-                }),
-              'Credential rotation completed.',
+                connection.status === 'needs_attention'
+                  ? retryConnection({
+                      id: connection.id,
+                      revision: connection.revision,
+                      token: credential,
+                      csrf,
+                    })
+                  : rotateConnection({
+                      id: connection.id,
+                      revision: connection.revision,
+                      token: credential,
+                      csrf,
+                    }),
+              connection.status === 'needs_attention'
+                ? 'Jira connection verified and activated.'
+                : 'Credential rotation completed.',
             );
           }}
         >
