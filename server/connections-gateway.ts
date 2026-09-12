@@ -215,7 +215,7 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
     const profileList = ProfileList.safeParse(
       JSON.parse(
         await this.run(
-          ['provider', '--workspace', this.options.workspace, 'profile', 'list', '-o', 'json'],
+          ['provider', '--workspace', this.options.workspace, 'list-profiles', '-o', 'json'],
           signal,
         ),
       ),
