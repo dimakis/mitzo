@@ -183,8 +183,19 @@ export async function openCodexChat(options: Options) {
         }
       : undefined);
   const signal = options.session.abortController.signal;
-  signal.throwIfAborted();
-  const privateStorage = store();
+  try {
+    signal.throwIfAborted();
+  } catch (error) {
+    startupReservation?.();
+    throw error;
+  }
+  let privateStorage: CodexConversationStore;
+  try {
+    privateStorage = store();
+  } catch (error) {
+    startupReservation?.();
+    throw error;
+  }
   const hookRuntime = openShell
     ? undefined
     : createNativeHooks(options.session.cwd!, options.conversationId, options.env, {
@@ -205,6 +216,7 @@ export async function openCodexChat(options: Options) {
     }
   } catch (error) {
     dispose();
+    startupReservation?.();
     throw error;
   }
   const mcp = openShell
@@ -222,6 +234,7 @@ export async function openCodexChat(options: Options) {
         signal: options.session.abortController.signal,
       }).catch((error) => {
         dispose();
+        startupReservation?.();
         throw error;
       });
   const events = new AsyncQueue<Record<string, unknown>>();
