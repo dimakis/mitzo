@@ -161,6 +161,7 @@ export function createNativeToolExecutor(
           signal,
           toolUseID: block.id,
           forcePrompt: true,
+          allowSessionGrant: true,
         });
         signal.throwIfAborted();
         if (permission.behavior !== 'allow') return result(permission.message, true);

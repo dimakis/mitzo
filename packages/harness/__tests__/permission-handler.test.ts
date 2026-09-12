@@ -129,6 +129,7 @@ describe('buildPermissionHandler', () => {
         signal: new AbortController().signal,
         toolUseID: 'tool-1',
         forcePrompt: true,
+        allowSessionGrant: true,
       },
     );
 
@@ -156,6 +157,7 @@ describe('buildPermissionHandler', () => {
         signal: new AbortController().signal,
         toolUseID: 'tool-1',
         forcePrompt: true,
+        allowSessionGrant: true,
       },
     );
     await Promise.resolve();
@@ -174,6 +176,7 @@ describe('buildPermissionHandler', () => {
         signal: new AbortController().signal,
         toolUseID: 'tool-2',
         forcePrompt: true,
+        allowSessionGrant: true,
       },
     );
     expect(second).toMatchObject({
@@ -181,6 +184,33 @@ describe('buildPermissionHandler', () => {
       decisionClassification: 'user_permanent',
     });
     expect(transport.sent.filter((event) => event.type === 'permission_request')).toHaveLength(1);
+  });
+
+  it('does not reuse a session grant for an exact-action forced prompt', async () => {
+    const transport = fakeTransport();
+    registry.register('client-1', {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(['GitCommit']),
+    });
+
+    const pending = buildPermissionHandler('client-1', registry)(
+      'GitCommit',
+      { files: ['one.ts'], message: 'first' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool-1',
+        forcePrompt: true,
+      },
+    );
+    await Promise.resolve();
+
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({ type: 'permission_request', toolName: 'GitCommit' }),
+    );
+    resolvePending(transport.sent[0].permId as string, 'deny');
+    await pending;
   });
 
   it('sends permission_request for unknown tools and resolves on response', async () => {
