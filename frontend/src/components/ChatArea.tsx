@@ -245,6 +245,7 @@ export function ChatArea({
           description={permission.description}
           displayName={permission.displayName}
           tier={permission.tier}
+          approvalScope={permission.approvalScope}
           onRespond={onPermissionRespond}
         />
       )}

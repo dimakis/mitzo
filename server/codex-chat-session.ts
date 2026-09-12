@@ -320,6 +320,10 @@ export async function openCodexChat(options: Options) {
           signal,
           toolUseID: randomUUID(),
           forcePrompt: true,
+          approvalScope: 'conversation',
+          title: 'Grant Google Workspace to this conversation?',
+          description:
+            'This attaches the reviewed provider to the retained conversation sandbox across reconnects and Mitzo restarts, until the sandbox is deleted or access is revoked. It does not change Google OAuth consent.',
         });
         signal.throwIfAborted();
         if (decision.behavior !== 'allow') return { content: decision.message, isError: true };

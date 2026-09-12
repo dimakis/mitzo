@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   send: vi.fn(),
   mcpClose: vi.fn(),
   connect: vi.fn(),
+  permissionHandler: vi.fn(),
   store: vi.fn(),
   conversationOptions: undefined as Record<string, unknown> | undefined,
 }));
@@ -34,6 +35,10 @@ vi.mock('../codex-mcp-tools.js', () => ({ connectCodexMcpTools: mocks.connect })
 vi.mock('../codex-private-path.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../codex-private-path.js')>()),
   codexPrivateDirectory: () => '/tmp',
+}));
+vi.mock('@mitzo/harness', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@mitzo/harness')>()),
+  buildPermissionHandler: () => mocks.permissionHandler,
 }));
 import {
   openCodexChat,
@@ -200,6 +205,9 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
     trimmed: [],
     fullMarkdown: '',
   });
+  const grant = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'grantServiceProvider')
+    .mockResolvedValue();
   const abortController = new AbortController();
   const baseOptions = options(abortController);
   const session = baseOptions.session;
@@ -243,9 +251,55 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       }),
     ]);
     expect(mocks.conversationOptions?.systemPrompt).toContain('GrantIntegrationAccess');
+    const executeTool = mocks.conversationOptions?.executeTool as (
+      name: string,
+      input: Record<string, unknown>,
+      signal: AbortSignal,
+    ) => Promise<{ content: string; isError: boolean }>;
+    const signal = new AbortController().signal;
+
+    await expect(
+      executeTool('GrantIntegrationAccess', { provider: 'github' }, signal),
+    ).resolves.toMatchObject({ isError: true });
+    expect(mocks.permissionHandler).not.toHaveBeenCalled();
+
+    mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'deny', message: 'Denied' });
+    await expect(
+      executeTool('GrantIntegrationAccess', { provider: 'google-workspace' }, signal),
+    ).resolves.toMatchObject({ isError: true });
+    expect(grant).not.toHaveBeenCalled();
+
+    mocks.permissionHandler.mockResolvedValueOnce({
+      behavior: 'allow',
+      updatedInput: { provider: 'google-workspace' },
+    });
+    await expect(
+      executeTool('GrantIntegrationAccess', { provider: 'google-workspace' }, signal),
+    ).resolves.toMatchObject({ isError: false });
+    expect(grant).toHaveBeenCalledOnce();
+
+    mocks.permissionHandler.mockResolvedValueOnce({
+      behavior: 'allow',
+      updatedInput: { provider: 'github' },
+    });
+    await expect(
+      executeTool('GrantIntegrationAccess', { provider: 'google-workspace' }, signal),
+    ).resolves.toMatchObject({ isError: true });
+    expect(grant).toHaveBeenCalledOnce();
+    expect(mocks.permissionHandler).toHaveBeenCalledWith(
+      'GrantIntegrationAccess',
+      { provider: 'google-workspace' },
+      expect.objectContaining({
+        forcePrompt: true,
+        approvalScope: 'conversation',
+        title: 'Grant Google Workspace to this conversation?',
+        description: expect.stringContaining('across reconnects and Mitzo restarts'),
+      }),
+    );
   } finally {
     ensure.mockRestore();
     compile.mockRestore();
+    grant.mockRestore();
     vi.unstubAllEnvs();
   }
 });

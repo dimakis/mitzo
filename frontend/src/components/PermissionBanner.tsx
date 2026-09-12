@@ -10,6 +10,7 @@ interface Props {
   description?: string;
   displayName?: string;
   tier?: ToolTier;
+  approvalScope?: 'session' | 'conversation';
   expiresAt?: number;
   questions?: UserQuestion[];
   onRespond: (
@@ -34,6 +35,7 @@ export function PermissionBanner({
   description,
   displayName,
   tier,
+  approvalScope,
   questions,
   expiresAt,
   onRespond,
@@ -172,9 +174,11 @@ export function PermissionBanner({
             {description && <p className="perm-banner-desc">{description}</p>}
             {toolInput && <pre className="perm-banner-input">{toolInput}</pre>}
             <p className="perm-banner-scope">
-              {server
-                ? `Session allowance covers all ${server} tools.`
-                : 'Session allowance covers this tool until the task ends.'}
+              {approvalScope === 'conversation'
+                ? 'This integration remains available to this conversation across reconnects and Mitzo restarts, until its sandbox is deleted or access is revoked.'
+                : server
+                  ? `Session allowance covers all ${server} tools.`
+                  : 'Session allowance covers this tool until the task ends.'}
             </p>
           </>
         )}
@@ -195,15 +199,17 @@ export function PermissionBanner({
               disabled={remaining === 0}
               onClick={() => onRespond(permId, 'once', toolName)}
             >
-              Allow Once
+              {approvalScope === 'conversation' ? 'Grant to conversation' : 'Allow Once'}
             </button>
-            <button
-              className="perm-banner-btn perm-banner-btn--always"
-              disabled={remaining === 0}
-              onClick={() => onRespond(permId, 'always', toolName)}
-            >
-              Allow for session
-            </button>
+            {approvalScope !== 'conversation' && (
+              <button
+                className="perm-banner-btn perm-banner-btn--always"
+                disabled={remaining === 0}
+                onClick={() => onRespond(permId, 'always', toolName)}
+              >
+                Allow for session
+              </button>
+            )}
           </>
         )}
         <button

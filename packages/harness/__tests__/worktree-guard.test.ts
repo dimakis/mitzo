@@ -143,6 +143,15 @@ describe('checkWorktreePolicy', () => {
       expect(result).toContain('/Users/me/tools/mitzo/scripts/mutate-main');
       expect(result).toContain('outside session worktrees');
     });
+
+    it('does not trust arbitrary Homebrew executables', async () => {
+      const result = await checkWorktreePolicy(session, 'Bash', {
+        command: '/opt/homebrew/bin/mutate-main --force',
+      });
+
+      expect(result).toContain('/opt/homebrew/bin/mutate-main');
+      expect(result).toContain('outside session worktrees');
+    });
   });
 
   describe('EditNotebook tool', () => {
