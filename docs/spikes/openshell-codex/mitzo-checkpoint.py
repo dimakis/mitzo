@@ -55,7 +55,15 @@ def resumable_rollout(provider_root, thread):
  if not os.path.isdir(sessions): fail('resumable thread rollout is missing')
  for base,_,names in os.walk(sessions,followlinks=False):
   for name in names:
-   if name.startswith('rollout-') and name.endswith('.jsonl') and thread in name: return
+   if name.startswith('rollout-') and name.endswith('.jsonl') and thread in name:
+    path=os.path.join(base,name)
+    try:
+     with open(path,'rb') as rollout:
+      line=rollout.readline(65537)
+     if not line or len(line)>65536 or not line.endswith(b'\n'): continue
+     header=json.loads(line)
+     if header.get('type')=='session_meta' and header.get('payload',{}).get('id')==thread: return
+    except (OSError,UnicodeDecodeError,json.JSONDecodeError): continue
  fail('resumable thread rollout is missing')
 def pid1_supervisor(proc_root, pid):
  # OpenShell's pinned root supervisor is not an agent writer.  This exemption

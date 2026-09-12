@@ -55,7 +55,10 @@ function source(root: string) {
   mkdirSync(join(root, 'workspace/empty'), { recursive: true });
   writeFileSync(join(root, '.codex/state_5.sqlite'), 'state');
   writeFileSync(join(root, '.codex/installation_id'), 'install');
-  writeFileSync(join(root, '.codex/sessions/rollout-thread.jsonl'), '{"id":"thread"}');
+  writeFileSync(
+    join(root, '.codex/sessions/rollout-thread.jsonl'),
+    '{"type":"session_meta","payload":{"id":"thread"}}\n',
+  );
   writeFileSync(join(root, 'workspace/tool.sh'), '#!/bin/sh\necho ok\n');
   chmodSync(join(root, 'workspace/tool.sh'), 0o755);
   execFileSync('git', ['init', '-q'], { cwd: join(root, 'workspace') });
@@ -171,17 +174,107 @@ it('rejects auth state and corrupt archives', () => {
   ).toThrow();
 });
 it('rejects a provider state without an exact thread rollout', () => {
-  const from = root(); source(from);
+  const from = root();
+  source(from);
   rmSync(join(from, '.codex/sessions/rollout-thread.jsonl'));
-  expect(() => run(['capture', '--source', from, '--output', join(root(), 'checkpoint.tar'), '--conversation', 'c', '--thread', 'thread', '--binding', 'binding', '--image', 'image', '--policy', 'policy'])).toThrow(/rollout/);
+  expect(() =>
+    run([
+      'capture',
+      '--source',
+      from,
+      '--output',
+      join(root(), 'checkpoint.tar'),
+      '--conversation',
+      'c',
+      '--thread',
+      'thread',
+      '--binding',
+      'binding',
+      '--image',
+      'image',
+      '--policy',
+      'policy',
+    ]),
+  ).toThrow(/rollout/);
+});
+it('rejects empty, malformed, or mismatched rollout metadata', () => {
+  const from = root();
+  source(from);
+  const rollout = join(from, '.codex/sessions/rollout-thread.jsonl');
+  for (const header of ['', '{bad\n', '{"type":"session_meta","payload":{"id":"other"}}\n']) {
+    writeFileSync(rollout, header);
+    expect(() =>
+      run([
+        'capture',
+        '--source',
+        from,
+        '--output',
+        join(root(), `${header.length}.tar`),
+        '--conversation',
+        'c',
+        '--thread',
+        'thread',
+        '--binding',
+        'binding',
+        '--image',
+        'image',
+        '--policy',
+        'policy',
+      ]),
+    ).toThrow(/rollout/);
+  }
 });
 it('fails closed for remaining execution processes but exempts only the pinned root supervisor', () => {
-  const from = root(); source(from);
+  const from = root();
+  source(from);
   const proc = join(root(), 'proc');
   mkdirSync(join(proc, '1'), { recursive: true });
   writeFileSync(join(proc, '1/status'), 'Name:\topenshell-sandb\nUid:\t0\t0\t0\t0\nPPid:\t0\n');
-  run(['capture', '--source', from, '--output', join(root(), 'safe.tar'), '--require-quiescent', '--proc-root', proc, '--conversation', 'c', '--thread', 'thread', '--binding', 'binding', '--image', 'image', '--policy', 'policy']);
+  run([
+    'capture',
+    '--source',
+    from,
+    '--output',
+    join(root(), 'safe.tar'),
+    '--require-quiescent',
+    '--proc-root',
+    proc,
+    '--conversation',
+    'c',
+    '--thread',
+    'thread',
+    '--binding',
+    'binding',
+    '--image',
+    'image',
+    '--policy',
+    'policy',
+  ]);
   mkdirSync(join(proc, '999'), { recursive: true });
-  writeFileSync(join(proc, '999/status'), `Name:\tagent\nUid:\t${process.getuid?.() ?? 998}\t998\t998\t998\nPPid:\t1\n`);
-  expect(() => run(['capture', '--source', from, '--output', join(root(), 'blocked.tar'), '--require-quiescent', '--proc-root', proc, '--conversation', 'c', '--thread', 'thread', '--binding', 'binding', '--image', 'image', '--policy', 'policy'])).toThrow(/execution process/);
+  writeFileSync(
+    join(proc, '999/status'),
+    `Name:\tagent\nUid:\t${process.getuid?.() ?? 998}\t998\t998\t998\nPPid:\t1\n`,
+  );
+  expect(() =>
+    run([
+      'capture',
+      '--source',
+      from,
+      '--output',
+      join(root(), 'blocked.tar'),
+      '--require-quiescent',
+      '--proc-root',
+      proc,
+      '--conversation',
+      'c',
+      '--thread',
+      'thread',
+      '--binding',
+      'binding',
+      '--image',
+      'image',
+      '--policy',
+      'policy',
+    ]),
+  ).toThrow(/execution process/);
 });
