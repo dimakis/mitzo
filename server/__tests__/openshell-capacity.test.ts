@@ -118,7 +118,7 @@ it('does not use host root implicitly and status polling cannot mutate the admis
   });
   const admission = new OpenShellCapacityAdmission(collector, openShellCapacityPolicy({}));
   await expect(admission.admitNewSandbox(signal())).rejects.toBeInstanceOf(OpenShellCapacityError);
-  await expect(admission.status(signal)).resolves.toMatchObject({ state: 'hard_stop' });
+  await expect(admission.status(signal())).resolves.toMatchObject({ state: 'hard_stop' });
   await expect(admission.admitNewSandbox(signal())).rejects.toBeInstanceOf(OpenShellCapacityError);
   await expect(admission.admitNewSandbox(signal())).resolves.toBeUndefined();
 });

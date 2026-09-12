@@ -153,11 +153,11 @@ describe('OpenShell runtime lifecycle', () => {
     const createSecond = vi.fn();
     const runner = (
       conversation: string,
-      created: ReturnType<typeof vi.fn>,
+      created: () => void,
       waitForRelease: () => Promise<void>,
     ) => {
       let gets = 0;
-      return vi.fn(async (args: string[]) => {
+      return async (args: readonly string[], _signal: AbortSignal) => {
         if (args.includes('get')) {
           gets++;
           if (gets <= 2) throw new Error('sandbox not found');
@@ -168,7 +168,7 @@ describe('OpenShell runtime lifecycle', () => {
           await waitForRelease();
         }
         return '{}';
-      });
+      };
     };
     const firstRun = runner(
       'first-conversation',
