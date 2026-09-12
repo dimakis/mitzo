@@ -16,7 +16,7 @@ All three action attempts write actor, target identity, generation, outcome, tim
 
 ## Capacity admission
 
-`MITZO_OPENSHELL_CAPACITY_WARNING_FREE_PERCENT` (default `20`), `MITZO_OPENSHELL_CAPACITY_HARD_FREE_PERCENT` (default `10`), and `MITZO_OPENSHELL_CAPACITY_RECOVER_FREE_PERCENT` (default `15`) must satisfy warning > recovery > hard. A serialized, fail-closed check runs directly before `openshell sandbox create`; it blocks only new physical sandbox creation. Reattach, start, restore, checkpoint-stop, and consented deletion remain available. There is no automatic Podman pruning.
+`MITZO_OPENSHELL_CAPACITY_PATH` must name the authoritative Podman storage or Podman-VM filesystem path; there is intentionally no host-root fallback. `MITZO_OPENSHELL_CAPACITY_WARNING_FREE_PERCENT` (default `20`), `MITZO_OPENSHELL_CAPACITY_HARD_FREE_PERCENT` (default `10`), and `MITZO_OPENSHELL_CAPACITY_RECOVER_FREE_PERCENT` (default `15`) must satisfy warning > recovery > hard. A serialized, fail-closed check runs directly before `openshell sandbox create`; it blocks only new physical sandbox creation. Reattach, start, restore, checkpoint-stop, and consented deletion remain available. There is no automatic Podman pruning.
 
 ## Handoff
 

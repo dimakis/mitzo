@@ -73,7 +73,9 @@ const run = (binary: string, args: string[], signal: AbortSignal) =>
 /** Metrics deliberately distinguish Podman's reclaimable estimate from the host/VM free space. */
 export class OpenShellCapacityCollector {
   constructor(
-    private readonly path = process.env.MITZO_OPENSHELL_CAPACITY_PATH || '/',
+    // Podman's storage can live in a VM or a separate volume. Host root is
+    // therefore never a safe implicit proxy for the storage being protected.
+    private readonly path = process.env.MITZO_OPENSHELL_CAPACITY_PATH,
     private readonly commands: {
       podman?: (signal: AbortSignal) => Promise<string>;
       filesystem?: (signal: AbortSignal) => Promise<string>;
@@ -89,7 +91,11 @@ export class OpenShellCapacityCollector {
       (this.commands.podman ?? ((s) => run('podman', ['system', 'df', '--format', 'json'], s)))(
         signal,
       ),
-      (this.commands.filesystem ?? ((s) => run('df', ['-Pk', this.path], s)))(signal),
+      this.commands.filesystem
+        ? this.commands.filesystem(signal)
+        : this.path
+          ? run('df', ['-Pk', this.path], signal)
+          : Promise.reject(new Error('authoritative OpenShell capacity path is not configured')),
     ]);
     if (podman.status === 'fulfilled') {
       try {
@@ -141,7 +147,7 @@ export class OpenShellCapacityAdmission {
     private readonly collector: OpenShellCapacityCollector,
     private readonly policy: OpenShellCapacityPolicy,
   ) {}
-  async snapshot(signal: AbortSignal) {
+  private async snapshot(signal: AbortSignal, updateHardStop: boolean) {
     const capacity = await this.collector.collect(signal);
     const freePercent =
       capacity.filesystem.available &&
@@ -149,13 +155,15 @@ export class OpenShellCapacityAdmission {
       capacity.filesystem.totalBytes
         ? (capacity.filesystem.freeBytes / capacity.filesystem.totalBytes) * 100
         : undefined;
-    if (freePercent === undefined) this.hard = true;
-    else if (this.hard && freePercent >= this.policy.recoverFreePercent) this.hard = false;
-    else if (!this.hard && freePercent < this.policy.hardFreePercent) this.hard = true;
+    if (updateHardStop) {
+      if (freePercent === undefined) this.hard = true;
+      else if (this.hard && freePercent >= this.policy.recoverFreePercent) this.hard = false;
+      else if (!this.hard && freePercent < this.policy.hardFreePercent) this.hard = true;
+    }
     const state =
       freePercent === undefined
         ? 'unavailable'
-        : this.hard
+        : this.hard || freePercent < this.policy.hardFreePercent
           ? 'hard_stop'
           : freePercent < this.policy.warningFreePercent
             ? 'warning'
@@ -167,6 +175,10 @@ export class OpenShellCapacityAdmission {
       policy: this.policy,
     } as const;
   }
+  /** Read-only status collection must not clear or trip the create latch. */
+  async status(signal: AbortSignal) {
+    return this.snapshot(signal, false);
+  }
   /** Acquire the global create reservation. The caller must retain it until
    * the physical `sandbox create` invocation has returned. */
   async reserveNewSandbox(signal: AbortSignal): Promise<() => void> {
@@ -176,7 +188,7 @@ export class OpenShellCapacityAdmission {
     this.tail = new Promise<void>((resolve) => (release = resolve));
     await previous;
     try {
-      const status = await this.snapshot(signal);
+      const status = await this.snapshot(signal, true);
       if (status.state === 'unavailable')
         throw new OpenShellCapacityError(
           'OpenShell capacity is unavailable; retry after capacity collection recovers',
@@ -210,5 +222,5 @@ export function reserveOpenShellSandboxCreate(signal: AbortSignal) {
   return admission?.reserveNewSandbox(signal) ?? Promise.resolve(() => undefined);
 }
 export function openShellCapacityStatus(signal: AbortSignal) {
-  return admission?.snapshot(signal);
+  return admission?.status(signal);
 }

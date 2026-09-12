@@ -711,7 +711,9 @@ const safePreview = (preview: Awaited<ReturnType<OpenShellLifecycleService['prev
 app.get('/api/openshell/inventory', async (_req, res) => {
   try {
     const inventory = await openShellLifecycleInventory(AbortSignal.timeout(30_000));
-    res.status(inventory.available || inventory.sandboxes.length ? 200 : 503).json(inventory);
+    // Unavailable rows are evidence of an interrupted collection, not a healthy
+    // inventory result. A mixed result remains available+partial and returns 200.
+    res.status(inventory.available ? 200 : 503).json(inventory);
   } catch (error) {
     res.status(503).json({
       available: false,

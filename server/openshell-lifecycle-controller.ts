@@ -143,6 +143,12 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
   const scopes: Array<Record<string, string>> = [];
   for (const record of records) {
     if (!record.identity) {
+      scopes.push({
+        provider: record.accountProvider ?? 'unknown',
+        workspace: record.workspace,
+        status: 'unavailable',
+        error: 'OpenShell lifecycle identity is unavailable',
+      });
       sandboxes.push(lifecycleInventoryRow(record, undefined, 'unavailable'));
       seen.add(record.physicalSandboxId ?? record.sandboxName);
     } else if (!groups.has(JSON.stringify(record.identity.route))) {

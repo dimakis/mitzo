@@ -101,3 +101,24 @@ it('fails closed on collection loss and validates ordered hysteresis thresholds'
     }),
   ).toThrow('thresholds');
 });
+
+it('does not use host root implicitly and status polling cannot mutate the admission latch', async () => {
+  const missingPath = new OpenShellCapacityCollector(undefined, { podman: async () => '[]' });
+  await expect(missingPath.collect(signal())).resolves.toMatchObject({
+    filesystem: { available: false, error: expect.stringContaining('authoritative') },
+  });
+
+  const freePercents = [9, 50, 12, 16];
+  const collector = new OpenShellCapacityCollector('/', {
+    podman: async () => '[]',
+    filesystem: async () => {
+      const free = freePercents.shift() ?? 50;
+      return `Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vm 10000 1 ${free * 100} 1% /`;
+    },
+  });
+  const admission = new OpenShellCapacityAdmission(collector, openShellCapacityPolicy({}));
+  await expect(admission.admitNewSandbox(signal())).rejects.toBeInstanceOf(OpenShellCapacityError);
+  await expect(admission.status(signal)).resolves.toMatchObject({ state: 'hard_stop' });
+  await expect(admission.admitNewSandbox(signal())).rejects.toBeInstanceOf(OpenShellCapacityError);
+  await expect(admission.admitNewSandbox(signal())).resolves.toBeUndefined();
+});
