@@ -407,7 +407,7 @@ describe('OpenShell runtime lifecycle', () => {
     const attach = new Promise<void>((resolve) => {
       releaseAttach = resolve;
     });
-    const commands: readonly string[][] = [];
+    const commands: (readonly string[])[] = [];
     const run = vi.fn(async (args: readonly string[]) => {
       commands.push(args);
       if (args.includes('get')) return ready();
@@ -434,6 +434,67 @@ describe('OpenShell runtime lifecycle', () => {
 
     expect(commands.some((args) => args.includes('detach'))).toBe(false);
     expect(record).toEqual({ automatic: ['github'], granted: ['google-workspace'] });
+  });
+
+  it('records an attached provider before readiness failure so policy can revoke it', async () => {
+    let record = { automatic: ['github'], granted: [] as string[] };
+    const policyState = {
+      read: vi.fn(() => ({
+        ...record,
+        automatic: [...record.automatic],
+        granted: [...record.granted],
+      })),
+      write: vi.fn((_name: string, next: typeof record) => {
+        record = next;
+      }),
+    };
+    const grantRun = vi
+      .fn()
+      .mockResolvedValueOnce(ready())
+      .mockResolvedValueOnce('{}')
+      .mockResolvedValueOnce(ready('Error'));
+    const runtime = {
+      sandboxName: sandboxNameForConversation('conversation'),
+      workdir: config.workdir,
+      appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+      cli: config.cli,
+      gateway: config.gateway,
+      workspace: config.workspace,
+      gatewayInsecure: false,
+    };
+    await expect(
+      new OpenShellRuntimeManager(
+        config,
+        grantRun,
+        undefined,
+        undefined,
+        policyState,
+      ).grantServiceProvider(
+        'conversation',
+        runtime,
+        'google-workspace',
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('is Error');
+    expect(record.granted).toEqual(['google-workspace']);
+
+    const reconcileRun = vi
+      .fn()
+      .mockResolvedValueOnce(ready())
+      .mockResolvedValueOnce('{}')
+      .mockResolvedValueOnce(ready());
+    await new OpenShellRuntimeManager(
+      { ...config, grantableServiceProviders: [] },
+      reconcileRun,
+      undefined,
+      undefined,
+      policyState,
+    ).ensure('conversation', new AbortController().signal);
+
+    expect(reconcileRun.mock.calls.find(([args]) => args.includes('detach'))?.[0]).toContain(
+      'google-workspace',
+    );
+    expect(record).toEqual({ automatic: ['github'], granted: [] });
   });
 
   it('rejects unconfigured provider grants before calling OpenShell', async () => {

@@ -613,12 +613,12 @@ export class OpenShellRuntimeManager {
         if (!/already attached|conflict|409/i.test(message))
           throw new Error('OpenShell service provider grant failed', { cause: error });
       }
-      await this.waitForReady(runtime.sandboxName, owner, signal);
       const previous = this.providerPolicyState.read(runtime.sandboxName);
       this.providerPolicyState.write(runtime.sandboxName, {
         automatic: previous?.automatic ?? [...new Set(this.config.serviceProviders)],
         granted: [...new Set([...(previous?.granted ?? []), provider])],
       });
+      await this.waitForReady(runtime.sandboxName, owner, signal);
     });
   }
 
