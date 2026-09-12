@@ -168,6 +168,21 @@ describe('OpenShell runtime lifecycle', () => {
     expect(inspected).toEqual({ id: 'sandbox-id', phase: 'Stopped', resourceVersion: '1' });
   });
 
+  it('reports an absent lifecycle sandbox as undefined during inspection', async () => {
+    const run = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('sandbox not found'))
+      .mockRejectedValueOnce(new Error('sandbox not found'));
+
+    await expect(
+      new OpenShellRuntimeManager(config, run).inspect(
+        'conversation',
+        'sandbox-id',
+        new AbortController().signal,
+      ),
+    ).resolves.toBeUndefined();
+  });
+
   it('revokes grant-only providers from a retained pre-change sandbox', async () => {
     const legacyPolicyReady = ready('Ready', 'grant-v1');
     const run = vi

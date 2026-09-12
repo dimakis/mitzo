@@ -407,7 +407,8 @@ export class OpenShellRuntimeManager {
    * lifecycle callers from reconstructing CLI arguments or trusting a name
    * without re-checking its ownership labels. */
   async inspect(conversationId: string, physicalId: string, signal: AbortSignal) {
-    const sandbox = await this.ownedSandbox(conversationId, physicalId, signal);
+    const sandbox = await this.ownedSandbox(conversationId, physicalId, signal, true);
+    if (!sandbox) return undefined;
     if (!sandbox.id) throw new Error('OpenShell sandbox has no physical identity');
     const stoppedVersion = sandbox.revision ?? sandbox.resource_version;
     return {
@@ -417,7 +418,23 @@ export class OpenShellRuntimeManager {
     };
   }
 
-  private async ownedSandbox(conversationId: string, physicalId: string, signal: AbortSignal) {
+  private ownedSandbox(
+    conversationId: string,
+    physicalId: string,
+    signal: AbortSignal,
+  ): Promise<z.infer<typeof Sandbox>>;
+  private ownedSandbox(
+    conversationId: string,
+    physicalId: string,
+    signal: AbortSignal,
+    allowAbsent: true,
+  ): Promise<z.infer<typeof Sandbox> | undefined>;
+  private async ownedSandbox(
+    conversationId: string,
+    physicalId: string,
+    signal: AbortSignal,
+    allowAbsent = false,
+  ) {
     const hash = createHash('sha256').update(conversationId).digest('hex');
     const current = await this.get(
       sandboxNameForConversation(conversationId, this.config.sandboxIdLength),
@@ -425,7 +442,10 @@ export class OpenShellRuntimeManager {
     );
     const sandbox = current ?? (await this.get(legacySandboxNameForConversation(hash), signal));
     const expectedOwner = current ? hash.slice(0, 63) : hash;
-    if (!sandbox) throw new Error('OpenShell sandbox is unavailable');
+    if (!sandbox) {
+      if (allowAbsent) return undefined;
+      throw new Error('OpenShell sandbox is unavailable');
+    }
     if (sandbox.id !== physicalId) throw new Error('OpenShell sandbox identity changed');
     if (sandbox.labels?.['mitzo.conversation'] !== expectedOwner)
       throw new Error('OpenShell sandbox is not owned by this conversation');
