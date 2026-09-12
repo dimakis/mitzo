@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { createOpenShellLifecycleProductionAdapter } from '../openshell-lifecycle-production.js';
 const record: any = { conversationId: 'c', identity: { threadId: 't' } };
 function adapter(overrides: any = {}) {
@@ -54,4 +54,12 @@ it('resolves Task Board client ownership to its durable conversation and blocks 
   expect(protection.blockers).toEqual(
     expect.arrayContaining(['task_board', 'inventory_unavailable']),
   );
+});
+it('forwards isolated reconciliation errors to the production observer', () => {
+  const onReconcileError = vi.fn();
+  const onOutcome = vi.fn();
+  const production = adapter({ onReconcileError, onOutcome });
+  expect(production.onReconcileError).toBe(onReconcileError);
+  production.onOutcome?.(record, 'stopped');
+  expect(onOutcome).toHaveBeenCalledWith('stopped');
 });

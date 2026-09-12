@@ -8,6 +8,31 @@ export interface LifecycleMetrics {
   reclaimableBytes?: number;
   phaseCounts?: Record<string, number>;
 }
+export interface LifecycleObservabilityThresholds {
+  usageThresholdBytes?: number;
+  sandboxThreshold?: number;
+}
+
+function positiveThreshold(value: string | undefined, name: string) {
+  if (value === undefined || value === '') return undefined;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0)
+    throw new Error(`Invalid OpenShell lifecycle ${name} threshold`);
+  return parsed;
+}
+
+/** Optional alert thresholds. Empty values leave alerts disabled. */
+export function openShellLifecycleObservabilityThresholds(
+  env: NodeJS.ProcessEnv,
+): LifecycleObservabilityThresholds {
+  return {
+    usageThresholdBytes: positiveThreshold(
+      env.MITZO_OPENSHELL_USAGE_THRESHOLD_BYTES,
+      'usage bytes',
+    ),
+    sandboxThreshold: positiveThreshold(env.MITZO_OPENSHELL_SANDBOX_THRESHOLD, 'sandbox count'),
+  };
+}
 function bytes(value: unknown) {
   const match = String(value).match(/^(\d+(?:\.\d+)?)\s*([KMGT]?)(?:i?B)?$/i);
   if (!match) return undefined;
@@ -66,6 +91,16 @@ export class OpenShellLifecycleObservability {
       return;
     }
     const sandboxCount = Object.values(metrics.phaseCounts ?? {}).reduce((a, b) => a + b, 0);
+    this.options.log.info(
+      {
+        usageBytes: metrics.usageBytes,
+        reclaimableBytes: metrics.reclaimableBytes,
+        sandboxCount,
+        phaseCounts: metrics.phaseCounts ?? {},
+        outcomes: { ...this.outcomes },
+      },
+      'OpenShell lifecycle telemetry',
+    );
     const exceeded =
       (this.options.usageThresholdBytes !== undefined &&
         (metrics.usageBytes ?? 0) >= this.options.usageThresholdBytes) ||

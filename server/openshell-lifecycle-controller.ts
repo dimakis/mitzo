@@ -15,6 +15,7 @@ import {
 } from './openshell-lifecycle.js';
 import { createOpenShellLifecycleProductionAdapter } from './openshell-lifecycle-production.js';
 import { OpenShellLifecycleService } from './openshell-lifecycle-service.js';
+import { createLogger } from './logger.js';
 import {
   OpenShellRuntimeManager,
   type OpenShellAccountRoute,
@@ -27,6 +28,7 @@ interface ProtectionSources {
   eventStore: Parameters<typeof createOpenShellLifecycleProductionAdapter>[0]['eventStore'];
   taskStore: Parameters<typeof createOpenShellLifecycleProductionAdapter>[0]['taskStore'];
   queue: Parameters<typeof createOpenShellLifecycleProductionAdapter>[0]['queue'];
+  onOutcome?: (action: 'stopped' | 'deleted') => void;
 }
 
 let configured:
@@ -37,6 +39,7 @@ let configured:
       service: OpenShellLifecycleService;
     }
   | undefined;
+const log = createLogger('openshell-lifecycle');
 
 /** Read-only, provider-scoped physical sandbox inventory for telemetry. */
 export async function openShellLifecyclePhaseCounts(signal: AbortSignal) {
@@ -205,6 +208,13 @@ export function initializeOpenShellLifecycle(
       return manifest.digest === record.checkpoint.digest && manifest.sandboxId === sandbox.id;
     },
     consent: (record) => !!record.retentionConsent,
+    onOutcome: (action) => sources.onOutcome?.(action),
+    onReconcileError: (record, error) => {
+      log.warn('OpenShell lifecycle record reconciliation failed', {
+        conversationId: record.conversationId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    },
   });
   const service = new OpenShellLifecycleService(
     store,

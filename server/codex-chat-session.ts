@@ -5,6 +5,7 @@ import { loadAccountProfiles } from './account-profiles.js';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { codexPrivateDirectory } from './codex-private-path.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { buildPermissionHandler, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
@@ -36,6 +37,34 @@ import {
 } from './openshell-lifecycle-controller.js';
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
+const GRANT_INTEGRATION_TOOL = 'GrantIntegrationAccess';
+const INTEGRATION_PROVIDER_LABELS: Record<string, string> = {
+  'google-workspace': 'Google Workspace',
+  github: 'GitHub',
+};
+
+function grantIntegrationTools(providers: string[]) {
+  if (!providers.length) return [];
+  return [
+    {
+      name: GRANT_INTEGRATION_TOOL,
+      description:
+        'Attach one administrator-reviewed integration provider to this conversation sandbox after explicit Mitzo approval. Use when the user asks to grant or enable integration access; this does not change OAuth consent.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          provider: {
+            type: 'string',
+            enum: providers,
+            description: 'The reviewed integration provider to attach to this chat.',
+          },
+        },
+        required: ['provider'],
+        additionalProperties: false,
+      },
+    },
+  ];
+}
 let privateStore: CodexConversationStore | undefined;
 function store() {
   if (!privateStore) {
@@ -194,6 +223,8 @@ export async function openCodexChat(options: Options) {
         }
       : undefined);
   const signal = options.session.abortController.signal;
+  const grantableProviders = runtimeManager ? configuredRuntime!.grantableServiceProviders : [];
+  const integrationTools = grantIntegrationTools(grantableProviders);
   try {
     signal.throwIfAborted();
   } catch (error) {
@@ -281,7 +312,7 @@ export async function openCodexChat(options: Options) {
     systemPrompt:
       options.systemPrompt +
       (openShell
-        ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again.\n`
+        ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again.${integrationTools.length ? ` If the user asks to add integration access, call ${GRANT_INTEGRATION_TOOL}; Mitzo will present an approval card and attach only a reviewed provider to this chat without changing OAuth consent.` : ''}\n`
         : HOST_TOOL_INSTRUCTIONS) +
       (startup.context ? `\n\n${startup.context}` : ''),
     beforeComplete: async (signal) => {
@@ -300,6 +331,7 @@ export async function openCodexChat(options: Options) {
                 selectedOpenShellAccountRoute(options),
                 true,
               );
+              Object.assign(managedOpenShell!, recovered);
             });
           },
         }
@@ -307,7 +339,7 @@ export async function openCodexChat(options: Options) {
     validateModel: (model, reasoningEffort) => {
       loadAccountProfiles().validateModel(options.binding, model, reasoningEffort);
     },
-    tools: openShell ? [] : [...nativeToolDefinitions, ...mcp.definitions],
+    tools: openShell ? integrationTools : [...nativeToolDefinitions, ...mcp.definitions],
     displayToolName: mcp.displayName,
     createClient: (callbacks) =>
       openShell
@@ -334,32 +366,68 @@ export async function openCodexChat(options: Options) {
       if (!owner) throw new Error('Codex session unavailable');
       return requestCodexUserInput(params, signal, owner.clientId, options.registry);
     },
-    executeTool: async (name, input, signal) =>
-      hooks?.executeTool(mcp.displayName(name), input, signal, async (input, forcePrompt) => {
+    executeTool: async (name, input, signal) => {
+      if (openShell && runtimeManager && managedOpenShell && name === GRANT_INTEGRATION_TOOL) {
+        const provider = typeof input.provider === 'string' ? input.provider : '';
+        if (!grantableProviders.includes(provider))
+          return { content: 'Integration provider is not grantable', isError: true };
+        const providerLabel = INTEGRATION_PROVIDER_LABELS[provider] ?? provider;
+        const approvedInput = { provider };
         const owner = options.registry.findBySessionId(options.conversationId);
         if (!owner) throw new Error('Codex session unavailable');
-        if (mcp.definitions.some((t) => t.name === name))
-          return mcp.execute(
-            name,
-            input,
-            async (canonical, args, s) =>
-              buildPermissionHandler(owner.clientId, options.registry, {
-                onDemandCreate: options.onDemandCreate,
-              })(canonical, args, {
-                signal: s,
-                toolUseID: randomUUID(),
-                forcePrompt,
-              }),
-            signal,
-          );
-        const execute = createNativeToolExecutor(owner.clientId, options.registry, {
-          env: options.env,
-          forcePrompt,
+        const decision = await buildPermissionHandler(owner.clientId, options.registry, {
           onDemandCreate: options.onDemandCreate,
+        })(GRANT_INTEGRATION_TOOL, approvedInput, {
+          signal,
+          toolUseID: randomUUID(),
+          forcePrompt: true,
+          approvalScope: 'conversation',
+          title: `Grant ${providerLabel} to this conversation?`,
+          description: `This attaches the reviewed ${providerLabel} provider to the retained conversation sandbox across reconnects and Mitzo restarts, until the sandbox is deleted or access is revoked. It does not request or change external account consent.`,
         });
-        const result = await execute({ type: 'tool_use', id: randomUUID(), name, input }, signal);
-        return { content: result.content, isError: !!result.is_error };
-      }) ?? Promise.reject(new Error('Host tools are unavailable inside OpenShell')),
+        signal.throwIfAborted();
+        if (decision.behavior !== 'allow') return { content: decision.message, isError: true };
+        if (!isDeepStrictEqual(decision.updatedInput, approvedInput))
+          return { content: 'Provider grant changed during approval; retry', isError: true };
+        await runtimeManager.grantServiceProvider(
+          options.conversationId,
+          managedOpenShell,
+          provider,
+          signal,
+        );
+        return {
+          content: `Integration provider ${provider} is now available to this chat`,
+          isError: false,
+        };
+      }
+      return (
+        hooks?.executeTool(mcp.displayName(name), input, signal, async (input, forcePrompt) => {
+          const owner = options.registry.findBySessionId(options.conversationId);
+          if (!owner) throw new Error('Codex session unavailable');
+          if (mcp.definitions.some((t) => t.name === name))
+            return mcp.execute(
+              name,
+              input,
+              async (canonical, args, s) =>
+                buildPermissionHandler(owner.clientId, options.registry, {
+                  onDemandCreate: options.onDemandCreate,
+                })(canonical, args, {
+                  signal: s,
+                  toolUseID: randomUUID(),
+                  forcePrompt,
+                }),
+              signal,
+            );
+          const execute = createNativeToolExecutor(owner.clientId, options.registry, {
+            env: options.env,
+            forcePrompt,
+            onDemandCreate: options.onDemandCreate,
+          });
+          const result = await execute({ type: 'tool_use', id: randomUUID(), name, input }, signal);
+          return { content: result.content, isError: !!result.is_error };
+        }) ?? Promise.reject(new Error('Host tools are unavailable inside OpenShell'))
+      );
+    },
     onQueueChange: () => {
       const message = {
         type: 'codex_queue',

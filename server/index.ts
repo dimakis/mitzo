@@ -75,13 +75,16 @@ import {
   taskStore,
   workloadStore,
 } from './app.js';
-import { readCodexQueue } from './codex-chat-session.js';
+import { readCodexLifecycleQueue } from './codex-chat-session.js';
 import {
   initializeOpenShellLifecycle,
   openShellLifecyclePhaseCounts,
 } from './openshell-lifecycle-controller.js';
 import { openShellRuntimeConfig } from './openshell-runtime.js';
-import { OpenShellLifecycleObservability } from './openshell-lifecycle-observability.js';
+import {
+  OpenShellLifecycleObservability,
+  openShellLifecycleObservabilityThresholds,
+} from './openshell-lifecycle-observability.js';
 import { SkillWatcher } from './skill-watcher.js';
 import { WorkflowTemplateStore, seedBuiltInTemplates } from './workflow-templates.js';
 import { SignalProcessor } from './signal-processor.js';
@@ -118,39 +121,33 @@ setConnectionRegistry(connRegistry);
 
 // Lifecycle construction happens only after the authoritative session, event,
 // task and queue readers exist. It is still inert unless OpenShell is enabled.
-const openShellLifecycle = initializeOpenShellLifecycle(openShellRuntimeConfig(process.env), {
-  registry,
-  eventStore,
-  taskStore,
-  queue: (record) => {
-    if (!record.identity) return { queued: 0, running: 0, recovery: true };
-    const queue = readCodexQueue(
-      record.conversationId,
-      {
-        accountId: record.identity.accountId,
-        accountLabel: 'lifecycle',
-        provider: record.identity.provider,
-        model: record.identity.model,
-        profileRevision: record.identity.profileRevision,
-      },
-      registry.findBySessionId(record.conversationId)?.session,
-    );
-    return {
-      queued: queue?.queued ?? 0,
-      running: 0,
-      recovery: (queue?.interrupted ?? 0) > 0,
-    };
-  },
-});
-setOpenShellLifecycleService(openShellLifecycle?.service ?? null);
-const lifecycleObservability = openShellLifecycle
+const configuredOpenShellRuntime = openShellRuntimeConfig(process.env);
+const lifecycleObservability = configuredOpenShellRuntime
   ? new OpenShellLifecycleObservability({
+      ...openShellLifecycleObservabilityThresholds(process.env),
       log: {
         warn: (data, message) => log.warn(message, data as Record<string, unknown>),
         info: (data, message) => log.info(message, data as Record<string, unknown>),
       },
     })
   : undefined;
+const openShellLifecycle = initializeOpenShellLifecycle(configuredOpenShellRuntime, {
+  registry,
+  eventStore,
+  taskStore,
+  queue: (record) => {
+    if (!record.identity) return { queued: 0, running: 0, recovery: true };
+    return readCodexLifecycleQueue(record.conversationId, {
+      accountId: record.identity.accountId,
+      accountLabel: 'lifecycle',
+      provider: record.identity.provider,
+      model: record.identity.model,
+      profileRevision: record.identity.profileRevision,
+    });
+  },
+  onOutcome: (action) => lifecycleObservability?.recordOutcome(action),
+});
+setOpenShellLifecycleService(openShellLifecycle?.service ?? null);
 const lifecycleAbort = new AbortController();
 let lifecycleReconciling = false;
 const lifecycleReconcile = () => {
@@ -158,13 +155,22 @@ const lifecycleReconcile = () => {
   lifecycleReconciling = true;
   void openShellLifecycle.service
     .reconcile(lifecycleAbort.signal)
-    .then(async (previews) => {
-      for (const preview of previews)
-        if (preview.action === 'stop' || preview.action === 'delete')
-          lifecycleObservability?.recordOutcome(preview.action === 'stop' ? 'stopped' : 'deleted');
+    .then(async () => {
       if (!lifecycleObservability) return;
       const metrics = await lifecycleObservability.collect(lifecycleAbort.signal);
-      metrics.phaseCounts = await openShellLifecyclePhaseCounts(lifecycleAbort.signal);
+      if (!metrics.available) {
+        lifecycleObservability.observe(metrics);
+        return;
+      }
+      try {
+        metrics.phaseCounts = await openShellLifecyclePhaseCounts(lifecycleAbort.signal);
+      } catch (error) {
+        lifecycleObservability.observe({ available: false });
+        log.warn('OpenShell sandbox inventory telemetry unavailable', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
       lifecycleObservability.observe(metrics);
     })
     .catch((error) => {

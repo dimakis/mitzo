@@ -67,6 +67,10 @@ function setup(phase: OpenShellLifecycleRecord['phase'] = 'stopped') {
     delete: vi.fn(async () => {}),
     now: () => 100 + 7 * DAY,
     consent: () => true,
+    onReconcileError: undefined as
+      undefined | ((record: OpenShellLifecycleRecord, error: unknown) => void),
+    onOutcome: undefined as
+      undefined | ((record: OpenShellLifecycleRecord, action: 'stopped' | 'deleted') => void),
   };
   return {
     store,
@@ -86,6 +90,17 @@ it('blocks an unavailable protection provider instead of treating it as no prote
   adapters.protect.mockRejectedValueOnce(new Error('down'));
   await expect(service.preview('c', AbortSignal.timeout(100))).rejects.toThrow('down');
 });
+it('reports a reconciled record failure while continuing independent records', async () => {
+  const { service, adapters } = setup('retained');
+  const reported = vi.fn();
+  adapters.protect.mockRejectedValueOnce(new Error('control plane down'));
+  adapters.onReconcileError = reported;
+  await expect(service.reconcile(AbortSignal.timeout(100))).resolves.toEqual([]);
+  expect(reported).toHaveBeenCalledWith(
+    expect.objectContaining({ conversationId: 'c' }),
+    expect.objectContaining({ message: 'control plane down' }),
+  );
+});
 it('requires a current identity and a single-use preview token', async () => {
   const { service, adapters } = setup();
   adapters.consent = () => false;
@@ -104,6 +119,8 @@ it('rejects out-of-band stopped version changes before deletion', async () => {
 });
 it('automatically checkpoints and stops only an idle retained conversation with persisted consent', async () => {
   const { service, store, sandbox, adapters } = setup('retained');
+  const onOutcome = vi.fn();
+  adapters.onOutcome = onOutcome;
   const previews = await service.reconcile(AbortSignal.timeout(100));
   expect(previews).toHaveLength(1);
   expect(previews[0]).toMatchObject({ action: 'stop', blockers: [] });
@@ -115,6 +132,7 @@ it('automatically checkpoints and stops only an idle retained conversation with 
     stoppedResourceVersion: 'stopped-v',
   });
   expect(sandbox.phase).toBe('Stopped');
+  expect(onOutcome).toHaveBeenCalledWith(expect.objectContaining({ phase: 'stopped' }), 'stopped');
 });
 
 it('deletes a retained stopped record after restart only when its checkpoint and consent remain valid', async () => {

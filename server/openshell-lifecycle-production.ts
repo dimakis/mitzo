@@ -36,6 +36,8 @@ export interface LifecycleProductionDependencies {
     signal: AbortSignal,
   ): Promise<boolean>;
   consent?(record: OpenShellLifecycleRecord): boolean;
+  onOutcome?(action: 'stopped' | 'deleted'): void;
+  onReconcileError?(record: OpenShellLifecycleRecord, error: unknown): void;
 }
 const terminal = new Set(['done', 'skipped', 'failed']);
 function flatten(
@@ -54,6 +56,8 @@ export function createOpenShellLifecycleProductionAdapter(
     checkpoint: deps.checkpoint,
     verifyCheckpoint: deps.verifyCheckpoint,
     consent: deps.consent,
+    onOutcome: (record, action) => deps.onOutcome?.(action),
+    onReconcileError: deps.onReconcileError,
     async protect(record): Promise<{ blockers: LifecycleBlocker[] }> {
       try {
         if (!record.identity) return { blockers: ['ambiguous_ownership'] };
