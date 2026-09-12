@@ -228,11 +228,18 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
           : undefined,
       })
     : undefined;
-  const managedOpenShell = runtimeManager
-    ? await sharedOpenShellLifecycleCoordinator.admit(options.conversationId, () =>
-        runtimeManager.ensure(options.conversationId, options.session.abortController.signal),
-      )
+  const startupReservation = runtimeManager
+    ? await sharedOpenShellLifecycleCoordinator.reserve(options.conversationId)
     : undefined;
+  let managedOpenShell;
+  try {
+    managedOpenShell = runtimeManager
+      ? await runtimeManager.ensure(options.conversationId, options.session.abortController.signal)
+      : undefined;
+  } catch (error) {
+    startupReservation?.();
+    throw error;
+  }
   const openShell =
     managedOpenShell ??
     (openShellName
@@ -480,6 +487,8 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
   } catch (error) {
     close();
     throw error;
+  } finally {
+    startupReservation?.();
   }
   return {
     [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](),

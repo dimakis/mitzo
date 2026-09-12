@@ -112,6 +112,20 @@ it('serializes admission for the same conversation without blocking other conver
   expect(events).toEqual(['one:start', 'other', 'one:end', 'two']);
 });
 
+it('keeps an explicit reservation until the caller releases it', async () => {
+  const coordinator = new OpenShellLifecycleCoordinator();
+  const release = await coordinator.reserve('conversation');
+  let entered = false;
+  const pending = coordinator.admit('conversation', async () => {
+    entered = true;
+  });
+  await Promise.resolve();
+  expect(entered).toBe(false);
+  release();
+  await pending;
+  expect(entered).toBe(true);
+});
+
 it('cancels a scheduled idle action when new work is admitted', async () => {
   const coordinator = new OpenShellLifecycleCoordinator();
   let called = false;
