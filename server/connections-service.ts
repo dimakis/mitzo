@@ -1,4 +1,9 @@
-import { ConnectionStore, RevisionConflictError, type Connection } from './connections-store.js';
+import {
+  ConnectionStore,
+  ConnectionAssignmentConflictError,
+  RevisionConflictError,
+  type Connection,
+} from './connections-store.js';
 import { randomUUID } from 'node:crypto';
 import {
   JIRA_TEMPLATE_ID,
@@ -290,7 +295,13 @@ export class ConnectionsService {
           this.current(c.id),
           {
             status: 'needs_attention',
-            errorCode: error instanceof ConnectionProbeError ? error.code : 'PROVISION_FAILED',
+            errorCode:
+              error instanceof ConnectionProbeError
+                ? error.code
+                : typeof ConnectionAssignmentConflictError !== 'undefined' &&
+                    error instanceof ConnectionAssignmentConflictError
+                  ? 'ACCOUNT_ALREADY_ASSIGNED'
+                  : 'PROVISION_FAILED',
           },
           'provision',
           'failed',
@@ -320,9 +331,13 @@ export class ConnectionsService {
           'test',
           'success',
         );
-      } catch {
+      } catch (error) {
         await this.quarantine(this.current(id));
-        throw new Error('Connection verification failed');
+        if (error instanceof ConnectionProbeError && !this.hasQuarantine(id)) {
+          const quarantined = this.current(id);
+          this.change(quarantined, { errorCode: error.code }, 'test', 'failed');
+        }
+        throw new Error('Connection verification failed', { cause: error });
       }
     });
   }
