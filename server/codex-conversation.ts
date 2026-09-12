@@ -470,12 +470,7 @@ export class CodexConversation {
       this.active = undefined;
       this.paused ||= status !== 'completed';
       this.mapper?.notification(method, params);
-      if (status === 'failed') {
-        const detail = turn.data.error?.message?.trim();
-        this.opts.onError?.(
-          new Error(detail ? `Codex turn failed: ${detail}` : 'Codex turn failed'),
-        );
-      }
+      if (status === 'failed') this.opts.onError?.(new Error('Codex turn failed'));
       this.opts.onQueueChange?.();
       // Completion can arrive before turn/start resolves. Wait for that request to settle.
       Promise.resolve(this.pumping)

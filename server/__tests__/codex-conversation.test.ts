@@ -486,7 +486,7 @@ it('does not throw from a transport close callback when recovery persistence fai
   expect(onClosed).not.toHaveBeenCalled();
 });
 
-it('marks failed provider turns as errors and pauses the queue', async () => {
+it('marks failed provider turns as errors without exposing provider diagnostics', async () => {
   const { c, callbacks, events, onError } = await setup();
   await c.send({ id: 'failed', prompt: 'hello' });
   callbacks.onNotification('turn/completed', {
@@ -494,7 +494,7 @@ it('marks failed provider turns as errors and pauses the queue', async () => {
     turn: {
       id: 'turn-1',
       status: 'failed',
-      error: { message: "Tool 'tool_search' is not supported with this model." },
+      error: { message: 'request failed for /private/credentials.json?token=secret' },
     },
   });
   expect(events).toContainEqual(
@@ -502,7 +502,7 @@ it('marks failed provider turns as errors and pauses the queue', async () => {
   );
   expect(onError).toHaveBeenCalledWith(
     expect.objectContaining({
-      message: "Codex turn failed: Tool 'tool_search' is not supported with this model.",
+      message: 'Codex turn failed',
     }),
   );
   expect(c.isPaused()).toBe(true);
