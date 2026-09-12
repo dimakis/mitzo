@@ -2,8 +2,30 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { join } from 'path';
 import { mkdirSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
+import { promisify } from 'util';
 import { TaskStore } from '../task-store.js';
-import { SignalProcessor } from '../signal-processor.js';
+import { SignalProcessor, checkGate } from '../signal-processor.js';
+
+// vi.hoisted runs before vi.mock hoisting, so these are available in the factory
+const { execFilePromisified } = vi.hoisted(() => ({
+  execFilePromisified: vi.fn<() => Promise<{ stdout: string; stderr: string }>>(),
+}));
+
+vi.mock('child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('child_process')>();
+  const mockFn = Object.assign(vi.fn(), {
+    [promisify.custom]: execFilePromisified,
+  });
+  return { ...actual, execFile: mockFn };
+});
+
+function mockExecResult(stdout: string): void {
+  execFilePromisified.mockResolvedValue({ stdout, stderr: '' });
+}
+
+function mockExecError(err: Error): void {
+  execFilePromisified.mockRejectedValue(err);
+}
 
 const TEST_DIR = join(tmpdir(), `mitzo-signal-test-${process.pid}`);
 
@@ -377,6 +399,107 @@ describe('SignalProcessor', () => {
       expect(updated!.status).toBe('done');
       expect(updated!.artifacts).toEqual({ ci: 'green' });
       expect(onResolved).toHaveBeenCalledWith(t1.id);
+    });
+  });
+
+  describe('checkGate — centaur_review', () => {
+    afterEach(() => {
+      execFilePromisified.mockReset();
+    });
+
+    it('returns pass for LGTM review', async () => {
+      const reviewBody = '## Centaur Review\n\nLGTM — no issues found.';
+      mockExecResult(JSON.stringify({ body: reviewBody, created_at: '2026-07-05T20:00:00Z' }));
+
+      const result = await checkGate({ type: 'centaur_review', repo: 'org/repo', pr: 1 });
+      expect(result.resolved).toBe(true);
+      expect(result.status).toBe('pass');
+    });
+
+    it('returns fail for review with critical findings', async () => {
+      const reviewBody =
+        '## Centaur Review\n\nFound **3** issue(s) (1 critical, 2 warning).\n\n- details...';
+      mockExecResult(JSON.stringify({ body: reviewBody, created_at: '2026-07-05T20:00:00Z' }));
+
+      const result = await checkGate({ type: 'centaur_review', repo: 'org/repo', pr: 1 });
+      expect(result.resolved).toBe(true);
+      expect(result.status).toBe('fail');
+      expect(result.artifacts).toMatchObject({ hasCritical: true, hasWarning: true });
+    });
+
+    it('returns fail for review with warnings only', async () => {
+      const reviewBody = '## Centaur Review\n\nFound **2** issue(s) (2 warning).\n\n- details...';
+      mockExecResult(JSON.stringify({ body: reviewBody, created_at: '2026-07-05T20:00:00Z' }));
+
+      const result = await checkGate({ type: 'centaur_review', repo: 'org/repo', pr: 1 });
+      expect(result.resolved).toBe(true);
+      expect(result.status).toBe('fail');
+      expect(result.artifacts).toMatchObject({ hasCritical: false, hasWarning: true });
+    });
+
+    it('returns pass for info/style-only findings', async () => {
+      const reviewBody = '## Centaur Review\n\nFound **1** issue(s).\n\n- 🔵 style: minor nit';
+      mockExecResult(JSON.stringify({ body: reviewBody, created_at: '2026-07-05T20:00:00Z' }));
+
+      const result = await checkGate({ type: 'centaur_review', repo: 'org/repo', pr: 1 });
+      expect(result.resolved).toBe(true);
+      expect(result.status).toBe('pass');
+    });
+
+    it('checks severity before LGTM (prevents false pass)', async () => {
+      // A review that contains both LGTM text and critical findings
+      const reviewBody =
+        '## Centaur Review\n\nFound **1** issue(s) (1 critical).\n\n- LGTM overall but 1 critical issue';
+      mockExecResult(JSON.stringify({ body: reviewBody, created_at: '2026-07-05T20:00:00Z' }));
+
+      const result = await checkGate({ type: 'centaur_review', repo: 'org/repo', pr: 1 });
+      expect(result.resolved).toBe(true);
+      expect(result.status).toBe('fail');
+    });
+
+    it('returns not-resolved when no matching comment exists (empty output)', async () => {
+      mockExecResult('');
+
+      const result = await checkGate({ type: 'centaur_review', repo: 'org/repo', pr: 1 });
+      expect(result.resolved).toBe(false);
+    });
+
+    it('returns not-resolved when jq returns null (no matching comment)', async () => {
+      mockExecResult('null');
+
+      const result = await checkGate({ type: 'centaur_review', repo: 'org/repo', pr: 1 });
+      expect(result.resolved).toBe(false);
+    });
+
+    it('returns not-resolved when gh api fails', async () => {
+      mockExecError(new Error('gh api error'));
+
+      const result = await checkGate({ type: 'centaur_review', repo: 'org/repo', pr: 1 });
+      expect(result.resolved).toBe(false);
+    });
+
+    it('handles pr_url config format (backward compat)', async () => {
+      const reviewBody = '## Centaur Review\n\nLGTM — no issues found.';
+      mockExecResult(JSON.stringify({ body: reviewBody, created_at: '2026-07-05T20:00:00Z' }));
+
+      const result = await checkGate({
+        type: 'centaur_review',
+        pr_url: 'https://github.com/dimakis/mitzo/pull/360',
+      } as unknown as Parameters<typeof checkGate>[0]);
+      expect(result.resolved).toBe(true);
+      expect(result.status).toBe('pass');
+      // Verify the promisified function was called with repo/pr extracted from pr_url
+      expect(execFilePromisified).toHaveBeenCalled();
+      const callStr = JSON.stringify(execFilePromisified.mock.calls[0]);
+      expect(callStr).toContain('repos/dimakis/mitzo/issues/360/comments');
+    });
+
+    it('returns not-resolved for pr_url that cannot be parsed', async () => {
+      const result = await checkGate({
+        type: 'centaur_review',
+        pr_url: 'https://example.com/not-a-github-url',
+      } as unknown as Parameters<typeof checkGate>[0]);
+      expect(result.resolved).toBe(false);
     });
   });
 
