@@ -32,6 +32,8 @@ export interface OpenShellCodexOptions {
   workspace?: string;
   gatewayEndpoint?: string;
   gatewayInsecure?: boolean;
+  /** Non-secret, reviewed external-service context for managed sandbox tools. */
+  connectionEnv?: { JIRA_URL: 'https://redhat.atlassian.net'; JIRA_EMAIL: string };
 }
 
 /** Build the development transport without forwarding host credentials to the
@@ -104,10 +106,22 @@ export function openShellSshProcessSpec(
       '-o',
       `ProxyCommand=${proxyCommand} --name ${options.sandboxName} --workspace ${workspace}`,
       `sandbox@openshell-${options.sandboxName}.${workspace}`,
-      remoteCommand,
+      connectionCommand(options, remoteCommand),
     ],
     env,
   };
+}
+
+function connectionCommand(options: OpenShellCodexOptions, command: string) {
+  if (!options.connectionEnv) return command;
+  const { JIRA_URL, JIRA_EMAIL } = options.connectionEnv;
+  if (
+    JIRA_URL !== 'https://redhat.atlassian.net' ||
+    !/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+$/.test(JIRA_EMAIL)
+  )
+    throw new Error('Invalid managed Jira connection environment');
+  // Both values are non-secret and individually validated; this is the only approved remote shell form.
+  return `env JIRA_URL=${JIRA_URL} JIRA_EMAIL=${JIRA_EMAIL} ${command}`;
 }
 
 export function openShellCodexProcessSpec(
