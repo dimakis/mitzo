@@ -88,6 +88,7 @@ describe('ConnectionsView', () => {
         item.parentElement?.textContent?.includes('work'),
       ),
     ).toBe(true);
+    expect(container.querySelectorAll('.connections-profile-option')).toHaveLength(4);
   });
   it('reauthorizes then submits selected profiles and clears the token after success', async () => {
     await render();

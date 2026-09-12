@@ -18,6 +18,12 @@ describe('OpenShellConnectionGateway', () => {
         'probe',
       ),
     ).toEqual(['mitzo-conn-12345678']);
+    expect(
+      parseProviderAttachments(
+        '\x1b[1mNAME\x1b[0m                  \x1b[1mTYPE\x1b[0m  \x1b[1mCREDENTIAL_KEYS\x1b[0m  \x1b[1mCONFIG_KEYS\x1b[0m\nmitzo-conn-12345678  jira  1                0',
+        'probe',
+      ),
+    ).toEqual(['mitzo-conn-12345678']);
     expect(() => parseProviderAttachments('[]', 'probe')).toThrow('invalid');
   });
   it('uses the reviewed OpenShell profile schema and never invented provider flags', () => {
@@ -83,6 +89,14 @@ describe('OpenShellConnectionGateway', () => {
     expect(runner.mock.calls[0][0]).toContain(
       resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'),
     );
+    expect(runner.mock.calls[2]![0]).toEqual([
+      'provider',
+      '--workspace',
+      'default',
+      'list-profiles',
+      '-o',
+      'json',
+    ]);
     expect(runner.mock.calls.some((call) => (call[0] as string[]).includes('import'))).toBe(true);
   });
   it('does not import when an existing profile cannot be exported', async () => {
@@ -97,6 +111,35 @@ describe('OpenShellConnectionGateway', () => {
       profilePath: resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'),
     });
     await expect(gateway.verifyCompatibility(signal)).rejects.toThrow('Gateway command failed');
+    expect(runner.mock.calls[2]![0]).toEqual([
+      'provider',
+      '--workspace',
+      'default',
+      'list-profiles',
+      '-o',
+      'json',
+    ]);
+    expect(runner.mock.calls.flatMap((call) => call[0])).not.toContain('import');
+  });
+  it('does not import when provider-profile listing is invalid or unknown', async () => {
+    const runner = vi
+      .fn()
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce('[]')
+      .mockResolvedValueOnce('not-json');
+    const gateway = new OpenShellConnectionGateway(runner, {
+      workspace: 'default',
+      profilePath: resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'),
+    });
+    await expect(gateway.verifyCompatibility(signal)).rejects.toThrow();
+    expect(runner.mock.calls[2]![0]).toEqual([
+      'provider',
+      '--workspace',
+      'default',
+      'list-profiles',
+      '-o',
+      'json',
+    ]);
     expect(runner.mock.calls.flatMap((call) => call[0])).not.toContain('import');
   });
   it('uses a key-only credential and never exposes a token in argv or parsed DTOs', async () => {
@@ -146,7 +189,7 @@ describe('OpenShellConnectionGateway', () => {
     expect(probeRunner.mock.calls.flatMap((call) => call[0])).not.toContain('delete');
   });
   it('treats an authoritatively absent probe sandbox as completed cleanup', async () => {
-    const name = 'mitzo-probe-1234567890abcdef';
+    const name = 'mzp-1234567890abcde';
     const runner = vi.fn().mockResolvedValue(JSON.stringify([]));
     await expect(
       new OpenShellConnectionGateway(runner).deleteSandbox(name, signal),
@@ -167,7 +210,7 @@ describe('OpenShellConnectionGateway', () => {
       ),
     ).rejects.toThrow();
   });
-  it('rejects a caller-supplied probe name before creating a sandbox', async () => {
+  it('rejects a caller-supplied legacy overlength probe name before creating a sandbox', async () => {
     const gateway = new OpenShellConnectionGateway(vi.fn(), {
       workspace: 'default',
       probeImage: 'approved:image',
@@ -178,7 +221,7 @@ describe('OpenShellConnectionGateway', () => {
         {
           providerName: 'mitzo-conn-12345678',
           email: 'person@example.com',
-          sandboxName: 'not-a-probe',
+          sandboxName: 'mitzo-probe-1234567890abcdef',
         },
         signal,
       ),
@@ -196,7 +239,11 @@ describe('OpenShellConnectionGateway', () => {
           'NAME  TYPE  CREDENTIAL_KEYS  CONFIG_KEYS\nmitzo-conn-12345678  jira  1  0',
         );
       if (args.includes('list') && args.includes('sandbox'))
-        return Promise.resolve(JSON.stringify([{ name: createdName, phase: 'Ready' }]));
+        return Promise.resolve(
+          JSON.stringify([
+            { name: createdName, phase: 'Ready', labels: { 'mitzo.connection_probe': '1' } },
+          ]),
+        );
       if (args.includes('exec')) return Promise.resolve(JSON.stringify({ accountId: 'abc' }));
       return Promise.resolve('');
     });
@@ -213,6 +260,8 @@ describe('OpenShellConnectionGateway', () => {
       (call[0] as string[]).includes('exec'),
     )![0] as string[];
     expect(create).toContain('--detach');
+    expect(createdName).toMatch(/^mzp-[a-f0-9]{15}$/);
+    expect(createdName).toHaveLength(19);
     expect(create).toContain('-o');
     expect(create).toContain('json');
     expect(exec).toContain('exec');
@@ -221,4 +270,96 @@ describe('OpenShellConnectionGateway', () => {
     expect(exec.join(' ')).toContain('redirect denied');
     expect(exec.join(' ')).toContain('read(65537)');
   });
+  it('recovers an ambiguous create only for the owned ready probe sandbox', async () => {
+    const name = 'mzp-1234567890abcde';
+    const runner = vi.fn().mockImplementation((args: string[]) => {
+      if (args.includes('create')) return Promise.reject(new Error('timed out'));
+      if (args.includes('provider') && args.includes('list'))
+        return Promise.resolve(
+          'NAME TYPE CREDENTIAL_KEYS CONFIG_KEYS\nmitzo-conn-12345678 jira 1 0',
+        );
+      if (args.includes('sandbox') && args.includes('list'))
+        return Promise.resolve(
+          JSON.stringify([{ name, phase: 'Ready', labels: { 'mitzo.connection_probe': '1' } }]),
+        );
+      if (args.includes('exec')) return Promise.resolve(JSON.stringify({ accountId: 'abc' }));
+      return Promise.resolve('');
+    });
+    const gateway = new OpenShellConnectionGateway(runner, {
+      workspace: 'default',
+      probeImage: 'approved:image',
+      probePolicy: '/approved/policy.yaml',
+    });
+    await expect(
+      gateway.probe(
+        { providerName: 'mitzo-conn-12345678', email: 'person@example.com', sandboxName: name },
+        signal,
+      ),
+    ).resolves.toEqual({ identity: 'abc' });
+  });
+  it('rejects ambiguous create when the recovered sandbox is unowned', async () => {
+    const runner = vi
+      .fn()
+      .mockImplementation((args: string[]) =>
+        args.includes('create')
+          ? Promise.reject(new Error('timed out'))
+          : Promise.resolve(
+              JSON.stringify([{ name: 'mzp-1234567890abcde', phase: 'Ready', labels: {} }]),
+            ),
+      );
+    const gateway = new OpenShellConnectionGateway(runner, {
+      workspace: 'default',
+      probeImage: 'approved:image',
+      probePolicy: '/approved/policy.yaml',
+    });
+    await expect(
+      gateway.probe(
+        {
+          providerName: 'mitzo-conn-12345678',
+          email: 'person@example.com',
+          sandboxName: 'mzp-1234567890abcde',
+        },
+        signal,
+      ),
+    ).rejects.toThrow('Gateway identity probe failed');
+  });
+  it.each(['absent', 'unowned', 'wrong-provider', 'aborted'])(
+    'rejects unsafe create recovery: %s',
+    async (kind) => {
+      const name = 'mzp-1234567890abcde';
+      const controller = new AbortController();
+      const runner = vi.fn().mockImplementation(async (args: string[]) => {
+        if (args.includes('create')) {
+          if (kind === 'aborted') controller.abort();
+          throw new Error('timed out');
+        }
+        if (args.includes('provider'))
+          return 'NAME TYPE CREDENTIAL_KEYS CONFIG_KEYS\nother jira 1 0';
+        return JSON.stringify(
+          kind === 'absent'
+            ? []
+            : [
+                {
+                  name,
+                  phase: 'Ready',
+                  labels: kind === 'unowned' ? {} : { 'mitzo.connection_probe': '1' },
+                },
+              ],
+        );
+      });
+      const gateway = new OpenShellConnectionGateway(runner, {
+        workspace: 'default',
+        probeImage: 'approved:image',
+        probePolicy: '/approved/policy.yaml',
+      });
+      await expect(
+        gateway.probe(
+          { providerName: 'mitzo-conn-12345678', email: 'person@example.com', sandboxName: name },
+          controller.signal,
+        ),
+      ).rejects.toThrow('Gateway identity probe failed');
+      expect(runner.mock.calls.some(([args]) => args.includes('exec'))).toBe(false);
+      if (kind === 'aborted') expect(runner).toHaveBeenCalledTimes(1);
+    },
+  );
 });

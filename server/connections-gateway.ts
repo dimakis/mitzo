@@ -61,6 +61,8 @@ const JiraProfile = z
   })
   .strict();
 const ProfileList = z.array(z.object({ id: z.string().min(1) }).passthrough());
+const ProbeSandboxName = /^mzp-[a-f0-9]{15}$/;
+const CleanupProbeSandboxName = /^(?:mzp-[a-f0-9]{15}|mitzo-probe-[a-f0-9]{16})$/;
 
 /** The profile is a security policy, so approximate matches are unsafe. */
 export function validateJiraProfileYaml(value: string): void {
@@ -110,8 +112,11 @@ export function parseProviderAttachments(output: string, sandbox: string): strin
   const text = output.trim();
   if (text === `No providers attached to sandbox ${sandbox}.`) return [];
   const lines = text.split(/\r?\n/);
+  // Pinned CLI formats table headings with SGR bold even when NO_COLOR=1.
+  // Strip SGR only from the header; data rows remain strict plain identifiers/counts.
+  const header = lines[0].replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g'), '');
   if (
-    lines[0].trim().split(/\s+/).join(' ') !== 'NAME TYPE CREDENTIAL_KEYS CONFIG_KEYS' ||
+    header.trim().split(/\s+/).join(' ') !== 'NAME TYPE CREDENTIAL_KEYS CONFIG_KEYS' ||
     lines.length < 2
   )
     throw new Error('Gateway attachment output is invalid');
@@ -215,7 +220,7 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
     const profileList = ProfileList.safeParse(
       JSON.parse(
         await this.run(
-          ['provider', '--workspace', this.options.workspace, 'profile', 'list', '-o', 'json'],
+          ['provider', '--workspace', this.options.workspace, 'list-profiles', '-o', 'json'],
           signal,
         ),
       ),
@@ -454,47 +459,61 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
       throw new Error('Gateway identity probe is invalid');
     const name =
       input.sandboxName ??
-      `mitzo-probe-${createHash('sha256').update(`${input.providerName}:${randomUUID()}`).digest('hex').slice(0, 16)}`;
-    if (!/^mitzo-probe-[a-f0-9]{16}$/.test(name)) throw new Error('Invalid managed probe sandbox');
+      `mzp-${createHash('sha256').update(`${input.providerName}:${randomUUID()}`).digest('hex').slice(0, 15)}`;
+    if (!ProbeSandboxName.test(name)) throw new Error('Invalid managed probe sandbox');
     const probe =
       "import base64,json,os,ssl,urllib.request;u=os.environ['JIRA_URL']+'/rest/api/3/myself';a=base64.b64encode((os.environ['JIRA_EMAIL']+':'+os.environ['JIRA_API_TOKEN']).encode()).decode();H=type('H',(urllib.request.HTTPRedirectHandler,),{'redirect_request':lambda s,*x:(_ for _ in ()).throw(RuntimeError('redirect denied'))});o=urllib.request.build_opener(H());r=urllib.request.Request(u,headers={'Authorization':'Basic '+a});x=o.open(r,timeout=10);b=x.read(65537);assert len(b)<=65536;d=json.loads(b);print(json.dumps({'accountId':d['accountId']},separators=(',',':')))";
     try {
-      const createOutput = await this.run(
-        [
-          'sandbox',
-          '--workspace',
-          this.options.workspace,
-          'create',
-          '--name',
-          name,
-          '--no-auto-providers',
-          '--detach',
-          '--no-tty',
-          '--policy',
-          this.options.probePolicy,
-          '--from',
-          this.options.probeImage,
-          '--provider',
-          safeName(input.providerName),
-          '--label',
-          'mitzo.connection_probe=1',
-          '--env',
-          `JIRA_URL=${JIRA_ENDPOINT}`,
-          '--env',
-          `JIRA_EMAIL=${input.email}`,
-          '-o',
-          'json',
-        ],
-        signal,
-      );
-      const created = z
-        .object({ name: z.string().regex(/^mitzo-probe-[a-f0-9]{16}$/), phase: z.string() })
-        .parse(JSON.parse(createOutput));
-      if (created.name !== name) throw new Error('Probe sandbox identity mismatch');
+      let createOutput: string | undefined;
+      try {
+        createOutput = await this.run(
+          [
+            'sandbox',
+            '--workspace',
+            this.options.workspace,
+            'create',
+            '--name',
+            name,
+            '--no-auto-providers',
+            '--detach',
+            '--no-tty',
+            '--policy',
+            this.options.probePolicy,
+            '--from',
+            this.options.probeImage,
+            '--provider',
+            safeName(input.providerName),
+            '--label',
+            'mitzo.connection_probe=1',
+            '--env',
+            `JIRA_URL=${JIRA_ENDPOINT}`,
+            '--env',
+            `JIRA_EMAIL=${input.email}`,
+            '-o',
+            'json',
+          ],
+          signal,
+        );
+      } catch {
+        if (signal.aborted) throw new Error('Gateway identity probe failed');
+        const recovered = await this.sandbox(name, signal);
+        if (
+          recovered?.name !== name ||
+          recovered.phase !== 'Ready' ||
+          recovered.labels['mitzo.connection_probe'] !== '1'
+        )
+          throw new Error('Probe sandbox create failed');
+      }
+      if (createOutput !== undefined) {
+        const created = z
+          .object({ name: z.string().regex(ProbeSandboxName), phase: z.string() })
+          .parse(JSON.parse(createOutput));
+        if (created.name !== name) throw new Error('Probe sandbox identity mismatch');
+      }
       let ready = false;
       for (let attempt = 0; attempt < 20; attempt++) {
         const sandbox = await this.sandbox(name, signal);
-        if (sandbox?.phase === 'Ready') {
+        if (sandbox?.phase === 'Ready' && sandbox.labels['mitzo.connection_probe'] === '1') {
           ready = true;
           break;
         }
@@ -539,7 +558,7 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
     }
   }
   async deleteSandbox(name: string, signal: AbortSignal) {
-    if (!/^mitzo-probe-[a-f0-9]{16}$/.test(name)) throw new Error('Invalid managed probe sandbox');
+    if (!CleanupProbeSandboxName.test(name)) throw new Error('Invalid managed probe sandbox');
     const sandbox = await this.sandbox(name, signal);
     // A successful authoritative lookup proving absence means a failed create or prior cleanup
     // has already reached the desired durable state. Lookup errors still propagate fail-closed.

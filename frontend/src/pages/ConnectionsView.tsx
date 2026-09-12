@@ -183,7 +183,7 @@ export function ConnectionsView() {
           <legend>Eligible work profiles</legend>
           {data.eligibleAccounts.length ? (
             data.eligibleAccounts.map((id) => (
-              <label key={id}>
+              <label className="connections-profile-option" key={id}>
                 <input
                   type="checkbox"
                   checked={selected.includes(id)}
@@ -306,7 +306,7 @@ function ConnectionCard({
         <fieldset className="connections-profiles">
           <legend>Assigned work profiles</legend>
           {accounts.map((id) => (
-            <label key={id}>
+            <label className="connections-profile-option" key={id}>
               <input
                 type="checkbox"
                 checked={assigned.includes(id)}
