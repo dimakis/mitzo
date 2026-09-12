@@ -29,15 +29,13 @@ describe('ConnectionsService', () => {
       verifyCompatibility: vi.fn(),
       provision: vi.fn(),
       rotate: vi.fn(),
-      get: vi
-        .fn()
-        .mockResolvedValue({
-          id: 'p1',
-          name: active.gatewayProviderName,
-          workspace: 'default',
-          type: 'jira-readonly',
-          credentialKeys: ['JIRA_API_TOKEN'],
-        }),
+      get: vi.fn().mockResolvedValue({
+        id: 'p1',
+        name: active.gatewayProviderName,
+        workspace: 'default',
+        type: 'jira-readonly',
+        credentialKeys: ['JIRA_API_TOKEN'],
+      }),
       list: vi.fn(),
       delete: vi.fn(),
       attachments: vi.fn().mockResolvedValue([]),

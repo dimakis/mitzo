@@ -402,17 +402,19 @@ export class ConnectionsService {
           'rotate',
           'success',
         );
-      } catch {
+      } catch (error) {
         const fresh = this.current(id);
         this.change(
           fresh,
           {
             status: swapped ? 'needs_attention' : c.status === 'rotating' ? 'active' : c.status,
-            errorCode: 'ROTATION_FAILED',
+            errorCode: error instanceof ConnectionProbeError ? error.code : 'ROTATION_FAILED',
           },
           'rotate',
           'failed',
         );
+        // Probe output may carry upstream details; retain only the typed safe code.
+        // eslint-disable-next-line preserve-caught-error
         throw new Error('Connection rotation failed');
       } finally {
         if (this.store.candidates().some((x) => x.name === name)) {
