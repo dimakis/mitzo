@@ -21,9 +21,21 @@ import type {
 const endpoint = 'https://redhat.atlassian.net';
 const time = (value: number | null) =>
   value ? new Date(value).toLocaleString() : 'Not yet verified';
+export const connectionErrorMessage = (code: string) =>
+  ({
+    JIRA_AUTH_REJECTED:
+      'Jira rejected the token. Check that it is for redhat.atlassian.net and that the Atlassian account email matches the token.',
+    JIRA_PERMISSION_DENIED:
+      'Jira denied the identity check. Give the scoped token the Jira read permission needed for /myself and confirm the account has site access.',
+    JIRA_HTTP_ERROR:
+      'Jira returned an unexpected response. Retry, then check the selected site and token if it continues.',
+    JIRA_NETWORK_FAILED: 'Could not reach Jira. Retry the connection.',
+    ACCOUNT_ALREADY_ASSIGNED:
+      'This work profile is already assigned to another Jira connection. Remove the old connection or choose a different work profile.',
+  })[code] ?? code;
 const status = (connection: ManagedConnection) =>
   connection.errorCode
-    ? `${connection.status.replaceAll('_', ' ')}: ${connection.errorCode}`
+    ? `${connection.status.replaceAll('_', ' ')}: ${connectionErrorMessage(connection.errorCode)}`
     : connection.status.replaceAll('_', ' ');
 
 export function ConnectionsView() {
