@@ -11,6 +11,9 @@ export interface ConnectionsRuntime {
   store: ConnectionStore;
   service: ConnectionsService;
   eligibleAccountIds: () => string[];
+  gateway: string;
+  workspace: string;
+  legacyProviders: () => Promise<Array<{ name: string; type: string }>>;
 }
 let activeRuntime: ConnectionsRuntime | null = null;
 export function setConnectionsRuntime(runtime: ConnectionsRuntime | null) {
@@ -26,18 +29,33 @@ export function createConnectionsRuntime(options: {
   eligibleAccountIds: () => string[];
   cli: string;
   workspace: string;
+  gateway?: string;
+  gatewayEndpoint?: string;
+  gatewayInsecure?: boolean;
+  legacyProviders?: string[];
+  profilePath?: string;
   probeImage?: string;
   probePolicy?: string;
 }): ConnectionsRuntime {
   mkdirSync(options.directory, { recursive: true, mode: 0o700 });
   const store = new ConnectionStore(join(options.directory, 'connections.db'));
+  const gatewayName = options.gateway ?? 'openshell';
+  const gatewayArgs = options.gatewayEndpoint
+    ? [
+        '--gateway-endpoint',
+        options.gatewayEndpoint,
+        ...(options.gatewayInsecure ? ['--gateway-insecure'] : []),
+      ]
+    : ['--gateway', gatewayName];
   const gateway = new OpenShellConnectionGateway(
     async (args, run) => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), run.timeoutMs);
       try {
         const signal = AbortSignal.any([run.signal, controller.signal]);
-        const result = await exec(options.cli, args, {
+        const [command, ...rest] = args;
+        if (!command) throw new Error('Gateway command is required');
+        const result = await exec(options.cli, [command, ...gatewayArgs, ...rest], {
           env: {
             PATH: process.env.PATH ?? '',
             HOME: process.env.HOME ?? '',
@@ -56,13 +74,27 @@ export function createConnectionsRuntime(options: {
     },
     {
       workspace: options.workspace,
+      ...(options.profilePath ? { profilePath: options.profilePath } : {}),
       probeImage: options.probeImage,
       probePolicy: options.probePolicy,
     },
   );
   return {
     store,
-    service: new ConnectionsService(store, gateway),
+    service: new ConnectionsService(store, gateway, {
+      gateway: gatewayName,
+      workspace: options.workspace,
+      eligibleAccountIds: options.eligibleAccountIds,
+    }),
     eligibleAccountIds: options.eligibleAccountIds,
+    gateway: gatewayName,
+    workspace: options.workspace,
+    legacyProviders: async () => {
+      const configured = new Set(options.legacyProviders ?? []);
+      if (!configured.size) return [];
+      return (await gateway.list(AbortSignal.timeout(15_000)))
+        .filter((provider) => configured.has(provider.name))
+        .map((provider) => ({ name: provider.name, type: provider.type }));
+    },
   };
 }

@@ -21,6 +21,9 @@ export const ConnectionRevisionBody = z
 export const ConnectionAssignmentsBody = ConnectionRevisionBody.extend({
   accountIds: z.array(z.string().regex(/^[A-Za-z0-9_-]+$/)).max(20),
 }).strict();
+export const ConnectionRotateBody = ConnectionRevisionBody.extend({
+  token: z.string().min(1).max(4096),
+}).strict();
 
 export const FileWriteBody = z.object({
   path: z.string().min(1),

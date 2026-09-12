@@ -63,6 +63,7 @@ import {
   setOverviewEmitter,
   setHealthMonitor,
   setSkillWatcher,
+  setConnectionsRuntime as setAppConnectionsRuntime,
   runUpdateCheck,
   buildSkillRegistry,
   invalidateSkillRegistries,
@@ -74,6 +75,8 @@ import {
   taskStore,
   workloadStore,
 } from './app.js';
+import { createConnectionsRuntime } from './connections-runtime.js';
+import { openShellRuntimeConfig } from './openshell-runtime.js';
 import { SkillWatcher } from './skill-watcher.js';
 import { WorkflowTemplateStore, seedBuiltInTemplates } from './workflow-templates.js';
 import { SignalProcessor } from './signal-processor.js';
@@ -103,6 +106,53 @@ import { createChatRestRouter } from './chat-rest-handler.js';
 const log = createLogger('server');
 
 const PORT = parseInt(process.env.PORT || String(PORT_DEFAULT), 10);
+
+/**
+ * Connections is intentionally opt-in.  The disabled route remains visible as
+ * an actionable 503, while an enabled runtime is created only from server-owned
+ * OpenShell settings and the account catalog.  Browser payloads cannot select
+ * any of these values.
+ */
+function configureConnectionsRuntime(): void {
+  setAppConnectionsRuntime(null);
+  if (process.env.MITZO_CONNECTIONS_ENABLED !== '1') return;
+  try {
+    const openShell = openShellRuntimeConfig(process.env);
+    const probeImage = process.env.MITZO_CONNECTIONS_PROBE_IMAGE;
+    const probePolicy = process.env.MITZO_CONNECTIONS_PROBE_POLICY;
+    const profilePath = process.env.MITZO_CONNECTIONS_JIRA_PROFILE_PATH;
+    if (!openShell || !probeImage || !probePolicy || !profilePath) {
+      log.error(
+        'Connections disabled: OpenShell and reviewed Jira probe configuration are required',
+      );
+      return;
+    }
+    const runtime = createConnectionsRuntime({
+      directory: join(BASE_REPO, '.mitzo'),
+      eligibleAccountIds: () =>
+        loadAccountProfiles()
+          .catalog()
+          .filter((account) => account.provider === 'openai-codex' || account.provider === 'openai')
+          .map((account) => account.id),
+      cli: openShell.cli,
+      workspace: openShell.workspace,
+      gateway: openShell.gateway,
+      ...(openShell.gatewayEndpoint ? { gatewayEndpoint: openShell.gatewayEndpoint } : {}),
+      gatewayInsecure: openShell.gatewayInsecure,
+      legacyProviders: openShell.serviceProviders,
+      profilePath,
+      probeImage,
+      probePolicy,
+    });
+    setAppConnectionsRuntime(runtime);
+    void runtime.service.reconcile(AbortSignal.timeout(30_000));
+  } catch (error) {
+    log.error('Connections disabled: invalid server configuration', {
+      error: error instanceof Error ? error.message : 'unknown',
+    });
+  }
+}
+configureConnectionsRuntime();
 
 const nativeCommands = new NativeCommandRegistry();
 const connRegistry = new ConnectionRegistry();
